@@ -139,23 +139,32 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 	return SendResult{}, fmt.Errorf("messaging: send: %w", store.ErrContended)
 }
 
+// txConversation reads conversations/{id} inside a transaction (1 read, always fresh, never the instance cache). A missing
+// document is nil. Send, Accept and Delete all open their transaction with it.
+func (r *FirestoreRepo) txConversation(ctx context.Context, tx *firestore.Transaction, id string) (*ConvDoc, error) {
+	snap, err := tx.Get(r.convRef(id))
+	budget.FromContext(ctx).AddReads(1)
+	switch status.Code(err) {
+	case codes.OK:
+		var c ConvDoc
+		if derr := snap.DataTo(&c); derr != nil {
+			return nil, fmt.Errorf("messaging: decode conversation: %w", derr)
+		}
+		return &c, nil
+	case codes.NotFound:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("messaging: read conversation: %w", err)
+	}
+}
+
 // sendTx is one run of the send transaction body. res.Conv carries the conversation as read (or created) even when the
 // body fails, so the replay path can answer without another read.
 func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p SendParams) (SendResult, error) {
 	c := budget.FromContext(ctx)
-	var conv *ConvDoc
-	snap, err := tx.Get(r.convRef(p.ConvID))
-	c.AddReads(1)
-	switch status.Code(err) {
-	case codes.OK:
-		var d ConvDoc
-		if derr := snap.DataTo(&d); derr != nil {
-			return SendResult{}, fmt.Errorf("messaging: decode conversation: %w", derr)
-		}
-		conv = &d
-	case codes.NotFound:
-	default:
-		return SendResult{}, fmt.Errorf("messaging: read conversation: %w", err)
+	conv, err := r.txConversation(ctx, tx, p.ConvID)
+	if err != nil {
+		return SendResult{}, err
 	}
 
 	dec, derr := decideSend(conv, p.UID, p.Mutual, p.MaxUnanswered)
@@ -184,7 +193,11 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		}
 	}
 
-	now := wireTime(p.Now)
+	// The stamp of the message and of both entries: the handler's clock, but strictly after either participant's
+	// clearedAt as this transaction read it (0 extra reads). A DeleteConversation that committed between the handler's
+	// clock read and this attempt would otherwise leave the recreated entry with a preview and an unread count but an
+	// empty thread (ListMessages hides createdAt <= clearedAt). It also holds whatever the clock skew between instances.
+	now := stampAfterClear(wireTime(p.Now), conv)
 	b := store.NewFirestoreTxBatch(tx, c)
 	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now}
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)

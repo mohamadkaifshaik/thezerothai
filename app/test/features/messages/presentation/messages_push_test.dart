@@ -508,7 +508,7 @@ void main() {
 
       await pumpScreen(tester, const ConversationsScreen());
 
-      expect(rig.badge.state, 1);
+      expect(rig.badge.state, 2); // the muted unread row counts too
       await leave(tester);
     });
 

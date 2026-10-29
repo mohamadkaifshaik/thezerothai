@@ -421,7 +421,10 @@ class AppRouter {
   /// URI is kept: an absolute URL, `//host` or any other route never becomes a
   /// target (no open redirect). A query or fragment is never carried along: the
   /// post and profile shapes drop it and keep the bare path, the conversation
-  /// shape is refused outright. The returned value is the bare path.
+  /// shape is refused outright. The returned value is the bare path. `Uri`
+  /// normalises percent-encoded unreserved characters when it parses, so a
+  /// typed `/messages/%61...` link reaches this check as the bare path (the same
+  /// link) and is accepted as that id.
   static String? deepLinkTarget(Uri uri) {
     if (uri.hasScheme || uri.hasAuthority) return null;
     final path = uri.path;

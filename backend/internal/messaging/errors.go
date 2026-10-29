@@ -29,6 +29,11 @@ var (
 // not ACTIVE. It only exists to give the log its own refused_reason; the wire answer is the same.
 var errRecipientInactive = fmt.Errorf("%w: recipient is not active", ErrCannotMessage)
 
+// errPeerFlagOff is ErrCannotMessage for an AcceptMessageRequest whose other participant has messaging off (ADR-0027 D6:
+// Accept needs the flag on for the caller and the peer). Like errRecipientInactive it only gives the log its own
+// refused_reason; the wire answer is the same CANNOT_MESSAGE.
+var errPeerFlagOff = fmt.Errorf("%w: peer has messaging off", ErrCannotMessage)
+
 // cannotMessageText is the one text of every CANNOT_MESSAGE answer. The same error value shape is built for every
 // cause, so the bytes on the wire are identical (ADR-0027 D4): no field says which rule refused.
 const cannotMessageText = "you can't message this account"
@@ -51,4 +56,11 @@ func notFound() *apierr.Error {
 
 func keyReused() *apierr.Error {
 	return apierr.Validation("idempotency_key", "this idempotency_key was already used for a different message")
+}
+
+// invalidKey is the VALIDATION answer for an idempotency_key that is not 16-64 characters of [A-Za-z0-9_-]; SendMessage
+// stores its key in the message id, Accept and Delete do not store theirs but format-validate it all the same (ADR-0021's
+// rule for a key the RPC does not use: "unused but still format-validated").
+func invalidKey() *apierr.Error {
+	return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 }

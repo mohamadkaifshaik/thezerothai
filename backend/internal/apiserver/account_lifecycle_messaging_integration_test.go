@@ -120,6 +120,7 @@ func (e *lifecycleEnv) dmWorld(t *testing.T) dmWorld {
 	w.req = e.seedConversation(t, w.a.uid, w.c.uid, "REQUEST", w.a.uid, "", dmMsg{w.c.uid, "c1"}, dmMsg{w.c.uid, "c2"})
 	w.gone = e.seedGoneConversation(t, w.a.uid)
 	w.roles = map[string]string{w.a.uid: "A", w.b.uid: "B", w.c.uid: "C"}
+	e.seedClearedMarks(t, w)
 	return w
 }
 
@@ -150,6 +151,16 @@ func (e *lifecycleEnv) dmDigest(t *testing.T, w dmWorld) string {
 			slices.Sort(goneRoles)
 			state, _ := snap.DataAt("state")
 			lines = append(lines, fmt.Sprintf("%s: state=%v gone=%v", name, state, goneRoles))
+			for _, field := range []string{"clearedAt", "clearedKey"} {
+				v, _ := snap.DataAt(field)
+				marks, _ := v.(map[string]any)
+				var markRoles []string
+				for uid := range marks {
+					markRoles = append(markRoles, role(uid))
+				}
+				slices.Sort(markRoles)
+				lines = append(lines, fmt.Sprintf("%s: %s=%v", name, field, markRoles))
+			}
 		}
 		msgs, err := e.fs.Collection("conversations").Doc(id).Collection("messages").OrderBy("createdAt", firestore.Asc).Documents(ctx).GetAll()
 		e.call(t, "messages", err)
@@ -188,6 +199,7 @@ func (e *lifecycleEnv) requireDMErased(t *testing.T, w dmWorld) {
 		}
 	}
 	e.requireMessagingGone(t, w.gone)
+	e.requireClearedMarksErased(t, w)
 	// The accepted conversation: B keeps its 2 messages, A's 3 are tombstones, B's entry is the placeholder.
 	msgs, err := e.fs.Collection("conversations").Doc(w.acc).Collection("messages").Documents(ctx).GetAll()
 	e.call(t, "messages", err)
@@ -327,4 +339,44 @@ func TestAccountLifecycle_MessagingBothDeleted(t *testing.T) {
 	// Neither uid appears anywhere: A's conversation with the live C was scrubbed by A's own erasure (ADR-0027 D11).
 	e.requireNoResidue(t, w.a.uid)
 	e.requireNoResidue(t, w.b.uid)
+}
+
+// seedClearedMarks gives the accepted conversation the marks of two earlier DeleteConversation calls (ADR-0027 2026-10-29
+// note): clearedAt and clearedKey for A and for B. Both are maps keyed by uid, so the T11 residue sweep (which reads values)
+// cannot see a leftover key of A's; requireClearedMarksErased reads the keys.
+func (e *lifecycleEnv) seedClearedMarks(t *testing.T, w dmWorld) {
+	t.Helper()
+	at := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	_, err := e.fs.Doc("conversations/"+w.acc).Update(context.Background(), []firestore.Update{
+		{FieldPath: firestore.FieldPath{"clearedAt", w.a.uid}, Value: at},
+		{FieldPath: firestore.FieldPath{"clearedKey", w.a.uid}, Value: strings.Repeat("a", 32)},
+		{FieldPath: firestore.FieldPath{"clearedAt", w.b.uid}, Value: at},
+		{FieldPath: firestore.FieldPath{"clearedKey", w.b.uid}, Value: strings.Repeat("b", 32)},
+	})
+	e.call(t, "seed cleared marks", err)
+}
+
+// requireClearedMarksErased: after A's deletion the accepted conversation has no clearedAt or clearedKey entry keyed by A's
+// uid (nor a placeholder one), and B's entries stay.
+func (e *lifecycleEnv) requireClearedMarksErased(t *testing.T, w dmWorld) {
+	t.Helper()
+	snap, err := e.fs.Doc("conversations/" + w.acc).Get(context.Background())
+	e.call(t, "read the accepted conversation", err)
+	for _, field := range []string{"clearedAt", "clearedKey"} {
+		v, derr := snap.DataAt(field)
+		marks, _ := v.(map[string]any)
+		if derr != nil || marks == nil {
+			t.Errorf("%s is gone altogether (%v), want B's entry to stay", field, derr)
+			continue
+		}
+		if _, has := marks[w.a.uid]; has {
+			t.Errorf("%s still has an entry keyed by the deleted uid", field)
+		}
+		if _, has := marks[messaging.DeletedUID]; has {
+			t.Errorf("%s has an entry keyed by the placeholder %q: the rule is to drop it", field, messaging.DeletedUID)
+		}
+		if _, has := marks[w.b.uid]; !has || len(marks) != 1 {
+			t.Errorf("%s = %v, want only B's entry", field, marks)
+		}
+	}
 }

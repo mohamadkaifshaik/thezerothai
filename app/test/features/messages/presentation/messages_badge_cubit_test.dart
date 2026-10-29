@@ -125,7 +125,7 @@ void main() {
   });
 
   group('resync from the Inbox rows (F-1 d)', () {
-    test('unreadConversationsIn counts unread, unmuted INBOX rows only', () {
+    test('unreadConversationsIn counts unread INBOX rows, muted or not', () {
       expect(
         unreadConversationsIn([
           conv(a, unread: 2),
@@ -134,9 +134,19 @@ void main() {
           conv(hexId(0xd1)),
           conv(hexId(0xd2), unread: 1),
         ]),
-        2,
+        3,
       );
       expect(unreadConversationsIn(const []), 0);
+    });
+
+    test('a silent row that is still unread counts (GetMe counts it)', () {
+      expect(
+        unreadConversationsIn([conv(a, unread: 2, silent: true), conv(b)]),
+        1,
+      );
+      cubit.seed(0);
+      cubit.resync([conv(a, unread: 2, silent: true)], hasMore: false);
+      expect(cubit.state, 1);
     });
 
     test('the last page: the rows replace the count (up and down)', () {

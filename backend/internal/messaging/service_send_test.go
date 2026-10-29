@@ -582,7 +582,7 @@ func TestSend_LookupFailures(t *testing.T) {
 // An unconfigured service refuses to send rather than panic.
 func TestSend_NotConfigured(t *testing.T) {
 	svc := New(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), Deps{})
-	if _, err := svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err == nil || errors.Is(err, ErrNotImplemented) {
+	if _, err := svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err == nil {
 		t.Fatalf("err = %v, want a configuration error", err)
 	}
 }

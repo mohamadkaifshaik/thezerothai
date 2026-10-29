@@ -4,13 +4,10 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 
 /// How many of [rows] the badge counts: INBOX conversations with unread
-/// messages that the caller has not muted. This is what `GetMe` counts
-/// (ADR-0027 D10); requests never count.
+/// messages, muted or not. This is what `GetMe` counts (ADR-0027 D10: every
+/// `dmInbox` entry with `unreadCount > 0`); requests never count.
 int unreadConversationsIn(Iterable<pb.Conversation> rows) => rows
-    .where(
-      (c) =>
-          c.unreadCount > 0 && !c.silent && c.folder != Folder.FOLDER_REQUESTS,
-    )
+    .where((c) => c.unreadCount > 0 && c.folder != Folder.FOLDER_REQUESTS)
     .length;
 
 /// App-wide count of conversations with unread messages, behind the Messages

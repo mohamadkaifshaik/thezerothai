@@ -338,7 +338,7 @@ Prices (§7):
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Done (#416) |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Done (#431) |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Done (#438) |
-| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
+| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Done (#443) |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Done (#437) |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
@@ -601,7 +601,7 @@ Order:
 - **Flag.** Not globally off (F6).
 - **Seam.** `ListMessages(since_token)` is the one delivery seam a listener or SSE replaces (`stage-ladder`).
 
-### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: Open
+### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: Done (#443)
 - **Description.**
   - **Accept** (the `requestTo` side only): the transaction sets `state = ACCEPTED`, moves the entry `dmRequests` → `dmInbox` (create + delete), keeps `unreadCount`, emits nothing. Already accepted → success, 0 writes.
   - **DeleteConversation:** deletes the caller's entry (either folder) and sets `clearedAt[caller] = now`. A request deleted this way stays a REQUEST for the sender, whose cap still applies. A later message recreates the caller's entry showing only newer messages.
