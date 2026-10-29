@@ -91,35 +91,35 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-25b | Part B plumbing: `make proto`, `FEATURE_PRIVATE_ACCOUNTS`, config and limits, `quota.PrivacyToggles`, ceiling, Terraform vars, seam declarations | backend-developer | S | Done (PR #379) (depends: W3-25a) |
 | W3-25c | Part B contract: `AuthorSnapshot.is_private` (field 6) for the lock badge on user-list rows, ADR-0025 implementation note | architect | S | Done (PR #391): proto only, `buf lint` / `buf breaking` clean, no generated code (W3-28c runs `make proto`); founder decision 2026-10-28, Option A |
 | W3-26a | Part B identity: the protected set, the `ProtectedAuthors` loader, the `is_private` toggle (quota, cap), `PrivacyListener`, identity-step clean-up and T11 `privacy` row | backend-developer | M | Done (PR #383; depends: W3-25b) |
-| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | In review (PR #395) (depends: W3-26a, W3-28a) |
+| W3-26b | Part B identity: GetProfile pin omission (`BlockChecker.IsFollowing`), GetMe `pending_follow_request_count` | backend-developer | S | Done (PR #395) (depends: W3-26a, W3-28a) |
 | W3-27 | Part B graph: Follow to a protected account creates a request; withdraw; Block clean-up; `REQUESTED` everywhere | backend-developer | M | Done (PR #385; depends: W3-25b; merges only after W3-32, T11 guard) |
 | W3-28a | Part B graph: `ListFollowRequests`, `RespondToFollowRequest`, PROTECTED_ACCOUNT on follower lists, the request count | backend-developer | M | Done (PR #388) (depends: W3-27, W3-26a) |
 | W3-28b | Part B graph: the `privacy_public` job (auto-accept on switch to public) and its `PrivacyListener` adapter | backend-developer | S | Done (PR #396) (depends: W3-28a, W3-26a) |
 | W3-28c | Part B graph: `make proto` and `is_private` on every graph user-list row from the hydrated profile | backend-developer | S | Done (PR #393): `make proto` run, generated Go and Dart committed; `toProtoAuthorSnapshot` fills `is_private` from the hydrated profile, +0 reads; full-chain emulator test over the six lists |
 | W3-29a | Part B posts: `posts.Audience` (the one predicate), GetPost and `Viewable`, repost and quote refusal, computed visibility, the PROTECTED embed | backend-developer | M | Done (PR #382) (depends: W3-25b; merges after W3-26a) |
-| W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | In review (PR #386) (depends: W3-29a) |
+| W3-29b | Part B posts + engagement: GetThread, ListBookmarks and ListLikedPosts through `Audience` | backend-developer | M | Done (PR #386) (depends: W3-29a) |
 | W3-30 | Part B timeline: `author_protected` on GetUserTimeline, feed embeds through `Audience` | backend-developer | S | Done (PR #384) |
 | W3-31 | Part B notifications: `follow_request` and `follow_accepted`, protected-actor suppression | backend-developer | S | Done (PR #380; depends: W3-25b; W3-26a and W3-29a merged) |
 | W3-32 | Part B lifecycle: `follow_requests` eraser step and export section, T11 row flip | backend-developer | M | Done (PR #381; depends: W3-25b; merges before W3-27) |
 | W3-33a | Part B client: protected profile view, lock badge, Requested and withdraw, protected follower lists | frontend-developer | M | Done (PR #389) (depends: W3-26a, W3-27, W3-30 serving dev) |
 | W3-33b | Part B client: "Protect your posts" setting, protected embed, refusal and error copy | frontend-developer | M | Done (PR #387; avatar follow-up PR #390) |
 | W3-33c | Part B client: the lock badge on `UserListRow` from `UserListItem.user.is_private` | frontend-developer | S | Done (PR #394; depends: W3-28c serving dev, W3-33a) |
-| W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | In review (PR #399; depends: W3-33c) |
+| W3-33d | Part B client: outlined Requested and Following fit `UserListRow` at 360 dp x2.0 | frontend-developer | S | Done (PR #399; depends: W3-33c) |
 | W3-34 | Part B client: Follow requests screen, drawer badge, the two notification rows | frontend-developer | M | Done (PR #409; depends: W3-28a, W3-26b, W3-31 serving dev) |
-| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | In review (PR #420; depends: W3-34, W3-35c) |
+| W3-34b | Part B client fix: Follow requests entry points (wide layouts, one visibility rule, backoff) | frontend-developer | S | Done (PR #420; depends: W3-34, W3-35c) |
 | W3-35a | Part B tests: the D4 visibility matrix on every read path, byte identity, media-URL leaks, the audience guard, budget table | tester | M | Done (PR #410) (depends: W3-26b, W3-28a, W3-29b, W3-30, W3-31) |
 | W3-35b | Part B tests: request lifecycle and races, I-R and I-X, the `privacy_public` job, flag matrix, eraser and export | tester | M | Done (PR #405) (depends: W3-27, W3-28a, W3-28b, W3-32) |
-| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | In review (PR #415) (depends: W3-33a, W3-33b, W3-34) |
-| W3-35d | Part B tests: `TestW335a_PartBBudgetTable` independent of test order | tester | S | In review (PR #433) (depends: W3-35a) |
+| W3-35c | Part B client tests: responsive matrix, flag-off routing | tester | S | Done (PR #415; its D-1, D-2 and D-3 fixed by W3-34b, PR #420) (depends: W3-33a, W3-33b, W3-34) |
+| W3-35d | Part B tests: `TestW335a_PartBBudgetTable` independent of test order | tester | S | Done (PR #433) (depends: W3-35a) |
 | W3-36 | Part B security review | security-auditor | M | Done (PR #403): CLEAR WITH FIXES; M-1 gates W3-38, M-2 before the allowlist widens (depends: W3-26a to W3-32 merged; client tickets at branch heads) |
 | W3-37 | Part B cost report and load smoke | sre-performance | S | Done (PR #407): BUDGET HOLDS (depends: W3-26a to W3-32 merged) |
 | W3-38 | Part B dev rollout | production-deployer | S | Applied in dev 2026-10-29 (founder OK; runbook PR #422, results PR #425): `api-00350-h87` serves 100% with `private_accounts` on the 3-uid allowlist; the 15 inert W7 and shell env lines were applied with it; dev smoke PASSED (runbook 9.1), flag-off check and first-day watch owed; depends: W3-35a to W3-35c, W3-36 M-1(c) (its precondition 2), W3-37, founder OK) |
 | W3-39 | W3-36 M-2: unguessable public media object names for new uploads (ADR-0025 note W3-36 M-2) | backend-developer | M | Done (PR #418) (depends: W3-36 review; gates `private_accounts` leaving the dev allowlist in any project) |
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
-| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | In review (PR #424) |
-| W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | In review (PR #430) |
+| W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Done (PR #424) |
+| W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Done (proto PR #427, backend PR #430) |
 | W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Open (depends: W3-41a and W3-40a serving dev) |
-| W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | In review (PR #428), founder review of `flag-ceiling.json` (depends: none; gates any prod ramp) |
+| W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Done (PR #428, founder-reviewed and merged 2026-10-29; the first dev deploy after it ran the floor check against a flagged last-good and passed) (depends: none; gates any prod ramp) |
 
 ## Milestones
 | # | Milestone | Tickets | Exit |
@@ -757,7 +757,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
   - Set refresh: ≤ 1,440 reads per instance per day, about 960 / 2,400 / 4,320 a day at 300 / 1,000 / 3,000 DAU. That is +3.2 / 2.4 / 1.4 reads per DAU.
   - 0 when idle: the refresh happens only when a request needs the set.
 
-#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: In review (PR #395)
+#### W3-26b Identity: GetProfile and GetMe for protected accounts [backend-developer] [S] [depends: W3-26a, W3-28a] Status: Done (PR #395)
 - **GetProfile(P) for an unapproved viewer** (D4):
   - It returns the header: name, handle, bio, avatar, banner, location, website, counts and `is_private = true`. It omits `pinned_post_id`.
   - "Approved" is the AQ2 expression over the set and `BlockChecker.IsFollowing(ctx, viewer, target)`. That method extends the interface, and graph implements it from the viewer's cached snapshot (0 reads warm).
@@ -948,7 +948,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** `posts.Audience`. In Stage 2 the same predicate is pushed into the query layer with the timeline ADR.
 - **Cost.** +0 reads per DAU; the refusals write nothing.
 
-#### W3-29b Posts + engagement: GetThread and the owner-only lists [backend-developer] [M] [depends: W3-29a] Status: In review (PR #386)
+#### W3-29b Posts + engagement: GetThread and the owner-only lists [backend-developer] [M] [depends: W3-29a] Status: Done (PR #386)
 - **GetThread** (D4).
   - Focal post by P: NOT_FOUND, byte-identical to a deleted focal post.
   - Parent or root by P: unset, with `parent_unavailable` or `root_unavailable` (a tombstone).
@@ -1127,7 +1127,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Seam.** A `FollowRequestsRepository` (session memory only, cleared under `SessionEpoch`).
 - **Cost.** 1 ListFollowRequests per open (42 cold reads) and 1 Respond per tap.
 
-#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: In review (PR #420)
+#### W3-34b Client fix: Follow requests entry points [frontend-developer] [S] [depends: W3-34, W3-35c] Status: Done (PR #420)
 - **Why.** The W3-35c report (`docs/reviews/test-report-w3b-client.md`) found D-2 (medium), D-1 and D-3 (low). Founder decision 2026-10-28 on the design.
 - **D-2: entry points at 600 dp and wider.**
   - "Follow requests" with the count badge in the account chip menu (`AppAccountChip`), the same pattern as the other menu entries.
@@ -1193,7 +1193,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Report.** A section of `docs/reviews/test-report-w3b.md`.
 - **Cost.** 0.
 
-#### W3-33d Client: Requested and Following fit user-list rows [frontend-developer] [S] [depends: W3-33c] Status: In review (PR #399)
+#### W3-33d Client: Requested and Following fit user-list rows [frontend-developer] [S] [depends: W3-33c] Status: Done (PR #399)
 - **Description.** W3-33c found that the outlined Requested and Following `FollowButton` states were about 12 dp wider than the `UserListRow` at 360 dp x text scale 2.0 (with or without the badge), which hid the lock (name column under 48 dp). Same class as the W3-21 D-1 lesson: actions grow with text scale. Founder decision 2026-10-28 (option A): the label is never scaled down, because shrinking it undoes the user's chosen text size (text must scale to 200% without loss).
   - `FollowButton` is unchanged: its label always renders at the user's text scale.
   - `UserListRow` lays out avatar, name column and the control with a small custom layout (`_AdaptiveRow`). The control keeps its natural width and the name column shrinks first (ellipsis), keeping the lock while it is at least 48 dp.
@@ -1203,7 +1203,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Docs.** `docs/ui-catalog.md`: `FollowButton` and `UserListRow` rows.
 - **Flag.** None. **Cost.** 0 new RPCs, 0 reads.
 
-#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: In review (PR #415): FAIL on D-2 (medium), D-1 and D-3 (low), `docs/reviews/test-report-w3b-client.md`
+#### W3-35c Tests: client [tester] [S] [depends: W3-33a, W3-33b, W3-33c, W3-34] Status: Done (PR #415): the report (`docs/reviews/test-report-w3b-client.md`) found D-2 (medium), D-1 and D-3 (low), all fixed by W3-34b (PR #420), whose repros now run unskipped
 - **The responsive matrix** (360 / 600 / 1200 dp x light / dark x 1.0 / 1.3 / 2.0, 48 dp targets, inside the screen) for:
   - the protected profile view, the lock badge (header and `UserListRow`, W3-33c) and Requested;
   - the protect switch and its two confirms;
@@ -1214,7 +1214,7 @@ Budgets are the ceilings that `budgettest` asserts. "+0" means the path's existi
 - **Report.** `docs/reviews/test-report-w3b-client.md`.
 - **Cost.** 0.
 
-#### W3-35d Tests: `TestW335a_PartBBudgetTable` independent of test order [tester] [S] [depends: W3-35a] Status: In review (PR #433)
+#### W3-35d Tests: `TestW335a_PartBBudgetTable` independent of test order [tester] [S] [depends: W3-35a] Status: Done (PR #433; its D-1 accepted by the founder 2026-10-29 and recorded in ADR-0025, PR #436)
 - **Defect (found by W3-40b).** The table failed when run alone, including on clean main (Respond decline 3 vs 2; accept 7 vs 5), and passed only in the full package run.
 - **Cause.** Two test-only effects, no production defect: (1) a decline measured after an accept on the same instance, because an accept calls `Directory.Forget(requester, caller)`, which evicts the caller's own profile, so the next call re-reads the account status; (2) `InlineEmitter` fan-out reads, which carry the request's budget counter and land in the measured line by a race.
 - **Fix.** Every Respond row builds its own instance (warm = fresh plus one List; cold = fresh), and the table runs with `FEATURE_NOTIFICATIONS` off so the fan-out (a separate request in production) cannot leak in. No ceiling moved: ADR-0025's 3 / 2 warm and up to 5 cold hold (measured 2 / 2 / 5 / 4).
@@ -1327,7 +1327,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
   - AC: both tests pass when run alone, after a test that created the set doc, and with `-shuffle=on`.
 - **Flag.** None (server-side correctness). **Cost.** As the budget row.
 
-#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: In review (PR #424)
+#### W3-40b Backend: W3-36 L-4 and W3-35b O-1 [backend-developer] [S] [depends: W3-40a (both edit `identity/protected_set.go`); W3-35b merged (PR #405)] Status: Done (PR #424)
 - **L-4, the wire-visibility hint** (`posts/audience.go` `ProtectedAuthor`, `timeline/service.go`, `posts/server.go`, `engagement/list_common.go`, `identity/protected_set.go`).
   - `ProtectedAuthor` answers without the loader for the caller's own and followed authors, from the snapshot the path already holds (D3's "only when needed").
   - A set outage is reported once per request (`protected_set_unavailable` at ERROR), then WARN, so Error Reporting does not count one error per row (up to 50 per page) and does not prompt an M-1-hazard rollback.
@@ -1339,7 +1339,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - **Flag.** None. **Cost.** As the budget row; a stuck delivery stops costing redeliveries.
 - **Implementation notes (W3-40b).** (1) The first criterion and "the wire `visibility` of every row is unchanged" conflict as written: whether a followed or own author is protected is only known from the set, and Home rows of a followed protected author must stay FOLLOWERS. Resolved with a no-refresh accessor: `identity.ProtectedSetLoader.Cached()` (optional interface `ProtectedAuthorsCached`) serves the copy younger than `CACHE_TTL` to `Audience.ProtectedAuthor(ctx, viewer, author, following)` for own and followed authors, so a warm Home page makes 0 `Current` calls; with no fresh copy (cold instance, copy older than 60 s) the hint asks `Current` as before, so no row ever changes its wire value. Staleness bound unchanged (60 s). The once-per-request report lives in the loader's `fallback` (`logger.FirstInRequest`), so `Decide`'s own `Current` calls are covered too. (2) O-1 acks as `stuck` only when the delivery accepted nothing and dropped nothing (a dropped inactive request is progress and still nacks). (3) Residual from W3-40a: `UnlikePost` and `UndoRepost` of a REPOST id whose original is hidden now echo the original's id, exactly like the gone case. (4) `cost-model.md` DeleteAccount writes 301 to 302 (D-2, founder-accepted).
 
-#### W3-41a Backend: the owner's placeholder rows (W3-36 L-2) [architect (proto) then backend-developer] [M] [depends: W3-40b (same files)] Status: In review (PR #430; proto #427 merged)
+#### W3-41a Backend: the owner's placeholder rows (W3-36 L-2) [architect (proto) then backend-developer] [M] [depends: W3-40b (same files)] Status: Done (proto PR #427, backend PR #430)
 - **Design.** ADR-0025 "Implementation note (W3-36 L-2, 2026-10-28)": it changes the D4 list row for the owner only.
 - **Contract first (architect).** `bool withheld = 7` on `posts.v1.PostView` (verify the next free number), and the `EMBED_VIEWER_STATE_PROTECTED` comment change. Additive, `buf lint` and `buf breaking` clean, `make proto` (one proto PR at a time).
 - **Work (backend-developer).**
@@ -1362,7 +1362,7 @@ The founder's decisions on the review: M-2 accepted (unguessable public names fo
 - AC: widget tests for the three rows, light and dark, 360 dp x2.0, a 48 dp target for the action; the action removes the row optimistically and restores it on a real error; `docs/ui-catalog.md` updated if the placeholder widget gains a variant.
 - **Flag.** None. **Cost.** 0 new RPCs; 1 undo RPC per tap.
 
-#### W3-42 Promotion: the `PRIVATE_ACCOUNTS` rollback floor (W3-36 M-1(b)) [production-deployer] [S] [depends: none; founder review of the gate file] Status: In review (PR #428), founder review of `flag-ceiling.json`
+#### W3-42 Promotion: the `PRIVATE_ACCOUNTS` rollback floor (W3-36 M-1(b)) [production-deployer] [S] [depends: none; founder review of the gate file] Status: Done (PR #428, founder-reviewed and merged 2026-10-29)
 - **Gate.** Before any prod ramp of `private_accounts` (with M-1(d): the flag stays `off` in prod until the first Part B release is at 100% and its `last-good` is post-Part-B). Not a W3-38 precondition.
 - **Where the floor lives.** In `scripts/promotion/flag-ceiling.json` (a founder-gated file), next to `PRIVATE_ACCOUNTS`, once for every environment: for example `"rollback_floors": {"PRIVATE_ACCOUNTS": {"commit": "061395a0a2ef3202482ffcd34273c032069865bf", "pr": 395, "reason": "W3-36 M-1"}}`. The floor is the image built from `main` at 061395a0 (#395, the last enforcement ticket) or later.
 - **Enforcement.** `resolve-rollback.sh` refuses a `last-good` image older than the floor whenever `PRIVATE_ACCOUNTS`' effective mode in that environment is not `off`.
