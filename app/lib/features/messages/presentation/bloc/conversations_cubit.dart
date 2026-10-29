@@ -98,8 +98,8 @@ const Object _keep = Object();
 /// - [refreshIfStale] is for resume and a message push: throttled to one
 ///   attempt per [kConversationsRefreshInterval], quiet, and skipped while a
 ///   RATE_LIMITED hold is set. There is no timer and no periodic poll.
-/// - [refresh] is pull-to-refresh, Retry and what the shell calls on a
-///   message push (W7-19) when it wants an unthrottled pull.
+/// - [refresh] is pull-to-refresh and Retry (unthrottled). A foreground message
+///   push calls [refreshIfStale] (W7-19, from the screen).
 /// - Errors with nothing cached are blocking; otherwise a notice over the
 ///   cached rows.
 class ConversationsCubit extends Cubit<ConversationsState> {
@@ -148,7 +148,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     await refresh();
   }
 
-  /// Pull-to-refresh, Retry, and a pull the shell triggers on a message push.
+  /// Pull-to-refresh and Retry.
   Future<void> refresh() => _refresh();
 
   /// Resume or a message push: throttled, quiet.

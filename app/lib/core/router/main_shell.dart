@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
+import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -25,12 +27,13 @@ import 'compose_gate.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
 ///
-/// With the `ui_shell` flag on (decision D3): Home, Notifications (flag) and
-/// the own Profile in the bottom bar / rail; Settings and Sign out live in the
-/// avatar drawer (phones) and the account chip menu (wide screens), like X.
-/// With it off: the legacy chrome, Settings as a fourth destination, no
-/// drawer, no account chip, and the compose button wherever posting is
-/// offered. The flag gates the navigation structure only, not the colours.
+/// With the `ui_shell` flag on (decision D3): Home, Notifications (flag),
+/// Messages (`messaging`, W7-19) and the own Profile in the bottom bar / rail;
+/// Settings and Sign out live in the avatar drawer (phones) and the account
+/// chip menu (wide screens), like X. With it off: the legacy chrome, Settings
+/// as a fourth destination (and the Messages entry inside it), no drawer, no
+/// account chip, and the compose button wherever posting is offered. The flag
+/// gates the navigation structure only, not the colours.
 /// Wired as a `ShellRoute` builder in
 /// [AppRouter] so it persists navigation state across pushes.
 class MainShell extends StatelessWidget {
@@ -40,9 +43,11 @@ class MainShell extends StatelessWidget {
   final Widget child;
 
   /// The destinations, in order. Notifications sits second and exists only
-  /// with the `notifications` flag on (P6).
+  /// with the `notifications` flag on (P6). Messages follows it, with
+  /// `messaging` and the new shell (W7-19, F10).
   static List<_Destination> _destinationsFor({
     required bool notifications,
+    required bool messages,
     required bool bookmarks,
     required bool settings,
     void Function(BuildContext anchor)? onMore,
@@ -62,6 +67,15 @@ class MainShell extends StatelessWidget {
           icon: Icons.notifications_none,
           selectedIcon: Icons.notifications,
           label: 'Notifications',
+        ),
+      ),
+    if (messages)
+      const _Destination(
+        _Tab.messages,
+        AppNavDestination(
+          icon: Icons.mail_outline,
+          selectedIcon: Icons.mail,
+          label: 'Messages',
         ),
       ),
     // Rail only (>= 600dp): below that the drawer carries the entry.
@@ -113,6 +127,12 @@ class MainShell extends StatelessWidget {
   /// the new shell, where it is not a destination).
   _Tab? _selectedTab({required bool settingsTab}) {
     if (location.startsWith('/notifications')) return _Tab.notifications;
+    // The inbox and its Requests folder (the shell's children). A conversation
+    // and the people picker are full-screen routes outside the shell.
+    if (location == AppRouter.messagesPath ||
+        location == AppRouter.messageRequestsPath) {
+      return _Tab.messages;
+    }
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
     // The shell pages belong to the rail's More item. (Premium is a dialog on
     // the root navigator: the page under it keeps its own tab.)
@@ -149,6 +169,14 @@ class MainShell extends StatelessWidget {
     final unread = notificationsEnabled
         ? context.select((UnreadBadgeCubit cubit) => cubit.state)
         : 0;
+    // Messages (W7-19): the new shell with `messaging` on for the caller. The
+    // legacy chrome has an entry in Settings instead. The badge cubit is read
+    // only when the tab exists.
+    final messagesEnabled =
+        newShell && isFeatureEnabled(context, kFeatureMessaging);
+    final unreadMessages = messagesEnabled
+        ? context.select((MessagesBadgeCubit cubit) => cubit.state)
+        : 0;
     // Bookmarks entry points (rail here, drawer row): the new shell only,
     // with `bookmarks` on for the caller, and `posts` (the route needs it).
     final bookmarksEntry =
@@ -158,6 +186,7 @@ class MainShell extends StatelessWidget {
     final shellEntries = shellEntriesFor(context);
     final tabs = _destinationsFor(
       notifications: notificationsEnabled,
+      messages: messagesEnabled,
       bookmarks: bookmarksEntry,
       settings: !newShell,
       onMore: shellEntries.isEmpty
@@ -177,6 +206,16 @@ class MainShell extends StatelessWidget {
             label: t.destination.label,
             badgeLabel: unreadBadgeLabel(unread),
             badgeSemanticLabel: '${unreadBadgeLabel(unread)} unread',
+          )
+        else if (t.tab == _Tab.messages && unreadMessages > 0)
+          AppNavDestination(
+            icon: t.destination.icon,
+            selectedIcon: t.destination.selectedIcon,
+            label: t.destination.label,
+            badgeLabel: unreadBadgeLabel(unreadMessages),
+            badgeSemanticLabel: unreadMessages == 1
+                ? '1 unread conversation'
+                : '${unreadBadgeLabel(unreadMessages)} unread conversations',
           )
         else
           t.destination,
@@ -242,6 +281,8 @@ class MainShell extends StatelessWidget {
             context.go('/home');
           case _Tab.notifications:
             context.go(AppRouter.notificationsPath);
+          case _Tab.messages:
+            context.go(AppRouter.messagesPath);
           case _Tab.bookmarks:
             context.go(AppRouter.bookmarksPath);
           case _Tab.settings:
@@ -300,7 +341,7 @@ class _SettingsMaster extends StatelessWidget {
   }
 }
 
-enum _Tab { home, notifications, bookmarks, profile, settings, more }
+enum _Tab { home, notifications, messages, bookmarks, profile, settings, more }
 
 class _Destination {
   const _Destination(this.tab, this.destination);

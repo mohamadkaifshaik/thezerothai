@@ -65,6 +65,49 @@ void main() {
     );
   });
 
+  group('unread conversations (W7-19)', () {
+    blocTest<OnboardingBloc, OnboardingState>(
+      'GetMe seeds the unread conversation count apart from notifications',
+      build: () {
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'a'),
+            unreadNotificationCount: Int64(4),
+            unreadConversationCount: Int64(100),
+          ),
+        );
+        return OnboardingBloc(identityRepository: identityRepository);
+      },
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      verify: (bloc) {
+        expect(bloc.state.unreadConversationCount, 100);
+        expect(bloc.state.unreadNotificationCount, 4);
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'an absent field is 0 (messaging off for the caller)',
+      build: () {
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'a'),
+          ),
+        );
+        return OnboardingBloc(identityRepository: identityRepository);
+      },
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      verify: (bloc) => expect(bloc.state.unreadConversationCount, 0),
+    );
+  });
+
   group('pending follow requests (W3-34)', () {
     blocTest<OnboardingBloc, OnboardingState>(
       'GetMe seeds the count and an answer lowers it, never below 0',

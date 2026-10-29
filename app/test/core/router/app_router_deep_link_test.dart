@@ -130,6 +130,74 @@ void main() {
       );
     });
 
+    // W7-19: a conversation link is exactly 32 lower-case hex digits.
+    final convId = 'ab12' * 8;
+
+    test('keeps /messages/<32 lower-case hex> as a bare path', () {
+      for (final good in [
+        '/messages/$convId',
+        '/messages/${'0' * 32}',
+        '/messages/${'f' * 32}',
+        '/messages/0123456789abcdef0123456789abcdef',
+      ]) {
+        expect(AppRouter.deepLinkTarget(Uri.parse(good)), good, reason: good);
+      }
+    });
+
+    test('rejects every other /messages shape (the allowlist is exact)', () {
+      for (final bad in <String>[
+        // Not conversation targets at all.
+        '/messages',
+        '/messages/',
+        '/messages/requests',
+        '/messages/new',
+        '/messages/new/draft',
+        // Length: 31 and 33 digits, short ids.
+        '/messages/${'a' * 31}',
+        '/messages/${'a' * 33}',
+        '/messages/ABC',
+        '/messages/${'ab12' * 8}0',
+        // Case and alphabet: upper-case hex, a g, a dash.
+        '/messages/${'AB12' * 8}',
+        '/messages/${'ab12' * 7}ab1G',
+        '/messages/${'ab12' * 7}ab1g',
+        '/messages/${'ab12' * 7}ab1-',
+        // Shape: a trailing slash, a sub-path, an encoded slash or space.
+        '/messages/$convId/',
+        '/messages/$convId/x',
+        '/messages/${'ab12' * 7}ab1%2F',
+        '/messages/${'ab12' * 7}ab1%20',
+        '/messages/${'ab12' * 7}%2e%2e',
+        '/messages/%2e%2e/$convId',
+        '/messages//$convId',
+        '/Messages/$convId',
+        // Not relative.
+        '//evil/messages/$convId',
+        'https://evil.example/messages/$convId',
+        'javascript:/messages/$convId',
+      ]) {
+        expect(AppRouter.deepLinkTarget(Uri.parse(bad)), isNull, reason: bad);
+      }
+    });
+
+    test('a query or a fragment disqualifies a conversation link', () {
+      // Tighter than /u/... and /profile/..., which drop them and keep the
+      // path (above): here the whole link is refused.
+      for (final bad in <String>[
+        '/messages/$convId?x=1',
+        '/messages/$convId?',
+        '/messages/$convId#f',
+        '/messages/$convId#',
+        '/messages/$convId?x=1#f',
+      ]) {
+        expect(AppRouter.deepLinkTarget(Uri.parse(bad)), isNull, reason: bad);
+      }
+      expect(
+        AppRouter.deepLinkTarget(Uri.parse('/post/${postId(7)}?x=1')),
+        '/post/${postId(7)}',
+      );
+    });
+
     test('rejects everything else', () {
       for (final bad in <String>[
         '//evil',
@@ -273,6 +341,103 @@ void main() {
       });
     });
   }
+
+  group('conversation links (W7-19)', () {
+    final link = '/messages/${'ab12' * 8}';
+    const readyMessaging = OnboardingState(
+      status: OnboardingStatus.ready,
+      enabledFeatures: {'messaging'},
+    );
+
+    testWidgets('a cold open while auth is unknown ends on the conversation', (
+      tester,
+    ) async {
+      setStates(unknown, idle);
+      expect(await resolve(tester, link), '/');
+
+      setStates(signedIn, readyMessaging);
+      expect(await resolve(tester, '/'), link);
+      // Moving on forgets it.
+      expect(await resolve(tester, AppRouter.homePath), AppRouter.homePath);
+      expect(await resolve(tester, '/'), AppRouter.homePath);
+    });
+
+    testWidgets('signed out: sign-in leads to the conversation', (
+      tester,
+    ) async {
+      setStates(signedOut, idle);
+      expect(await resolve(tester, link), AppRouter.signInPath);
+
+      setStates(signedIn, readyMessaging);
+      expect(await resolve(tester, AppRouter.signInPath), link);
+    });
+
+    testWidgets('no profile yet: onboarding, then the conversation', (
+      tester,
+    ) async {
+      setStates(signedOut, idle);
+      expect(await resolve(tester, link), AppRouter.signInPath);
+
+      setStates(signedIn, noProfile);
+      expect(
+        await resolve(tester, AppRouter.signInPath),
+        AppRouter.onboardingPath,
+      );
+
+      setStates(signedIn, readyMessaging);
+      expect(await resolve(tester, AppRouter.onboardingPath), link);
+    });
+
+    testWidgets('ready with messaging on: opens directly', (tester) async {
+      setStates(signedIn, readyMessaging);
+      expect(await resolve(tester, link), link);
+    });
+
+    testWidgets('messaging off for the caller: every messages route goes Home '
+        '(flag-off redirect)', (tester) async {
+      setStates(signedIn, ready);
+      for (final route in <String>[
+        link,
+        AppRouter.messagesPath,
+        AppRouter.messageRequestsPath,
+        AppRouter.messageNewPath,
+        AppRouter.messageDraftPath,
+      ]) {
+        expect(await resolve(tester, route), AppRouter.homePath, reason: route);
+      }
+    });
+
+    testWidgets('a link that is not exactly a conversation id is not stashed '
+        '(Home after sign-in)', (tester) async {
+      final id = 'ab12' * 8;
+      for (final bad in <String>[
+        '/messages/ABC',
+        '/messages/${id}0',
+        '/messages/${id.substring(1)}',
+        '/messages/${id.toUpperCase()}',
+        '/messages/$id?x=1',
+        '/messages/$id#f',
+        // (A trailing slash is canonicalised by go_router before the redirect
+        // runs, so it becomes the exact path; deepLinkTarget itself refuses
+        // it, see the table above.)
+        AppRouter.messagesPath,
+        AppRouter.messageRequestsPath,
+        AppRouter.messageNewPath,
+      ]) {
+        // A fresh router per link: landing once would hide a stash later.
+        appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
+        setStates(signedOut, idle);
+        expect(await resolve(tester, bad), AppRouter.signInPath, reason: bad);
+
+        setStates(signedIn, readyMessaging);
+        expect(
+          await resolve(tester, AppRouter.signInPath),
+          AppRouter.homePath,
+          reason: bad,
+        );
+      }
+    });
+  });
 
   group('what is not kept', () {
     testWidgets('an unlisted route goes Home after the hops', (tester) async {

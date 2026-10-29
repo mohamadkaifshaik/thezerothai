@@ -211,6 +211,89 @@ void main() {
     });
   });
 
+  group('onOpenedUnread (W7-19, the Messages badge)', () {
+    ThreadCubit makeReporting(List<String> reported) => cubit = ThreadCubit(
+      repository: repo,
+      poller: poller,
+      conversationId: kThreadId,
+      uuid: uuid,
+      onOpenedUnread: reported.add,
+    );
+
+    test('fires once when the cached header says unread', () async {
+      stubOpen(
+        snap(thread(3), conversation: threadConv(unread: 2)),
+        snap(thread(3), conversation: threadConv(unread: 2)),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, [kThreadId]);
+    });
+
+    test(
+      'fires when only the network header says unread (nothing cached)',
+      () async {
+        stubOpen(
+          const ThreadSnapshot(),
+          snap(thread(3), conversation: threadConv(unread: 1)),
+        );
+        final reported = <String>[];
+        makeReporting(reported);
+
+        await cubit.load();
+
+        expect(reported, [kThreadId]);
+      },
+    );
+
+    test('not for a conversation that was read when opened', () async {
+      stubOpen(snap(thread(3)), snap(thread(3)));
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('not for messages that arrive while the thread is open', () async {
+      stubOpen(snap(thread(3)), snap(thread(3)));
+      final reported = <String>[];
+      makeReporting(reported);
+      await cubit.load();
+      when(() => repo.pollThread(kThreadId))
+          .thenAnswer((_) async => const PollResult(newMessages: true));
+      when(() => repo.cachedThread(kThreadId)).thenAnswer(
+        (_) async => snap(thread(4), conversation: threadConv(unread: 1)),
+      );
+
+      await cubit.pull();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('once only, however many refreshes see the unread count', () async {
+      stubOpen(
+        snap(thread(3), conversation: threadConv(unread: 2)),
+        snap(thread(3), conversation: threadConv(unread: 2)),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await cubit.refresh();
+      await pumpEventQueue();
+
+      expect(reported, [kThreadId]);
+    });
+  });
+
   group('mark read', () {
     test('on open with unread above 0, once, with one key', () async {
       stubOpen(

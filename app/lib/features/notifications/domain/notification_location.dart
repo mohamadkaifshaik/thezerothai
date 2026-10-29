@@ -10,16 +10,30 @@ const kNotificationTypeFollow = 'follow';
 const kNotificationTypeFollowRequest = 'follow_request';
 const kNotificationTypeFollowAccepted = 'follow_accepted';
 
+/// Wire value of a direct-message push (ADR-0027 D9). It is push-only: there is
+/// no notification row, and its FCM data carries `conversationId` only.
+const kNotificationTypeMessage = 'message';
+
 /// The app location a notification (in-app row or tapped push) opens: the
 /// actor's profile for a follow or an accepted request, the Follow requests
-/// screen for a request, the post for everything else (a deleted post shows
-/// "this post isn't available"). Null when it names neither. Ids are
-/// percent-encoded; the one place both the list and the push tap use.
+/// screen for a request, the conversation for a direct message (W7-19), the
+/// post for everything else (a deleted post shows "this post isn't
+/// available"). Null when it names neither. Ids are percent-encoded; the one
+/// place both the list and the push tap use.
+///
+/// A message push opens `/messages/<conversationId>` only when that path is on
+/// the deep-link allowlist (32 lower-case hex); any other id, or none, opens
+/// nothing, and never falls through to the post or profile cases.
 String? notificationLocation({
   required String type,
   required String postId,
   required String actorId,
+  String conversationId = '',
 }) {
+  if (type == kNotificationTypeMessage) {
+    final path = AppRouter.messagePath(conversationId);
+    return AppRouter.deepLinkTarget(Uri(path: path)) == null ? null : path;
+  }
   if (type == kNotificationTypeFollowRequest) {
     return AppRouter.followRequestsPath;
   }

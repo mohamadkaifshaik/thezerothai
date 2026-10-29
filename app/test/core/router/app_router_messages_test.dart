@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -30,6 +31,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/messaging_fixtures.dart';
+import '../../support/messaging_shell_rig.dart';
 import '../../support/thread_test_support.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
@@ -67,8 +69,10 @@ void main() {
   });
 
   late _MockGraphRepository graphRepo;
+  late MessagingShellRig rig;
 
   setUp(() {
+    rig = MessagingShellRig();
     graphRepo = _MockGraphRepository();
     when(
       () => graphRepo.listFollowing(
@@ -181,6 +185,7 @@ void main() {
             BlocProvider<AuthBloc>.value(value: auth),
             BlocProvider<OnboardingBloc>.value(value: onboarding),
             BlocProvider<UnreadBadgeCubit>.value(value: badge),
+            ...rig.providers,
             BlocProvider<ThemeModeCubit>(
               create: (_) => ThemeModeCubit(_NoThemeStore()),
             ),
@@ -340,6 +345,46 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
       expect(find.byType(ConversationsScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  // W7-19: re-checked. A conversation is a full-screen route outside the
+  // shell (no bar or rail under a composer); the inbox and its Requests folder
+  // are the shell's children, which is why the Messages tab can mark them.
+  group('shell placement (W7-19)', () {
+    testWidgets('/messages/:id has no MainShell above it', (tester) async {
+      await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messagePath(kThreadId));
+
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      expect(find.byType(MainShell), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the picker is outside the shell too', (tester) async {
+      await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messageNewPath);
+
+      expect(find.byType(RecipientPicker), findsOneWidget);
+      expect(find.byType(MainShell), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the inbox and the Requests folder are inside it', (
+      tester,
+    ) async {
+      await openAt(tester, const {'messaging'});
+      expect(find.byType(ConversationsScreen), findsOneWidget);
+      expect(find.byType(MainShell), findsOneWidget);
+
+      await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messageRequestsPath);
+      expect(find.byType(ConversationsScreen), findsOneWidget);
+      expect(find.byType(MainShell), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
   });

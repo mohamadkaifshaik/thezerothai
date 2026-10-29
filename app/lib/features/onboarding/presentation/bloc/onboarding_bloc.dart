@@ -108,6 +108,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
           profile: response.profile,
           enabledFeatures: response.enabledFeatures.toSet(),
           unreadNotificationCount: response.unreadNotificationCount.toInt(),
+          unreadConversationCount: response.unreadConversationCount.toInt(),
           pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
           accountRestricted: false,
         ),

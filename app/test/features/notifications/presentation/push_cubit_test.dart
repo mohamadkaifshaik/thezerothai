@@ -454,4 +454,221 @@ void main() {
       verifyRegistered(2);
     });
   });
+
+  group('direct-message pushes (W7-19)', () {
+    final id = 'cd34' * 8; // 32 lower-case hex
+    late List<String> messagePushes;
+
+    setUp(() => messagePushes = []);
+
+    PushCubit buildMessaging() => PushCubit(
+      messaging: messaging,
+      repository: repo,
+      onOpen: opened.add,
+      onForeground: () => foreground++,
+      onMessagePush: messagePushes.add,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+
+    test('a foreground message push reaches the Messages hook only: the '
+        'notifications hook and count stay put', () async {
+      final cubit = buildMessaging();
+      addTearDown(cubit.close);
+      await cubit.start();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: id),
+      );
+      await pumpEventQueue();
+
+      expect(messagePushes, [id]);
+      expect(foreground, 0);
+      expect(cubit.state.received, 0);
+      expect(cubit.state.messagePushes, 1);
+      expect(cubit.state.lastMessageConversationId, id);
+    });
+
+    test('other pushes keep their own path', () async {
+      final cubit = buildMessaging();
+      addTearDown(cubit.close);
+      await cubit.start();
+
+      messaging.foreground.add(const PushMessage(type: 'like', postId: '5'));
+      await pumpEventQueue();
+
+      expect(foreground, 1);
+      expect(cubit.state.received, 1);
+      expect(cubit.state.messagePushes, 0);
+      expect(messagePushes, isEmpty);
+    });
+
+    test(
+      'a message push without a well-formed conversation id is dropped',
+      () async {
+        final cubit = buildMessaging();
+        addTearDown(cubit.close);
+        await cubit.start();
+
+        for (final bad in ['', 'ABC', '${id}0']) {
+          messaging.foreground.add(
+            PushMessage(type: 'message', conversationId: bad),
+          );
+        }
+        await pumpEventQueue();
+
+        expect(messagePushes, isEmpty);
+        expect(foreground, 0);
+        expect(cubit.state.received, 0);
+        expect(cubit.state.messagePushes, 0);
+      },
+    );
+
+    test('the counter grows per push, so a second push for the same '
+        'conversation still nudges', () async {
+      final cubit = buildMessaging();
+      addTearDown(cubit.close);
+      await cubit.start();
+
+      final seen = <int>[];
+      final sub = cubit.stream.listen((s) => seen.add(s.messagePushes));
+      messaging.foreground
+        ..add(PushMessage(type: 'message', conversationId: id))
+        ..add(PushMessage(type: 'message', conversationId: id));
+      await pumpEventQueue();
+      await sub.cancel();
+
+      expect(cubit.state.messagePushes, 2);
+      expect(seen, [1, 2]);
+    });
+
+    test('a tap opens the conversation; a cold start opens it once', () async {
+      messaging.launch = PushMessage(type: 'message', conversationId: id);
+      final cubit = buildMessaging();
+      addTearDown(cubit.close);
+      await cubit.start();
+      expect(opened, ['/messages/$id']);
+
+      final other = 'ef56' * 8;
+      messaging.opened.add(PushMessage(type: 'message', conversationId: other));
+      await pumpEventQueue();
+      // A malformed id opens nothing.
+      messaging.opened.add(
+        const PushMessage(type: 'message', conversationId: 'x'),
+      );
+      await pumpEventQueue();
+
+      expect(opened, ['/messages/$id', '/messages/$other']);
+      expect(messagePushes, isEmpty); // a tap is not a foreground push
+    });
+
+    test('after stop, message pushes do nothing', () async {
+      final cubit = buildMessaging();
+      addTearDown(cubit.close);
+      await cubit.start();
+      await cubit.stop();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: id),
+      );
+      await pumpEventQueue();
+
+      expect(messagePushes, isEmpty);
+      expect(cubit.state.messagePushes, 0);
+    });
+  });
+
+  group('registered (the 30 s hot poll of ADR-0027 D7, W7-19)', () {
+    test('Android, once RegisterDevice answered', () async {
+      messaging.currentPermission = PushPermission.granted;
+      final cubit = build();
+      addTearDown(cubit.close);
+      expect(cubit.pushCoversThreads, isFalse);
+
+      await cubit.start();
+
+      expect(cubit.state.registered, isTrue);
+      expect(cubit.pushCoversThreads, isTrue);
+    });
+
+    test(
+      'iOS gets no message push yet: registered, but threads keep 15 s',
+      () async {
+        messaging
+          ..currentPermission = PushPermission.granted
+          ..platform = DevicePlatform.DEVICE_PLATFORM_IOS;
+        final cubit = build();
+        addTearDown(cubit.close);
+
+        await cubit.start();
+
+        expect(cubit.state.registered, isTrue);
+        expect(cubit.pushCoversThreads, isFalse);
+      },
+    );
+
+    test('not without permission, nor on web', () async {
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      expect(cubit.state.registered, isFalse);
+      expect(cubit.pushCoversThreads, isFalse);
+
+      final web = PushCubit(
+        messaging: FakePushMessaging(supported: false),
+        repository: repo,
+      );
+      addTearDown(web.close);
+      await web.start();
+      expect(web.pushCoversThreads, isFalse);
+    });
+
+    test('not when RegisterDevice failed', () async {
+      messaging.currentPermission = PushPermission.granted;
+      when(
+        () => repo.registerDevice(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          deviceId: any(named: 'deviceId'),
+          fcmToken: any(named: 'fcmToken'),
+          platform: any(named: 'platform'),
+        ),
+      ).thenThrow(const RateLimitedException('cap'));
+      final cubit = build();
+      addTearDown(cubit.close);
+
+      await cubit.start();
+
+      expect(cubit.state.registered, isFalse);
+      expect(cubit.pushCoversThreads, isFalse);
+    });
+
+    test('enable() registers after a grant', () async {
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      expect(cubit.pushCoversThreads, isFalse);
+
+      await cubit.enable();
+
+      expect(cubit.pushCoversThreads, isTrue);
+    });
+
+    test('sign-out clears it: unregister, and stop', () async {
+      messaging.currentPermission = PushPermission.granted;
+      final cubit = build();
+      addTearDown(cubit.close);
+      await cubit.start();
+      expect(cubit.state.registered, isTrue);
+
+      await cubit.unregister();
+      expect(cubit.state.registered, isFalse);
+      expect(cubit.pushCoversThreads, isFalse);
+
+      final other = build();
+      addTearDown(other.close);
+      await other.start();
+      expect(other.state.registered, isTrue);
+      await other.stop();
+      expect(other.state.registered, isFalse);
+    });
+  });
 }

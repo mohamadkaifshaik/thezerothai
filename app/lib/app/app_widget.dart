@@ -28,6 +28,8 @@ import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
+import '../features/messages/domain/messaging_feature_flag.dart';
+import '../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/notifications/data/push_opt_in_store.dart';
@@ -163,6 +165,10 @@ class _AppWidgetState extends State<AppWidget> {
     store: _pushOptInStore,
     push: widget.pushCubit,
   );
+  // The Messages badge (W7-19): conversations with unread messages, seeded
+  // from `GetMe`; its own cubit, a message push never moves the notifications
+  // badge. Sign-out resets it.
+  final MessagesBadgeCubit _messagesBadge = MessagesBadgeCubit();
   late final ServicePausedCubit _servicePaused =
       widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
@@ -180,6 +186,7 @@ class _AppWidgetState extends State<AppWidget> {
   late final StreamSubscription<OnboardingState> _onboardingSub;
   Set<String>? _lastFeatures;
   int _lastUnread = 0;
+  int _lastUnreadConversations = 0;
 
   @override
   void initState() {
@@ -195,14 +202,17 @@ class _AppWidgetState extends State<AppWidget> {
         _suggestions.reset();
         widget.likesRepository.clearSession();
         widget.unreadBadgeCubit.seed(0);
+        _messagesBadge.seed(0);
         _lastFeatures = null;
         _lastUnread = 0;
+        _lastUnreadConversations = 0;
         unawaited(widget.pushCubit.stop());
       }
     });
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
     widget.pushCubit.onForeground = _onForegroundPush;
+    widget.pushCubit.onMessagePush = _onMessagePush;
     // Every fresh GetMe (a new flag-set instance) seeds the badge, and
     // starts push once the notifications flag is on. Never a GetMe of its
     // own: the badge costs 0 extra reads.
@@ -219,19 +229,39 @@ class _AppWidgetState extends State<AppWidget> {
     widget.unreadBadgeCubit.increment();
   }
 
+  /// A direct-message push arrived in the foreground (W7-19): the Messages
+  /// badge counts the conversation unless that thread is open (it polls
+  /// instead). Never the notifications badge.
+  void _onMessagePush(String conversationId) {
+    if (!widget.onboardingBloc.state.enabledFeatures.contains(
+      kFeatureMessaging,
+    )) {
+      return;
+    }
+    _messagesBadge.onMessagePush(conversationId);
+  }
+
   void _onOnboarding(OnboardingState state) {
     if (state.status != OnboardingStatus.ready) return;
-    // A fresh GetMe changes the flag set or the unread count. Compared by
+    // A fresh GetMe changes the flag set or an unread count. Compared by
     // value: the state hands out a new set view on every read, so identity
     // would re-seed (and undo a local mark-seen) on any later emission.
     final last = _lastFeatures;
     if (last != null &&
         setEquals(last, state.enabledFeatures) &&
-        _lastUnread == state.unreadNotificationCount) {
+        _lastUnread == state.unreadNotificationCount &&
+        _lastUnreadConversations == state.unreadConversationCount) {
       return;
     }
     _lastFeatures = Set.of(state.enabledFeatures);
     _lastUnread = state.unreadNotificationCount;
+    _lastUnreadConversations = state.unreadConversationCount;
+    // The Messages badge needs `messaging`, not `notifications` (push).
+    _messagesBadge.seed(
+      state.enabledFeatures.contains(kFeatureMessaging)
+          ? state.unreadConversationCount
+          : 0,
+    );
     if (state.enabledFeatures.contains(kFeatureNotifications)) {
       widget.unreadBadgeCubit.seed(state.unreadNotificationCount);
       unawaited(widget.pushCubit.start());
@@ -253,6 +283,7 @@ class _AppWidgetState extends State<AppWidget> {
     _suggestions.close();
     _themeMode.close();
     _pushOptIn.close();
+    _messagesBadge.close();
     super.dispose();
   }
 
@@ -297,6 +328,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: _pushOptIn),
           BlocProvider.value(value: widget.unreadBadgeCubit),
+          BlocProvider.value(value: _messagesBadge),
           BlocProvider.value(value: _themeMode),
           BlocProvider.value(value: _servicePaused),
         ],

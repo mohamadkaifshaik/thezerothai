@@ -5,6 +5,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart'
+    show DevicePlatform;
 import '../../data/notifications_repository.dart';
 import '../../data/push_messaging.dart';
 
@@ -17,6 +19,9 @@ class PushState {
     this.permissionKnown = false,
     this.requesting = false,
     this.received = 0,
+    this.registered = false,
+    this.messagePushes = 0,
+    this.lastMessageConversationId = '',
   });
 
   /// iOS/Android with the flag on. False on web: no prompt, no token.
@@ -34,6 +39,18 @@ class PushState {
   /// grows: an FCM nudge, never polling).
   final int received;
 
+  /// This device's registration reached the server (RegisterDevice answered)
+  /// in this session. False before that, after sign-out and while the flag is
+  /// off.
+  final bool registered;
+
+  /// Foreground direct-message pushes received this session (W7-19), counted
+  /// apart from [received]: they never refresh the notifications list. The
+  /// open inbox or conversation reacts when it grows (an FCM nudge, never
+  /// polling); [lastMessageConversationId] says which conversation.
+  final int messagePushes;
+  final String lastMessageConversationId;
+
   /// Offer the in-app "Turn on notifications" prompt.
   bool get canPrompt =>
       supported && permission == PushPermission.notDetermined && !requesting;
@@ -44,6 +61,9 @@ class PushState {
     bool? permissionKnown,
     bool? requesting,
     int? received,
+    bool? registered,
+    int? messagePushes,
+    String? lastMessageConversationId,
   }) {
     return PushState(
       supported: supported ?? this.supported,
@@ -51,6 +71,10 @@ class PushState {
       permissionKnown: permissionKnown ?? this.permissionKnown,
       requesting: requesting ?? this.requesting,
       received: received ?? this.received,
+      registered: registered ?? this.registered,
+      messagePushes: messagePushes ?? this.messagePushes,
+      lastMessageConversationId:
+          lastMessageConversationId ?? this.lastMessageConversationId,
     );
   }
 }
@@ -64,7 +88,10 @@ class PushState {
 ///   kept in drift, never the token.
 /// - A tap on a push (background or cold start) is handed to [onOpen] as an
 ///   app location; a foreground message is handed to [onForeground] (the
-///   badge) and bumps [PushState.received].
+///   badge) and bumps [PushState.received]. A direct-message push (W7-19,
+///   `type=message`) is different: it goes to [onMessagePush] and bumps
+///   [PushState.messagePushes] only, so it never reaches [onForeground] (the
+///   notifications badge) or [PushState.received] (the notifications list).
 /// - [unregister] is best effort and never throws: sign-out must not wait on
 ///   it for long.
 /// - Registration failures are never user-facing; push is a convenience
@@ -75,6 +102,7 @@ class PushCubit extends Cubit<PushState> {
     required NotificationsRepository repository,
     this.onOpen,
     this.onForeground,
+    this.onMessagePush,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _messaging = messaging,
@@ -94,7 +122,18 @@ class PushCubit extends Cubit<PushState> {
   /// Called for a foreground message (the badge). Set by `AppWidget`, which
   /// knows whether the notifications list is already open.
   VoidCallback? onForeground;
+
+  /// Called with the conversation id for a foreground direct-message push (the
+  /// Messages badge). Set by `AppWidget`.
+  void Function(String conversationId)? onMessagePush;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
+
+  /// Android with a registered device: the server pushes each message, so a
+  /// visible thread may poll at the slower hot interval (ADR-0027 D7).
+  /// iOS gets no message push yet (ADR-0017 D11).
+  bool get pushCoversThreads =>
+      state.registered &&
+      _messaging.platform == DevicePlatform.DEVICE_PLATFORM_ANDROID;
 
   final List<StreamSubscription<Object?>> _subs = [];
   bool _started = false;
@@ -123,12 +162,7 @@ class PushCubit extends Cubit<PushState> {
       emit(state.copyWith(permission: permission, permissionKnown: true));
       _subs
         ..add(_messaging.onTokenRefresh.listen((token) => _register(token)))
-        ..add(
-          _messaging.onForegroundMessage.listen((_) {
-            onForeground?.call();
-            emit(state.copyWith(received: state.received + 1));
-          }),
-        )
+        ..add(_messaging.onForegroundMessage.listen(_onForegroundMessage))
         ..add(_messaging.onOpenedApp.listen(_open));
       final launch = await _messaging.initialMessage();
       if (stale()) return;
@@ -160,6 +194,25 @@ class PushCubit extends Cubit<PushState> {
     }
   }
 
+  void _onForegroundMessage(PushMessage message) {
+    if (isClosed) return;
+    if (message.isMessage) {
+      // A direct message (W7-19): its own badge and its own nudge. A push
+      // without a well-formed conversation id names nothing; drop it.
+      if (message.location == null) return;
+      onMessagePush?.call(message.conversationId);
+      emit(
+        state.copyWith(
+          messagePushes: state.messagePushes + 1,
+          lastMessageConversationId: message.conversationId,
+        ),
+      );
+      return;
+    }
+    onForeground?.call();
+    emit(state.copyWith(received: state.received + 1));
+  }
+
   void _open(PushMessage message) {
     final location = message.location;
     if (location != null) onOpen?.call(location);
@@ -184,6 +237,11 @@ class PushCubit extends Cubit<PushState> {
         fcmToken: token,
         platform: _messaging.platform,
       );
+      // Answered: the server pushes this device (W7-19: threads may poll at
+      // the slower hot interval). Not after a sign-out that raced the call.
+      if (!stale() && !state.registered) {
+        emit(state.copyWith(registered: true));
+      }
     } on UnknownApiException catch (error, stack) {
       onUnexpectedError?.call(error, stack);
     } on AppException {
@@ -200,6 +258,7 @@ class PushCubit extends Cubit<PushState> {
   Future<void> unregister() async {
     _unregistered = true;
     _session++;
+    if (!isClosed && state.registered) emit(state.copyWith(registered: false));
     try {
       if (!_messaging.supported) return;
       if (_repository.enabled) {

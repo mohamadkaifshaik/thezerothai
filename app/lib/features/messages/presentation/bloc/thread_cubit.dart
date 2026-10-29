@@ -148,6 +148,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     required ThreadPoller poller,
     required this.conversationId,
     this.onUnexpectedError,
+    this.onOpenedUnread,
     Uuid? uuid,
   }) : _repository = repository,
        _poller = poller,
@@ -163,6 +164,12 @@ class ThreadCubit extends Cubit<ThreadState> {
   final Uuid _uuid;
   final String conversationId;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
+
+  /// Called once, when the conversation is first seen with unread messages on
+  /// open (W7-19: the Messages badge drops it). Not for messages that arrive
+  /// while the thread is open.
+  final void Function(String conversationId)? onOpenedUnread;
+  bool _reportedUnread = false;
 
   /// The newest messages the repository holds (held back or not).
   List<pb.Message> _latest = const [];
@@ -298,6 +305,10 @@ class ThreadCubit extends Cubit<ThreadState> {
     final conversation = snapshot.conversation;
     if (open && conversation != null) {
       _unread = math.max(_unread, conversation.unreadCount.toInt());
+      if (conversation.unreadCount.toInt() > 0 && !_reportedUnread) {
+        _reportedUnread = true;
+        onOpenedUnread?.call(conversationId);
+      }
     }
     _latest = messages;
 

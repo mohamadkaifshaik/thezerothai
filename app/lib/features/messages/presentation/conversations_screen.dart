@@ -17,6 +17,7 @@ import '../../../shared/widgets/app_back_header.dart';
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/user_list_skeleton.dart';
+import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_flag.dart';
 import 'bloc/conversations_cubit.dart';
@@ -30,8 +31,9 @@ import 'widgets/conversation_row.dart';
 /// [Folder.FOLDER_REQUESTS] (a back header, the received requests).
 ///
 /// The cached list renders at once; one `since` refresh follows on open and
-/// another on resume (throttled to 60 s). There is no timer. A message push
-/// is routed by the shell (W7-19), which calls `ConversationsCubit.refresh`.
+/// another on resume (throttled to 60 s). There is no timer. A foreground
+/// message push (W7-19, `PushState.messagePushes`) calls
+/// `ConversationsCubit.refreshIfStale`.
 /// On desktop the list sits in the 600dp main column (no master-detail in v1).
 ///
 /// - [onOpenConversation] opens `/messages/<id>`. The route belongs to W7-15;
@@ -145,72 +147,80 @@ class _ConversationsViewState extends State<_ConversationsView>
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ConversationsCubit>();
-    return Scaffold(
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final inset = math.max(
-            0.0,
-            (constraints.maxWidth - AppBreakpoints.mobile) / 2,
-          );
-          return BlocBuilder<ConversationsCubit, ConversationsState>(
-            builder: (context, state) {
-              return RefreshIndicator(
-                onRefresh: cubit.refresh,
-                child: CustomScrollView(
-                  controller: _controller,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    if (_isInbox)
-                      AppTopBar.sliver(
-                        title: 'Messages',
-                        actions: [
-                          IconButton(
-                            tooltip: 'New message',
-                            onPressed: widget.onNewMessage,
-                            icon: const Icon(Icons.mail_outline),
-                          ),
-                        ],
-                      )
-                    else
-                      _inset(
-                        inset,
-                        SliverToBoxAdapter(
-                          child: AppBackHeader(
-                            title: 'Message requests',
-                            onBack: _back,
-                          ),
-                        ),
-                      ),
-                    if (state.notice != null)
-                      _inset(
-                        inset,
-                        SliverToBoxAdapter(
-                          child: AppNoticeBanner(
-                            message: conversationsNoticeMessage(state.notice!),
-                            onRetry: noticeCanRetry(state.notice!)
-                                ? cubit.refresh
-                                : null,
+    // A foreground message push refreshes the list (W7-19, ADR-0027 D7): an
+    // FCM nudge, throttled, never a timer.
+    return BlocListener<PushCubit, PushState>(
+      listenWhen: (a, b) => b.messagePushes > a.messagePushes,
+      listener: (context, _) => unawaited(cubit.refreshIfStale()),
+      child: Scaffold(
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final inset = math.max(
+              0.0,
+              (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+            );
+            return BlocBuilder<ConversationsCubit, ConversationsState>(
+              builder: (context, state) {
+                return RefreshIndicator(
+                  onRefresh: cubit.refresh,
+                  child: CustomScrollView(
+                    controller: _controller,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    slivers: [
+                      if (_isInbox)
+                        AppTopBar.sliver(
+                          title: 'Messages',
+                          actions: [
+                            IconButton(
+                              tooltip: 'New message',
+                              onPressed: widget.onNewMessage,
+                              icon: const Icon(Icons.mail_outline),
+                            ),
+                          ],
+                        )
+                      else
+                        _inset(
+                          inset,
+                          SliverToBoxAdapter(
+                            child: AppBackHeader(
+                              title: 'Message requests',
+                              onBack: _back,
+                            ),
                           ),
                         ),
-                      ),
-                    if (_isInbox && (state.requestCount ?? 0) > 0)
-                      _inset(
-                        inset,
-                        SliverToBoxAdapter(
-                          child: _RequestsRow(
-                            count: state.requestCount!,
-                            onTap: () =>
-                                context.push(AppRouter.messageRequestsPath),
+                      if (state.notice != null)
+                        _inset(
+                          inset,
+                          SliverToBoxAdapter(
+                            child: AppNoticeBanner(
+                              message: conversationsNoticeMessage(
+                                state.notice!,
+                              ),
+                              onRetry: noticeCanRetry(state.notice!)
+                                  ? cubit.refresh
+                                  : null,
+                            ),
                           ),
                         ),
-                      ),
-                    ..._body(context, cubit, state, inset),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+                      if (_isInbox && (state.requestCount ?? 0) > 0)
+                        _inset(
+                          inset,
+                          SliverToBoxAdapter(
+                            child: _RequestsRow(
+                              count: state.requestCount!,
+                              onTap: () =>
+                                  context.push(AppRouter.messageRequestsPath),
+                            ),
+                          ),
+                        ),
+                      ..._body(context, cubit, state, inset),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
