@@ -17,8 +17,12 @@ enum ReportOutcome {
   /// Dismissed, or the report was not sent.
   cancelled,
 
-  /// The server accepted the report (or already had it).
+  /// The server accepted a new report.
   sent,
+
+  /// The server already had this reporter's report for the target (a free
+  /// no-op, ADR-0016): nothing new was sent, and the sheet said so.
+  alreadyReported,
 
   /// Sent, and the user asked to block the account next.
   blockRequested,
@@ -66,7 +70,10 @@ Future<ReportOutcome> showReportSheet(
     if (result != null) return result;
     // Swiped away or tapped outside after the report went through: it was
     // still sent, so the caller can say so.
-    return cubit.state.sent ? ReportOutcome.sent : ReportOutcome.cancelled;
+    if (!cubit.state.sent) return ReportOutcome.cancelled;
+    return cubit.state.alreadyReported
+        ? ReportOutcome.alreadyReported
+        : ReportOutcome.sent;
   } finally {
     unawaited(cubit.close());
   }
@@ -344,7 +351,9 @@ class _Confirmation extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   minimumSize: const Size(0, AppSpacing.minTapTarget),
                 ),
-                onPressed: () => Navigator.of(context).pop(ReportOutcome.sent),
+                onPressed: () => Navigator.of(context).pop(
+                  already ? ReportOutcome.alreadyReported : ReportOutcome.sent,
+                ),
                 child: const Text('Done'),
               ),
             ),

@@ -47,9 +47,14 @@ const kThreadReadOnlyText = "You can't reply to this conversation";
 /// conversation alike.
 const kThreadUnavailableText = "This conversation isn't available";
 
-/// Toasts of the request actions (W7-18).
-const kRequestAcceptedText = 'Request accepted';
+/// The toast after a request was deleted (W7-18), as W7-15's "Conversation
+/// deleted". Accept has none: the composer appearing is the answer.
 const kRequestDeletedText = 'Request deleted';
+
+/// What the "Delete this request?" dialog says (founder-approved wording): the
+/// sender is not told, and a sender who can still send may message again.
+const kDeleteRequestDetail =
+    "They won't be told. If they still can, they may message you again.";
 
 /// How close to the newest message (dp) still counts as "at the bottom".
 const double kThreadAtBottomSlack = 24;
@@ -352,7 +357,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       case _MenuAction.report:
         widget.onReport?.call(context, conversation);
       case _MenuAction.delete:
-        await _delete(cubit);
+        await _delete(cubit, request: isReceivedRequest(conversation));
     }
   }
 
@@ -387,7 +392,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   }
 
   Future<void> _accept(ThreadCubit cubit) async {
-    if (cubit.state.accepting || cubit.state.deleting) return;
+    if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
     final messenger = ScaffoldMessenger.of(context);
     final error = await cubit.acceptRequest();
     messenger.hideCurrentSnackBar();
@@ -395,13 +400,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       messenger.showSnackBar(
         SnackBar(content: Text(messagingErrorMessage(error))),
       );
-      return;
     }
-    messenger.showSnackBar(const SnackBar(content: Text(kRequestAcceptedText)));
   }
 
   Future<void> _delete(ThreadCubit cubit, {bool request = false}) async {
-    if (cubit.state.accepting || cubit.state.deleting) return;
+    if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -410,8 +413,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ),
         content: Text(
           request
-              ? 'It only removes the request for you. If they message you '
-                    'again, it can show up again.'
+              ? kDeleteRequestDetail
               : 'It only removes the conversation for you. The other person '
                     'keeps their copy.',
         ),
@@ -546,7 +548,8 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                 graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked,
             peerHandle: peer.handle,
             showReport: reportsEnabled,
-            canReport: widget.onReport != null,
+            // A deleted-account peer has no user id to report.
+            canReport: widget.onReport != null && peer.userId.isNotEmpty,
             onSelected: (action) => _onMenu(action, cubit, conversation),
           ),
       ],
@@ -810,17 +813,16 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     bool graphEnabled,
   ) {
     final peer = conversation.peer;
+    // Block stays visible while it runs (the banner turns every button off).
     final canBlock =
-        graphEnabled &&
-        peer.userId.isNotEmpty &&
-        !state.peerBlocked &&
-        !_blocking;
+        graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked;
     return ThreadRequestActions(
       accept: () => unawaited(_accept(cubit)),
       delete: () => unawaited(_delete(cubit, request: true)),
       block: canBlock ? () => unawaited(_block(cubit, peer)) : null,
       accepting: state.accepting,
       deleting: state.deleting,
+      blocking: _blocking,
     );
   }
 

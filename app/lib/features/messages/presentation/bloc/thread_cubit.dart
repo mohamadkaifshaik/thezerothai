@@ -426,10 +426,21 @@ class ThreadCubit extends Cubit<ThreadState> {
   }
 
   /// The caller blocked the peer from this screen (the graph flow ran): the
-  /// thread is read-only now, without waiting for a header refresh.
+  /// thread is read-only now, without waiting for a header refresh. A blocked
+  /// requester's row leaves the cached Requests list at once (W7-18, no RPC;
+  /// the repository ignores a conversation that is not a cached request).
   void markPeerBlocked() {
     if (isClosed || state.peerBlocked) return;
     emit(state.copyWith(peerBlocked: true));
+    unawaited(_dropBlockedRequest());
+  }
+
+  Future<void> _dropBlockedRequest() async {
+    try {
+      await _repository.dropBlockedRequest(conversationId);
+    } on Object catch (error, stack) {
+      onUnexpectedError?.call(error, stack);
+    }
   }
 
   /// A send was refused with CANNOT_MESSAGE (W7-16, ADR-0027 D4): the thread
@@ -456,7 +467,10 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// Deletes the conversation for the caller (also "delete request"). Returns
   /// null on success, else the failure to tell the user about; the same
-  /// idempotency key is reused if the user retries.
+  /// idempotency key is reused if the user retries after a failure. A success
+  /// clears the key: the server replays a repeated key as a no-op, so a later
+  /// real delete (the conversation came back with a new message) needs its
+  /// own. NOT_FOUND counts as done (the repository cleans the cache).
   Future<AppException?> deleteConversation() async {
     if (isClosed || state.deleting || state.accepting) return null;
     emit(state.copyWith(deleting: true));
@@ -465,6 +479,7 @@ class ThreadCubit extends Cubit<ThreadState> {
         idempotencyKey: _deleteKey ??= _uuid.v4(),
         conversationId: conversationId,
       );
+      _deleteKey = null;
       _poller.stop();
       if (!isClosed) emit(state.copyWith(deleting: false));
       return null;
@@ -504,7 +519,10 @@ class ThreadCubit extends Cubit<ThreadState> {
       return null;
     } on AppException catch (error, stack) {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
-      if (!isClosed) emit(state.copyWith(accepting: false));
+      if (isClosed) return error;
+      emit(state.copyWith(accepting: false));
+      // The W7-15 rule: NOT_FOUND means the conversation is not available.
+      if (error is NotFoundException) _becameUnavailable();
       return error;
     }
   }

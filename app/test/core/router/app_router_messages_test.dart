@@ -17,7 +17,10 @@ import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
+import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -104,7 +107,12 @@ void main() {
     Set<String> flags, {
     String location = AppRouter.messagesPath,
     bool threadNotFound = false,
+    ConversationState headerState =
+        ConversationState.CONVERSATION_STATE_ACCEPTED,
+    Folder headerFolder = Folder.FOLDER_INBOX,
   }) async {
+    final header = threadConv(state: headerState).deepCopy()
+      ..folder = headerFolder;
     final repo = _MockMessagingRepository();
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(() => repo.conversationsChanged)
@@ -129,12 +137,10 @@ void main() {
           invocation.positionalArguments.first == 'u-sam' ? threadConv() : null,
     );
     when(() => repo.cachedThread(any())).thenAnswer(
-      (_) async =>
-          ThreadSnapshot(messages: msgs(1, 2), conversation: threadConv()),
+      (_) async => ThreadSnapshot(messages: msgs(1, 2), conversation: header),
     );
     when(() => repo.refreshThread(any())).thenAnswer(
-      (_) async =>
-          ThreadSnapshot(messages: msgs(1, 2), conversation: threadConv()),
+      (_) async => ThreadSnapshot(messages: msgs(1, 2), conversation: header),
     );
     if (threadNotFound) {
       when(() => repo.cachedThread(any()))
@@ -289,6 +295,63 @@ void main() {
       expect(find.byType(ThreadScreen), findsOneWidget);
       expect(find.text('Sam Rivera'), findsOneWidget);
       verify(() => repo.refreshThread(kThreadId)).called(1);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the route passes the request banner and the report seam '
+        '(W7-18)', (tester) async {
+      await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messagePath(kThreadId));
+
+      final screen = tester.widget<ThreadScreen>(find.byType(ThreadScreen));
+      expect(screen.bannerBuilder, same(buildRequestBanner));
+      expect(screen.onReport, same(reportConversationPeer));
+      expect(screen.composerBuilder, isNotNull);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a received request shows the banner on the real route, with '
+        'no composer', (tester) async {
+      await openAt(
+        tester,
+        const {'messaging', 'graph'},
+        location: AppRouter.messagePath(kThreadId),
+        headerState: ConversationState.CONVERSATION_STATE_REQUEST,
+        headerFolder: Folder.FOLDER_REQUESTS,
+      );
+
+      expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+      expect(find.byKey(RequestBanner.acceptKey), findsOneWidget);
+      expect(find.byKey(RequestBanner.blockKey), findsOneWidget);
+      expect(find.byType(MessageComposer), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the sender of a pending request sees the waiting note and '
+        'the composer', (tester) async {
+      await openAt(
+        tester,
+        const {'messaging'},
+        location: AppRouter.messagePath(kThreadId),
+        headerState: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+
+      expect(find.text(kSentRequestText), findsOneWidget);
+      expect(find.byType(MessageComposer), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('an accepted conversation has the composer and no banner', (
+      tester,
+    ) async {
+      await openAt(tester, const {
+        'messaging',
+      }, location: AppRouter.messagePath(kThreadId));
+
+      expect(find.byType(MessageComposer), findsOneWidget);
+      expect(find.textContaining('wants to message you'), findsNothing);
+      expect(find.text(kSentRequestText), findsNothing);
       await tester.pumpWidget(const SizedBox());
     });
 

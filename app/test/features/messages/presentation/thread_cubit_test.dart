@@ -56,6 +56,7 @@ void main() {
     repo = MockMessagingRepository();
     poller = FakeThreadPoller();
     uuid = _SeqUuid();
+    when(() => repo.dropBlockedRequest(any())).thenAnswer((_) async {});
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(
       () => repo.markConversationRead(
@@ -598,6 +599,60 @@ void main() {
       },
     );
 
+    test('a successful delete clears the key: a later delete gets a fresh '
+        'one', () async {
+      when(
+        () => repo.deleteConversation(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) async {});
+      make();
+
+      expect(await cubit.deleteConversation(), isNull);
+      expect(await cubit.deleteConversation(), isNull);
+
+      final keys = verify(
+        () => repo.deleteConversation(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          conversationId: kThreadId,
+        ),
+      ).captured;
+      expect(keys, ['key-1', 'key-2']);
+    });
+
+    test(
+      'a failure after a success still reuses its own key on retry',
+      () async {
+        var calls = 0;
+        when(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 2) throw const NetworkException('raw-offline');
+        });
+        make();
+
+        expect(await cubit.deleteConversation(), isNull); // key-1
+        expect(
+          await cubit.deleteConversation(),
+          isA<NetworkException>(),
+        ); // key-2
+        expect(await cubit.deleteConversation(), isNull); // key-2 again
+
+        final keys = verify(
+          () => repo.deleteConversation(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).captured;
+        expect(keys, ['key-1', 'key-2', 'key-2']);
+      },
+    );
+
     group('acceptRequest (W7-18)', () {
       pb.Conversation received() =>
           threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST)
@@ -669,6 +724,29 @@ void main() {
         expect(keys, ['key-1', 'key-1']);
       });
 
+      test(
+        'NOT_FOUND returns the error and makes the thread unavailable',
+        () async {
+          stubOpen(
+            snap(thread(1), conversation: received()),
+            snap(thread(1), conversation: received()),
+          );
+          stubAccept(
+            () async => throw const NotFoundException('raw-not-found'),
+          );
+          make();
+          await cubit.load();
+          final stopsBefore = poller.stops;
+
+          final error = await cubit.acceptRequest();
+
+          expect(error, isA<NotFoundException>());
+          expect(cubit.state.status, ThreadStatus.unavailable);
+          expect(cubit.state.accepting, isFalse);
+          expect(poller.stops, greaterThan(stopsBefore));
+        },
+      );
+
       test('a second tap while it runs sends '
           'nothing', () async {
         stubOpen(
@@ -705,6 +783,41 @@ void main() {
       cubit.markPeerBlocked();
 
       expect(cubit.state.readOnly, isTrue);
+    });
+
+    test('blocking asks the repository to drop a requester\'s cached row '
+        'once', () async {
+      stubOpen(snap(thread(1)), snap(thread(1)));
+      make();
+      await cubit.load();
+
+      cubit.markPeerBlocked();
+      cubit.markPeerBlocked();
+      await pumpEventQueue();
+
+      verify(() => repo.dropBlockedRequest(kThreadId)).called(1);
+    });
+
+    test('a failing cache drop is reported, not thrown, and the thread is '
+        'still read-only', () async {
+      stubOpen(snap(thread(1)), snap(thread(1)));
+      when(() => repo.dropBlockedRequest(any()))
+          .thenAnswer((_) async => throw StateError('raw-disk'));
+      final reported = <Object>[];
+      cubit = ThreadCubit(
+        repository: repo,
+        poller: poller,
+        conversationId: kThreadId,
+        uuid: uuid,
+        onUnexpectedError: (e, s) => reported.add(e),
+      );
+      await cubit.load();
+
+      cubit.markPeerBlocked();
+      await pumpEventQueue();
+
+      expect(cubit.state.readOnly, isTrue);
+      expect(reported, hasLength(1));
     });
   });
 }

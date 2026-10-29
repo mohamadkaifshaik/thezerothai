@@ -593,6 +593,115 @@ void main() {
         );
       });
 
+      test('delete answered NOT_FOUND counts as done: the cache is cleaned, '
+          'the count lowered and the lists told', () async {
+        await seed(requests: 2);
+        var changes = 0;
+        final sub = repo.conversationsChanged.listen((_) => changes++);
+        addTearDown(sub.cancel);
+        readAnswer = const NotFoundException('raw-not-found');
+        transport.calledProcedures.clear();
+
+        await repo.deleteConversation(
+          idempotencyKey: 'k',
+          conversationId: 'q1',
+        );
+        await pumpEventQueue();
+
+        expect(transport.calledProcedures, [_delete]);
+        final requests = await repo.cachedConversations(Folder.FOLDER_REQUESTS);
+        expect(requests.conversations.map((c) => c.id), ['q2']);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          1,
+        );
+        expect(changes, 1);
+      });
+
+      test('a delete that fails otherwise leaves the cache and the lists '
+          'alone', () async {
+        await seed(requests: 2);
+        var changes = 0;
+        final sub = repo.conversationsChanged.listen((_) => changes++);
+        addTearDown(sub.cancel);
+        readAnswer = const NetworkException('raw-socket');
+
+        await expectLater(
+          repo.deleteConversation(idempotencyKey: 'k', conversationId: 'q1'),
+          throwsA(isA<NetworkException>()),
+        );
+        await pumpEventQueue();
+
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_REQUESTS)).conversations
+              .map((c) => c.id),
+          unorderedEquals(['q1', 'q2']),
+        );
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          2,
+        );
+        expect(changes, 0);
+      });
+
+      group('dropBlockedRequest (W7-18)', () {
+        test('removes only the list row: no call, the count and the thread '
+            'stay, the lists are told', () async {
+          await seed(requests: 2);
+          msgAnswers.add(
+            thread([
+              msg(2, conversationId: 'q1'),
+              msg(1, conversationId: 'q1'),
+            ], withConversation: false),
+          );
+          await repo.refreshThread('q1');
+          transport.calledProcedures.clear();
+          var changes = 0;
+          final sub = repo.conversationsChanged.listen((_) => changes++);
+          addTearDown(sub.cancel);
+
+          await repo.dropBlockedRequest('q1');
+          await pumpEventQueue();
+
+          expect(transport.calledProcedures, isEmpty);
+          expect(
+            (await repo.cachedConversations(Folder.FOLDER_REQUESTS))
+                .conversations
+                .map((c) => c.id),
+            ['q2'],
+          );
+          expect(
+            (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+            2,
+            reason: 'the next first Inbox page corrects the count',
+          );
+          expect((await repo.cachedThread('q1')).messages, hasLength(2));
+          expect(changes, 1);
+        });
+
+        test(
+          'an inbox conversation and an unknown id are left alone',
+          () async {
+            await seed(requests: 2);
+            var changes = 0;
+            final sub = repo.conversationsChanged.listen((_) => changes++);
+            addTearDown(sub.cancel);
+
+            await repo.dropBlockedRequest('a');
+            await repo.dropBlockedRequest('nope');
+            await pumpEventQueue();
+
+            expect(
+              (await repo.cachedConversations(Folder.FOLDER_INBOX))
+                  .conversations
+                  .map((c) => c.id),
+              ['a'],
+            );
+            expect(changes, 0);
+          },
+        );
+      });
+
       test('a failed accept leaves it alone', () async {
         await seed(requests: 2);
         readAnswer = const UnknownApiException('boom');

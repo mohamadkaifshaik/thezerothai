@@ -26,6 +26,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/gestures.dart' show kSecondaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -103,6 +104,7 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(() => graphRepo.cached(any())).thenReturn(null);
+    when(() => repo.dropBlockedRequest(any())).thenAnswer((_) async {});
   });
 
   late List<String> visited;
@@ -1048,8 +1050,25 @@ void main() {
         ).called(1);
         expect(find.textContaining('wants to message you'), findsNothing);
         expect(composer(), findsOneWidget);
-        expect(find.text(kRequestAcceptedText), findsOneWidget);
+        // The composer appearing is the answer: no toast on top of it.
+        expect(find.byType(SnackBar), findsNothing);
         expect(find.byType(MessageBubble), findsWidgets);
+      });
+
+      testWidgets('NOT_FOUND makes the thread unavailable (the W7-15 rule)', (
+        tester,
+      ) async {
+        stubAccept(() async => throw const NotFoundException('raw-not-found'));
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
+        await tester.pumpAndSettle();
+
+        expect(find.text(kThreadUnavailableText), findsOneWidget);
+        expect(find.textContaining('wants to message you'), findsNothing);
+        expect(find.byKey(RequestBanner.acceptKey), findsNothing);
+        expect(composer(), findsNothing);
+        expect(poller.stops, greaterThan(0));
       });
 
       testWidgets('buttons are off and Accept spins while it runs', (
@@ -1083,13 +1102,13 @@ void main() {
       for (final (name, error, text) in <(String, AppException, String)>[
         (
           'offline',
-          const NetworkException('socket'),
+          const NetworkException('raw-socket'),
           'No connection. Check your network and try again.',
         ),
         (
-          'gone',
-          const NotFoundException('nf'),
-          "This conversation isn't available anymore.",
+          'rate limited',
+          const RateLimitedException('raw-rate-limited'),
+          "You're doing that a bit too fast. Give it a moment and try again.",
         ),
         (
           'cannot message',
@@ -1098,7 +1117,7 @@ void main() {
         ),
         (
           'flag off',
-          const FeatureDisabledException('off'),
+          const FeatureDisabledException('raw-flag-off'),
           "Messages aren't available right now.",
         ),
         (
@@ -1110,7 +1129,7 @@ void main() {
         ),
         (
           'unexpected',
-          const UnknownApiException('boom'),
+          const UnknownApiException('raw-boom'),
           "Couldn't complete that. Please try again.",
         ),
       ]) {
@@ -1145,7 +1164,7 @@ void main() {
       ) async {
         var fail = true;
         stubAccept(() async {
-          if (fail) throw const NetworkException('socket');
+          if (fail) throw const NetworkException('raw-socket');
         });
         await openRequest(tester);
 
@@ -1214,7 +1233,7 @@ void main() {
       testWidgets('a failure says why and stays on the request', (
         tester,
       ) async {
-        stubDelete(() async => throw const NetworkException('socket'));
+        stubDelete(() async => throw const NetworkException('raw-socket'));
         await openRequest(tester);
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
@@ -1234,6 +1253,89 @@ void main() {
               .onPressed,
           isNotNull,
         );
+      });
+
+      for (final (name, error, text) in <(String, AppException, String)>[
+        (
+          'rate limited',
+          const RateLimitedException('raw-rate-limited'),
+          "You're doing that a bit too fast. Give it a moment and try again.",
+        ),
+        (
+          'flag off',
+          const FeatureDisabledException('raw-flag-off'),
+          "Messages aren't available right now.",
+        ),
+        (
+          'degraded',
+          const DegradedModeException('raw-degraded-detail'),
+          'dZeroth is in a limited mode right now. You can read your '
+              'messages, but sending and changes are paused. Try again '
+              'shortly.',
+        ),
+        (
+          'unexpected',
+          const UnknownApiException('raw-boom'),
+          "Couldn't complete that. Please try again.",
+        ),
+      ]) {
+        testWidgets('$name: a friendly snackbar, the request stays', (
+          tester,
+        ) async {
+          stubDelete(() async => throw error);
+          await openRequest(tester);
+
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+          await tester.pumpAndSettle();
+
+          expect(find.text(text), findsOneWidget);
+          expect(find.textContaining(error.message), findsNothing);
+          expect(find.text('inbox page'), findsNothing);
+          expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
+        });
+      }
+
+      testWidgets('the dialog says they are not told (founder wording)', (
+        tester,
+      ) async {
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Delete'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Delete this request?'), findsOneWidget);
+        expect(
+          find.text(
+            "They won't be told. If they still can, they may message you "
+            'again.',
+          ),
+          findsOneWidget,
+        );
+        expect(kDeleteRequestDetail, isNot(contains('can show up again')));
+      });
+
+      testWidgets("the info menu's Delete on a received request asks about "
+          'the request', (tester) async {
+        await openRequest(tester);
+
+        await openMenu(tester);
+        await tester.tap(find.text('Delete conversation'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Delete this request?'), findsOneWidget);
+      });
+
+      testWidgets("the info menu's Delete on an accepted conversation asks "
+          'about the conversation', (tester) async {
+        await openRequest(tester, conversation: threadConv());
+
+        await openMenu(tester);
+        await tester.tap(find.text('Delete conversation'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Delete this conversation?'), findsOneWidget);
       });
     });
 
@@ -1280,6 +1382,106 @@ void main() {
         );
       });
 
+      testWidgets('while a block runs Accept, Delete and Block stay but are '
+          'off', (tester) async {
+        final gate = Completer<graph.Relationship>();
+        stubBlock(() => gate.future);
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pump();
+
+        // All three are still drawn, none can be pressed.
+        expect(find.byKey(RequestBanner.blockKey), findsOneWidget);
+        expect(
+          tester
+              .widget<FilledButton>(find.byKey(RequestBanner.acceptKey))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(RequestBanner.deleteKey))
+              .onPressed,
+          isNull,
+        );
+        expect(
+          tester
+              .widget<OutlinedButton>(find.byKey(RequestBanner.blockKey))
+              .onPressed,
+          isNull,
+        );
+        await tester.tap(
+          find.byKey(RequestBanner.acceptKey),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        verifyNever(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+
+        gate.complete(graph.Relationship(userId: 'u-sam', blocking: true));
+        await tester.pumpAndSettle();
+        expect(find.text(kThreadReadOnlyText), findsOneWidget);
+      });
+
+      testWidgets('after a failed block the three are on again', (
+        tester,
+      ) async {
+        stubBlock(() async => throw const NetworkException('raw-socket'));
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pumpAndSettle();
+
+        for (final key in [
+          RequestBanner.acceptKey,
+          RequestBanner.deleteKey,
+          RequestBanner.blockKey,
+        ]) {
+          final button = tester.widget<ButtonStyleButton>(find.byKey(key));
+          expect(button.onPressed, isNotNull);
+        }
+      });
+
+      testWidgets("blocking a requester drops its row from the cached "
+          'lists, with no other call', (tester) async {
+        stubBlock();
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pumpAndSettle();
+
+        verify(() => repo.dropBlockedRequest(kThreadId)).called(1);
+        verifyNever(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+      });
+
+      testWidgets('a failed block drops nothing', (tester) async {
+        stubBlock(() async => throw const NetworkException('raw-socket'));
+        await openRequest(tester);
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+        await tester.pumpAndSettle();
+
+        verifyNever(() => repo.dropBlockedRequest(any()));
+      });
+
       testWidgets('Cancel blocks nobody', (tester) async {
         await openRequest(tester);
 
@@ -1298,7 +1500,7 @@ void main() {
       });
 
       testWidgets('a failure says why; the banner stays', (tester) async {
-        stubBlock(() async => throw const NetworkException('socket'));
+        stubBlock(() async => throw const NetworkException('raw-socket'));
         await openRequest(tester);
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Block'));
@@ -1562,7 +1764,7 @@ void main() {
     testWidgets('a failed report keeps the sheet with a friendly line', (
       tester,
     ) async {
-      stubReport(() async => throw const NotFoundException('nf'));
+      stubReport(() async => throw const NotFoundException('raw-not-found'));
       await openMixed(tester);
 
       await longPressPeer(tester);
@@ -1629,6 +1831,149 @@ void main() {
       )..called(1);
       expect(call.captured[0], ReportTargetType.REPORT_TARGET_TYPE_ACCOUNT);
       expect(call.captured[1], 'u-sam');
+    });
+
+    testWidgets('a deleted-account peer has no user id: Report is off in the '
+        'info menu', (tester) async {
+      stubReport();
+      final gone = threadConv().deepCopy()
+        ..peer.userId = ''
+        ..peer.handle = ''
+        ..peer.displayName = 'Deleted account'
+        ..canReply = false;
+      current = snap(mixed(), conversation: gone);
+      await open(tester, onReport: reportConversationPeer);
+
+      await openMenu(tester);
+      expect(find.text('Report'), findsOneWidget);
+      await tester.tap(find.text('Report'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Send report'), findsNothing);
+      verifyNever(
+        () => moderation.report(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          targetType: any(named: 'targetType'),
+          targetId: any(named: 'targetId'),
+          reason: any(named: 'reason'),
+          note: any(named: 'note'),
+        ),
+      );
+    });
+
+    testWidgets('already reported: the sheet says so and no toast follows', (
+      tester,
+    ) async {
+      stubReport(
+        () async => const ReportReceipt(reportId: 'r', alreadyReported: true),
+      );
+      await openMixed(tester);
+
+      await longPressPeer(tester);
+      await tester.tap(find.text(kReportMessageLabel));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text("It's spam"));
+      await tester.pump();
+      await tester.ensureVisible(sendButton());
+      await tester.pumpAndSettle();
+      await tester.tap(sendButton());
+      await tester.pumpAndSettle();
+      expect(find.text("You've already reported this"), findsOneWidget);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kReportSentText), findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    group('keyboard', () {
+      Finder ring() => find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.position == DecorationPosition.foreground &&
+            (w.decoration as BoxDecoration).border != null,
+      );
+
+      Future<void> tabToPeerBubble(WidgetTester tester) async {
+        for (var i = 0; i < 40 && ring().evaluate().isEmpty; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+        }
+        expect(ring(), findsOneWidget, reason: 'Tab reaches the bubble');
+      }
+
+      testWidgets('only the peer\'s visible message is a tab stop, with a '
+          'visible ring', (tester) async {
+        await openMixed(tester);
+
+        // The caller's own message and the tombstone are not reportable.
+        expect(find.byType(FocusableActionDetector), findsOneWidget);
+        expect(ring(), findsNothing);
+
+        await tabToPeerBubble(tester);
+        final border =
+            (tester.widget<DecoratedBox>(ring()).decoration as BoxDecoration)
+                .border!
+                .top;
+        expect(
+          border.color,
+          Theme.of(tester.element(bubble(peerMessageId))).colorScheme.primary,
+        );
+        expect(border.width, 2);
+      });
+
+      for (final (name, send)
+          in <(String, Future<void> Function(WidgetTester))>[
+            (
+              'Shift+F10',
+              (tester) async {
+                await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+                await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+                await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+              },
+            ),
+            (
+              'the context-menu key',
+              (tester) => tester.sendKeyEvent(LogicalKeyboardKey.contextMenu),
+            ),
+            (
+              'Enter',
+              (tester) => tester.sendKeyEvent(LogicalKeyboardKey.enter),
+            ),
+          ]) {
+        testWidgets('$name on the focused bubble opens the report menu and '
+            'the sheet', (tester) async {
+          stubReport();
+          await openMixed(tester);
+          await tabToPeerBubble(tester);
+
+          await send(tester);
+          await tester.pumpAndSettle();
+          expect(find.text(kReportMessageLabel), findsOneWidget);
+
+          // The menu opens at the bubble, not at a corner of the screen.
+          final item = tester.getRect(find.text(kReportMessageLabel));
+          final target = tester.getRect(bubble(peerMessageId));
+          expect((item.center.dy - target.center.dy).abs(), lessThan(200));
+
+          await tester.tap(find.text(kReportMessageLabel));
+          await tester.pumpAndSettle();
+          expect(find.text("Report @sam's message"), findsOneWidget);
+        });
+      }
+
+      testWidgets('with reports off the bubble is not a tab stop and the '
+          'keys do nothing', (tester) async {
+        await openMixed(tester, features: const {'messaging', 'graph'});
+
+        expect(find.byType(FocusableActionDetector), findsNothing);
+        for (var i = 0; i < 10; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.contextMenu);
+        await tester.pumpAndSettle();
+        expect(find.text(kReportMessageLabel), findsNothing);
+      });
     });
   });
 

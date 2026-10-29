@@ -75,7 +75,12 @@ Future<void> reportConversationPeer(
 }
 
 void _thank(ScaffoldMessengerState messenger, ReportOutcome outcome) {
-  if (outcome == ReportOutcome.cancelled) return;
+  // Cancelled: nothing was sent. Already reported: the sheet said so (the
+  // server had it), so no toast on top of that.
+  if (outcome == ReportOutcome.cancelled ||
+      outcome == ReportOutcome.alreadyReported) {
+    return;
+  }
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(const SnackBar(content: Text(kReportSentText)));

@@ -212,6 +212,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text("You've already reported this"), findsOneWidget);
+
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(outcome, ReportOutcome.alreadyReported);
+  });
+
+  testWidgets('swiping the sheet away after "already reported" says so too', (
+    tester,
+  ) async {
+    stubReport(
+      () async => const ReportReceipt(reportId: 'r', alreadyReported: true),
+    );
+    await openSheet(tester);
+    await tester.tap(find.text("It's spam"));
+    await tester.pump();
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(outcome, ReportOutcome.alreadyReported);
+  });
+
+  testWidgets('the block follow-up still closes with blockRequested when it '
+      'was already reported', (tester) async {
+    stubReport(
+      () async => const ReportReceipt(reportId: 'r', alreadyReported: true),
+    );
+    await openSheet(tester, blockLabel: 'Block @alice');
+    await tester.tap(find.text("It's spam"));
+    await tester.pump();
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Block @alice'));
+    await tester.pumpAndSettle();
+
+    expect(outcome, ReportOutcome.blockRequested);
   });
 
   testWidgets('the block follow-up closes with blockRequested', (tester) async {

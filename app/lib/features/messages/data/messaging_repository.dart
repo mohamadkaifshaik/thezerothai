@@ -443,23 +443,42 @@ class MessagingRepository {
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
-  /// Not globally off is enough. Everything cached for it is removed.
+  /// Not globally off is enough. Everything cached for it is removed. A
+  /// NOT_FOUND answer counts as done (it is already gone for the caller), so
+  /// the cache is cleaned and the lists are told the same way.
   Future<void> deleteConversation({
     required String idempotencyKey,
     required String conversationId,
   }) async {
     final session = _store.session;
     final wasRequest = await _isRequest(conversationId);
-    await _gate.runRead(
-      () => _apiClient.messaging.deleteConversation(
-        pb.DeleteConversationRequest(
-          idempotencyKey: idempotencyKey,
-          conversationId: conversationId,
+    try {
+      await _gate.runRead(
+        () => _apiClient.messaging.deleteConversation(
+          pb.DeleteConversationRequest(
+            idempotencyKey: idempotencyKey,
+            conversationId: conversationId,
+          ),
         ),
-      ),
-    );
+      );
+    } on NotFoundException {
+      // Already gone for the caller (deleted elsewhere, or never theirs): the
+      // goal of the call is met, so clean the cache the same way.
+    }
     await _store.removeConversation(conversationId);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+    _notifyConversationsChanged();
+  }
+
+  /// The caller blocked the sender of a received request (W7-18): drops its row
+  /// from the cached lists at once (no RPC), because a `since` refresh never
+  /// removes a row and the server hides blocked requesters only on read. Its
+  /// messages and thread state stay, so the open thread keeps working. The
+  /// persisted request count is left for the next first Inbox page to correct.
+  /// A conversation that is not a cached request is left alone.
+  Future<void> dropBlockedRequest(String conversationId) async {
+    if (!await _isRequest(conversationId)) return;
+    await _store.removeConversationEntry(conversationId);
     _notifyConversationsChanged();
   }
 

@@ -253,6 +253,15 @@ class MessagingStore {
     });
   }
 
+  /// Removes only [id]'s row from the cached lists; its messages and thread
+  /// state stay (W7-18: a blocked requester's open thread keeps working).
+  /// Unguarded on purpose: removing rows can never leak data.
+  Future<void> removeConversationEntry(String id) {
+    return (_db.delete(
+      _db.conversationEntries,
+    )..where((t) => t.conversationId.equals(id))).go();
+  }
+
   /// Removes [id] and everything cached for it (after DeleteConversation).
   /// Unguarded on purpose: removing rows can never leak data.
   Future<void> removeConversation(String id) {

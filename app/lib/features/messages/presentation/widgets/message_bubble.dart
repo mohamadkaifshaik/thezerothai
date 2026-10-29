@@ -1,12 +1,14 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/format/scheduled_time.dart';
+import '../../../../shared/widgets/browser_context_menu_guard.dart';
 import '../../../posts/domain/post_text_parser.dart';
 import 'conversation_row.dart';
 
@@ -151,11 +153,7 @@ class MessageBubble extends StatelessWidget {
     );
     final report = onReport;
     if (report != null) {
-      bubble = GestureDetector(
-        onLongPressStart: (d) => report(d.globalPosition & Size.zero),
-        onSecondaryTapUp: (d) => report(d.globalPosition & Size.zero),
-        child: bubble,
-      );
+      bubble = _ReportableBubble(onReport: report, shape: shape, child: bubble);
     }
 
     return Padding(
@@ -229,6 +227,83 @@ Rect _globalRect(BuildContext context) {
   final box = context.findRenderObject();
   if (box is! RenderBox || !box.hasSize) return Rect.zero;
   return box.localToGlobal(Offset.zero) & box.size;
+}
+
+class _ReportIntent extends Intent {
+  const _ReportIntent();
+}
+
+/// The ways to ask for the report menu on a peer's bubble (W7-18): a long press
+/// or a secondary click anywhere on it, and from the keyboard Shift+F10, the
+/// context-menu key or Enter while the bubble has focus.
+///
+/// - Focus: the bubble is a tab stop only while it is reportable (this widget
+///   exists only then, so a caller's own messages and tombstones never take
+///   focus); a 2dp ring in the accent shows keyboard focus and nothing shows on
+///   a pointer press.
+/// - The browser's own right-click menu is switched off while the pointer is
+///   over the bubble ([BrowserContextMenuGuard]) so it does not open on top of
+///   ours; the page's text fields keep it.
+class _ReportableBubble extends StatefulWidget {
+  const _ReportableBubble({
+    required this.onReport,
+    required this.shape,
+    required this.child,
+  });
+
+  final void Function(Rect anchor) onReport;
+  final BorderRadiusGeometry shape;
+  final Widget child;
+
+  @override
+  State<_ReportableBubble> createState() => _ReportableBubbleState();
+}
+
+class _ReportableBubbleState extends State<_ReportableBubble> {
+  static const _shortcuts = <ShortcutActivator, Intent>{
+    SingleActivator(LogicalKeyboardKey.f10, shift: true): _ReportIntent(),
+    SingleActivator(LogicalKeyboardKey.contextMenu): _ReportIntent(),
+    SingleActivator(LogicalKeyboardKey.enter): _ReportIntent(),
+    SingleActivator(LogicalKeyboardKey.numpadEnter): _ReportIntent(),
+  };
+
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final report = widget.onReport;
+    return BrowserContextMenuGuard(
+      child: FocusableActionDetector(
+        shortcuts: _shortcuts,
+        actions: {
+          _ReportIntent: CallbackAction<_ReportIntent>(
+            onInvoke: (_) {
+              report(_globalRect(context));
+              return null;
+            },
+          ),
+        },
+        onShowFocusHighlight: (value) => setState(() => _focused = value),
+        child: GestureDetector(
+          onLongPressStart: (d) => report(d.globalPosition & Size.zero),
+          onSecondaryTapUp: (d) => report(d.globalPosition & Size.zero),
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: BoxDecoration(
+              borderRadius: widget.shape,
+              border: _focused
+                  ? Border.all(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 2,
+                    )
+                  : null,
+            ),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A message body: [parsePostText] spans where only links are tappable (the

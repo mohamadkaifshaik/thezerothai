@@ -36,12 +36,14 @@ class ThreadRequestActions {
     this.block,
     this.accepting = false,
     this.deleting = false,
+    this.blocking = false,
   });
 
   final VoidCallback accept;
   final VoidCallback delete;
 
-  /// Null hides Block (the `graph` flag is off for the caller).
+  /// Null hides Block (the `graph` flag is off for the caller). While a block
+  /// runs ([blocking]) it stays visible and, like the others, off.
   final VoidCallback? block;
 
   /// AcceptMessageRequest is in flight.
@@ -50,7 +52,10 @@ class ThreadRequestActions {
   /// DeleteConversation is in flight.
   final bool deleting;
 
-  bool get busy => accepting || deleting;
+  /// The block flow (confirmation, then the graph call) is running.
+  final bool blocking;
+
+  bool get busy => accepting || deleting || blocking;
 }
 
 /// The `ThreadScreen.bannerBuilder` the router passes: the received-request
@@ -82,8 +87,9 @@ String requestPeerName(String displayName, String handle) =>
 ///
 /// - Accept is the filled action; Delete and Block are outlined, Block in the
 ///   error colour. All three are 48dp and wrap at a large text scale.
-/// - While Accept or Delete runs, the three are off and Accept shows a
-///   spinner. Nothing is retried by itself.
+/// - While Accept, Delete or Block runs, the three are off (Block stays
+///   visible) and Accept shows a spinner, labelled "Accepting" for assistive
+///   technology. Nothing is retried by itself.
 /// - A live region, so the banner is announced when it appears; the buttons
 ///   are read in the order Accept, Delete, Block.
 class RequestBanner extends StatelessWidget {
@@ -139,7 +145,10 @@ class RequestBanner extends StatelessWidget {
                       ? const SizedBox(
                           width: AppIconSize.md,
                           height: AppIconSize.md,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            semanticsLabel: 'Accepting',
+                          ),
                         )
                       : const Text('Accept'),
                 ),
