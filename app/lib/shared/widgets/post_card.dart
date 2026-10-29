@@ -9,6 +9,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/network/app_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
+import '../../features/engagement/domain/engagement_entry.dart';
+import '../../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../../features/engagement/presentation/widgets/post_engagement_bar.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
@@ -244,21 +246,42 @@ class PostCard extends StatelessWidget {
         ? null
         : _placeholderFor(context, embedded);
     if (isRepost && placeholder != null) {
+      // The caller's own REPOST of a protected author they can no longer see
+      // (W3-41b): the box carries Undo repost, acting on the original's id,
+      // and the row has no menu (nothing else applies to it).
+      final undoable =
+          placeholder == EmbedPlaceholder.protected &&
+          canUndoProtectedRepost(
+            view,
+            viewerUserId: viewerUserId,
+            engagementEnabled: engagementEnabled,
+          );
       return _RepostPlaceholder(
         reposter: _post.author,
         isOwn: _isOwn,
         placeholder: placeholder,
         original: embedded!.author,
-        menu: _PostMenu(
-          post: _post,
-          isOwn: _isOwn,
-          target: _menuTarget(),
-          graphActionsEnabled: graphActionsEnabled,
-          reportsEnabled: reportsEnabled,
-          onDelete: onDelete,
-          pinControl: pinControl,
-          onRelationshipChanged: onRelationshipChanged,
-        ),
+        onUndo: undoable
+            ? () => unawaited(
+                context.read<EngagementCubit>().setReposted(
+                  embedded.postId,
+                  reposted: false,
+                  shown: EngagementEntry.fromView(view),
+                ),
+              )
+            : null,
+        menu: undoable
+            ? const SizedBox.shrink()
+            : _PostMenu(
+                post: _post,
+                isOwn: _isOwn,
+                target: _menuTarget(),
+                graphActionsEnabled: graphActionsEnabled,
+                reportsEnabled: reportsEnabled,
+                onDelete: onDelete,
+                pinControl: pinControl,
+                onRelationshipChanged: onRelationshipChanged,
+              ),
       );
     }
     // A REPOST shows the original it points to (its frozen snapshot).
@@ -542,6 +565,7 @@ class _RepostPlaceholder extends StatelessWidget {
     required this.placeholder,
     required this.original,
     required this.menu,
+    this.onUndo,
   });
 
   final common.AuthorSnapshot reposter;
@@ -553,6 +577,9 @@ class _RepostPlaceholder extends StatelessWidget {
 
   /// Actions on the repost itself (the hidden original gets none).
   final Widget menu;
+
+  /// Undo repost on the caller's own protected REPOST (W3-41b); null: none.
+  final VoidCallback? onUndo;
 
   @override
   Widget build(BuildContext context) {
@@ -572,7 +599,13 @@ class _RepostPlaceholder extends StatelessWidget {
               start: AppSpacing.minTapTarget + AppSpacing.sm,
             ),
             child: placeholder == EmbedPlaceholder.protected
-                ? ProtectedPostBox(author: original)
+                ? ProtectedPostBox(
+                    author: original,
+                    actionLabel: onUndo == null ? null : 'Undo repost',
+                    actionSemanticLabel:
+                        "Undo repost of @${original.handle}'s post",
+                    onAction: onUndo,
+                  )
                 : UnavailablePostBox(
                     message: EmbeddedPostCard.placeholderMessage(placeholder),
                   ),
