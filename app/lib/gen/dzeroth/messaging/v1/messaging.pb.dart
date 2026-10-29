@@ -169,7 +169,9 @@ class Conversation extends $pb.GeneratedMessage {
   MessagePreview ensureLastMessage() => $_ensure(5);
 
   /// Unread messages for the caller. Does not grow while silent. In ListMessages it is filled on the first page only
-  /// (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry).
+  /// (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry),
+  /// except for up to 60 s after a request was accepted on another server instance: its cached copy of the conversation
+  /// can still point at the Requests entry, the read misses and answers 0.
   @$pb.TagNumber(7)
   $fixnum.Int64 get unreadCount => $_getI64(6);
   @$pb.TagNumber(7)
@@ -1463,7 +1465,8 @@ class MessagingServiceApi {
   /// from the caller graph, 60 s) and UNSET on a since response, so a poll reads no peer profile or graph.
   /// On the first page only, conversation.unread_count and conversation.silent come from the caller's own entry (0 and
   /// false when it is gone); on an older page they are unset. When the peer blocked the caller, conversation.peer is the
-  /// snapshot frozen on the caller's entry, not the live profile ("Deleted account" on an older page).
+  /// snapshot frozen on the caller's entry, not the live profile ("Deleted account" on an older page or when the entry is
+  /// gone), and can_reply is false.
   /// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
   /// gap_page_token (bounded below by the old since_token).
   /// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
