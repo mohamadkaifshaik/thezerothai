@@ -341,7 +341,7 @@ Prices (§7):
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | In review (PR pending) |
-| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
+| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | In review (PR #445) |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Done (#406, #413) |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Done (#414) |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
@@ -657,7 +657,7 @@ Order:
 - **Flag.** `messaging` per caller.
 - **Seam.** `identity.MessageBadge`: identity never imports messaging.
 
-### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: Open
+### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: In review (PR #445)
 - **Description.**
   - `ReportContent(target_type = MESSAGE, target_id = "<convId>:<msgId>")`. The moderation module asks a consumer-side `moderation.MessageLookup` (implemented by messaging) whether the caller is a participant and the message is the peer's and VISIBLE, and gets the evidence `{text, senderHandle, createdAt}`.
   - Otherwise NOT_FOUND (one message); your own message → VALIDATION `target_id`.
