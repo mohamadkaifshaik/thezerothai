@@ -341,19 +341,21 @@ Prices (§7):
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Done (#443) |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Done (#437) |
-| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | In review (PR #445) |
+| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Done (#445) |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Done (#406, #413) |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Done (#414) |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
-| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
-| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | In review (PR #441) |
+| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | In review (PR #442) |
+| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
+| W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
+| W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
 
 Order:
@@ -577,6 +579,7 @@ Order:
 - **Budget.** 23 worst / 9 planning cold page; 2 refresh; writes 0.
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListConversations`; the folder is an enum, so an "archived" folder is additive.
+- **Built (note added with W7-18, PR #442).** `conversationOf` derives the state from the folder (the entry holds none, and a conversation read per row would break the budget): `dmRequests` is REQUEST, `dmInbox` is ACCEPTED. So a sender's own pending request, which lives in their `dmInbox`, reads ACCEPTED in their Inbox list. `ListMessages.conversation` (W7-8) does carry REQUEST with folder INBOX for the sender, on a first or older page only. Tracked as W7-25.
 
 ### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: Done (#438)
 - **Description.**
@@ -658,7 +661,7 @@ Order:
 - **Flag.** `messaging` per caller.
 - **Seam.** `identity.MessageBadge`: identity never imports messaging.
 
-### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: In review (PR #445)
+### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: Done (#445)
 - **Description.**
   - `ReportContent(target_type = MESSAGE, target_id = "<convId>:<msgId>")`. The moderation module asks a consumer-side `moderation.MessageLookup` (implemented by messaging) whether the caller is a participant and the message is the peer's and VISIBLE, and gets the evidence `{text, senderHandle, createdAt}`.
   - Otherwise NOT_FOUND (one message); your own message → VALIDATION `target_id`.
@@ -779,7 +782,7 @@ Order:
 - **Flag.** `messaging` per caller; `search` optional; `graph` for the Following list.
 - **Seam.** `RecipientPicker` depends on a `PeopleSource` interface (Following now, search when present), so the W4 dependency is optional.
 
-### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Open
+### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: In review (PR #442)
 - **Description.**
   - In a request thread, a bottom banner "<name> wants to message you" with **Accept**, **Delete** and **Block**. Accept calls AcceptMessageRequest; Delete calls DeleteConversation and returns to the list; Block uses the existing `showBlockConfirmationDialog` + `GraphRepository.block`.
   - A long press or overflow on a peer bubble → "Report message" (the existing report sheet with `target_type = MESSAGE`; only when `reports` is on).
@@ -793,8 +796,10 @@ Order:
 - **Budget.** About 0.05 per DAU.
 - **Flag.** `messaging` (Accept per caller, Delete not globally off), `reports`.
 - **Seam.** Reuses the report sheet and the block dialog; no second implementation.
+- **Built (W7-18, PR #442).** `request_banner.dart` (`RequestBanner`, `SentRequestNote`, `ThreadRequestActions`), `report_conversation.dart`, `ThreadCubit.acceptRequest`, `MessagingRepository.conversationsChanged` and `dropBlockedRequest`, `MessageBubble.onReport` (long press, secondary click, Shift+F10, the context-menu key, Enter, and an assistive action), `BrowserContextMenuGuard`, `ReportSheet.detail` and `ReportOutcome.alreadyReported`. Founder answers of 2026-10-29: the Delete confirmation stays (wording: "They won't be told. If they still can, they may message you again."), there is no "Request accepted" toast (the composer appearing is the answer), "Request deleted" stays, and the sender's waiting note ships as best effort. **Gap (W7-25):** the note is drawn for REQUEST in INBOX, which only the `ListMessages` header reports (first or older page), never `ListConversations`. It therefore disappears when the sender reopens the thread (the cached row reads ACCEPTED) and stays after the peer accepts (a `since` poll carries no header). **F6(a) gap (W7-26):** the whole screen is hidden when `messaging` is off for the caller, so Delete and Report are not reachable for such a caller.
+  **Follow-up (PR #442 R1, no ticket yet):** after `dropBlockedRequest` a reopened thread (web back/forward or a typed URL) has no header, so it shows no Delete or Report and the composer appears; a full reload brings the row back into Requests. Suggested fix: rewrite the row with `canReply = false` instead of deleting it, and have `readConversations(FOLDER_REQUESTS)` skip `!canReply` rows.
 
-### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: In review (PR #441)
+### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: Done (#441)
 - **Description.**
   - A "Messages" destination in `MainShell` (F10): the bar, the rail and its position after Notifications, with a filled glyph when selected. It needs `messaging` + `ui_shell`; the legacy chrome gets an entry in Settings only.
   - **`MessagesBadgeCubit`**, separate from `UnreadBadgeCubit`: seeded from `GetMe.unread_conversation_count`, incremented locally by a foreground message push for a conversation that is not open, cleared per conversation on open. **A message push never touches `UnreadBadgeCubit`.**
@@ -906,6 +911,33 @@ Order:
 - **Budget.** A few hundred reads inside the dev project's free quota.
 - **Flag.** Dev: `feature_messaging` allowlist (3 uids); prod stays `off`.
 - **Seam.** —
+
+### W7-25 — Request state for the sender  [owner: architect, then backend-developer] [size: S] [depends: W7-7, W7-9]  Status: Open
+- **Description.**
+  - Problem: `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. The note disappears when the sender reopens the thread and stays after the peer accepts.
+  - Options for the architect: store `state` on the requester's `dmInbox` entry (+1 write on Accept, to flip it), or return it in `ListConversations`.
+  - Then the client reads the state from the list row and the header alike (no new client heuristic).
+- **Acceptance criteria.**
+  - Given a pending request, then the sender's Inbox row and thread header both read REQUEST, also after a reopen.
+  - Given the peer accepts, then the sender's next refresh reads ACCEPTED and the note goes.
+- **Test notes.** A contract test on the list and the header; a client test that the note follows the row.
+- **Observability.** —
+- **Budget.** Decided by the architect (the first option adds 1 write per Accept).
+- **Flag.** `messaging`.
+- **Seam.** `messaging.Service`; `conversationOf` stays the one mapper.
+
+### W7-26 — Client honours F6(a) for the clean-up RPCs  [owner: architect, then frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Open
+- **Description.**
+  - Problem: the app hides all of Messages when `messaging` is off for the caller (the `/messages` routes redirect Home, the thread shows "Messages aren't available yet"), but F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
+  - The architect decides: a contract signal (for example an additive `GetMe` field), or trying the call through `MessagingFeatureGate.runRead`. Then fix the W7-14 and W7-15 routing and screen gates.
+- **Acceptance criteria.**
+  - Given `messaging` off for the caller but not globally, then the caller can still open an existing conversation to delete it or report a message, and cannot send or accept.
+  - Given `messaging` off for everyone, then Messages stays hidden.
+- **Test notes.** Widget tests on the routes and the thread for both cases.
+- **Observability.** —
+- **Budget.** 0 (client only), unless the contract signal adds a field.
+- **Flag.** `messaging` (per caller and globally).
+- **Seam.** `MessagingFeatureGate`.
 
 ### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: Open
 - **Why.** Found in the #441 review (W7-19 F-5). `ListMessages` carries the conversation header (identity, peer, state, folder, `can_reply`) but not the caller's entry, so a thread opened cold (a push tap, a deep link, nothing cached) cannot tell that the conversation was unread. The client then cannot take it out of the Messages badge, which keeps its number until the next Inbox load or `GetMe`. The client side is already in W7-19: the cold open merges the header into the cached row, so a cached `unread_count` survives.

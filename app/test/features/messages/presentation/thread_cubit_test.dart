@@ -4,6 +4,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
+import 'package:dzeroth/features/messages/domain/thread_push_coverage.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -56,6 +57,7 @@ void main() {
     repo = MockMessagingRepository();
     poller = FakeThreadPoller();
     uuid = _SeqUuid();
+    when(() => repo.dropBlockedRequest(any())).thenAnswer((_) async {});
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(
       () => repo.markConversationRead(
@@ -736,6 +738,206 @@ void main() {
       },
     );
 
+    test('a successful delete clears the key: a later delete gets a fresh '
+        'one', () async {
+      when(
+        () => repo.deleteConversation(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) async {});
+      make();
+
+      expect(await cubit.deleteConversation(), isNull);
+      expect(await cubit.deleteConversation(), isNull);
+
+      final keys = verify(
+        () => repo.deleteConversation(
+          idempotencyKey: captureAny(named: 'idempotencyKey'),
+          conversationId: kThreadId,
+        ),
+      ).captured;
+      expect(keys, ['key-1', 'key-2']);
+    });
+
+    test(
+      'a failure after a success still reuses its own key on retry',
+      () async {
+        var calls = 0;
+        when(
+          () => repo.deleteConversation(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 2) throw const NetworkException('raw-offline');
+        });
+        make();
+
+        expect(await cubit.deleteConversation(), isNull); // key-1
+        expect(
+          await cubit.deleteConversation(),
+          isA<NetworkException>(),
+        ); // key-2
+        expect(await cubit.deleteConversation(), isNull); // key-2 again
+
+        final keys = verify(
+          () => repo.deleteConversation(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).captured;
+        expect(keys, ['key-1', 'key-2', 'key-2']);
+      },
+    );
+
+    group('acceptRequest (W7-18)', () {
+      pb.Conversation received() =>
+          threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST)
+              .deepCopy()
+            ..folder = Folder.FOLDER_REQUESTS;
+
+      void stubAccept(Future<void> Function() answer) => when(
+        () => repo.acceptMessageRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) => answer());
+
+      test('moves the header to an accepted inbox conversation', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        stubAccept(() async {});
+        make();
+        await cubit.load();
+        expect(cubit.state.conversation!.folder, Folder.FOLDER_REQUESTS);
+
+        final error = await cubit.acceptRequest();
+
+        expect(error, isNull);
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_ACCEPTED,
+        );
+        expect(cubit.state.conversation!.folder, Folder.FOLDER_INBOX);
+        expect(cubit.state.accepting, isFalse);
+        verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: 'key-1',
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+      });
+
+      test('a failure returns the error, keeps the request, retries with the '
+          'same key', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        var fail = true;
+        stubAccept(() async {
+          if (fail) throw const NetworkException('offline');
+        });
+        make();
+        await cubit.load();
+
+        expect(await cubit.acceptRequest(), isA<NetworkException>());
+        expect(cubit.state.accepting, isFalse);
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_REQUEST,
+        );
+
+        fail = false;
+        expect(await cubit.acceptRequest(), isNull);
+        final keys = verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: captureAny(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).captured;
+        expect(keys, ['key-1', 'key-1']);
+      });
+
+      test('after Accept the push coverage rule sees an accepted inbox '
+          'conversation, so the poller moves to its 30 s hot interval at the '
+          'next schedule (no extra request)', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        stubAccept(() async {});
+        make();
+        await cubit.load();
+        bool covered() => pushCoversThread(
+          deviceRegistered: true,
+          notificationsEnabled: true,
+          conversation: cubit.state.conversation,
+        );
+        expect(covered(), isFalse, reason: 'a request polls at 15 s');
+        clearInteractions(repo);
+        stubAccept(() async {});
+
+        await cubit.acceptRequest();
+
+        expect(covered(), isTrue);
+        verifyNever(() => repo.refreshThread(any()));
+      });
+
+      test(
+        'NOT_FOUND returns the error and makes the thread unavailable',
+        () async {
+          stubOpen(
+            snap(thread(1), conversation: received()),
+            snap(thread(1), conversation: received()),
+          );
+          stubAccept(
+            () async => throw const NotFoundException('raw-not-found'),
+          );
+          make();
+          await cubit.load();
+          final stopsBefore = poller.stops;
+
+          final error = await cubit.acceptRequest();
+
+          expect(error, isA<NotFoundException>());
+          expect(cubit.state.status, ThreadStatus.unavailable);
+          expect(cubit.state.accepting, isFalse);
+          expect(poller.stops, greaterThan(stopsBefore));
+        },
+      );
+
+      test('a second tap while it runs sends '
+          'nothing', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        final gate = Completer<void>();
+        stubAccept(() => gate.future);
+        make();
+        await cubit.load();
+
+        final first = cubit.acceptRequest();
+        await pumpEventQueue();
+        expect(cubit.state.accepting, isTrue);
+        expect(await cubit.acceptRequest(), isNull);
+        gate.complete();
+        await first;
+
+        verify(
+          () => repo.acceptMessageRequest(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: kThreadId,
+          ),
+        ).called(1);
+      });
+    });
+
     test('blocking the peer makes the thread read-only at once', () async {
       stubOpen(snap(thread(1)), snap(thread(1)));
       make();
@@ -745,6 +947,41 @@ void main() {
       cubit.markPeerBlocked();
 
       expect(cubit.state.readOnly, isTrue);
+    });
+
+    test('blocking asks the repository to drop a requester\'s cached row '
+        'once', () async {
+      stubOpen(snap(thread(1)), snap(thread(1)));
+      make();
+      await cubit.load();
+
+      cubit.markPeerBlocked();
+      cubit.markPeerBlocked();
+      await pumpEventQueue();
+
+      verify(() => repo.dropBlockedRequest(kThreadId)).called(1);
+    });
+
+    test('a failing cache drop is reported, not thrown, and the thread is '
+        'still read-only', () async {
+      stubOpen(snap(thread(1)), snap(thread(1)));
+      when(() => repo.dropBlockedRequest(any()))
+          .thenAnswer((_) async => throw StateError('raw-disk'));
+      final reported = <Object>[];
+      cubit = ThreadCubit(
+        repository: repo,
+        poller: poller,
+        conversationId: kThreadId,
+        uuid: uuid,
+        onUnexpectedError: (e, s) => reported.add(e),
+      );
+      await cubit.load();
+
+      cubit.markPeerBlocked();
+      await pumpEventQueue();
+
+      expect(cubit.state.readOnly, isTrue);
+      expect(reported, hasLength(1));
     });
   });
 }

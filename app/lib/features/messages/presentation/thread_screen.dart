@@ -21,6 +21,7 @@ import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/app_menu_item_row.dart';
 import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/post_card.dart' show launchPostLink;
+import '../../moderation/domain/reports_feature_flag.dart';
 import '../../graph/data/graph_repository.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../graph/presentation/bloc/relationship_cubit.dart';
@@ -38,9 +39,11 @@ import 'bloc/message_composer_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'bloc/thread_cubit.dart';
 import 'messaging_error_messages.dart';
+import 'report_conversation.dart';
 import 'thread_items.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/outgoing_bubble.dart';
+import 'widgets/request_banner.dart';
 import 'widgets/thread_push_scope.dart';
 
 /// The line that replaces the composer on a read-only conversation.
@@ -50,6 +53,15 @@ const kThreadReadOnlyText = "You can't reply to this conversation";
 /// conversation alike.
 const kThreadUnavailableText = "This conversation isn't available";
 
+/// The toast after a request was deleted (W7-18), as W7-15's "Conversation
+/// deleted". Accept has none: the composer appearing is the answer.
+const kRequestDeletedText = 'Request deleted';
+
+/// What the "Delete this request?" dialog says (founder-approved wording): the
+/// sender is not told, and a sender who can still send may message again.
+const kDeleteRequestDetail =
+    "They won't be told. If they still can, they may message you again.";
+
 /// How close to the newest message (dp) still counts as "at the bottom".
 const double kThreadAtBottomSlack = 24;
 
@@ -58,6 +70,16 @@ const double kThreadAtBottomSlack = 24;
 typedef ThreadPollerBuilder = ThreadPoller Function(
   Future<PollResult> Function() pull,
   MessagingRepository repository,
+);
+
+/// Builds the request area at the bottom of a conversation (W7-18): the
+/// received-request banner (it replaces the composer), the sender's waiting
+/// note (above the composer), or null for none. [actions] is what its buttons
+/// call.
+typedef ThreadBannerBuilder = Widget? Function(
+  BuildContext context,
+  pb.Conversation conversation,
+  ThreadRequestActions actions,
 );
 
 /// `/messages/:id` (W7-15, ADR-0027 D7, D11, D14): one conversation.
@@ -73,7 +95,11 @@ typedef ThreadPollerBuilder = ThreadPoller Function(
 ///   "New messages" pill. MarkConversationRead runs on open and when messages
 ///   arrive while visible, only with unread above 0.
 /// - Info menu: Block (the graph flow), Report (the [onReport] seam, W7-18;
-///   disabled until it is wired) and Delete conversation.
+///   hidden with `reports` off, disabled until it is wired) and Delete
+///   conversation.
+/// - A long press on a peer's visible bubble offers "Report message" (W7-18,
+///   `reports` on): the shared report sheet with the message target; the
+///   thread does not change.
 /// - Read-only (`can_reply` false, or a send answered CANNOT_MESSAGE): no
 ///   composer, the line [kThreadReadOnlyText].
 /// - Sends (W7-16): a [MessageComposerCubit] is provided next to the
@@ -84,9 +110,12 @@ typedef ThreadPollerBuilder = ThreadPoller Function(
 /// Seams for later tickets:
 /// - [composerBuilder] (W7-16) draws the composer under the list when the
 ///   conversation can be replied to (the router passes a `MessageComposer`).
-/// - [bannerBuilder] (W7-18) draws the request banner between the header and
-///   the list.
-/// - [onReport] (W7-18) opens the report sheet.
+/// - [bannerBuilder] (W7-18) draws the request area at the bottom: the
+///   "`name` wants to message you" banner with Accept, Delete and Block
+///   replaces the composer of a received request; the sender's waiting note
+///   sits above the composer. Accept moves the conversation to the Inbox and
+///   the composer appears.
+/// - [onReport] (W7-18) opens the report sheet for the peer's account.
 /// - The cubit is provided above [ThreadScreen]'s view, so `ThreadCubit`
 ///   methods (`onPush` for W7-19) can be reached with `context.read`.
 class ThreadScreen extends StatelessWidget {
@@ -110,12 +139,11 @@ class ThreadScreen extends StatelessWidget {
   final Widget Function(BuildContext context, pb.Conversation? conversation)?
   composerBuilder;
 
-  /// W7-18: the request banner above the list (null for none).
-  final Widget? Function(BuildContext context, pb.Conversation conversation)?
-  bannerBuilder;
+  /// W7-18: the request banner or note at the bottom (null for none).
+  final ThreadBannerBuilder? bannerBuilder;
 
-  /// W7-18: opens the report flow for the peer. Null leaves "Report" in the
-  /// menu disabled.
+  /// W7-18: opens the report flow for the peer's account. Null leaves "Report"
+  /// in the menu disabled (with `reports` off the item is not shown at all).
   final void Function(BuildContext context, pb.Conversation conversation)?
   onReport;
 
@@ -218,7 +246,7 @@ class _ThreadView extends StatefulWidget {
   });
 
   final Widget Function(BuildContext, pb.Conversation?)? composerBuilder;
-  final Widget? Function(BuildContext, pb.Conversation)? bannerBuilder;
+  final ThreadBannerBuilder? bannerBuilder;
   final void Function(BuildContext, pb.Conversation)? onReport;
   final void Function(Uri)? onOpenLink;
   final DateTime? now;
@@ -229,6 +257,7 @@ class _ThreadView extends StatefulWidget {
 
 class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   final ScrollController _controller = ScrollController();
+  bool _blocking = false;
   late DateTime _now = widget.now ?? DateTime.now();
   bool _appVisible = true;
   bool _routeVisible = true;
@@ -353,11 +382,12 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       case _MenuAction.report:
         widget.onReport?.call(context, conversation);
       case _MenuAction.delete:
-        await _delete(cubit);
+        await _delete(cubit, request: isReceivedRequest(conversation));
     }
   }
 
   Future<void> _block(ThreadCubit cubit, common.AuthorSnapshot peer) async {
+    if (_blocking) return;
     final confirmed = await showBlockConfirmationDialog(context);
     if (!confirmed || !mounted) return;
     final repository = context.read<GraphRepository>();
@@ -371,7 +401,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
           repository.cached(peer.userId) ??
           graph.Relationship(userId: peer.userId),
     );
+    setState(() => _blocking = true);
     await relationship.block();
+    if (mounted) setState(() => _blocking = false);
     final error = relationship.state.error;
     messenger.hideCurrentSnackBar();
     if (error != null) {
@@ -384,14 +416,31 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     messenger.showSnackBar(SnackBar(content: Text('Blocked @${peer.handle}')));
   }
 
-  Future<void> _delete(ThreadCubit cubit) async {
+  Future<void> _accept(ThreadCubit cubit) async {
+    if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await cubit.acceptRequest();
+    messenger.hideCurrentSnackBar();
+    if (error != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(messagingErrorMessage(error))),
+      );
+    }
+  }
+
+  Future<void> _delete(ThreadCubit cubit, {bool request = false}) async {
+    if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete this conversation?'),
-        content: const Text(
-          'It only removes the conversation for you. The other person keeps '
-          'their copy.',
+        title: Text(
+          request ? 'Delete this request?' : 'Delete this conversation?',
+        ),
+        content: Text(
+          request
+              ? kDeleteRequestDetail
+              : 'It only removes the conversation for you. The other person '
+                    'keeps their copy.',
         ),
         actions: [
           TextButton(
@@ -416,7 +465,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(content: Text('Conversation deleted')),
+      SnackBar(
+        content: Text(request ? kRequestDeletedText : 'Conversation deleted'),
+      ),
     );
     if (mounted) _back();
   }
@@ -426,6 +477,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     final cubit = context.read<ThreadCubit>();
     // Read here: `select` is only allowed in `build`, not in a builder.
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
+    final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -465,13 +517,15 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       a.conversation != b.conversation ||
                       a.status != b.status ||
                       a.deleting != b.deleting ||
+                      a.accepting != b.accepting ||
                       a.peerBlocked != b.peerBlocked,
                   builder: (context, state) =>
-                      _header(cubit, state, graphEnabled),
+                      _header(cubit, state, graphEnabled, reportsEnabled),
                 ),
                 Expanded(
                   child: BlocBuilder<ThreadCubit, ThreadState>(
-                    builder: (context, state) => _content(cubit, state),
+                    builder: (context, state) =>
+                        _content(cubit, state, reportsEnabled),
                   ),
                 ),
                 BlocBuilder<ThreadCubit, ThreadState>(
@@ -479,8 +533,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       a.status != b.status ||
                       a.conversation != b.conversation ||
                       a.peerBlocked != b.peerBlocked ||
-                      a.cannotMessage != b.cannotMessage,
-                  builder: (context, state) => _bottom(state),
+                      a.cannotMessage != b.cannotMessage ||
+                      a.accepting != b.accepting ||
+                      a.deleting != b.deleting,
+                  builder: (context, state) =>
+                      _bottom(cubit, state, graphEnabled),
                 ),
               ],
             ),
@@ -490,7 +547,12 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     );
   }
 
-  Widget _header(ThreadCubit cubit, ThreadState state, bool graphEnabled) {
+  Widget _header(
+    ThreadCubit cubit,
+    ThreadState state,
+    bool graphEnabled,
+    bool reportsEnabled,
+  ) {
     final conversation = state.conversation;
     if (state.status == ThreadStatus.unavailable || conversation == null) {
       return AppBackHeader(title: 'Conversation', onBack: _back);
@@ -506,18 +568,20 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       actions: [
         if (state.status == ThreadStatus.ready)
           _InfoMenu(
-            enabled: !state.deleting,
+            enabled: !state.deleting && !state.accepting && !_blocking,
             canBlock:
                 graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked,
             peerHandle: peer.handle,
-            canReport: widget.onReport != null,
+            showReport: reportsEnabled,
+            // A deleted-account peer has no user id to report.
+            canReport: widget.onReport != null && peer.userId.isNotEmpty,
             onSelected: (action) => _onMenu(action, cubit, conversation),
           ),
       ],
     );
   }
 
-  Widget _content(ThreadCubit cubit, ThreadState state) {
+  Widget _content(ThreadCubit cubit, ThreadState state, bool reportsEnabled) {
     switch (state.status) {
       case ThreadStatus.unavailable:
         return const Center(
@@ -547,10 +611,6 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       case ThreadStatus.ready:
         break;
     }
-    final conversation = state.conversation;
-    final banner = conversation == null
-        ? null
-        : widget.bannerBuilder?.call(context, conversation);
     return Column(
       children: [
         if (state.notice != null)
@@ -558,14 +618,13 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
             message: conversationsNoticeMessage(state.notice!),
             onRetry: noticeCanRetry(state.notice!) ? cubit.refresh : null,
           ),
-        ?banner,
         Expanded(
           child: BlocBuilder<MessageComposerCubit, MessageComposerState>(
             buildWhen: (a, b) => a.outgoing != b.outgoing,
             builder: (context, composer) {
               final outgoing = _visibleOutgoing(composer, state);
               return state.hasMessages || outgoing.isNotEmpty
-                  ? _messages(cubit, state, outgoing)
+                  ? _messages(cubit, state, outgoing, reportsEnabled)
                   : _noMessages(state);
             },
           ),
@@ -604,9 +663,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     ThreadCubit cubit,
     ThreadState state,
     List<OutgoingMessage> outgoing,
+    bool reportsEnabled,
   ) {
     final items = buildThreadItems(state.messages);
-    final peer = state.conversation?.peer;
+    final conversation = state.conversation;
+    final peer = conversation?.peer;
     final peerName = peer == null || peer.displayName.isEmpty
         ? '@${peer?.handle ?? ''}'
         : peer.displayName;
@@ -676,6 +737,19 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           lastOfGroup: item.lastOfGroup,
                           use24Hour: use24Hour,
                           onOpenLink: _openLink,
+                          onReport:
+                              reportsEnabled &&
+                                  conversation != null &&
+                                  canReportMessage(item.message)
+                              ? (anchor) => unawaited(
+                                  _messageMenu(
+                                    anchor,
+                                    cubit,
+                                    conversation,
+                                    item.message,
+                                  ),
+                                )
+                              : null,
                         ),
                         DaySeparatorItem() => _DaySeparator(
                           label: formatDaySeparator(item.day, _now),
@@ -733,13 +807,80 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     return const SizedBox(height: AppSpacing.md);
   }
 
-  Widget _bottom(ThreadState state) {
+  /// The bottom of a ready thread: the read-only line, or the request area
+  /// and the composer. A received request shows the banner INSTEAD of the
+  /// composer (Accept brings the composer); the sender's note sits above it.
+  Widget _bottom(ThreadCubit cubit, ThreadState state, bool graphEnabled) {
     if (state.status != ThreadStatus.ready) return const SizedBox.shrink();
     if (state.readOnly) return const ThreadReadOnlyLine();
-    final builder = widget.composerBuilder;
-    return builder == null
+    final conversation = state.conversation;
+    final composerBuilder = widget.composerBuilder;
+    final composer = composerBuilder == null
         ? const SizedBox.shrink()
-        : builder(context, state.conversation);
+        : composerBuilder(context, conversation);
+    final bannerBuilder = widget.bannerBuilder;
+    final banner = conversation == null || bannerBuilder == null
+        ? null
+        : bannerBuilder(
+            context,
+            conversation,
+            _requestActions(cubit, state, conversation, graphEnabled),
+          );
+    if (banner == null) return composer;
+    if (conversation != null && isReceivedRequest(conversation)) return banner;
+    return Column(mainAxisSize: MainAxisSize.min, children: [banner, composer]);
+  }
+
+  ThreadRequestActions _requestActions(
+    ThreadCubit cubit,
+    ThreadState state,
+    pb.Conversation conversation,
+    bool graphEnabled,
+  ) {
+    final peer = conversation.peer;
+    // Block stays visible while it runs (the banner turns every button off).
+    final canBlock =
+        graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked;
+    return ThreadRequestActions(
+      accept: () => unawaited(_accept(cubit)),
+      delete: () => unawaited(_delete(cubit, request: true)),
+      block: canBlock ? () => unawaited(_block(cubit, peer)) : null,
+      accepting: state.accepting,
+      deleting: state.deleting,
+      blocking: _blocking,
+    );
+  }
+
+  /// A long press on a peer's bubble: a one-item menu "Report message" at the
+  /// press point, then the shared report sheet.
+  Future<void> _messageMenu(
+    Rect anchor,
+    ThreadCubit cubit,
+    pb.Conversation conversation,
+    pb.Message message,
+  ) async {
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final choice = await showMenu<bool>(
+      context: context,
+      position: RelativeRect.fromRect(anchor, Offset.zero & overlay.size),
+      items: const [
+        PopupMenuItem(
+          value: true,
+          child: AppMenuItemRow(
+            icon: Icons.flag_outlined,
+            label: kReportMessageLabel,
+          ),
+        ),
+      ],
+    );
+    if (choice != true || !mounted) return;
+    await reportPeerMessage(
+      context,
+      conversationId: cubit.conversationId,
+      message: message,
+      peerHandle: conversation.peer.handle,
+    );
   }
 }
 
@@ -816,6 +957,7 @@ class _InfoMenu extends StatelessWidget {
     required this.enabled,
     required this.canBlock,
     required this.peerHandle,
+    required this.showReport,
     required this.canReport,
     required this.onSelected,
   });
@@ -824,7 +966,10 @@ class _InfoMenu extends StatelessWidget {
   final bool canBlock;
   final String peerHandle;
 
-  /// False until W7-18 wires the report flow: the item stays, disabled.
+  /// The `reports` flag: with it off there is no Report item at all.
+  final bool showReport;
+
+  /// False when no report flow is wired: the item stays, disabled.
   final bool canReport;
   final ValueChanged<_MenuAction> onSelected;
 
@@ -842,15 +987,15 @@ class _InfoMenu extends StatelessWidget {
             value: _MenuAction.block,
             child: AppMenuItemRow(icon: Icons.block, label: 'Block$handle'),
           ),
-        // TODO(W7-18): enabled once the report-message sheet exists.
-        PopupMenuItem(
-          value: _MenuAction.report,
-          enabled: canReport,
-          child: AppMenuItemRow(
-            icon: Icons.flag_outlined,
-            label: 'Report$handle',
+        if (showReport)
+          PopupMenuItem(
+            value: _MenuAction.report,
+            enabled: canReport,
+            child: AppMenuItemRow(
+              icon: Icons.flag_outlined,
+              label: 'Report$handle',
+            ),
           ),
-        ),
         const PopupMenuItem(
           value: _MenuAction.delete,
           child: AppMenuItemRow(

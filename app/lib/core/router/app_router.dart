@@ -22,8 +22,10 @@ import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
 import '../../features/messages/presentation/recipient_picker_screen.dart';
+import '../../features/messages/presentation/report_conversation.dart';
 import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/messages/presentation/widgets/message_composer.dart';
+import '../../features/messages/presentation/widgets/request_banner.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -379,6 +381,11 @@ class AppRouter {
             // W7-16: the composer under the list (read-only threads and a
             // caller without `messaging` get none).
             composerBuilder: (context, conversation) => const MessageComposer(),
+            // W7-18: the request banner (Accept / Delete / Block) in place of
+            // the composer, the sender's waiting note, and the info menu's
+            // Report of the peer's account (the bubbles report messages).
+            bannerBuilder: buildRequestBanner,
+            onReport: reportConversationPeer,
           ),
         ),
       ),

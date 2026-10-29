@@ -68,6 +68,8 @@ void main() {
     );
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(() => repo.rateLimitHold).thenReturn(RateLimitHold());
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
     when(() => repo.cachedThread(any())).thenAnswer((_) async => current);
     when(() => repo.refreshThread(any())).thenAnswer((_) async => current);
     polls = 0;

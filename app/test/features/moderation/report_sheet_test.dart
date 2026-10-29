@@ -36,7 +36,11 @@ void main() {
     ).thenAnswer((_) => answer());
   }
 
-  Future<void> openSheet(WidgetTester tester, {String? blockLabel}) async {
+  Future<void> openSheet(
+    WidgetTester tester, {
+    String? blockLabel,
+    String? detail,
+  }) async {
     // Tall enough for the whole form (Send is below the reasons).
     tester.view.physicalSize = const Size(800, 1800);
     tester.view.devicePixelRatio = 1;
@@ -58,6 +62,7 @@ void main() {
                         targetId: '1234567890123456789',
                         subject: "@alice's post",
                         blockLabel: blockLabel,
+                        detail: detail,
                       );
                     },
                     child: const Text('open'),
@@ -92,6 +97,32 @@ void main() {
       find.byIcon(Icons.radio_button_checked),
       findsOneWidget,
       reason: 'the selection is a radio mark, not colour alone',
+    );
+  });
+
+  testWidgets('an optional detail sentence follows the intro (W7-18)', (
+    tester,
+  ) async {
+    await openSheet(tester, detail: 'Only this message is shared.');
+
+    expect(
+      find.textContaining(
+        "won't see who reported. Only this message is shared.",
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('without a detail the intro is unchanged', (tester) async {
+    await openSheet(tester);
+
+    expect(find.textContaining('Only this message'), findsNothing);
+    expect(
+      find.text(
+        'Why are you reporting this? Reports are private; the account '
+        "won't see who reported.",
+      ),
+      findsOneWidget,
     );
   });
 
@@ -181,6 +212,45 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text("You've already reported this"), findsOneWidget);
+
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(outcome, ReportOutcome.alreadyReported);
+  });
+
+  testWidgets('swiping the sheet away after "already reported" says so too', (
+    tester,
+  ) async {
+    stubReport(
+      () async => const ReportReceipt(reportId: 'r', alreadyReported: true),
+    );
+    await openSheet(tester);
+    await tester.tap(find.text("It's spam"));
+    await tester.pump();
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    expect(outcome, ReportOutcome.alreadyReported);
+  });
+
+  testWidgets('the block follow-up still closes with blockRequested when it '
+      'was already reported', (tester) async {
+    stubReport(
+      () async => const ReportReceipt(reportId: 'r', alreadyReported: true),
+    );
+    await openSheet(tester, blockLabel: 'Block @alice');
+    await tester.tap(find.text("It's spam"));
+    await tester.pump();
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Block @alice'));
+    await tester.pumpAndSettle();
+
+    expect(outcome, ReportOutcome.blockRequested);
   });
 
   testWidgets('the block follow-up closes with blockRequested', (tester) async {

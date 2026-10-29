@@ -111,7 +111,13 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     DateTime Function()? now,
   }) : _repository = repository,
        _now = now ?? DateTime.now,
-       super(const ConversationsState());
+       super(const ConversationsState()) {
+    // An accepted or deleted request (W7-18) changed the cache: re-read it,
+    // no network.
+    _changes = _repository.conversationsChanged.listen(
+      (_) => unawaited(_reloadFromCache()),
+    );
+  }
 
   final MessagingRepository _repository;
   final DateTime Function() _now;
@@ -128,6 +134,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
 
   DateTime? _lastAttempt;
   Timer? _pendingRefresh;
+  StreamSubscription<void>? _changes;
 
   /// A push or resume arrived while a refresh was in flight: the answer may
   /// predate it, so one more (throttled) refresh follows.
@@ -237,6 +244,19 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     }
   }
 
+  /// The cache changed under an open list (an accepted or deleted request):
+  /// show what is on disk now, the persisted request count included. Nothing
+  /// is fetched, and the status, notice and error stay as they are.
+  Future<void> _reloadFromCache() async {
+    if (isClosed || state.status != ConversationsStatus.ready) return;
+    try {
+      final cached = await _repository.cachedConversations(folder);
+      if (!isClosed) _apply(cached);
+    } on Object catch (error, stack) {
+      onUnexpectedError?.call(error, stack);
+    }
+  }
+
   void _failed(AppException error) {
     if (state.hasConversations) {
       emit(state.copyWith(notice: error));
@@ -297,6 +317,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   @override
   Future<void> close() {
     _pendingRefresh?.cancel();
+    unawaited(_changes?.cancel());
     return super.close();
   }
 }

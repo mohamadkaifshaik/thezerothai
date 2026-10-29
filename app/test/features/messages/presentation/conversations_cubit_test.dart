@@ -36,6 +36,8 @@ void main() {
     repo = MockMessagingRepository();
     clock = kMsgBase;
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
     when(() => repo.cachedConversations(any()))
         .thenAnswer((_) async => const ConversationsSnapshot());
   });
@@ -480,6 +482,74 @@ void main() {
 
       expect(cubit.state.loadMoreFailed, isFalse);
       expect(cubit.state.conversations, hasLength(2));
+    });
+  });
+  group('a request accepted or deleted elsewhere (W7-18)', () {
+    test(
+      're-reads the cache: the row and the count follow, no refresh',
+      () async {
+        final changes = StreamController<void>.broadcast();
+        addTearDown(changes.close);
+        when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+        var cached = ConversationsSnapshot(
+          conversations: [conv('a'), conv('b')],
+          sinceToken: 's',
+          requestCount: 2,
+        );
+        when(() => repo.cachedConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) async => cached);
+        when(
+          () => repo.refreshConversations(Folder.FOLDER_INBOX),
+        ).thenAnswer((_) async => ConversationsResult(cached, requestCount: 2));
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.load();
+        expect(cubit.state.requestCount, 2);
+
+        // The request was accepted: it joined the inbox, the count dropped.
+        cached = ConversationsSnapshot(
+          conversations: [conv('q'), conv('a'), conv('b')],
+          sinceToken: 's',
+          requestCount: 1,
+        );
+        changes.add(null);
+        await pumpEventQueue();
+
+        expect(cubit.state.conversations.map((c) => c.id), ['q', 'a', 'b']);
+        expect(cubit.state.requestCount, 1);
+        verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+      },
+    );
+
+    test('the requests folder drops a deleted row', () async {
+      final changes = StreamController<void>.broadcast();
+      addTearDown(changes.close);
+      when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+      var cached = snap(['q1', 'q2']);
+      when(() => repo.cachedConversations(Folder.FOLDER_REQUESTS))
+          .thenAnswer((_) async => cached);
+      when(() => repo.refreshConversations(Folder.FOLDER_REQUESTS))
+          .thenAnswer((_) async => ConversationsResult(cached));
+      final cubit = build(folder: Folder.FOLDER_REQUESTS);
+      addTearDown(cubit.close);
+      await cubit.load();
+
+      cached = snap(['q2']);
+      changes.add(null);
+      await pumpEventQueue();
+
+      expect(cubit.state.conversations.map((c) => c.id), ['q2']);
+    });
+
+    test('a closed cubit stops listening', () async {
+      final changes = StreamController<void>.broadcast();
+      addTearDown(changes.close);
+      when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+      final cubit = build();
+
+      await cubit.close();
+
+      expect(changes.hasListener, isFalse);
     });
   });
 }

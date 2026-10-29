@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import '../../../core/network/api_client.dart';
@@ -73,12 +74,25 @@ class MessagingRepository {
 
   Future<void> _tail = Future<void>.value();
   final Map<String, Future<Object?>> _inflight = {};
+  final StreamController<void> _conversationsChanged =
+      StreamController<void>.broadcast();
 
   /// The gate, so UI can follow the flag turning off mid-session.
   MessagingFeatureGate get gate => _gate;
 
   /// Whether the caller may send (the per-caller flag).
   bool get enabled => _gate.canSend;
+
+  /// Fires after the cached conversation lists changed by a local action, after
+  /// every Accept, every Delete, and dropBlockedRequest (W7-18), so an open
+  /// inbox or requests list re-reads the cache (no network) instead of showing
+  /// a stale row or count.
+  /// Not a poll and not a server push: nothing here is live.
+  Stream<void> get conversationsChanged => _conversationsChanged.stream;
+
+  void _notifyConversationsChanged() {
+    if (!_conversationsChanged.isClosed) _conversationsChanged.add(null);
+  }
 
   /// Sign-out: forget in-flight work (the shared session epoch is ended by
   /// `wipeSessionData`, which drops their writes).
@@ -422,36 +436,67 @@ class MessagingRepository {
   }) async {
     final session = _store.session;
     final wasRequest = await _isRequest(conversationId);
-    await _gate.run(
-      () => _apiClient.messaging.acceptMessageRequest(
-        pb.AcceptMessageRequestRequest(
-          idempotencyKey: idempotencyKey,
-          conversationId: conversationId,
+    try {
+      await _gate.run(
+        () => _apiClient.messaging.acceptMessageRequest(
+          pb.AcceptMessageRequestRequest(
+            idempotencyKey: idempotencyKey,
+            conversationId: conversationId,
+          ),
         ),
-      ),
-    );
+      );
+    } on NotFoundException {
+      // Gone for the caller (deleted elsewhere, or never theirs): the cached
+      // row would only mislead, so clean it as Delete does, then let the
+      // caller see the error.
+      await _store.removeConversation(conversationId);
+      if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+      _notifyConversationsChanged();
+      rethrow;
+    }
     await _store.markConversationAccepted(conversationId, session: session);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+    _notifyConversationsChanged();
   }
 
   /// Deletes the conversation for the caller only (also "delete request").
-  /// Not globally off is enough. Everything cached for it is removed.
+  /// Not globally off is enough. Everything cached for it is removed. A
+  /// NOT_FOUND answer counts as done (it is already gone for the caller), so
+  /// the cache is cleaned and the lists are told the same way.
   Future<void> deleteConversation({
     required String idempotencyKey,
     required String conversationId,
   }) async {
     final session = _store.session;
     final wasRequest = await _isRequest(conversationId);
-    await _gate.runRead(
-      () => _apiClient.messaging.deleteConversation(
-        pb.DeleteConversationRequest(
-          idempotencyKey: idempotencyKey,
-          conversationId: conversationId,
+    try {
+      await _gate.runRead(
+        () => _apiClient.messaging.deleteConversation(
+          pb.DeleteConversationRequest(
+            idempotencyKey: idempotencyKey,
+            conversationId: conversationId,
+          ),
         ),
-      ),
-    );
+      );
+    } on NotFoundException {
+      // Already gone for the caller (deleted elsewhere, or never theirs): the
+      // goal of the call is met, so clean the cache the same way.
+    }
     await _store.removeConversation(conversationId);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+    _notifyConversationsChanged();
+  }
+
+  /// The caller blocked the sender of a received request (W7-18): drops its row
+  /// from the cached lists at once (no RPC), because a `since` refresh never
+  /// removes a row and the server hides blocked requesters only on read. Its
+  /// messages and thread state stay, so the open thread keeps working. The
+  /// persisted request count is left for the next first Inbox page to correct.
+  /// A conversation that is not a cached request is left alone.
+  Future<void> dropBlockedRequest(String conversationId) async {
+    if (!await _isRequest(conversationId)) return;
+    await _store.removeConversationEntry(conversationId);
+    _notifyConversationsChanged();
   }
 
   /// Whether [conversationId] is cached in the REQUESTS folder (so accepting
