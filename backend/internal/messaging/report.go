@@ -38,7 +38,7 @@ var _ MessageReporter = (*service)(nil)
 // `reports` on and `messaging` not globally off (F6), so a user dropped from the allowlist can still report. It does not
 // look at the caller's graph either: a conversation with a blocked peer stays open so the user can still report it (D4).
 //
-// Order: the conversation (instance cache, so membership is checked against a copy at most 60 s old; membership of a 1:1
+// Order: the conversation (instance cache for a participant, so membership is checked against a copy at most 60 s old; membership of a 1:1
 // conversation never changes, ADR-0027 D14), then the message (never cached). A missing conversation, a conversation the
 // caller is not in, a missing message, a message that is no longer VISIBLE (REMOVED, or its sender deleted the account)
 // and a message whose sender is not the peer all answer ErrNotFound after at most 2 reads, so the wire answer cannot tell
@@ -47,7 +47,8 @@ var _ MessageReporter = (*service)(nil)
 // gives an empty handle, not an error.
 //
 // Worst-case Firestore cost: conversation 1 (0 warm) + message 1 + sender profile 1 (0 warm) = 3 reads cold, 1 warm;
-// writes 0. A refusal costs at most 2 reads.
+// writes 0. A refusal costs at most 2 reads; a non-participant always pays
+// the conversation read, warm or cold (W7-28).
 func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID string) (ReportedMessage, error) {
 	if s.d.Repo == nil || s.d.Profiles == nil {
 		return ReportedMessage{}, errors.New("messaging: message reports are not configured")
@@ -56,7 +57,7 @@ func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID stri
 		return ReportedMessage{}, ErrNotFound // a shaped-wrong id is simply unknown; moderation validates the shape first
 	}
 	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(convID))
-	conv, hit, err := s.conversationHit(ctx, convID)
+	conv, hit, err := s.conversationHit(ctx, uid, convID)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
 	if err == nil && !conv.hasParticipant(uid) {
 		err = ErrNotFound
