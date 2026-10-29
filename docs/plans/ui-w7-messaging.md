@@ -348,7 +348,7 @@ Prices (§7):
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | In review (PR pending) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
-| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
+| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | In review (PR #441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
@@ -789,7 +789,7 @@ Order:
 - **Flag.** `messaging` (Accept per caller, Delete not globally off), `reports`.
 - **Seam.** Reuses the report sheet and the block dialog; no second implementation.
 
-### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: Open
+### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: In review (PR #441)
 - **Description.**
   - A "Messages" destination in `MainShell` (F10): the bar, the rail and its position after Notifications, with a filled glyph when selected. It needs `messaging` + `ui_shell`; the legacy chrome gets an entry in Settings only.
   - **`MessagesBadgeCubit`**, separate from `UnreadBadgeCubit`: seeded from `GetMe.unread_conversation_count`, incremented locally by a foreground message push for a conversation that is not open, cleared per conversation on open. **A message push never touches `UnreadBadgeCubit`.**
