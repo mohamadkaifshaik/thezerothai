@@ -243,6 +243,21 @@ locals {
     { name = "FEATURE_MESSAGING", value = var.feature_messaging },
     { name = "FEATURE_MESSAGING_ALLOWLIST", value = var.feature_messaging_allowlist },
     { name = "FEATURE_MESSAGING_PERCENT", value = tostring(var.feature_messaging_percent) },
+    # W7-24: the messaging limits as explicit config (rule 11), each equal to its backend/pkg/platform/config default, as in envs/dev. Inert
+    # while FEATURE_MESSAGING is off (prod's flag stays off; nothing here is applied until the held prod apply, pending.md 1.2).
+    { name = "RATE_LIMIT_MESSAGES_SEND_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_MESSAGES_READ_PER_MIN", value = "30" },
+    { name = "MESSAGES_SENDS_PER_DAY", value = "300" },
+    { name = "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", value = "50" },
+    # W7-29 (security review W7-22 M-1): MarkConversationRead's own daily cap (limit_name messages_mark_read_daily) and one cap shared by
+    # AcceptMessageRequest + DeleteConversation (limit_name messages_mutation_daily). Must match the config.go defaults (500 and 500).
+    { name = "MESSAGES_MARK_READ_PER_DAY", value = "500" },
+    { name = "MESSAGES_MUTATIONS_PER_DAY", value = "500" },
+    { name = "QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", value = "20" },
+    { name = "QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", value = "5" },
+    { name = "MESSAGES_REQUEST_MAX_UNANSWERED", value = "3" },
+    { name = "MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", value = "20" },
+    { name = "CACHE_MESSAGING_CONVERSATION_ENTRIES", value = "5000" },
     { name = "QUOTA_BOOKMARKS_PER_DAY", value = "200" },
     { name = "QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY", value = "50" },
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
