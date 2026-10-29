@@ -25,6 +25,7 @@ import 'bloc/conversations_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'widgets/conversation_row.dart';
+import 'widgets/not_encrypted_note.dart';
 
 /// `/messages` and `/messages/requests` (W7-14, ADR-0027 D7, D14): the inbox.
 ///
@@ -315,6 +316,7 @@ class _ConversationsViewState extends State<_ConversationsView>
           icon: Icons.mail_outline,
           title: 'Welcome to your inbox',
           subtitle: 'Start a conversation',
+          action: NotEncryptedNote(textAlign: TextAlign.center),
         );
       } else {
         child = const AppEmptyView(
