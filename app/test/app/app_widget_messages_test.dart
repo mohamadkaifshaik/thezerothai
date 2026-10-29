@@ -422,6 +422,26 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('from a cold start while already signed in (GetMe ready on the '
+        'first frame) opens it too', (tester) async {
+      messaging.launch = PushMessage(type: 'message', conversationId: conv);
+      await pump(
+        tester,
+        auth: authed,
+        onboarding: ready(flags: {'notifications', 'messaging'}),
+      );
+      await settle(tester);
+      await tester.pumpAndSettle();
+
+      final router = GoRouter.of(tester.element(find.byType(Navigator).first));
+      expect(
+        router.routerDelegate.currentConfiguration.matches.last.matchedLocation,
+        '/messages/$conv',
+      );
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('from the background opens it too', (tester) async {
       await pump(
         tester,
