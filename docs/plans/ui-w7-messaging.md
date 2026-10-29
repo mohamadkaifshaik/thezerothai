@@ -197,7 +197,7 @@ Prices (§7):
 | DeleteConversation (for me; also "delete request") | 3 | 2.5 | 1 (`clearedAt`) | 1 | |
 | `GetMe` badge (`unread_conversation_count`) | +1 (`count()`, 1 read per 1,000 matches, min 1) | +0.75 per GetMe | 0 | 0 | 0 reads when `messaging` is off for the caller |
 | ReportContent, MESSAGE | 6 (as the POST row: interceptor, conversation, message, report doc, quotas, caller graph) | 3 | 2 (report, quotas) | 0 | existing quota (20/day) |
-| Eraser step `messaging` (reference: 20 conversations, 300 sent messages) | 1 per conversation + 1 per own message + 1 per peer entry | 340 | 1 per message (tombstone) + 1 per peer entry + 1 per conversation | 1 per own entry | resumable, pages ≤ 500 |
+| Eraser step `messaging` (reference: 20 conversations, 300 sent messages) | 1 per conversation + 1 per own message + 1 per peer entry | **381** (was 340: W7-20 measured 81 step calls; the plan left out `MarkGone`'s second read and the closing step's read and write, +1 read and +1 write per conversation) | 1 per message (tombstone) + 1 per peer entry + 1 per conversation: **360** (was 340) | 1 per own entry: 20 | resumable, pages ≤ 500 |
 | Export section `messages` (same reference) | 1 per conversation + 1 per message (both sides read, own text exported) | ~620 | 0 | 0 | |
 
 **Calls per DAU per day (assumptions, averaged over all DAU; W7-23 replaces them with measurements):**
@@ -238,6 +238,13 @@ Prices (§7):
 - **Storage:**
   - About 1 KB per message with its index entries (text exempt) plus 2 entry updates.
   - At 1.5 messages/DAU/day: about 0.16 GiB a year at 300 DAU and 1.6 GiB a year at 3,000 DAU. The latter passes the shared free 1 GiB within the year, then costs about INR 10–20/month. That is the retention trigger.
+  - **W7-23 (2026-10-29), derived with Firestore's size rules:** a message is about 1.26 KB with its six index entries, and a DAU adds about 2.2 KB a day with the conversations and entries, so the 0.5 GiB messaging trigger is reached in about 815 / 245 / 82 days at 300 / 1,000 / 3,000 DAU (`cost-model.md` §4 and §6).
+- **Measured by W7-23 (2026-10-29; `cost-model.md` §14, emulators, two runs):**
+  - Every per-RPC read count is at or under the table above: first pages 23 (inbox) and 24 / 54 (thread) cold and 21 / 20 / 50 warm, MarkConversationRead 0 to 1 read and 1 write, a send 1 read warm and 7 / 5 on a new conversation.
+  - **The poll is the one line above its planning value: mean 1.41 reads over 9,000 polls against 1.2 (+17%)**, so the calls table totals **38.05 reads** (was 37.0), 5.8 writes, 12.6 requests.
+  - The eraser row above is corrected to 381 reads and 360 writes.
+  - The Wave total is **INR 12.5 / 59 / 484** at 300 / 1,000 / 3,000 DAU (the table says 12 / 58 / 480), and 13 / 61 / 490 once W7-27 and W7-33 add 2.0 reads a day.
+  - A poll of a quiet thread returns the newest message again (1 read, never empty); a poll inside a busy conversation returns up to a page.
 - **No new GCP service, no Scheduler job, no Pub/Sub topic** (the existing `notifications-fanout` carries the event), **no fixed cost.** Credit window: nothing depends on ADR-0022 items.
 
 ## Flags
@@ -352,7 +359,7 @@ Prices (§7):
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | In review (PR #453) |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
-| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
+| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | In review (PR #455) |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
@@ -892,7 +899,7 @@ Order:
 - **Flag.** Reviews the `messaging` gates (per caller vs not globally off).
 - **Seam.** Checks the `stage-ladder` rate-limit multiplication and that `messages` is read only by `messaging.Service` (the E2E seam).
 
-### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: Open
+### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: In review (PR #455)
 - **Description.**
   - Add the W7 rows (≈ +37.0 reads, +5.8 writes, +12.6 requests per DAU) to `docs/reviews/cost-model.md` §1–§5 as an additive block like W2's.
   - Run `make loadtest SCENARIO=messaging` on emulators: a send burst, 300 pollers at 15 s, first pages cold and warm.
