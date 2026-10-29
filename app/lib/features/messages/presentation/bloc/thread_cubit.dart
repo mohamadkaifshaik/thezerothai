@@ -309,7 +309,13 @@ class ThreadCubit extends Cubit<ThreadState> {
     _unread += arrivedFromPeer;
     final conversation = snapshot.conversation;
     if (open && conversation != null) {
-      _unread = math.max(_unread, conversation.unreadCount.toInt());
+      // A first page's count is the server's, 0 included (read on another
+      // device): it replaces what the cached row said, so a stale cached
+      // unread row sends no needless mark-read. Any other snapshot keeps the
+      // larger of the two (W7-27).
+      _unread = snapshot.firstPageHeader
+          ? conversation.unreadCount.toInt()
+          : math.max(_unread, conversation.unreadCount.toInt());
       // A request never counts toward the badge (ADR-0027 D10).
       if (conversation.unreadCount.toInt() > 0 &&
           conversation.folder != Folder.FOLDER_REQUESTS &&
