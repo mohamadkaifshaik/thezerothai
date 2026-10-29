@@ -281,7 +281,7 @@ func TestListMessages_TombstonesAndDeletedPeer(t *testing.T) {
 	}
 }
 
-// Given a non-participant, then the same bytes as an unknown id, after at most 2 reads and without reading messages.
+// Given a non-participant, then the same bytes as an unknown id, after exactly 2 reads (cold or warm) and without reading messages.
 func TestListMessages_NotFoundByteIdentical(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.seedConversation(alice, bob, stateAccepted, base, [2]string{bob, "private"})
@@ -301,6 +301,17 @@ func TestListMessages_NotFoundByteIdentical(t *testing.T) {
 	}
 	for name, c := range map[string]*budget.Counter{"non-participant": cNon, "unknown": cUnk} {
 		budgettest.Assert(t, "ListMessages NOT_FOUND "+name, c, budgettest.Budget{Reads: 2})
+	}
+	// Warm (W7-28, review H-1): a participant caches the conversation on this instance, and the non-participant still pays
+	// the interceptor and one fresh conversation read, the same 2 as cold, with the same bytes; nothing it read is cached.
+	warmSvc := e.msgSvc()
+	e.mustListMsgs(warmSvc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	for i := range 2 {
+		_, cWarm, errWarm := e.listMsgs(warmSvc, carol, &messagingv1.ListMessagesRequest{ConversationId: id})
+		if !bytes.Equal(wireBytes(t, errWarm), wireBytes(t, errNon)) {
+			t.Errorf("warm probe %d: NOT_FOUND bytes differ from the cold ones", i)
+		}
+		budgettest.Assert(t, "ListMessages NOT_FOUND non-participant, warm", cWarm, budgettest.Budget{Reads: 2})
 	}
 	// Malformed: VALIDATION, 0 reads.
 	_, cBad, errBad := e.listMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: "nope"})

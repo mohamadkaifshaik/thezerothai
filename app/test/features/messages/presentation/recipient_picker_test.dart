@@ -14,6 +14,7 @@ import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.d
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart'
     show kThreadReadOnlyText;
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -177,6 +178,53 @@ void main() {
         }
       }
     }
+  });
+
+  group('not end-to-end encrypted line (W7-31)', () {
+    for (final width in [360.0, 600.0, 1200.0]) {
+      for (final scale in [1.0, 1.3, 2.0]) {
+        for (final brightness in Brightness.values) {
+          testWidgets('shows once, readable, no overflow '
+              '[${width.toInt()}dp x$scale ${brightness.name}]', (
+            tester,
+          ) async {
+            final handle = tester.ensureSemantics();
+            final rig = _Rig();
+            await rig.open(
+              tester,
+              size: Size(width, 800),
+              textScale: scale,
+              brightness: brightness,
+            );
+
+            expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+            expect(tester.takeException(), isNull);
+            expect(
+              tester.getSemantics(find.text(kMessagesNotEncryptedText)).label,
+              contains(kMessagesNotEncryptedText),
+            );
+            // Quiet: the secondary colour, not a banner.
+            final style = tester
+                .widget<Text>(find.text(kMessagesNotEncryptedText))
+                .style;
+            expect(
+              style?.color,
+              Theme.of(tester.element(find.byType(RecipientPicker)))
+                  .colorScheme
+                  .onSurfaceVariant,
+            );
+            handle.dispose();
+          });
+        }
+      }
+    }
+
+    testWidgets('is absent where messaging is off', (tester) async {
+      final rig = _Rig();
+      await rig.open(tester, features: const {});
+
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    });
   });
 
   group('typing without search', () {

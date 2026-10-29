@@ -347,16 +347,25 @@ Prices (§7):
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
-| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | In review (PR #442) |
+| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Done (#442) |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | In review (PR #453) |
-| W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | In review (PR #447) |
-| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
+| W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
+| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
+| W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Done (#448) |
+| W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Done (#451) |
+| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | Open |
+| W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Done (#450) |
+| W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Open |
+| W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
+| W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
+| W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Open |
+| W7-36 | L-6: open MESSAGE reports clear their copied text after 180 days even if untriaged (founder decision 2026-10-29) | backend-developer | S | — | moderation only | Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -782,7 +791,7 @@ Order:
 - **Flag.** `messaging` per caller; `search` optional; `graph` for the Following list.
 - **Seam.** `RecipientPicker` depends on a `PeopleSource` interface (Following now, search when present), so the W4 dependency is optional.
 
-### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: In review (PR #442)
+### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Done (#442)
 - **Description.**
   - In a request thread, a bottom banner "<name> wants to message you" with **Accept**, **Delete** and **Block**. Accept calls AcceptMessageRequest; Delete calls DeleteConversation and returns to the list; Block uses the existing `showBlockConfirmationDialog` + `GraphRepository.block`.
   - A long press or overflow on a peer bubble → "Report message" (the existing report sheet with `target_type = MESSAGE`; only when `reports` is on).
@@ -840,7 +849,7 @@ Order:
 - **Seam.** —
 - **Built (W7-20, PR #453, 2026-10-29).** A traceability audit first: all 45 explicit acceptance criteria of W7-4 to W7-12 already had a named test; the traceability table (criterion to `file:TestName`) is `docs/reviews/test-report-w7.md` section 3, with the budgets per RPC in section 4. Added 18 tests for 13 gaps (the read RPCs' budgets, NOT_FOUND bytes, flag classes, limiter and badge through the interceptor chain; a mid-range percent; degraded mode for MarkConversationRead; the send caps of an established account; suspended recipient and the caller's own mute; blockedByOverflow on send; concurrent first messages; the reference-account eraser and export budgets). Coverage on `internal/messaging` 93.7 %. Two Low defects are filed as skipped tests (`W720_RUN_DEFECTS=1` reproduces): D-1, a `blockedByOverflow` caller's list and thread ignore the blockers that dropped out of `blockedBy` (a blocker's request stays listed, `can_reply` true); D-2, `ListMessages` on a conversation whose participant list is not a pair answers INTERNAL, not the unknown-id NOT_FOUND. Measured against the plan: the eraser for the reference account costs 381 reads, 360 writes, 20 deletes (the plan says about 340 / 340 / 20; the code matches its per-call documentation, so the plan figure and `cost-model.md` need correcting in W7-23). The load shapes stay with W7-23.
 
-### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: In review (PR #447)
+### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: Done (#447)
 - **Description.** The cross-screen matrix:
   - inbox → thread → compose → request accept → report → block;
   - polling across lifecycle changes (fake clock);
@@ -857,9 +866,10 @@ Order:
 - **Built (PR #447, 2026-10-29).** Test-only (no change under `app/lib`). Audit first, then only the gaps; the full table is in the PR body. Client section for any combined W7 test report: the files below.
   - **Already covered (cited, nothing added):** deep link and push routing (`app_router_deep_link_test`, `app_router_messages_test`, `app_widget_messages_test` "a tapped message push"); polls are 0 while hidden (`timer_thread_poller_test`, `thread_poller_integration_test`, `thread_screen_test` "app hidden: 0 polls; visible again: one at once"); the 2.0 matrix of the inbox, rows, bubbles, composer, thread, request banner, report sheet, picker, shell destination and profile button.
   - **Added:** `app/test/support/messaging_flow_rig.dart` (`MessagingFlowRig`, `FakeMessagingServer`: the real router and repositories over a fake wire); `messaging_flow_test` (inbox → requests → accept → send → report a message → block, Delete, sign-out with the thread open); `messaging_sign_out_test` (`wipeSessionData(messagingRepository:)` empties the three drift tables, an answer in flight is dropped); `messaging_flag_matrix_test` (all 32 combinations of `messaging` × `ui_shell` × `search` × `reports` × `notifications`); `messaging_matrix_gaps_test` (Message requests folder, empty inbox and requests, sender waiting note and the draft thread at 360 / 600 / 1200 × light / dark × 1.0 / 1.3 / 2.0).
-  - **Defect (open, not fixed here):** `DraftThreadScreen`'s empty state (`AppEmptyView` in an `Expanded`, `draft_thread_screen.dart`) overflows at text scale 2.0 on 360 × 640 (first state) and by 39 px on 360 × 800 after a `CANNOT_MESSAGE` refusal. Four tests named `defect: DraftThreadScreen …` in `messaging_matrix_gaps_test.dart` are skipped until it is fixed; the fix is a frontend-developer follow-up (make the empty state scroll or shrink).
+  - **Defect (found here, fixed in a follow-up):** `DraftThreadScreen`'s empty state (`AppEmptyView` in an `Expanded`, `draft_thread_screen.dart`) overflows at text scale 2.0 on 360 × 640 (first state) and by 39 px on 360 × 800 after a `CANNOT_MESSAGE` refusal. Four tests named `defect: DraftThreadScreen …` in `messaging_matrix_gaps_test.dart` are skipped until it is fixed; the fix is a frontend-developer follow-up (make the empty state scroll or shrink).
+  - **Fixed (PR #452):** draft empty-state overflow fixed in PR #452 (`AppEmptyView` scrolls in a bounded-height box; the four `defect:` tests are un-skipped).
 
-### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: Open
+### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: Done (#446)
 - **Description.** A threat model for the first private-content feature:
   - authz on every read and write (participant checks, guessable deterministic ids, token binding);
   - the block oracle (refusal bytes; cached-graph freshness, A8);
@@ -958,6 +968,28 @@ Order:
 - **Budget.** **+1 read on a first page** (worst case 24 → 25). A first page is opened once per thread open, so the cost is about one read per thread open per DAU.
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListMessages`. `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row, but it keeps the cached count when the header says 0. Once this lands a first-page 0 is authoritative (read on another device), so a small client follow-up (frontend-developer, right after the backend PR) goes with this ticket: take the first-page header count as it is, so a stale unread cached row does not lower the badge or send a needless mark-read.
+
+
+### W7-28 to W7-35 — Security-review follow-ups (W7-22)  Status: Open
+Source: `docs/reviews/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
+in that report (finding ids in brackets); acceptance is "the finding's fix is in place with a test, and the report's
+scenario no longer works".
+- **W7-28 (done, #448) [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
+  non-participant probe costs exactly 1 read whether the conversation exists or not; participants +0.
+- **W7-29 (done, #451) [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
+- **W7-30 [M-2]** frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
+  graph read.
+- **W7-31 (done, #450) [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
+- **W7-32 [M-4]** `tf-plan` custom read role. Gate: founder decision before prod messaging.
+- **W7-33 [L-1 A8, L-3, L-8]** fresh recipient graph in the send transaction (+1 read per send, ADR-0027 note), recipient
+  `ProfileInTx`, verified-email gate. Gate: before prod percent / on.
+- **W7-34 [L-2, L-7]** placeholder and log pseudonyms. Gate: before prod.
+- **W7-35 [L-4, L-5, L-9]** client hardening. Gate: before prod.
+- **W7-36 [L-6]** a 180-day limit on the copied text of OPEN MESSAGE reports (founder decision 2026-10-29). Gate: before prod.
+- **Founder decisions (2026-10-29):** start W7-28, W7-29 and W7-31 now (before the dev rollout); M-4 → the custom read
+  role (W7-32; Terraform PR by Claude, prod plan and apply by the founder); A8 → flip to the fresh recipient graph read
+  (W7-33, ADR-0027 note); L-6 → 180-day TTL (W7-36).
+- Not ticketed: L-10 (the F2(d) requests setting, planner follow-up).
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).

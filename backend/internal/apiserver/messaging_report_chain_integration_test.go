@@ -519,10 +519,10 @@ func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
 	}
 }
 
-// A non-participant gets the very same bytes whether the instance has the conversation cached or not. The reads differ by the
-// conversation read (2 cold, 1 warm: only the interceptor's), which is visible in the operator's log (`fs_reads`,
-// `cache_hit`) and nowhere on the wire; W7-22 should weigh that as a timing channel of one Firestore read, and no more: the
-// answer's content never depends on the cache.
+// A non-participant gets the very same bytes, and the very same cost, whether the instance has the conversation cached or not
+// (W7-28, security review W7-22 H-1): the cache answers only a participant, so a probe is always the interceptor's read plus one
+// fresh conversation read (2 cold, 2 warm) and leaves nothing in the cache. No read count or timing separates "exists" from
+// "missing" for a caller who is not in the conversation.
 func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 	setup := newReportChain(t, nil)
 	th := setup.reportThread(t)
@@ -546,7 +546,7 @@ func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 		t.Errorf("bytes differ: cold %q, warm %q, unknown conversation %q", wireBytes(t, coldErr), wireBytes(t, warmErr), wireBytes(t, unknownErr))
 	}
 	t.Logf("non-participant reads: cold %d, warm %d", coldReads, warmReads)
-	if coldReads != 2 || warmReads != 1 {
-		t.Errorf("reads cold/warm = %d/%d, want 2/1", coldReads, warmReads)
+	if coldReads != 2 || warmReads != 2 {
+		t.Errorf("reads cold/warm = %d/%d, want 2/2", coldReads, warmReads)
 	}
 }
