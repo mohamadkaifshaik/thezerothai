@@ -256,10 +256,14 @@ class _BookmarksTabViewState extends State<_BookmarksTabView> {
         content: const Text('Removed from Bookmarks'),
         // An Undo has no use after a few seconds: do not keep it.
         persist: false,
-        action: SnackBarAction(
-          label: 'Undo',
-          onPressed: () => unawaited(cubit.restore(removal)),
-        ),
+        // A withheld row (W3-41b) has no Undo: AddBookmark of a post the caller
+        // can no longer see answers NOT_FOUND, so it could only fail.
+        action: removal.view.withheld
+            ? null
+            : SnackBarAction(
+                label: 'Undo',
+                onPressed: () => unawaited(cubit.restore(removal)),
+              ),
       ),
     );
     _removalBar = bar;
@@ -323,6 +327,7 @@ class _BookmarksTabViewState extends State<_BookmarksTabView> {
           notice: state.notice,
           noticeFromPaging: cubit.noticeFromPaging,
           rowKeyPrefix: 'bookmark',
+          withheldAction: WithheldAction.removeBookmark,
           loadingLabel: 'Loading bookmarks',
           noticeMessage: bookmarksListNoticeMessage,
           empty: const AppEmptyView(
