@@ -17,7 +17,7 @@ Related: `docs/runbooks/w3-part-b-rollout.md` (the precedent this copies: target
 
 Re-run every command before you act: the serving state changes with every merge.
 
-### 1.1 W7-27 is merged and deployed to dev: **NOT MET (blocks the apply, not this PR)**
+### 1.1 W7-27 is merged and deployed to dev: **MET 2026-10-29** (#459 `aae1d769`, deploy-dev green; client #460 `cd6cc670`)
 The plan requires W7-27 (`ListMessages` first page returns `unread_count`) before W7-24 (plan table, "must land before W7-24"). At capture time it is not in `origin/main` and the plan row is still Open. Check: `git log origin/main --oneline --grep=W7-27`, then that the newest `deploy-dev` run built a commit at or after it (1.2). W7-30 and W7-33 follow it and also change the messaging read path; they do not gate this ticket.
 
 ### 1.2 The latest deploy-dev succeeded and serves what you expect

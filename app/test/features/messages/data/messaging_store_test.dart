@@ -127,8 +127,9 @@ void main() {
   });
 
   group('a thread cold open merges the header into the cached row (F-5)', () {
-    // What ListMessages carries: identity, peer, state, folder, can_reply. It
-    // has no unread_count, silent, last_message or updated_at.
+    // What ListMessages carries: identity, peer, state, folder, can_reply and,
+    // on the first page (W7-27), unread_count and silent. No last_message or
+    // updated_at.
     pb.Conversation header(String id) => pb.Conversation(
       id: id,
       kind: ConversationKind.CONVERSATION_KIND_DIRECT,
@@ -147,7 +148,8 @@ void main() {
           session: store.session,
         );
 
-    test('keeps the cached unread count, mute, preview and sort key', () async {
+    test('takes the first-page unread count and mute (0 and false '
+        'included), keeps preview and sort key', () async {
       final a = hexId(0xa1);
       final b = hexId(0xb2);
       await store.applyConversationsColdOpen(
@@ -168,8 +170,10 @@ void main() {
       await coldOpen(a, header(a));
 
       final row = (await store.conversation(a))!;
-      expect(row.unreadCount.toInt(), 3);
-      expect(row.silent, isTrue);
+      // The header is a first page with unread_count 0 / silent false: read
+      // on another device, so the cached 3 and mute are replaced.
+      expect(row.unreadCount.toInt(), 0);
+      expect(row.silent, isFalse);
       expect(row.lastMessage.snippet, 'older');
       expect(row.hasUpdatedAt(), isTrue);
       expect(row.canReply, isTrue);
@@ -181,7 +185,7 @@ void main() {
       // Still second in the Inbox, not thrown to the end or the top.
       final inbox = await store.readConversations(Folder.FOLDER_INBOX);
       expect(inbox.conversations.map((c) => c.id), [b, a]);
-      expect(inbox.conversations.last.unreadCount.toInt(), 3);
+      expect(inbox.conversations.last.unreadCount.toInt(), 0);
     });
 
     test('with nothing cached the header is stored as it is', () async {
@@ -210,10 +214,10 @@ void main() {
       final row = (await store.conversation(a))!;
       expect(row.state, ConversationState.CONVERSATION_STATE_REQUEST);
       expect(row.canReply, isFalse);
-      expect(row.unreadCount.toInt(), 1);
+      expect(row.unreadCount.toInt(), 0);
     });
 
-    test('a header that does carry unread_count wins (W7-27)', () async {
+    test('a first-page header unread_count wins (W7-27)', () async {
       final a = hexId(0xa1);
       await store.applyConversationsColdOpen(
         Folder.FOLDER_INBOX,
@@ -243,23 +247,88 @@ void main() {
   group('mergeThreadHeader', () {
     test('no cached row: a copy of the header', () {
       final fresh = conv('c1', unread: 2);
-      final merged = mergeThreadHeader(null, fresh);
-      expect(merged, fresh);
-      expect(identical(merged, fresh), isFalse);
+      for (final first in [true, false]) {
+        final merged = mergeThreadHeader(null, fresh, firstPage: first);
+        expect(merged, fresh);
+        expect(identical(merged, fresh), isFalse);
+      }
     });
 
     test('keeps what the header leaves unspecified', () {
       final cached = conv('c1', unread: 2, snippet: 'hi', silent: true);
       final fresh = pb.Conversation(id: 'c1', canReply: true);
-      final merged = mergeThreadHeader(cached, fresh);
-      expect(merged.kind, ConversationKind.CONVERSATION_KIND_DIRECT);
-      expect(merged.state, ConversationState.CONVERSATION_STATE_ACCEPTED);
-      expect(merged.folder, Folder.FOLDER_INBOX);
-      expect(merged.unreadCount.toInt(), 2);
-      expect(merged.silent, isTrue);
-      expect(merged.lastMessage.snippet, 'hi');
-      expect(merged.updatedAt, cached.updatedAt);
-      expect(merged.canReply, isTrue);
+      for (final first in [true, false]) {
+        final merged = mergeThreadHeader(cached, fresh, firstPage: first);
+        expect(merged.kind, ConversationKind.CONVERSATION_KIND_DIRECT);
+        expect(merged.state, ConversationState.CONVERSATION_STATE_ACCEPTED);
+        expect(merged.folder, Folder.FOLDER_INBOX);
+        expect(merged.lastMessage.snippet, 'hi');
+        expect(merged.updatedAt, cached.updatedAt);
+        expect(merged.canReply, isTrue);
+      }
+    });
+
+    group('unread_count (W7-27)', () {
+      final cached = conv('c1', unread: 3);
+
+      test('first page: a count of 0 overrides the cached 3 (read on '
+          'another device)', () {
+        final merged = mergeThreadHeader(cached, conv('c1'), firstPage: true);
+        expect(merged.unreadCount.toInt(), 0);
+      });
+
+      test('first page: a count of 5 is set', () {
+        final merged = mergeThreadHeader(
+          cached,
+          conv('c1', unread: 5),
+          firstPage: true,
+        );
+        expect(merged.unreadCount.toInt(), 5);
+      });
+
+      test('since page: the unset count keeps the cached 3', () {
+        final merged = mergeThreadHeader(cached, conv('c1'), firstPage: false);
+        expect(merged.unreadCount.toInt(), 3);
+      });
+
+      test('older page: the unset count keeps the cached 3 (same rule as a '
+          'since page: firstPage false)', () {
+        final merged = mergeThreadHeader(cached, conv('c1'), firstPage: false);
+        expect(merged.unreadCount.toInt(), 3);
+      });
+
+      test('not a first page: a positive count still wins', () {
+        final merged = mergeThreadHeader(
+          cached,
+          conv('c1', unread: 5),
+          firstPage: false,
+        );
+        expect(merged.unreadCount.toInt(), 5);
+      });
+    });
+
+    group('silent (W7-27)', () {
+      final cached = conv('c1', silent: true);
+
+      test('first page: false overrides the cached muted flag', () {
+        final merged = mergeThreadHeader(cached, conv('c1'), firstPage: true);
+        expect(merged.silent, isFalse);
+      });
+
+      test('first page: true is set over a cached unmuted row', () {
+        final merged = mergeThreadHeader(
+          conv('c1'),
+          conv('c1', silent: true),
+          firstPage: true,
+        );
+        expect(merged.silent, isTrue);
+      });
+
+      test('since or older page: the unset flag keeps the cached muted '
+          'flag', () {
+        final merged = mergeThreadHeader(cached, conv('c1'), firstPage: false);
+        expect(merged.silent, isTrue);
+      });
     });
   });
 

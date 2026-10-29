@@ -68,7 +68,8 @@ func idsOf(r *messagingv1.ListMessagesResponse) []string {
 }
 
 // Given 45 messages, then 20 / 20 / 5, newest first, no overlap. Budget (ADR-0027 table): first or older page of 20
-// 24 reads (interceptor, conversation, query 20, peer, caller graph), 0 writes; a page of 50 is 54.
+// 25 reads (interceptor, conversation, query 20, peer, caller graph, caller entry; W7-27), 0 writes; a page of 50 is 55; an
+// older page is 24 / 54 (no entry read).
 func TestListMessages_PagesWithinBudget(t *testing.T) {
 	e := newIT(t, nil)
 	msgs := make([][2]string, 0, 45)
@@ -83,9 +84,9 @@ func TestListMessages_PagesWithinBudget(t *testing.T) {
 	svc := e.msgSvc()
 
 	first, c := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
-	budgettest.Assert(t, "ListMessages first page of 20", c, budgettest.Budget{Reads: 24})
-	if c.Reads() != 24 || c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("first page reads/writes/deletes = %d/%d/%d, want 24/0/0", c.Reads(), c.Writes(), c.Deletes())
+	budgettest.Assert(t, "ListMessages first page of 20", c, budgettest.Budget{Reads: 25})
+	if c.Reads() != 25 || c.Writes() != 0 || c.Deletes() != 0 {
+		t.Errorf("first page reads/writes/deletes = %d/%d/%d, want 25/0/0", c.Reads(), c.Writes(), c.Deletes())
 	}
 	if len(first.Messages) != 20 || first.NextPageToken == "" || first.SinceToken == "" || first.GapPageToken != "" || first.Conversation == nil {
 		t.Fatalf("first page: %d messages next=%q since=%q gap=%q conversation=%v", len(first.Messages), first.NextPageToken, first.SinceToken, first.GapPageToken, first.Conversation)
@@ -120,14 +121,14 @@ func TestListMessages_PagesWithinBudget(t *testing.T) {
 
 	// The maximum page: 54 reads cold.
 	_, c50 := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
-	budgettest.Assert(t, "ListMessages page of 50", c50, budgettest.Budget{Reads: 54})
-	if c50.Reads() != 49 { // 45 messages: 1 + 1 + 45 + 1 + 1
-		t.Errorf("page of 45 reads = %d, want 49", c50.Reads())
+	budgettest.Assert(t, "ListMessages page of 50", c50, budgettest.Budget{Reads: 55})
+	if c50.Reads() != 50 { // 45 messages: 1 + 1 + 45 + 1 + 1 + 1
+		t.Errorf("page of 45 reads = %d, want 50", c50.Reads())
 	}
 	// Warm caches: only the interceptor and the query.
 	_, warm := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
-	if warm.Reads() != 1+20+1+1 { // interceptor + query + peer + graph (the conversation is cached; the fakes charge on every call)
-		t.Errorf("warm first page reads = %d, want 23", warm.Reads())
+	if warm.Reads() != 1+20+1+1+1 { // interceptor + query + peer + graph + entry (the conversation is cached; the fakes charge on every call)
+		t.Errorf("warm first page reads = %d, want 24", warm.Reads())
 	}
 }
 
@@ -232,8 +233,8 @@ func TestListMessages_ClearedAtOnEmulator(t *testing.T) {
 	if len(resp.Messages) != 4 || resp.Messages[3].Text != "m6" || resp.NextPageToken != "" {
 		t.Fatalf("alice sees %d messages (last %q) next=%q, want m9..m6", len(resp.Messages), resp.Messages[len(resp.Messages)-1].Text, resp.NextPageToken)
 	}
-	if c.Reads() != 1+1+4+1+1 {
-		t.Errorf("reads = %d, want 8 (the cleared messages are not read)", c.Reads())
+	if c.Reads() != 1+1+4+1+1+1 {
+		t.Errorf("reads = %d, want 9 (the cleared messages are not read)", c.Reads())
 	}
 	bobView, _ := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if len(bobView.Messages) != 10 {

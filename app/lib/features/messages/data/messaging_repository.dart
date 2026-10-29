@@ -345,7 +345,15 @@ class MessagingRepository {
       nextPageToken: page.nextPageToken,
       session: session,
     );
-    return _ThreadRefresh(await _store.readThread(conversationId), added ?? 0);
+    final snapshot = await _store.readThread(conversationId);
+    // Marked only when the write landed (null = the session ended) and the
+    // page carried a header: then the cached header is the server's
+    // first-page one (W7-27).
+    final applied = added != null && page.hasConversation();
+    return _ThreadRefresh(
+      applied ? snapshot.asFirstPage() : snapshot,
+      added ?? 0,
+    );
   }
 
   /// Scroll older: the page below the oldest cached message. No call when

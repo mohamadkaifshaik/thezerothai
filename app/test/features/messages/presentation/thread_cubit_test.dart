@@ -5,6 +5,7 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/thread_push_coverage.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -237,26 +238,125 @@ void main() {
       expect(reported, [kThreadId]);
     });
 
-    // ListMessages carries no unread_count today (its header is identity, peer,
-    // state, folder and can_reply), so a thread opened with nothing cached
-    // cannot tell: the badge keeps its number until the next Inbox load or
-    // GetMe. W7-27 adds the count to the first page.
-    test('not when nothing is cached and the ListMessages header, as the '
-        'server sends it, has no unread_count', () async {
-      stubOpen(const ThreadSnapshot(), snap(thread(3)));
-      final reported = <String>[];
-      makeReporting(reported);
+    test(
+      'not when nothing is cached and the first page says 0 (read)',
+      () async {
+        stubOpen(const ThreadSnapshot(), snap(thread(3)).asFirstPage());
+        final reported = <String>[];
+        makeReporting(reported);
 
-      await cubit.load();
-      await pumpEventQueue();
+        await cubit.load();
+        await pumpEventQueue();
 
-      expect(reported, isEmpty);
+        expect(reported, isEmpty);
+        verifyNever(
+          () => repo.markConversationRead(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+      },
+    );
+
+    // W7-27 / W7-19 F-5: a thread opened from a push with nothing cached gets
+    // the count from the first ListMessages page.
+    group('cold open from a push, nothing cached (W7-27)', () {
+      late MessagesBadgeCubit badge;
+
+      ThreadCubit makeWithBadge() => cubit = ThreadCubit(
+        repository: repo,
+        poller: poller,
+        conversationId: kThreadId,
+        uuid: uuid,
+        onOpenedUnread: badge.clearUnread,
+      );
+
+      setUp(() => badge = MessagesBadgeCubit(3));
+      tearDown(() => badge.close());
+
+      test(
+        'server count 2: one mark-read and the badge lowered by one',
+        () async {
+          stubOpen(
+            const ThreadSnapshot(),
+            snap(thread(3), conversation: threadConv(unread: 2)).asFirstPage(),
+          );
+          makeWithBadge();
+
+          await cubit.load();
+          await pumpEventQueue();
+
+          expect(markCalls(), 1);
+          expect(badge.state, 2);
+        },
+      );
+
+      test(
+        'a REQUESTS conversation: mark-read, badge unchanged (D10)',
+        () async {
+          stubOpen(
+            const ThreadSnapshot(),
+            snap(
+              thread(3),
+              conversation: threadConv(
+                unread: 2,
+                state: ConversationState.CONVERSATION_STATE_REQUEST,
+                folder: Folder.FOLDER_REQUESTS,
+              ),
+            ).asFirstPage(),
+          );
+          makeWithBadge();
+
+          await cubit.load();
+          await pumpEventQueue();
+
+          expect(markCalls(), 1);
+          expect(badge.state, 3);
+        },
+      );
+
+      test('first page 0 over a cached unread row: no mark-read, the badge '
+          'is lowered once and not again', () async {
+        stubOpen(
+          snap(thread(3), conversation: threadConv(unread: 3)),
+          snap(thread(3), conversation: threadConv()).asFirstPage(),
+        );
+        makeWithBadge();
+
+        await cubit.load();
+        await pumpEventQueue();
+        await cubit.refresh();
+        await pumpEventQueue();
+
+        verifyNever(
+          () => repo.markConversationRead(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            conversationId: any(named: 'conversationId'),
+          ),
+        );
+        expect(badge.state, 2);
+      });
+
+      test('a since refresh over a cached unread row still marks it read '
+          '(the cached count may be stale, as before)', () async {
+        stubOpen(
+          snap(thread(3), conversation: threadConv(unread: 3)),
+          snap(thread(3), conversation: threadConv(unread: 3)),
+        );
+        makeWithBadge();
+
+        await cubit.load();
+        await pumpEventQueue();
+
+        expect(markCalls(), 1);
+        expect(badge.state, 2);
+      });
     });
 
-    test('fires from the cached Inbox row the cold open kept: the header has '
-        'no unread_count, the merged row does', () async {
-      // What the repository hands over after MessagingStore merged the header
-      // into the cached row (mergeThreadHeader keeps the cached count).
+    test('fires from the cached Inbox row a since refresh kept: a since page '
+        'has no header, so the cached count stands', () async {
+      // Not marked as a first page (mergeThreadHeader keeps the cached count
+      // on any page but the first).
       stubOpen(
         const ThreadSnapshot(),
         snap(thread(3), conversation: threadConv(unread: 2)),

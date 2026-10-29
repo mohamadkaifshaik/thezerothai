@@ -190,7 +190,7 @@ Prices (§7):
 | Push delivery (Pub/Sub push to `/internal`, `message` type, no row) | 9 (actor and recipient `users` fresh 2, recipient graph 1, devices ≤ 5, +1 actor graph on overflow) | 3.5 | 0 | 0 | lever (architect A4): skip the 2 fresh profile reads for push-only events → 1.5 |
 | ListConversations, first page 20 (INBOX) | 23 (interceptor 1, query 20, caller graph 1, `count()` of requests 1) | 9 (about 6 conversations) | 0 | 0 | REQUESTS folder the same without the `count()` |
 | ListConversations `since` refresh | 3 (interceptor, query min 1, graph) | 2 | 0 | 0 | |
-| ListMessages first page 20 / 50 (and older pages) | 24 / 54 (interceptor 1, conversation doc 1, query, peer `users` 1, caller graph 1 for `can_reply`) | 15 | 0 | 0 | non-participant or unknown id → NOT_FOUND after ≤ 2 reads, byte-identical |
+| ListMessages first page 20 / 50 (and older pages) | first page 25 / 55 since W7-27 (interceptor 1, conversation doc 1, query, peer `users` 1, caller graph 1 for `can_reply`, the caller's entry 1); older pages 24 / 54 | 15 (16 with the entry) | 0 | 0 | non-participant or unknown id → NOT_FOUND after ≤ 2 reads, byte-identical |
 | ListMessages `since` poll | 3 cold (interceptor, conversation doc, query min 1); **a `since` response omits `conversation`** (no peer or graph read) | 1.2 | 0 | 0 | + 1 read per new message returned |
 | MarkConversationRead | 1 (interceptor) | 0.3 | 1 (entry `unreadCount = 0`, `lastReadAt`; `Exists` precondition) | 0 | the client calls it only when it holds unread > 0 |
 | AcceptMessageRequest | 3 (interceptor, conversation, request entry) | 2.5 | 2 (conversation state, `dmInbox` entry) | 1 (`dmRequests` entry) | |
@@ -363,10 +363,10 @@ Prices (§7):
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | In review (PR #458): rollout prepared, founder apply pending |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
-| W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
+| W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | In review (PR #459) |
 | W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Done (#448) |
 | W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Done (#451) |
-| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | Open |
+| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | In review (PR #459): thread header part; the export part stays Open |
 | W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Done (#450) |
 | W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Open |
 | W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
@@ -962,7 +962,7 @@ Order:
 - **Flag.** `messaging` (per caller and globally).
 - **Seam.** `MessagingFeatureGate`.
 
-### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: Open
+### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: In review (PR #459)
 - **Why.** Found in the #441 review (W7-19 F-5). `ListMessages` carries the conversation header (identity, peer, state, folder, `can_reply`) but not the caller's entry, so a thread opened cold (a push tap, a deep link, nothing cached) cannot tell that the conversation was unread. The client then cannot take it out of the Messages badge, which keeps its number until the next Inbox load or `GetMe`. The client side is already in W7-19: the cold open merges the header into the cached row, so a cached `unread_count` survives.
 - **Description.**
   - **architect:** a one-line additive proto comment and field use: `Conversation.unread_count` is filled on the first page of `ListMessages` (not on a `since` or older page), from the caller's `dmInbox` entry. No new field, no renumbering (rule 9). A short ADR-0027 dated note.
@@ -976,6 +976,7 @@ Order:
 - **Budget.** **+1 read on a first page** (worst case 24 → 25). A first page is opened once per thread open, so the cost is about one read per thread open per DAU.
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListMessages`. `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row, but it keeps the cached count when the header says 0. Once this lands a first-page 0 is authoritative (read on another device), so a small client follow-up (frontend-developer, right after the backend PR) goes with this ticket: take the first-page header count as it is, so a stale unread cached row does not lower the badge or send a needless mark-read.
+- **Implementation note (2026-10-29, PR #459).** Backend, proto comment and ADR-0027 note are in one PR. New `Repo.GetEntry` (1 read, folder from `entryFolder`: `dmRequests` only for the recipient of an unaccepted request, else `dmInbox`; never a probe of both), run in the existing errgroup (limit 4) after the participant check, first page only. Measured in the chain test `TestMessagingChain_ReadBudgetTable`: first page 25 at page 20 and 55 at page 50, older page 24, poll 3. **W7-30 header part rides along** (about 40 lines): `BlockedBy[peer]` or `BlockedByOverflow` shows the entry's frozen peer snapshot, never the live profile; an older page and a first page with no entry read "Deleted account". The rule is: erased peer is the placeholder; else a block decides (frozen only if the entry names this peer), whatever the directory says, so a blocked caller learns nothing about the blocker's account status; else a peer the directory does not list is the placeholder; else live. The directory lookup is kept, in parallel with the graph read, for latency (no serial wait) and for liveness in the unblocked case, not to match read counts. Deviation from the review text: `BlockedByOverflow` is treated as blocked (0 reads, fail closed, security audit accepted) instead of reading the peer's graph, and `canReply` is false for it too. Complete only with W7-33 (a send in the 60 s stale-graph window can refresh the frozen snapshot). **Not in this PR:** the W7-30 export part (needs a graph dependency in `NewExporter` and apiserver wiring), and the client follow-up (`mergeThreadHeader` takes the first-page header count as authoritative, including 0), a separate frontend PR. Client follow-up PR #460.
 
 
 ### W7-28 to W7-35 — Security-review follow-ups (W7-22)  Status: Open
@@ -985,7 +986,7 @@ scenario no longer works".
 - **W7-28 (done, #448) [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
   non-participant probe costs exactly 1 read whether the conversation exists or not; participants +0.
 - **W7-29 (done, #451) [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
-- **W7-30 [M-2]** frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
+- **W7-30 [M-2]** (thread header part: in review, PR #459, with W7-27; export part still Open) frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
   graph read.
 - **W7-31 (done, #450) [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
 - **W7-32 [M-4]** `tf-plan` custom read role. Gate: founder decision before prod messaging.
