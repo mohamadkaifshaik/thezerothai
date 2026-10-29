@@ -351,12 +351,20 @@ Prices (§7):
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
-| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
+| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | In review (PR pending) |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
+| W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Open |
+| W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Open |
+| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | Open |
+| W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Open |
+| W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Open |
+| W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
+| W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
+| W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -854,7 +862,7 @@ Order:
 - **Flag.** As above.
 - **Seam.** —
 
-### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: Open
+### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: In review (PR pending)
 - **Description.** A threat model for the first private-content feature:
   - authz on every read and write (participant checks, guessable deterministic ids, token binding);
   - the block oracle (refusal bytes; cached-graph freshness, A8);
@@ -953,6 +961,24 @@ Order:
 - **Budget.** **+1 read on a first page** (worst case 24 → 25). A first page is opened once per thread open, so the cost is about one read per thread open per DAU.
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListMessages`. `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row, but it keeps the cached count when the header says 0. Once this lands a first-page 0 is authoritative (read on another device), so a small client follow-up (frontend-developer, right after the backend PR) goes with this ticket: take the first-page header count as it is, so a stale unread cached row does not lower the badge or send a needless mark-read.
+
+
+### W7-28 to W7-35 — Security-review follow-ups (W7-22)  Status: Open
+Source: `docs/reviews/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
+in that report (finding ids in brackets); acceptance is "the finding's fix is in place with a test, and the report's
+scenario no longer works".
+- **W7-28 [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
+  non-participant probe costs exactly 1 read whether the conversation exists or not; participants +0.
+- **W7-29 [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
+- **W7-30 [M-2]** frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
+  graph read.
+- **W7-31 [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
+- **W7-32 [M-4]** `tf-plan` custom read role. Gate: founder decision before prod messaging.
+- **W7-33 [L-1 A8, L-3, L-8]** fresh recipient graph in the send transaction (+1 read per send, ADR-0027 note), recipient
+  `ProfileInTx`, verified-email gate. Gate: before prod percent / on.
+- **W7-34 [L-2, L-7]** placeholder and log pseudonyms. Gate: before prod.
+- **W7-35 [L-4, L-5, L-9]** client hardening. Gate: before prod.
+- Not ticketed: L-6 (report TTL or 48 h SLA, founder) and L-10 (the F2(d) requests setting, planner follow-up).
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).
