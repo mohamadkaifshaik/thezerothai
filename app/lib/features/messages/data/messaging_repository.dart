@@ -83,9 +83,10 @@ class MessagingRepository {
   /// Whether the caller may send (the per-caller flag).
   bool get enabled => _gate.canSend;
 
-  /// Fires after the cached conversation lists changed by a local action (an
-  /// accepted or deleted request, W7-18), so an open inbox or requests list
-  /// re-reads the cache (no network) instead of showing a stale row or count.
+  /// Fires after the cached conversation lists changed by a local action, after
+  /// every Accept, every Delete, and dropBlockedRequest (W7-18), so an open
+  /// inbox or requests list re-reads the cache (no network) instead of showing
+  /// a stale row or count.
   /// Not a poll and not a server push: nothing here is live.
   Stream<void> get conversationsChanged => _conversationsChanged.stream;
 
@@ -429,14 +430,24 @@ class MessagingRepository {
   }) async {
     final session = _store.session;
     final wasRequest = await _isRequest(conversationId);
-    await _gate.run(
-      () => _apiClient.messaging.acceptMessageRequest(
-        pb.AcceptMessageRequestRequest(
-          idempotencyKey: idempotencyKey,
-          conversationId: conversationId,
+    try {
+      await _gate.run(
+        () => _apiClient.messaging.acceptMessageRequest(
+          pb.AcceptMessageRequestRequest(
+            idempotencyKey: idempotencyKey,
+            conversationId: conversationId,
+          ),
         ),
-      ),
-    );
+      );
+    } on NotFoundException {
+      // Gone for the caller (deleted elsewhere, or never theirs): the cached
+      // row would only mislead, so clean it as Delete does, then let the
+      // caller see the error.
+      await _store.removeConversation(conversationId);
+      if (wasRequest) await _store.adjustRequestCount(-1, session: session);
+      _notifyConversationsChanged();
+      rethrow;
+    }
     await _store.markConversationAccepted(conversationId, session: session);
     if (wasRequest) await _store.adjustRequestCount(-1, session: session);
     _notifyConversationsChanged();

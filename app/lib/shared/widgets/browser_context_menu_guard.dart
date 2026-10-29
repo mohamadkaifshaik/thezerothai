@@ -33,6 +33,9 @@ class _PlatformToggle implements BrowserContextMenuToggle {
 ///   next never leaves the menu enabled over the second (or disabled outside
 ///   both). The menu is enabled again when the last guard is left or
 ///   disposed (a widget removed under the pointer sends no exit).
+///   Leaving the last guarded widget re-enables the browser menu even if other
+///   code had disabled it on purpose: the guard keeps no memory of the state it
+///   found.
 /// - Not verified in a real browser yet (the tests use a fake toggle).
 class BrowserContextMenuGuard extends StatefulWidget {
   const BrowserContextMenuGuard({super.key, required this.child});

@@ -593,6 +593,31 @@ void main() {
         );
       });
 
+      test('accept answered NOT_FOUND still throws, but the cache is cleaned, '
+          'the count lowered and the lists told', () async {
+        await seed(requests: 2);
+        var changes = 0;
+        final sub = repo.conversationsChanged.listen((_) => changes++);
+        addTearDown(sub.cancel);
+        readAnswer = const NotFoundException('raw-not-found');
+        transport.calledProcedures.clear();
+
+        await expectLater(
+          repo.acceptMessageRequest(idempotencyKey: 'k', conversationId: 'q1'),
+          throwsA(isA<NotFoundException>()),
+        );
+        await pumpEventQueue();
+
+        expect(transport.calledProcedures, [_accept]);
+        final requests = await repo.cachedConversations(Folder.FOLDER_REQUESTS);
+        expect(requests.conversations.map((c) => c.id), ['q2']);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          1,
+        );
+        expect(changes, 1);
+      });
+
       test('delete answered NOT_FOUND counts as done: the cache is cleaned, '
           'the count lowered and the lists told', () async {
         await seed(requests: 2);
