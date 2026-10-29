@@ -260,6 +260,10 @@ locals {
     { name = "RATE_LIMIT_MESSAGES_READ_PER_MIN", value = "30" },
     { name = "MESSAGES_SENDS_PER_DAY", value = "300" },
     { name = "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", value = "50" },
+    # W7-29 (security review W7-22 M-1): MarkConversationRead's own daily cap (limit_name messages_mark_read_daily) and one cap shared by
+    # AcceptMessageRequest + DeleteConversation (limit_name messages_mutation_daily). Must match the config.go defaults (500 and 500).
+    { name = "MESSAGES_MARK_READ_PER_DAY", value = "500" },
+    { name = "MESSAGES_MUTATIONS_PER_DAY", value = "500" },
     { name = "QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", value = "20" },
     { name = "QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY", value = "5" },
     { name = "MESSAGES_REQUEST_MAX_UNANSWERED", value = "3" },
