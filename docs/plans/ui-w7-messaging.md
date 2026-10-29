@@ -357,10 +357,10 @@ Prices (§7):
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
-| W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Open |
-| W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Open |
+| W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Done (#448) |
+| W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Done (#451) |
 | W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | Open |
-| W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Open |
+| W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Done (#450) |
 | W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Open |
 | W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
 | W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
@@ -972,12 +972,12 @@ Order:
 Source: `docs/reviews/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
 in that report (finding ids in brackets); acceptance is "the finding's fix is in place with a test, and the report's
 scenario no longer works".
-- **W7-28 [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
+- **W7-28 (done, #448) [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
   non-participant probe costs exactly 1 read whether the conversation exists or not; participants +0.
-- **W7-29 [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
+- **W7-29 (done, #451) [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
 - **W7-30 [M-2]** frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
   graph read.
-- **W7-31 [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
+- **W7-31 (done, #450) [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
 - **W7-32 [M-4]** `tf-plan` custom read role. Gate: founder decision before prod messaging.
 - **W7-33 [L-1 A8, L-3, L-8]** fresh recipient graph in the send transaction (+1 read per send, ADR-0027 note), recipient
   `ProfileInTx`, verified-email gate. Gate: before prod percent / on.
