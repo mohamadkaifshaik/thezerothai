@@ -47,6 +47,22 @@ type RateLimitConfig struct {
 	// Worst case per account: 300 x 3 instances = 900 messages a day. The new-account value is Messaging.NewAccountSendsPerDay.
 	MessagesSendsPerDay int64
 
+	// MessagesMarkReadPerDay is the in-memory daily cap on MarkConversationRead calls (one counter per uid per instance,
+	// ratelimit.DailyCap), env MESSAGES_MARK_READ_PER_DAY, default 500, logged as limit_name "messages_mark_read_daily"
+	// (security review W7-22 M-1). Every call on an existing entry is 1 write, a repeat included, and the call sat on the 60/min
+	// default bucket (180/min at 3 instances = 259,200 writes a day for one account). Default 500: a few dozen thread opens and
+	// foreground pushes a day for an active user, with a wide margin. Worst case per account: 500 x 3 instances = 1,500 writes
+	// a day, against the 20k a day free quota.
+	MessagesMarkReadPerDay int64
+
+	// MessagesMutationsPerDay is the in-memory daily cap shared by AcceptMessageRequest and DeleteConversation (one counter per
+	// uid per instance, ratelimit.DailyCap), env MESSAGES_MUTATIONS_PER_DAY, default 500, logged as limit_name
+	// "messages_mutation_daily" (W7-22 M-1). Sized like GraphMutationsPerDay (500): both are state changes on a social edge,
+	// idempotent by state, and a person answers a handful of requests a day. A repeat writes nothing; a first Accept is 4 writes
+	// and 1 delete, so the bound is 500 x 3 instances x 5 = 7,500 operations per account per day, and real work is bounded
+	// further by the requests there are to answer (3 unanswered per sender, 20 new conversations per sender per day).
+	MessagesMutationsPerDay int64
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket (ADR-0024 D10), env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the

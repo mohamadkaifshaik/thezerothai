@@ -105,11 +105,16 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// ADR-0027 D13: SendMessage has its own per-user bucket (RATE_LIMIT_MESSAGES_SEND_PER_MIN, 20/min per instance) and a per-uid
 	// daily call cap (MESSAGES_SENDS_PER_DAY, limit_name "messages_daily"); ListConversations and ListMessages share one read
 	// bucket (RATE_LIMIT_MESSAGES_READ_PER_MIN, 30/min per instance). MarkConversationRead, AcceptMessageRequest and
-	// DeleteConversation use the default bucket (the read budget covers every RPC). The new-account tier of the daily cap
+	// DeleteConversation use the default bucket (the read budget covers every RPC) and, since W7-29 (security review W7-22 M-1),
+	// a daily call cap each: MarkConversationRead alone (MESSAGES_MARK_READ_PER_DAY, "messages_mark_read_daily": it writes the
+	// caller's entry on every call, repeats included) and ONE shared cap over Accept + Delete (MESSAGES_MUTATIONS_PER_DAY,
+	// "messages_mutation_daily", the graph_mutation_daily shape). The new-account tier of the send cap
 	// (Messaging.NewAccountSendsPerDay) is applied by the send service, because a DailyCap holds one number per procedure.
 	rlMessagesSend := ratelimit.NewLimiter(cfg.RateLimit.MessagesSendPerUserPerMinute, idleBucketTTL)
 	rlMessagesRead := ratelimit.NewLimiter(cfg.RateLimit.MessagesReadPerUserPerMinute, idleBucketTTL)
 	messagesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesSendsPerDay)
+	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
+	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
 
 	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
 	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
@@ -174,7 +179,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			graphv1connect.GraphServiceListSuggestedUsersProcedure: {Name: "suggestions_daily", Cap: suggestionsDailyCap},
 
-			messagingv1connect.MessagingServiceSendMessageProcedure: {Name: "messages_daily", Cap: messagesDailyCap},
+			messagingv1connect.MessagingServiceSendMessageProcedure:          {Name: "messages_daily", Cap: messagesDailyCap},
+			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},
+			messagingv1connect.MessagingServiceAcceptMessageRequestProcedure: {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
+			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 

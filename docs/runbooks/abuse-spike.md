@@ -63,6 +63,7 @@ is in the error metadata the client sees, not in the log line, so identify it by
   ListBlockedUsers and ListMutedUsers). Sort by `uid_hash`.
 - Bulk mutation replays: `jsonPayload.limit_name="graph_mutation_daily"`.
 - Bookmark no-op churn (Add of an already bookmarked post, Remove of a missing one): `jsonPayload.limit_name="bookmark_mutation_daily"` (`BOOKMARK_MUTATIONS_PER_DAY`, shared by AddBookmark and RemoveBookmark; `docs/runbooks/bookmarks.md`).
+- Messaging write loops (MarkConversationRead repeats, Accept / Delete churn): `jsonPayload.limit_name="messages_mark_read_daily"` or `"messages_mutation_daily"` (`MESSAGES_MARK_READ_PER_DAY`, `MESSAGES_MUTATIONS_PER_DAY`, 500 each; Accept and Delete share one counter; `docs/runbooks/messaging.md` section 3). SendMessage floods are `"messages_daily"`.
 - Read scraping / read-budget exhaustion (ADR-0010 D5, T3). **Logs Explorer filters only: Log Analytics is not
   enabled (no SQL, no `<log view>`).** Base filter as in section 1. Narrow with one of:
   - `jsonPayload.limit_name="read_budget_daily"`: the per-uid daily Firestore read budget is spent
