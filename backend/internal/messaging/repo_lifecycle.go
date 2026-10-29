@@ -75,7 +75,8 @@ func (r *FirestoreRepo) NextConversation(ctx context.Context, uid, after string)
 // `gone` (so no send can rewrite the deleted user's entries afterwards: the send transaction reads that document) and
 // rewrite the peer's entry (snapshot to the "Deleted account" placeholder; the snippet to "Message deleted" when the
 // user's message was the last one). Reads 2 (the conversation, the peer's entry; 1 when the peer is gone already);
-// writes 2 (1 when the peer's entry is gone). A repeat on a conversation already marked costs 1 read and 0 writes.
+// writes 2 (1 when the peer's entry is gone). The peer's entry also gets changedAt, so a device that cached the inbox sees the
+// rewritten row at its next since refresh (+0 writes). A repeat on a conversation already marked costs 1 read and 0 writes.
 func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneResult, error) {
 	var out goneResult
 	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
@@ -127,7 +128,7 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 				b.Update(r.convRef(convID), []firestore.Update{{Path: "gone", Value: firestore.ArrayUnion(uid)}, {Path: "updatedAt", Value: wireTime(r.now())}})
 			}
 			if peerRef != nil {
-				ups := []firestore.Update{{Path: "peer", Value: PeerDoc{DisplayName: DeletedAccountName}.fields()}, {Path: "peerId", Value: DeletedUID}}
+				ups := []firestore.Update{{Path: "peer", Value: PeerDoc{DisplayName: DeletedAccountName}.fields()}, {Path: "peerId", Value: DeletedUID}, {Path: "changedAt", Value: wireTime(r.now())}} // changedAt: the peer's next inbox since refresh returns the rewritten entry
 				if !peerEntry.Last.FromSelf {
 					ups = append(ups, firestore.Update{Path: "last.snippet", Value: deletedSnippet}, firestore.Update{Path: "last.state", Value: msgDeletedAccount})
 				}
@@ -192,7 +193,8 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 // copy names the deleted user nowhere (ADR-0027 D11). It must come last: the cursor query finds a conversation through
 // `participants array-contains uid`, so once this commits the conversation is no longer listed for uid, and everything
 // before it (gone mark, tombstones, entry) is already done. A missing conversation, or one without uid, is a no-op.
-// Reads 1, writes 1.
+// Reads 1, writes 1. The same write increments `rev` (+0 writes), which retires every ListMessages since token the surviving
+// peer's devices hold, so their cached thread cold-opens and shows the DELETED_ACCOUNT tombstones and the "Deleted account" header.
 func (r *FirestoreRepo) RewriteConversation(ctx context.Context, uid, convID string) error {
 	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 		func(ctx context.Context, tx *firestore.Transaction) error {

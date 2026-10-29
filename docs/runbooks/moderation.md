@@ -28,7 +28,7 @@ Decide one of:
 | Nothing wrong | `reports resolve --id R --resolution NO_ACTION` (or `DISMISSED` for abusive/duplicate reports; these are the only two resolutions `resolve` accepts) | report RESOLVED, evidence TTL-deleted 90 days later |
 | Remove one post | `takedown-post --post POSTID --report R` | post hidden from GetPost (NOT_FOUND for everyone, the author included), profile timeline and Home within 60 s; report resolved TAKEDOWN |
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
-| Remove one direct message | `messages takedown CONVERSATION_ID:MESSAGE_ID --report R` (use `--dry-run` first; the argument is the report's `target`) | the message becomes `REMOVED` with its text cleared and both people's inbox previews are rewritten; both see "This message was removed" on their next load; report resolved TAKEDOWN. Not undoable. See "Reading a message report" below |
+| Remove one direct message | `messages takedown CONVERSATION_ID:MESSAGE_ID --report R` (use `--dry-run` first; the argument is the report's `target`) | the message becomes `REMOVED` with its text cleared and both people's inbox previews are rewritten; both see "This message was removed" (devices that cached the thread or the inbox at their next poll or refresh); report resolved TAKEDOWN. Not undoable. See "Reading a message report" below |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
 | Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it also schedules the delete of the image when `PROFILE_MEDIA_RETIRE` is set in your shell (A4) and prints the object names either way (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
@@ -48,7 +48,7 @@ confirmation. Nothing here touches Firebase Auth.
 | &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
 | `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
 | `clear-profile-fields` | 1 (+1 to check `--report`, +1 to resolve it); a DELETING or missing account stops after the read | 1 (0 when every named field is already empty or with `--dry-run`; +1 to resolve the report) |
-| `messages takedown` (W7-12) | 4 at most (message 1, conversation 1, each participant's entry 1; +2 with `--report`: target check, resolve); a repeat or a DELETED_ACCOUNT tombstone 1 | 3 at most (message + each preview that named it; +1 with `--report`); 0 with `--dry-run`, on a repeat and on a tombstone |
+| `messages takedown` (W7-12) | 4 at most (message 1, conversation 1, each participant's entry 1; +2 with `--report`: target check, resolve); a repeat or a DELETED_ACCOUNT tombstone 1 | 4 at most (message 1, conversation revision 1, each preview that named it; +1 with `--report`); 0 with `--dry-run`, on a repeat and on a tombstone |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
@@ -131,10 +131,11 @@ Two things to know:
   reachable from `opsctl`; judge from the one message, the reason and the note. A pattern needs several reports against the same `owner`.
 
 To remove it run `opsctl messages takedown <target> --report R` (`--dry-run` first). The message becomes `REMOVED` with its text and request
-digest cleared, and the inbox previews of both people that showed it are rewritten, in one transaction. Both see "This message was removed"
-the next time they open the thread or the inbox. Facts to expect:
-- **A client that already cached the text keeps it until it reloads the first page.** A takedown moves neither `createdAt` nor `lastMessageAt`
-  (the inbox keeps its order), so a `since` poll never re-delivers the message. The server, the next first page and a new device show it removed.
+digest cleared, the inbox previews of both people that showed it are rewritten, and the conversation's revision is bumped, in one transaction
+(at most 4 reads, 4 writes). Both see "This message was removed". Facts to expect:
+- **A device that cached the text drops it at its next poll or inbox refresh.** The thread's `since_token` is retired (the app makes one cold
+  open) and the inbox row comes back in the next `since` refresh, in the same place. A device polling an instance whose 60 s conversation copy
+  predates the takedown can lag by up to 60 s; a closed thread converges when it is opened. See `docs/runbooks/messaging.md` section 5b.
 - **The report keeps the text.** The evidence is a copy taken at report time; the takedown does not touch it. It is deleted with the report,
   resolved + 90 days.
 - **Idempotent and safe to repeat.** An already `REMOVED` message, or one its sender's account deletion already tombstoned

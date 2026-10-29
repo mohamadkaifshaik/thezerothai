@@ -47,6 +47,12 @@ func messagesPageBinding(uid, convID string) string {
 // Participant check: the conversation document (instance cache 60 s, so a clearedAt set on another instance is seen
 // within 60 s). A missing document and a non-participant answer one byte-identical NOT_FOUND after at most 2 reads.
 //
+// Thread revision (ADR-0027 note 2026-10-29): a since token carries the conversation's `rev` as its issuer saw it. After the
+// participant check, a token with a lower rev (a takedown or an erasure changed the thread) is VALIDATION since_token with
+// the bytes of an expired token, at most 2 reads (interceptor, conversation), no query; a higher rev means this instance's
+// 60 s copy is stale, so the copy is dropped (0 reads) and the higher rev is sealed again. A foreign or tampered token is
+// still refused before any read.
+//
 // Messages come newest first, `createdAt DESC, __name__ DESC`, without those at or before clearedAt[caller]. A tombstone
 // keeps its state and an empty text; from_self is the only sender information on the wire. A `since` refresh trails the
 // newest returned message by SettleWindow (the client dedupes by id); when its page is full the response carries

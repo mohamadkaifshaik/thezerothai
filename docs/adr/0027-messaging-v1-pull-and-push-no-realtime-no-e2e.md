@@ -467,3 +467,74 @@ format-validated").
     D14 (instances converge within the 60 s cache bound).
   - **Only the last Delete key per user is remembered.** `clearedKey.{uid}` holds one digest. A late retry of an older key
     that arrives after a newer delete is not recognised as a replay and counts as a new delete.
+
+## Note (2026-10-29): Takedown reaches cached devices (founder decision 2026-10-29)
+
+**Problem.** A takedown (D12, W7-12) rewrote the message and the inbox previews but moved neither the message's
+`createdAt` nor the entry's `lastMessageAt`. A device that cached the thread or the inbox refreshes with `since`
+(`createdAt > t`, `lastMessageAt > t`), and an active user's since token never expires (each refresh issues a new one),
+so the tombstone never reached it. That broke W7-12's "both participants see 'This message was removed'". The founder
+decided to fix it, at about +1 write per takedown and 0 reads on any hot path.
+
+**Decision.**
+1. **Thread: a revision on the conversation, sealed in the since token.** `conversations/{convId}.rev` (int, absent =
+   0) is incremented by the takedown transaction, which already reads the conversation. ListMessages since tokens
+   carry the rev the issuer saw (`cursor.EncodeRevAt` / `DecodeRevAtTTL`, their own AEAD domain; a token from before
+   this note decodes as rev 0). The token is still decoded before any read (a foreign or tampered token is VALIDATION
+   with 0 reads, D7 unchanged). After the participant check, a since token whose rev is lower than the conversation's
+   is VALIDATION `since_token` (≤ 2 reads: interceptor, conversation; no query), with the same bytes as an expired
+   token, and the client makes one cold open, as the token contract already says. A new since token carries
+   max(token rev, conversation rev), so an instance whose 60 s copy (D14) is stale never moves a token backwards; it
+   drops that copy instead. The rev is not in the binding: that would read the conversation before decoding and make
+   instances with different copies reject each other's tokens. The eraser's `RewriteConversation` increments `rev` in
+   the same write, so the surviving peer's cached thread picks up the DELETED_ACCOUNT tombstones the same way. The
+   per-instance cache never replaces a copy with an older `updatedAt`, and with an equal `updatedAt` keeps the higher
+   `rev`.
+2. **Inbox: a change stamp on the entry drives `since`.** `dmInbox` / `dmRequests` entries gain `changedAt`. Every
+   send writes it equal to `lastMessageAt` (same stamp, in the writes it already makes); the takedown sets it (server
+   time) on each entry whose preview it rewrites. The ListConversations since query becomes `changedAt > t ORDER BY
+   changedAt DESC, __name__ DESC`, on the automatic single-field index (no composite index, no exemption). First and
+   older pages, `Conversation.updated_at` and the preview time stay on `lastMessageAt`, so the inbox order does not
+   change. A since token trails the newest changed entry by the 5 s settle window; a first page issues "now − 5 s".
+   The since binding's kind changed, so a since token from before this note is VALIDATION (0 reads) and each device
+   cold-opens each folder once; this shipped while messaging was off in prod. A later change of the since field
+   needs dual-write first. The eraser's peer-entry rewrite and Accept's moved entry set `changedAt`.
+3. **Takedown writes.** The message `Update` also sets `removedAt` (server time), the durable record of a takedown made
+   without `--report`. The conversation gets `rev` +1 and `updatedAt` moved strictly forward (so the per-instance cache,
+   which never replaces a copy with an older `updatedAt`, cannot restore a pre-takedown copy). Entry `lastMessageAt` is
+   never moved.
+4. **Contract.** The `messaging.proto` header comment says that a ListMessages since token retired by a change in the
+   thread is INVALID_ARGUMENT + VALIDATION `since_token` after at most 2 reads (interceptor, conversation). Comment
+   only: no field, no wire change, `buf breaking` clean; the client's handling (drop the token, one call with no
+   token) is unchanged.
+
+**Known, deferred.** (c) A mark-read on one device does not reach the user's other devices' cached unread count until
+the next message or a cold open (setting `changedAt` on mark-read would cost about +1 read per mark-read per device).
+(d) A delete-for-me does not reach the caller's other devices' cached thread or inbox (a conversation-wide `rev` bump
+would also make the peer's devices reload; deletes never surface in `since`). Both wait for a measured complaint or the
+Stage 1 listener (D16).
+
+**Rejected.** A per-user inbox revision folded into the since binding: ListConversations reads no per-user document on
+a since refresh, so it would add 1 read to every inbox refresh (≈ +2 reads/DAU/day) and force a full first-page reload
+on every device of both participants. Moving `lastMessageAt`: it reorders the inbox. A `changedAt`-driven thread since
+query: its gap tokens and the `clearedAt` filter live in `createdAt` space.
+
+**Data model (D1 additions).**
+| Doc | Field | Written by | Indexing / lifecycle |
+|---|---|---|---|
+| `conversations/{convId}` | `rev` (int, absent = 0) | takedown and the eraser's `RewriteConversation` (`Increment(1)`); never by send, accept, delete or mark-read | automatic; not exported; deleted with the tree |
+| `conversations/{convId}/messages/{msgId}` | `removedAt` (timestamp) | takedown, with `state = REMOVED` | automatic; not exported; erased with the message |
+| `users/{uid}/dmInbox/{convId}`, `users/{uid}/dmRequests/{convId}` | `changedAt` (timestamp) | every send (= `lastMessageAt`); takedown on rewritten previews; the eraser's peer-entry rewrite; Accept's moved entry | automatic single-field, must stay indexed (the since query); not exported; deleted with the entry |
+
+**D14 addition.** A moderation change or an account erasure reaches a cached thread on the first since request
+answered with a conversation copy read after it (≤ 60 s + the next pull) and a cached inbox on its next since refresh
+(no server cache).
+
+**Cost impact.** Fixed cost INR 0. Takedown: reads 4 (unchanged), writes ≤ 4 (+1, the conversation). Eraser and
+Accept: +0 reads, +0 writes. One-off per affected device: thread ≤ 2 reads (the refused poll) + a cold open (24 cold /
+15 planning at page 20); inbox ≤ 2 reads. Hot paths +0 reads and +0 writes: SendMessage writes `changedAt` inside its
+existing entry writes; the ListMessages poll reads the rev from the conversation it already reads; the
+ListConversations since query costs what it did.
+
+**Stage ladder.** `changedAt` is the per-user change feed an owner-only listener on `dmInbox` (D16, Stage 1+) would
+order by; `rev` is the per-thread invalidation a listener or SSE transport would push. No caller changes.

@@ -35,9 +35,9 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 
 // takedownMessage is `opsctl messages takedown` (ADR-0027 D12, plan W7-12): it tombstones one direct message (state REMOVED,
 // text and request digest cleared, field-level updates only) and rewrites the inbox preview of each participant whose last
-// message it was, in one transaction. Both participants then see "This message was removed" the next time they load the
-// thread or the inbox; a client that cached the text keeps it until it reloads the first page, because a takedown moves
-// neither createdAt nor lastMessageAt. The usual prod confirmation (the typed project id) already ran in run().
+// message it was, in one transaction. It also bumps the conversation's revision and stamps the rewritten entries, so both
+// participants' devices that cached the thread or the inbox drop the text at their next poll or inbox refresh (the thread
+// token is retired and the client cold-opens; ADR-0027 note 2026-10-29). The usual prod confirmation (the typed project id) already ran in run().
 //
 // --dry-run reads the same documents and writes nothing. --report R (checked first: R must be a MESSAGE report of exactly
 // this message) resolves R as TAKEDOWN after the write; a report that is already RESOLVED only warns. A message that is
@@ -48,7 +48,7 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 // message_hash, the same fields messaging logs); the last line before the cost line is a fixed-shape audit line.
 //
 // Cost: the transaction reads the message (1) and, for a VISIBLE one, the conversation (1) and each participant's entry that
-// still exists (at most 2), and writes the message (1) and each preview that named it (at most 2): at most 4 reads, 3
+// still exists (at most 2), and writes the message (1), the conversation revision (1) and each preview that named it (at most 2): at most 4 reads, 4
 // writes. --report adds 1 read to check it, then the resolve (1 read, 1 write).
 func takedownMessage(ctx context.Context, b *backends, project, convID, msgID string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.messages == nil {
@@ -72,10 +72,10 @@ func takedownMessage(ctx context.Context, b *backends, project, convID, msgID st
 
 	switch {
 	case res.Before == messaging.MessageStateVisible && a.dryRun:
-		fmt.Fprintf(out, "dry-run: would set the message REMOVED (text cleared) and rewrite %d inbox preview(s) (nothing written)\n", res.Entries)
+		fmt.Fprintf(out, "dry-run: would set the message REMOVED (text cleared), bump the conversation revision and rewrite %d inbox preview(s): %d writes (nothing written)\n", res.Entries, res.Entries+2)
 	case res.Before == messaging.MessageStateVisible:
 		fmt.Fprintf(out, "message: VISIBLE -> REMOVED (text cleared); %d inbox preview(s) rewritten\n", res.Entries)
-		fmt.Fprintln(out, "both participants see \"This message was removed\" on their next load of the thread or the inbox; a client that cached the text keeps it until it reloads the first page")
+		fmt.Fprintln(out, "both participants see \"This message was removed\": a device that cached the thread or the inbox drops the text at its next poll or inbox refresh")
 	case res.Before == messaging.MessageStateRemoved:
 		fmt.Fprintln(out, "message: already REMOVED; nothing written")
 	default:

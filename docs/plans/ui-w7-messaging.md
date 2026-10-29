@@ -674,6 +674,10 @@ Order:
 - **Budget.** Reads 6 / 3; writes 2.
 - **Flag.** `reports` (existing) + `messaging` not globally off.
 - **Seam.** `moderation.MessageLookup`: moderation never reads `conversations` directly.
+- **Built (PR #445, 2026-10-29).**
+  - Report: `MessageLookup` is implemented by `messaging.ReportableMessage` and bound in `apiserver` by `lateMessageLookup`. Measured: 6 reads cold / 3 warm / 2 writes; a repeat at most 5 reads (2 warm); a refusal 2 or 3 cold. One NOT_FOUND for every cause, asserted byte for byte through the real chain. Founder-confirmed: a sender who is no longer ACTIVE, a message after delete-for-me and a blocked peer's message stay reportable; a takedown cannot be undone.
+  - Takedown (`opsctl messages takedown`): 4 reads, 4 writes. Review fix B1 (ADR-0027 note 2026-10-29): it also bumps `conversations.rev`, sets `messages.removedAt` and each rewritten entry's `changedAt`, so devices that cached the thread or the inbox converge (thread `since_token` retired after at most 2 reads; inbox `since` now orders by `changedAt`, binding kind `since-changed`). The eraser's `RewriteConversation` / `MarkGone` and Accept carry `rev` / `changedAt` at +0 reads, +0 writes. Deferred: mark-read and delete-for-me on the user's other devices.
+  - Owed before W7-24: one dev-Firestore run of the `changedAt DESC, __name__ DESC` + `EndBefore` query (the emulator does not enforce indexes).
 
 ### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Done (#406, #413)
 - **Description.**

@@ -53,6 +53,12 @@
 //   conversation) and the token kind, and expire after 30 days. An expired, foreign or tampered token =>
 //   INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token" or "page_token", 0 reads: drop it and call with
 //   no token.
+// - A ListMessages since_token is also retired when the thread changed under the client (a moderator removed a
+//   message, or the other participant deleted the account): the answer is the very same INVALID_ARGUMENT +
+//   VALIDATION, metadata["field"] = "since_token", after at most 2 reads (the interceptor and the conversation; no
+//   message query). The handling is unchanged: drop the token, drop the cached thread and call once with no token
+//   (ADR-0027 note 2026-10-29). A ListConversations since refresh returns an entry again when its preview changed that
+//   way (a removed message, an erased peer); replace the cached row by id, the order does not change.
 //
 // Firestore budgets below are ADR-0027 "Cost impact" (per RPC). Worst-case reads include the account-status
 // interceptor; every call is charged to the per-uid daily read budget (ADR-0010 D5, 2,000 reads/uid/day per instance).

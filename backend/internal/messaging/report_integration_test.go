@@ -54,7 +54,7 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage", c, budgettest.Budget{Reads: 4, Writes: 3})
+	budgettest.Assert(t, "TakedownMessage", c, budgettest.Budget{Reads: 4, Writes: 4})
 	if res.Before != msgVisible || res.After != msgRemoved || res.Entries != 2 || !res.Wrote {
 		t.Fatalf("result = %+v", res)
 	}
@@ -145,7 +145,7 @@ func TestTakedown_NotTheLastMessageLeavesThePreviewsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage not last", c, budgettest.Budget{Reads: 4, Writes: 1})
+	budgettest.Assert(t, "TakedownMessage not last", c, budgettest.Budget{Reads: 4, Writes: 2})
 	if res.Entries != 0 || !res.Wrote {
 		t.Errorf("result = %+v", res)
 	}
@@ -205,7 +205,7 @@ func TestTakedown_SkipsAnEntryThatIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage one entry gone", c, budgettest.Budget{Reads: 4, Writes: 2})
+	budgettest.Assert(t, "TakedownMessage one entry gone", c, budgettest.Budget{Reads: 4, Writes: 3})
 	if res.Entries != 1 || !res.Wrote {
 		t.Errorf("result = %+v", res)
 	}

@@ -111,6 +111,12 @@ func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 		t.Error("the request entry was not deleted")
 	}
 	moved, ok := e.entry(bob, dmInboxCollection, id)
+	// changedAt is the accept stamp (= the document's updatedAt): the accepter's other devices see the conversation in their
+	// next INBOX since refresh. Everything else is the request entry as it was.
+	if !moved.ChangedAt.Equal(conv.UpdatedAt) || !moved.ChangedAt.After(requestEntry.ChangedAt) {
+		t.Errorf("moved entry changedAt = %v, want the accept stamp %v (request entry had %v)", moved.ChangedAt, conv.UpdatedAt, requestEntry.ChangedAt)
+	}
+	moved.ChangedAt = requestEntry.ChangedAt
 	if !ok || moved != requestEntry {
 		t.Errorf("bob's inbox entry = %+v %v, want the request entry as it was (unreadCount kept)", moved, ok)
 	}

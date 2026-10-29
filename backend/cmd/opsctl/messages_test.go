@@ -122,6 +122,10 @@ func TestMessagesTakedown_TakesDownAndResolvesTheReport(t *testing.T) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
 	}
+	// A takedown now reaches devices that cached the thread or the inbox: the output no longer warns that they keep the text.
+	if strings.Contains(out, "keeps it until") || !strings.Contains(out, "drops the text at its next poll or inbox refresh") {
+		t.Errorf("the output misstates how a takedown reaches cached devices:\n%s", out)
+	}
 	// Without --report there is nothing to resolve and the same takedown still runs.
 	f = newMsgFixture()
 	if code, out, stderr = f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev"); code != 0 || len(f.ops.resolved) != 0 || len(f.mod.calls) != 1 || !strings.Contains(out, "report=-") {
@@ -162,7 +166,7 @@ func TestMessagesTakedown_DryRunWritesNothing(t *testing.T) {
 	if len(f.ops.resolved) != 0 {
 		t.Errorf("a dry run resolved %v", f.ops.resolved)
 	}
-	for _, want := range []string{"dry-run: would set the message REMOVED (text cleared) and rewrite 2 inbox preview(s) (nothing written)",
+	for _, want := range []string{"dry-run: would set the message REMOVED (text cleared), bump the conversation revision and rewrite 2 inbox preview(s): 4 writes (nothing written)",
 		"wrote=false dry_run=true", "dry-run: would resolve report " + testReportID + " as TAKEDOWN"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

@@ -81,7 +81,7 @@ Every limit is config (rule 11); each is per instance unless it says exact, so t
 Worst case for one sender: about 900 messages a day, of which at most 20 new conversations x 3 request messages reach strangers.
 - **Block, mute and report are the user's levers.** A block either way is `CANNOT_MESSAGE` with the same bytes as a deleted account and a recipient with messaging off (no oracle). A muted sender is delivered **silently**
   (no push, no unread increment; the conversation still appears for the recipient). Requests from blocked, blocking or muted accounts are hidden from the Requests list (W7-7). Report a message: `ReportContent` with target type MESSAGE (W7-12).
-- **Moderator takedown of a message** is `opsctl messages takedown CONV:MSG [--report R] [--dry-run]` (W7-12; section 5b and `docs/runbooks/moderation.md`, "Reading a message report"): it tombstones the message (`state = REMOVED`, text emptied) and rewrites the inbox previews that showed it; the report evidence keeps that one message.
+- **Moderator takedown of a message** is `opsctl messages takedown CONV:MSG [--report R] [--dry-run]` (W7-12; section 5b and `docs/runbooks/moderation.md`, "Reading a message report"): it tombstones the message (`state = REMOVED`, text emptied), bumps the conversation `rev` and rewrites the inbox previews that showed it (4 writes at most); the report evidence keeps that one message.
   For an abusive account rather than one message the lever is `opsctl suspend-user` (`docs/runbooks/moderation.md`): a SUSPENDED sender is refused by the account-status interceptor and a SUSPENDED recipient answers `CANNOT_MESSAGE`.
 - **Turn one lever down without a deploy:** none; limits are env vars on the `api` service, a Terraform change plus a release. Fast stop for a spam wave: `FEATURE_MESSAGING=off`, or remove the offender from the allowlist.
 - **Log queries** (request line, rpc `/dzeroth.messaging.v1.MessagingService/SendMessage`): `jsonPayload.limit_name` (`messages_daily`, `request_unanswered`, `dm_new_daily`), `jsonPayload.refused_reason`
@@ -142,16 +142,26 @@ on a repeat apply unchanged.
   has `report_target=MESSAGE`, `outcome`, `conversation_hash` and never the text or an id in clear.
 - **Takedown.** `opsctl messages takedown CONV:MSG [--report R] [--note N] [--dry-run]` (the usual typed project id for `*-prod`). One transaction:
   the message becomes `REMOVED` with `text` and `requestHash` emptied (field-level updates, never a `Set`), and each participant's entry whose
-  `last.messageId` is that message gets `last.snippet = "Message removed"` and `last.state = REMOVED`. At most 4 reads and 3 writes; `--dry-run`
-  reads the same and writes nothing; a repeat, or a message the eraser already tombstoned, writes nothing. It keeps `senderId`, so the sender's later
+  `last.messageId` is that message gets `last.snippet = "Message removed"`, `last.state = REMOVED` and `changedAt` (server time). The message also gets
+  `removedAt` (server time: the record of a takedown made without `--report`), and the conversation `rev` +1 with `updatedAt` strictly later, even when
+  no preview shows the message. At most 4 reads and 4 writes (message, conversation, two previews); `--dry-run` reads the same, in a read-only
+  transaction, and writes nothing; a repeat, or a message the eraser already tombstoned, writes nothing. It keeps `senderId`, so the sender's later
   account deletion finds the message and leaves it `REMOVED` (the eraser only clears a `VISIBLE` message). The eraser's tombstone page writes with
   each document's `LastUpdateTime`, so a takedown that commits while a page is running is never overwritten with `DELETED_ACCOUNT`: that page
   fails once (`FailedPrecondition`), the job retries and re-reads the message as `REMOVED`. A sender's retry of the original send after a
   takedown replays the `REMOVED` tombstone (no error, no second message).
   A taken-down message never reaches the report path again (it is no longer `VISIBLE`).
-- **What a takedown cannot do.** It does not move `createdAt` or `lastMessageAt`, so a client that cached the text in drift keeps it until it
-  reloads the first page of the thread (a `since` poll never re-delivers an unchanged timestamp). It is not undoable. The report keeps the
-  evidence copy until resolved + 90 days.
+- **How a takedown reaches a device that cached the thread or the inbox (ADR-0027 note 2026-10-29).** A takedown moves neither `createdAt` nor
+  `lastMessageAt` (the inbox keeps its order), so two other things carry it. *Thread:* `conversations.rev` is incremented, and every ListMessages
+  `since_token` carries the rev its issuer saw. The next poll with an older rev is `VALIDATION since_token` after at most 2 reads (interceptor,
+  conversation; request field `since_retired=true`), the very same bytes as an expired token; the client drops the cached thread and makes one cold
+  open, which shows the message removed. The conversation is read through the 60 s instance cache, so another instance can accept an old token for
+  up to 60 s; a token of the new rev makes that instance drop its copy. *Inbox:* the entry's `changedAt` is set, and the ListConversations `since`
+  query orders by it, so the next refresh returns the entry with the new preview (same position, `updated_at` unchanged). The eraser's
+  `RewriteConversation` bumps `rev` too (the surviving peer's cached thread picks up the tombstones and the "Deleted account" header), `MarkGone` sets
+  the peer entry's `changedAt`, and Accept sets it on the moved entry. A takedown is not undoable. The report keeps the evidence copy until
+  resolved + 90 days. Known and deferred: a mark-read or a delete-for-me on one device does not reach the user's other devices until the next message
+  or a cold open.
 - **A sender whose account is not ACTIVE** (suspended, deleting) still has their `VISIBLE` messages shown in the thread, so they stay reportable;
   the evidence handle is empty and the report's owner uid names them.
 
@@ -178,6 +188,8 @@ on a repeat apply unchanged.
 | An account-deletion `messaging` step fails once with `FailedPrecondition` (tombstone messages) and then succeeds on the job's retry | A moderator takedown of one of that user's messages committed while the eraser's page was running; the page's write carries the document's `LastUpdateTime` so the takedown is not overwritten (section 5b) | Nothing: the retry sees the message as `REMOVED` and only replaces the sender id |
 | A retry of a send answers the message as `REMOVED` (replay, no text) | The message was taken down between the send and the retry. The takedown clears `requestHash`, so Send cannot compare and replays the tombstone (section 5b) | Expected: no error and no duplicate. The client renders the tombstone |
 | A user says "I reported a message and got not found" | Expected for a message that is no longer `VISIBLE` (taken down, or its sender deleted the account), a conversation the user is not in and an unknown id: one NOT_FOUND `message not found`, on purpose (section 5b). The user's own message is a `VALIDATION target_id` instead | Nothing to fix. `FEATURE_DISABLED feature=messaging` on a report means `FEATURE_MESSAGING=off` for everyone |
-| A removed message still shows its text on one device | A takedown moves neither `createdAt` nor `lastMessageAt`, so a `since` poll never re-delivers it and a client that cached the text in drift keeps it until it reloads the first page of the thread | Converges on the next first-page load or on a new device; the server holds no text (section 5b) |
+| A removed message still shows its text on one device | The device is polling an instance whose 60 s conversation copy predates the takedown (its `since_token` still carries the old `rev`), or the app has not polled / refreshed the inbox yet | Converges within the 60 s cache bound plus the next poll (about 105 s worst on an open quiet thread); a closed thread converges when it is opened. `since_retired=true` in the request lines shows the retirement happening (section 5b) |
+| A burst of `VALIDATION since_token` on ListMessages polls (`since_retired=true`) for one conversation | A takedown or an account erasure bumped the conversation's `rev`; each device with a cached thread is refused once and cold-opens (about 26 reads worst) | Expected, one per device per change. A sustained burst means the clients are not dropping the token: check the app version |
+| ListConversations `VALIDATION since_token` for every device right after a deploy | The inbox `since` binding kind changed to `since-changed` (the position is now a `changedAt`); each device cold-opens each folder once (≤ 23 + 22 reads) | Expected once (messaging is dev-only until W7-24) |
 | `VALIDATION idempotency_key` on a retry | On SendMessage: the same key was reused with other text or another conversation. On any of SendMessage, AcceptMessageRequest, DeleteConversation and MarkConversationRead: the key is not 16-64 characters of `[A-Za-z0-9_-]` (checked before any read past the interceptor's; Accept and MarkConversationRead do not store the key, Delete stores its digest) | A client bug: a new message needs a new key; a key must be a well-formed token (the app sends a UUID v4) |
 | An Inbox row or the badge misses one new message right after the user opened the conversation | `MarkConversationRead` is idempotent by state, not by key (founder decision 2026-10-29): a late retry of an old mark-read sets `unreadCount` to 0 over a message that arrived since. The message is stored and visible in the thread | Accepted risk. The next message or opening the conversation fixes the count. Nothing to repair |

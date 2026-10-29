@@ -136,6 +136,35 @@ func TestPutConv_NeverGoesBackwards(t *testing.T) {
 	}
 }
 
+// The revision only breaks ties (ADR-0027 note 2026-10-29): a late put of a pre-takedown copy (older updatedAt) is refused;
+// with an equal updatedAt the lower revision is refused and the higher kept; a newer updatedAt replaces even with a lower
+// revision.
+func TestPutConv_RevBreaksTiesOnly(t *testing.T) {
+	rg := newRig(t, nil)
+	t0 := rg.now
+	id := aliceBobConv
+	doc := func(updated time.Time, rev int64) ConvDoc {
+		return ConvDoc{Participants: sortedPair(alice, bob), State: stateAccepted, UpdatedAt: updated, Rev: rev}
+	}
+	rg.svc.putConv(id, doc(t0.Add(time.Second), 1)) // the takedown's copy: strictly later updatedAt, rev 1
+	rg.svc.putConv(id, doc(t0, 0))                  // a late pre-takedown copy
+	if c, _ := rg.svc.convs.Get(id); c.Rev != 1 {
+		t.Fatalf("a pre-takedown copy replaced the takedown's: %+v", c)
+	}
+	rg.svc.putConv(id, doc(t0.Add(time.Second), 0)) // equal updatedAt, lower rev
+	if c, _ := rg.svc.convs.Get(id); c.Rev != 1 {
+		t.Errorf("an equal-updatedAt copy with a lower rev replaced the higher: %+v", c)
+	}
+	rg.svc.putConv(id, doc(t0.Add(time.Second), 2)) // equal updatedAt, higher rev
+	if c, _ := rg.svc.convs.Get(id); c.Rev != 2 {
+		t.Errorf("an equal-updatedAt copy with a higher rev was refused: %+v", c)
+	}
+	rg.svc.putConv(id, doc(t0.Add(2*time.Second), 0)) // newer updatedAt, lower rev: replaces
+	if c, _ := rg.svc.convs.Get(id); !c.UpdatedAt.Equal(t0.Add(2*time.Second)) || c.Rev != 0 {
+		t.Errorf("a newer copy with a lower rev was refused: %+v", c)
+	}
+}
+
 // failure is the one tail of the three error mappers. The order matters: an apierr passes through, NOT_FOUND is the one
 // byte-identical answer, a finished request context beats a storage error, a lost transaction is UNAVAILABLE with a retry
 // hint, and anything else is INTERNAL with the ids replaced.

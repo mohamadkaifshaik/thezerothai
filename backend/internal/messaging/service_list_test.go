@@ -28,7 +28,7 @@ func (r *rig) entryAt(peerID string, n int) EntryRow {
 	at := r.now.Add(-time.Hour).Add(time.Duration(n) * 10 * time.Second)
 	return EntryRow{ID: ConversationID(alice, peerID), EntryDoc: EntryDoc{
 		PeerID: peerID, Peer: PeerDoc{Handle: "h-" + peerID, DisplayName: "Name " + peerID, AvatarThumbURL: "https://img/" + peerID, Verified: true},
-		LastMessageAt: at, Last: LastDoc{MessageID: "m", Snippet: "hello " + peerID, State: msgVisible}, UnreadCount: 2,
+		LastMessageAt: at, ChangedAt: at, Last: LastDoc{MessageID: "m", Snippet: "hello " + peerID, State: msgVisible}, UnreadCount: 2,
 	}}
 }
 
@@ -145,14 +145,15 @@ func TestListConversations_PagesAndSince(t *testing.T) {
 
 	// One entry moves up (a new message): a refresh returns exactly it.
 	moved := rg.repo.entries[entryKey(alice, dmInboxCollection)][3]
-	moved.LastMessageAt = rg.now
+	moved.LastMessageAt, moved.ChangedAt = rg.now, rg.now
 	moved.Last.Snippet = "newer"
 	rg.repo.entries[entryKey(alice, dmInboxCollection)][3] = moved
 	rg.repo.queries = nil
 	ref := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
-	// The settle window re-returns the entry the token trails (the previous newest, peer-24); the client dedupes by id.
-	if got := convIDs(ref); len(got) != 2 || got[0] != moved.ID || got[1] != ConversationID(alice, "peer-24") {
-		t.Fatalf("refresh = %v, want the moved entry then the previous newest", got)
+	// A first page's since_token is "now - settle" (its rows are ordered by lastMessageAt and bound nothing below them), so
+	// a refresh returns exactly the entry that changed after it, not the old newest.
+	if got := convIDs(ref); len(got) != 1 || got[0] != moved.ID {
+		t.Fatalf("refresh = %v, want only the moved entry", got)
 	}
 	if ref.NextPageToken != "" || ref.SinceToken == "" || ref.RequestCount != 0 || rg.repo.counts != 1 {
 		t.Errorf("refresh: next=%q since=%q request_count=%d counts=%d", ref.NextPageToken, ref.SinceToken, ref.RequestCount, rg.repo.counts)
@@ -167,7 +168,7 @@ func TestListConversations_PagesAndSince(t *testing.T) {
 	}
 	rg.now = rg.now.Add(time.Minute)
 	empty := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
-	if len(empty.Conversations) != 2 {
+	if len(empty.Conversations) != 1 {
 		t.Fatalf("old token still returns the moved entry, got %v", convIDs(empty))
 	}
 }
