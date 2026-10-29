@@ -351,7 +351,7 @@ Prices (§7):
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
-| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | In review (PR pending) |
+| W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | In review (PR #446) |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
@@ -862,7 +862,7 @@ Order:
 - **Flag.** As above.
 - **Seam.** —
 
-### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: In review (PR pending)
+### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: In review (PR #446)
 - **Description.** A threat model for the first private-content feature:
   - authz on every read and write (participant checks, guessable deterministic ids, token binding);
   - the block oracle (refusal bytes; cached-graph freshness, A8);
