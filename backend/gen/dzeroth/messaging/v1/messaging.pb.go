@@ -301,7 +301,9 @@ type Conversation struct {
 	Folder      Folder          `protobuf:"varint,5,opt,name=folder,proto3,enum=dzeroth.messaging.v1.Folder" json:"folder,omitempty"`
 	LastMessage *MessagePreview `protobuf:"bytes,6,opt,name=last_message,json=lastMessage,proto3" json:"last_message,omitempty"`
 	// Unread messages for the caller. Does not grow while silent. In ListMessages it is filled on the first page only
-	// (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry).
+	// (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry),
+	// except for up to 60 s after a request was accepted on another server instance: its cached copy of the conversation
+	// can still point at the Requests entry, the read misses and answers 0.
 	UnreadCount int64 `protobuf:"varint,7,opt,name=unread_count,json=unreadCount,proto3" json:"unread_count,omitempty"`
 	// False when either side blocks the other or the peer deleted the account: the thread is read-only but can still be
 	// reported. Show no composer.

@@ -72,13 +72,17 @@ func messagesPageBinding(uid, convID string) string {
 //
 // Blocked peer (W7-30, security review M-2): when the caller's graph says the peer blocked them (BlockedBy, or
 // BlockedByOverflow, where the list cannot be trusted), the live directory profile is dropped from the answer and the peer is
-// the frozen snapshot on the caller's own entry, what they already saw at the last message. An older page reads no entry,
-// so it (and a first page whose entry is gone) answers the "Deleted account" placeholder, never the live handle or avatar.
+// the frozen snapshot on the caller's own entry, what they already saw at the last message. Order: an erased peer
+// (DeletedUID) is the placeholder; else a block decides, whatever the directory says (so the blocked caller cannot tell whether
+// the blocker is ACTIVE, suspended or being deleted); else a peer the directory does not list is the placeholder. The frozen
+// snapshot is used only when the entry exists and names this peer (an eraser rewriting the entry's peerId to DeletedUID is the
+// placeholder); an older page reads no entry, so it answers the placeholder, never the live handle or avatar. The directory
+// lookup runs in parallel with the graph read (no serial wait on the graph) and supplies liveness for the unblocked case.
 //
-// Worst-case Firestore cost (budget.Counter; the account-status interceptor read counted as the proto comment does):
+// Worst-case Firestore cost (budget.Counter; the account-status interceptor read counted, as the proto comment does):
 //   - first page of 20 / 50: 25 / 55 reads cold (interceptor 1, conversation 1, query page, peer users 1, caller graph 1,
-//     caller entry 1), planning 16; warm caches: 2 + page
-//   - older page of 20 / 50: 24 / 54 reads cold (the same without the entry), planning 15; warm caches: 1 + page
+//     caller entry 1), planning 16; warm caches: interceptor + page + entry = 22 / 52
+//   - older page of 20 / 50: 24 / 54 reads cold (the same without the entry), planning 15; warm caches: 1 + page = 21 / 51
 //   - since poll: 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2
 //   - NOT_FOUND: at most 2 reads; writes 0
 func (s *service) ListMessages(ctx context.Context, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, error) {
@@ -255,16 +259,14 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		logger.SetRequestField(ctx, fieldEntryFound, found)
 	}
 	if withConv {
-		// The peer blocked the caller (or the list cannot say): never the live profile. The directory lookup above ran in
-		// parallel with the graph read and is dropped here (the same one read an unblocked caller makes); the frozen
-		// snapshot is the caller's own entry's, nil on an older page or when the entry is gone.
-		blocked := peer != DeletedUID && (snap.BlockedBy[peer] || snap.BlockedByOverflow)
-		var frozen *PeerDoc
-		if blocked && found {
-			frozen = &entry.Peer
+		// The peer blocked the caller (or the list cannot say): never the live profile, only the frozen snapshot of the
+		// caller's own entry (nil on an older page or when the entry is gone). Liveness and the block stay separate facts.
+		blocked := snap.BlockedBy[peer] || snap.BlockedByOverflow
+		var own *EntryDoc
+		if found {
+			own = &entry
 		}
-		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live && !blocked, snap, frozen)
-		// (a blocked peer with no entry to freeze reads "Deleted account": live is false for it)
+		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live, blocked, snap, own)
 		if first {
 			resp.Conversation.UnreadCount, resp.Conversation.Silent = entry.UnreadCount, entry.Silent
 		}
@@ -301,9 +303,11 @@ func messageOf(r MessageRow, convID, uid string) *messagingv1.Message {
 // and the preview live on the caller's entry; the caller fills unread_count and silent from it on a first page (W7-27), and
 // ListConversations owns the rest. The folder is the caller's entry's: the recipient of an unaccepted request sees it in
 // REQUESTS, everyone else in INBOX. An erased peer, or one the directory no longer lists as ACTIVE, reads "Deleted account"
-// and the thread is read-only. frozen is the caller's entry's peer snapshot, passed only when the peer blocked the caller (the
-// live profile is then never shown, W7-30); with live false and frozen nil that case reads "Deleted account" too.
-func threadConversation(convID string, conv ConvDoc, uid, peer string, prof identity.Profile, live bool, snap graph.Snapshot, frozen *PeerDoc) *messagingv1.Conversation {
+// and the thread is read-only, whoever asks. When blocked (the peer blocked the caller, or the block list overflowed) the peer is,
+// whatever the directory says, the snapshot frozen on own, the caller's entry (nil on an older page or when it is gone), and only
+// if that entry names this peer; anything else is the placeholder. The live profile is never shown to a blocked caller (W7-30),
+// and neither is the blocker's account status. can_reply is false for a blocked caller, an overflow caller included (canReply).
+func threadConversation(convID string, conv ConvDoc, uid, peer string, prof identity.Profile, live, blocked bool, snap graph.Snapshot, own *EntryDoc) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{
 		Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
 		State: messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, Folder: messagingv1.Folder_FOLDER_INBOX,
@@ -314,11 +318,23 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 			c.Folder = messagingv1.Folder_FOLDER_REQUESTS
 		}
 	}
-	if peer != DeletedUID && frozen != nil {
-		c.Peer, c.CanReply = peerSnapshotOf(peer, *frozen), canReply(peer, snap)
+	// The order matters (security audit of W7-27): an erased peer first; then a block, whatever the directory says about the
+	// peer, so a blocked caller learns nothing about the blocker's account status (GetProfile hides it too); only then liveness.
+	if peer == DeletedUID {
+		c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}
 		return c
 	}
-	if peer == DeletedUID || !live {
+	if blocked {
+		// The frozen snapshot is data the caller already received. During an erasure MarkGone rewrites the entry's peerId to
+		// DeletedUID before the participants, so a mismatch here is the placeholder.
+		if own == nil || own.PeerID != peer {
+			c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}
+			return c
+		}
+		c.Peer, c.CanReply = peerSnapshotOf(peer, own.Peer), canReply(peer, snap)
+		return c
+	}
+	if !live {
 		c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}
 		return c
 	}

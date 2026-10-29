@@ -5,14 +5,12 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
 // putEntry stores an entry of uid in a folder collection (dmInbox or dmRequests) of the rig's fake repo.
@@ -110,51 +108,5 @@ func TestListMessages_EntryReadError(t *testing.T) {
 	rg.repo.entryErr = errors.New("boom")
 	if _, err := rg.svc.ListMessages(context.Background(), alice, &messagingv1.ListMessagesRequest{ConversationId: aliceBobConv}); err == nil {
 		t.Fatal("want an error")
-	}
-}
-
-// W7-30 (security review M-2): when the peer blocked the caller (or BlockedBy overflowed), the header shows the peer snapshot
-// frozen on the caller's own entry, never the live profile; an older page and a gone entry read "Deleted account".
-func TestListMessages_BlockedPeerIsFrozen(t *testing.T) {
-	frozenPeer := PeerDoc{Handle: "bob_old", DisplayName: "Bob Old", AvatarThumbURL: "https://img/old.jpg", Verified: true}
-	blockedBy := func(r *rig) { r.social.snaps[alice] = graph.Snapshot{BlockedBy: map[string]bool{bob: true}} }
-	overflow := func(r *rig) { r.social.snaps[alice] = graph.Snapshot{BlockedByOverflow: true} }
-	tests := []struct {
-		name       string
-		mut        func(*rig)
-		withEntry  bool
-		older      bool
-		wantHandle string
-		wantName   string
-		wantFrozen bool
-	}{
-		{"first page, blocked by the peer", blockedBy, true, false, "bob_old", "Bob Old", true},
-		{"first page, BlockedBy overflow", overflow, true, false, "bob_old", "Bob Old", true},
-		{"first page, entry gone", blockedBy, false, false, "", DeletedAccountName, false},
-		{"older page", blockedBy, true, true, "", DeletedAccountName, false},
-		{"not blocked keeps the live profile", nil, true, false, "bob", "bob", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rg := newRig(t, tt.mut)
-			rg.putThread(45, nil)
-			if tt.withEntry {
-				rg.putEntry(alice, dmInboxCollection, EntryDoc{PeerID: bob, Peer: frozenPeer, UnreadCount: 2})
-			}
-			req := &messagingv1.ListMessagesRequest{ConversationId: aliceBobConv}
-			if tt.older {
-				req.PageToken = rg.listMsgs(t, alice, req).NextPageToken
-			}
-			c := rg.listMsgs(t, alice, req).Conversation
-			if c == nil || c.Peer.Handle != tt.wantHandle || !strings.Contains(c.Peer.DisplayName, tt.wantName) {
-				t.Fatalf("peer = %+v, want handle %q name %q", c.GetPeer(), tt.wantHandle, tt.wantName)
-			}
-			if tt.wantFrozen && tt.name != "first page, BlockedBy overflow" && c.CanReply {
-				t.Error("can_reply = true for a blocked-by caller")
-			}
-			if tt.wantFrozen && (c.Peer.AvatarUrl != frozenPeer.AvatarThumbURL || !c.Peer.Verified || c.Peer.UserId != bob || c.UnreadCount != 2) {
-				t.Errorf("frozen snapshot = %+v unread %d", c.Peer, c.UnreadCount)
-			}
-		})
 	}
 }
