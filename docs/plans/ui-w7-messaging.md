@@ -323,7 +323,7 @@ Prices (§7):
 
 ## Milestones
 1. **M7.1 Contract:** W7-1 (ADR, accepted by your merge), W7-2 (proto), W7-3 (index exemptions, founder-gated).
-2. **M7.2 Messaging backend:** W7-4 to W7-9 (W7-5 and W7-6 in one PR). Flags off; dev check by allowlist.
+2. **M7.2 Messaging backend:** W7-4 to W7-9 (W7-5 and W7-6 in one PR), then W7-27 (the ListMessages unread count, before W7-24). Flags off; dev check by allowlist.
 3. **M7.3 Cross-module hooks:** W7-10 (push), W7-11 (badge), W7-12 (report).
 4. **M7.4 Client:** W7-13 to W7-19.
 5. **M7.5 Verify and roll:** W7-20 to W7-24. Dev allowlist only; prod waits for the held prod apply (`pending.md` 1.2) and your MVP launch decision.
@@ -338,7 +338,7 @@ Prices (§7):
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Done (#416) |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Done (#431) |
 | W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Done (#438) |
-| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | In review (PR #443) |
+| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Done (#443) |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Done (#437) |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | In review (PR #445) |
@@ -348,12 +348,13 @@ Prices (§7):
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
-| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
+| W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | In review (PR #441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
+| W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -600,7 +601,7 @@ Order:
 - **Flag.** Not globally off (F6).
 - **Seam.** `ListMessages(since_token)` is the one delivery seam a listener or SSE replaces (`stage-ladder`).
 
-### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: In review (PR #443)
+### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: Done (#443)
 - **Description.**
   - **Accept** (the `requestTo` side only): the transaction sets `state = ACCEPTED`, moves the entry `dmRequests` → `dmInbox` (create + delete), keeps `unreadCount`, emits nothing. Already accepted → success, 0 writes.
   - **DeleteConversation:** deletes the caller's entry (either folder) and sets `clearedAt[caller] = now`. A request deleted this way stays a REQUEST for the sender, whose cap still applies. A later message recreates the caller's entry showing only newer messages.
@@ -793,7 +794,7 @@ Order:
 - **Flag.** `messaging` (Accept per caller, Delete not globally off), `reports`.
 - **Seam.** Reuses the report sheet and the block dialog; no second implementation.
 
-### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: Open
+### W7-19 — Shell, badge, push routing, deep link  [owner: frontend-developer] [size: M] [depends: W7-14, W7-15]  Status: In review (PR #441)
 - **Description.**
   - A "Messages" destination in `MainShell` (F10): the bar, the rail and its position after Notifications, with a filled glyph when selected. It needs `messaging` + `ui_shell`; the legacy chrome gets an entry in Settings only.
   - **`MessagesBadgeCubit`**, separate from `UnreadBadgeCubit`: seeded from `GetMe.unread_conversation_count`, incremented locally by a foreground message push for a conversation that is not open, cleared per conversation on open. **A message push never touches `UnreadBadgeCubit`.**
@@ -809,7 +810,7 @@ Order:
 - **Observability.** —
 - **Budget.** 0 RPCs of its own (GetMe already happens).
 - **Flag.** `messaging` + `ui_shell` (destination), `notifications` (push).
-- **Seam.** Routes are built only through `AppRouter.messagesPath(convId)`; the allowlist stays the one `deepLinkTarget` list.
+- **Seam.** Routes are built only through `AppRouter.messagePath(convId)`; the allowlist stays the one `deepLinkTarget` list.
 
 ### W7-20 — Backend tests  [owner: tester] [size: M] [depends: W7-5 to W7-12]  Status: Open
 - **Description.** Emulator integration:
@@ -905,6 +906,21 @@ Order:
 - **Budget.** A few hundred reads inside the dev project's free quota.
 - **Flag.** Dev: `feature_messaging` allowlist (3 uids); prod stays `off`.
 - **Seam.** —
+
+### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: Open
+- **Why.** Found in the #441 review (W7-19 F-5). `ListMessages` carries the conversation header (identity, peer, state, folder, `can_reply`) but not the caller's entry, so a thread opened cold (a push tap, a deep link, nothing cached) cannot tell that the conversation was unread. The client then cannot take it out of the Messages badge, which keeps its number until the next Inbox load or `GetMe`. The client side is already in W7-19: the cold open merges the header into the cached row, so a cached `unread_count` survives.
+- **Description.**
+  - **architect:** a one-line additive proto comment and field use: `Conversation.unread_count` is filled on the first page of `ListMessages` (not on a `since` or older page), from the caller's `dmInbox` entry. No new field, no renumbering (rule 9). A short ADR-0027 dated note.
+  - **backend-developer:** read the caller's `users/{uid}/dmInbox/{conversationId}` entry on the first page and fill `unread_count`.
+- **Acceptance criteria.**
+  - Given a conversation with 3 unread, then the first `ListMessages` page has `conversation.unread_count = 3`.
+  - Given a `since` refresh or an older page, then `unread_count` stays 0 (unset) and the read count is unchanged.
+  - Given a non-participant or unknown id, then NOT_FOUND byte-identical as before (the entry read happens after the participant check).
+- **Test notes.** `budgettest` first page 25 worst / 55 at limit 50 (was 24 / 54); poll and older pages unchanged.
+- **Observability.** `fs_reads` on `kind=list_messages` rises by 1 on a first page.
+- **Budget.** **+1 read on a first page** (worst case 24 → 25). A first page is opened once per thread open, so the cost is about one read per thread open per DAU.
+- **Flag.** Not globally off (F6).
+- **Seam.** `messaging.Service.ListMessages`. `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row, but it keeps the cached count when the header says 0. Once this lands a first-page 0 is authoritative (read on another device), so a small client follow-up (frontend-developer, right after the backend PR) goes with this ticket: take the first-page header count as it is, so a stale unread cached row does not lower the badge or send a needless mark-read.
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).

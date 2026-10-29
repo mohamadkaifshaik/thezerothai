@@ -16,6 +16,8 @@ import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/messages/domain/conversation_id.dart'
+    show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
@@ -404,17 +406,35 @@ class AppRouter {
   static final _profilePath = RegExp(r'^/profile/([^/]+)$');
   static final _messageThreadPath = RegExp(r'^/messages/[^/]+$');
 
+  /// A conversation link (W7-19, ADR-0027): fixed-length lower-case hex, the
+  /// shape of a conversation id. Deliberately tighter than `/u/...` and
+  /// `/profile/...`: a query or a fragment disqualifies the whole link instead
+  /// of being dropped. `/messages`, `/messages/requests` and `/messages/new`
+  /// are not targets.
+  static final _messageTargetPattern = RegExp(
+    '^/messages/$kConversationIdPattern\$',
+  );
+
   /// The path of [uri] when it is a link worth keeping through the splash,
   /// sign-in and onboarding (`/post/<19 digits>`, `/u/<id>`,
-  /// `/profile/<handle>`), else null. Only a relative, path-only URI is kept:
-  /// an absolute URL, `//host`, any other route, a query or a fragment never
-  /// becomes a target (no open redirect, no state smuggled in). The returned
-  /// value is the bare path.
+  /// `/profile/<handle>`, `/messages/<32 hex>`), else null. Only a relative
+  /// URI is kept: an absolute URL, `//host` or any other route never becomes a
+  /// target (no open redirect). A query or fragment is never carried along: the
+  /// post and profile shapes drop it and keep the bare path, the conversation
+  /// shape is refused outright. The returned value is the bare path. `Uri`
+  /// normalises percent-encoded unreserved characters when it parses, so a
+  /// typed `/messages/%61...` link reaches this check as the bare path (the same
+  /// link) and is accepted as that id.
   static String? deepLinkTarget(Uri uri) {
     if (uri.hasScheme || uri.hasAuthority) return null;
     final path = uri.path;
     for (final pattern in _deepLinkPatterns) {
       if (pattern.hasMatch(path)) return path;
+    }
+    if (!uri.hasQuery &&
+        !uri.hasFragment &&
+        _messageTargetPattern.hasMatch(path)) {
+      return path;
     }
     // A handle follows the identity grammar (`kHandlePattern`; typed links may
     // use any case, callers lowercase before validating).

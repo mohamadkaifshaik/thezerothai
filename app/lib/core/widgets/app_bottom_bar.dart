@@ -71,11 +71,16 @@ class _Cell extends StatelessWidget {
     final icon = destination.iconWidget(
       selected ? destination.selectedIcon : destination.icon,
     );
+    // The cell excludes its children from semantics, so the badge is spoken
+    // here: "Messages, 3 unread conversations".
+    final badge = destination.badgeLabel.isEmpty
+        ? null
+        : (destination.badgeSemanticLabel ?? destination.badgeLabel);
     return Semantics(
       button: true,
       selected: selected,
       inMutuallyExclusiveGroup: true,
-      label: destination.label,
+      label: badge == null ? destination.label : '${destination.label}, $badge',
       onTap: onTap,
       excludeSemantics: true,
       child: InkResponse(

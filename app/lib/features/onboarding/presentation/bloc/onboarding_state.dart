@@ -46,6 +46,10 @@ abstract class OnboardingState with _$OnboardingState {
     // `GetMe.unread_notification_count` (capped server-side at 100), seeded
     // into the unread badge on every fresh GetMe; 0 extra reads.
     @Default(0) int unreadNotificationCount,
+    // `GetMe.unread_conversation_count` (W7-11, ADR-0027 D10; 0 unless
+    // `messaging` is on for the caller, capped at 100 server-side), seeded into
+    // the Messages badge on every fresh GetMe; 0 extra reads.
+    @Default(0) int unreadConversationCount,
     // `GetMe.pending_follow_request_count` (W3-26b): set for a protected caller
     // only, capped at 1,000 and cached 30 s server-side. Drives the drawer
     // badge; an answered request lowers it locally (no GetMe refetch).

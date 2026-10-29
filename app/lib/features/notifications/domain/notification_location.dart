@@ -1,4 +1,5 @@
 import '../../../core/router/app_router.dart';
+import '../../messages/domain/conversation_id.dart';
 
 /// Wire value of a follow notification's `type` (FCM data and the enum
 /// `NOTIFICATION_TYPE_FOLLOW` both mean it).
@@ -10,16 +11,33 @@ const kNotificationTypeFollow = 'follow';
 const kNotificationTypeFollowRequest = 'follow_request';
 const kNotificationTypeFollowAccepted = 'follow_accepted';
 
+/// Wire value of a direct-message push (ADR-0027 D9). It is push-only: there is
+/// no notification row, and its FCM data carries `conversationId` only.
+const kNotificationTypeMessage = 'message';
+
 /// The app location a notification (in-app row or tapped push) opens: the
 /// actor's profile for a follow or an accepted request, the Follow requests
-/// screen for a request, the post for everything else (a deleted post shows
-/// "this post isn't available"). Null when it names neither. Ids are
-/// percent-encoded; the one place both the list and the push tap use.
+/// screen for a request, the conversation for a direct message (W7-19), the
+/// post for everything else (a deleted post shows "this post isn't
+/// available"). Null when it names neither. Ids are percent-encoded; the one
+/// place both the list and the push tap use.
+///
+/// A message push opens `/messages/<conversationId>` only when that path is on
+/// the deep-link allowlist (32 lower-case hex); any other id, or none, opens
+/// nothing, and never falls through to the post or profile cases.
 String? notificationLocation({
   required String type,
   required String postId,
   required String actorId,
+  String conversationId = '',
 }) {
+  if (type == kNotificationTypeMessage) {
+    // The raw id is checked before any path is built, so an encoded id
+    // (`%61...`) is dropped, not decoded into something that matches.
+    return isConversationId(conversationId)
+        ? AppRouter.messagePath(conversationId)
+        : null;
+  }
   if (type == kNotificationTypeFollowRequest) {
     return AppRouter.followRequestsPath;
   }
