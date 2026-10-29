@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -454,28 +453,26 @@ func TestMessageReport_RequestRecipientCanReport(t *testing.T) {
 }
 
 // Delete-for-me (clearedAt set for the caller, their entry removed) does not take the message out of reach of a report: the
-// founder confirmed it stays reportable (ADR-0027 D12). W7-9's Delete writes exactly these two things; the test writes them
-// directly so it holds whichever order the tickets merge in.
+// founder confirmed it stays reportable (ADR-0027 D12). The delete goes through the real DeleteConversation RPC.
 func TestMessageReport_StaysReportableAfterDeleteForMe(t *testing.T) {
 	e := newReportChain(t, nil)
 	th := e.reportThread(t)
 	convID := th.convID
 	ctx := context.Background()
-	if _, err := e.fs.Collection("conversations").Doc(convID).Update(ctx, []firestore.Update{
-		{FieldPath: firestore.FieldPath{"clearedAt", th.b.uid}, Value: time.Now().Add(time.Hour).UTC()},
-	}); err != nil {
-		t.Fatal(err)
+	if _, err := e.msg.DeleteConversation(ctx, authed(th.b.token, &messagingv1.DeleteConversationRequest{
+		IdempotencyKey: contractKey("dm-delete"), ConversationId: convID,
+	})); err != nil {
+		t.Fatalf("DeleteConversation: %v", err)
 	}
-	if _, err := e.fs.Doc("users/" + th.b.uid + "/dmInbox/" + convID).Delete(ctx); err != nil {
-		t.Fatal(err)
+	if _, ok := e.entry(t, th.b, th.a, "dmInbox"); ok {
+		t.Fatal("setup: b's entry survived the delete")
 	}
 	// Premise: b's thread no longer shows a's messages.
-	e2 := newReportChain(t, nil) // another instance: the first one cached the conversation before clearedAt was written
-	lm, err := e2.msg.ListMessages(ctx, authed(th.b.token, &messagingv1.ListMessagesRequest{ConversationId: convID}))
+	lm, err := e.msg.ListMessages(ctx, authed(th.b.token, &messagingv1.ListMessagesRequest{ConversationId: convID}))
 	if err != nil || len(lm.Msg.GetMessages()) != 0 {
 		t.Fatalf("setup: b still sees %d messages (%v)", len(lm.Msg.GetMessages()), err)
 	}
-	res, err := e2.report(th.b, convID, th.m1)
+	res, err := e.report(th.b, convID, th.m1)
 	if err != nil || res.GetAlreadyReported() {
 		t.Fatalf("report after delete-for-me: %v, %v", res, err)
 	}

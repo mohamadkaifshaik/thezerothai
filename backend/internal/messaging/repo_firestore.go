@@ -34,16 +34,33 @@ type FirestoreRepo struct {
 	hooks *raceHooks
 }
 
-// raceHooks are test seams: each runs after the reads of the operation named and before its writes.
+// raceHooks are test seams. afterTombstoneRead runs after the page query and before its writes. For the takedown
+// transaction, beforeTakedownRun runs at the start of every run of the body (run is 1-based) and afterTakedownReads after
+// its reads and before its writes; an error returned from the latter is the body's, so a test can force the contention
+// retry (an Aborted error) and commit a competing write between the two runs, when the first run's locks are released
+// (the emulator, like Firestore, holds a transaction's read locks, so a competing write cannot commit inside a run).
 type raceHooks struct {
-	afterTakedownReads func()
+	beforeTakedownRun  func(run int)
+	afterTakedownReads func(run int) error
 	afterTombstoneRead func()
+	takedownRuns       int
 }
 
-func (h *raceHooks) takedownReads() {
-	if h != nil && h.afterTakedownReads != nil {
-		h.afterTakedownReads()
+func (h *raceHooks) takedownRunStart() {
+	if h == nil {
+		return
 	}
+	h.takedownRuns++
+	if h.beforeTakedownRun != nil {
+		h.beforeTakedownRun(h.takedownRuns)
+	}
+}
+
+func (h *raceHooks) takedownReads() error {
+	if h == nil || h.afterTakedownReads == nil {
+		return nil
+	}
+	return h.afterTakedownReads(h.takedownRuns)
 }
 
 func (h *raceHooks) tombstoneRead() {

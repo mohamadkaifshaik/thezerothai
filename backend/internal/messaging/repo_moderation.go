@@ -75,6 +75,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 	attempts, err := store.RunTransactionRetry(ctx, r.client, cfg,
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			out = TakedownResult{}
+			r.hooks.takedownRunStart()
 			c := budget.FromContext(ctx)
 
 			msnap, err := tx.Get(r.msgRef(convID, msgID))
@@ -132,7 +133,9 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 				}
 			}
 			out.Entries = len(previews)
-			r.hooks.takedownReads()
+			if herr := r.hooks.takedownReads(); herr != nil {
+				return herr
+			}
 			if dryRun {
 				return nil
 			}
@@ -144,10 +147,13 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 			})
 			// The thread revision: every ListMessages since token issued before this commit is retired at its next poll, even
 			// when no inbox preview shows the message (the thread still did). updatedAt moves strictly forward so the instance
-			// cache, which never replaces a copy with an older updatedAt (putConv), cannot restore a pre-takedown one.
+			// cache, which never replaces a copy with an older updatedAt (putConv), cannot restore a pre-takedown one. The stamp
+			// is the transaction's own read time (Firestore server time), never the operator's laptop clock: updatedAt is the
+			// floor of Accept's changedAt, Delete's clearedAt and, through stampAfterClear, of every later send, so a clock
+			// that runs ahead would push all of them into the future.
 			b.Update(r.convRef(convID), []firestore.Update{
 				{Path: "rev", Value: firestore.Increment(1)},
-				{Path: "updatedAt", Value: notBefore(wireTime(r.now()), conv.UpdatedAt.Add(time.Microsecond))},
+				{Path: "updatedAt", Value: notBefore(wireTime(csnap.ReadTime), conv.UpdatedAt.Add(time.Microsecond))},
 			})
 			for _, ref := range previews {
 				// changedAt in server time (not the operator's clock) puts the entry in every cached device's next since refresh.

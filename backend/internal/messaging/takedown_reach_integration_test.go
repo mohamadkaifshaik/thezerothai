@@ -210,6 +210,49 @@ func TestTakedownReach_WritesAndBudget(t *testing.T) {
 	}
 }
 
+// The takedown stamps conversations.updatedAt from the transaction's own (server) read time, never from the operator's clock:
+// updatedAt is the floor of Accept's changedAt, Delete's clearedAt and, through stampAfterClear, of every later send. A laptop
+// whose clock runs 10 minutes ahead must not push any of them into the future: a delete after the takedown, then a reply at
+// real time, still shows up in the other participant's inbox since refresh and in the thread.
+func TestTakedownReach_OperatorClockAheadDoesNotPoisonLaterStamps(t *testing.T) {
+	e := newIT(t, nil)
+	convID, _, m2 := twoMessages(t, e)
+	e.repo.now = func() time.Time { return time.Now().Add(10 * time.Minute) } // the operator's laptop
+	alice1 := e.openDevice(alice, convID, messagingv1.Folder_FOLDER_INBOX)
+	if _, _, err := e.takedown(convID, m2, false); err != nil {
+		t.Fatal(err)
+	}
+	ceiling := time.Now().Add(time.Minute) // generous: server time plus the test's own fake-clock lead
+	conv, _ := e.conv(convID)
+	if conv.UpdatedAt.After(ceiling) {
+		t.Fatalf("conversation updatedAt = %v is in the future (ceiling %v): the takedown used the operator's clock", conv.UpdatedAt, ceiling)
+	}
+
+	svc := e.newService()
+	if _, err := e.del(svc, alice, convID); err != nil {
+		t.Fatal(err)
+	}
+	conv, _ = e.conv(convID)
+	if cleared := conv.ClearedAt[alice]; cleared.After(ceiling) {
+		t.Fatalf("clearedAt = %v is in the future (ceiling %v)", cleared, ceiling)
+	}
+
+	e.tick(time.Second)
+	reply := e.must(bob, toUser(skey(7), alice, "reply after the delete")).GetMessage().GetId()
+	if created := e.msgs(convID)[reply].CreatedAt; created.After(ceiling) {
+		t.Fatalf("the reply is stamped %v, in the future (ceiling %v)", created, ceiling)
+	}
+	// alice's device: the inbox since refresh returns the conversation with the reply, and the thread shows the reply.
+	ref, _ := e.mustList(e.msgSvc(), alice, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: alice1.inbox})
+	if len(ref.GetConversations()) != 1 || ref.GetConversations()[0].GetLastMessage().GetSnippet() != "reply after the delete" {
+		t.Fatalf("alice's inbox refresh = %v, want the conversation previewing the reply", respIDs(ref))
+	}
+	first, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	if len(first.GetMessages()) != 1 || first.GetMessages()[0].GetId() != reply {
+		t.Errorf("alice's thread = %d messages, want only the reply after her delete", len(first.GetMessages()))
+	}
+}
+
 // Two service instances, one of them with a stale 60 s copy of the conversation: a pre-takedown token is accepted by the stale
 // one until its copy expires (simulated by dropping it) and refused by a fresh one; a token of the new revision is accepted by
 // the stale one, which drops its copy and re-seals the higher revision; after the one cold open the instances alternate
