@@ -22,6 +22,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // base is the fixed instant the seeded conversations are built on. It is never compared with the real clock.
@@ -58,7 +59,53 @@ func (e *itEnv) uidHits(uid string) []string {
 
 func discardLog() *slog.Logger { return slog.New(slog.NewJSONHandler(io.Discard, nil)) }
 
-// runEraserFor drives the step for uid to completion on the real repo, summing the cost of every call.
+// The retry policy of the account-deletion job, which TestEraser_BothDeletedConcurrently reproduces:
+// identity.Lifecycle.work repeats a step call that returned an error with the same checkpoint, up to
+// identity.maxStepErrors (5) errors in a row, after a full-jitter pause that starts at identity.defaultRetryBackoff
+// (200 ms) and doubles; only then does the delivery fail and Pub/Sub redelivers. The constants are copied because both
+// are unexported there: keep them in step.
+const (
+	jobStepRetries  = 5
+	jobRetryBackoff = 200 * time.Millisecond
+)
+
+// eraseLikeTheJob drives the step for uid to completion the way the account-deletion job does: a call that fails is
+// repeated with the checkpoint it started from (every step is idempotent, so a repeat is safe), at most jobStepRetries
+// failures in a row. It returns how many failed calls it absorbed, and an error when the retries ran out, which in
+// production fails the delivery. Use it where two accounts are erased at the same time: a conversation both of them
+// are in is then locked by two MarkGone transactions at once, which costs seconds on the emulator (and more under
+// -race) and can outlast the repo's 5 s txTimeout; production absorbs that with exactly this retry. It never touches
+// *testing.T, so it is safe to call from a goroutine; runEraserFor is the strict driver for everything else.
+func (e *itEnv) eraseLikeTheJob(uid string) (absorbed int, err error) {
+	er := NewEraser(e.repo, discardLog())
+	ctx := context.Background()
+	var cp []byte
+	failures := 0
+	for range 500 {
+		next, done, cerr := er.PurgeUser(ctx, uid, cp)
+		if cerr != nil {
+			absorbed++
+			failures++
+			if failures >= jobStepRetries {
+				return absorbed, fmt.Errorf("step failed %d times in a row: %w", failures, cerr)
+			}
+			if werr := store.Wait(ctx, jobRetryBackoff<<(failures-1)); werr != nil {
+				return absorbed, werr
+			}
+			continue
+		}
+		failures = 0
+		if done {
+			return absorbed, nil
+		}
+		cp = next
+	}
+	return absorbed, fmt.Errorf("the eraser did not finish")
+}
+
+// runEraserFor drives the step for uid to completion on the real repo, summing the cost of every call. It fails the test
+// on the first error and must be called from the test goroutine: it is for one account at a time, where nothing
+// contends. Two accounts erased concurrently use eraseLikeTheJob.
 func (e *itEnv) runEraserFor(uid string) (calls int, total *budget.Counter) {
 	e.t.Helper()
 	er := NewEraser(e.repo, discardLog())
@@ -386,38 +433,72 @@ func TestEraser_TombstonesInPagesOf500(t *testing.T) {
 	}
 }
 
-// Both participants deleted at the same moment, each by its own eraser run, over several conversations: whoever marks
-// second deletes the tree, and nothing is left behind.
+// Both participants deleted at the same moment over several conversations: whoever marks second deletes the tree, and
+// nothing is left behind.
+//
+// It models production: one deletion job per account (a duplicate delivery of the same account's job is fenced by the
+// job's checkpoint write, an UpdateTime precondition with a seq, so it is not a second job racing on the account), so
+// alice's job runs once over her four conversations and each peer's once, and every conversation is erased by exactly
+// two jobs racing on its document. Each job retries a failed call the way the
+// lifecycle does (eraseLikeTheJob). Two MarkGone transactions that read the conversation and then both write it
+// collide, and on the emulator that costs seconds (and more under -race), which can outlast the repo's 5 s txTimeout:
+// DeadlineExceeded then fails that one call, nothing is written, and the repeat finds the finished state. The first
+// version of this test ran alice's job four times at once (five transactions on each conversation) and failed on the
+// first such error, which no deployment does.
 func TestEraser_BothDeletedConcurrently(t *testing.T) {
+	const peers = 4
+	peerUID := func(i int) string { return fmt.Sprintf("peer-%d", i) }
 	e := newIT(t, func(e *itEnv) {
-		for i := range 4 {
-			e.addUser(fmt.Sprintf("peer-%d", i), fmt.Sprintf("p%d", i), false)
+		for i := range peers {
+			e.addUser(peerUID(i), fmt.Sprintf("p%d", i), false)
 		}
 	})
 	var ids []string
-	for i := range 4 {
-		id := e.seedConversation(alice, fmt.Sprintf("peer-%d", i), stateAccepted, base, [2]string{alice, "a"}, [2]string{fmt.Sprintf("peer-%d", i), "b"}, [2]string{alice, "c"})
+	for i := range peers {
+		id := e.seedConversation(alice, peerUID(i), stateAccepted, base, [2]string{alice, "a"}, [2]string{peerUID(i), "b"}, [2]string{alice, "c"})
 		ids = append(ids, id)
 	}
+	// One job per account: alice's, then each peer's. Results go to a slot of their own and are read after Wait, so no
+	// goroutine touches t.
+	jobs := []string{alice}
+	for i := range peers {
+		jobs = append(jobs, peerUID(i))
+	}
+	absorbed := make([]int, len(jobs))
+	errs := make([]error, len(jobs))
 	var wg sync.WaitGroup
-	for i := range 4 {
-		wg.Add(2)
-		go func() { defer wg.Done(); e.runEraserFor(alice) }()
-		go func() { defer wg.Done(); e.runEraserFor(fmt.Sprintf("peer-%d", i)) }()
+	for i, uid := range jobs {
+		wg.Add(1)
+		go func() { defer wg.Done(); absorbed[i], errs[i] = e.eraseLikeTheJob(uid) }()
 	}
 	wg.Wait()
+	retried := 0
+	for i, uid := range jobs {
+		retried += absorbed[i]
+		if errs[i] != nil {
+			t.Errorf("%s's job: %v", uid, errs[i])
+		}
+	}
+	if retried > 0 {
+		t.Logf("%d failed step calls were absorbed by the job's retry (lock contention on the emulator)", retried)
+	}
 	for _, id := range ids {
 		if left := e.treeDocs(id); len(left) != 0 {
 			t.Errorf("conversation %s left %v", id[:8], left)
 		}
 	}
-	for i := range 4 {
-		for _, uid := range []string{alice, fmt.Sprintf("peer-%d", i)} {
+	for i := range peers {
+		for _, uid := range []string{alice, peerUID(i)} {
 			for _, folder := range []string{"dmInbox", "dmRequests"} {
 				if _, ok := e.entry(uid, folder, ids[i]); ok {
 					t.Errorf("%s's %s entry survived", uid, folder)
 				}
 			}
+		}
+	}
+	for _, uid := range jobs {
+		if hits := e.uidHits(uid); len(hits) != 0 {
+			t.Errorf("%s is still named in %v", uid, hits)
 		}
 	}
 }
