@@ -141,6 +141,9 @@ type ConvDoc struct {
 	Gone       []string          `firestore:"gone,omitempty"`
 	CreatedAt  time.Time         `firestore:"createdAt"`
 	UpdatedAt  time.Time         `firestore:"updatedAt"`
+	// Rev is the thread revision (ADR-0027 note 2026-10-29): incremented by a takedown and by the eraser's RewriteConversation,
+	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete or mark-read.
+	Rev int64 `firestore:"rev,omitempty"`
 }
 
 func (c ConvDoc) hasParticipant(uid string) bool {
@@ -168,6 +171,9 @@ type MsgDoc struct {
 	State       string    `firestore:"state"`
 	RequestHash string    `firestore:"requestHash"`
 	CreatedAt   time.Time `firestore:"createdAt"`
+	// RemovedAt is the server time of a moderator takedown, set together with State REMOVED (a durable record of the
+	// takedown even when it was made without --report).
+	RemovedAt time.Time `firestore:"removedAt,omitempty"`
 }
 
 // PeerDoc is the peer snapshot an inbox entry holds (index-exempt).
@@ -204,4 +210,9 @@ type EntryDoc struct {
 	Silent        bool      `firestore:"silent"`
 	LastReadAt    time.Time `firestore:"lastReadAt"`
 	CreatedAt     time.Time `firestore:"createdAt"`
+	// ChangedAt is when the entry last changed in a way a cached device must see (ADR-0027 note 2026-10-29): every send (the
+	// same stamp as LastMessageAt), a takedown rewriting the preview, the eraser rewriting the peer snapshot, an accepted
+	// request moved to the inbox. The ListConversations since query orders by it. It stays on the automatic single-field
+	// index; an entry written before it existed has none and never matches a since query.
+	ChangedAt time.Time `firestore:"changedAt,omitempty"`
 }

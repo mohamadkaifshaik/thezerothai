@@ -28,6 +28,7 @@ Decide one of:
 | Nothing wrong | `reports resolve --id R --resolution NO_ACTION` (or `DISMISSED` for abusive/duplicate reports; these are the only two resolutions `resolve` accepts) | report RESOLVED, evidence TTL-deleted 90 days later |
 | Remove one post | `takedown-post --post POSTID --report R` | post hidden from GetPost (NOT_FOUND for everyone, the author included), profile timeline and Home within 60 s; report resolved TAKEDOWN |
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
+| Remove one direct message | `messages takedown CONVERSATION_ID:MESSAGE_ID --report R` (use `--dry-run` first; the argument is the report's `target`) | the message becomes `REMOVED` with its text cleared and both people's inbox previews are rewritten; both see "This message was removed" (devices that cached the thread or the inbox at their next poll or refresh); report resolved TAKEDOWN. Not undoable. See "Reading a message report" below |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
 | Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it also schedules the delete of the image when `PROFILE_MEDIA_RETIRE` is set in your shell (A4) and prints the object names either way (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
@@ -47,6 +48,7 @@ confirmation. Nothing here touches Firebase Auth.
 | &nbsp;&nbsp;↳ copy cleanup (part of `suspend-user`, issue #151) | + P to find the posts that have copies, then per such post 2 reads (minimum) | per repost 2 writes and 2 deletes, per quote 1 write |
 | `unsuspend-user` | P_hidden + 2 | 2 P_hidden + 1 |
 | `clear-profile-fields` | 1 (+1 to check `--report`, +1 to resolve it); a DELETING or missing account stops after the read | 1 (0 when every named field is already empty or with `--dry-run`; +1 to resolve the report) |
+| `messages takedown` (W7-12) | 4 at most (message 1, conversation 1, each participant's entry 1; +2 with `--report`: target check, resolve); a repeat or a DELETED_ACCOUNT tombstone 1 | 4 at most (message 1, conversation revision 1, each preview that named it; +1 with `--report`); 0 with `--dry-run`, on a repeat and on a tombstone |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
@@ -119,6 +121,33 @@ For a bad link, location, bio or image the action is `clear-profile-fields --rep
 `docs/runbooks/abuse-spike.md` section 5b); a bad display name or a repeat offender is `suspend-user`. The resolution is
 `PROFILE_CLEARED`; `reports resolve` still accepts only `NO_ACTION` and `DISMISSED`.
 
+### Reading a message report
+A report with `target` type MESSAGE (ADR-0027 D12, W7-12) has `target` = `<conversation id>:<message id>` (32 lower-case hex each) and `owner`
+= the **sender's** uid. `reports show` prints `evidence message from @handle sent <time> (PRIVATE text, copied at report time): "..."`: that one
+message and nothing else of the conversation. **It is private content.** Read it to decide; do not paste it into a reply, a ticket or a chat.
+Two things to know:
+- **The handle can be empty.** The sender was not ACTIVE (suspended or being deleted) when the report was filed; `owner` still names them.
+- **Context is not kept on purpose.** The evidence is only the reported message. Messages around it are not in the report and are not
+  reachable from `opsctl`; judge from the one message, the reason and the note. A pattern needs several reports against the same `owner`.
+
+To remove it run `opsctl messages takedown <target> --report R` (`--dry-run` first). The message becomes `REMOVED` with its text and request
+digest cleared, the inbox previews of both people that showed it are rewritten, and the conversation's revision is bumped, in one transaction
+(at most 4 reads, 4 writes). Both see "This message was removed". Facts to expect:
+- **A device that cached the text drops it at its next poll or inbox refresh.** The thread's `since_token` is retired (the app makes one cold
+  open) and the inbox row comes back in the next `since` refresh, in the same place. A device polling an instance whose 60 s conversation copy
+  predates the takedown can lag by up to 60 s; a closed thread converges when it is opened. See `docs/runbooks/messaging.md` section 5b.
+- **The report keeps the text.** The evidence is a copy taken at report time; the takedown does not touch it. It is deleted with the report,
+  resolved + 90 days.
+- **Idempotent and safe to repeat.** An already `REMOVED` message, or one its sender's account deletion already tombstoned
+  (`DELETED_ACCOUNT`), writes nothing and says so; `--report` still resolves. An unknown message, or one whose conversation is gone, exits 1.
+- **Not undoable.** There is no restore for a message: the text is gone from the message document. The evidence is in the report only.
+- **The sender who retries gets the tombstone.** The takedown clears the message's request digest (as the account eraser does), so Send cannot
+  compare a retry of the same idempotency key; it replays the message as `REMOVED` (no text) instead of a "key reused" error. It never creates a duplicate.
+- **The output holds no uid and no id in clear.** It prints `conversation_hash` and `message_hash` (one-way) and one `audit:` line with the
+  project, time, before/after state, previews rewritten, `wrote`, `dry_run` and the report id. Keep that line with the case notes.
+- For an abusive sender rather than one message, `suspend-user --uid <owner> --report R` accepts a message report (its owner is the sender);
+  a SUSPENDED sender can no longer send (account-status interceptor) and a SUSPENDED recipient answers `CANNOT_MESSAGE`.
+
 ## 3a. Media on takedown (manual until `--purge-media` exists)
 `takedown-post` hides the post document only. If the post has images (`reports show` prints `evidence`, and the
 post's `media[]` ids; also `media` docs with `ownerId` = the author) the objects are **still public** in the media
@@ -177,6 +206,14 @@ change; after that only the ids and the text survive. This is the same rule as s
 - **Reports spike or a single reporter floods.** `QUOTA_EXCEEDED quota=reports` (20/day, 5/day for accounts younger than
   24 h) and the 5/min bucket already bound one account. Many accounts is spam: `docs/runbooks/abuse-spike.md`. The kill
   switch is `FEATURE_REPORTS=off` (`docs/runbooks/cost-spike.md`, pinned-traffic procedure).
+- **A user says "I reported a message and got not found" (or the report button does nothing).** Expected for a message that is no longer
+  VISIBLE (already taken down, or its sender deleted the account), your own message (that is a validation error, not not found), a
+  conversation you are not in, or an unknown id: one NOT_FOUND `message not found` for all of them, on purpose (no oracle). A user whose
+  `messaging` flag is off but not off for everyone can still report. `FAILED_PRECONDITION FEATURE_DISABLED feature=messaging` means
+  `FEATURE_MESSAGING=off` for everyone (the kill switch); `FEATURE_DISABLED` with no feature means `FEATURE_REPORTS` is off for them.
+  The request line has `report_target=MESSAGE`, `outcome` (`created`, `duplicate`, `reopened`, `rejected:*`) and `conversation_hash`; never text.
+- **`messages takedown` says `no such message`.** The id is wrong, or both accounts were deleted and the conversation tree went with them.
+  The report (if any) still holds the text until resolved + 90 days; resolve it with `reports resolve`.
 - **Appeals.** Stage 0 has no appeal UI. If a user writes in, `restore-post` / `unsuspend-user` is the whole procedure.
 
 ## 5. Privacy and retention
@@ -188,4 +225,10 @@ change; after that only the ids and the text survive. This is the same rule as s
   evidence; reports **about** the user stay until resolved + 90 days. The privacy policy
   (`app/web/privacy.html`, "When your account is deleted") must say so before `FEATURE_REPORTS` is turned on for real
   users. The data export lists the reports the user filed, never reports about them.
-- Logs hold enums and counters only (`report_target`, `report_reason`, `outcome`), never ids, handles, notes or text.
+- A MESSAGE report's evidence is **one private message** (its text, the sender's handle, its time; ADR-0027 D12 and the 2026-10-28 note
+  on ADR-0016). The same retention applies: kept until resolved + 90 days, then the TTL deletes the report; the reporter's erasure
+  (`reporterId := ""`) is unchanged and nothing in the evidence names the reporter. The report's `target` holds the conversation id, a
+  one-way hash of the two participants' uids, so the operator could in principle test a candidate uid against it; it is operator-only data
+  and never reaches a client or a log. The data export lists a reporter's own message reports with that `target` (no text).
+- Logs hold enums and counters only (`report_target`, `report_reason`, `outcome`), never ids, handles, notes or text. A message report's line
+  adds `conversation_hash` (one-way).

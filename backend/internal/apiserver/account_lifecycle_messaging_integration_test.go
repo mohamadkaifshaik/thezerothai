@@ -274,7 +274,7 @@ func TestAccountLifecycle_MessagingCrashAtEverySideEffect(t *testing.T) {
 			msg := e.beginDeletion(t, richAccount{a: w.a}, fmt.Sprintf("dm-crash-delete-%04d", k))
 			e.pastGate(t, w.a.uid)
 			if deaths, _ := cc.pump(t, msg); deaths != 1 {
-				t.Fatalf("deaths = %d, want exactly 1 (ran %d side effects, clean run %d)", deaths, plan.n, total)
+				t.Fatalf("deaths = %d, want exactly 1 (ran %d side effects, clean run %d; ops run: %v)", deaths, plan.n, total, plan.ops)
 			}
 			assertDMOrder(t, plan.ops)
 			e.requireDMErased(t, w)

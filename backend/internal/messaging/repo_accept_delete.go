@@ -23,8 +23,9 @@ import (
 // answers like an unknown one (D11).
 //
 // Writes: the conversation (state ACCEPTED, updatedAt) and the caller's dmInbox entry, a copy of the request entry as
-// read (unreadCount, lastReadAt and the rest kept; a whole-document Set, so an inbox entry that should not exist cannot
-// make it fail); 1 delete: the dmRequests entry. The requester's own entry already lives in the requester's dmInbox, so
+// read (unreadCount, lastReadAt and the rest kept, changedAt = the accept stamp so the accepter's other devices pick the
+// conversation up in their next INBOX since refresh; a whole-document Set, so an inbox entry that should not exist cannot
+// make it fail; +0 writes for changedAt); 1 delete: the dmRequests entry. The requester's own entry already lives in the requester's dmInbox, so
 // the move makes both sides see the conversation in the Inbox. Nothing is emitted: a request message never pushed (F7) and
 // accepting is not a message.
 //
@@ -65,7 +66,11 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 			now := notBefore(wireTime(p.Now), conv.UpdatedAt) // updatedAt only moves forward, whatever the clock skew
 			b := store.NewFirestoreTxBatch(tx, c)
 			b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
-			b.Set(r.inboxRef(p.UID, p.ConvID), esnap.Data())
+			// changedAt = the same stamp as updatedAt: the accepter's other devices see the conversation in their next INBOX
+			// since refresh (ADR-0027 note 2026-10-29). Their REQUESTS cache drops the row locally; a delete never surfaces in since.
+			moved := esnap.Data()
+			moved["changedAt"] = now
+			b.Set(r.inboxRef(p.UID, p.ConvID), moved)
 			b.Delete(r.requestsRef(p.UID, p.ConvID))
 			if berr := b.Err(); berr != nil {
 				return berr

@@ -218,18 +218,28 @@ func (f *fakeRepo) ListEntries(_ context.Context, uid, folder string, q ListQuer
 	older := func(t time.Time, id string, c *cursor.Cursor) bool {
 		return t.Before(c.CreatedAt) || (t.Equal(c.CreatedAt) && id < c.DocID)
 	}
+	// A since query (After set) orders and positions by changedAt and skips entries without one; the others by lastMessageAt.
+	at := func(r EntryRow) time.Time {
+		if q.After != nil {
+			return r.ChangedAt
+		}
+		return r.LastMessageAt
+	}
 	var out []EntryRow
 	for _, r := range rows {
-		if q.Before != nil && !older(r.LastMessageAt, r.ID, q.Before) {
+		if q.After != nil && r.ChangedAt.IsZero() {
 			continue
 		}
-		if q.After != nil && (older(r.LastMessageAt, r.ID, q.After) || (r.LastMessageAt.Equal(q.After.CreatedAt) && r.ID == q.After.DocID)) {
+		if q.Before != nil && !older(at(r), r.ID, q.Before) {
+			continue
+		}
+		if q.After != nil && (older(at(r), r.ID, q.After) || (at(r).Equal(q.After.CreatedAt) && r.ID == q.After.DocID)) {
 			continue
 		}
 		out = append(out, r)
 	}
 	slices.SortFunc(out, func(a, b EntryRow) int {
-		if c := b.LastMessageAt.Compare(a.LastMessageAt); c != 0 {
+		if c := at(b).Compare(at(a)); c != 0 {
 			return c
 		}
 		return strings.Compare(b.ID, a.ID)

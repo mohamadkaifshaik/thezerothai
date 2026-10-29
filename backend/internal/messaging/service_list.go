@@ -41,8 +41,12 @@ const (
 )
 
 // Token bindings: a token opens only for the uid, the folder and the token kind it was issued for (ADR-0027 D7).
+//
+// The since kind is "since-changed" (ADR-0027 note 2026-10-29): the position is a changedAt, not a lastMessageAt. A token
+// of the older kind fails to open (VALIDATION since_token, 0 reads) and the client cold-opens the folder once; an entry
+// written before changedAt existed would otherwise be skipped by a query on it.
 func sinceBinding(uid, folder string) string {
-	return "messaging|conversations|since|" + uid + "|" + folder
+	return "messaging|conversations|since-changed|" + uid + "|" + folder
 }
 func pageBinding(uid, folder string) string {
 	return "messaging|conversations|page|" + uid + "|" + folder
@@ -201,12 +205,13 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 	return resp, nil
 }
 
-// sinceToken is the token for the next refresh: the newest scanned entry trailing by SettleWindow, the old position when
-// nothing new arrived, or "now - settle" for an empty first page.
+// sinceToken is the token for the next refresh: on a refresh the newest changed entry's changedAt trailing by SettleWindow,
+// the old position when nothing changed; on a first page "now - settle" (its rows are ordered by lastMessageAt and do not
+// bound recently changed entries further down, and an old newest lastMessageAt would make the next since page full).
 func (s *service) sinceToken(uid string, in listInput, rows []EntryRow, now time.Time) string {
 	var newest *cursor.Cursor
-	if len(rows) > 0 {
-		newest = &cursor.Cursor{CreatedAt: rows[0].LastMessageAt, DocID: rows[0].ID}
+	if in.since != nil && len(rows) > 0 {
+		newest = &cursor.Cursor{CreatedAt: rows[0].ChangedAt, DocID: rows[0].ID}
 	}
 	return s.sealSince(sinceBinding(uid, in.folder), newest, in.since, now)
 }
@@ -214,16 +219,18 @@ func (s *service) sinceToken(uid string, in listInput, rows []EntryRow, now time
 // sealSince seals the next since position under binding (shared by ListConversations and ListMessages): newest (the first
 // scanned row) trailing by SettleWindow, else prev (the position the client sent), else "now - settle".
 func (s *service) sealSince(binding string, newest, prev *cursor.Cursor, now time.Time) string {
-	var c cursor.Cursor
+	return cursor.EncodeAt(s.d.CursorKey, binding, sinceCursor(newest, prev, now), now)
+}
+
+// sinceCursor is the position of the next refresh: newest trailing by SettleWindow, else prev, else "now - settle".
+func sinceCursor(newest, prev *cursor.Cursor, now time.Time) cursor.Cursor {
 	switch {
 	case newest != nil:
-		c = cursor.Cursor{CreatedAt: newest.CreatedAt.Add(-SettleWindow), DocID: newest.DocID}
+		return cursor.Cursor{CreatedAt: newest.CreatedAt.Add(-SettleWindow), DocID: newest.DocID}
 	case prev != nil:
-		c = *prev
-	default:
-		c = cursor.Cursor{CreatedAt: now.Add(-SettleWindow), DocID: "-"}
+		return *prev
 	}
-	return cursor.EncodeAt(s.d.CursorKey, binding, c, now)
+	return cursor.Cursor{CreatedAt: now.Add(-SettleWindow), DocID: "-"}
 }
 
 // droppedCounts is the per-cause tally of REQUESTS entries hidden at read time (log fields only).

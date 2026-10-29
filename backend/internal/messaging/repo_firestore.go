@@ -30,6 +30,43 @@ type FirestoreRepo struct {
 	client *firestore.Client
 	quotas *quota.Store
 	now    func() time.Time
+	// hooks is nil in production; tests set it to commit a competing write at the exact point a race would happen.
+	hooks *raceHooks
+}
+
+// raceHooks are test seams. afterTombstoneRead runs after the page query and before its writes. For the takedown
+// transaction, beforeTakedownRun runs at the start of every run of the body (run is 1-based) and afterTakedownReads after
+// its reads and before its writes; an error returned from the latter is the body's, so a test can force the contention
+// retry (an Aborted error) and commit a competing write between the two runs, when the first run's locks are released
+// (the emulator, like Firestore, holds a transaction's read locks, so a competing write cannot commit inside a run).
+type raceHooks struct {
+	beforeTakedownRun  func(run int)
+	afterTakedownReads func(run int) error
+	afterTombstoneRead func()
+	takedownRuns       int
+}
+
+func (h *raceHooks) takedownRunStart() {
+	if h == nil {
+		return
+	}
+	h.takedownRuns++
+	if h.beforeTakedownRun != nil {
+		h.beforeTakedownRun(h.takedownRuns)
+	}
+}
+
+func (h *raceHooks) takedownReads() error {
+	if h == nil || h.afterTakedownReads == nil {
+		return nil
+	}
+	return h.afterTakedownReads(h.takedownRuns)
+}
+
+func (h *raceHooks) tombstoneRead() {
+	if h != nil && h.afterTombstoneRead != nil {
+		h.afterTombstoneRead()
+	}
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -72,8 +109,9 @@ func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc
 	return c, true, nil
 }
 
-// getMessage reads the stored message of a send (1 read); found is false when it is missing.
-func (r *FirestoreRepo) getMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
+// GetMessage implements Repo: the stored message (1 read); found is false when it is missing. A send reads it to answer a
+// replay, a message report (W7-12) to take its evidence.
+func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
 	snap, err := r.msgRef(convID, msgID).Get(ctx)
 	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
@@ -102,7 +140,8 @@ func (r *FirestoreRepo) getMessage(ctx context.Context, convID, msgID string) (M
 // plus 1 delete (the replier's dmRequests entry moves to dmInbox).
 //
 // A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
-// message is read (1 read) and returned, or ErrKeyReused when its request digest differs.
+// message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
+// down (state REMOVED, digest cleared) replays as that tombstone.
 func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if r.quotas == nil {
 		return SendResult{}, errors.New("messaging: repo has no quota store configured")
@@ -124,14 +163,17 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 		case status.Code(err) != codes.AlreadyExists:
 			return SendResult{}, err
 		}
-		stored, found, gerr := r.getMessage(ctx, p.ConvID, p.MsgID)
+		stored, found, gerr := r.GetMessage(ctx, p.ConvID, p.MsgID)
 		if gerr != nil {
 			return SendResult{}, gerr
 		}
 		if !found {
 			continue
 		}
-		if stored.RequestHash != p.RequestHash {
+		// A moderator takedown clears the digest (and the text), so a retry of the same key can no longer be compared: it
+		// replays the tombstone (REMOVED) instead of answering "key reused". The message id is derived from the sender's own
+		// uid and key, so only the sender gets here.
+		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash {
 			return SendResult{}, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: stored, Conv: res.Conv}, nil
@@ -229,12 +271,12 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// The sender's own entry: always dmInbox (the requester sees the conversation in the Inbox, as on X). unreadCount is
 	// not touched; createdAt is set when this send created the conversation.
 	own := map[string]any{
-		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "silent": p.CallerSilent,
+		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.CallerSilent,
 		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible}.fields(),
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
-		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "silent": p.Silent,
+		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.Silent,
 		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible}.fields(),
 	}
 	if !p.Silent {
@@ -271,7 +313,7 @@ func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transa
 		if derr := snap.DataTo(&stored); derr != nil {
 			return res, fmt.Errorf("messaging: decode message: %w", derr)
 		}
-		if stored.RequestHash != p.RequestHash {
+		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash { // a taken-down message replays as REMOVED
 			return res, ErrKeyReused
 		}
 		res.Replay, res.Msg = true, stored
@@ -294,12 +336,19 @@ func sortedPair(a, b string) []string {
 // a count() as 1 read per 1,000 matches, so the cap keeps "Message requests (N)" at 1 read; the client shows "999+".
 const requestCountCap = 1000
 
-// ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (automatic single-field
-// index, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
+// ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (a since refresh:
+// `changedAt DESC, __name__ DESC`; automatic single-field indexes, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
 // dmInboxCollection or dmRequestsCollection: the caller picks it from an enum, never from request text.
 func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
 	col := r.client.Collection(usersCollection).Doc(uid).Collection(folder)
-	query := col.OrderBy("lastMessageAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	// First and older pages follow the inbox order (lastMessageAt). A since refresh follows changedAt instead: a takedown or an
+	// erasure changes an entry without moving lastMessageAt, and only the change stamp can surface it. An entry without
+	// changedAt (written before it existed) never matches the since query.
+	field := "lastMessageAt"
+	if q.After != nil {
+		field = "changedAt"
+	}
+	query := col.OrderBy(field, firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
 	if q.Before != nil {
 		query = query.StartAfter(q.Before.CreatedAt, col.Doc(q.Before.DocID))
 	}

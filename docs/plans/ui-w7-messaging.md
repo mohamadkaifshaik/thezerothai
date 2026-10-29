@@ -341,7 +341,7 @@ Prices (§7):
 | W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Done (#443) |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
 | W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Done (#437) |
-| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | Open |
+| W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | In review (PR #445) |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Done (#406, #413) |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Done (#414) |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
@@ -658,7 +658,7 @@ Order:
 - **Flag.** `messaging` per caller.
 - **Seam.** `identity.MessageBadge`: identity never imports messaging.
 
-### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: Open
+### W7-12 — Report a message  [owner: backend-developer] [size: M] [depends: W7-8]  Status: In review (PR #445)
 - **Description.**
   - `ReportContent(target_type = MESSAGE, target_id = "<convId>:<msgId>")`. The moderation module asks a consumer-side `moderation.MessageLookup` (implemented by messaging) whether the caller is a participant and the message is the peer's and VISIBLE, and gets the evidence `{text, senderHandle, createdAt}`.
   - Otherwise NOT_FOUND (one message); your own message → VALIDATION `target_id`.
@@ -675,6 +675,10 @@ Order:
 - **Budget.** Reads 6 / 3; writes 2.
 - **Flag.** `reports` (existing) + `messaging` not globally off.
 - **Seam.** `moderation.MessageLookup`: moderation never reads `conversations` directly.
+- **Built (PR #445, 2026-10-29).**
+  - Report: `MessageLookup` is implemented by `messaging.ReportableMessage` and bound in `apiserver` by `lateMessageLookup`. Measured: 6 reads cold / 3 warm / 2 writes; a repeat at most 5 reads (2 warm); a refusal 2 or 3 cold. One NOT_FOUND for every cause, asserted byte for byte through the real chain. Founder-confirmed: a sender who is no longer ACTIVE, a message after delete-for-me and a blocked peer's message stay reportable; a takedown cannot be undone.
+  - Takedown (`opsctl messages takedown`): 4 reads, 4 writes. Review fix B1 (ADR-0027 note 2026-10-29): it also bumps `conversations.rev`, sets `messages.removedAt` and each rewritten entry's `changedAt`, so devices that cached the thread or the inbox converge (thread `since_token` retired after at most 2 reads; inbox `since` now orders by `changedAt`, binding kind `since-changed`). The eraser's `RewriteConversation` / `MarkGone` and Accept carry `rev` / `changedAt` at +0 reads, +0 writes. Deferred: mark-read and delete-for-me on the user's other devices.
+  - Owed before W7-24: one dev-Firestore run of the `changedAt DESC, __name__ DESC` + `EndBefore` query (the emulator does not enforce indexes).
 
 ### W7-13 — Client data layer  [owner: frontend-developer] [size: M] [depends: — (poller); W7-4 (repository)]  Status: Done (#406, #413)
 - **Description.**
