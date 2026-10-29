@@ -350,7 +350,7 @@ Prices (§7):
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | In review (PR #442) |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
-| W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
+| W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | In review (PR #447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Open |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
@@ -839,7 +839,7 @@ Order:
 - **Flag.** Under test: `messaging` (caller × recipient) × `notifications` × `reports`.
 - **Seam.** —
 
-### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: Open
+### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: In review (PR #447)
 - **Description.** The cross-screen matrix:
   - inbox → thread → compose → request accept → report → block;
   - polling across lifecycle changes (fake clock);
@@ -853,6 +853,10 @@ Order:
 - **Budget.** 0.
 - **Flag.** As above.
 - **Seam.** —
+- **Built (PR #447, 2026-10-29).** Test-only (no change under `app/lib`). Audit first, then only the gaps; the full table is in the PR body. Client section for any combined W7 test report: the files below.
+  - **Already covered (cited, nothing added):** deep link and push routing (`app_router_deep_link_test`, `app_router_messages_test`, `app_widget_messages_test` "a tapped message push"); polls are 0 while hidden (`timer_thread_poller_test`, `thread_poller_integration_test`, `thread_screen_test` "app hidden: 0 polls; visible again: one at once"); the 2.0 matrix of the inbox, rows, bubbles, composer, thread, request banner, report sheet, picker, shell destination and profile button.
+  - **Added:** `app/test/support/messaging_flow_rig.dart` (`MessagingFlowRig`, `FakeMessagingServer`: the real router and repositories over a fake wire); `messaging_flow_test` (inbox → requests → accept → send → report a message → block, Delete, sign-out with the thread open); `messaging_sign_out_test` (`wipeSessionData(messagingRepository:)` empties the three drift tables, an answer in flight is dropped); `messaging_flag_matrix_test` (all 32 combinations of `messaging` × `ui_shell` × `search` × `reports` × `notifications`); `messaging_matrix_gaps_test` (Message requests folder, empty inbox and requests, sender waiting note and the draft thread at 360 / 600 / 1200 × light / dark × 1.0 / 1.3 / 2.0).
+  - **Defect (open, not fixed here):** `DraftThreadScreen`'s empty state (`AppEmptyView` in an `Expanded`, `draft_thread_screen.dart`) overflows at text scale 2.0 on 360 × 640 (first state) and by 39 px on 360 × 800 after a `CANNOT_MESSAGE` refusal. Four tests named `defect: DraftThreadScreen …` in `messaging_matrix_gaps_test.dart` are skipped until it is fixed; the fix is a frontend-developer follow-up (make the empty state scroll or shrink).
 
 ### W7-22 — Security review (mandatory: private content)  [owner: security-auditor] [size: M] [depends: W7-5 to W7-12, W7-19]  Status: Open
 - **Description.** A threat model for the first private-content feature:
