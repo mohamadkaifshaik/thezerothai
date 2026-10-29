@@ -124,7 +124,7 @@ seam and a measured trigger in the stage ladder. The details are D1–D16.
 ### D1. Collections (owner: messaging)
 | Path | Shape | Written when | Queries |
 |---|---|---|---|
-| `conversations/{convId}` | `kind` (`DIRECT`); `participants` [lowUid, highUid]; `state` (`REQUEST` / `ACCEPTED`); `requestFrom`, `requestTo`, `requestCount` (messages sent while REQUEST); `clearedAt` {uid: ts} (delete for me); `gone` [uid] (erased participants); `createdAt`, `updatedAt` | first message; accept; each request message (`requestCount` +1); delete-for-me; the eraser; **not on every accepted message** (no hot doc) | get by id; the eraser: `participants array-contains uid` (automatic array index) paged by `__name__`, Limit ≤ 100 |
+| `conversations/{convId}` | `kind` (`DIRECT`); `participants` [lowUid, highUid]; `state` (`REQUEST` / `ACCEPTED`); `requestFrom`, `requestTo`, `requestCount` (messages sent while REQUEST); `clearedAt` {uid: ts} (delete for me) (+ `clearedKey` {uid: digest}, 2026-10-29 note); `gone` [uid] (erased participants); `createdAt`, `updatedAt` | first message; accept; each request message (`requestCount` +1); delete-for-me; the eraser; **not on every accepted message** (no hot doc) | get by id; the eraser: `participants array-contains uid` (automatic array index) paged by `__name__`, Limit ≤ 100 |
 | `conversations/{convId}/messages/{msgId}` | `senderId`; `text` (NFC; **index-exempt**); `state` (`VISIBLE` / `DELETED_ACCOUNT` / `REMOVED`); `requestHash` (one-way digest of the request for the same-key-different-body check; **index-exempt**); `createdAt` | SendMessage (`Create`); the eraser and `opsctl` tombstone (`text` cleared, `state` set; field-level `Update`, never `Set`) | thread page `createdAt DESC, __name__ DESC` Limit ≤ 50; `since`: `createdAt > t` (5 s settle window); the eraser: `senderId == uid` Limit 500 |
 | `users/{uid}/dmInbox/{convId}` | `peerId`; `peer` {handle, displayName, avatarThumbUrl, verified} (**index-exempt**); `lastMessageAt`; `last` {messageId, fromSelf, snippet ≤ 100 code points, state} (**index-exempt**); `unreadCount` (`FieldValue.Increment`, one writer per message, rule 3); `silent` (the owner muted the peer); `lastReadAt` (never shown to the peer, F4); `createdAt` | every send writes both participants' entries (a bounded constant 2, not a follower fan-out; rule 2 concerns timelines); mark-read; accept (created); the eraser | inbox `lastMessageAt DESC, __name__ DESC` Limit ≤ 50; `since`: `lastMessageAt > t`; the badge: `count()` of `unreadCount > 0`, Limit 100 |
 | `users/{uid}/dmRequests/{convId}` | same shape as `dmInbox` | a request message to a non-mutual (recipient side only; the sender's entry is in the sender's own `dmInbox`, as on X) | requests list as the inbox; a `count()` for "Message requests (N)" |
@@ -420,3 +420,37 @@ spam or harassment wave shows in reports; or when the founder asks for images, g
 - **sre-performance:** W7-23: `cost-model.md` rows, the poll share and poll CPU, send-to-render p95, the triggers.
 - **production-deployer:** W7-24: Terraform vars (default `off`), the fieldOverrides deploy, dev allowlist (3 uids
   with `notifications` on), two-account smoke incl. Android push. Nothing in prod without the founder (ADR-0019).
+
+## Note: Idempotency for Accept, MarkConversationRead and DeleteConversation (founder decision 2026-10-29)
+The decision text above is unchanged. Option C1 (D2) stores the idempotency key of SendMessage as the message id. The other
+three mutations take an `idempotency_key` too (proto, W7-2); this note records what the server does with it, decided by the
+founder on 2026-10-29 while W7-9 (#443) was in review. All three **validate the key's format** (`idempotency.KeyFormatValid`:
+16-64 characters of `[A-Za-z0-9_-]`; VALIDATION `idempotency_key` with 0 reads past the account-status interceptor's,
+before the conversation id is looked at) as ADR-0021 does for a key the RPC does not use ("unused but still
+format-validated").
+
+- **AcceptMessageRequest and MarkConversationRead: option (a), the key is not stored; both are idempotent by state.** This
+  bends rule 4 (a TTL'd idempotency document) the way ADR-0018 and ADR-0021 did, and for the same reason: the budget
+  (Accept 2 writes and 1 delete, mark-read 1 write) leaves no room for a document and its TTL delete.
+  - Accept: `ACCEPTED` never returns to `REQUEST`, so a late retry finds the conversation accepted and writes nothing.
+  - MarkConversationRead: the accepted risk is that a late retry can set `unreadCount` to 0 over a newer message. The badge
+    and the Inbox then miss that one message until the next message or until the conversation is opened. The message itself
+    is never lost.
+- **DeleteConversation: option (c), the key's digest is stored on the conversation at no extra cost.** `clearedKey.{uid}` =
+  the first 32 hex characters of SHA-256(`uid | "DeleteConversation" | idempotency_key`), the C1 construction (one
+  `keyDigest` helper behind the message id as well), written in the **same field-level update** as `clearedAt.{uid}` and
+  `updatedAt`: **+0 reads, +0 writes** (the conversation is already read in the transaction). `conversations/{convId}` gains
+  the map `clearedKey` (see the data-model row in D1).
+  - A retry whose digest equals the stored one is a **replay**: nothing is written and the call succeeds, **whatever
+    happened since**. A newer message of the peer stays visible and the entry it recreated stays; the retry cannot hide that
+    message, which a state-only rule could (the entry exists again, so a retry would look like a new delete). It is checked
+    before the state rule (no entry and `clearedAt` set: also a replay, under any key). A delete under a new key that finds
+    an entry is a real delete. The conversation id is part of the document path, so the digest needs nothing more.
+  - A replay by key reads the conversation only (the entry is not read): 1 read in the transaction, 2 with the interceptor.
+    A first delete stays 3 reads, 1 write, 1 delete.
+  - Erasure (rule 10, D8): the `messaging` eraser's `RewriteConversation` deletes `clearedKey.{uid}` together with
+    `clearedAt.{uid}` (the map key is the uid, so the placeholder rule is to drop it, not to rename it to `deleted`). The
+    peer's own entries stay. The export does not list it: it is a one-way digest of a client-generated key, not user content
+    (`clearedAt`, which the export does list, is the time the user cleared the conversation).
+  - Indexing: like `clearedAt`, `clearedKey` has no fieldOverride; the map keys get the automatic single-field entries.
+    An exemption for both is a founder-gated change to `firebase/firestore.indexes.json` and is not part of this note.
