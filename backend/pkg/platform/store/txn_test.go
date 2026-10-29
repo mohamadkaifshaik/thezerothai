@@ -126,3 +126,27 @@ func TestRunTransactionRetry_BoundedReruns(t *testing.T) {
 		})
 	}
 }
+
+// optionRunner records how many transaction options each RunTransaction call received.
+type optionRunner struct{ got []int }
+
+func (o *optionRunner) RunTransaction(ctx context.Context, fn func(context.Context, *firestore.Transaction) error, opts ...firestore.TransactionOption) error {
+	o.got = append(o.got, len(opts))
+	return fn(ctx, nil)
+}
+
+// TestRunTransactionRetry_PassesOptionsToEveryRun: TxnRetry.Options (for example firestore.ReadOnly) reaches the SDK on
+// each run, and a call without options passes none.
+func TestRunTransactionRetry_PassesOptionsToEveryRun(t *testing.T) {
+	body := func(context.Context, *firestore.Transaction) error { return nil }
+	with, without := &optionRunner{}, &optionRunner{}
+	if _, err := RunTransactionRetry(context.Background(), with, TxnRetry{MaxRuns: 2, Options: []firestore.TransactionOption{firestore.ReadOnly}}, body); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunTransactionRetry(context.Background(), without, TxnRetry{MaxRuns: 2}, body); err != nil {
+		t.Fatal(err)
+	}
+	if len(with.got) != 1 || with.got[0] != 1 || len(without.got) != 1 || without.got[0] != 0 {
+		t.Errorf("options seen: with %v, without %v", with.got, without.got)
+	}
+}

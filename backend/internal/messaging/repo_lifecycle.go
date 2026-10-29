@@ -145,7 +145,8 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 // TombstonePage is step 2: one page of at most 500 of uid's messages in the conversation after the cursor `after`
 // ("" = from the start), in __name__ order (`senderId == uid`). Every one gets senderId = DeletedUID by a field-level
 // Update, never a Set, and a VISIBLE one is also cleared (text and request digest emptied, state DELETED_ACCOUNT); a
-// message a moderator took down keeps its REMOVED state. A replaced message no longer matches `senderId == uid`, so a
+// message a moderator took down keeps its REMOVED state, also against a takedown that commits during the page (each
+// write carries the LastUpdateTime of the document as read: the page fails with FailedPrecondition and the step retries). A replaced message no longer matches `senderId == uid`, so a
 // repeat costs nothing. It returns the last message id seen (the next cursor), how many were handled, and full=true when
 // the page was full and more may follow. Reads: one per message (min 1); writes: one per message (the replacement is part
 // of the tombstone write, no extra).
@@ -163,6 +164,7 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 	if len(docs) == 0 {
 		return after, 0, false, nil
 	}
+	r.hooks.tombstoneRead()
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, d := range docs {
 		// Update fails on a missing document, so a message deleted meanwhile (the peer's eraser, both gone) is never recreated.
@@ -170,7 +172,10 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 		if st, _ := d.DataAt("state"); st == msgVisible {
 			ups = append(ups, firestore.Update{Path: "text", Value: ""}, firestore.Update{Path: "requestHash", Value: ""}, firestore.Update{Path: "state", Value: msgDeletedAccount})
 		}
-		b.Update(d.Ref, ups)
+		// LastUpdateTime: a moderator takedown that commits between this query and the batch changes the document, the
+		// write fails with FailedPrecondition and the step's retry re-reads it as REMOVED, so a takedown is never
+		// overwritten by DELETED_ACCOUNT.
+		b.Update(d.Ref, ups, firestore.LastUpdateTime(d.UpdateTime))
 		tombstoned++
 	}
 	if tombstoned > 0 {

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -212,14 +213,21 @@ func TestMessageReport_ParticipantMatrixAndOneNotFound(t *testing.T) {
 		}
 	}
 
+	// A real message under another real conversation of the caller: a is a participant of both, the message is in one.
+	x := e.user(t)
+	e.mutual(t, th.a, x)
+	e.mustSend(t, x, th.a, "a message in the other conversation")
+	otherConv := messaging.ConversationID(th.a.uid, x.uid)
+
 	unknown := strings.Repeat("0", 32)
 	cases := map[string]error{
-		"non-participant on a real message": errOf(e.report(stranger, th.convID, th.m1)),
-		"unknown message":                   errOf(e.report(th.b, th.convID, unknown)),
-		"unknown conversation":              errOf(e.report(th.b, unknown, th.m1)),
-		"unknown both":                      errOf(e.report(stranger, unknown, unknown)),
-		"taken down":                        errOf(e.report(th.b, th.convID, th.m2)),
-		"sender deleted the account":        errOf(e.report(th.a, goneConv, gone.GetMessage().GetId())),
+		"non-participant on a real message":                                    errOf(e.report(stranger, th.convID, th.m1)),
+		"wrong conversation (a message of another conversation of the caller)": errOf(e.report(th.a, otherConv, th.m3)),
+		"unknown message":            errOf(e.report(th.b, th.convID, unknown)),
+		"unknown conversation":       errOf(e.report(th.b, unknown, th.m1)),
+		"unknown both":               errOf(e.report(stranger, unknown, unknown)),
+		"taken down":                 errOf(e.report(th.b, th.convID, th.m2)),
+		"sender deleted the account": errOf(e.report(th.a, goneConv, gone.GetMessage().GetId())),
 	}
 	var want string
 	for name, err := range cases {
@@ -414,5 +422,134 @@ func TestMessageReport_TakedownAndReporterErasure(t *testing.T) {
 	}
 	if want := resolvedAt.Add(moderation.Retention); !rr.ExpireAt.Equal(want) || rr.Evidence == nil || rr.Evidence.Text != "secret text three from b" {
 		t.Errorf("resolved report = expire %v evidence %+v, want expire %v with the evidence kept until then", rr.ExpireAt, rr.Evidence, want)
+	}
+}
+
+// The recipient of a message request (their entry is in dmRequests, not dmInbox) can report the requester's message, with the
+// same evidence and cost as anyone else, and before accepting.
+func TestMessageReport_RequestRecipientCanReport(t *testing.T) {
+	e := newReportChain(t, nil)
+	sender, recipient := e.user(t), e.user(t) // no follow: the first message is a request
+	sent := e.mustSend(t, sender, recipient, "an unwanted request")
+	if _, ok := e.entry(t, recipient, sender, "dmRequests"); !ok {
+		t.Fatal("setup: the recipient has no entry in dmRequests")
+	}
+	if _, ok := e.entry(t, recipient, sender, "dmInbox"); ok {
+		t.Fatal("setup: the recipient has an inbox entry before accepting")
+	}
+	convID := messaging.ConversationID(sender.uid, recipient.uid)
+	res, err := e.report(recipient, convID, sent.GetMessage().GetId())
+	if err != nil || res.GetAlreadyReported() {
+		t.Fatalf("the request recipient's report: %v, %v", res, err)
+	}
+	ev, _ := e.reportDoc(t, res.GetReportId())["evidence"].(map[string]any)
+	if ev["text"] != "an unwanted request" || ev["authorHandle"] != e.handleOf(t, sender) {
+		t.Errorf("evidence = %v", ev)
+	}
+	// The requester can report nothing of the request: the message is their own.
+	d := requireCode(t, errOf(e.report(sender, convID, sent.GetMessage().GetId())), connect.CodeInvalidArgument)
+	if d.GetMetadata()["field"] != "target_id" {
+		t.Errorf("own request message: %v", d.GetMetadata())
+	}
+}
+
+// Delete-for-me (clearedAt set for the caller, their entry removed) does not take the message out of reach of a report: the
+// founder confirmed it stays reportable (ADR-0027 D12). W7-9's Delete writes exactly these two things; the test writes them
+// directly so it holds whichever order the tickets merge in.
+func TestMessageReport_StaysReportableAfterDeleteForMe(t *testing.T) {
+	e := newReportChain(t, nil)
+	th := e.reportThread(t)
+	convID := th.convID
+	ctx := context.Background()
+	if _, err := e.fs.Collection("conversations").Doc(convID).Update(ctx, []firestore.Update{
+		{FieldPath: firestore.FieldPath{"clearedAt", th.b.uid}, Value: time.Now().Add(time.Hour).UTC()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.fs.Doc("users/" + th.b.uid + "/dmInbox/" + convID).Delete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Premise: b's thread no longer shows a's messages.
+	e2 := newReportChain(t, nil) // another instance: the first one cached the conversation before clearedAt was written
+	lm, err := e2.msg.ListMessages(ctx, authed(th.b.token, &messagingv1.ListMessagesRequest{ConversationId: convID}))
+	if err != nil || len(lm.Msg.GetMessages()) != 0 {
+		t.Fatalf("setup: b still sees %d messages (%v)", len(lm.Msg.GetMessages()), err)
+	}
+	res, err := e2.report(th.b, convID, th.m1)
+	if err != nil || res.GetAlreadyReported() {
+		t.Fatalf("report after delete-for-me: %v, %v", res, err)
+	}
+	if ev, _ := e.reportDoc(t, res.GetReportId())["evidence"].(map[string]any); ev["text"] != "secret text one from a" {
+		t.Errorf("evidence = %v", ev)
+	}
+}
+
+// Cold budgets of the refusals and the duplicate, each on its own cold instance (booted after the data was written). The
+// RPC doc comment promises at most 3 reads for a refusal and 6 for a duplicate.
+func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
+	setup := newReportChain(t, nil)
+	th := setup.reportThread(t)
+	stranger := setup.user(t)
+	if _, err := setup.report(th.b, th.convID, th.m1); err != nil { // the report a duplicate repeats
+		t.Fatal(err)
+	}
+	unknownMsg := strings.Repeat("9", 32)
+
+	tests := []struct {
+		name      string
+		who       dmUser
+		conv, msg string
+		wantReads int64
+		duplicate bool
+	}{
+		{"non-participant: interceptor, conversation", stranger, th.convID, th.m1, 2, false},
+		{"participant, unknown message: interceptor, conversation, message", th.b, th.convID, unknownMsg, 3, false},
+		{"duplicate: interceptor, conversation, message, sender profile, report", th.b, th.convID, th.m1, 5, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newReportChain(t, nil) // a cold instance
+			res, err := e.report(tt.who, tt.conv, tt.msg)
+			if tt.duplicate {
+				if err != nil || !res.GetAlreadyReported() {
+					t.Fatalf("duplicate = %v, %v", res, err)
+				}
+			} else {
+				requireCode(t, err, connect.CodeNotFound)
+			}
+			budgettest.Assert(t, "ReportContent MESSAGE cold "+tt.name, e.lineBudget(t, rpcReportContent), budgettest.Budget{Reads: tt.wantReads, Writes: 0})
+		})
+	}
+}
+
+// A non-participant gets the very same bytes whether the instance has the conversation cached or not. The reads differ by the
+// conversation read (2 cold, 1 warm: only the interceptor's), which is visible in the operator's log (`fs_reads`,
+// `cache_hit`) and nowhere on the wire; W7-22 should weigh that as a timing channel of one Firestore read, and no more: the
+// answer's content never depends on the cache.
+func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
+	setup := newReportChain(t, nil)
+	th := setup.reportThread(t)
+	stranger := setup.user(t)
+
+	cold := newReportChain(t, nil)
+	coldErr := errOf(cold.report(stranger, th.convID, th.m1))
+	coldReads := cold.lineBudget(t, rpcReportContent).Reads()
+
+	warm := newReportChain(t, nil)
+	if _, err := warm.report(th.b, th.convID, th.m2); err != nil { // a participant warms the conversation cache
+		t.Fatal(err)
+	}
+	warmErr := errOf(warm.report(stranger, th.convID, th.m1))
+	warmReads := warm.lineBudget(t, rpcReportContent).Reads()
+
+	unknownErr := errOf(warm.report(stranger, strings.Repeat("0", 32), strings.Repeat("0", 32)))
+	requireCode(t, coldErr, connect.CodeNotFound)
+	requireCode(t, warmErr, connect.CodeNotFound)
+	if wireBytes(t, coldErr) != wireBytes(t, warmErr) || wireBytes(t, warmErr) != wireBytes(t, unknownErr) {
+		t.Errorf("bytes differ: cold %q, warm %q, unknown conversation %q", wireBytes(t, coldErr), wireBytes(t, warmErr), wireBytes(t, unknownErr))
+	}
+	t.Logf("non-participant reads: cold %d, warm %d", coldReads, warmReads)
+	if coldReads != 2 || warmReads != 1 {
+		t.Errorf("reads cold/warm = %d/%d, want 2/1", coldReads, warmReads)
 	}
 }

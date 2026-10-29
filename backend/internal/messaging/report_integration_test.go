@@ -13,7 +13,6 @@ import (
 	"time"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
@@ -108,18 +107,27 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	budgettest.Assert(t, "TakedownMessage repeat", c, budgettest.Budget{Reads: 1, Writes: 0})
 }
 
-// The takedown clears the request digest (as the eraser does), so the sender's retry of the same idempotency key is a
-// validation error, never a replay of the removed text and never a second message.
-func TestTakedown_RetryOfTheSameKeyIsAValidationErrorAndCreatesNothing(t *testing.T) {
+// The takedown clears the request digest (as the eraser does), so a retry of the same idempotency key can no longer be
+// compared; it replays the tombstone (REMOVED, no text) instead of failing with "key reused", and creates nothing. A
+// retry with other text under the same key (not a retry any client sends) gets the same tombstone: the digest is gone.
+func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
 	if _, _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
-	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Metadata["field"] != "idempotency_key" {
-		t.Fatalf("retry err = %v, want VALIDATION idempotency_key", err)
+	resp, c, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
+	if err != nil {
+		t.Fatalf("retry err = %v, want a replay of the tombstone", err)
+	}
+	if m := resp.GetMessage(); m.GetState() != messagingv1.MessageState_MESSAGE_STATE_REMOVED || m.GetText() != "" || m.GetId() != m2 {
+		t.Errorf("replayed message = %v", m)
+	}
+	if p := resp.GetConversation().GetLastMessage(); p.GetState() != messagingv1.MessageState_MESSAGE_STATE_REMOVED || p.GetSnippet() != "" {
+		t.Errorf("replayed preview = %v", p)
+	}
+	if c.Writes() != 0 {
+		t.Errorf("a replay wrote %d documents", c.Writes())
 	}
 	if n := len(e.msgs(convID)); n != 2 {
 		t.Errorf("%d messages stored, want 2 (no duplicate)", n)

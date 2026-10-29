@@ -140,8 +140,8 @@ the next time they open the thread or the inbox. Facts to expect:
 - **Idempotent and safe to repeat.** An already `REMOVED` message, or one its sender's account deletion already tombstoned
   (`DELETED_ACCOUNT`), writes nothing and says so; `--report` still resolves. An unknown message, or one whose conversation is gone, exits 1.
 - **Not undoable.** There is no restore for a message: the text is gone from the message document. The evidence is in the report only.
-- **The sender who retries gets a validation error.** The takedown clears the message's request digest (as the account eraser does), so the
-  sender's client retrying the same idempotency key is answered `VALIDATION idempotency_key` instead of a replay. It never creates a duplicate.
+- **The sender who retries gets the tombstone.** The takedown clears the message's request digest (as the account eraser does), so Send cannot
+  compare a retry of the same idempotency key; it replays the message as `REMOVED` (no text) instead of a "key reused" error. It never creates a duplicate.
 - **The output holds no uid and no id in clear.** It prints `conversation_hash` and `message_hash` (one-way) and one `audit:` line with the
   project, time, before/after state, previews rewritten, `wrote`, `dry_run` and the report id. Keep that line with the case notes.
 - For an abusive sender rather than one message, `suspend-user --uid <owner> --report R` accepts a message report (its owner is the sender);

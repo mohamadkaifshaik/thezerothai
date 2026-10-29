@@ -132,7 +132,7 @@ on a repeat apply unchanged.
 - **Flags.** `FEATURE_REPORTS` on for the caller **and** `FEATURE_MESSAGING` not globally off (F6): a user dropped from the `messaging` allowlist, or
   outside its percent bucket, can still report. `FEATURE_MESSAGING=off` answers `FEATURE_DISABLED feature=messaging` with no read past the interceptor's.
 - **Cost.** 6 reads cold (interceptor, conversation, message, sender profile, report, quotas), 3 warm (message, report, quotas), 2 writes; a repeat
-  2 reads, 0 writes. The conversation is the 60 s instance cache and the profile the directory's; the message is never cached. The lookup reads no flag
+  at most 5 reads (2 warm), 0 writes; a refusal at most 3 (non-participant 2 cold, 1 warm; unknown message 3 cold). The conversation is the 60 s instance cache and the profile the directory's; the message is never cached. The lookup reads no flag
   state and **no graph**: a conversation with a blocked peer stays open (D4), so it stays reportable. The budget is asserted in
   `internal/apiserver/messaging_report_chain_integration_test.go`.
 - **One NOT_FOUND.** An unknown conversation, a conversation the caller is not in, an unknown message, a message that is `REMOVED` or tombstoned by its
@@ -142,7 +142,10 @@ on a repeat apply unchanged.
   the message becomes `REMOVED` with `text` and `requestHash` emptied (field-level updates, never a `Set`), and each participant's entry whose
   `last.messageId` is that message gets `last.snippet = "Message removed"` and `last.state = REMOVED`. At most 4 reads and 3 writes; `--dry-run`
   reads the same and writes nothing; a repeat, or a message the eraser already tombstoned, writes nothing. It keeps `senderId`, so the sender's later
-  account deletion finds the message and leaves it `REMOVED` (the eraser only clears a `VISIBLE` message).
+  account deletion finds the message and leaves it `REMOVED` (the eraser only clears a `VISIBLE` message). The eraser's tombstone page writes with
+  each document's `LastUpdateTime`, so a takedown that commits while a page is running is never overwritten with `DELETED_ACCOUNT`: that page
+  fails once (`FailedPrecondition`), the job retries and re-reads the message as `REMOVED`. A sender's retry of the original send after a
+  takedown replays the `REMOVED` tombstone (no error, no second message).
   A taken-down message never reaches the report path again (it is no longer `VISIBLE`).
 - **What a takedown cannot do.** It does not move `createdAt` or `lastMessageAt`, so a client that cached the text in drift keeps it until it
   reloads the first page of the thread (a `since` poll never re-delivers an unchanged timestamp). It is not undoable. The report keeps the
@@ -165,6 +168,8 @@ on a repeat apply unchanged.
 | Messages the user deleted for themselves reappear on one instance, or an Inbox badge keeps its old count | The conversation cache holds `clearedAt` for 60 s per instance (D14) and the badge cache is evicted on the instance that handled the mark-read only | Converges within the cache TTL (60 s thread, 30 s badge); no action. `cache_hit=true` on `kind=list_messages` shows the cached read |
 | `MarkConversationRead` succeeds but nothing changes | The caller has no entry in either folder (unknown id, non-participant, deleted for the caller): success with 0 writes by design | `kind=mark_read` has `entry_found=false` and `fs_writes=0` |
 | A message was sent twice | It was not: the message id derives from sender and key, so a retry replays. Two ids means two keys | Check the client generates one key per composed message |
-| `VALIDATION idempotency_key` on a retry | The same key was reused with other text or another conversation, **or the message was taken down in between** (a moderator's takedown clears the message's `requestHash`, as the account eraser does, so the retry no longer matches; section 5b) | A client bug in the first case: a new message needs a new key. After a takedown it is expected and creates no duplicate; the client should treat the message as removed |
+| `VALIDATION idempotency_key` on a retry | The same key was reused with other text or another conversation | A client bug: a new message needs a new key |
+| An account-deletion `messaging` step fails once with `FailedPrecondition` (tombstone messages) and then succeeds on the job's retry | A moderator takedown of one of that user's messages committed while the eraser's page was running; the page's write carries the document's `LastUpdateTime` so the takedown is not overwritten (section 5b) | Nothing: the retry sees the message as `REMOVED` and only replaces the sender id |
+| A retry of a send answers the message as `REMOVED` (replay, no text) | The message was taken down between the send and the retry. The takedown clears `requestHash`, so Send cannot compare and replays the tombstone (section 5b) | Expected: no error and no duplicate. The client renders the tombstone |
 | A user says "I reported a message and got not found" | Expected for a message that is no longer `VISIBLE` (taken down, or its sender deleted the account), a conversation the user is not in and an unknown id: one NOT_FOUND `message not found`, on purpose (section 5b). The user's own message is a `VALIDATION target_id` instead | Nothing to fix. `FEATURE_DISABLED feature=messaging` on a report means `FEATURE_MESSAGING=off` for everyone |
 | A removed message still shows its text on one device | A takedown moves neither `createdAt` nor `lastMessageAt`, so a `since` poll never re-delivers it and a client that cached the text in drift keeps it until it reloads the first page of the thread | Converges on the next first-page load or on a new device; the server holds no text (section 5b) |

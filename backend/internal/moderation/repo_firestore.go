@@ -393,7 +393,10 @@ func (r *FirestoreRepo) PurgeReporter(ctx context.Context, uid string, cp Checkp
 	return next, len(docs) < opsPage, nil
 }
 
-// exportedReport is one filed report in the data export (never evidence or anyone else's data).
+// exportedReport is one filed report in the data export (never evidence or anyone else's data). TargetID is exported as
+// stored on purpose: the exporter filed the report, so a MESSAGE report's `<conversation id>:<message id>` names the
+// exporter's own conversation, whose id the client already holds (it is the id in every messaging response). The export's
+// `messages` section leaves ids out; this one adds none the client does not have.
 type exportedReport struct {
 	ID         string    `json:"id"`
 	TargetType string    `json:"targetType"`

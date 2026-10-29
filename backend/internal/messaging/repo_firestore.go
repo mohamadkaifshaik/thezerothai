@@ -30,6 +30,26 @@ type FirestoreRepo struct {
 	client *firestore.Client
 	quotas *quota.Store
 	now    func() time.Time
+	// hooks is nil in production; tests set it to commit a competing write at the exact point a race would happen.
+	hooks *raceHooks
+}
+
+// raceHooks are test seams: each runs after the reads of the operation named and before its writes.
+type raceHooks struct {
+	afterTakedownReads func()
+	afterTombstoneRead func()
+}
+
+func (h *raceHooks) takedownReads() {
+	if h != nil && h.afterTakedownReads != nil {
+		h.afterTakedownReads()
+	}
+}
+
+func (h *raceHooks) tombstoneRead() {
+	if h != nil && h.afterTombstoneRead != nil {
+		h.afterTombstoneRead()
+	}
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -103,7 +123,8 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // plus 1 delete (the replier's dmRequests entry moves to dmInbox).
 //
 // A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
-// message is read (1 read) and returned, or ErrKeyReused when its request digest differs.
+// message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
+// down (state REMOVED, digest cleared) replays as that tombstone.
 func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if r.quotas == nil {
 		return SendResult{}, errors.New("messaging: repo has no quota store configured")
@@ -132,7 +153,10 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 		if !found {
 			continue
 		}
-		if stored.RequestHash != p.RequestHash {
+		// A moderator takedown clears the digest (and the text), so a retry of the same key can no longer be compared: it
+		// replays the tombstone (REMOVED) instead of answering "key reused". The message id is derived from the sender's own
+		// uid and key, so only the sender gets here.
+		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash {
 			return SendResult{}, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: stored, Conv: res.Conv}, nil
@@ -259,7 +283,7 @@ func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transa
 		if derr := snap.DataTo(&stored); derr != nil {
 			return res, fmt.Errorf("messaging: decode message: %w", derr)
 		}
-		if stored.RequestHash != p.RequestHash {
+		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash { // a taken-down message replays as REMOVED
 			return res, ErrKeyReused
 		}
 		res.Replay, res.Msg = true, stored

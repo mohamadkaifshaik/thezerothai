@@ -334,9 +334,14 @@ func peerDocOf(p identity.Profile) PeerDoc {
 }
 
 // sendResponse builds the SendMessage answer from the committed (or replayed) message. The conversation is the sender's
-// own view: INBOX (a requester sees the conversation in the Inbox), nothing unread, and read-write.
+// own view: INBOX (a requester sees the conversation in the Inbox), nothing unread, and read-write. A replay of a message a
+// moderator took down (state REMOVED, text cleared) answers that tombstone, never an empty VISIBLE message.
 func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, callerSilent bool) *messagingv1.SendMessageResponse {
 	created := timestamppb.New(res.Msg.CreatedAt)
+	msgState, text, snippet := messagingv1.MessageState_MESSAGE_STATE_VISIBLE, res.Msg.Text, snippetOf(res.Msg.Text)
+	if res.Msg.State == msgRemoved {
+		msgState, text, snippet = messagingv1.MessageState_MESSAGE_STATE_REMOVED, "", ""
+	}
 	state := messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED
 	if res.Conv.State == stateRequest {
 		state = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
@@ -344,8 +349,8 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 	pd := peerDocOf(peer)
 	return &messagingv1.SendMessageResponse{
 		Message: &messagingv1.Message{
-			Id: msgID, ConversationId: convID, FromSelf: true, Text: res.Msg.Text,
-			State: messagingv1.MessageState_MESSAGE_STATE_VISIBLE, CreatedAt: created,
+			Id: msgID, ConversationId: convID, FromSelf: true, Text: text,
+			State: msgState, CreatedAt: created,
 		},
 		Conversation: &messagingv1.Conversation{
 			Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
@@ -354,7 +359,7 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			},
 			State: state, Folder: messagingv1.Folder_FOLDER_INBOX,
 			LastMessage: &messagingv1.MessagePreview{
-				Snippet: snippetOf(res.Msg.Text), FromSelf: true, State: messagingv1.MessageState_MESSAGE_STATE_VISIBLE, CreatedAt: created,
+				Snippet: snippet, FromSelf: true, State: msgState, CreatedAt: created,
 			},
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,
 		},

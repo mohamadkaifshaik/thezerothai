@@ -58,13 +58,18 @@ var _ Moderator = (*FirestoreRepo)(nil)
 // Idempotent: a message that is already REMOVED or DELETED_ACCOUNT is left alone (1 read, 0 writes). A participant that is
 // the DeletedUID placeholder, or whose entry no longer exists (deleted for themselves), is skipped. The tombstone keeps
 // senderId, so the sender's own account deletion later finds the message through `senderId == uid` and keeps the REMOVED
-// state (TombstonePage). Clearing requestHash means a retry of the same idempotency key now answers VALIDATION instead of
-// replaying, as after the eraser.
+// state (TombstonePage, whose writes carry the document's LastUpdateTime, so a takedown that commits during a page is never
+// overwritten). Clearing requestHash means a retry of the same idempotency key can no longer be compared: Send replays the
+// REMOVED tombstone for it (no key-reused error, no second message).
 //
-// dryRun reads exactly the same and writes nothing.
+// dryRun reads exactly the same and writes nothing; it runs as a read-only transaction.
 func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID string, dryRun bool) (TakedownResult, error) {
 	var out TakedownResult
-	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
+	cfg := store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff}
+	if dryRun {
+		cfg.Options = []firestore.TransactionOption{firestore.ReadOnly} // reads only: no locks taken, nothing to commit
+	}
+	attempts, err := store.RunTransactionRetry(ctx, r.client, cfg,
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			out = TakedownResult{}
 			c := budget.FromContext(ctx)
@@ -124,6 +129,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 				}
 			}
 			out.Entries = len(previews)
+			r.hooks.takedownReads()
 			if dryRun {
 				return nil
 			}

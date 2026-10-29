@@ -385,3 +385,10 @@ ADR-0027 (Messaging v1, Proposed) adds `REPORT_TARGET_TYPE_MESSAGE = 3` with `ta
 - Moderation reaches the message only through a consumer-side `moderation.MessageLookup` implemented by messaging.
 - `opsctl` gains "take down a message" (tombstone, `state = REMOVED`) next to the existing suspend.
 No decision of this ADR changes.
+
+Addendum (2026-10-29, founder, W7-12): a MESSAGE report's `targetId` holds `<conversation id>:<message id>`, and the
+conversation id is a hash of both participants' uids. It stays after `PurgeReporter` (the T11 `reports.targetId` entry),
+and, like every report's document id, it can confirm a guessed reporter uid. Accepted. Also confirmed: a message takedown
+cannot be undone; a message stays reportable when its sender is no longer ACTIVE, after the reporter's delete-for-me, and
+when the peer is blocked. The privacy policy line (D5) now also covers a copy of one private message kept until 90 days
+after resolution, even after the sender deletes their account (`docs/pending.md` 3.18).

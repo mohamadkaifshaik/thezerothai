@@ -153,7 +153,7 @@ var residueAllowlist = []residueAllowance{
 	{Collection: "posts", Field: "mentionIds", Cite: "ADR-0011 Q10 (c): mentions in others' posts (runbook 3b, P6 ADR)"},
 	{Collection: "posts", Field: "mentions", Cite: "ADR-0011 Q10 (c): mentions in others' posts (runbook 3b, P6 ADR)"},
 	{Collection: "reports", Field: "targetOwnerId", Cite: "ADR-0016 D5: reports about the account are kept as safety evidence until resolved + 90 d (TTL)"},
-	{Collection: "reports", Field: "targetId", Cite: "ADR-0016 D5: an ACCOUNT report's target id is the uid; kept until resolved + 90 d (TTL)"},
+	{Collection: "reports", Field: "targetId", Cite: "ADR-0016 D5: an ACCOUNT report's target id is the uid; kept until resolved + 90 d (TTL). A MESSAGE report's target id is <conversation id>:<message id>, and the conversation id is a hash of both participants' uids; like every report's document id it can confirm a guessed reporter uid after PurgeReporter (founder-accepted 2026-10-29, ADR-0016 note 2026-10-28)"},
 }
 
 // allowed reports whether a hit for the deleted uid in collection/field is on the Q10 allowlist.
