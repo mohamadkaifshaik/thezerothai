@@ -30,7 +30,8 @@ type Repo interface {
 	// 2 writes and 1 delete; an already accepted conversation 1 read and nothing written.
 	Accept(ctx context.Context, p AcceptParams) (AcceptResult, error)
 	// Delete runs the DeleteConversation transaction (W7-9): 2 reads (the conversation, the caller's entry), 1 write
-	// (clearedAt) and 1 delete (the entry); a repeat of a delete that already happened 2 reads and nothing written.
+	// (clearedAt, clearedKey) and 1 delete (the entry); a retry with the same key 1 read in the transaction and nothing written,
+	// any other repeat of a delete that already happened 2 reads and nothing written.
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
 }
 
@@ -56,11 +57,15 @@ type AcceptResult struct {
 type DeleteParams struct {
 	UID, ConvID string
 	Now         time.Time
+	// KeyDigest is keyDigest(uid, "DeleteConversation", idempotency_key). It is stored as clearedKey.{uid} with clearedAt, and
+	// a delete whose digest equals the stored one is a replay (nothing written, whatever happened since).
+	KeyDigest string
 }
 
 // DeleteResult is the outcome of Delete.
 type DeleteResult struct {
-	// Replay: the entry was gone and the conversation already cleared for the caller; nothing was written.
+	// Replay: nothing was written, because the request's key digest equals the stored clearedKey (a retry of the last delete),
+	// or the entry was gone and the conversation already cleared for the caller.
 	Replay bool
 	// Folder is the folder the caller's entry lives in (entryInbox or entryRequests); EntryDeleted says one was deleted.
 	Folder       string

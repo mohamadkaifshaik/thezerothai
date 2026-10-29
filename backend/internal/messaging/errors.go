@@ -57,3 +57,10 @@ func notFound() *apierr.Error {
 func keyReused() *apierr.Error {
 	return apierr.Validation("idempotency_key", "this idempotency_key was already used for a different message")
 }
+
+// invalidKey is the VALIDATION answer for an idempotency_key that is not 16-64 characters of [A-Za-z0-9_-]; SendMessage
+// stores its key in the message id, Accept and Delete do not store theirs but format-validate it all the same (ADR-0021's
+// rule for a key the RPC does not use: "unused but still format-validated").
+func invalidKey() *apierr.Error {
+	return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
+}

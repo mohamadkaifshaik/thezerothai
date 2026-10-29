@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,12 +37,12 @@ func (r *rig) putRequest(mut func(*ConvDoc)) {
 }
 
 func (r *rig) accept(uid, convID string) error {
-	_, err := r.svc.Accept(context.Background(), uid, &messagingv1.AcceptMessageRequestRequest{ConversationId: convID})
+	_, err := r.svc.Accept(context.Background(), uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return err
 }
 
 func (r *rig) del(uid, convID string) error {
-	_, err := r.svc.Delete(context.Background(), uid, &messagingv1.DeleteConversationRequest{ConversationId: convID})
+	_, err := r.svc.Delete(context.Background(), uid, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return err
 }
 
@@ -146,7 +147,7 @@ func TestAccept_MovesTheRequest(t *testing.T) {
 	rg := newRig(t, nil)
 	rg.putRequest(nil)
 	ctx, info := logger.WithRequestInfo(context.Background())
-	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{ConversationId: aliceBobConv}); err != nil {
+	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatal(err)
 	}
 	if got := rg.repo.convs[aliceBobConv].State; got != stateAccepted {
@@ -189,7 +190,7 @@ func TestAccept_Replay(t *testing.T) {
 	}
 	writes, deletes, evictions := rg.repo.writes, rg.repo.deletedDocs, len(rg.badge.got)
 	ctx, info := logger.WithRequestInfo(context.Background())
-	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{ConversationId: aliceBobConv}); err != nil {
+	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if rg.repo.writes != writes || rg.repo.deletedDocs != deletes || len(rg.badge.got) != evictions {
@@ -291,6 +292,9 @@ func TestAccept_Refusals(t *testing.T) {
 	}
 }
 
+// lifeKey is a well-formed idempotency_key: Accept and Delete do not store it but format-validate it (16-64 of [A-Za-z0-9_-]).
+const lifeKey = "lifecycle-key-0123456789"
+
 func TestAccept_Validation(t *testing.T) {
 	rg := newRig(t, nil)
 	for _, id := range []string{"", "nope", "ABCDEF0123456789ABCDEF0123456789", aliceBobConv + "0"} {
@@ -299,6 +303,41 @@ func TestAccept_Validation(t *testing.T) {
 	}
 	if len(rg.repo.accepts) != 0 {
 		t.Error("an invalid id reached storage")
+	}
+}
+
+// A malformed idempotency_key is VALIDATION idempotency_key with 0 reads and nothing stored, for both RPCs, whatever the
+// conversation: the key is not used, but its format is checked (ADR-0021's rule for an unused key). The key is checked
+// before the conversation id.
+func TestAcceptDelete_MalformedKey(t *testing.T) {
+	long := strings.Repeat("k", 65)
+	for _, key := range []string{"", "short", "has spaces in the key!!", "with/slash-0123456789", long, "ünïcode-key-0123456789"} {
+		t.Run(key, func(t *testing.T) {
+			rg := newRig(t, nil)
+			rg.putRequest(nil)
+			for _, call := range map[string]func() error{
+				"accept": func() error {
+					_, err := rg.svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
+					return err
+				},
+				"delete": func() error {
+					_, err := rg.svc.Delete(context.Background(), bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
+					return err
+				},
+				"accept, bad id too": func() error {
+					_, err := rg.svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: "nope"})
+					return err
+				},
+			} {
+				wantField(t, call(), "idempotency_key")
+			}
+			if len(rg.repo.accepts) != 0 || len(rg.repo.deletes) != 0 {
+				t.Error("a malformed key reached storage")
+			}
+			if !rg.has(bob, dmRequestsCollection) {
+				t.Error("a malformed key changed the entries")
+			}
+		})
 	}
 }
 
@@ -357,7 +396,7 @@ func TestDelete_Request(t *testing.T) {
 	rg := newRig(t, nil)
 	rg.putRequest(nil)
 	ctx, info := logger.WithRequestInfo(context.Background())
-	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{ConversationId: aliceBobConv}); err != nil {
+	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatal(err)
 	}
 	conv := rg.repo.convs[aliceBobConv]
@@ -410,7 +449,7 @@ func TestDelete_Replay(t *testing.T) {
 	writes, deletes, evictions := rg.repo.writes, rg.repo.deletedDocs, len(rg.badge.got)
 	rg.now = rg.now.Add(time.Minute)
 	ctx, info := logger.WithRequestInfo(context.Background())
-	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{ConversationId: aliceBobConv}); err != nil {
+	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
 	if rg.repo.writes != writes || rg.repo.deletedDocs != deletes || len(rg.badge.got) != evictions {
@@ -529,9 +568,9 @@ func TestAcceptDelete_Errors(t *testing.T) {
 			defer cancel()
 			var err error
 			if name == "accept" {
-				_, err = rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{ConversationId: aliceBobConv})
+				_, err = rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			} else {
-				_, err = rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{ConversationId: aliceBobConv})
+				_, err = rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			}
 			if code, _, _ := reasonOf(t, err); code != connect.CodeDeadlineExceeded {
 				t.Fatalf("err = %v, want DEADLINE_EXCEEDED", err)
@@ -541,9 +580,9 @@ func TestAcceptDelete_Errors(t *testing.T) {
 			svc := New(newRig(t, nil).reg, Deps{})
 			var err error
 			if name == "accept" {
-				_, err = svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{ConversationId: aliceBobConv})
+				_, err = svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			} else {
-				_, err = svc.Delete(context.Background(), bob, &messagingv1.DeleteConversationRequest{ConversationId: aliceBobConv})
+				_, err = svc.Delete(context.Background(), bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			}
 			if err == nil {
 				t.Fatal("want an error without a repo")
@@ -557,4 +596,70 @@ func TestAcceptDelete_Errors(t *testing.T) {
 			t.Error("an invalid id reached storage")
 		}
 	})
+}
+
+// DeleteConversation stores the digest of its key next to clearedAt (ADR-0027 2026-10-29 note). Given B deletes with K and the
+// response is lost, then A's new message recreates B's entry and B retries with K: a replay, nothing written, B's entry intact.
+// A delete with a new key K2 is a real delete.
+func TestDelete_KeyReplayAfterANewerMessage(t *testing.T) {
+	rg := newRig(t, nil)
+	rg.putRequest(nil)
+	del := func(key string) error {
+		_, err := rg.svc.Delete(context.Background(), bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
+		return err
+	}
+	const k1, k2 = "delete-key-0000000001", "delete-key-0000000002"
+	if err := del(k1); err != nil {
+		t.Fatal(err)
+	}
+	conv := rg.repo.convs[aliceBobConv]
+	if conv.ClearedKey[bob] != keyDigest(bob, opDelete, k1) || len(conv.ClearedKey) != 1 {
+		t.Fatalf("clearedKey = %v, want only bob's digest of K1", conv.ClearedKey)
+	}
+	writes, deleted := rg.repo.writes, rg.repo.deletedDocs
+
+	// A's new message recreates B's entry (the send itself is the repo's; here the entry is put back as it would be).
+	rg.put(bob, dmRequestsCollection, EntryRow{ID: aliceBobConv, EntryDoc: EntryDoc{PeerID: alice, LastMessageAt: rg.now.Add(time.Second), UnreadCount: 1}})
+	if err := del(k1); err != nil {
+		t.Fatalf("retry with the same key: %v", err)
+	}
+	if rg.repo.writes != writes || rg.repo.deletedDocs != deleted || !rg.has(bob, dmRequestsCollection) {
+		t.Errorf("the retry wrote: writes %d -> %d, deletes %d -> %d, entry present %v", writes, rg.repo.writes, deleted, rg.repo.deletedDocs, rg.has(bob, dmRequestsCollection))
+	}
+	if !rg.repo.convs[aliceBobConv].ClearedAt[bob].Equal(conv.ClearedAt[bob]) {
+		t.Error("the retry moved clearedAt")
+	}
+
+	// A new key is a real delete: the recreated entry goes and clearedAt moves forward, with the new digest.
+	rg.now = rg.now.Add(time.Minute)
+	rg.svc.d.Now = func() time.Time { return rg.now }
+	if err := del(k2); err != nil {
+		t.Fatal(err)
+	}
+	after := rg.repo.convs[aliceBobConv]
+	if rg.has(bob, dmRequestsCollection) || !after.ClearedAt[bob].After(conv.ClearedAt[bob]) || after.ClearedKey[bob] != keyDigest(bob, opDelete, k2) {
+		t.Errorf("a delete under a new key: entry present %v, clearedAt %v -> %v, clearedKey %v", rg.has(bob, dmRequestsCollection), conv.ClearedAt[bob], after.ClearedAt[bob], after.ClearedKey)
+	}
+	if rg.repo.writes != writes+1 {
+		t.Errorf("writes = %d, want one more than before (%d)", rg.repo.writes, writes+1)
+	}
+}
+
+// The key digest is the caller's: alice's delete with the same key text does not replay bob's, and a delete never touches
+// the peer's clearedKey.
+func TestDelete_KeyDigestIsPerUser(t *testing.T) {
+	rg := newRig(t, nil)
+	rg.putRequest(nil)
+	for _, uid := range []string{bob, alice} {
+		if _, err := rg.svc.Delete(context.Background(), uid, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
+			t.Fatalf("%s: %v", uid, err)
+		}
+	}
+	conv := rg.repo.convs[aliceBobConv]
+	if conv.ClearedKey[bob] != keyDigest(bob, opDelete, lifeKey) || conv.ClearedKey[alice] != keyDigest(alice, opDelete, lifeKey) || conv.ClearedKey[bob] == conv.ClearedKey[alice] {
+		t.Errorf("clearedKey = %v, want a digest per user", conv.ClearedKey)
+	}
+	if rg.has(alice, dmInboxCollection) || rg.has(bob, dmRequestsCollection) {
+		t.Error("a delete by each participant left an entry")
+	}
 }

@@ -88,7 +88,7 @@ type sendInput struct {
 func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, error) {
 	var in sendInput
 	if !idempotency.KeyFormatValid(req.GetIdempotencyKey()) {
-		return in, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
+		return in, invalidKey()
 	}
 	in.key = req.GetIdempotencyKey()
 	switch t := req.GetTarget().(type) {
@@ -208,7 +208,7 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 		return
 	}
 	if res.Conv.State != "" && len(res.Conv.Participants) == 2 {
-		s.convs.Set(in.convID, res.Conv)
+		s.putConv(in.convID, res.Conv)
 	}
 	if s.d.Badge != nil {
 		s.d.Badge.Forget(uid, in.peer)
@@ -237,7 +237,7 @@ func (s *service) conversationHit(ctx context.Context, id string) (ConvDoc, bool
 	if !found {
 		return ConvDoc{}, false, ErrNotFound
 	}
-	s.convs.Set(id, c)
+	s.putConv(id, c)
 	return c, false, nil
 }
 
@@ -284,15 +284,10 @@ func (s *service) refuse(ctx context.Context, reason string) error {
 	return cannotMessage()
 }
 
-// mapErr turns a repo or lookup error into the wire answer. The raw uids and ids are redacted from anything that
-// reaches an ERROR log: a Firestore error embeds document paths, and a path names a uid and a conversation.
+// mapErr turns a repo or lookup error into the wire answer: the send-specific sentinels first, then the shared tail
+// (failure). The raw uids and ids are redacted from anything that reaches an ERROR log.
 func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err error) error {
-	var ae *apierr.Error
 	switch {
-	case errors.As(err, &ae):
-		return err
-	case errors.Is(err, ErrNotFound):
-		return notFound()
 	case errors.Is(err, errRecipientInactive):
 		return s.refuse(ctx, refusedRecipientOff)
 	case errors.Is(err, ErrCannotMessage):
@@ -305,13 +300,30 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return limitReached(limitDMNewDaily)
 	case errors.Is(err, ErrKeyReused):
 		return keyReused()
+	}
+	return s.failure(ctx, "send", uid, in.convID, err, in.peer, MessageID(uid, in.key))
+}
+
+// failure is the tail every RPC's error mapper shares (mapErr, messagesErr, lifecycleErr), reached after the mapper's own
+// sentinels. In this order: an *apierr.Error is already a wire answer; ErrNotFound is the one byte-identical NOT_FOUND of an
+// unknown id, a non-participant and a deleted conversation (D11); a request whose own context ended; a lost or timed-out
+// transaction is UNAVAILABLE "busy, please retry" (retry after 1 s) with a WARN messaging_<op>_contention line; anything
+// else is INTERNAL with uid, convID and every id in redact replaced by hashes, because a Firestore error embeds document
+// paths and a path names a uid and a conversation.
+func (s *service) failure(ctx context.Context, op, uid, convID string, err error, redact ...string) error {
+	var ae *apierr.Error
+	switch {
+	case errors.As(err, &ae):
+		return err
+	case errors.Is(err, ErrNotFound):
+		return notFound()
 	case ctxFailure(ctx) != nil:
 		return ctxFailure(ctx)
 	case errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
-		s.d.Log.WarnContext(ctx, "messaging_send_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashUID(in.convID)))
+		s.d.Log.WarnContext(ctx, "messaging_"+op+"_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashUID(convID)))
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "busy, please retry").WithRetryAfter(time.Second)
 	}
-	return logger.RedactErr(fmt.Errorf("messaging: send: %w", err), uid, in.peer, in.convID, MessageID(uid, in.key))
+	return logger.RedactErr(fmt.Errorf("messaging: %s: %w", op, err), append([]string{uid, convID}, redact...)...)
 }
 
 // ctxFailure is the wire answer for a request whose own context ended (canceled or past its deadline), else nil.
@@ -359,4 +371,15 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 			CanReply: true, Silent: callerSilent, UpdatedAt: created,
 		},
 	}
+}
+
+// putConv stores a conversation read or written by a transaction in the instance cache, unless the cached copy has a later
+// updatedAt: a handler that finishes late (a concurrent ListMessages that read before a DeleteConversation committed, or a
+// Delete whose copy an Accept has already superseded) must not put an older document back over a newer one. The
+// check-then-set is not atomic; the 60 s TTL bounds what a lost race can show (D14).
+func (s *service) putConv(id string, c ConvDoc) {
+	if old, ok := s.convs.Get(id); ok && old.UpdatedAt.After(c.UpdatedAt) {
+		return
+	}
+	s.convs.Set(id, c)
 }

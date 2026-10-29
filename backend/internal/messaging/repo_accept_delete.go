@@ -14,24 +14,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// txConversation reads conversations/{id} inside a transaction (1 read, always fresh). A missing document is nil.
-func (r *FirestoreRepo) txConversation(ctx context.Context, tx *firestore.Transaction, id string) (*ConvDoc, error) {
-	snap, err := tx.Get(r.convRef(id))
-	budget.FromContext(ctx).AddReads(1)
-	switch status.Code(err) {
-	case codes.OK:
-		var c ConvDoc
-		if derr := snap.DataTo(&c); derr != nil {
-			return nil, fmt.Errorf("messaging: decode conversation: %w", derr)
-		}
-		return &c, nil
-	case codes.NotFound:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("messaging: read conversation: %w", err)
-	}
-}
-
 // Accept implements Repo: one transaction (ADR-0027 D4, D6, D11; plan W7-9).
 //
 // Reads, fresh and before any write: conversations/{convId} (1), then the caller's dmRequests entry (1): 2 in all. The
@@ -80,7 +62,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 				return fmt.Errorf("messaging: read request entry: %w", err)
 			}
 
-			now := wireTime(p.Now)
+			now := notBefore(wireTime(p.Now), conv.UpdatedAt) // updatedAt only moves forward, whatever the clock skew
 			b := store.NewFirestoreTxBatch(tx, c)
 			b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
 			b.Set(r.inboxRef(p.UID, p.ConvID), esnap.Data())
@@ -105,14 +87,16 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 // otherwise), so no probe of the other folder is needed: 2 reads in all. An unknown id and a non-participant are
 // ErrNotFound after 1 read.
 //
-// Writes: clearedAt.{caller} = now on the conversation, a field-level Update of that one map key (the peer's clearedAt is
-// never touched; updatedAt moves with it), and 1 delete: the caller's entry. The peer's entry, the messages and the
-// conversation state are untouched: a deleted request stays a REQUEST for the sender, whose cap still applies, and a later
-// message of the peer recreates the caller's entry (Send's Set with MergeAll) while ListMessages shows only what is newer
-// than clearedAt.
+// Writes: clearedAt.{caller} = now and clearedKey.{caller} = the key digest on the conversation, one field-level Update of
+// those two map keys with updatedAt (the peer's keys are never touched; the key costs no read and no write of its own,
+// ADR-0027 2026-10-29 note), and 1 delete: the caller's entry. The peer's entry, the messages and the conversation state are
+// untouched: a deleted request stays a REQUEST for the sender, whose cap still applies, and a later message of the peer
+// recreates the caller's entry (Send's Set with MergeAll) while ListMessages shows only what is newer than clearedAt.
 //
-// A repeat finds no entry and a clearedAt already set: success, nothing written (deleteIsReplay). Entry gone but no
-// clearedAt (an anomaly) still sets clearedAt: 1 write, 0 deletes.
+// Replays, checked in this order: (1) the digest equals clearedKey.{caller}, so this is a retry of the caller's last delete:
+// success with nothing written and the entry not even read (1 read), whatever happened since (a newer message stays visible
+// and its recreated entry stays); (2) no entry and a clearedAt already set (deleteIsReplay, a retry under another key):
+// success, nothing written, 2 reads. An entry gone but no clearedAt (an anomaly) still sets clearedAt: 1 write, 0 deletes.
 func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResult, error) {
 	var res DeleteResult
 	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
@@ -127,29 +111,46 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 			if err != nil {
 				return err
 			}
+			res.Conv, res.Folder = *conv, folder
+			if deleteIsKeyReplay(*conv, p.UID, p.KeyDigest) {
+				res.Replay = true
+				return nil
+			}
 			entry := r.entryRef(p.UID, p.ConvID, folder)
-			_, err = tx.Get(entry)
+			esnap, err := tx.Get(entry)
 			c.AddReads(1)
 			exists := true
+			var lastMessageAt time.Time
 			switch status.Code(err) {
 			case codes.OK:
+				var ed EntryDoc
+				if derr := esnap.DataTo(&ed); derr != nil {
+					return fmt.Errorf("messaging: decode entry: %w", derr)
+				}
+				lastMessageAt = ed.LastMessageAt
 			case codes.NotFound:
 				exists = false
 			default:
 				return fmt.Errorf("messaging: read entry: %w", err)
 			}
-			res.Conv, res.Folder = *conv, folder
 			if deleteIsReplay(*conv, p.UID, exists) {
 				res.Replay = true
 				return nil
 			}
 
-			now := wireTime(p.Now)
-			b := store.NewFirestoreTxBatch(tx, c)
-			b.Update(r.convRef(p.ConvID), []firestore.Update{
+			// clearedAt is the handler's clock, but not before the newest message the caller's entry shows (a send may have
+			// stamped one ahead of this clock, stampAfterClear), so everything the caller saw is cleared; updatedAt gets the same
+			// stamp and never goes backwards.
+			now := notBefore(wireTime(p.Now), conv.UpdatedAt, lastMessageAt)
+			updates := []firestore.Update{
 				{FieldPath: firestore.FieldPath{"clearedAt", p.UID}, Value: now},
 				{Path: "updatedAt", Value: now},
-			})
+			}
+			if p.KeyDigest != "" {
+				updates = append(updates, firestore.Update{FieldPath: firestore.FieldPath{"clearedKey", p.UID}, Value: p.KeyDigest})
+			}
+			b := store.NewFirestoreTxBatch(tx, c)
+			b.Update(r.convRef(p.ConvID), updates)
 			if exists {
 				b.Delete(entry)
 			}
@@ -162,6 +163,14 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 			}
 			cleared[p.UID] = now
 			res.Conv.ClearedAt, res.Conv.UpdatedAt, res.EntryDeleted = cleared, now, exists
+			if p.KeyDigest != "" {
+				keys := maps.Clone(conv.ClearedKey)
+				if keys == nil {
+					keys = map[string]string{}
+				}
+				keys[p.UID] = p.KeyDigest
+				res.Conv.ClearedKey = keys
+			}
 			return nil
 		})
 	store.NoteTxnAttempts(ctx, "messaging_txn_contention", attempts)

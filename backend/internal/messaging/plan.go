@@ -1,5 +1,7 @@
 package messaging
 
+import "time"
+
 // sendDecision is what one SendMessage does to the conversation, decided from the conversation document the send
 // transaction read (ADR-0027 D4 step 5). It is pure so the table of cases is unit-tested without Firestore.
 type sendDecision struct {
@@ -86,4 +88,44 @@ func decideDelete(conv *ConvDoc, uid string) (folder string, err error) {
 // of the peer recreates the entry, so a delete that finds an entry is a new delete and moves clearedAt forward.
 func deleteIsReplay(conv ConvDoc, uid string, entryExists bool) bool {
 	return !entryExists && !conv.ClearedAt[uid].IsZero()
+}
+
+// stampAfterClear returns the time a send stamps its message and both entries with: now, unless a participant's clearedAt
+// (conv is the document the send transaction read; nil for a new conversation) is not before it, in which case one
+// microsecond (the resolution of a Firestore timestamp) after that clearedAt. ListMessages hides every message at or
+// before the reader's clearedAt, so a message stamped with a clock that a concurrent DeleteConversation already passed
+// (the handler reads the clock before the transaction runs, and instances' clocks differ) would be invisible to the
+// participant who deleted while still counting as unread. The result is strictly after every clearedAt and never before now.
+func stampAfterClear(now time.Time, conv *ConvDoc) time.Time {
+	if conv == nil {
+		return now
+	}
+	for _, cleared := range conv.ClearedAt {
+		if !now.After(cleared) {
+			now = cleared.Add(time.Microsecond)
+		}
+	}
+	return now
+}
+
+// notBefore returns now, or the latest of floors when one is after it. Accept and Delete stamp updatedAt with it so the
+// document's updatedAt only moves forward whatever the clock skew between instances (the cached copy of the document is
+// replaced only by one that is not older, putConv), and Delete stamps clearedAt with it: never before the newest message the
+// caller's entry shows (lastMessageAt), so a message stamped ahead of this instance's clock by stampAfterClear is still
+// deleted with the thread.
+func notBefore(now time.Time, floors ...time.Time) time.Time {
+	for _, t := range floors {
+		if t.After(now) {
+			now = t
+		}
+	}
+	return now
+}
+
+// deleteIsKeyReplay reports whether a DeleteConversation is a retry of the caller's last delete: the digest of its
+// idempotency_key equals the one stored in clearedKey.{caller} by that delete. It is checked before deleteIsReplay and
+// answers success with nothing written whatever happened since: a newer message of the peer stays visible and its
+// recreated entry stays, because the retry is the old delete, not a new one. An empty digest never matches.
+func deleteIsKeyReplay(conv ConvDoc, uid, digest string) bool {
+	return digest != "" && conv.ClearedKey[uid] == digest
 }

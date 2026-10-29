@@ -11,7 +11,6 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"io"
 	"time"
 
@@ -23,10 +22,6 @@ import (
 // FlagName is the wire name of FEATURE_MESSAGING (ADR-0027 D6), the `feature` metadata of FEATURE_DISABLED and the
 // string in GetMe.enabled_features.
 const FlagName = "messaging"
-
-// ErrNotImplemented is what the W7-4 skeleton answered once the flag gate passed. Since W7-9 no method returns it; the
-// server still maps it to the Connect code Unimplemented at the handler boundary, for a method a later ticket adds.
-var ErrNotImplemented = errors.New("messaging: not implemented")
 
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
 // for this caller", GloballyOff "is it the kill switch" (off for everyone; a rollout the caller is outside of is not).

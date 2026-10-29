@@ -160,8 +160,15 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 					e.must(bob, toUser(skey(100+i), alice, fmt.Sprint("bob says ", i)))
 				}
 			}
-			// alice cleared the conversation for herself once: that entry (keyed by her uid) must go too.
-			if _, err := e.fs.Collection("conversations").Doc(convID).Update(context.Background(), []firestore.Update{{FieldPath: firestore.FieldPath{"clearedAt", alice}, Value: base}}); err != nil {
+			// alice cleared the conversation for herself once: both entries (keyed by her uid, the time and the digest of her
+			// DeleteConversation key) must go too; bob's own stay.
+			bobKey := keyDigest(bob, opDelete, "bob-delete-key-0000001")
+			if _, err := e.fs.Collection("conversations").Doc(convID).Update(context.Background(), []firestore.Update{
+				{FieldPath: firestore.FieldPath{"clearedAt", alice}, Value: base},
+				{FieldPath: firestore.FieldPath{"clearedKey", alice}, Value: keyDigest(alice, opDelete, "alice-delete-key-000001")},
+				{FieldPath: firestore.FieldPath{"clearedAt", bob}, Value: base},
+				{FieldPath: firestore.FieldPath{"clearedKey", bob}, Value: bobKey},
+			}); err != nil {
 				t.Fatal(err)
 			}
 			calls, total := e.runEraserFor(alice)
@@ -204,6 +211,17 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 			conv, _ := e.conv(convID)
 			if !slices.Equal(conv.Gone, []string{DeletedUID}) || !slices.Contains(conv.Participants, DeletedUID) || slices.Contains(conv.Participants, alice) {
 				t.Errorf("gone = %v participants = %v, want the uid replaced by %q", conv.Gone, conv.Participants, DeletedUID)
+			}
+			// The deleted uid's clearedAt and clearedKey entries are gone (the map key is the uid, so the placeholder rule is to
+			// drop it); bob's own entries are untouched.
+			if _, has := conv.ClearedAt[alice]; has {
+				t.Errorf("clearedAt still has alice's entry: %v", conv.ClearedAt)
+			}
+			if _, has := conv.ClearedKey[alice]; has {
+				t.Errorf("clearedKey still has alice's entry: %v", conv.ClearedKey)
+			}
+			if _, has := conv.ClearedKey[DeletedUID]; has || len(conv.ClearedKey) != 1 || conv.ClearedKey[bob] != bobKey || conv.ClearedAt[bob].IsZero() {
+				t.Errorf("clearedKey = %v clearedAt = %v, want only bob's entries", conv.ClearedKey, conv.ClearedAt)
 			}
 			if peer.PeerID != DeletedUID {
 				t.Errorf("bob's entry peerId = %q, want %q", peer.PeerID, DeletedUID)

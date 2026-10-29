@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,14 +27,23 @@ import (
 func (e *itEnv) accept(svc *service, uid, convID string) (*budget.Counter, error) {
 	ctx, c := budget.WithCounter(context.Background())
 	c.AddReads(1)
-	_, err := svc.Accept(ctx, uid, &messagingv1.AcceptMessageRequestRequest{ConversationId: convID})
+	_, err := svc.Accept(ctx, uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return c, err
 }
 
+// delSeq makes every del call a new user action with a new idempotency_key (a client generates one key per action, and
+// reuses it only to retry that action): a second del in a test is a second delete, not a retry of the first.
+var delSeq atomic.Int64
+
 func (e *itEnv) del(svc *service, uid, convID string) (*budget.Counter, error) {
+	return e.delKey(svc, uid, convID, fmt.Sprintf("delete-key-%016d", delSeq.Add(1)))
+}
+
+// delKey is DeleteConversation with an explicit idempotency_key (a retry reuses the key of the action it retries).
+func (e *itEnv) delKey(svc *service, uid, convID, key string) (*budget.Counter, error) {
 	ctx, c := budget.WithCounter(context.Background())
 	c.AddReads(1)
-	_, err := svc.Delete(ctx, uid, &messagingv1.DeleteConversationRequest{ConversationId: convID})
+	_, err := svc.Delete(ctx, uid, &messagingv1.DeleteConversationRequest{IdempotencyKey: key, ConversationId: convID})
 	return c, err
 }
 
@@ -187,14 +197,24 @@ func TestAccept_OnlyTheRecipient_NotFoundByteIdentical(t *testing.T) {
 	e.must(alice, toUser(skey(7), "uid-dave", "hello dave"))
 	mutual := ConversationID(alice, "uid-dave")
 	unknown := ConversationID(alice, "uid-nobody")
+	// A request the recipient already deleted for themselves: the conversation is still a REQUEST for bob, but his entry is
+	// gone, so Accept answers the same NOT_FOUND, after one more read (interceptor, conversation, the missing entry).
+	e.addUser("uid-erin", "erin", false)
+	e.must("uid-erin", toUser(skey(8), bob, "hello bob"))
+	deleted := ConversationID("uid-erin", bob)
+	if _, err := e.del(e.newService(), bob, deleted); err != nil {
+		t.Fatal(err)
+	}
 
 	cases := map[string]struct {
 		uid, id string
+		reads   int64
 	}{
-		"the requester":     {alice, id},
-		"a non-participant": {carol, id},
-		"an unknown id":     {alice, unknown},
-		"never a request":   {"uid-dave", mutual},
+		"the requester":                   {alice, id, 2},
+		"a non-participant":               {carol, id, 2},
+		"an unknown id":                   {alice, unknown, 2},
+		"never a request":                 {"uid-dave", mutual, 2},
+		"a request the recipient deleted": {bob, deleted, 3},
 	}
 	var first []byte
 	for name, tt := range cases {
@@ -202,7 +222,7 @@ func TestAccept_OnlyTheRecipient_NotFoundByteIdentical(t *testing.T) {
 		if codeOf(err) != connect.CodeNotFound {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
 		}
-		budgettest.Assert(t, "AcceptMessageRequest NOT_FOUND "+name, c, budgettest.Budget{Reads: 2})
+		budgettest.Assert(t, "AcceptMessageRequest NOT_FOUND "+name, c, budgettest.Budget{Reads: tt.reads})
 		if c.Writes() != 0 || c.Deletes() != 0 {
 			t.Errorf("%s: writes/deletes = %d/%d, want 0/0", name, c.Writes(), c.Deletes())
 		}

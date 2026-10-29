@@ -95,7 +95,7 @@ func (f *fakeRepo) Accept(_ context.Context, p AcceptParams) (AcceptResult, erro
 	row := f.entries[entryKey(p.UID, dmRequestsCollection)][i]
 	f.entries[entryKey(p.UID, dmRequestsCollection)] = slices.Delete(slices.Clone(f.entries[entryKey(p.UID, dmRequestsCollection)]), i, i+1)
 	f.entries[entryKey(p.UID, dmInboxCollection)] = append(slices.Clone(f.entries[entryKey(p.UID, dmInboxCollection)]), row)
-	conv.State, conv.UpdatedAt = stateAccepted, wireTime(p.Now)
+	conv.State, conv.UpdatedAt = stateAccepted, notBefore(wireTime(p.Now), conv.UpdatedAt)
 	f.convs[p.ConvID] = *conv
 	f.writes += 2
 	f.deletedDocs++
@@ -119,6 +119,9 @@ func (f *fakeRepo) Delete(_ context.Context, p DeleteParams) (DeleteResult, erro
 	if err != nil {
 		return DeleteResult{}, err
 	}
+	if deleteIsKeyReplay(*conv, p.UID, p.KeyDigest) {
+		return DeleteResult{Replay: true, Folder: folder, Conv: *conv}, nil
+	}
 	collection := dmInboxCollection // the entry folder label is not the collection name
 	if folder == entryRequests {
 		collection = dmRequestsCollection
@@ -127,13 +130,25 @@ func (f *fakeRepo) Delete(_ context.Context, p DeleteParams) (DeleteResult, erro
 	if deleteIsReplay(*conv, p.UID, exists) {
 		return DeleteResult{Replay: true, Folder: folder, Conv: *conv}, nil
 	}
-	now := wireTime(p.Now)
+	var lastMessageAt time.Time
+	if exists {
+		lastMessageAt = f.entries[entryKey(p.UID, collection)][i].LastMessageAt
+	}
+	now := notBefore(wireTime(p.Now), conv.UpdatedAt, lastMessageAt)
 	cleared := map[string]time.Time{}
 	for k, v := range conv.ClearedAt {
 		cleared[k] = v
 	}
 	cleared[p.UID] = now
 	conv.ClearedAt, conv.UpdatedAt = cleared, now
+	if p.KeyDigest != "" {
+		keys := map[string]string{}
+		for k, v := range conv.ClearedKey {
+			keys[k] = v
+		}
+		keys[p.UID] = p.KeyDigest
+		conv.ClearedKey = keys
+	}
 	f.convs[p.ConvID] = *conv
 	f.writes++
 	if exists {

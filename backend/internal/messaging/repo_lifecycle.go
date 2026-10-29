@@ -182,7 +182,8 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 }
 
 // RewriteConversation is the LAST step of one conversation whose peer lives: in one transaction it replaces uid by
-// DeletedUID in participants, gone, requestFrom and requestTo and removes uid's clearedAt entry, so the surviving peer's
+// DeletedUID in participants, gone, requestFrom and requestTo and removes uid's clearedAt and clearedKey entries (the map key is
+// the uid, so the placeholder rule is to drop it), so the surviving peer's
 // copy names the deleted user nowhere (ADR-0027 D11). It must come last: the cursor query finds a conversation through
 // `participants array-contains uid`, so once this commits the conversation is no longer listed for uid, and everything
 // before it (gone mark, tombstones, entry) is already done. A missing conversation, or one without uid, is a no-op.
@@ -228,6 +229,9 @@ func (r *FirestoreRepo) RewriteConversation(ctx context.Context, uid, convID str
 			}
 			if _, ok := conv.ClearedAt[uid]; ok {
 				ups = append(ups, firestore.Update{FieldPath: firestore.FieldPath{"clearedAt", uid}, Value: firestore.Delete})
+			}
+			if _, ok := conv.ClearedKey[uid]; ok {
+				ups = append(ups, firestore.Update{FieldPath: firestore.FieldPath{"clearedKey", uid}, Value: firestore.Delete})
 			}
 			b := store.NewFirestoreTxBatch(tx, c)
 			b.Update(r.convRef(convID), ups)
