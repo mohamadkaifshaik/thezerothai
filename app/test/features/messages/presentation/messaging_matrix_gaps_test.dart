@@ -5,6 +5,8 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/conversation_row.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart'
+    show kSentRequestText;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -14,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/messaging_fixtures.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/theme_harness.dart';
+import '../../../support/thread_test_support.dart';
 
 /// W7-21: the cells of the 360 / 600 / 1200 x light / dark x 1.0 / 1.3 / 2.0
 /// matrix that the per-screen tests leave out: the Message requests folder,
@@ -88,6 +91,36 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('No message requests'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  }, textScales: kMatrixTextScalesLarge);
+
+  forEachThemeAndWidth('the sender waiting note sits above the composer', (
+    tester,
+    env,
+  ) async {
+    final server = MessagingFlowRig.serverWithConversation();
+    server.conversations[kThreadId]!.state =
+        ConversationState.CONVERSATION_STATE_REQUEST;
+    final rig = MessagingFlowRig(server: server);
+
+    await rig.pump(
+      tester,
+      location: AppRouter.messagePath(kThreadId),
+      size: env.size,
+      brightness: env.brightness,
+      textScale: env.textScale,
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text(kSentRequestText), findsOneWidget);
+    expect(find.byKey(MessageComposer.fieldKey), findsOneWidget);
+    final note = tester.getRect(find.text(kSentRequestText));
+    expect(note.left, greaterThanOrEqualTo(0));
+    expect(note.right, lessThanOrEqualTo(env.size.width));
+    expect(
+      note.bottom,
+      lessThan(tester.getTopLeft(find.byKey(MessageComposer.fieldKey)).dy),
+    );
     await tester.pumpWidget(const SizedBox());
   }, textScales: kMatrixTextScalesLarge);
 
