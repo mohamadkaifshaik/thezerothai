@@ -90,6 +90,8 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
 	cfg.RateLimit.MessagesReadPerUserPerMinute = 30
 	cfg.RateLimit.MessagesSendsPerDay = 300
+	cfg.RateLimit.MessagesMarkReadPerDay = 500  // W7-29 (the config.Load defaults)
+	cfg.RateLimit.MessagesMutationsPerDay = 500 // W7-29
 	return cfg
 }
 
