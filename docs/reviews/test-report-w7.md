@@ -24,7 +24,7 @@ added 18 test functions for those 13 gaps (16 run, 2 are skipped for D-1 and D-2
 |---|---|---|
 | Messaging package, unit + integration, with coverage | `GOWORK=off go test -tags=integration -count=1 -coverprofile=... ./internal/messaging/...` against the emulators | **green**, coverage **93.7 %** of statements (gate 70 %) |
 | New apiserver chain tests | `go test -tags=integration -run 'TestMessagingChain_(Read\|Percent\|Readonly\|MarkRead\|SendCaps\|Suspended\|BlockedBy)' ./internal/apiserver` | green; the defect test is skipped (section 5) and reproduced with `W720_RUN_DEFECTS=1` |
-| Whole module, one package at a time | `go test -tags=integration -p 1 -coverprofile=cover-internal.out -coverpkg=./internal/... ./...` (the `make test-int` command, see environment note) | RESULT_FULL |
+| Whole module, one package at a time | `go test -tags=integration -p 1 -coverprofile=cover-internal.out -coverpkg=./internal/... ./...` (the `make test-int` command, see environment note) | **green**, 39 packages `ok`, none failed, combined `internal/` coverage **92.9 %** (gate 70 %). That run was before the last edits to three tests (the read limiter's limit of 5, the D-2 test, the eraser formula); after them and after merging `origin/main` (W7-21, client and docs only) the packages `internal/messaging` (93.7 %), `internal/apiserver`, `internal/notifications`, `internal/moderation`, `internal/identity` and `cmd/opsctl` were run again in full, all `ok` |
 | gofmt, `go vet -tags=integration`, `golangci-lint run --build-tags integration` | on `./internal/messaging/...` and `./internal/apiserver/...` | clean, 0 issues |
 | Promotion checks | `check-flag-registry.sh` (23 flags registered, `messaging` included), `check-field-overrides.sh` (42 overrides acknowledged) | pass |
 
@@ -287,3 +287,5 @@ backend-developer; the fix is one guard (`peer == ""` is NOT_FOUND) or an ADR li
 - The `changedAt DESC, __name__ DESC` + `EndBefore` inbox query against real Firestore indexes: owed before W7-24 (the emulator does not enforce indexes); noted in W7-12's Built note.
 - Android push delivery through real FCM: the dev smoke in W7-24.
 - Client behaviour (poller, screens, drift wipe on sign-out): W7-21.
+
+VERDICT: PASS (two Low defects filed as skipped tests: D-1 blockedByOverflow caller on the read side, D-2 ListMessages on a malformed participant list)
