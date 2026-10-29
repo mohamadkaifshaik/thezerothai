@@ -74,6 +74,8 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
   opsctl restore-post     --project P --post POSTID
   opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (hides every post, waits ~75 s, settle pass)
   opsctl unsuspend-user   --project P --uid U [--dry-run]                    (restores only suspension-hidden posts)
+  opsctl messages takedown CONVERSATION_ID:MESSAGE_ID --project P [--report REPORT] [--note TEXT] [--dry-run]
+                          (tombstones one direct message as REMOVED: text cleared, both inbox previews rewritten; see docs/runbooks/messaging.md)
 `
 
 // reportsCommand dispatches `opsctl reports <list|show|resolve>`. sub is the first positional argument.
@@ -144,6 +146,13 @@ func printReport(out io.Writer, r moderation.Report) {
 			e.AuthorHandle, e.DisplayName, e.Bio, e.Location, e.Website, e.AvatarURL, e.BannerURL)
 	case r.TargetType == moderation.TargetAccount:
 		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
+	case r.TargetType == moderation.TargetMessage && r.Evidence != nil:
+		// ADR-0027 D12: one private message, copied at report time. owner above is the sender's uid; the handle is "" when
+		// the sender was not ACTIVE then. takedown with `opsctl messages takedown <target>`.
+		fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, copied at report time): %q\n",
+			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
+	case r.TargetType == moderation.TargetMessage:
+		fmt.Fprintln(out, "evidence none")
 	case r.Evidence != nil:
 		fmt.Fprintf(out, "evidence post by @%s at %s: %q\n", r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
 		if r.Evidence.OriginalPostID != "" {

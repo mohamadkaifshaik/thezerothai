@@ -26,6 +26,8 @@ type Repo interface {
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
 	// precondition (W7-8): 0 reads, 1 write; found is false (0 writes) when neither entry exists.
 	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
+	// GetMessage reads one stored message (W7-12, report a message): 1 read; found is false for a missing document.
+	GetMessage(ctx context.Context, convID, msgID string) (msg MsgDoc, found bool, err error)
 }
 
 // MessageRow is one stored message with its id (the document id).

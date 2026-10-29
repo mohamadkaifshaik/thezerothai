@@ -4,7 +4,8 @@ Owner module: `backend/internal/messaging`. Plan: `docs/plans/ui-w7-messaging.md
 W7-7 and W7-8 the lists and mark-read, W7-9 accept and delete; W7-10 push; W7-11 badge; W7-12 report). Flag: `FEATURE_MESSAGING` (wire name `messaging`, default
 `off`; dev ceiling allowlist 3, no prod raise before W7-22 and W7-23 pass in dev).
 
-What exists on `main` after W7-5, W7-6, W7-7, W7-8 and W7-10: SendMessage, ListConversations, ListMessages, MarkConversationRead, the `messaging` account-deletion step and the `messages` export section. The other
+What exists on `main` after W7-5, W7-6, W7-7, W7-8 and W7-10: SendMessage, ListConversations, ListMessages, MarkConversationRead, the `messaging` account-deletion step and the `messages` export section; with W7-12 also
+`ReportContent` for a MESSAGE target and `opsctl messages takedown` (section 5b). The other
 two RPCs (AcceptMessageRequest, DeleteConversation) answer `Unimplemented` after the
 flag gate until W7-9; the push is emitted by the send and delivered by the push-only `message` type of notifications (W7-10). Sections that
 describe those later pieces say so.
@@ -82,8 +83,8 @@ Every limit is config (rule 11); each is per instance unless it says exact, so t
 Worst case for one sender: about 900 messages a day, of which at most 20 new conversations x 3 request messages reach strangers.
 - **Block, mute and report are the user's levers.** A block either way is `CANNOT_MESSAGE` with the same bytes as a deleted account and a recipient with messaging off (no oracle). A muted sender is delivered **silently**
   (no push, no unread increment; the conversation still appears for the recipient). Requests from blocked, blocking or muted accounts are hidden from the Requests list (W7-7). Report a message: `ReportContent` with target type MESSAGE (W7-12).
-- **Moderator takedown of a message** is `opsctl` (W7-12: tombstones the message, `state = REMOVED`, text emptied; the report evidence keeps that one message). It does not exist before W7-12. Until then the only lever on an abusive account is
-  `opsctl suspend-user` (`docs/runbooks/moderation.md`): a SUSPENDED sender is refused by the account-status interceptor and a SUSPENDED recipient answers `CANNOT_MESSAGE`.
+- **Moderator takedown of a message** is `opsctl messages takedown CONV:MSG [--report R] [--dry-run]` (W7-12; section 5b and `docs/runbooks/moderation.md`, "Reading a message report"): it tombstones the message (`state = REMOVED`, text emptied) and rewrites the inbox previews that showed it; the report evidence keeps that one message.
+  For an abusive account rather than one message the lever is `opsctl suspend-user` (`docs/runbooks/moderation.md`): a SUSPENDED sender is refused by the account-status interceptor and a SUSPENDED recipient answers `CANNOT_MESSAGE`.
 - **Turn one lever down without a deploy:** none; limits are env vars on the `api` service, a Terraform change plus a release. Fast stop for a spam wave: `FEATURE_MESSAGING=off`, or remove the offender from the allowlist.
 - **Log queries** (request line, rpc `/dzeroth.messaging.v1.MessagingService/SendMessage`): `jsonPayload.limit_name` (`messages_daily`, `request_unanswered`, `dm_new_daily`), `jsonPayload.refused_reason`
   (`blocked`, `recipient_inactive`, `recipient_flag_off`, `gone`: the wire answer is always `CANNOT_MESSAGE`), `jsonPayload.state` (`accepted`, `request`, `new`), `jsonPayload.silent`, `jsonPayload.replay`.
@@ -120,6 +121,33 @@ Prerequisites: `FEATURE_MESSAGING` and `FEATURE_NOTIFICATIONS` both `allowlist` 
    `MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR` (20) is reached while every message is still stored.
 4. **Mixed rollout:** an older revision that receives a `message` event drops it as `unknown_type` and acknowledges it, so a rollout can lose at most a push, never a message (ADR-0027 D9). The event carries `conversationId` additively (`v` stays 1). The push is **push-only**: no `users/{uid}/notifications` row, no badge move, never in ListNotifications. A send that stored its message but pushed nothing: check the recipient's two flags, the `suppressed` and `push_throttled` counters on the `notification_delivery` line, and the request line (`kind=send`, `state`, `silent`).
 5. On the emulators (`make dev`), `NOTIFICATIONS_DELIVERY=inline` delivers in-process; the push goes to `LogSender`, so look for the `notification_push_local` log line instead of a handset.
+
+## 5b. Report a message and the moderator takedown (W7-12, ADR-0027 D12)
+`ReportContent` with `target_type = MESSAGE` and `target_id = "<conversation id>:<message id>"` (32 lower-case hex each). The moderation module asks
+`moderation.MessageLookup` (implemented by the messaging service; moderation never reads `conversations` or `messages`). The caller must be a
+participant and the message must be the **peer's** and `VISIBLE`; the report then holds that one message's text, the sender's handle and its time
+(`docs/runbooks/moderation.md` has the operator side). The existing reports quota (20 a day, 5 for a new account), the 5/min bucket and `already_reported`
+on a repeat apply unchanged.
+- **Flags.** `FEATURE_REPORTS` on for the caller **and** `FEATURE_MESSAGING` not globally off (F6): a user dropped from the `messaging` allowlist, or
+  outside its percent bucket, can still report. `FEATURE_MESSAGING=off` answers `FEATURE_DISABLED feature=messaging` with no read past the interceptor's.
+- **Cost.** 6 reads cold (interceptor, conversation, message, sender profile, report, quotas), 3 warm (message, report, quotas), 2 writes; a repeat
+  2 reads, 0 writes. The conversation is the 60 s instance cache and the profile the directory's; the message is never cached. The lookup reads no flag
+  state and **no graph**: a conversation with a blocked peer stays open (D4), so it stays reportable. The budget is asserted in
+  `internal/apiserver/messaging_report_chain_integration_test.go`.
+- **One NOT_FOUND.** An unknown conversation, a conversation the caller is not in, an unknown message, a message that is `REMOVED` or tombstoned by its
+  sender's account deletion all answer the same bytes (`NOT_FOUND message not found`); the caller's own message is `VALIDATION target_id`. The log line
+  has `report_target=MESSAGE`, `outcome`, `conversation_hash` and never the text or an id in clear.
+- **Takedown.** `opsctl messages takedown CONV:MSG [--report R] [--note N] [--dry-run]` (the usual typed project id for `*-prod`). One transaction:
+  the message becomes `REMOVED` with `text` and `requestHash` emptied (field-level updates, never a `Set`), and each participant's entry whose
+  `last.messageId` is that message gets `last.snippet = "Message removed"` and `last.state = REMOVED`. At most 4 reads and 3 writes; `--dry-run`
+  reads the same and writes nothing; a repeat, or a message the eraser already tombstoned, writes nothing. It keeps `senderId`, so the sender's later
+  account deletion finds the message and leaves it `REMOVED` (the eraser only clears a `VISIBLE` message).
+  A taken-down message never reaches the report path again (it is no longer `VISIBLE`).
+- **What a takedown cannot do.** It does not move `createdAt` or `lastMessageAt`, so a client that cached the text in drift keeps it until it
+  reloads the first page of the thread (a `since` poll never re-delivers an unchanged timestamp). It is not undoable. The report keeps the
+  evidence copy until resolved + 90 days.
+- **A sender whose account is not ACTIVE** (suspended, deleting) still has their `VISIBLE` messages shown in the thread, so they stay reportable;
+  the evidence handle is empty and the report's owner uid names them.
 
 ## 6. Other failure modes
 | Symptom | Likely cause | What to do |

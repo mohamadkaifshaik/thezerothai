@@ -22,6 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -57,6 +58,8 @@ type backends struct {
 	// moderation (ADR-0016 T6): report list/show/resolve, post takedown, and the account status change.
 	reports   moderation.Ops
 	moderator posts.Moderator
+	// messages takes one direct message down (`opsctl messages takedown`, ADR-0027 D12, W7-12).
+	messages messaging.Moderator
 	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
 	cleanup posts.Cleanup
 	// copied lists the suspended author's posts that have copies, for suspend-user's copy cleanup (#151).
@@ -137,6 +140,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		postsExporter: postsRepo,
 		profile:       identityRepo.GetProfile,
 		reports:       moderationRepo,
+		messages:      messaging.NewFirestoreRepo(client, nil), // takedown only: no quota store needed
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
 		copied:        postsRepo,
@@ -177,31 +181,41 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user, clear-profile-fields: print counts or the plan, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user, clear-profile-fields, messages takedown: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media: resume after this post id (the checkpoint a capped run printed)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
-	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields: also resolve this report id")
+	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
-	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields: resolution note")
+	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown: resolution note")
 	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
-		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields":
+		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
+		"messages":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
 	}
-	// `opsctl reports <list|show|resolve> [flags]`: the sub-command is the first positional argument.
-	sub := ""
-	if cmd == "reports" && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	// `opsctl reports <list|show|resolve> [flags]` and `opsctl messages takedown <convId:msgId> [flags]`: the sub-command (and
+	// the message to take down) are the first positional arguments. They come off before the flags are parsed, so --project
+	// and --dry-run may follow them.
+	sub, msgTarget := "", ""
+	if (cmd == "reports" || cmd == "messages") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
+	}
+	if cmd == "messages" && sub == "takedown" && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		msgTarget, rest = rest[0], rest[1:]
+	}
+	if cmd == "messages" && sub != "takedown" { // before the flags: a stray positional would otherwise be reported instead
+		fmt.Fprintf(errOut, "messages needs the sub-command takedown\n%s", usage)
+		return 2
 	}
 	if err := fs.Parse(rest); err != nil {
 		return 2
@@ -215,7 +229,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -245,13 +259,21 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(errOut, "reports needs a sub-command: list, show or resolve\n%s", usage)
 		return 2
 	}
+	var msgConvID, msgID string
+	if cmd == "messages" {
+		var err error
+		if msgConvID, msgID, err = parseTakedownMessageArgs(sub, msgTarget, ma); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
+	}
 	if *project == "" {
 		fmt.Fprintf(errOut, "--project is required (there is no default project)\n%s", usage)
 		return 2
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -283,6 +305,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = purgePosts(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "export-posts":
 		err = exportPosts(ctx, b, *uid, *outFile, out)
+	case "messages":
+		err = takedownMessage(ctx, b, *project, msgConvID, msgID, ma, out, now)
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":

@@ -86,6 +86,10 @@ const (
 // a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (0 reads:
 // they ride on the post the report already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
 // docs/runbooks/moderation.md for what a takedown does and does not preserve.
+//
+// A MESSAGE report (ADR-0027 D12) keeps that one message: Text is its text (private content, ADR-0016 note 2026-10-28),
+// AuthorHandle the sender's handle ("" when the sender is no longer ACTIVE), PostCreatedAt the time it was sent (the
+// stored field keeps its name; no new field). MediaIDs is empty. Nothing else of the conversation is copied.
 type Evidence struct {
 	Text          string
 	AuthorHandle  string
@@ -142,9 +146,11 @@ type ReportResult struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// Report records uid's report of one post or account. Firestore, worst case: caller profile (cached) 0-1, POST:
-	// post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); then the transaction:
-	// report doc 1 + quotas 1. Writes 2 (report, quotas); a repeat writes 0.
+	// Report records uid's report of one post, account or message. Firestore, worst case: caller profile (cached) 0-1,
+	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE (ADR-0027 D12):
+	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
+	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
+	// cold and 3 warm for a MESSAGE. Writes 2 (report, quotas); a repeat writes 0.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 

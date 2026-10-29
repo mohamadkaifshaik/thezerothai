@@ -72,8 +72,9 @@ func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc
 	return c, true, nil
 }
 
-// getMessage reads the stored message of a send (1 read); found is false when it is missing.
-func (r *FirestoreRepo) getMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
+// GetMessage implements Repo: the stored message (1 read); found is false when it is missing. A send reads it to answer a
+// replay, a message report (W7-12) to take its evidence.
+func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
 	snap, err := r.msgRef(convID, msgID).Get(ctx)
 	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
@@ -124,7 +125,7 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 		case status.Code(err) != codes.AlreadyExists:
 			return SendResult{}, err
 		}
-		stored, found, gerr := r.getMessage(ctx, p.ConvID, p.MsgID)
+		stored, found, gerr := r.GetMessage(ctx, p.ConvID, p.MsgID)
 		if gerr != nil {
 			return SendResult{}, gerr
 		}
