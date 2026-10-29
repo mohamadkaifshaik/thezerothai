@@ -13,10 +13,9 @@ on:
       - ".github/workflows/terraform.yml"
   workflow_dispatch: {}
 
+# Least privilege by default; the `plan` job below adds id-token and pull-requests at job level.
 permissions:
   contents: read
-  id-token: write # WIF for the read-only plan service account
-  pull-requests: write # to post the plan SUMMARY (counts only) as a PR comment
 
 env:
   TF_VERSION: "1.16.2" # must be >= the version that last wrote remote state
@@ -24,10 +23,53 @@ env:
   CHECKOV_VERSION: "3.2.257"
 
 jobs:
+  # fmt and tflint need no cloud identity, so they run without the `tf-plan` environment approval and without
+  # id-token, and a red fmt/tflint shows up at once. (They used to be steps of the plan job.)
+  lint:
+    name: lint (terraform fmt, tflint)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt -check
+        working-directory: infra/terraform
+        run: terraform fmt -check -recursive -diff .
+
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: tflint --init && tflint (each env, as before)
+        working-directory: infra/terraform
+        run: |
+          for env in dev prod; do
+            echo "::group::tflint $env"
+            (cd "envs/$env" && tflint --init && tflint --recursive)
+            echo "::endgroup::"
+          done
+
   plan:
     name: plan (${{ matrix.env }})
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # M-A (security review of PR #449): the plan WIF providers (modules/iam) accept only a token whose OIDC
+    # `environment` claim is `tf-plan`, and that GitHub Environment has the founder as required reviewer. So this job
+    # waits for the founder's approval before it can get any GCP identity. Dependabot and fork PRs never get a GCP
+    # identity (the gate step below), so for them no environment is declared and they do not wait; a job with an
+    # empty environment name runs without one. The real boundary is the WIF condition plus the reviewer, not this
+    # expression: a PR that edits it only loses the token. Note the job also waits when an env is not bootstrapped
+    # (secrets are not available to this expression, so it cannot tell); approve it, the gate step then skips the plan.
+    environment: ${{ (github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && 'tf-plan' || '' }}
+    permissions:
+      contents: read
+      id-token: write # WIF for the read-only plan service account
+      pull-requests: write # to post the plan SUMMARY (counts only) as a PR comment
     strategy:
       fail-fast: false
       matrix:
@@ -52,7 +94,7 @@ jobs:
         run: |
           # Neither Dependabot nor fork PRs may ever receive a GCP identity (dev or prod): anything they change
           # (action/provider versions, workflow files) would run in a job holding id-token: write. The job still
-          # SUCCEEDS (fmt and tflint still run; only the GCP-credentialed steps are skipped) so a required status
+          # SUCCEEDS (fmt and tflint run in the separate `lint` job; only the GCP-credentialed steps are skipped) so a required status
           # check named "plan (dev)" / "plan (prod)" stays green rather than pending forever.
           # Defence in depth: the WIF plan provider's attribute_condition (modules/iam) also rejects these.
           if [ "$ACTOR" = "dependabot[bot]" ] || { [ "$EVENT" = "pull_request" ] && [ "$HEAD_REPO" != "$THIS_REPO" ]; }; then
@@ -60,7 +102,7 @@ jobs:
             echo "::notice::Dependabot or fork PR; GCP auth and terraform plan skipped for $ENV_NAME"
             {
               echo "### Terraform plan ($ENV_NAME): skipped"
-              echo "Dependabot and fork runs do not receive GCP credentials. fmt and tflint still ran."
+              echo "Dependabot and fork runs do not receive GCP credentials. fmt and tflint run in the lint job."
               echo "A maintainer must review the change locally or by pushing it to a branch in this repo."
             } >> "$GITHUB_STEP_SUMMARY"
           elif [ -n "$WIP" ]; then
@@ -96,19 +138,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
-
-      - name: terraform fmt -check
-        run: terraform fmt -check -recursive -diff ../../
-
-      - name: tflint
-        uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
-        with:
-          tflint_version: ${{ env.TFLINT_VERSION }}
-
-      - name: tflint --init && tflint
-        run: |
-          tflint --init
-          tflint --recursive
 
       - name: Auth to GCP (WIF, read-only plan SA)
         if: steps.gate.outputs.run == 'true'

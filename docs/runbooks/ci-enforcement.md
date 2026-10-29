@@ -188,6 +188,110 @@ Test 11 (the owner's credentials are not reachable from the assistant's process)
   **before** the matching `FEATURE_<NAME>` is applied through Terraform; otherwise dev promotes refuse the revision, because the flag's
   effective mode would exceed the ceiling.
 
+## 11a. Plan pool environment gate and Vision quota (finding M-A of the security review of PR #449)
+**The risk.** The plan WIF pool (`github-plan`, `modules/iam`) used to accept any same-repo `pull_request` or `workflow_dispatch`,
+and a PR runs the workflow file from its own head, so any PR could mint a `tf-plan` token before review. That token holds
+`roles/serviceusage.serviceUsageConsumer` (needed by `user_project_override`), which lets it call any enabled paid API billed to
+the project. Vision `images:annotate` checks no Vision IAM permission, only billing, and it is not counted by `VISION_MONTHLY_CAP`
+(an app-side counter). At the default 1,800 requests a minute that is about INR 15,400 an hour if a request is one image
+(1,800 x 60 = 108,000 units x USD 0.0015 x INR 95), so the INR 25,000 credit cap (ADR-0022) goes in under 2 hours.
+
+**Two controls, both in this change.**
+
+1. **Environment gate (the primary control).** The plan provider's `attribute_condition` now also requires
+   `assertion.environment == 'tf-plan'`. This is the same OIDC `environment` claim the deploy pool pins in M6
+   (`assertion.environment == 'prod'` / `'dev'`); GitHub sets it only on a job that declares `environment:`, and a job that
+   declares a protected environment does not start until its required reviewer approves. `terraform.yml` now declares
+   `environment: tf-plan` on the `plan (dev)` / `plan (prod)` jobs. The workflow expression is only UX (Dependabot and fork PRs get
+   no environment so they do not wait); the boundary is the WIF condition plus the reviewer: a PR that deletes the `environment:`
+   line just gets a job with no usable token. `fmt` and `tflint` moved to a separate `lint` job with no environment, no `id-token`
+   and `contents: read` only, so they run at once and never wait for approval.
+   **Consequence:** every plan run waits for the founder's approval. That costs nothing today because the plan job skips auth
+   while an env is not bootstrapped (pending 1.19); the job still waits first, because `secrets` are not available to the
+   `environment:` expression, so approve it and the gate step then skips the plan. Approve only after reading the PR's diff to
+   `.github/workflows/`, `infra/terraform/` and `scripts/`: approval is the review.
+2. **Vision quota overrides (the second layer, `modules/vision-quota`).** Service Usage consumer quota overrides on
+   `vision.googleapis.com`, per project, via `google_service_usage_consumer_quota_override` (google-beta only in provider 8.8.1;
+   `force = true` because every value is a decrease of more than 10%). Applied to dev and prod alike.
+   - The app calls exactly one feature, `SAFE_SEARCH_DETECTION`, one image per request (`backend/internal/media/vision.go`).
+     `safe_search_detection_requests` and the umbrella `default_requests` (both `/min/project`) are set to **30 a minute**; the default is 1,800.
+   - Every other Vision project quota is set to **0**: label, text, document text, face, landmark, logo, object, web, image
+     properties, crop hints, Product Search (requests, resource management, batch, import lines) and the async image and
+     document quotas. Without this an attacker would switch to another billed feature (web detection is USD 3.50 per 1,000 units),
+     or send one request with all features at once. `celebrity_recognition_requests` has no project bucket (restricted) and
+     cannot be overridden.
+   - The 30 is variable `safe_search_requests_per_minute` (default 30, validated 10 to 1,800); `unused_feature_limit` is 0 (use 1 only
+     if the API refuses 0).
+
+**Sizing (the app is never throttled).**
+
+| Input | Value | Source |
+|---|---|---|
+| Vision calls per image | 2 (full image and thumbnail), one `images:annotate` request each | `finalizeOne`, `VISION_SCREEN_THUMB=true` |
+| Highest monthly units | 37,423 at 3,000 DAU (12.47 units per DAU-month); cap 40,000 | `docs/reviews/cost-model.md` §5, ADR-0022 |
+| Per day | 37,423 / 30.42 = 1,230 calls | |
+| Busiest hour | 15% of the day = 185 calls = 3.1 a minute | planning assumption |
+| Busiest minute | 3 x the busiest hour = **9.2 a minute** | planning assumption |
+| Per-user ceiling | `RATE_LIMIT_POST_CREATE_PER_MIN` 10 shared by CreateUpload and FinalizeUpload, so at most 5 finalizes, each at most 4 images x 2 = 8 calls; `QUOTA_MEDIA_PER_DAY` 20 images (5 for a new account) = 40 calls a day | `config.go`, `ratelimit_config.go` |
+| Cap chosen | **30 a minute** = 3.3 x the busiest minute; also 3 users finalizing a 4-image post in the same minute (24 calls) | |
+
+A refusal is safe: the media service reserves the units before the call and releases them when it fails, and the upload stays PENDING,
+so the client's retry succeeds the next minute. Watch for `RESOURCE_EXHAUSTED` from `vision.googleapis.com` in the API logs; raise the
+variable if it appears in normal use. Dev's `VISION_MONTHLY_CAP` is 10,000, so the same 30 is generous there.
+
+**What an attacker can spend after the change (INR 95 per USD, USD 1.50 per 1,000 units, so INR 0.1425 a unit).**
+
+| Case | Units an hour | INR an hour |
+|---|---|---|
+| Before, 1,800 a minute, one image per request | 108,000 | about 15,400 |
+| After, 30 a minute, one image per request | 1,800 | **about 256** |
+| After, 30 a minute, if the quota counts requests and each carries 16 images (the API maximum) | 28,800 | about 4,100 |
+| After, any other feature | 0 | 0 |
+
+The cap is a 60x cut either way. Whether the quota counts images or requests is not documented in the metric names; the founder can
+settle it in dev for free (step 7 below). With the environment gate in place the token is only minted after the founder approves a run,
+so this is the layer for the case where a reviewed run is later proved hostile, or an approval is a mistake.
+
+**Founder steps (order matters).**
+1. **Create the environment BEFORE merging this PR.** A workflow that names an environment that does not exist creates it with no
+   protection, which would leave the gate open. Repo Settings > Environments > New environment `tf-plan`: tick Required reviewers,
+   add the founder, leave "Allow administrators to bypass" on only if you want that, and leave deployment branches on "All branches"
+   (a pull request runs on `refs/pull/N/merge`, so a branch policy would block every PR plan). Or:
+   `gh api -X PUT repos/<owner>/<repo>/environments/tf-plan --input -` with
+   `{"reviewers":[{"type":"User","id":<founder numeric id>}]}` (the id from `gh api users/<login> --jq .id`).
+2. Merge this PR (it is a gate-file change, so it needs your review).
+3. **Dev: targeted plan, then apply.** Other pending dev changes are not part of this item.
+   ```
+   cd infra/terraform/envs/dev
+   terraform init -backend-config="bucket=<state bucket>"
+   terraform plan -out=tfplan -target=module.iam.google_iam_workload_identity_pool_provider.plan -target=module.vision_quota
+   ```
+   Expect `19 to add, 1 to change, 0 to destroy`: 19 `google_service_usage_consumer_quota_override` creates and the plan provider's
+   `attribute_condition` in place. Anything else (a destroy, a replace) stops here. Then `terraform apply tfplan`.
+   If the section 13 apply procedure (W7-32) is already done in this env, also add
+   `-target=module.iam.google_project_iam_custom_role.tf_plan_reader`: the role gained one permission, `serviceusage.quotas.get`
+   (63 in total; refreshing a quota override needs only that, and `serviceUsageConsumer` already carries it, so this is not blocking),
+   and the expected result becomes `19 to add, 2 to change, 0 to destroy`. Do not target the role before section 13 is applied.
+   If the API rejects an override of 0, set `unused_feature_limit = 1` in the module call and plan again.
+4. **Prove the gate in dev** (needs the `DEV_PLAN_*` secrets to exist; without them the job skips auth and proves nothing).
+   Actions > Terraform > Run workflow on `main`: the `lint` job finishes without approval; `plan (dev)` and `plan (prod)` show
+   "Waiting for review" and nothing authenticates. Approve `tf-plan`: `Auth to GCP` now succeeds for dev. Optional negative check on a
+   throwaway branch: delete the `environment:` line, dispatch, and `Auth to GCP` must fail with a condition rejection (no approval was asked).
+5. **Prove the quota in dev** (read-only). With your own login:
+   `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: <dev project>" "https://serviceusage.googleapis.com/v1beta1/projects/<dev project>/services/vision.googleapis.com/consumerQuotaMetrics" | jq -r '.metrics[].consumerQuotaLimits[] | [.metric, .unit, .quotaBuckets[0].effectiveLimit] | @tsv'`
+   shows `30` for `safe_search_detection_requests` and `default_requests` (`1/min/{project}`) and `0` for the others. Then upload one image
+   in the dev app: it must still publish.
+6. **Prod: plan for your OK, then apply.** `cd infra/terraform/envs/prod`, real `terraform.tfvars`, the same two `-target` flags and
+   `-out=tfplan`. The expected result is the same `19 to add, 1 to change, 0 to destroy`. Send the plan to the assistant or read it
+   yourself; apply `tfplan` only after the OK. Prod has other unapplied changes (`docs/pending.md` section 1), so keep the targets.
+7. **Settle images versus requests (optional, free).** In dev, send one `images:annotate` request with 16 `SAFE_SEARCH_DETECTION`
+   entries (the same public object 16 times) and read the Quotas page (IAM & Admin > Quotas, filter "Safe search") or the
+   `serviceruntime.googleapis.com/quota/rate/net_usage` metric: +1 means requests, +16 means images. It costs 16 of dev's 1,000 free
+   units a month. If it is +16, the third row of the table above does not apply.
+
+**Rollback.** Remove the `vision_quota` module call (or a single override) and apply: the Vision default returns. Remove
+`assertion.environment == 'tf-plan'` from the plan provider and apply to open plan tokens to any same-repo PR again (do not).
+
 ## 12. Bot PRs and the approval rule
 - **The rule (intended configuration, section 6):** the main ruleset requires approval of the most recent push by someone other than the
   pusher (`require_last_push_approval`) and dismisses stale approvals on every push. Check the live ruleset before relying on this
@@ -255,7 +359,7 @@ single combined apply, `tf-plan` could end up with no roles at all.
    - API keys: `apikeys.keys.getKeyString` is project-wide, so confirm there are exactly the 3 Firebase client keys:
      `gcloud services api-keys list --project=<dzeroth-dev|dzeroth-prod> --format="table(uid,displayName)"`. Any other key: stop and ask.
    - Optional, custom-role support: `gcloud iam list-testable-permissions //cloudresourcemanager.googleapis.com/projects/<p>
-     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 62 permissions in
+     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 63 permissions in
      `tfPlanReader` may be `NOT_SUPPORTED` (it was checked against `dzeroth-dev` when written). The likeliest to fail are the
      `iam.googleapis.com/workloadIdentityPool*` spellings and `datastore.backupSchedules.*`.
 1. **State-bucket pre-step, before anything is removed.** The bucket is outside Terraform. Check, then add if missing:

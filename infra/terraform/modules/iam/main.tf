@@ -263,6 +263,11 @@ resource "google_project_iam_custom_role" "tf_plan_reader" {
     "serviceusage.services.get",
     "serviceusage.services.list",
 
+    // google_service_usage_consumer_quota_override (module.vision_quota, M-A): the refresh lists the overrides of a
+    // quota limit, which checks serviceusage.quotas.get. That is the only extra permission it needs. Also in
+    // serviceUsageConsumer; repeated so this role stands alone. Reads quota settings only, never usage or data.
+    "serviceusage.quotas.get",
+
     // google_project_iam_custom_role (account_lifecycle_auth, fcm_send, ar_tag_mover, and this role itself).
     "iam.roles.get",
     "iam.roles.list",
@@ -476,10 +481,19 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
   # workflow change it proposes would run with id-token: write), and only pull_request / workflow_dispatch events
   # qualify (no pull_request_target, push or schedule). Fork PRs never receive an OIDC token from GitHub and are
   # additionally skipped in terraform.yml. Applies to dev and prod alike.
+  #
+  # Security review of PR #449, M-A: the token must also come from a job that declares the `tf-plan` GitHub
+  # Environment (the same `environment` claim the deploy pool pins in M6). That environment has the founder as
+  # required reviewer, so no plan token exists until the founder has looked at the run. Without it, any same-repo
+  # PR (or a workflow_dispatch) could mint a token carrying roles/serviceusage.serviceUsageConsumer before review
+  # and bill paid APIs (Vision images:annotate) to this project. The condition, not the workflow, is the boundary:
+  # a PR that edits terraform.yml to drop `environment:` just gets no usable token. See
+  # docs/runbooks/ci-enforcement.md "Plan pool environment gate and Vision quota".
   attribute_condition = join(" && ", [
     "assertion.repository == '${var.github_repo}'",
     "assertion.actor != 'dependabot[bot]'",
     "assertion.event_name in ['pull_request', 'workflow_dispatch']",
+    "assertion.environment == 'tf-plan'",
   ])
 
   oidc {

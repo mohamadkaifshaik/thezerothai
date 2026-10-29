@@ -25,6 +25,15 @@ module "project_services" {
   project_id = var.project_id
 }
 
+// Cloud Vision consumer-quota caps (security review of PR #449, M-A): a stolen CI plan token must not be able to bill
+// the Vision API at the 1,800 requests/minute default. Sized from the app's peak; no fixed cost. See the module header.
+module "vision_quota" {
+  source     = "../../modules/vision-quota"
+  project_id = var.project_id
+
+  depends_on = [module.project_services]
+}
+
 module "iam" {
   source          = "../../modules/iam"
   project_id      = var.project_id
