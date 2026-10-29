@@ -281,6 +281,8 @@ resource "google_project_iam_custom_role" "tf_plan_reader" {
     // permission spellings (the iam.googleapis.com/ form is the one roles/viewer carried); all are metadata only.
     "iam.workloadIdentityPools.get",
     "iam.workloadIdentityPools.list",
+    // provider 8.8.1 reads the pool's attestation rules on refresh (found by the W7-32 dev impersonation plan, 2026-10-29)
+    "iam.workloadIdentityPools.getAttestationRules",
     "iam.workloadIdentityPoolProviders.get",
     "iam.workloadIdentityPoolProviders.list",
     "iam.googleapis.com/workloadIdentityPools.get",

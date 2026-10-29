@@ -270,7 +270,7 @@ so this is the layer for the case where a reviewed run is later proved hostile, 
    `attribute_condition` in place. Anything else (a destroy, a replace) stops here. Then `terraform apply tfplan`.
    If the section 13 apply procedure (W7-32) is already done in this env, also add
    `-target=module.iam.google_project_iam_custom_role.tf_plan_reader`: the role gained one permission, `serviceusage.quotas.get`
-   (63 in total; refreshing a quota override needs only that, and `serviceUsageConsumer` already carries it, so this is not blocking),
+   (64 in total; refreshing a quota override needs only that, and `serviceUsageConsumer` already carries it, so this is not blocking),
    and the expected result becomes `19 to add, 2 to change, 0 to destroy`. Do not target the role before section 13 is applied.
    If the API rejects an override of 0, set `unused_feature_limit = 1` in the module call and plan again.
 4. **Prove the gate in dev** (needs the `DEV_PLAN_*` secrets to exist; without them the job skips auth and proves nothing).
@@ -359,7 +359,7 @@ single combined apply, `tf-plan` could end up with no roles at all.
    - API keys: `apikeys.keys.getKeyString` is project-wide, so confirm there are exactly the 3 Firebase client keys:
      `gcloud services api-keys list --project=<dzeroth-dev|dzeroth-prod> --format="table(uid,displayName)"`. Any other key: stop and ask.
    - Optional, custom-role support: `gcloud iam list-testable-permissions //cloudresourcemanager.googleapis.com/projects/<p>
-     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 63 permissions in
+     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 64 permissions in
      `tfPlanReader` may be `NOT_SUPPORTED` (it was checked against `dzeroth-dev` when written). The likeliest to fail are the
      `iam.googleapis.com/workloadIdentityPool*` spellings and `datastore.backupSchedules.*`.
 1. **State-bucket pre-step, before anything is removed.** The bucket is outside Terraform. Check, then add if missing:
@@ -405,6 +405,10 @@ single combined apply, `tf-plan` could end up with no roles at all.
    This run also **proves or disproves** the claim that the provider tolerates a 403 on the secret `:access` call (read from the
    provider source at v8.8.1, **not yet verified live**). If the plan fails on `google_secret_manager_secret_version`, stop and tell
    the assistant; do not grant `secretmanager.versions.access`.
+   **Dev run, 2026-10-29:** phases 1 and 2 applied cleanly (3 added, 2 destroyed); the role inventory showed exactly the three
+   project roles; all negative checks were refused (Identity Toolkit answers a denial as `400 INSUFFICIENT_PERMISSION`, not 403).
+   The impersonated plan found one missing permission, `iam.workloadIdentityPools.getAttestationRules` (provider 8.8.1 reads it
+   on every pool refresh); it was added in a follow-up PR, so the role has 64 permissions. Re-run this step after that apply.
 4. **Prove the fix (negative checks), as `tf-plan`.** Each must answer 403:
    ```bash
    T=$(gcloud auth print-access-token --impersonate-service-account=tf-plan@dzeroth-dev.iam.gserviceaccount.com)
