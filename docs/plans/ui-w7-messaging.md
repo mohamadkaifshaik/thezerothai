@@ -365,6 +365,7 @@ Prices (§7):
 | W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
 | W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
 | W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Open |
+| W7-36 | L-6: open MESSAGE reports clear their copied text after 180 days even if untriaged (founder decision 2026-10-29) | backend-developer | S | — | moderation only | Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -978,7 +979,11 @@ scenario no longer works".
   `ProfileInTx`, verified-email gate. Gate: before prod percent / on.
 - **W7-34 [L-2, L-7]** placeholder and log pseudonyms. Gate: before prod.
 - **W7-35 [L-4, L-5, L-9]** client hardening. Gate: before prod.
-- Not ticketed: L-6 (report TTL or 48 h SLA, founder) and L-10 (the F2(d) requests setting, planner follow-up).
+- **W7-36 [L-6]** a 180-day limit on the copied text of OPEN MESSAGE reports (founder decision 2026-10-29). Gate: before prod.
+- **Founder decisions (2026-10-29):** start W7-28, W7-29 and W7-31 now (before the dev rollout); M-4 → the custom read
+  role (W7-32; Terraform PR by Claude, prod plan and apply by the founder); A8 → flip to the fresh recipient graph read
+  (W7-33, ADR-0027 note); L-6 → 180-day TTL (W7-36).
+- Not ticketed: L-10 (the F2(d) requests setting, planner follow-up).
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).
