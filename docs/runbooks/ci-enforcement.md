@@ -289,6 +289,10 @@ so this is the layer for the case where a reviewed run is later proved hostile, 
    `serviceruntime.googleapis.com/quota/rate/net_usage` metric: +1 means requests, +16 means images. It costs 16 of dev's 1,000 free
    units a month. If it is +16, the third row of the table above does not apply.
 
+**Applied 2026-10-29.** Dev: 19 added, 1 changed; the quota read-back showed 30 for safe search and default requests and 0 for the
+others; an image upload in the dev app still published. Prod: 19 added, 1 changed. The `tf-plan` environment has the founder as
+required reviewer (admin bypass on). Step 4 (prove the gate) waits for the `*_PLAN_*` secrets; step 7 is still optional.
+
 **Rollback.** Remove the `vision_quota` module call (or a single override) and apply: the Vision default returns. Remove
 `assertion.environment == 'tf-plan'` from the plan provider and apply to open plan tokens to any same-repo PR again (do not).
 
@@ -409,6 +413,9 @@ single combined apply, `tf-plan` could end up with no roles at all.
    project roles; all negative checks were refused (Identity Toolkit answers a denial as `400 INSUFFICIENT_PERMISSION`, not 403).
    The impersonated plan found one missing permission, `iam.workloadIdentityPools.getAttestationRules` (provider 8.8.1 reads it
    on every pool refresh); it was added in a follow-up PR, so the role has 64 permissions. Re-run this step after that apply.
+   **Prod run, 2026-10-29:** after #456, both phases applied (3 added, 2 destroyed); role inventory exact; all negative checks refused;
+   the plan as `tf-plan` matched the founder's plan (26 add, 3 change). Dev re-run after #456 also matched (20 add, 3 change).
+   Temporary Token Creator grants removed in both projects.
 4. **Prove the fix (negative checks), as `tf-plan`.** Each must answer 403:
    ```bash
    T=$(gcloud auth print-access-token --impersonate-service-account=tf-plan@dzeroth-dev.iam.gserviceaccount.com)
