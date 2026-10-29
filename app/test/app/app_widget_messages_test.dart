@@ -32,6 +32,8 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -128,6 +130,9 @@ void main() {
     authStates = StreamController<AuthState>.broadcast();
     when(() => notifications.enabled).thenReturn(true);
     push = PushCubit(messaging: messaging, repository: notifications);
+    // No cached Inbox row unless a test says so.
+    when(() => messagingRepo.cachedConversation(any()))
+        .thenAnswer((_) async => null);
     // The conversation a tapped push opens.
     when(() => messagingRepo.rateLimitedFor()).thenReturn(null);
     when(() => messagingRepo.rateLimitHold).thenReturn(RateLimitHold());
@@ -193,6 +198,11 @@ void main() {
     );
     await tester.pump();
   }
+
+  pb.Conversation cachedRow({
+    required int unread,
+    Folder folder = Folder.FOLDER_INBOX,
+  }) => threadConv(id: conv, unread: unread, folder: folder);
 
   /// The Messages badge the app provides.
   MessagesBadgeCubit messagesBadge(WidgetTester tester) =>
@@ -284,6 +294,84 @@ void main() {
     });
   });
 
+  group('each badge is seeded when its own number changes (S6)', () {
+    final flags = {'notifications', 'messaging'};
+
+    testWidgets('a new conversation count does not undo a local mark-seen of '
+        'the notifications badge', (tester) async {
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+      unreadBadge.clear(); // the user opened Notifications
+      expect(unreadBadge.state, 0);
+
+      onboardingStates.add(
+        ready(flags: flags, unread: 4, unreadConversations: 5),
+      );
+      await tester.pump();
+
+      expect(messagesBadge(tester).state, 5);
+      expect(unreadBadge.state, 0);
+    });
+
+    testWidgets('a new notifications count does not undo a local clear of the '
+        'Messages badge', (tester) async {
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+      messagesBadge(tester).clearUnread(conv); // a thread opened unread
+      expect(messagesBadge(tester).state, 1);
+
+      onboardingStates.add(
+        ready(flags: flags, unread: 6, unreadConversations: 2),
+      );
+      await tester.pump();
+
+      expect(unreadBadge.state, 6);
+      expect(messagesBadge(tester).state, 1);
+    });
+
+    testWidgets('a flag-set change seeds both', (tester) async {
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+      unreadBadge.clear();
+      messagesBadge(tester).clearUnread(conv);
+
+      onboardingStates.add(
+        ready(flags: {...flags, 'graph'}, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+
+      expect(unreadBadge.state, 4);
+      expect(messagesBadge(tester).state, 2);
+    });
+
+    testWidgets('the same GetMe again changes nothing', (tester) async {
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+      unreadBadge.clear();
+      messagesBadge(tester).clearUnread(conv);
+
+      onboardingStates.add(
+        ready(flags: flags, unread: 4, unreadConversations: 2),
+      );
+      await tester.pump();
+
+      expect(unreadBadge.state, 0);
+      expect(messagesBadge(tester).state, 1);
+    });
+  });
+
   group('a foreground message push', () {
     final flags = {'notifications', 'messaging'};
 
@@ -302,6 +390,120 @@ void main() {
 
       expect(messagesBadge(tester).state, 3);
       expect(unreadBadge.state, 4);
+    });
+
+    testWidgets('a cached Inbox row that already shows unread adds nothing: '
+        'the seed counted it (F-1 c)', (tester) async {
+      when(() => messagingRepo.cachedConversation(conv))
+          .thenAnswer((_) async => cachedRow(unread: 2));
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unreadConversations: 1),
+      );
+      await tester.pump();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: conv),
+      );
+      await settle(tester);
+
+      expect(messagesBadge(tester).state, 1);
+    });
+
+    testWidgets('seed 1, push with the unread row, then open it: 0, not 1 '
+        'left behind (S2 a)', (tester) async {
+      when(() => messagingRepo.cachedConversation(conv))
+          .thenAnswer((_) async => cachedRow(unread: 1));
+      final unreadThread = ThreadSnapshot(
+        messages: msgs(1, 2),
+        conversation: threadConv(id: conv, unread: 1),
+      );
+      when(() => messagingRepo.cachedThread(any()))
+          .thenAnswer((_) async => unreadThread);
+      when(() => messagingRepo.refreshThread(any()))
+          .thenAnswer((_) async => unreadThread);
+      when(
+        () => messagingRepo.markConversationRead(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) async {});
+      await pump(
+        tester,
+        auth: authed,
+        onboarding: ready(flags: flags, unreadConversations: 1),
+      );
+      await settle(tester);
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: conv),
+      );
+      await settle(tester);
+      expect(messagesBadge(tester).state, 1);
+
+      messaging.opened.add(PushMessage(type: 'message', conversationId: conv));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ThreadScreen), findsOneWidget);
+      expect(messagesBadge(tester).state, 0);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a cached row that is read, or no cached row: the push '
+        'counts', (tester) async {
+      when(() => messagingRepo.cachedConversation(conv))
+          .thenAnswer((_) async => cachedRow(unread: 0));
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unreadConversations: 1),
+      );
+      await tester.pump();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: conv),
+      );
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: hexId(0xc2)),
+      );
+      await settle(tester);
+
+      expect(messagesBadge(tester).state, 3);
+    });
+
+    testWidgets('a request is never counted (D10)', (tester) async {
+      when(() => messagingRepo.cachedConversation(conv)).thenAnswer(
+        (_) async => cachedRow(unread: 1, folder: Folder.FOLDER_REQUESTS),
+      );
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unreadConversations: 1),
+      );
+      await tester.pump();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: conv),
+      );
+      await settle(tester);
+
+      expect(messagesBadge(tester).state, 1);
+    });
+
+    testWidgets('a cache that cannot be read counts it: the next Inbox load '
+        'or GetMe reconciles', (tester) async {
+      when(() => messagingRepo.cachedConversation(conv))
+          .thenAnswer((_) async => throw StateError('db closed'));
+      await pump(
+        tester,
+        onboarding: ready(flags: flags, unreadConversations: 1),
+      );
+      await tester.pump();
+
+      messaging.foreground.add(
+        PushMessage(type: 'message', conversationId: conv),
+      );
+      await settle(tester);
+
+      expect(messagesBadge(tester).state, 2);
     });
 
     testWidgets('on the Notifications screen: notifications badge unchanged, '

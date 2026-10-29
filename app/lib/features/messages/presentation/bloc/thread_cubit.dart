@@ -7,15 +7,13 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
+import '../../domain/conversation_id.dart';
 import '../../domain/thread_poller.dart';
 
-/// True for a conversation id the API accepts: 32 lower-case hex. Anything
-/// else is "This conversation isn't available" with no request.
-bool isConversationId(String id) => _conversationIdPattern.hasMatch(id);
-
-final RegExp _conversationIdPattern = RegExp(r'^[0-9a-f]{32}$');
+export '../../domain/conversation_id.dart' show isConversationId;
 
 enum ThreadStatus {
   /// Nothing cached yet and the first fetch is running.
@@ -305,7 +303,10 @@ class ThreadCubit extends Cubit<ThreadState> {
     final conversation = snapshot.conversation;
     if (open && conversation != null) {
       _unread = math.max(_unread, conversation.unreadCount.toInt());
-      if (conversation.unreadCount.toInt() > 0 && !_reportedUnread) {
+      // A request never counts toward the badge (ADR-0027 D10).
+      if (conversation.unreadCount.toInt() > 0 &&
+          conversation.folder != Folder.FOLDER_REQUESTS &&
+          !_reportedUnread) {
         _reportedUnread = true;
         onOpenedUnread?.call(conversationId);
       }

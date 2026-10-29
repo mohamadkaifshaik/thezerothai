@@ -25,12 +25,15 @@ import '../../graph/data/graph_repository.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../graph/presentation/graph_error_messages.dart';
+import '../../notifications/domain/notifications_feature_flag.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/thread_poller.dart';
+import '../domain/thread_push_coverage.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'bloc/thread_cubit.dart';
@@ -170,6 +173,8 @@ class ThreadScreen extends StatelessWidget {
   ThreadCubit _createThreadCubit(BuildContext context) {
     final repository = context.read<MessagingRepository>();
     final report = context.read<UnexpectedErrorReporter>();
+    final push = context.read<PushCubit>();
+    final onboarding = context.read<OnboardingBloc>();
     late final ThreadCubit cubit;
     Future<PollResult> pull() => cubit.pull();
     final poller = pollerBuilder != null
@@ -177,10 +182,17 @@ class ThreadScreen extends StatelessWidget {
         : TimerThreadPoller(
             pull: pull,
             rateLimitHold: repository.rateLimitHold,
-            // Android with push registered: the hot interval is 30 s (D7). It
-            // is fixed when the poller is built, so a thread opened before
-            // the registration answered keeps 15 s until it is reopened.
-            pushRegistered: context.read<PushCubit>().pushCoversThreads,
+            // Android with push that can reach this thread: the hot interval
+            // is 30 s (D7). Asked at every schedule, so a muted or request
+            // conversation, the flag off, or a registration that is not (or
+            // no longer) answered polls at 15 s.
+            pushCoverage: () => pushCoversThread(
+              deviceRegistered: push.pushCoversThreads,
+              notificationsEnabled: onboarding.state.enabledFeatures.contains(
+                kFeatureNotifications,
+              ),
+              conversation: cubit.state.conversation,
+            ),
             onError: report,
           );
     cubit = ThreadCubit(

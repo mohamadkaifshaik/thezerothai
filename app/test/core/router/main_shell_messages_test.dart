@@ -305,6 +305,68 @@ void main() {
       handle.dispose();
     });
 
+    group('on the rail (tablet and desktop)', () {
+      /// What the rail item for Messages says aloud (the icon's badge, then
+      /// the label: the same shape as the Notifications item).
+      String railSpoken(WidgetTester tester) => tester
+          .getSemantics(
+            find.descendant(
+              of: find.byType(NavigationRail),
+              matching: find.text('Messages'),
+            ),
+          )
+          .label;
+
+      for (final size in const [Size(800, 900), Size(1200, 900)]) {
+        testWidgets('speaks the count at ${size.width.toInt()}dp', (
+          tester,
+        ) async {
+          final handle = tester.ensureSemantics();
+          final badge = MessagesBadgeCubit(3);
+          addTearDown(badge.close);
+          await pump(tester, messagesBadge: badge, size: size);
+
+          expect(
+            find.descendant(
+              of: find.byType(NavigationRail),
+              matching: find.text('3'),
+            ),
+            findsOneWidget,
+          );
+          final spoken = railSpoken(tester);
+          expect(spoken, contains('3 unread conversations'));
+          expect(spoken, contains('Messages'));
+          handle.dispose();
+        });
+      }
+
+      testWidgets('one is singular, 100 is 99+, none is the plain label', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        final badge = MessagesBadgeCubit(1);
+        addTearDown(badge.close);
+        await pump(tester, messagesBadge: badge, size: const Size(1200, 900));
+        expect(railSpoken(tester), contains('1 unread conversation\n'));
+
+        badge.seed(100);
+        await tester.pumpAndSettle();
+        expect(railSpoken(tester), contains('99+ unread conversations'));
+
+        badge.seed(0);
+        await tester.pumpAndSettle();
+        expect(railSpoken(tester), isNot(contains('unread')));
+        expect(
+          find.descendant(
+            of: find.byType(NavigationRail),
+            matching: find.byType(Badge),
+          ),
+          findsNothing,
+        );
+        handle.dispose();
+      });
+    });
+
     testWidgets('none: plain label, no badge, and it follows the cubit', (
       tester,
     ) async {

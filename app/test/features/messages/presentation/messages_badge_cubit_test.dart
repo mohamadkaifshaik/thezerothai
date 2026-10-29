@@ -1,5 +1,8 @@
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../support/messaging_fixtures.dart';
 
 /// W7-19: the Messages badge. Counts conversations with unread messages,
 /// seeded by GetMe, moved locally by foreground pushes and by opening a
@@ -85,6 +88,112 @@ void main() {
     test('an empty conversation id is ignored', () {
       expect(cubit.onMessagePush(''), isFalse);
       expect(cubit.state, 0);
+    });
+  });
+
+  group('foreground push and the cached Inbox row (F-1 c)', () {
+    test('a row that already shows unread adds nothing', () {
+      cubit.seed(1);
+      expect(cubit.onMessagePush(a, cachedUnread: true), isFalse);
+      expect(cubit.state, 1);
+    });
+
+    test('seed 1, push with the unread row, open: 0, not 1 left behind', () {
+      cubit.seed(1);
+      cubit.onMessagePush(a, cachedUnread: true);
+      cubit
+        ..opened(a)
+        ..clearUnread(a);
+      expect(cubit.state, 0);
+    });
+
+    test('a push with no unread row (read, or none cached) still adds one', () {
+      cubit.seed(1);
+      expect(cubit.onMessagePush(a), isTrue);
+      expect(cubit.state, 2);
+    });
+
+    test('a push the row skipped does not block a later count', () {
+      cubit.seed(1);
+      cubit.onMessagePush(a, cachedUnread: true);
+      cubit.clearUnread(a);
+      expect(cubit.state, 0);
+      // Read, then a new message: the row is read now, so it counts.
+      expect(cubit.onMessagePush(a), isTrue);
+      expect(cubit.state, 1);
+    });
+  });
+
+  group('resync from the Inbox rows (F-1 d)', () {
+    test('unreadConversationsIn counts unread, unmuted INBOX rows only', () {
+      expect(
+        unreadConversationsIn([
+          conv(a, unread: 2),
+          conv(b, unread: 1, silent: true),
+          conv(c, unread: 3, folder: Folder.FOLDER_REQUESTS),
+          conv(hexId(0xd1)),
+          conv(hexId(0xd2), unread: 1),
+        ]),
+        2,
+      );
+      expect(unreadConversationsIn(const []), 0);
+    });
+
+    test('the last page: the rows replace the count (up and down)', () {
+      cubit.seed(5);
+      cubit.resync([conv(a, unread: 1), conv(b)], hasMore: false);
+      expect(cubit.state, 1);
+
+      cubit.resync([
+        conv(a, unread: 1),
+        conv(b, unread: 1),
+        conv(c, unread: 1),
+      ], hasMore: false);
+      expect(cubit.state, 3);
+    });
+
+    test('with more pages the rows are a lower bound: never lowers', () {
+      cubit.seed(5);
+      cubit.resync([conv(a, unread: 1)], hasMore: true);
+      expect(cubit.state, 5);
+
+      cubit.resync([
+        for (var i = 0; i < 7; i++) conv(hexId(0xe0 + i), unread: 1),
+      ], hasMore: true);
+      expect(cubit.state, 7);
+    });
+
+    test('forgets local bookkeeping: a pushed conversation counts again', () {
+      cubit.seed(0);
+      cubit.onMessagePush(a);
+      expect(cubit.state, 1);
+
+      // The row says it is read; the Inbox is the truth.
+      cubit.resync([conv(a)], hasMore: false);
+      expect(cubit.state, 0);
+      expect(cubit.onMessagePush(a), isTrue);
+      expect(cubit.state, 1);
+    });
+
+    test('is ignored once closed', () async {
+      final closed = MessagesBadgeCubit(2);
+      await closed.close();
+      closed.resync([conv(a, unread: 1)], hasMore: false); // must not throw
+      expect(closed.state, 2);
+    });
+  });
+
+  group('isOpen', () {
+    test('is true between opened and the last closed', () {
+      expect(cubit.isOpen(a), isFalse);
+      cubit
+        ..opened(a)
+        ..opened(a);
+      expect(cubit.isOpen(a), isTrue);
+      cubit.closed(a);
+      expect(cubit.isOpen(a), isTrue);
+      cubit.closed(a);
+      expect(cubit.isOpen(a), isFalse);
     });
   });
 

@@ -239,6 +239,12 @@ class MessagingRepository {
   Future<pb.Conversation?> cachedConversationWith(String peerUserId) =>
       _store.conversationWithPeer(peerUserId);
 
+  /// The cached conversation [conversationId] (W7-19: a foreground push checks
+  /// whether the Inbox row already shows it unread), or null. Never touches
+  /// the network.
+  Future<pb.Conversation?> cachedConversation(String conversationId) =>
+      _store.conversation(conversationId);
+
   // --- threads -------------------------------------------------------------
 
   /// What is on disk for [conversationId]. Never touches the network.

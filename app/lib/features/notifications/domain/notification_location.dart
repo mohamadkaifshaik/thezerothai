@@ -1,4 +1,5 @@
 import '../../../core/router/app_router.dart';
+import '../../messages/domain/conversation_id.dart';
 
 /// Wire value of a follow notification's `type` (FCM data and the enum
 /// `NOTIFICATION_TYPE_FOLLOW` both mean it).
@@ -31,8 +32,11 @@ String? notificationLocation({
   String conversationId = '',
 }) {
   if (type == kNotificationTypeMessage) {
-    final path = AppRouter.messagePath(conversationId);
-    return AppRouter.deepLinkTarget(Uri(path: path)) == null ? null : path;
+    // The raw id is checked before any path is built, so an encoded id
+    // (`%61...`) is dropped, not decoded into something that matches.
+    return isConversationId(conversationId)
+        ? AppRouter.messagePath(conversationId)
+        : null;
   }
   if (type == kNotificationTypeFollowRequest) {
     return AppRouter.followRequestsPath;

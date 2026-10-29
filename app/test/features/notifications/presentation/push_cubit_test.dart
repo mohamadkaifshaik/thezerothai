@@ -509,7 +509,8 @@ void main() {
         addTearDown(cubit.close);
         await cubit.start();
 
-        for (final bad in ['', 'ABC', '${id}0']) {
+        // `%61` + 31 hex is 34 characters but would decode to a valid id.
+        for (final bad in ['', 'ABC', '${id}0', '%61${'a' * 31}']) {
           messaging.foreground.add(
             PushMessage(type: 'message', conversationId: bad),
           );
@@ -639,6 +640,73 @@ void main() {
 
       expect(cubit.state.registered, isFalse);
       expect(cubit.pushCoversThreads, isFalse);
+    });
+
+    group('a token refresh (S4)', () {
+      void stubRegister(Future<void> Function() answer) {
+        when(
+          () => repo.registerDevice(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            deviceId: any(named: 'deviceId'),
+            fcmToken: any(named: 'fcmToken'),
+            platform: any(named: 'platform'),
+          ),
+        ).thenAnswer((_) => answer());
+      }
+
+      test('is not registered while the new token is in flight, and is again '
+          'once it is answered', () async {
+        messaging.currentPermission = PushPermission.granted;
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.start();
+        expect(cubit.state.registered, isTrue);
+
+        final gate = Completer<void>();
+        stubRegister(() => gate.future);
+        messaging.refresh.add('fcm-token-2');
+        await pumpEventQueue();
+
+        expect(cubit.state.registered, isFalse);
+        expect(cubit.pushCoversThreads, isFalse);
+
+        gate.complete();
+        await pumpEventQueue();
+        expect(cubit.state.registered, isTrue);
+        expect(cubit.pushCoversThreads, isTrue);
+      });
+
+      test('stays false when the re-registration fails', () async {
+        messaging.currentPermission = PushPermission.granted;
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.start();
+        expect(cubit.state.registered, isTrue);
+
+        stubRegister(() async => throw const RateLimitedException('cap'));
+        messaging.refresh.add('fcm-token-2');
+        await pumpEventQueue();
+
+        expect(cubit.state.registered, isFalse);
+        expect(cubit.pushCoversThreads, isFalse);
+      });
+
+      test('a later success makes it true again', () async {
+        messaging.currentPermission = PushPermission.granted;
+        final cubit = build();
+        addTearDown(cubit.close);
+        await cubit.start();
+
+        stubRegister(() async => throw const RateLimitedException('cap'));
+        messaging.refresh.add('fcm-token-2');
+        await pumpEventQueue();
+        expect(cubit.state.registered, isFalse);
+
+        stubRegister(() async {});
+        messaging.refresh.add('fcm-token-3');
+        await pumpEventQueue();
+        expect(cubit.state.registered, isTrue);
+      });
     });
 
     test('enable() registers after a grant', () async {

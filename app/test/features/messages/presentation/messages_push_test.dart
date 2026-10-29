@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
@@ -13,6 +15,7 @@ import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:flutter/material.dart';
@@ -44,6 +47,7 @@ void main() {
   late FakeThreadPoller poller;
   late ThreadSnapshot current;
   var polls = 0;
+  var features = const {'messaging', 'graph', 'notifications'};
 
   final other = hexId(0xd2);
 
@@ -67,6 +71,7 @@ void main() {
     when(() => repo.cachedThread(any())).thenAnswer((_) async => current);
     when(() => repo.refreshThread(any())).thenAnswer((_) async => current);
     polls = 0;
+    features = const {'messaging', 'graph', 'notifications'};
     when(() => repo.pollThread(any())).thenAnswer((_) async {
       polls++;
       return const PollResult(newMessages: false);
@@ -95,9 +100,7 @@ void main() {
     whenListen(
       onboarding,
       const Stream<OnboardingState>.empty(),
-      initialState: const OnboardingState(
-        enabledFeatures: {'messaging', 'graph'},
-      ),
+      initialState: OnboardingState(enabledFeatures: features),
     );
     final router = GoRouter(
       routes: [GoRoute(path: '/', builder: (context, state) => screen)],
@@ -298,6 +301,32 @@ void main() {
       await leave(tester);
     });
 
+    testWidgets('a request opened unread never lowers it: requests do not '
+        'count (S1)', (tester) async {
+      current = ThreadSnapshot(
+        messages: msgs(1, 3),
+        conversation: threadConv(
+          unread: 2,
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+          folder: Folder.FOLDER_REQUESTS,
+        ),
+        sinceToken: 's',
+      );
+      rig.badge.seed(2);
+
+      await openThread(tester);
+
+      expect(rig.badge.state, 2);
+      // It is still marked read.
+      verify(
+        () => repo.markConversationRead(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: kThreadId,
+        ),
+      ).called(1);
+      await leave(tester);
+    });
+
     testWidgets('messages that arrive while it is open never lower it', (
       tester,
     ) async {
@@ -376,18 +405,299 @@ void main() {
       await leave(tester);
     });
 
+    Future<void> openDefault(WidgetTester tester) => pumpScreen(
+      tester,
+      ThreadScreen(
+        conversationId: kThreadId,
+        now: kMsgBase.add(const Duration(minutes: 1)),
+      ),
+    );
+
+    void thread(pb.Conversation? conversation) {
+      current = ThreadSnapshot(
+        messages: msgs(1, 3),
+        conversation: conversation,
+        sinceToken: 's',
+      );
+    }
+
     testWidgets('the default builder reads the push cubit', (tester) async {
       await rig.start();
-      await pumpScreen(
-        tester,
-        ThreadScreen(
-          conversationId: kThreadId,
-          now: kMsgBase.add(const Duration(minutes: 1)),
-        ),
-      );
+      await openDefault(tester);
 
       expect(await pollsAfter(tester, const Duration(seconds: 16)), 0);
       expect(await pollsAfter(tester, const Duration(seconds: 15)), 1);
+      await leave(tester);
+    });
+
+    // F-2: only a push that can reach the thread buys the slower interval.
+    testWidgets('a muted conversation polls at 15 s', (tester) async {
+      thread(threadConv(silent: true));
+      await rig.start();
+      await openDefault(tester);
+
+      expect(await pollsAfter(tester, const Duration(seconds: 16)), 1);
+      await leave(tester);
+    });
+
+    testWidgets('a request (Message requests folder) polls at 15 s', (
+      tester,
+    ) async {
+      thread(
+        threadConv(
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+          folder: Folder.FOLDER_REQUESTS,
+        ),
+      );
+      await rig.start();
+      await openDefault(tester);
+
+      expect(await pollsAfter(tester, const Duration(seconds: 16)), 1);
+      await leave(tester);
+    });
+
+    testWidgets('a request the caller sent (state REQUEST) polls at 15 s', (
+      tester,
+    ) async {
+      thread(threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST));
+      await rig.start();
+      await openDefault(tester);
+
+      expect(await pollsAfter(tester, const Duration(seconds: 16)), 1);
+      await leave(tester);
+    });
+
+    testWidgets('the notifications flag off polls at 15 s', (tester) async {
+      features = const {'messaging', 'graph'};
+      await rig.start();
+      await openDefault(tester);
+
+      expect(await pollsAfter(tester, const Duration(seconds: 16)), 1);
+      await leave(tester);
+    });
+
+    testWidgets('a header that is not known yet polls at 15 s', (tester) async {
+      thread(null);
+      await rig.start();
+      await openDefault(tester);
+
+      expect(await pollsAfter(tester, const Duration(seconds: 16)), 1);
+      await leave(tester);
+    });
+  });
+
+  group('the Inbox re-syncs the badge (F-1 d)', () {
+    testWidgets('a first page load rebuilds the count from its rows', (
+      tester,
+    ) async {
+      final a = hexId(0xa1);
+      final b = hexId(0xb2);
+      final c = hexId(0xc3);
+      when(() => repo.refreshConversations(any())).thenAnswer(
+        (_) async => ConversationsResult(
+          ConversationsSnapshot(
+            conversations: [
+              conv(a, unread: 2),
+              conv(b, unread: 1, silent: true),
+              conv(c),
+            ],
+          ),
+        ),
+      );
+      rig.badge.seed(5);
+
+      await pumpScreen(tester, const ConversationsScreen());
+
+      expect(rig.badge.state, 1);
+      await leave(tester);
+    });
+
+    testWidgets('the requests folder never touches it', (tester) async {
+      when(() => repo.refreshConversations(any())).thenAnswer(
+        (_) async => ConversationsResult(
+          ConversationsSnapshot(conversations: [conv(hexId(0xa1), unread: 2)]),
+        ),
+      );
+      rig.badge.seed(5);
+
+      await pumpScreen(
+        tester,
+        const ConversationsScreen(folder: Folder.FOLDER_REQUESTS),
+      );
+
+      expect(rig.badge.state, 5);
+      await leave(tester);
+    });
+
+    testWidgets('with older pages behind it the rows only raise it', (
+      tester,
+    ) async {
+      when(() => repo.refreshConversations(any())).thenAnswer(
+        (_) async => ConversationsResult(
+          ConversationsSnapshot(
+            conversations: [conv(hexId(0xa1), unread: 2)],
+            olderPageToken: 'older',
+          ),
+        ),
+      );
+      rig.badge.seed(5);
+
+      await pumpScreen(tester, const ConversationsScreen());
+
+      expect(rig.badge.state, 5);
+      await leave(tester);
+    });
+  });
+
+  group('the inbox under an open conversation (M1)', () {
+    late GoRouter router;
+    var clock = kMsgBase;
+
+    setUp(() => clock = kMsgBase);
+
+    Future<void> pumpInboxWithThreadRoute(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      whenListen(
+        onboarding,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(enabledFeatures: features),
+      );
+      router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) =>
+                ConversationsScreen(refreshClock: () => clock),
+          ),
+          GoRoute(
+            path: '/t',
+            builder: (context, state) => ThreadScreen(
+              conversationId: kThreadId,
+              now: kMsgBase.add(const Duration(minutes: 1)),
+              pollerBuilder: (pull, _) => poller,
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<MessagingRepository>.value(value: repo),
+            RepositoryProvider<GraphRepository>.value(value: graphRepo),
+            RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          ],
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OnboardingBloc>.value(value: onboarding),
+              ...rig.providers,
+            ],
+            child: MaterialApp.router(
+              theme: appLightTheme,
+              routerConfig: router,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openThreadOverInbox(WidgetTester tester) async {
+      unawaited(router.push('/t'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ThreadScreen), findsOneWidget);
+    }
+
+    Future<void> back(WidgetTester tester) async {
+      router.pop();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a push for the open conversation refreshes nothing, now or '
+        'on return', (tester) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      await openThreadOverInbox(tester);
+      clearInteractions(repo);
+
+      rig.messagePush(kThreadId);
+      await tester.pumpAndSettle();
+      verifyNever(() => repo.rateLimitedFor());
+      verifyNever(() => repo.refreshConversations(any()));
+
+      await back(tester);
+      verifyNever(() => repo.rateLimitedFor());
+      verifyNever(() => repo.refreshConversations(any()));
+      await leave(tester);
+    });
+
+    testWidgets('a push for another conversation while the inbox is covered '
+        'waits, and refreshes once on return', (tester) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      await openThreadOverInbox(tester);
+      clearInteractions(repo);
+
+      rig.messagePush(other);
+      rig.messagePush(other);
+      await tester.pumpAndSettle();
+      verifyNever(() => repo.rateLimitedFor());
+
+      // Back after more than the 60 s throttle window: the one refresh runs.
+      clock = clock.add(const Duration(seconds: 90));
+      await back(tester);
+      await tester.pump();
+
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+      await leave(tester);
+    });
+
+    testWidgets('inside the throttle window the return refresh is scheduled '
+        'for its end, once', (tester) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      await openThreadOverInbox(tester);
+      clearInteractions(repo);
+
+      rig.messagePush(other);
+      await tester.pumpAndSettle();
+      await back(tester);
+
+      verify(() => repo.rateLimitedFor()).called(1);
+      verifyNever(() => repo.refreshConversations(any()));
+      clock = clock.add(const Duration(seconds: 61));
+      await tester.pump(const Duration(seconds: 61));
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+      await leave(tester);
+    });
+
+    testWidgets('no push while covered, nothing on return', (tester) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      await openThreadOverInbox(tester);
+      clearInteractions(repo);
+
+      await back(tester);
+
+      verifyNever(() => repo.rateLimitedFor());
+      verifyNever(() => repo.refreshConversations(any()));
+      await leave(tester);
+    });
+
+    testWidgets('an inbox that is on top still refreshes on a push', (
+      tester,
+    ) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      clearInteractions(repo);
+
+      rig.messagePush(other);
+      await tester.pump();
+      await tester.pump();
+
+      verify(() => repo.rateLimitedFor()).called(1);
       await leave(tester);
     });
   });

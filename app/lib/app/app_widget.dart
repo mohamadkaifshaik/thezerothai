@@ -44,6 +44,8 @@ import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import '../features/timeline/data/timeline_repository.dart';
+import '../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import 'session_wiring.dart';
 
 /// Root widget: theme + `go_router`. All dependency wiring happens in
@@ -231,14 +233,30 @@ class _AppWidgetState extends State<AppWidget> {
 
   /// A direct-message push arrived in the foreground (W7-19): the Messages
   /// badge counts the conversation unless that thread is open (it polls
-  /// instead). Never the notifications badge.
-  void _onMessagePush(String conversationId) {
+  /// instead), a request (requests never count, D10) or one the cached Inbox
+  /// row already shows unread (the seed or the last Inbox load counted it).
+  /// Reads the local cache only (0 extra reads). Never the notifications badge.
+  Future<void> _onMessagePush(String conversationId) async {
     if (!widget.onboardingBloc.state.enabledFeatures.contains(
       kFeatureMessaging,
     )) {
       return;
     }
-    _messagesBadge.onMessagePush(conversationId);
+    pb.Conversation? cached;
+    try {
+      cached = await widget.messagingRepository.cachedConversation(
+        conversationId,
+      );
+    } on Object {
+      // No usable cache: count it, the next Inbox load or GetMe reconciles.
+      cached = null;
+    }
+    if (!mounted) return;
+    if (cached != null && cached.folder == Folder.FOLDER_REQUESTS) return;
+    _messagesBadge.onMessagePush(
+      conversationId,
+      cachedUnread: cached != null && cached.unreadCount > 0,
+    );
   }
 
   void _onOnboarding(OnboardingState state) {
@@ -247,21 +265,27 @@ class _AppWidgetState extends State<AppWidget> {
     // value: the state hands out a new set view on every read, so identity
     // would re-seed (and undo a local mark-seen) on any later emission.
     final last = _lastFeatures;
-    if (last != null &&
-        setEquals(last, state.enabledFeatures) &&
-        _lastUnread == state.unreadNotificationCount &&
-        _lastUnreadConversations == state.unreadConversationCount) {
-      return;
-    }
+    final flagsChanged =
+        last == null || !setEquals(last, state.enabledFeatures);
+    final unreadChanged = _lastUnread != state.unreadNotificationCount;
+    final conversationsChanged =
+        _lastUnreadConversations != state.unreadConversationCount;
+    if (!flagsChanged && !unreadChanged && !conversationsChanged) return;
     _lastFeatures = Set.of(state.enabledFeatures);
     _lastUnread = state.unreadNotificationCount;
     _lastUnreadConversations = state.unreadConversationCount;
+    // Each badge is seeded when its own number (or the flag set) changed, so
+    // a new conversation count never undoes a local mark-seen of the
+    // notifications badge, and the other way round.
     // The Messages badge needs `messaging`, not `notifications` (push).
-    _messagesBadge.seed(
-      state.enabledFeatures.contains(kFeatureMessaging)
-          ? state.unreadConversationCount
-          : 0,
-    );
+    if (flagsChanged || conversationsChanged) {
+      _messagesBadge.seed(
+        state.enabledFeatures.contains(kFeatureMessaging)
+            ? state.unreadConversationCount
+            : 0,
+      );
+    }
+    if (!flagsChanged && !unreadChanged) return;
     if (state.enabledFeatures.contains(kFeatureNotifications)) {
       widget.unreadBadgeCubit.seed(state.unreadNotificationCount);
       unawaited(widget.pushCubit.start());

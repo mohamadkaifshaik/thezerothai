@@ -161,7 +161,7 @@ class PushCubit extends Cubit<PushState> {
       if (stale()) return;
       emit(state.copyWith(permission: permission, permissionKnown: true));
       _subs
-        ..add(_messaging.onTokenRefresh.listen((token) => _register(token)))
+        ..add(_messaging.onTokenRefresh.listen(_onTokenRefresh))
         ..add(_messaging.onForegroundMessage.listen(_onForegroundMessage))
         ..add(_messaging.onOpenedApp.listen(_open));
       final launch = await _messaging.initialMessage();
@@ -192,6 +192,16 @@ class PushCubit extends Cubit<PushState> {
       onUnexpectedError?.call(error, stack);
       if (!isClosed) emit(state.copyWith(requesting: false));
     }
+  }
+
+  /// A refreshed FCM token: the server still holds the old one until the new
+  /// one is answered, so this device is not known to be reachable meanwhile
+  /// (W7-19: threads poll at the faster interval) and, if the call fails, not
+  /// afterwards either. `registered` is true again only on success.
+  void _onTokenRefresh(String token) {
+    if (isClosed) return;
+    if (state.registered) emit(state.copyWith(registered: false));
+    unawaited(_register(token));
   }
 
   void _onForegroundMessage(PushMessage message) {

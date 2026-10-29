@@ -16,6 +16,8 @@ import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/messages/domain/conversation_id.dart'
+    show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
@@ -409,7 +411,9 @@ class AppRouter {
   /// `/profile/...`: a query or a fragment disqualifies the whole link instead
   /// of being dropped. `/messages`, `/messages/requests` and `/messages/new`
   /// are not targets.
-  static final _messageTargetPattern = RegExp(r'^/messages/[0-9a-f]{32}$');
+  static final _messageTargetPattern = RegExp(
+    '^/messages/$kConversationIdPattern\$',
+  );
 
   /// The path of [uri] when it is a link worth keeping through the splash,
   /// sign-in and onboarding (`/post/<19 digits>`, `/u/<id>`,

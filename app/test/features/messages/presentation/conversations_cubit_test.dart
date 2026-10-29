@@ -292,6 +292,120 @@ void main() {
     );
   });
 
+  group('a push during an in-flight refresh (N1)', () {
+    test('schedules one trailing refresh: the answer may predate the push', () {
+      fakeAsync((async) {
+        var calls = 0;
+        final gate = Completer<ConversationsResult>();
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) {
+              calls++;
+              if (calls == 1) return gate.future;
+              return Future.value(ConversationsResult(snap(['a'])));
+            });
+        final cubit = build();
+        cubit.refresh();
+        async.flushMicrotasks();
+        expect(calls, 1);
+        expect(cubit.state.refreshing, isTrue);
+
+        // The push arrives while the request is out.
+        cubit.refreshIfStale();
+        cubit.refreshIfStale();
+        async.flushMicrotasks();
+        expect(calls, 1);
+
+        gate.complete(ConversationsResult(snap(['a'])));
+        async.flushMicrotasks();
+        expect(calls, 1);
+
+        // Throttled like any push: one refresh when the window ends, once.
+        clock = clock.add(kConversationsRefreshInterval);
+        async.elapse(kConversationsRefreshInterval);
+        async.flushMicrotasks();
+        expect(calls, 2);
+
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(calls, 2);
+        cubit.close();
+      });
+    });
+
+    test('no push, no trailing refresh', () {
+      fakeAsync((async) {
+        var calls = 0;
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenAnswer((_) async {
+              calls++;
+              return ConversationsResult(snap(['a']));
+            });
+        final cubit = build();
+        cubit.refresh();
+        async.elapse(const Duration(minutes: 10));
+        async.flushMicrotasks();
+        expect(calls, 1);
+        cubit.close();
+      });
+    });
+  });
+
+  group('onInboxSynced (the Messages badge re-sync, F-1 d)', () {
+    test('is called with the cached INBOX rows after a refresh', () async {
+      final seen = <List<String>>[];
+      final more = <bool>[];
+      when(() => repo.refreshConversations(Folder.FOLDER_INBOX)).thenAnswer(
+        (_) async => ConversationsResult(snap(['a', 'b'], more: true)),
+      );
+      final cubit = ConversationsCubit(
+        repository: repo,
+        now: () => clock,
+        onInboxSynced: (rows, {required hasMore}) {
+          seen.add([for (final c in rows) c.id]);
+          more.add(hasMore);
+        },
+      );
+      addTearDown(cubit.close);
+
+      await cubit.load();
+
+      expect(seen, [
+        ['a', 'b'],
+      ]);
+      expect(more, [true]);
+    });
+
+    test(
+      'not when the refresh failed, and not for the requests folder',
+      () async {
+        var syncs = 0;
+        when(() => repo.refreshConversations(Folder.FOLDER_INBOX))
+            .thenThrow(const NetworkException('offline'));
+        when(() => repo.refreshConversations(Folder.FOLDER_REQUESTS))
+            .thenAnswer((_) async => ConversationsResult(snap(['r'])));
+        void count(rows, {required bool hasMore}) => syncs++;
+
+        final inbox = ConversationsCubit(
+          repository: repo,
+          now: () => clock,
+          onInboxSynced: count,
+        );
+        addTearDown(inbox.close);
+        await inbox.load();
+        final requests = ConversationsCubit(
+          repository: repo,
+          folder: Folder.FOLDER_REQUESTS,
+          now: () => clock,
+          onInboxSynced: count,
+        );
+        addTearDown(requests.close);
+        await requests.load();
+
+        expect(syncs, 0);
+      },
+    );
+  });
+
   group('paging', () {
     blocTest<ConversationsCubit, ConversationsState>(
       'loadMore appends the older page then clears the footer',

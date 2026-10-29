@@ -103,6 +103,10 @@ void main() {
         '${'ab12' * 8}#f',
         'new',
         'requests',
+        // 34 characters that would decode to a valid id: the raw id is
+        // checked, never a decoded one.
+        '%61${'a' * 31}',
+        '%61${'ab12' * 7}ab1',
       ]) {
         expect(
           notificationLocation(

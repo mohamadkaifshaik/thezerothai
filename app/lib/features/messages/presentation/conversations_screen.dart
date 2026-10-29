@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -21,6 +22,7 @@ import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_flag.dart';
 import 'bloc/conversations_cubit.dart';
+import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'widgets/conversation_row.dart';
 
@@ -46,11 +48,15 @@ class ConversationsScreen extends StatelessWidget {
     this.folder = Folder.FOLDER_INBOX,
     this.onOpenConversation,
     this.onNewMessage,
+    this.refreshClock,
   });
 
   final Folder folder;
   final void Function(String conversationId)? onOpenConversation;
   final VoidCallback? onNewMessage;
+
+  /// Test seam: the clock behind the 60 s refresh throttle.
+  final DateTime Function()? refreshClock;
 
   @override
   Widget build(BuildContext context) {
@@ -69,7 +75,12 @@ class ConversationsScreen extends StatelessWidget {
       create: (context) => ConversationsCubit(
         repository: context.read<MessagingRepository>(),
         folder: folder,
+        now: refreshClock,
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+        // A first Inbox page loaded: its rows are the server's unread state,
+        // so the Messages badge re-syncs from them (0 extra reads, D10).
+        onInboxSynced: (rows, {required hasMore}) =>
+            context.read<MessagesBadgeCubit>().resync(rows, hasMore: hasMore),
       )..load(),
       child: _ConversationsView(
         folder: folder,
@@ -100,6 +111,13 @@ class _ConversationsViewState extends State<_ConversationsView>
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
 
+  /// Whether this screen is covered by a route above it (its tickers are off).
+  /// Read without subscribing: the notifier tells when it is shown again.
+  ValueListenable<TickerModeData>? _tickerMode;
+
+  /// A message push arrived while covered: one refresh follows on return.
+  bool _pushWhileCovered = false;
+
   bool get _isInbox => widget.folder == Folder.FOLDER_INBOX;
 
   @override
@@ -110,7 +128,43 @@ class _ConversationsViewState extends State<_ConversationsView>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final notifier = TickerMode.getValuesNotifier(context);
+    if (notifier != _tickerMode) {
+      _tickerMode?.removeListener(_onTickerMode);
+      _tickerMode = notifier..addListener(_onTickerMode);
+    }
+  }
+
+  void _onTickerMode() {
+    if (_tickerMode?.value.enabled != true || !_pushWhileCovered) return;
+    _pushWhileCovered = false;
+    // After the frame: the notifier fires while the tree is being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(context.read<ConversationsCubit>().refreshIfStale());
+    });
+  }
+
+  /// A foreground message push (W7-19): refresh, unless the push names a
+  /// conversation that is open (its thread polls and updates the row itself)
+  /// or this list is covered by a route (one refresh follows on return).
+  void _onMessagePush(String? conversationId) {
+    if (conversationId != null &&
+        context.read<MessagesBadgeCubit>().isOpen(conversationId)) {
+      return;
+    }
+    if (_tickerMode?.value.enabled == false) {
+      _pushWhileCovered = true;
+      return;
+    }
+    unawaited(context.read<ConversationsCubit>().refreshIfStale());
+  }
+
+  @override
   void dispose() {
+    _tickerMode?.removeListener(_onTickerMode);
     WidgetsBinding.instance.removeObserver(this);
     _controller
       ..removeListener(_onScroll)
@@ -151,7 +205,8 @@ class _ConversationsViewState extends State<_ConversationsView>
     // FCM nudge, throttled, never a timer.
     return BlocListener<PushCubit, PushState>(
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,
-      listener: (context, _) => unawaited(cubit.refreshIfStale()),
+      listener: (context, push) =>
+          _onMessagePush(push.lastMessageConversationId),
       child: Scaffold(
         body: LayoutBuilder(
           builder: (context, constraints) {
