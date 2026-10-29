@@ -320,6 +320,9 @@ func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*
 		return nil, nil, logger.RedactErr(fmt.Errorf("timeline: caller graph: %w", err), caller)
 	}
 	af := s.newAudienceFilter(ctx, caller, snap)
+	if caller == target {
+		af.surface = posts.SurfaceOwnProfile // the owner's own REPOSTs of a protected post stay as undoable PROTECTED rows (W3-36 L-2)
+	}
 	out := make([]*posts.Post, 0, len(ps))
 	for _, p := range ps {
 		if caller != target && !embedAllowed(snap, caller, p) {

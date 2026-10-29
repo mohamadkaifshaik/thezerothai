@@ -204,16 +204,26 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 // sinceToken is the token for the next refresh: the newest scanned entry trailing by SettleWindow, the old position when
 // nothing new arrived, or "now - settle" for an empty first page.
 func (s *service) sinceToken(uid string, in listInput, rows []EntryRow, now time.Time) string {
+	var newest *cursor.Cursor
+	if len(rows) > 0 {
+		newest = &cursor.Cursor{CreatedAt: rows[0].LastMessageAt, DocID: rows[0].ID}
+	}
+	return s.sealSince(sinceBinding(uid, in.folder), newest, in.since, now)
+}
+
+// sealSince seals the next since position under binding (shared by ListConversations and ListMessages): newest (the first
+// scanned row) trailing by SettleWindow, else prev (the position the client sent), else "now - settle".
+func (s *service) sealSince(binding string, newest, prev *cursor.Cursor, now time.Time) string {
 	var c cursor.Cursor
 	switch {
-	case len(rows) > 0:
-		c = cursor.Cursor{CreatedAt: rows[0].LastMessageAt.Add(-SettleWindow), DocID: rows[0].ID}
-	case in.since != nil:
-		c = *in.since
+	case newest != nil:
+		c = cursor.Cursor{CreatedAt: newest.CreatedAt.Add(-SettleWindow), DocID: newest.DocID}
+	case prev != nil:
+		c = *prev
 	default:
 		c = cursor.Cursor{CreatedAt: now.Add(-SettleWindow), DocID: "-"}
 	}
-	return cursor.EncodeAt(s.d.CursorKey, sinceBinding(uid, in.folder), c, now)
+	return cursor.EncodeAt(s.d.CursorKey, binding, c, now)
 }
 
 // droppedCounts is the per-cause tally of REQUESTS entries hidden at read time (log fields only).

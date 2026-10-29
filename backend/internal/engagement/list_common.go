@@ -31,6 +31,8 @@ const (
 	fieldRowsDroppedProtected = "rows_dropped_protected"
 	fieldRowsPruned           = "rows_pruned"
 	fieldRowsReturned         = "rows_returned"
+	// fieldRowsWithheld counts rows kept as owner placeholders (W3-36 L-2); they are also in rows_returned.
+	fieldRowsWithheld = "rows_withheld"
 )
 
 // Drop causes of blockCause.
@@ -59,7 +61,7 @@ func (s *service) openListToken(binding, token string) (cursor.Cursor, error) {
 }
 
 // dropTally counts the rows a page dropped, by cause (ADR-0023 D6).
-type dropTally struct{ missing, hidden, blocked, muted, protected int }
+type dropTally struct{ missing, hidden, blocked, muted, protected, withheld int }
 
 func (d dropTally) total() int { return d.missing + d.hidden + d.blocked + d.muted + d.protected }
 
@@ -76,10 +78,17 @@ type RowAudience interface {
 type RowHint struct {
 	Embed     postsv1.EmbedViewerState
 	Protected bool
+	// Withheld: the caller may no longer see the row's protected author; the row is a stripped placeholder (ADR-0025 note
+	// W3-36 L-2). Set only by dropRows for the owner lists.
+	Withheld bool
 }
 
 // Apply sets the hint on v through the two shared appliers; PROTECTED strips the copy (posts.ApplyEmbedState).
 func (h RowHint) Apply(v *postsv1.PostView) {
+	if h.Withheld {
+		posts.ApplyWithheld(v) // after this the view carries no protected content and no wire visibility
+		return
+	}
 	posts.ApplyEmbedState(v, h.Embed)
 	posts.ApplyWireVisibility(v, h.Protected)
 }
@@ -166,9 +175,16 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 		}
 		var hint RowHint
 		if s.d.Audience != nil {
-			d, err := s.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceList)
+			d, err := s.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceOwnList)
 			if err != nil {
 				return dropResult{}, err
+			}
+			if d.Verdict == posts.Withheld {
+				// Kept as a placeholder the owner can undo (W3-36 L-2); never pruned, a follow or an unprotect brings the full row back.
+				res.Tally.withheld++
+				res.Kept = append(res.Kept, i)
+				res.Hints = append(res.Hints, RowHint{Withheld: true})
+				continue
 			}
 			if d.Verdict != posts.Show {
 				res.Tally.protected++ // kept in storage: a follow, or an unprotect, brings it back
@@ -202,4 +218,5 @@ func noteRows(ctx context.Context, t dropTally, returned int) {
 	logger.SetRequestField(ctx, fieldRowsDroppedBlocked, t.blocked)
 	logger.SetRequestField(ctx, fieldRowsDroppedMuted, t.muted)
 	logger.SetRequestField(ctx, fieldRowsDroppedProtected, t.protected)
+	logger.SetRequestField(ctx, fieldRowsWithheld, t.withheld)
 }

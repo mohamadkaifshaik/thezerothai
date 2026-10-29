@@ -52,3 +52,21 @@ func TestMessagingRateLimitWiring(t *testing.T) {
 		}
 	}
 }
+
+// TestMessagingReadBucketLimitsPolls (W7-8): the 31st ListMessages call of one user inside a minute is refused by the
+// shared read bucket (30/min per instance), and another user's bucket is untouched.
+func TestMessagingReadBucketLimitsPolls(t *testing.T) {
+	rl := RateLimitConfig(defaultRateLimitCfg())
+	lim := rl.PerProcedure[messagingv1connect.MessagingServiceListMessagesProcedure]
+	for i := 1; i <= 30; i++ {
+		if ok, _ := lim.Allow("uid-poller"); !ok {
+			t.Fatalf("poll %d refused, want the first 30 allowed", i)
+		}
+	}
+	if ok, retry := lim.Allow("uid-poller"); ok || retry <= 0 {
+		t.Errorf("poll 31 = %v retry %v, want refused with a retry-after", ok, retry)
+	}
+	if ok, _ := lim.Allow("uid-other"); !ok {
+		t.Error("another user was refused")
+	}
+}

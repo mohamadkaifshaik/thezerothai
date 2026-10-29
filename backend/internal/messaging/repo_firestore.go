@@ -325,3 +325,78 @@ func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, e
 	}
 	return out.Count, nil
 }
+
+// unreadConversationsCap bounds CountUnreadConversations (ADR-0027 D10): the count is never above 100 and the client shows
+// "99+". Firestore bills the aggregation 1 read per 1,000 matches, so the cap keeps the GetMe badge at 1 read.
+const unreadConversationsCap = 100
+
+// CountUnreadConversations implements Repo: count() of users/{uid}/dmInbox where unreadCount > 0, Limit
+// unreadConversationsCap, on the automatic single-field index. 1 read. Requests (dmRequests) never count.
+func (r *FirestoreRepo) CountUnreadConversations(ctx context.Context, uid string) (int64, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(dmInboxCollection).
+		Where("unreadCount", ">", 0).Limit(unreadConversationsCap)
+	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		return 0, fmt.Errorf("messaging: count unread conversations: %w", err)
+	}
+	var out struct {
+		Count int64 `firestore:"count"`
+	}
+	if err := res.DataTo(&out); err != nil {
+		return 0, fmt.Errorf("messaging: decode unread conversation count: %w", err)
+	}
+	return out.Count, nil
+}
+
+// ListMessages implements Repo: conversations/{id}/messages ordered `createdAt DESC, __name__ DESC` (automatic
+// single-field index, no composite), Limit q.Limit, and `createdAt > ClearedAt` when the caller cleared the thread (a
+// range on the ordered field, the same index). Reads one per document returned, minimum 1 (an empty query bills 1).
+func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error) {
+	col := r.convRef(convID).Collection(messagesCollection)
+	query := col.Query
+	if !q.ClearedAt.IsZero() {
+		query = query.Where("createdAt", ">", q.ClearedAt)
+	}
+	query = query.OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	if q.Before != nil {
+		query = query.StartAfter(q.Before.CreatedAt, col.Doc(q.Before.DocID))
+	}
+	if q.After != nil {
+		query = query.EndBefore(q.After.CreatedAt, col.Doc(q.After.DocID))
+	}
+	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
+	budget.FromContext(ctx).AddQueryReads(len(docs))
+	if err != nil {
+		return nil, fmt.Errorf("messaging: list messages: %w", err)
+	}
+	out := make([]MessageRow, 0, len(docs))
+	for _, d := range docs {
+		var m MsgDoc
+		if err := d.DataTo(&m); err != nil {
+			return nil, fmt.Errorf("messaging: decode message: %w", err)
+		}
+		out = append(out, MessageRow{ID: d.Ref.ID, MsgDoc: m})
+	}
+	return out, nil
+}
+
+// MarkRead implements Repo: a field-level Update (never Set) of the caller's own entry; Update carries the Exists precondition by
+// definition, so a missing entry (unknown id, non-participant, deleted for the caller) is NotFound and writes nothing. dmInbox is tried
+// first, then dmRequests: an entry lives in exactly one of them. 0 reads; 1 write when found (a NotFound attempt is not a
+// write).
+func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at time.Time) (bool, error) {
+	updates := []firestore.Update{{Path: "unreadCount", Value: 0}, {Path: "lastReadAt", Value: wireTime(at)}}
+	for _, ref := range []*firestore.DocumentRef{r.inboxRef(uid, convID), r.requestsRef(uid, convID)} {
+		_, err := ref.Update(ctx, updates) // Update itself requires the document to exist (an explicit Exists precondition is refused by the SDK)
+		switch status.Code(err) {
+		case codes.OK:
+			budget.FromContext(ctx).AddWrites(1)
+			return true, nil
+		case codes.NotFound:
+		default:
+			return false, fmt.Errorf("messaging: mark read: %w", err)
+		}
+	}
+	return false, nil
+}

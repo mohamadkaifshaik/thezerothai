@@ -278,8 +278,9 @@ const (
 	EmbedViewerState_EMBED_VIEWER_STATE_MUTED EmbedViewerState = 2
 	// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
 	// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
-	// render a protected-post placeholder. Only a QUOTE row carries it: a REPOST of such a post is dropped from feeds
-	// and lists, and GetPost answers NOT_FOUND for it.
+	// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
+	// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
+	// reposted_by_viewer = true) so it can be undone (ADR-0025 note W3-36 L-2); GetPost answers NOT_FOUND for it.
 	EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED EmbedViewerState = 3
 )
 
@@ -845,7 +846,8 @@ type PostView struct {
 	// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
 	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
 	// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
-	// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped.
+	// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
+	// own REPOST on the caller's own profile (ADR-0025 note W3-36 L-2).
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
 	// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
 	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
@@ -854,8 +856,15 @@ type PostView struct {
 	// bound: the userLikes instance cache TTL (60 s). With only bookmarks on, liked_by_viewer and reposted_by_viewer
 	// stay false.
 	BookmarkedByViewer bool `protobuf:"varint,6,opt,name=bookmarked_by_viewer,json=bookmarkedByViewer,proto3" json:"bookmarked_by_viewer,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
+	// its protected author (ADR-0025 note W3-36 L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+	// embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
+	// liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
+	// or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
+	// False everywhere else.
+	Withheld      bool `protobuf:"varint,7,opt,name=withheld,proto3" json:"withheld,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PostView) Reset() {
@@ -926,6 +935,13 @@ func (x *PostView) GetEmbedViewerState() EmbedViewerState {
 func (x *PostView) GetBookmarkedByViewer() bool {
 	if x != nil {
 		return x.BookmarkedByViewer
+	}
+	return false
+}
+
+func (x *PostView) GetWithheld() bool {
+	if x != nil {
+		return x.Withheld
 	}
 	return false
 }
@@ -1951,14 +1967,15 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\x12 \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12)\n" +
 	"\x10paid_partnership\x18\x13 \x01(\bR\x0fpaidPartnership\x12 \n" +
 	"\fmade_with_ai\x18\x14 \x01(\bR\n" +
-	"madeWithAi\"\xeb\x02\n" +
+	"madeWithAi\"\x87\x03\n" +
 	"\bPostView\x12*\n" +
 	"\x04post\x18\x01 \x01(\v2\x16.dzeroth.posts.v1.PostR\x04post\x12&\n" +
 	"\x0fliked_by_viewer\x18\x02 \x01(\bR\rlikedByViewer\x12,\n" +
 	"\x12reposted_by_viewer\x18\x03 \x01(\bR\x10repostedByViewer\x12Y\n" +
 	"\x17viewer_reply_permission\x18\x04 \x01(\x0e2!.dzeroth.posts.v1.ReplyPermissionR\x15viewerReplyPermission\x12P\n" +
 	"\x12embed_viewer_state\x18\x05 \x01(\x0e2\".dzeroth.posts.v1.EmbedViewerStateR\x10embedViewerState\x120\n" +
-	"\x14bookmarked_by_viewer\x18\x06 \x01(\bR\x12bookmarkedByViewer\"\xf6\x02\n" +
+	"\x14bookmarked_by_viewer\x18\x06 \x01(\bR\x12bookmarkedByViewer\x12\x1a\n" +
+	"\bwithheld\x18\a \x01(\bR\bwithheld\"\xf6\x02\n" +
 	"\x11CreatePostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +

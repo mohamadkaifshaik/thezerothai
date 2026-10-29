@@ -18,6 +18,29 @@ type Repo interface {
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
 	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
+	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
+	// (ADR-0027 D10, W7-11): 1 read.
+	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
+	// ListMessages reads one page of a conversation's messages (W7-8): reads max(len(rows), 1).
+	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
+	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
+	// precondition (W7-8): 0 reads, 1 write; found is false (0 writes) when neither entry exists.
+	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
+}
+
+// MessageRow is one stored message with its id (the document id).
+type MessageRow struct {
+	ID string
+	MsgDoc
+}
+
+// MessageQuery is one page of ListMessages: `createdAt DESC, __name__ DESC`, Limit rows. Before resumes below a position
+// (an older page: StartAfter); After keeps only messages strictly newer than a position (a `since` refresh or a gap
+// fill: EndBefore); ClearedAt, when set, drops every message with createdAt <= ClearedAt (the caller's delete-for-me).
+type MessageQuery struct {
+	Limit         int
+	Before, After *cursor.Cursor
+	ClearedAt     time.Time
 }
 
 // EntryRow is one inbox or requests entry with its conversation id (the document id).
