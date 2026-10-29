@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_mode_cubit.dart';
@@ -12,6 +13,7 @@ import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../messages/domain/messaging_feature_flag.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
@@ -121,7 +123,25 @@ class SettingsList extends StatelessWidget {
         isFeatureEnabled(context, kFeaturePosts) &&
         isFeatureEnabled(context, kFeatureScheduledPosts);
 
+    // W7-19: the legacy chrome (no `ui_shell`) has no Messages tab, so Settings
+    // carries the only entry. The new shell has the bar / rail destination.
+    final messagesEntry =
+        isFeatureEnabled(context, kFeatureMessaging) &&
+        !isFeatureEnabled(context, kFeatureUiShell);
+
     final groups = <(String, List<Widget>)>[
+      (
+        'Messaging',
+        [
+          if (messagesEntry)
+            SettingsRow(
+              icon: Icons.mail_outline,
+              title: 'Messages',
+              subtitle: 'Your inbox and message requests',
+              onTap: () => context.push(AppRouter.messagesPath),
+            ),
+        ],
+      ),
       (
         'Account',
         [

@@ -15,6 +15,8 @@ pb.Conversation threadConv({
   int unread = 0,
   String id = '',
   ConversationState state = ConversationState.CONVERSATION_STATE_ACCEPTED,
+  Folder folder = Folder.FOLDER_INBOX,
+  bool silent = false,
 }) {
   return pb.Conversation(
     id: id.isEmpty ? kThreadId : id,
@@ -25,9 +27,10 @@ pb.Conversation threadConv({
       displayName: 'Sam Rivera',
     ),
     state: state,
-    folder: Folder.FOLDER_INBOX,
+    folder: folder,
     unreadCount: Int64(unread),
     canReply: canReply,
+    silent: silent,
   );
 }
 
