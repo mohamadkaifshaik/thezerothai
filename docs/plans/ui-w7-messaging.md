@@ -360,7 +360,7 @@ Prices (§7):
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | In review (PR #455) |
-| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
+| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | In review (PR #458): rollout prepared, founder apply pending |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Open |
@@ -913,7 +913,7 @@ Order:
 - **Flag.** n/a.
 - **Seam.** —
 
-### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: Open
+### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: In review (PR #458): rollout prepared, founder apply pending
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe) for `feature_messaging*` and the messaging config env vars.
   - The fieldOverrides deploy with the dev deploy workflow after the W7-3 merge; for prod they wait for the held release (`pending.md` 1.2) and must be deployed before `messaging` leaves `off` there.
@@ -927,6 +927,7 @@ Order:
     - report a message;
     - account deletion of a throwaway test user (tombstone).
   - Prod: no change (on hold).
+  - **Prepared (PR #458, 2026-10-29).** Runbook `docs/runbooks/w7-messaging-dev-rollout.md`; the W7-29 caps `MESSAGES_MARK_READ_PER_DAY` and `MESSAGES_MUTATIONS_PER_DAY` are now explicit config in `envs/dev` and `envs/prod` (prod also gets the other messaging limits, all inert). The `changedAt` query ran clean on dev Firestore (read-only, non-existent parent; the control on an exempt field failed as it should). Not applied. Waits for W7-27 (not merged). The throwaway-user deletion leg needs a founder decision (the allowlists are at the 3-uid ceiling).
 - **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state; `pending.md` 3.16 updated.
 - **Test notes.** —
 - **Observability.** Check the `kind=send|poll` lines, `notification_delivery type=message` and the `account_job step=messaging` line in dev logs.
