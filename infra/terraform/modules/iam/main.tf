@@ -220,15 +220,159 @@ resource "google_service_account" "tf_plan" {
   display_name = "Terraform plan (read-only, ${var.env})"
 }
 
-resource "google_project_iam_member" "tf_plan_viewer" {
+// What `tf-plan` can read (W7-32, finding M-4 of the W7-22 messaging security review; supersedes the v0.1.0 / v0.2.0 M4
+// acceptance). It used to hold roles/viewer AND roles/iam.securityReviewer. Between them they carry
+// datastore.entities.get/list (viewer) and datastore.entities.list (securityReviewer); Firestore RunQuery and
+// ListDocuments check entities.list, so EITHER role alone lets a plan token read every message, every report's
+// evidence and users/{uid}/private. They also carry firebaseauth.users.get (viewer), logging.logEntries.list and
+// logging.privateLogEntries.list, and object reads/lists on the user-content buckets. Pinning the WIF workflow would
+// not help: a same-repo PR can edit the pinned workflow file. So the identity itself must be unable to read user data.
+//
+// `tfPlanReader` is a custom role that holds only the get / list / getIamPolicy METADATA permissions that
+// `terraform plan` needs to refresh the resource types in infra/terraform. Deliberately NOT in it, never to be added:
+//   datastore.entities.*                 any Firestore document (messages, reports, users/{uid}/private)
+//   firebaseauth.users.*                 Firebase Auth user records
+//   storage.objects.* (project-wide)     contents or names of the media / upload / exports buckets
+//   secretmanager.versions.access        secret values (the provider's :access read is tolerated, see below)
+//   logging.logEntries.*, logging.privateLogEntries.*, logging.views.*, logging.sinks.*, logging.buckets.*
+//   any *.getIamPolicy that no managed resource needs
+// Adding a resource type to infra/terraform means adding ITS read permissions here in the same PR; a reviewer checks the
+// addition against the list above. If `terraform plan` as tf-plan fails with a 403 on a refresh, add exactly the
+// permission the error names. Never bind a predefined *.viewer role instead: they include data reads.
+//
+// Known and accepted:
+//  - google_secret_manager_secret_version reads the payload with :access on every plan. Without
+//    secretmanager.versions.access that call returns 403 and the provider (checked at v8.8.1, the locked version) logs
+//    it and keeps the value already in state, so plan still works. Expect one PERMISSION_DENIED audit line per generated
+//    secret per plan.
+//  - monitoring.timeSeries.list still arrives through roles/serviceusage.serviceUsageConsumer below (metrics only).
+//  - Reading Terraform state is a separate, bucket-level grant on the state bucket (see the note after the billing
+//    binding). The state holds generated secrets (the cursor HMAC key), so that grant is the next thing to narrow.
+resource "google_project_iam_custom_role" "tf_plan_reader" {
+  project     = var.project_id
+  role_id     = "tfPlanReader"
+  title       = "Terraform plan reader (W7-32)"
+  description = "Get/list/getIamPolicy metadata for the resource types in infra/terraform. No document, user, object, secret-value or log-entry reads."
+  permissions = [
+    // Project metadata and project IAM policy: data.google_project, every project-scoped resource,
+    // google_project_iam_member (refreshes the project policy), google_project_iam_audit_config (dev).
+    "resourcemanager.projects.get",
+    "resourcemanager.projects.getIamPolicy",
+
+    // google_project_service (project-services module). Also in serviceUsageConsumer; repeated so this role stands alone.
+    "serviceusage.services.get",
+    "serviceusage.services.list",
+
+    // google_project_iam_custom_role (account_lifecycle_auth, fcm_send, ar_tag_mover, and this role itself).
+    "iam.roles.get",
+    "iam.roles.list",
+
+    // google_service_account (runtime, pubsub-push, ci-deploy, tf-plan) and google_service_account_iam_member.
+    "iam.serviceAccounts.get",
+    "iam.serviceAccounts.list",
+    "iam.serviceAccounts.getIamPolicy",
+
+    // google_iam_workload_identity_pool and _provider (github-deploy, github-plan). IAM reports these under two
+    // permission spellings (the iam.googleapis.com/ form is the one roles/viewer carried); all are metadata only.
+    "iam.workloadIdentityPools.get",
+    "iam.workloadIdentityPools.list",
+    "iam.workloadIdentityPoolProviders.get",
+    "iam.workloadIdentityPoolProviders.list",
+    "iam.googleapis.com/workloadIdentityPools.get",
+    "iam.googleapis.com/workloadIdentityPools.list",
+    "iam.googleapis.com/workloadIdentityPoolProviders.get",
+    "iam.googleapis.com/workloadIdentityPoolProviders.list",
+
+    // google_firestore_database, google_firestore_field (TTL policies, via the field/index admin API) and
+    // google_firestore_backup_schedule. Metadata only: NEVER datastore.entities.*.
+    "datastore.databases.get",
+    "datastore.databases.getMetadata",
+    "datastore.databases.list",
+    "datastore.indexes.get",
+    "datastore.indexes.list",
+    "datastore.backupSchedules.get",
+    "datastore.backupSchedules.list",
+
+    // google_cloud_run_v2_service (api) and google_cloud_run_v2_service_iam_member (public and push invokers).
+    "run.services.get",
+    "run.services.list",
+    "run.services.getIamPolicy",
+
+    // google_pubsub_topic (jobs, dlq, billing-alerts), google_pubsub_subscription, and the topic and subscription
+    // iam_member resources (dlq publisher, dlq ack, runtime publisher).
+    "pubsub.topics.get",
+    "pubsub.topics.list",
+    "pubsub.topics.getIamPolicy",
+    "pubsub.subscriptions.get",
+    "pubsub.subscriptions.list",
+    "pubsub.subscriptions.getIamPolicy",
+
+    // google_cloud_scheduler_job. NOT cloudscheduler.jobs.fullView: no job sets a body or headers, and fullView would
+    // expose them if one ever carried a credential.
+    "cloudscheduler.jobs.get",
+    "cloudscheduler.jobs.list",
+
+    // google_secret_manager_secret, its iam_member, and google_secret_manager_secret_version (metadata via versions.get).
+    // NEVER secretmanager.versions.access.
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.list",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.versions.get",
+    "secretmanager.versions.list",
+
+    // google_artifact_registry_repository (cleanup policy included) and google_artifact_registry_repository_iam_member (dev).
+    "artifactregistry.repositories.get",
+    "artifactregistry.repositories.list",
+    "artifactregistry.repositories.getIamPolicy",
+
+    // google_storage_bucket (upload, media, exports) and google_storage_bucket_iam_member. Bucket config and policy
+    // only: NEVER storage.objects.* project-wide (the state bucket gets objectViewer at bucket level, not here).
+    "storage.buckets.get",
+    "storage.buckets.list",
+    "storage.buckets.getIamPolicy",
+
+    // google_monitoring_alert_policy, google_monitoring_dashboard, google_monitoring_uptime_check_config.
+    // Notification channels use the predefined roles/monitoring.notificationChannelViewer binding below, because
+    // monitoring.notificationChannels.get/list are still at "testing" level for custom roles.
+    "monitoring.alertPolicies.get",
+    "monitoring.alertPolicies.list",
+    "monitoring.dashboards.get",
+    "monitoring.dashboards.list",
+    "monitoring.uptimeCheckConfigs.get",
+    "monitoring.uptimeCheckConfigs.list",
+
+    // google_logging_metric (auth_admin_mutations). Metric definitions only: NEVER logging.logEntries.* or logging.privateLogEntries.*.
+    "logging.logMetrics.get",
+    "logging.logMetrics.list",
+
+    // google_apikeys_key (browser, android, ios; modules/apikeys). getKeyString because key_string is a computed
+    // attribute. These are the Firebase client keys that ship in every app build (public by design, protected by the
+    // key restrictions and App Check), not secrets.
+    "apikeys.keys.get",
+    "apikeys.keys.list",
+    "apikeys.keys.getKeyString",
+
+    // google_firebase_project, google_firebase_web_app / android_app / apple_app, google_firebase_hosting_site and
+    // google_firebase_hosting_custom_domain (modules/firebase).
+    "firebase.projects.get",
+    "firebase.clients.get",
+    "firebase.clients.list",
+    "firebasehosting.sites.get",
+    "firebasehosting.sites.list",
+  ]
+}
+
+resource "google_project_iam_member" "tf_plan_reader" {
   project = var.project_id
-  role    = "roles/viewer"
+  role    = google_project_iam_custom_role.tf_plan_reader.id
   member  = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
-resource "google_project_iam_member" "tf_plan_security_reviewer" {
+// google_monitoring_notification_channel (email). The predefined role holds only notificationChannels get/list and
+// notificationChannelDescriptors get/list (no verification codes, no writes).
+resource "google_project_iam_member" "tf_plan_notification_channel_viewer" {
   project = var.project_id
-  role    = "roles/iam.securityReviewer"
+  role    = "roles/monitoring.notificationChannelViewer"
   member  = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
@@ -248,9 +392,12 @@ resource "google_billing_account_iam_member" "tf_plan_billing_viewer" {
   member             = "serviceAccount:${google_service_account.tf_plan.email}"
 }
 
-// Read access to remote state. The state bucket itself is created manually
-// (see gcp-terraform skill); grant this SA `roles/storage.objectViewer` on
-// it as part of that one-time step.
+// Read access to remote state. The state bucket (dzeroth-tfstate, in the prod project) is created manually and is not
+// managed by Terraform, and a dev tf-plan SA could not refresh an IAM resource on a bucket in another project, so
+// this grant is deliberately NOT a Terraform resource. It must exist as an explicit BUCKET-level binding for each
+// env's tf-plan SA: `roles/storage.objectViewer` on gs://dzeroth-tfstate (the gcs backend needs objects.get and
+// objects.list). Do not rely on the project-viewer convenience binding on buckets (it vanished from tf-plan with
+// roles/viewer, W7-32). Steps: docs/runbooks/ci-enforcement.md section 13.
 
 // ---------------------------------------------------------------------------
 // Workload Identity Federation — GitHub Actions OIDC, no JSON keys.
