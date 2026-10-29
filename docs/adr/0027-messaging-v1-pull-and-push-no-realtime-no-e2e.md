@@ -538,3 +538,5 @@ ListConversations since query costs what it did.
 
 **Stage ladder.** `changedAt` is the per-user change feed an owner-only listener on `dmInbox` (D16, Stage 1+) would
 order by; `rev` is the per-thread invalidation a listener or SSE transport would push. No caller changes.
+
+**D14 cache note (2026-10-29, W7-28, security review W7-22 H-1).** The `conversations/{id}` instance cache answers and learns from participants only: a cached copy is used only when the caller is in its `participants`, any other caller (a non-participant against a warm copy, or a miss) does one fresh read, and a document is put in the cache only by a request whose caller is a participant. A non-participant probe therefore costs exactly 1 read (2 with the interceptor) whether the conversation exists, is cached or is missing, so the shared cache is no existence oracle; participants' paths and the 60 s bound are unchanged.

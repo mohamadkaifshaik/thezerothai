@@ -44,8 +44,9 @@ func messagesPageBinding(uid, convID string) string {
 // "conversation_id"), page_token and since_token not both, then the token itself (sealed, bound to the uid, the
 // conversation and the token kind, 30 days; a foreign, tampered or expired token is VALIDATION, 0 reads).
 //
-// Participant check: the conversation document (instance cache 60 s, so a clearedAt set on another instance is seen
-// within 60 s). A missing document and a non-participant answer one byte-identical NOT_FOUND after at most 2 reads.
+// Participant check: the conversation document (instance cache 60 s for a participant, so a clearedAt set on another instance is seen
+// within 60 s; a non-participant never reads from or writes to it, W7-28). A missing document and a non-participant answer one
+// byte-identical NOT_FOUND after exactly 2 reads (interceptor, conversation), warm or cold.
 //
 // Thread revision (ADR-0027 note 2026-10-29): a since token carries the conversation's `rev` as its issuer saw it. After the
 // participant check, a token with a lower rev (a takedown or an erasure changed the thread) is VALIDATION since_token with
@@ -135,7 +136,7 @@ func (s *service) validateMessages(uid string, req *messagingv1.ListMessagesRequ
 }
 
 func (s *service) listMessages(ctx context.Context, uid string, in messagesInput) (*messagingv1.ListMessagesResponse, error) {
-	conv, hit, err := s.conversationHit(ctx, in.convID)
+	conv, hit, err := s.conversationHit(ctx, uid, in.convID)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
 	if err == nil && !conv.hasParticipant(uid) {
 		err = ErrNotFound
