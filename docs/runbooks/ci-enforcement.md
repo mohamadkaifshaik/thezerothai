@@ -268,6 +268,10 @@ so this is the layer for the case where a reviewed run is later proved hostile, 
    ```
    Expect `19 to add, 1 to change, 0 to destroy`: 19 `google_service_usage_consumer_quota_override` creates and the plan provider's
    `attribute_condition` in place. Anything else (a destroy, a replace) stops here. Then `terraform apply tfplan`.
+   If the section 13 apply procedure (W7-32) is already done in this env, also add
+   `-target=module.iam.google_project_iam_custom_role.tf_plan_reader`: the role gained one permission, `serviceusage.quotas.get`
+   (63 in total; refreshing a quota override needs only that, and `serviceUsageConsumer` already carries it, so this is not blocking),
+   and the expected result becomes `19 to add, 2 to change, 0 to destroy`. Do not target the role before section 13 is applied.
    If the API rejects an override of 0, set `unused_feature_limit = 1` in the module call and plan again.
 4. **Prove the gate in dev** (needs the `DEV_PLAN_*` secrets to exist; without them the job skips auth and proves nothing).
    Actions > Terraform > Run workflow on `main`: the `lint` job finishes without approval; `plan (dev)` and `plan (prod)` show
@@ -355,7 +359,7 @@ single combined apply, `tf-plan` could end up with no roles at all.
    - API keys: `apikeys.keys.getKeyString` is project-wide, so confirm there are exactly the 3 Firebase client keys:
      `gcloud services api-keys list --project=<dzeroth-dev|dzeroth-prod> --format="table(uid,displayName)"`. Any other key: stop and ask.
    - Optional, custom-role support: `gcloud iam list-testable-permissions //cloudresourcemanager.googleapis.com/projects/<p>
-     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 62 permissions in
+     --format="csv[no-heading](name,customRolesSupportLevel)"` (slow, a couple of minutes). None of the 63 permissions in
      `tfPlanReader` may be `NOT_SUPPORTED` (it was checked against `dzeroth-dev` when written). The likeliest to fail are the
      `iam.googleapis.com/workloadIdentityPool*` spellings and `datastore.backupSchedules.*`.
 1. **State-bucket pre-step, before anything is removed.** The bucket is outside Terraform. Check, then add if missing:

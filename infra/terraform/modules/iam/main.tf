@@ -263,6 +263,11 @@ resource "google_project_iam_custom_role" "tf_plan_reader" {
     "serviceusage.services.get",
     "serviceusage.services.list",
 
+    // google_service_usage_consumer_quota_override (module.vision_quota, M-A): the refresh lists the overrides of a
+    // quota limit, which checks serviceusage.quotas.get. That is the only extra permission it needs. Also in
+    // serviceUsageConsumer; repeated so this role stands alone. Reads quota settings only, never usage or data.
+    "serviceusage.quotas.get",
+
     // google_project_iam_custom_role (account_lifecycle_auth, fcm_send, ar_tag_mover, and this role itself).
     "iam.roles.get",
     "iam.roles.list",
