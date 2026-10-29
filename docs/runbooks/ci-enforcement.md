@@ -270,7 +270,7 @@ All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/clo
    ```
    Expect exactly: 3 to add (role, two bindings), 2 to destroy (the `roles/viewer` and `roles/iam.securityReviewer` bindings on
    `tf-plan`), nothing else. Anything else: stop. Then `terraform apply tfplan`.
-3. **Prove plan still works, as `tf-plan`** (CI cannot; see the CI note). Needs Token Creator on that SA for your user; grant it
+3. **Prove plan still works, as `tf-plan`** (CI cannot; see the CI note). Wait a few minutes after the apply first: IAM changes propagate slowly, so a 403 now may be the new role not yet active, and a 200 in step 4 may be the old roles not yet gone. Retry before adding any permission or rolling back. Needs Token Creator on that SA for your user; grant it
    temporarily if refused and remove it afterwards:
    ```bash
    cd infra/terraform/envs/dev
@@ -285,7 +285,7 @@ All commands use the real `terraform.tfvars` of that env (see `docs/runbooks/clo
    curl -s "${H[@]}" "https://firestore.googleapis.com/v1/projects/dzeroth-dev/databases/(default)/documents/users?pageSize=1"
    curl -s "${H[@]}" -X POST -H 'Content-Type: application/json' -d '{"resourceNames":["projects/dzeroth-dev"],"pageSize":1}' https://logging.googleapis.com/v2/entries:list
    curl -s "${H[@]}" "https://identitytoolkit.googleapis.com/v1/projects/dzeroth-dev/accounts:batchGet?maxResults=1"
-   curl -s "${H[@]}" "https://storage.googleapis.com/storage/v1/b/<dev media bucket>/o?maxResults=1"
+   curl -s "${H[@]}" "https://storage.googleapis.com/storage/v1/b/<dev upload or exports bucket>/o?maxResults=1"   # NOT the media bucket: it is public-read by design
    ```
 5. **Prod.** Repeat steps 2 to 4 with `envs/prod` (real tfvars, `-target` as above, `dzeroth-prod`). Show the saved plan to the
    founder-as-approver before `terraform apply tfplan` (plan-then-OK). Do not apply the other pending prod changes in the same run.
