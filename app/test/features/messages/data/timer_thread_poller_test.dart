@@ -8,13 +8,19 @@ import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 
 class _Harness {
-  _Harness(this.async, {bool pushRegistered = false, bool visible = true}) {
+  _Harness(
+    this.async, {
+    bool pushRegistered = false,
+    bool Function()? pushCoverage,
+    bool visible = true,
+  }) {
     hold = RateLimitHold(monotonic: () => async.elapsed);
     poller = TimerThreadPoller(
       pull: _pull,
       rateLimitHold: hold,
       monotonic: () => async.elapsed,
       pushRegistered: pushRegistered,
+      pushCoverage: pushCoverage,
       visible: visible,
     );
   }
@@ -42,6 +48,55 @@ class _Harness {
 }
 
 void main() {
+  group('pushCoverage (W7-19: push that can reach this thread)', () {
+    test('true: the hot interval is 30 s', () {
+      fakeAsync((async) {
+        final h = _Harness(async, pushCoverage: () => true)..poller.start();
+        h.elapse(const Duration(seconds: 95));
+        expect(h.pulls.map((d) => d.inSeconds), [30, 60, 90]);
+        h.poller.dispose();
+      });
+    });
+
+    test('false overrides pushRegistered: 15 s', () {
+      fakeAsync((async) {
+        final h = _Harness(
+          async,
+          pushRegistered: true,
+          pushCoverage: () => false,
+        )..poller.start();
+        h.elapse(const Duration(seconds: 50));
+        expect(h.pulls.map((d) => d.inSeconds), [15, 30, 45]);
+        h.poller.dispose();
+      });
+    });
+
+    test('is asked at every schedule: a thread muted meanwhile speeds up', () {
+      fakeAsync((async) {
+        var covered = true;
+        final h = _Harness(async, pushCoverage: () => covered)..poller.start();
+        h.elapse(const Duration(seconds: 31));
+        expect(h.pulls.map((d) => d.inSeconds), [30]);
+
+        covered = false;
+        h.elapse(const Duration(seconds: 50));
+        // The wait armed at 30 s used the old answer (60 s); the next ones
+        // follow the new one.
+        expect(h.pulls.map((d) => d.inSeconds), [30, 60, 75]);
+        h.poller.dispose();
+      });
+    });
+
+    test('without it, pushRegistered decides as before', () {
+      fakeAsync((async) {
+        final h = _Harness(async, pushRegistered: true)..poller.start();
+        h.elapse(const Duration(seconds: 35));
+        expect(h.pulls.map((d) => d.inSeconds), [30]);
+        h.poller.dispose();
+      });
+    });
+  });
+
   test('schedule is 15 s while hot, 45 s while warm, then stops at 5 min', () {
     fakeAsync((async) {
       final h = _Harness(async)..poller.start();

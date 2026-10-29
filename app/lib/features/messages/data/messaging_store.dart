@@ -57,6 +57,44 @@ String conversationSortKey(pb.Conversation c) {
   return '${micros.toString().padLeft(20, '0')}|${c.id}';
 }
 
+/// The conversation a thread cold open stores: the ListMessages header
+/// [fresh] merged into the cached row [cached] instead of overwriting it
+/// (W7-19, ADR-0027 D14).
+///
+/// ListMessages carries identity, peer, state, folder and `can_reply`; it does
+/// not carry the caller's entry (`last_message`, `unread_count`, `silent`,
+/// `updated_at`), which ListConversations owns. So the header wins for what it
+/// carries, and the cached entry is kept for what it omits. The sort key
+/// follows `updated_at`, so keeping it keeps the row where the Inbox put it.
+///
+/// A proto3 scalar cannot say "omitted" apart from zero: a header `unread_count`
+/// of 0 or `silent` of false keeps the cached value, a positive count or
+/// `silent` true wins. A stale cached unread count is harmless (opening the
+/// thread marks it read) and the next ListConversations page corrects it.
+pb.Conversation mergeThreadHeader(
+  pb.Conversation? cached,
+  pb.Conversation fresh,
+) {
+  final merged = fresh.deepCopy();
+  if (cached == null) return merged;
+  if (merged.kind == ConversationKind.CONVERSATION_KIND_UNSPECIFIED) {
+    merged.kind = cached.kind;
+  }
+  if (merged.state == ConversationState.CONVERSATION_STATE_UNSPECIFIED) {
+    merged.state = cached.state;
+  }
+  if (merged.folder == Folder.FOLDER_UNSPECIFIED) merged.folder = cached.folder;
+  if (!merged.hasLastMessage() && cached.hasLastMessage()) {
+    merged.lastMessage = cached.lastMessage;
+  }
+  if (merged.unreadCount == Int64.ZERO) merged.unreadCount = cached.unreadCount;
+  if (!merged.silent && cached.silent) merged.silent = true;
+  if (!merged.hasUpdatedAt() && cached.hasUpdatedAt()) {
+    merged.updatedAt = cached.updatedAt;
+  }
+  return merged;
+}
+
 /// Sort key of a message: zero-padded `created_at` microseconds, then the id.
 String messageSortKey(pb.Message m) {
   final micros = m.hasCreatedAt()
@@ -333,7 +371,14 @@ class MessagingStore {
         await _setPageToken(conversationId, valid.last.id, nextPageToken);
       }
       if (conversation != null && conversation.id.isNotEmpty) {
-        await _putConversation(conversation);
+        // Merged, not overwritten: the header omits the caller's entry (unread,
+        // silent, preview, sort key), which the cached Inbox row holds.
+        await _putConversation(
+          mergeThreadHeader(
+            await this.conversation(conversation.id),
+            conversation,
+          ),
+        );
       }
       await _saveState(
         _threadStateKey(conversationId),

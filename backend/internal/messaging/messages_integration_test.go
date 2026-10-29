@@ -55,7 +55,7 @@ func (e *itEnv) mustListMsgs(svc *service, uid string, req *messagingv1.ListMess
 func (e *itEnv) markRead(svc *service, uid, convID string) (*budget.Counter, error) {
 	ctx, c := budget.WithCounter(context.Background())
 	c.AddReads(1)
-	_, err := svc.MarkRead(ctx, uid, &messagingv1.MarkConversationReadRequest{ConversationId: convID})
+	_, err := svc.MarkRead(ctx, uid, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return c, err
 }
 

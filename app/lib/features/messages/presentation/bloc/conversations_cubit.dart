@@ -98,8 +98,8 @@ const Object _keep = Object();
 /// - [refreshIfStale] is for resume and a message push: throttled to one
 ///   attempt per [kConversationsRefreshInterval], quiet, and skipped while a
 ///   RATE_LIMITED hold is set. There is no timer and no periodic poll.
-/// - [refresh] is pull-to-refresh, Retry and what the shell calls on a
-///   message push (W7-19) when it wants an unthrottled pull.
+/// - [refresh] is pull-to-refresh and Retry (unthrottled). A foreground message
+///   push calls [refreshIfStale] (W7-19, from the screen).
 /// - Errors with nothing cached are blocking; otherwise a notice over the
 ///   cached rows.
 class ConversationsCubit extends Cubit<ConversationsState> {
@@ -107,6 +107,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     required MessagingRepository repository,
     this.folder = Folder.FOLDER_INBOX,
     this.onUnexpectedError,
+    this.onInboxSynced,
     DateTime Function()? now,
   }) : _repository = repository,
        _now = now ?? DateTime.now,
@@ -125,9 +126,19 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   final Folder folder;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
+  /// Called with the cached INBOX rows after every successful INBOX refresh
+  /// (W7-19: the Messages badge re-syncs from them, ADR-0027 D10). [hasMore] is
+  /// true when older pages exist, so the rows are only a lower bound.
+  final void Function(List<pb.Conversation> rows, {required bool hasMore})?
+  onInboxSynced;
+
   DateTime? _lastAttempt;
   Timer? _pendingRefresh;
   StreamSubscription<void>? _changes;
+
+  /// A push or resume arrived while a refresh was in flight: the answer may
+  /// predate it, so one more (throttled) refresh follows.
+  bool _trailing = false;
 
   bool get _isInbox => folder == Folder.FOLDER_INBOX;
 
@@ -155,7 +166,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     await refresh();
   }
 
-  /// Pull-to-refresh, Retry, and a pull the shell triggers on a message push.
+  /// Pull-to-refresh and Retry.
   Future<void> refresh() => _refresh();
 
   /// Resume or a message push: throttled, quiet.
@@ -164,7 +175,11 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   /// scheduled for when the window ends, so a push received right after a
   /// refresh still shows up without a pull. (A one-shot timer, not a poll.)
   Future<void> refreshIfStale() async {
-    if (isClosed || state.refreshing || state.loadingMore) return;
+    if (isClosed || state.loadingMore) return;
+    if (state.refreshing) {
+      _trailing = true;
+      return;
+    }
     if (_repository.rateLimitedFor() != null) return;
     final last = _lastAttempt;
     if (last != null) {
@@ -182,6 +197,14 @@ class ConversationsCubit extends Cubit<ConversationsState> {
 
   Future<void> _refresh() async {
     if (isClosed || state.refreshing) return;
+    await _refreshNow();
+    if (_trailing && !isClosed) {
+      _trailing = false;
+      unawaited(refreshIfStale());
+    }
+  }
+
+  Future<void> _refreshNow() async {
     final limited = _repository.rateLimitedFor();
     if (limited != null) {
       _failed(limited);
@@ -193,6 +216,12 @@ class ConversationsCubit extends Cubit<ConversationsState> {
       final result = await _repository.refreshConversations(folder);
       if (isClosed) return;
       _apply(result.snapshot);
+      if (_isInbox) {
+        onInboxSynced?.call(
+          result.snapshot.conversations,
+          hasMore: result.snapshot.hasMore,
+        );
+      }
       emit(
         state.copyWith(
           status: ConversationsStatus.ready,

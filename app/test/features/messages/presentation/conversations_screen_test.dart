@@ -22,6 +22,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/messaging_fixtures.dart';
+import '../../../support/messaging_shell_rig.dart';
 import '../../../support/theme_harness.dart';
 
 class MockMessagingRepository extends Mock implements MessagingRepository {}
@@ -32,6 +33,7 @@ class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 void main() {
   late MockMessagingRepository repo;
   late MockOnboardingBloc onboarding;
+  late MessagingShellRig rig;
   late List<String> visited;
 
   ConversationsSnapshot snap(List<pb.Conversation> rows, {bool more = false}) =>
@@ -46,6 +48,7 @@ void main() {
   });
 
   setUp(() {
+    rig = MessagingShellRig();
     repo = MockMessagingRepository();
     onboarding = MockOnboardingBloc();
     visited = [];
@@ -128,8 +131,11 @@ void main() {
           RepositoryProvider<MessagingRepository>.value(value: repo),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
-        child: BlocProvider<OnboardingBloc>.value(
-          value: onboarding,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
+            ...rig.providers,
+          ],
           child: MediaQuery(
             data: MediaQueryData(
               size: size,

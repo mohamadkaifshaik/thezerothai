@@ -11,6 +11,7 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -432,8 +433,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), log); err != nil {
 		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
 	}
+	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
+	lateMessages := &lateMessageLookup{}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
@@ -551,6 +554,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,
 	})
+	reporter, ok := messagingSvc.(messaging.MessageReporter)
+	if !ok {
+		return nil, nil, errors.New("messaging service does not implement MessageReporter")
+	}
+	lateMessages.r = reporter
 	messagingServer := messaging.NewServer(messagingSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)

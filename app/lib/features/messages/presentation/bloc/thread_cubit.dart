@@ -10,13 +10,10 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
+import '../../domain/conversation_id.dart';
 import '../../domain/thread_poller.dart';
 
-/// True for a conversation id the API accepts: 32 lower-case hex. Anything
-/// else is "This conversation isn't available" with no request.
-bool isConversationId(String id) => _conversationIdPattern.hasMatch(id);
-
-final RegExp _conversationIdPattern = RegExp(r'^[0-9a-f]{32}$');
+export '../../domain/conversation_id.dart' show isConversationId;
 
 enum ThreadStatus {
   /// Nothing cached yet and the first fetch is running.
@@ -155,6 +152,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     required ThreadPoller poller,
     required this.conversationId,
     this.onUnexpectedError,
+    this.onOpenedUnread,
     Uuid? uuid,
   }) : _repository = repository,
        _poller = poller,
@@ -170,6 +168,12 @@ class ThreadCubit extends Cubit<ThreadState> {
   final Uuid _uuid;
   final String conversationId;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
+
+  /// Called once, when the conversation is first seen with unread messages on
+  /// open (W7-19: the Messages badge drops it). Not for messages that arrive
+  /// while the thread is open.
+  final void Function(String conversationId)? onOpenedUnread;
+  bool _reportedUnread = false;
 
   /// The newest messages the repository holds (held back or not).
   List<pb.Message> _latest = const [];
@@ -306,6 +310,13 @@ class ThreadCubit extends Cubit<ThreadState> {
     final conversation = snapshot.conversation;
     if (open && conversation != null) {
       _unread = math.max(_unread, conversation.unreadCount.toInt());
+      // A request never counts toward the badge (ADR-0027 D10).
+      if (conversation.unreadCount.toInt() > 0 &&
+          conversation.folder != Folder.FOLDER_REQUESTS &&
+          !_reportedUnread) {
+        _reportedUnread = true;
+        onOpenedUnread?.call(conversationId);
+      }
     }
     _latest = messages;
 

@@ -18,7 +18,8 @@ enum PushPermission {
 }
 
 /// The data fields of an FCM message (ADR-0017 D6: `type`, `notificationId`,
-/// `postId`, `actorId`; never post text).
+/// `postId`, `actorId`; never post text). A direct-message push (ADR-0027 D9)
+/// carries `type=message` and `conversationId` only.
 @immutable
 class PushMessage {
   const PushMessage({
@@ -26,16 +27,25 @@ class PushMessage {
     this.notificationId = '',
     this.postId = '',
     this.actorId = '',
+    this.conversationId = '',
   });
 
   final String type;
   final String notificationId;
   final String postId;
   final String actorId;
+  final String conversationId;
+
+  /// A direct-message push (push-only: no notification row).
+  bool get isMessage => type == kNotificationTypeMessage;
 
   /// App location to open on tap (see [notificationLocation]).
-  String? get location =>
-      notificationLocation(type: type, postId: postId, actorId: actorId);
+  String? get location => notificationLocation(
+    type: type,
+    postId: postId,
+    actorId: actorId,
+    conversationId: conversationId,
+  );
 
   factory PushMessage.fromData(Map<String, dynamic> data) {
     String field(String key) => data[key] is String ? data[key] as String : '';
@@ -44,6 +54,7 @@ class PushMessage {
       notificationId: field('notificationId'),
       postId: field('postId'),
       actorId: field('actorId'),
+      conversationId: field('conversationId'),
     );
   }
 }

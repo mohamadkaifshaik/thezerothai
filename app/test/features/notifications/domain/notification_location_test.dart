@@ -68,4 +68,101 @@ void main() {
       expect(push.location, '/follow-requests');
     },
   );
+
+  group('a direct message (W7-19)', () {
+    final id = 'ab12' * 8; // 32 lower-case hex
+
+    test('opens the conversation', () {
+      expect(
+        notificationLocation(
+          type: kNotificationTypeMessage,
+          postId: '',
+          actorId: '',
+          conversationId: id,
+        ),
+        '/messages/$id',
+      );
+      expect(
+        PushMessage.fromData({'type': 'message', 'conversationId': id})
+            .location,
+        '/messages/$id',
+      );
+    });
+
+    test('only an id the deep-link allowlist accepts opens anything', () {
+      for (final bad in <String>[
+        '',
+        'ABC',
+        'ab12' * 7,
+        '${'ab12' * 8}0',
+        'AB12' * 8,
+        '${'ab12' * 7}ab1g',
+        '${'ab12' * 7}ab1/',
+        '../${'ab12' * 7}',
+        '${'ab12' * 8}?x=1',
+        '${'ab12' * 8}#f',
+        'new',
+        'requests',
+        // 34 characters that would decode to a valid id: the raw id is
+        // checked, never a decoded one.
+        '%61${'a' * 31}',
+        '%61${'ab12' * 7}ab1',
+      ]) {
+        expect(
+          notificationLocation(
+            type: kNotificationTypeMessage,
+            postId: '',
+            actorId: '',
+            conversationId: bad,
+          ),
+          isNull,
+          reason: bad,
+        );
+      }
+    });
+
+    test('never falls through to a post or a profile', () {
+      expect(
+        notificationLocation(
+          type: kNotificationTypeMessage,
+          postId: '77',
+          actorId: 'u9',
+          conversationId: 'nope',
+        ),
+        isNull,
+      );
+      expect(
+        notificationLocation(
+          type: kNotificationTypeMessage,
+          postId: '77',
+          actorId: 'u9',
+          conversationId: id,
+        ),
+        '/messages/$id',
+      );
+    });
+
+    test('a conversation id on another type is ignored', () {
+      expect(
+        notificationLocation(
+          type: 'like',
+          postId: '5',
+          actorId: 'u9',
+          conversationId: id,
+        ),
+        '/post/5',
+      );
+    });
+
+    test('fromData reads conversationId and ignores non-string values', () {
+      final push = PushMessage.fromData({
+        'type': 'message',
+        'conversationId': 7,
+      });
+      expect(push.isMessage, isTrue);
+      expect(push.conversationId, '');
+      expect(push.location, isNull);
+      expect(const PushMessage(type: 'like').isMessage, isFalse);
+    });
+  });
 }

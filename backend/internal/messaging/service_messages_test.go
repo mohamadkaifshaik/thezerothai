@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -461,7 +462,7 @@ func TestListMessages_ErrorsAndLogs(t *testing.T) {
 		if _, err := svc.ListMessages(context.Background(), alice, &messagingv1.ListMessagesRequest{ConversationId: aliceBobConv}); err == nil {
 			t.Fatal("want an error")
 		}
-		if _, err := svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv}); err == nil {
+		if _, err := svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err == nil {
 			t.Fatal("want an error")
 		}
 	})
@@ -483,7 +484,7 @@ func TestListMessages_FlagModes(t *testing.T) {
 			rg := newRig(t, func(r *rig) { r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: tt.mode, Percent: tt.pct}) })
 			rg.putThread(1, nil)
 			_, err := rg.svc.ListMessages(context.Background(), alice, &messagingv1.ListMessagesRequest{ConversationId: aliceBobConv})
-			_, merr := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv})
+			_, merr := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			if tt.open != (err == nil) || tt.open != (merr == nil) {
 				t.Fatalf("list err = %v, mark err = %v, open = %v", err, merr, tt.open)
 			}
@@ -503,7 +504,7 @@ func TestMarkRead(t *testing.T) {
 	t.Run("writes and evicts the badge", func(t *testing.T) {
 		rg := newRig(t, nil)
 		ctx, info := logger.WithRequestInfo(context.Background())
-		if _, err := rg.svc.MarkRead(ctx, alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv}); err != nil {
+		if _, err := rg.svc.MarkRead(ctx, alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 			t.Fatal(err)
 		}
 		if len(rg.repo.marked) != 1 || rg.repo.marked[0] != alice+"|"+aliceBobConv {
@@ -525,7 +526,7 @@ func TestMarkRead(t *testing.T) {
 	t.Run("missing entry is success, nothing evicted", func(t *testing.T) {
 		rg := newRig(t, nil)
 		rg.repo.markMissing = true
-		if _, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv}); err != nil {
+		if _, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 			t.Fatal(err)
 		}
 		if len(rg.badge.got) != 0 {
@@ -535,14 +536,14 @@ func TestMarkRead(t *testing.T) {
 	t.Run("nil badge", func(t *testing.T) {
 		rg := newRig(t, nil)
 		svc := New(rg.reg, Deps{Repo: rg.repo, Now: func() time.Time { return rg.now }})
-		if _, err := svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv}); err != nil {
+		if _, err := svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("validation", func(t *testing.T) {
 		rg := newRig(t, nil)
 		for _, id := range []string{"", "xyz", "ABCDEFABCDEFABCDEFABCDEFABCDEFAB"} {
-			_, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: id})
+			_, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: id})
 			wantField(t, err, "conversation_id")
 		}
 		if len(rg.repo.marked) != 0 {
@@ -552,7 +553,7 @@ func TestMarkRead(t *testing.T) {
 	t.Run("repo error is redacted", func(t *testing.T) {
 		rg := newRig(t, nil)
 		rg.repo.markErr = errors.New("boom users/" + alice + "/dmInbox/" + aliceBobConv)
-		_, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv})
+		_, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 		if err == nil || bytes.Contains([]byte(err.Error()), []byte(alice)) || bytes.Contains([]byte(err.Error()), []byte(aliceBobConv)) {
 			t.Fatalf("err = %v", err)
 		}
@@ -562,9 +563,22 @@ func TestMarkRead(t *testing.T) {
 		rg.repo.markErr = context.Canceled
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := rg.svc.MarkRead(ctx, alice, &messagingv1.MarkConversationReadRequest{ConversationId: aliceBobConv})
+		_, err := rg.svc.MarkRead(ctx, alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 		if code, _, _ := reasonOf(t, err); code != connect.CodeCanceled {
 			t.Fatalf("code = %v", code)
 		}
 	})
+}
+
+// A malformed idempotency_key on MarkConversationRead is VALIDATION idempotency_key with nothing stored (founder decision
+// 2026-10-29: the key is format-validated, not stored); the interceptor's read is the only read.
+func TestMarkRead_MalformedKey(t *testing.T) {
+	for _, key := range []string{"", "short", "has spaces in the key!!", strings.Repeat("k", 65)} {
+		rg := newRig(t, nil)
+		_, err := rg.svc.MarkRead(context.Background(), alice, &messagingv1.MarkConversationReadRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
+		wantField(t, err, "idempotency_key")
+		if len(rg.repo.marked) != 0 {
+			t.Errorf("key %q reached storage", key)
+		}
+	}
 }

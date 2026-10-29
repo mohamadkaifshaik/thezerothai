@@ -15,8 +15,8 @@ const Duration kThreadIdleStop = Duration(minutes: 5);
 /// same shape as `RateLimitHold`'s clock) and visibility is an input.
 ///
 /// - Hot (input or a new message within 2 min): every 15 s, or 30 s when
-///   [pushRegistered] (Android with push; the caller decides, the poller does
-///   not detect the platform). Warm: every 45 s. Idle for 5 min: stops.
+///   [pushRegistered] / [pushCoverage] (Android with push that reaches this
+///   thread; the caller decides, the poller does not detect the platform). Warm: every 45 s. Idle for 5 min: stops.
 /// - Hidden: no timers, no pulls. Visible again: one immediate pull.
 /// - While the shared [RateLimitHold] is set nothing is pulled; the next
 ///   attempt waits for the hold to clear.
@@ -28,6 +28,7 @@ class TimerThreadPoller implements ThreadPoller {
     required RateLimitHold rateLimitHold,
     Duration Function()? monotonic,
     this.pushRegistered = false,
+    this.pushCoverage,
     bool visible = true,
     void Function(Object error, StackTrace stack)? onError,
   }) : _pull = pull,
@@ -44,6 +45,11 @@ class TimerThreadPoller implements ThreadPoller {
   /// Push is registered: the hot interval is 30 s instead of 15 s.
   final bool pushRegistered;
 
+  /// Asked on every schedule, and overrides [pushRegistered] when set: true
+  /// while a push can reach this thread (W7-19: not when it is muted, a
+  /// request, or the flag is off), so the interval follows the thread.
+  final bool Function()? pushCoverage;
+
   bool _visible;
   bool _started = false;
   bool _stoppedIdle = false;
@@ -57,8 +63,9 @@ class TimerThreadPoller implements ThreadPoller {
   @override
   bool get isRunning => _started && !_stoppedIdle && !_disposed;
 
-  Duration get _hotInterval =>
-      pushRegistered ? kThreadHotIntervalWithPush : kThreadHotInterval;
+  Duration get _hotInterval => (pushCoverage?.call() ?? pushRegistered)
+      ? kThreadHotIntervalWithPush
+      : kThreadHotInterval;
 
   bool get _isHot => _elapsed() - _lastActivity < kThreadHotWindow;
 

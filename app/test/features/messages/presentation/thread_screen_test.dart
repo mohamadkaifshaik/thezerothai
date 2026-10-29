@@ -33,6 +33,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/messaging_fixtures.dart';
+import '../../../support/messaging_shell_rig.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/thread_test_support.dart';
 
@@ -50,6 +51,7 @@ void main() {
   late MockGraphRepository graphRepo;
   late MockModerationRepository moderation;
   late MockOnboardingBloc onboarding;
+  late MessagingShellRig rig;
   late FakeThreadPoller poller;
   late Future<PollResult> Function() pull;
 
@@ -85,6 +87,7 @@ void main() {
   });
 
   setUp(() {
+    rig = MessagingShellRig();
     repo = MockMessagingRepository();
     graphRepo = MockGraphRepository();
     moderation = MockModerationRepository();
@@ -171,8 +174,11 @@ void main() {
           RepositoryProvider<ModerationRepository>.value(value: moderation),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
-        child: BlocProvider<OnboardingBloc>.value(
-          value: onboarding,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
+            ...rig.providers,
+          ],
           child: MediaQuery(
             data: MediaQueryData(
               size: size,

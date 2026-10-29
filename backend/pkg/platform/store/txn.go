@@ -23,7 +23,7 @@ type TxnFunc func(ctx context.Context, tx *firestore.Transaction) error
 // Each attempt therefore counts into its own scratch counter. Reads are real on every attempt and are always folded
 // into the request's counter; writes and deletes are folded only when the transaction commits (a rolled-back or
 // failed transaction wrote nothing). It returns the number of body runs, for NoteTxnAttempts.
-func RunTransaction(ctx context.Context, client TxnRunner, fn TxnFunc) (attempts int, err error) {
+func RunTransaction(ctx context.Context, client TxnRunner, fn TxnFunc, opts ...firestore.TransactionOption) (attempts int, err error) {
 	var reads int64
 	var last *budget.Counter
 	err = client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -34,7 +34,7 @@ func RunTransaction(ctx context.Context, client TxnRunner, fn TxnFunc) (attempts
 		actx, scratch := budget.WithCounter(ctx)
 		last = scratch
 		return fn(actx, tx)
-	})
+	}, opts...)
 	real := budget.FromContext(ctx)
 	if last != nil {
 		reads += last.Reads()
@@ -54,6 +54,8 @@ type TxnRetry struct {
 	Timeout time.Duration
 	MaxRuns int
 	Backoff time.Duration
+	// Options are passed to every run (for example firestore.ReadOnly for a body that only reads: no locks, no commit).
+	Options []firestore.TransactionOption
 }
 
 // RunTransactionRetry is RunTransaction re-run a bounded number of times when Firestore reports contention (Aborted)
@@ -74,7 +76,7 @@ func RunTransactionRetry(ctx context.Context, client TxnRunner, cfg TxnRetry, fn
 			}
 		}
 		var n int
-		n, err = RunTransaction(ctx, client, fn)
+		n, err = RunTransaction(ctx, client, fn, cfg.Options...)
 		total += n
 		if !IsContention(err) {
 			break

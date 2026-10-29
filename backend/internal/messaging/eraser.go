@@ -75,7 +75,7 @@ func NewEraser(repo Purger, log *slog.Logger) Eraser {
 //  3. delete the user's own dmInbox or dmRequests entry;
 //  4. when the peer is gone too, delete the whole tree: the messages 500 per call, then the conversation document;
 //     otherwise rewrite the conversation LAST, replacing the uid by DeletedUID in participants, gone, requestFrom and
-//     requestTo and dropping its clearedAt entry (the peer's entry got peerId = DeletedUID in step 1).
+//     requestTo and dropping its clearedAt and clearedKey entries (the peer's entry got peerId = DeletedUID in step 1).
 //
 // The order is what makes it resumable: the cursor query finds a conversation through `participants array-contains uid`,
 // so that field is the last thing changed. Every earlier step keeps the uid findable and is idempotent; once the

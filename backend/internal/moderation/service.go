@@ -45,6 +45,8 @@ type Deps struct {
 	Posts     PostViewer
 	Accounts  AccountViewer
 	Directory identity.Directory
+	// Messages resolves a MESSAGE target (ADR-0027 D12, W7-12); nil makes a message report an internal error.
+	Messages MessageLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
@@ -97,9 +99,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		return ReportResult{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
 	switch in.TargetType {
-	case TargetPost, TargetAccount:
+	case TargetPost, TargetAccount, TargetMessage:
 	default:
-		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST or ACCOUNT")
+		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT or MESSAGE")
 	}
 	if in.Reason == "" {
 		return ReportResult{}, apierr.Validation("reason", "choose a reason")
@@ -115,6 +117,10 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		}
 		if in.TargetID == uid {
 			return ReportResult{}, apierr.Validation("target_id", "you cannot report your own account")
+		}
+	case TargetMessage:
+		if _, _, ok := ParseMessageTarget(in.TargetID); !ok {
+			return ReportResult{}, apierr.Validation("target_id", "target_id must be a conversation id and a message id joined by a colon")
 		}
 	}
 	note, err := normalizeNote(in.Note)
@@ -190,6 +196,15 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// profile_extras is globally off it holds no website. No field here holds a uid (media URLs are m/{mediaId}).
 		rep.Evidence = &Evidence{AuthorHandle: prof.Handle, DisplayName: prof.DisplayName, Bio: prof.Bio,
 			Location: prof.Location, Website: prof.Website, AvatarURL: prof.AvatarURL, BannerURL: prof.BannerURL}
+	case TargetMessage:
+		m, err := s.reportedMessage(ctx, uid, in.TargetID)
+		if err != nil {
+			return ReportResult{}, err
+		}
+		// ADR-0027 D12: the evidence is that one message's text, the sender's handle and its time, and nothing else of
+		// the conversation. The text is private content (ADR-0016 note 2026-10-28); it is never logged.
+		rep.TargetOwnerID = m.SenderUID
+		rep.Evidence = &Evidence{Text: m.Text, AuthorHandle: m.SenderHandle, PostCreatedAt: m.CreatedAt}
 	}
 
 	limit := s.d.ReportsPerDay
@@ -220,6 +235,26 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		logger.SetRequestField(ctx, fieldOutcome, "created")
 	}
 	return ReportResult{ReportID: rep.ID, AlreadyReported: cr.Existing}, nil
+}
+
+// reportedMessage asks the MessageLookup for the message of a MESSAGE target (already shape-checked). Every
+// "unreportable" cause is the one NOT_FOUND built here, so the bytes never say which rule refused; the caller's own
+// message is the VALIDATION target_id. Anything else is an internal error whose ids are redacted.
+func (s *service) reportedMessage(ctx context.Context, uid, targetID string) (ReportedMessage, error) {
+	if s.d.Messages == nil {
+		return ReportedMessage{}, errors.New("moderation: message reports are not wired")
+	}
+	convID, msgID, _ := ParseMessageTarget(targetID)
+	m, err := s.d.Messages.ReportableMessage(ctx, uid, convID, msgID)
+	switch {
+	case errors.Is(err, ErrOwnMessage):
+		return ReportedMessage{}, apierr.Validation("target_id", "you cannot report your own message")
+	case errors.Is(err, ErrMessageNotFound):
+		return ReportedMessage{}, messageNotFound()
+	case err != nil:
+		return ReportedMessage{}, logger.RedactErr(fmt.Errorf("moderation: load message: %w", err), uid, convID, msgID)
+	}
+	return m, nil
 }
 
 // mediaIDs are the ids of the post's images (0 reads: the post is already loaded), nil for a text-only post.

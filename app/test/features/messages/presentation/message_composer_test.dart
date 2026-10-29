@@ -26,6 +26,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../support/fake_send_repository.dart';
 import '../../../support/messaging_fixtures.dart';
+import '../../../support/messaging_shell_rig.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/thread_test_support.dart';
 
@@ -223,9 +224,11 @@ void main() {
   group('the composer in a conversation', () {
     late FakeSendRepository repo;
     late MockOnboardingBloc onboarding;
+    late MessagingShellRig rig;
     late FakeThreadPoller poller;
 
     setUp(() {
+      rig = MessagingShellRig();
       repo = FakeSendRepository();
       onboarding = MockOnboardingBloc();
       poller = FakeThreadPoller();
@@ -277,8 +280,11 @@ void main() {
             RepositoryProvider<MessagingRepository>.value(value: repo),
             RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
           ],
-          child: BlocProvider<OnboardingBloc>.value(
-            value: onboarding,
+          child: MultiBlocProvider(
+            providers: [
+              BlocProvider<OnboardingBloc>.value(value: onboarding),
+              ...rig.providers,
+            ],
             child: MediaQuery(
               data: MediaQueryData(
                 size: size,

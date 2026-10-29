@@ -71,7 +71,20 @@ func ConversationID(a, b string) string {
 // MessageID is the deterministic id of a message (ADR-0027 D2, Option C1): the first 32 hex characters of
 // SHA-256(senderUid | "SendMessage" | idempotency_key). The message document is the idempotency record.
 func MessageID(senderUID, key string) string {
-	return digest32(senderUID + "|SendMessage|" + key)
+	return keyDigest(senderUID, opSend, key)
+}
+
+// Operation names in a key digest: the same key reused for another operation, or by another user, digests differently.
+const (
+	opSend   = "SendMessage"
+	opDelete = "DeleteConversation"
+)
+
+// keyDigest is the one construction behind every stored idempotency key (C1): the first 32 hex characters of
+// SHA-256(uid | operation | idempotency_key). A message id is one; so is conversations.clearedKey.{uid} (the 2026-10-29
+// note of ADR-0027: DeleteConversation stores the digest of its key next to clearedAt, at no extra read or write).
+func keyDigest(uid, op, key string) string {
+	return digest32(uid + "|" + op + "|" + key)
 }
 
 // requestHash is the one-way digest of a SendMessage request used to tell a replay from a reused key (ADR-0027 D1: same
@@ -122,9 +135,15 @@ type ConvDoc struct {
 	RequestTo    string               `firestore:"requestTo,omitempty"`
 	RequestCount int64                `firestore:"requestCount"`
 	ClearedAt    map[string]time.Time `firestore:"clearedAt,omitempty"`
-	Gone         []string             `firestore:"gone,omitempty"`
-	CreatedAt    time.Time            `firestore:"createdAt"`
-	UpdatedAt    time.Time            `firestore:"updatedAt"`
+	// ClearedKey is the digest (keyDigest) of the idempotency_key of each participant's last DeleteConversation, written in the
+	// same update as ClearedAt[uid] and erased with it. Like ClearedAt it has no index exemption: no query uses it.
+	ClearedKey map[string]string `firestore:"clearedKey,omitempty"`
+	Gone       []string          `firestore:"gone,omitempty"`
+	CreatedAt  time.Time         `firestore:"createdAt"`
+	UpdatedAt  time.Time         `firestore:"updatedAt"`
+	// Rev is the thread revision (ADR-0027 note 2026-10-29): incremented by a takedown and by the eraser's RewriteConversation,
+	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete or mark-read.
+	Rev int64 `firestore:"rev,omitempty"`
 }
 
 func (c ConvDoc) hasParticipant(uid string) bool {
@@ -152,6 +171,9 @@ type MsgDoc struct {
 	State       string    `firestore:"state"`
 	RequestHash string    `firestore:"requestHash"`
 	CreatedAt   time.Time `firestore:"createdAt"`
+	// RemovedAt is the server time of a moderator takedown, set together with State REMOVED (a durable record of the
+	// takedown even when it was made without --report).
+	RemovedAt time.Time `firestore:"removedAt,omitempty"`
 }
 
 // PeerDoc is the peer snapshot an inbox entry holds (index-exempt).
@@ -188,4 +210,9 @@ type EntryDoc struct {
 	Silent        bool      `firestore:"silent"`
 	LastReadAt    time.Time `firestore:"lastReadAt"`
 	CreatedAt     time.Time `firestore:"createdAt"`
+	// ChangedAt is when the entry last changed in a way a cached device must see (ADR-0027 note 2026-10-29): every send (the
+	// same stamp as LastMessageAt), a takedown rewriting the preview, the eraser rewriting the peer snapshot, an accepted
+	// request moved to the inbox. The ListConversations since query orders by it. It stays on the automatic single-field
+	// index; an entry written before it existed has none and never matches a since query.
+	ChangedAt time.Time `firestore:"changedAt,omitempty"`
 }

@@ -4,6 +4,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
+import 'package:dzeroth/features/messages/domain/thread_push_coverage.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -210,6 +211,144 @@ void main() {
 
       await cubit.load();
       expect(cubit.state.readOnly, isTrue);
+    });
+  });
+
+  group('onOpenedUnread (W7-19, the Messages badge)', () {
+    ThreadCubit makeReporting(List<String> reported) => cubit = ThreadCubit(
+      repository: repo,
+      poller: poller,
+      conversationId: kThreadId,
+      uuid: uuid,
+      onOpenedUnread: reported.add,
+    );
+
+    test('fires once when the cached header says unread', () async {
+      stubOpen(
+        snap(thread(3), conversation: threadConv(unread: 2)),
+        snap(thread(3), conversation: threadConv(unread: 2)),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, [kThreadId]);
+    });
+
+    // ListMessages carries no unread_count today (its header is identity, peer,
+    // state, folder and can_reply), so a thread opened with nothing cached
+    // cannot tell: the badge keeps its number until the next Inbox load or
+    // GetMe. W7-27 adds the count to the first page.
+    test('not when nothing is cached and the ListMessages header, as the '
+        'server sends it, has no unread_count', () async {
+      stubOpen(const ThreadSnapshot(), snap(thread(3)));
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('fires from the cached Inbox row the cold open kept: the header has '
+        'no unread_count, the merged row does', () async {
+      // What the repository hands over after MessagingStore merged the header
+      // into the cached row (mergeThreadHeader keeps the cached count).
+      stubOpen(
+        const ThreadSnapshot(),
+        snap(thread(3), conversation: threadConv(unread: 2)),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, [kThreadId]);
+    });
+
+    test('not for a request: requests never count (D10, S1)', () async {
+      final request = threadConv(
+        unread: 2,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+        folder: Folder.FOLDER_REQUESTS,
+      );
+      stubOpen(
+        snap(thread(3), conversation: request),
+        snap(thread(3), conversation: request),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await cubit.refresh();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('a request opened unread still marks it read', () async {
+      final request = threadConv(
+        unread: 2,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+        folder: Folder.FOLDER_REQUESTS,
+      );
+      stubOpen(
+        snap(thread(3), conversation: request),
+        snap(thread(3), conversation: request),
+      );
+      makeReporting(<String>[]);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(markCalls(), 1);
+    });
+
+    test('not for a conversation that was read when opened', () async {
+      stubOpen(snap(thread(3)), snap(thread(3)));
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('not for messages that arrive while the thread is open', () async {
+      stubOpen(snap(thread(3)), snap(thread(3)));
+      final reported = <String>[];
+      makeReporting(reported);
+      await cubit.load();
+      when(() => repo.pollThread(kThreadId))
+          .thenAnswer((_) async => const PollResult(newMessages: true));
+      when(() => repo.cachedThread(kThreadId)).thenAnswer(
+        (_) async => snap(thread(4), conversation: threadConv(unread: 1)),
+      );
+
+      await cubit.pull();
+      await pumpEventQueue();
+
+      expect(reported, isEmpty);
+    });
+
+    test('once only, however many refreshes see the unread count', () async {
+      stubOpen(
+        snap(thread(3), conversation: threadConv(unread: 2)),
+        snap(thread(3), conversation: threadConv(unread: 2)),
+      );
+      final reported = <String>[];
+      makeReporting(reported);
+
+      await cubit.load();
+      await cubit.refresh();
+      await pumpEventQueue();
+
+      expect(reported, [kThreadId]);
     });
   });
 
@@ -722,6 +861,31 @@ void main() {
           ),
         ).captured;
         expect(keys, ['key-1', 'key-1']);
+      });
+
+      test('after Accept the push coverage rule sees an accepted inbox '
+          'conversation, so the poller moves to its 30 s hot interval at the '
+          'next schedule (no extra request)', () async {
+        stubOpen(
+          snap(thread(1), conversation: received()),
+          snap(thread(1), conversation: received()),
+        );
+        stubAccept(() async {});
+        make();
+        await cubit.load();
+        bool covered() => pushCoversThread(
+          deviceRegistered: true,
+          notificationsEnabled: true,
+          conversation: cubit.state.conversation,
+        );
+        expect(covered(), isFalse, reason: 'a request polls at 15 s');
+        clearInteractions(repo);
+        stubAccept(() async {});
+
+        await cubit.acceptRequest();
+
+        expect(covered(), isTrue);
+        verifyNever(() => repo.refreshThread(any()));
       });
 
       test(
