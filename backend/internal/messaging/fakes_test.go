@@ -47,6 +47,10 @@ type fakeRepo struct {
 	markMissing bool
 	markErr     error
 
+	// entryGets records GetEntry calls as "uid|folder|convID" (W7-27); entryErr is what it answers when set.
+	entryGets []string
+	entryErr  error
+
 	// accepts and deletes record the W7-9 calls; lifeErr is returned by both when set; writes and deletedDocs count the
 	// documents the fake wrote and deleted (the budget the real repo reports).
 	accepts     []AcceptParams
@@ -203,6 +207,25 @@ func (f *fakeRepo) MarkRead(_ context.Context, uid, convID string, _ time.Time) 
 }
 
 func entryKey(uid, folder string) string { return uid + "|" + folder }
+
+// GetEntry answers from the in-memory folders (entryRequests reads dmRequests, anything else dmInbox) and records the call
+// as "uid|folder|convID" in entryGets.
+func (f *fakeRepo) GetEntry(_ context.Context, uid, convID, folder string) (EntryDoc, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.entryGets = append(f.entryGets, uid+"|"+folder+"|"+convID)
+	if f.entryErr != nil {
+		return EntryDoc{}, false, f.entryErr
+	}
+	collection := dmInboxCollection
+	if folder == entryRequests {
+		collection = dmRequestsCollection
+	}
+	if i, ok := f.findEntry(uid, collection, convID); ok {
+		return f.entries[entryKey(uid, collection)][i].EntryDoc, true, nil
+	}
+	return EntryDoc{}, false, nil
+}
 
 // ListEntries answers like the Firestore query: `lastMessageAt DESC, __name__ DESC`, StartAfter / EndBefore, Limit.
 func (f *fakeRepo) ListEntries(_ context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {

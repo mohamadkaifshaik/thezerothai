@@ -109,6 +109,24 @@ func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc
 	return c, true, nil
 }
 
+// GetEntry implements Repo: users/{uid}/dmInbox/{convId} or dmRequests/{convId} by folder (entryRequests, else inbox). Reads 1,
+// counted for a missing document too (Firestore bills it).
+func (r *FirestoreRepo) GetEntry(ctx context.Context, uid, convID, folder string) (EntryDoc, bool, error) {
+	snap, err := r.entryRef(uid, convID, folder).Get(ctx)
+	budget.FromContext(ctx).AddReads(1)
+	if status.Code(err) == codes.NotFound {
+		return EntryDoc{}, false, nil
+	}
+	if err != nil {
+		return EntryDoc{}, false, fmt.Errorf("messaging: get entry: %w", err)
+	}
+	var e EntryDoc
+	if err := snap.DataTo(&e); err != nil {
+		return EntryDoc{}, false, fmt.Errorf("messaging: decode entry: %w", err)
+	}
+	return e, true, nil
+}
+
 // GetMessage implements Repo: the stored message (1 read); found is false when it is missing. A send reads it to answer a
 // replay, a message report (W7-12) to take its evidence.
 func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {

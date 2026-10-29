@@ -352,7 +352,10 @@ func TestListMessages_ConversationBlock(t *testing.T) {
 	}{
 		{"accepted, free", nil, nil, alice, true, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
 		{"caller blocks peer", func(r *rig) { r.social.snaps[alice] = graph.Snapshot{Blocked: map[string]bool{bob: true}} }, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
-		{"peer blocks caller", func(r *rig) { r.social.snaps[alice] = graph.Snapshot{BlockedBy: map[string]bool{bob: true}} }, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
+		{"peer blocks caller (frozen entry peer)", func(r *rig) {
+			r.social.snaps[alice] = graph.Snapshot{BlockedBy: map[string]bool{bob: true}}
+			r.putEntry(alice, dmInboxCollection, EntryDoc{PeerID: bob, Peer: PeerDoc{Handle: "bob_old", DisplayName: "Bob Old"}})
+		}, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
 		{"request, recipient", nil, func(c *ConvDoc) { c.State, c.RequestFrom, c.RequestTo = stateRequest, alice, bob }, bob, true, alice, messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, requests},
 		{"request, requester", nil, func(c *ConvDoc) { c.State, c.RequestFrom, c.RequestTo = stateRequest, alice, bob }, alice, true, bob, messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, inbox},
 	}
@@ -366,7 +369,11 @@ func TestListMessages_ConversationBlock(t *testing.T) {
 				t.Fatalf("conversation = %+v, want can_reply %v peer %s state %v folder %v", c, tt.wantCan, tt.wantPeer, tt.wantState, tt.wantFolder)
 			}
 			if c.Peer.Handle == "" || c.Peer.DisplayName == "" {
-				t.Errorf("peer snapshot = %+v, want the live profile", c.Peer)
+				t.Errorf("peer snapshot = %+v, want a real profile", c.Peer)
+			}
+			// Only the blocking peer is the entry's frozen snapshot (handle bob_old); everyone else is the live profile.
+			if frozen := strings.HasPrefix(tt.name, "peer blocks caller"); frozen != (c.Peer.Handle == "bob_old") {
+				t.Errorf("peer handle = %q: the frozen entry snapshot is expected only when the peer blocked the caller", c.Peer.Handle)
 			}
 		})
 	}

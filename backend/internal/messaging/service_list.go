@@ -283,9 +283,11 @@ func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1
 	return c
 }
 
-// canReply: false when either side blocks the other or the peer deleted the account (read-only thread, still reportable).
+// canReply: false when either side blocks the other or the peer deleted the account (read-only thread, still reportable). A
+// caller whose blockedBy list overflowed cannot tell who blocks them, so it is fail-closed too (W7-27 security audit); the send
+// path stays authoritative.
 func canReply(peer string, snap graph.Snapshot) bool {
-	return peer != DeletedUID && !snap.Blocked[peer] && !snap.BlockedBy[peer]
+	return peer != DeletedUID && !snap.Blocked[peer] && !snap.BlockedBy[peer] && !snap.BlockedByOverflow
 }
 
 // peerSnapshotOf is Conversation.peer from the entry's own snapshot. An erased peer (DeletedUID) is "Deleted account"
