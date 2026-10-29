@@ -1103,7 +1103,7 @@ void main() {
         ),
         (
           'degraded',
-          const DegradedModeException('ro'),
+          const DegradedModeException('raw-degraded-detail'),
           'dZeroth is in a limited mode right now. You can read your '
               'messages, but sending and changes are paused. Try again '
               'shortly.',
@@ -1124,7 +1124,11 @@ void main() {
           await tester.pumpAndSettle();
 
           expect(find.text(text), findsOneWidget);
-          expect(find.textContaining(error.message), findsNothing);
+          // The raw detail never reaches the user (unless the friendly text
+          // is the message itself, as for CANNOT_MESSAGE).
+          if (!text.contains(error.message)) {
+            expect(find.textContaining(error.message), findsNothing);
+          }
           expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
           expect(composer(), findsNothing);
           expect(
@@ -1148,6 +1152,10 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
         await tester.pumpAndSettle();
         fail = false;
+        // The error snackbar floats over the banner for a few seconds.
+        ScaffoldMessenger.of(tester.element(find.byType(ThreadScreen)))
+            .hideCurrentSnackBar();
+        await tester.pumpAndSettle();
         await tester.tap(find.widgetWithText(FilledButton, 'Accept'));
         await tester.pumpAndSettle();
 
@@ -1427,6 +1435,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text("It's spam"));
       await tester.pump();
+      await tester.ensureVisible(sendButton());
+      await tester.pumpAndSettle();
       await tester.tap(sendButton());
       await tester.pumpAndSettle();
 
@@ -1560,6 +1570,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text("It's spam"));
       await tester.pump();
+      await tester.ensureVisible(sendButton());
+      await tester.pumpAndSettle();
       await tester.tap(sendButton());
       await tester.pumpAndSettle();
 
@@ -1601,6 +1613,8 @@ void main() {
       expect(find.text('Report @sam'), findsOneWidget);
       await tester.tap(find.text("It's spam"));
       await tester.pump();
+      await tester.ensureVisible(sendButton());
+      await tester.pumpAndSettle();
       await tester.tap(sendButton());
       await tester.pumpAndSettle();
 
