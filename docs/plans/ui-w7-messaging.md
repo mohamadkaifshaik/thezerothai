@@ -359,7 +359,7 @@ Prices (§7):
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | In review (PR #453) |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
-| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Open |
+| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | In review (PR #455) |
 | W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Open |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
@@ -899,7 +899,7 @@ Order:
 - **Flag.** Reviews the `messaging` gates (per caller vs not globally off).
 - **Seam.** Checks the `stage-ladder` rate-limit multiplication and that `messages` is read only by `messaging.Service` (the E2E seam).
 
-### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: Open
+### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: In review (PR #455)
 - **Description.**
   - Add the W7 rows (≈ +37.0 reads, +5.8 writes, +12.6 requests per DAU) to `docs/reviews/cost-model.md` §1–§5 as an additive block like W2's.
   - Run `make loadtest SCENARIO=messaging` on emulators: a send burst, 300 pollers at 15 s, first pages cold and warm.
