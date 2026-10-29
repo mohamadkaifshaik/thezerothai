@@ -64,9 +64,21 @@ func messagesPageBinding(uid, convID string) string {
 // caller graph, cached 60 s) and unset on a since refresh, a gap fill included, which reads neither. An erased peer
 // (DeletedUID) is "Deleted account", never looked up, and can_reply is false.
 //
+// First page only (W7-27): one more read, the caller's own entry (users/{uid}/dmInbox/{id}, or dmRequests when entryFolder
+// says the caller is the recipient of an unaccepted request). The folder comes from the 60 s conversation copy, so an accept
+// on another instance is seen within 60 s, and a stale answer is only a missing entry, which reads 0. The entry fills
+// Conversation.unread_count and silent; a missing entry (delete-for-me, never created) is 0 / false. It runs after the
+// participant check, so NOT_FOUND is unchanged. A since refresh and an older page never read it.
+//
+// Blocked peer (W7-30, security review M-2): when the caller's graph says the peer blocked them (BlockedBy, or
+// BlockedByOverflow, where the list cannot be trusted), the live directory profile is dropped from the answer and the peer is
+// the frozen snapshot on the caller's own entry, what they already saw at the last message. An older page reads no entry,
+// so it (and a first page whose entry is gone) answers the "Deleted account" placeholder, never the live handle or avatar.
+//
 // Worst-case Firestore cost (budget.Counter; the account-status interceptor read counted as the proto comment does):
-//   - first or older page of 20 / 50: 24 / 54 reads cold (interceptor 1, conversation 1, query page, peer users 1, caller
-//     graph 1), planning 15; warm caches: 1 + page
+//   - first page of 20 / 50: 25 / 55 reads cold (interceptor 1, conversation 1, query page, peer users 1, caller graph 1,
+//     caller entry 1), planning 16; warm caches: 2 + page
+//   - older page of 20 / 50: 24 / 54 reads cold (the same without the entry), planning 15; warm caches: 1 + page
 //   - since poll: 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2
 //   - NOT_FOUND: at most 2 reads; writes 0
 func (s *service) ListMessages(ctx context.Context, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, error) {
@@ -166,14 +178,24 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	// The conversation block is for a first page and an older page; a since refresh and a gap fill read neither the peer
 	// profile nor the graph.
 	withConv := in.since == nil && !in.gapFill
+	// The caller's own entry (unread_count, silent, the frozen peer): the first page only, after the participant check.
+	first := in.since == nil && !in.paged
 	var (
-		rows []MessageRow
-		prof identity.Profile
-		live bool
-		snap graph.Snapshot
+		rows  []MessageRow
+		prof  identity.Profile
+		live  bool
+		snap  graph.Snapshot
+		entry EntryDoc
+		found bool
 	)
 	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(3)
+	g.SetLimit(4)
+	if first {
+		g.Go(func() (err error) {
+			entry, found, err = s.d.Repo.GetEntry(gctx, uid, in.convID, entryFolder(conv, uid))
+			return err
+		})
+	}
 	g.Go(func() (err error) {
 		rows, err = s.d.Repo.ListMessages(gctx, in.convID, MessageQuery{Limit: in.limit, Before: in.before, After: in.after, ClearedAt: conv.ClearedAt[uid]})
 		return err
@@ -229,8 +251,23 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		}
 		resp.SinceToken = s.messagesSinceToken(uid, in, rows, rev, now)
 	}
+	if first {
+		logger.SetRequestField(ctx, fieldEntryFound, found)
+	}
 	if withConv {
-		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live, snap)
+		// The peer blocked the caller (or the list cannot say): never the live profile. The directory lookup above ran in
+		// parallel with the graph read and is dropped here (the same one read an unblocked caller makes); the frozen
+		// snapshot is the caller's own entry's, nil on an older page or when the entry is gone.
+		blocked := peer != DeletedUID && (snap.BlockedBy[peer] || snap.BlockedByOverflow)
+		var frozen *PeerDoc
+		if blocked && found {
+			frozen = &entry.Peer
+		}
+		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live && !blocked, snap, frozen)
+		// (a blocked peer with no entry to freeze reads "Deleted account": live is false for it)
+		if first {
+			resp.Conversation.UnreadCount, resp.Conversation.Silent = entry.UnreadCount, entry.Silent
+		}
 	}
 	return resp, nil
 }
@@ -261,10 +298,12 @@ func messageOf(r MessageRow, convID, uid string) *messagingv1.Message {
 }
 
 // threadConversation is Conversation as ListMessages carries it: identity, peer, state, folder and can_reply. The counters
-// and the preview live on the caller's entry, which this RPC does not read (ListConversations owns them). The folder is
-// the caller's entry's: the recipient of an unaccepted request sees it in REQUESTS, everyone else in INBOX. An erased
-// peer, or one the directory no longer lists as ACTIVE, reads "Deleted account" and the thread is read-only.
-func threadConversation(convID string, conv ConvDoc, uid, peer string, prof identity.Profile, live bool, snap graph.Snapshot) *messagingv1.Conversation {
+// and the preview live on the caller's entry; the caller fills unread_count and silent from it on a first page (W7-27), and
+// ListConversations owns the rest. The folder is the caller's entry's: the recipient of an unaccepted request sees it in
+// REQUESTS, everyone else in INBOX. An erased peer, or one the directory no longer lists as ACTIVE, reads "Deleted account"
+// and the thread is read-only. frozen is the caller's entry's peer snapshot, passed only when the peer blocked the caller (the
+// live profile is then never shown, W7-30); with live false and frozen nil that case reads "Deleted account" too.
+func threadConversation(convID string, conv ConvDoc, uid, peer string, prof identity.Profile, live bool, snap graph.Snapshot, frozen *PeerDoc) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{
 		Id: convID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
 		State: messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, Folder: messagingv1.Folder_FOLDER_INBOX,
@@ -274,6 +313,10 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 		if conv.RequestTo == uid {
 			c.Folder = messagingv1.Folder_FOLDER_REQUESTS
 		}
+	}
+	if peer != DeletedUID && frozen != nil {
+		c.Peer, c.CanReply = peerSnapshotOf(peer, *frozen), canReply(peer, snap)
+		return c
 	}
 	if peer == DeletedUID || !live {
 		c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}

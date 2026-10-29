@@ -352,7 +352,10 @@ func TestListMessages_ConversationBlock(t *testing.T) {
 	}{
 		{"accepted, free", nil, nil, alice, true, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
 		{"caller blocks peer", func(r *rig) { r.social.snaps[alice] = graph.Snapshot{Blocked: map[string]bool{bob: true}} }, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
-		{"peer blocks caller", func(r *rig) { r.social.snaps[alice] = graph.Snapshot{BlockedBy: map[string]bool{bob: true}} }, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
+		{"peer blocks caller (frozen entry peer)", func(r *rig) {
+			r.social.snaps[alice] = graph.Snapshot{BlockedBy: map[string]bool{bob: true}}
+			r.putEntry(alice, dmInboxCollection, EntryDoc{PeerID: bob, Peer: PeerDoc{Handle: "bob", DisplayName: "Bob"}})
+		}, nil, alice, false, bob, messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED, inbox},
 		{"request, recipient", nil, func(c *ConvDoc) { c.State, c.RequestFrom, c.RequestTo = stateRequest, alice, bob }, bob, true, alice, messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, requests},
 		{"request, requester", nil, func(c *ConvDoc) { c.State, c.RequestFrom, c.RequestTo = stateRequest, alice, bob }, alice, true, bob, messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, inbox},
 	}

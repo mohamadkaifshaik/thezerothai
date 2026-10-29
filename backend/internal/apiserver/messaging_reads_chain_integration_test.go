@@ -69,7 +69,7 @@ func convID(a, b dmUser) string { return messaging.ConversationID(a.uid, b.uid) 
 
 // Budget table of the read RPCs through the whole chain on a cold instance, against the proto doc comments:
 // ListConversations first INBOX page of n rows 3+n reads (interceptor, caller graph, query rows, request count()), REQUESTS
-// 2+n, a since refresh 3 worst; ListMessages first page 4+n (interceptor, conversation, caller graph, peer, rows), a poll 3 +
+// 2+n, a since refresh 3 worst; ListMessages first page 5+n (interceptor, conversation, caller graph, peer, caller entry, rows; older page 4+n), a poll 3 +
 // 1 per new message; MarkConversationRead 1 read (the interceptor's) and 1 write, 0 writes for a missing entry.
 func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 	setup := newDMChain(t, nil)
@@ -149,13 +149,17 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
 		}
 	})
-	measure("ListMessages first page of 20, cold", rpcListMessages, budgettest.Budget{Reads: 24}, func(e *dmChain) {
+	measure("ListMessages first page of 20, cold", rpcListMessages, budgettest.Budget{Reads: 25}, func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, heavy), PageSize: 20})
 		if err != nil || len(r.GetMessages()) != 20 || r.GetConversation() == nil {
 			t.Fatalf("messages = %d, conversation %v, err = %v", len(r.GetMessages()), r.GetConversation(), err)
 		}
+		// W7-27: the caller's own entry rides the first page; heavy sent 55 messages nobody read.
+		if n := r.GetConversation().GetUnreadCount(); n != 55 {
+			t.Errorf("first page unread_count = %d, want 55", n)
+		}
 	})
-	measure("ListMessages first page of 50, cold", rpcListMessages, budgettest.Budget{Reads: 54}, func(e *dmChain) {
+	measure("ListMessages first page of 50, cold", rpcListMessages, budgettest.Budget{Reads: 55}, func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, heavy), PageSize: 50})
 		if err != nil || len(r.GetMessages()) != 50 {
 			t.Fatalf("messages = %d, err = %v", len(r.GetMessages()), err)

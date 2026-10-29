@@ -161,6 +161,9 @@ type MessagingServiceClient interface {
 	// not returned. Tombstones (state DELETED_ACCOUNT or REMOVED) are returned with empty text.
 	// conversation is set on a first or older page (live peer snapshot from the identity directory, 60 s; can_reply
 	// from the caller graph, 60 s) and UNSET on a since response, so a poll reads no peer profile or graph.
+	// On the first page only, conversation.unread_count and conversation.silent come from the caller's own entry (0 and
+	// false when it is gone); on an older page they are unset. When the peer blocked the caller, conversation.peer is the
+	// snapshot frozen on the caller's entry, not the live profile ("Deleted account" on an older page).
 	// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
 	// gap_page_token (bounded below by the old since_token).
 	// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
@@ -168,9 +171,9 @@ type MessagingServiceClient interface {
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListConversations.
-	// Firestore: first or older page 20 / 50: reads 24 / 54 worst cold (interceptor, conversation, query, peer users,
-	// caller graph for can_reply), planning 15. since poll: reads 3 cold (interceptor, conversation, query min 1)
-	// + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
+	// Firestore: first page 20 / 50: reads 25 / 55 worst cold (interceptor, conversation, query, peer users, caller
+	// graph for can_reply, the caller's entry), planning 16; older page 24 / 54 (no entry), planning 15. since poll:
+	// reads 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
 	// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing
@@ -337,6 +340,9 @@ type MessagingServiceHandler interface {
 	// not returned. Tombstones (state DELETED_ACCOUNT or REMOVED) are returned with empty text.
 	// conversation is set on a first or older page (live peer snapshot from the identity directory, 60 s; can_reply
 	// from the caller graph, 60 s) and UNSET on a since response, so a poll reads no peer profile or graph.
+	// On the first page only, conversation.unread_count and conversation.silent come from the caller's own entry (0 and
+	// false when it is gone); on an older page they are unset. When the peer blocked the caller, conversation.peer is the
+	// snapshot frozen on the caller's entry, not the live profile ("Deleted account" on an older page).
 	// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
 	// gap_page_token (bounded below by the old since_token).
 	// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
@@ -344,9 +350,9 @@ type MessagingServiceHandler interface {
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListConversations.
-	// Firestore: first or older page 20 / 50: reads 24 / 54 worst cold (interceptor, conversation, query, peer users,
-	// caller graph for can_reply), planning 15. since poll: reads 3 cold (interceptor, conversation, query min 1)
-	// + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
+	// Firestore: first page 20 / 50: reads 25 / 55 worst cold (interceptor, conversation, query, peer users, caller
+	// graph for can_reply, the caller's entry), planning 16; older page 24 / 54 (no entry), planning 15. since poll:
+	// reads 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
 	// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing

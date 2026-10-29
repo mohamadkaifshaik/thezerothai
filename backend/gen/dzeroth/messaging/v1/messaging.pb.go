@@ -293,18 +293,21 @@ type Conversation struct {
 	Id   string           `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Kind ConversationKind `protobuf:"varint,2,opt,name=kind,proto3,enum=dzeroth.messaging.v1.ConversationKind" json:"kind,omitempty"`
 	// The other participant. From the caller's entry (refreshed on every message either way) in ListConversations, and
-	// live from the identity directory (60 s) in ListMessages. A peer who deleted the account reads "Deleted account".
+	// live from the identity directory (60 s) in ListMessages, except that a peer who blocked the caller is the entry's
+	// frozen snapshot there. A peer who deleted the account reads "Deleted account".
 	Peer  *v1.AuthorSnapshot `protobuf:"bytes,3,opt,name=peer,proto3" json:"peer,omitempty"`
 	State ConversationState  `protobuf:"varint,4,opt,name=state,proto3,enum=dzeroth.messaging.v1.ConversationState" json:"state,omitempty"`
 	// The folder of the caller's entry.
 	Folder      Folder          `protobuf:"varint,5,opt,name=folder,proto3,enum=dzeroth.messaging.v1.Folder" json:"folder,omitempty"`
 	LastMessage *MessagePreview `protobuf:"bytes,6,opt,name=last_message,json=lastMessage,proto3" json:"last_message,omitempty"`
-	// Unread messages for the caller. Does not grow while silent.
+	// Unread messages for the caller. Does not grow while silent. In ListMessages it is filled on the first page only
+	// (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry).
 	UnreadCount int64 `protobuf:"varint,7,opt,name=unread_count,json=unreadCount,proto3" json:"unread_count,omitempty"`
 	// False when either side blocks the other or the peer deleted the account: the thread is read-only but can still be
 	// reported. Show no composer.
 	CanReply bool `protobuf:"varint,8,opt,name=can_reply,json=canReply,proto3" json:"can_reply,omitempty"`
-	// True when the caller muted the peer: messages arrive without a push or an unread increment (F9).
+	// True when the caller muted the peer: messages arrive without a push or an unread increment (F9). In ListMessages
+	// it is filled on the first page only, from the caller's own entry.
 	Silent bool `protobuf:"varint,9,opt,name=silent,proto3" json:"silent,omitempty"`
 	// Last activity on the caller's entry; the ListConversations sort key.
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`

@@ -118,6 +118,9 @@ service MessagingService {
   // not returned. Tombstones (state DELETED_ACCOUNT or REMOVED) are returned with empty text.
   // conversation is set on a first or older page (live peer snapshot from the identity directory, 60 s; can_reply
   // from the caller graph, 60 s) and UNSET on a since response, so a poll reads no peer profile or graph.
+  // On the first page only, conversation.unread_count and conversation.silent come from the caller's own entry (0 and
+  // false when it is gone); on an older page they are unset. When the peer blocked the caller, conversation.peer is the
+  // snapshot frozen on the caller's entry, not the live profile ("Deleted account" on an older page).
   // A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
   // gap_page_token (bounded below by the old since_token).
   // Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
@@ -125,9 +128,9 @@ service MessagingService {
   // RATE_LIMITED answer pauses polling.
   // Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   // shared with ListConversations.
-  // Firestore: first or older page 20 / 50: reads 24 / 54 worst cold (interceptor, conversation, query, peer users,
-  // caller graph for can_reply), planning 15. since poll: reads 3 cold (interceptor, conversation, query min 1)
-  // + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
+  // Firestore: first page 20 / 50: reads 25 / 55 worst cold (interceptor, conversation, query, peer users, caller
+  // graph for can_reply, the caller's entry), planning 16; older page 24 / 54 (no entry), planning 15. since poll:
+  // reads 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
   rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -194,18 +197,21 @@ message Conversation {
   string id = 1;
   ConversationKind kind = 2;
   // The other participant. From the caller's entry (refreshed on every message either way) in ListConversations, and
-  // live from the identity directory (60 s) in ListMessages. A peer who deleted the account reads "Deleted account".
+  // live from the identity directory (60 s) in ListMessages, except that a peer who blocked the caller is the entry's
+  // frozen snapshot there. A peer who deleted the account reads "Deleted account".
   dzeroth.common.v1.AuthorSnapshot peer = 3;
   ConversationState state = 4;
   // The folder of the caller's entry.
   Folder folder = 5;
   MessagePreview last_message = 6;
-  // Unread messages for the caller. Does not grow while silent.
+  // Unread messages for the caller. Does not grow while silent. In ListMessages it is filled on the first page only
+  // (not on a since or older page), from the caller's own entry; 0 is authoritative there (read elsewhere, or no entry).
   int64 unread_count = 7;
   // False when either side blocks the other or the peer deleted the account: the thread is read-only but can still be
   // reported. Show no composer.
   bool can_reply = 8;
-  // True when the caller muted the peer: messages arrive without a push or an unread increment (F9).
+  // True when the caller muted the peer: messages arrive without a push or an unread increment (F9). In ListMessages
+  // it is filled on the first page only, from the caller's own entry.
   bool silent = 9;
   // Last activity on the caller's entry; the ListConversations sort key.
   google.protobuf.Timestamp updated_at = 10;
