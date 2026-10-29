@@ -61,6 +61,7 @@ func (s *Server) ListLikedPosts(ctx context.Context, req *connect.Request[engage
 		if i < len(page.Hints) {
 			page.Hints[i].Apply(v) // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author (ADR-0025 D2, D4)
 		}
+		v.LikedByViewer = v.LikedByViewer || v.Withheld // a placeholder row is a like by definition
 		out.Posts = append(out.Posts, v)
 	}
 	return connect.NewResponse(out), nil

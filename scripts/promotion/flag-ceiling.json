@@ -1,6 +1,10 @@
 {
   "_comment": "Per-env ceiling for server feature flags and Cloud Run shape. A revision may be promoted only if every flag's EFFECTIVE mode is <= the ceiling. Raising a ceiling is a reviewed PR. Allowlist uids are never stored here, only counts. Order: off < allowlist < percent < on.",
   "flags": ["ACCOUNT_LIFECYCLE", "BOOKMARKS", "CONTENT_DISCLOSURE", "ENGAGEMENT", "FOLLOW_SUGGESTIONS", "GRAPH", "LIKES_LIST", "MEDIA", "MESSAGING", "NOTIFICATIONS", "POSTS", "PRIVATE_ACCOUNTS", "PROFILE_EXTRAS", "PROFILE_SNAPSHOT", "PROFILE_TABS", "QUOTES", "REMOVED_IDS", "REPLIES", "REPLY_AUDIENCE", "REPORTS", "SCHEDULED_POSTS", "SHELLS", "UI_SHELL"],
+  "rollback_floors": {
+    "_comment": "resolve-rollback.sh refuses a last-good image built from a commit that is not at or after the floor commit (git merge-base --is-ancestor <floor> <image commit>) whenever the flag's effective mode on the rollback target is not off. The image commit comes from the 40-hex Artifact Registry tag (the github.sha IMAGE_TAG). Fail closed: no commit tag, an unreadable floor, or a commit missing from the checkout all refuse. Raising a floor is a reviewed PR, and only once the new floor is on last-good (see docs/runbooks/rollback.md).",
+    "PRIVATE_ACCOUNTS": {"commit": "e94014c67d6ad8dd376d7606fc74d6aa94150435", "pr": 418, "reason": "W3-36 M-1(b), raised for M-2: W3-39 (#418) on top of the Part B read paths (first floor 061395a0a2ef3202482ffcd34273c032069865bf, #395)"}
+  },
   "unset_default": {
     "_comment": "Mode when FEATURE_<N> is unset, from backend/pkg/platform/config/config.go (graph/posts: on in dev, off in prod; all others off). check-flag-registry.sh re-derives this from config.go.",
     "dev": {"GRAPH": "on", "POSTS": "on"},

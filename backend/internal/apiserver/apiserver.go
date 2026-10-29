@@ -198,6 +198,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ADR-0024 (W3-6): the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
+	// ADR-0027 D10 (W7-11): messaging counts the unread conversations (identity never imports messaging); its repo is built here
+	// because identity needs the counter at construction and the messaging service needs identity.Directory.
+	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -208,6 +211,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// ADR-0024 Amendment 1 A4: a replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
+		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // ADR-0027 D10: GetMe.unread_conversation_count
 		identity.WithExtrasFlags(featureFlags),
 		// W3-28b: an unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
@@ -425,7 +429,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// messaging (ADR-0027 D8): the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
 	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
-	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), log); err != nil {
 		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
 	}
@@ -534,10 +537,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; ListConversations (W7-7)
-	// is not globally off; the other three RPCs check the flag and answer Unimplemented until W7-8 and W7-9. Badge is nil until W7-11 builds the
-	// unread-conversation cache; the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
+	// is not globally off; the other three RPCs check the flag and answer Unimplemented until W7-8 and W7-9. Badge evicts identity's cached
+	// unread_conversation_count (W7-11); the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
+		Badge: identity.NewMessageBadgeCache(identityCache),
 		Limits: messaging.Limits{
 			RequestMaxUnanswered: int64(cfg.Messaging.RequestMaxUnanswered),
 			DMNewPerDay:          int64(cfg.Quota.DMNewConversationsPerDay), NewAccountDMNewPerDay: int64(cfg.Quota.NewAccountDMNewConversationsPerDay),

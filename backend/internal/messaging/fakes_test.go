@@ -34,6 +34,7 @@ type fakeRepo struct {
 	entries map[string][]EntryRow
 	lists   int
 	counts  int
+	unreads int // CountUnreadConversations calls
 	queries []ListQuery
 	listErr error
 
@@ -229,6 +230,19 @@ func (f *fakeRepo) CountRequests(_ context.Context, uid string) (int64, error) {
 	defer f.mu.Unlock()
 	f.counts++
 	return int64(len(f.entries[entryKey(uid, dmRequestsCollection)])), nil
+}
+
+func (f *fakeRepo) CountUnreadConversations(_ context.Context, uid string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unreads++
+	var n int64
+	for _, r := range f.entries[entryKey(uid, dmInboxCollection)] {
+		if r.UnreadCount > 0 {
+			n++
+		}
+	}
+	return min(n, unreadConversationsCap), nil
 }
 
 func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool, error) {

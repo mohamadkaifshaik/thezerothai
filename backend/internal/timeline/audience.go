@@ -35,7 +35,8 @@ type audienceFilter struct {
 	ctx     context.Context
 	viewer  string
 	snap    graph.Snapshot
-	err     error // the first set error: the response is UNAVAILABLE, never a partial page
+	err     error         // the first set error: the response is UNAVAILABLE, never a partial page
+	surface posts.Surface // SurfaceDirect, or SurfaceOwnProfile on the caller's own profile (W3-36 L-2)
 	dropped int
 	embed   map[string]postsv1.EmbedViewerState
 }
@@ -49,9 +50,10 @@ func (f *audienceFilter) keep(p *posts.Post) bool {
 	if f.err != nil || !p.Visible() {
 		return false
 	}
-	// SurfaceDirect: a caller who blocks or mutes the profile's owner still sees the posts (ADR-0010 D6); the Home
+	// SurfaceDirect (SurfaceOwnProfile on the caller's own profile, which keeps their own REPOST of a protected post as a
+	// PROTECTED row so it can be undone): a caller who blocks or mutes the profile's owner still sees the posts (ADR-0010 D6); the Home
 	// authors and the embedded authors were already filtered by allowedAuthor and embedAllowed.
-	d, err := f.aud.Decide(f.ctx, f.viewer, f.snap, p, posts.SurfaceDirect)
+	d, err := f.aud.Decide(f.ctx, f.viewer, f.snap, p, f.surface)
 	if err != nil {
 		f.err = err
 		return false
