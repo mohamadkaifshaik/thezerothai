@@ -337,16 +337,16 @@ Prices (§7):
 | W7-5 | SendMessage: repo, conversation create, accepted / request / new paths, block, mute and flag rules, caps, `Emitter.Emit` | backend-developer | M | W7-4 | yes (messaging module only); **same PR as W7-6** | Done (#416) |
 | W7-6 | Lifecycle: eraser step `messaging` (tombstone per F3), export section `messages` (F5), T11 guard rows, runbook `docs/runbooks/messaging.md` | backend-developer | M | W7-4 | lifecycle wiring in `apiserver.go` and `lifecycle_collections_guard_test.go` serialise with W3-32 and any W5/W6 eraser | Done (#416) |
 | W7-7 | ListConversations (Inbox / Requests, `since`, request count, read-time block and mute rules) | backend-developer | M | W7-5 | yes | Done (#431) |
-| W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | In review (PR pending) |
-| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | Open |
+| W7-8 | ListMessages (page + `since`, `clearedAt`, participant check) and MarkConversationRead | backend-developer | M | W7-5 | yes | Done (#438) |
+| W7-9 | AcceptMessageRequest and DeleteConversation | backend-developer | S | W7-5 | yes | In review (PR #443) |
 | W7-10 | notifications: push-only `message` type, own limiter bucket, generic text, `conversationId` data; messaging Emit adapter | backend-developer | M | W7-4, W7-5 | `fanout.go` / `fcm.go` / `api.go` serialise with W3-31 (Part B notification types) | Done (#429) |
-| W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | In review (PR pending) |
 | W7-12 | moderation: report a message (`MessageLookup`, evidence), `opsctl` message takedown, ADR-0016 dated note | backend-developer | M | W7-8 | `moderation` files; serialise with any W5 report target | In review (PR #445) |
+| W7-11 | identity: `GetMe.unread_conversation_count` via `identity.MessageBadge` | backend-developer | S | W7-4, W7-7 | `identity/service.go` and the `apiserver.go` wiring line serialise with W3-6 | Done (#437) |
 | W7-13 | Client data layer: `MessagingRepository`, drift tables, `kFeatureMessaging`, `ThreadPoller` (pure, fake clock) | frontend-developer | M | poller: — ; repository: W7-4 | **poller yes, start now** | Done (#406, #413) |
 | W7-14 | Inbox screen `/messages` (Inbox / Requests) | frontend-developer | M | W7-13 | yes | Done (#414) |
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
-| W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | In review (PR pending) |
+| W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
@@ -577,7 +577,7 @@ Order:
 - **Flag.** Not globally off (F6).
 - **Seam.** `messaging.Service.ListConversations`; the folder is an enum, so an "archived" folder is additive.
 
-### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: In review (PR pending)
+### W7-8 — ListMessages and MarkConversationRead  [owner: backend-developer] [size: M] [depends: W7-5]  Status: Done (#438)
 - **Description.**
   - **ListMessages.**
     - The participant check (conversation doc, per-instance cache 60 s; NOT_FOUND byte-identical for unknown, malformed-after-validation and non-participant).
@@ -600,7 +600,7 @@ Order:
 - **Flag.** Not globally off (F6).
 - **Seam.** `ListMessages(since_token)` is the one delivery seam a listener or SSE replaces (`stage-ladder`).
 
-### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: Open
+### W7-9 — AcceptMessageRequest and DeleteConversation  [owner: backend-developer] [size: S] [depends: W7-5]  Status: In review (PR #443)
 - **Description.**
   - **Accept** (the `requestTo` side only): the transaction sets `state = ACCEPTED`, moves the entry `dmRequests` → `dmInbox` (create + delete), keeps `unreadCount`, emits nothing. Already accepted → success, 0 writes.
   - **DeleteConversation:** deletes the caller's entry (either folder) and sets `clearedAt[caller] = now`. A request deleted this way stays a REQUEST for the sender, whose cap still applies. A later message recreates the caller's entry showing only newer messages.
@@ -639,7 +639,7 @@ Order:
 - **Flag.** `notifications` + `messaging` for the recipient.
 - **Seam.** `notifications.Emitter` stays the only push path (`stage-ladder` Real-time).
 
-### W7-11 — GetMe unread conversations badge  [owner: backend-developer] [size: S] [depends: W7-4, W7-7]  Status: In review (PR pending)
+### W7-11 — GetMe unread conversations badge  [owner: backend-developer] [size: S] [depends: W7-4, W7-7]  Status: Done (#437)
 - **Description.**
   - A consumer-side `identity.MessageBadge` interface (`UnreadConversations(ctx, uid) (int64, error)`), implemented by messaging as a `count()` of `users/{uid}/dmInbox where unreadCount > 0`, Limit 100.
   - The result is cached 30 s in identity's cache next to the notifications count.
@@ -755,7 +755,7 @@ Order:
 - **Flag.** `messaging` per caller (the composer is hidden when off for the caller).
 - **Seam.** `MessageComposerCubit` mirrors `ComposerCubit`'s intent rules; no second text validator.
 
-### W7-17 — New-message flow and profile "Message" button  [owner: frontend-developer] [size: M] [depends: W7-13; W3-14 for the profile button]  Status: In review (PR pending)
+### W7-17 — New-message flow and profile "Message" button  [owner: frontend-developer] [size: M] [depends: W7-13; W3-14 for the profile button]  Status: Done (#435)
 - **Description.**
   - **`/messages/new`:** full screen under 600 dp, a 600 dp dialog above, with a "To:" search field.
     - Empty: the caller's **Following list** (`GraphRepository.listFollowing`, paged, `UserListRow` without a FollowButton).

@@ -28,6 +28,52 @@ type Repo interface {
 	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
 	// GetMessage reads one stored message (W7-12, report a message): 1 read; found is false for a missing document.
 	GetMessage(ctx context.Context, convID, msgID string) (msg MsgDoc, found bool, err error)
+	// Accept runs the AcceptMessageRequest transaction (W7-9): 2 reads (the conversation, the caller's dmRequests entry),
+	// 2 writes and 1 delete; an already accepted conversation 1 read and nothing written.
+	Accept(ctx context.Context, p AcceptParams) (AcceptResult, error)
+	// Delete runs the DeleteConversation transaction (W7-9): 2 reads (the conversation, the caller's entry), 1 write
+	// (clearedAt, clearedKey) and 1 delete (the entry); a retry with the same key 1 read in the transaction and nothing written,
+	// any other repeat of a delete that already happened 2 reads and nothing written.
+	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
+}
+
+// AcceptParams is everything the accept transaction needs; the service has already validated the id and the caller's flag.
+type AcceptParams struct {
+	UID, ConvID string
+	Now         time.Time
+	// PeerAllowed reports whether the other participant has messaging on (the per-recipient half of ADR-0027 D6). It is
+	// pure (flags are env vars, 0 reads) and runs inside the transaction once the peer is known, only when something
+	// would be written. nil allows.
+	PeerAllowed func(peerUID string) bool
+}
+
+// AcceptResult is the outcome of Accept.
+type AcceptResult struct {
+	// Already: the conversation was ACCEPTED before this call; nothing was written.
+	Already bool
+	// Conv is the conversation after the call, from the transaction's own read (the cache is updated from it).
+	Conv ConvDoc
+}
+
+// DeleteParams is everything the delete transaction needs.
+type DeleteParams struct {
+	UID, ConvID string
+	Now         time.Time
+	// KeyDigest is keyDigest(uid, "DeleteConversation", idempotency_key). It is stored as clearedKey.{uid} with clearedAt, and
+	// a delete whose digest equals the stored one is a replay (nothing written, whatever happened since).
+	KeyDigest string
+}
+
+// DeleteResult is the outcome of Delete.
+type DeleteResult struct {
+	// Replay: nothing was written, because the request's key digest equals the stored clearedKey (a retry of the last delete),
+	// or the entry was gone and the conversation already cleared for the caller.
+	Replay bool
+	// Folder is the folder the caller's entry lives in (entryInbox or entryRequests); EntryDeleted says one was deleted.
+	Folder       string
+	EntryDeleted bool
+	// Conv is the conversation after the call (clearedAt[caller] included), from the transaction's own read.
+	Conv ConvDoc
 }
 
 // MessageRow is one stored message with its id (the document id).

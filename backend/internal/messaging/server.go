@@ -5,7 +5,6 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"connectrpc.com/connect"
@@ -31,16 +30,7 @@ func NewServer(svc Service) *Server { return &Server{svc: svc} }
 
 var _ messagingv1connect.MessagingServiceHandler = (*Server)(nil)
 
-// mapErr turns the service's sentinel into its Connect code; everything else (apierr errors such as FEATURE_DISABLED)
-// passes through for the error middleware to convert.
-func mapErr(err error) error {
-	if errors.Is(err, ErrNotImplemented) {
-		return connect.NewError(connect.CodeUnimplemented, errors.New("messaging is not implemented yet"))
-	}
-	return err
-}
-
-// call is the shared RPC shell: caller uid, deadline, the service method, error mapping.
+// call is the shared RPC shell: caller uid, deadline, the service method.
 func call[Req, Resp any](ctx context.Context, req *connect.Request[Req], fn func(context.Context, string, *Req) (*Resp, error)) (*connect.Response[Resp], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -50,7 +40,7 @@ func call[Req, Resp any](ctx context.Context, req *connect.Request[Req], fn func
 	defer cancel()
 	resp, err := fn(ctx, uid, req.Msg)
 	if err != nil {
-		return nil, mapErr(err)
+		return nil, err // apierr errors (FEATURE_DISABLED, NOT_FOUND, VALIDATION, ...) are converted by the error middleware
 	}
 	return connect.NewResponse(resp), nil
 }
