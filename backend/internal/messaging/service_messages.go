@@ -25,6 +25,7 @@ const (
 	kindPoll         = "poll"
 	kindMarkRead     = "mark_read"
 	fieldPoll        = "poll"
+	fieldSinceRetire = "since_retired"
 	fieldCacheHit    = "cache_hit"
 	fieldEntryFound  = "entry_found"
 )
@@ -89,6 +90,8 @@ type messagesInput struct {
 	limit  int
 	// since is a refresh position; before and after bound a page (window tokens: after is a gap fill's lower bound).
 	since, before, after *cursor.Cursor
+	// sinceRev is the thread revision sealed in the since token (0 for a token issued before revisions existed).
+	sinceRev int64
 	// paged: a page token was sent (an older page or a gap fill).
 	paged bool
 	// gapFill: the page token carried a lower bound, so this page is a refresh gap and carries no conversation.
@@ -107,11 +110,13 @@ func (s *service) validateMessages(uid string, req *messagingv1.ListMessagesRequ
 	now := s.d.Now()
 	switch {
 	case req.GetSinceToken() != "":
-		c, err := cursor.DecodeAtTTL(s.d.CursorKey, messagesSinceBinding(uid, in.convID), req.GetSinceToken(), now, s.tokenTTL())
+		// Decoded before any read: a foreign or tampered token costs nothing. The revision it carries is compared with the
+		// conversation's after the participant check (listMessages).
+		c, rev, err := cursor.DecodeRevAtTTL(s.d.CursorKey, messagesSinceBinding(uid, in.convID), req.GetSinceToken(), now, s.tokenTTL())
 		if err != nil {
 			return in, apierr.Validation("since_token", "invalid or expired since_token")
 		}
-		in.since, in.after = &c, &c
+		in.since, in.after, in.sinceRev = &c, &c, rev
 	case req.GetPageToken() != "":
 		w, err := cursor.DecodeWindowAt(s.d.CursorKey, messagesPageBinding(uid, in.convID), req.GetPageToken(), now, s.tokenTTL())
 		if err != nil || w.IsZero() {
@@ -133,6 +138,23 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		return nil, s.messagesErr(ctx, uid, in.convID, err)
 	}
 	peer := peerOf(conv.Participants, uid)
+
+	// The thread revision (ADR-0027 note 2026-10-29). A since token issued before the conversation changed under a cached
+	// device (a takedown, an erasure) carries a lower revision: it is retired with the very answer of an expired token, so
+	// the client makes the one cold open the token contract already prescribes. A higher revision means this instance's
+	// 60 s copy is the stale one: accept the token, drop the copy and seal the higher revision (no read). Checked after the
+	// participant check, so a non-participant never learns anything from it.
+	rev := conv.Rev
+	if in.since != nil {
+		switch {
+		case in.sinceRev < conv.Rev:
+			logger.SetRequestField(ctx, fieldSinceRetire, true)
+			return nil, apierr.Validation("since_token", "invalid or expired since_token")
+		case in.sinceRev > conv.Rev:
+			s.convs.Delete(in.convID)
+			rev = in.sinceRev
+		}
+	}
 
 	// The conversation block is for a first page and an older page; a since refresh and a gap fill read neither the peer
 	// profile nor the graph.
@@ -189,7 +211,7 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		if full {
 			resp.GapPageToken = cursor.EncodeWindowAt(s.d.CursorKey, messagesPageBinding(uid, in.convID), cursor.Window{Upper: oldest, Lower: in.since}, now)
 		}
-		resp.SinceToken = s.messagesSinceToken(uid, in, rows, now)
+		resp.SinceToken = s.messagesSinceToken(uid, in, rows, rev, now)
 	case in.paged: // an older page, or a gap fill that keeps its lower bound
 		if full {
 			resp.NextPageToken = cursor.EncodeWindowAt(s.d.CursorKey, messagesPageBinding(uid, in.convID), cursor.Window{Upper: oldest, Lower: in.after}, now)
@@ -198,7 +220,7 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		if full {
 			resp.NextPageToken = cursor.EncodeWindowAt(s.d.CursorKey, messagesPageBinding(uid, in.convID), cursor.Window{Upper: oldest}, now)
 		}
-		resp.SinceToken = s.messagesSinceToken(uid, in, rows, now)
+		resp.SinceToken = s.messagesSinceToken(uid, in, rows, rev, now)
 	}
 	if withConv {
 		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live, snap)
@@ -206,13 +228,14 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	return resp, nil
 }
 
-// messagesSinceToken is the token for the next poll (sealSince over the newest scanned message).
-func (s *service) messagesSinceToken(uid string, in messagesInput, rows []MessageRow, now time.Time) string {
+// messagesSinceToken is the token for the next poll (the position of sealSince over the newest scanned message, plus the
+// thread revision rev: the larger of the token's and the conversation's, so a stale instance never moves it backwards).
+func (s *service) messagesSinceToken(uid string, in messagesInput, rows []MessageRow, rev int64, now time.Time) string {
 	var newest *cursor.Cursor
 	if len(rows) > 0 {
 		newest = &cursor.Cursor{CreatedAt: rows[0].CreatedAt, DocID: rows[0].ID}
 	}
-	return s.sealSince(messagesSinceBinding(uid, in.convID), newest, in.since, now)
+	return cursor.EncodeRevAt(s.d.CursorKey, messagesSinceBinding(uid, in.convID), sinceCursor(newest, in.since, now), max(rev, in.sinceRev), now)
 }
 
 // messageOf maps a stored message to the wire Message. There is no sender uid: from_self is the only sender signal (an

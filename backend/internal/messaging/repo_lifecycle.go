@@ -224,7 +224,7 @@ func (r *FirestoreRepo) RewriteConversation(ctx context.Context, uid, convID str
 			}
 			ups := []firestore.Update{
 				{Path: "participants", Value: swap(conv.Participants)}, {Path: "gone", Value: swap(conv.Gone)},
-				{Path: "updatedAt", Value: wireTime(r.now())},
+				{Path: "updatedAt", Value: wireTime(r.now())}, {Path: "rev", Value: firestore.Increment(1)},
 			}
 			if conv.RequestFrom == uid {
 				ups = append(ups, firestore.Update{Path: "requestFrom", Value: DeletedUID})

@@ -98,7 +98,9 @@ type EntryRow struct {
 }
 
 // ListQuery is one page of ListEntries: `lastMessageAt DESC, __name__ DESC`, Limit rows. Before resumes below a position
-// (an older page: StartAfter); After keeps only entries strictly newer than a position (a `since` refresh: EndBefore).
+// (an older page: StartAfter); After keeps only entries strictly newer than a position (a `since` refresh: EndBefore). A
+// query with After orders and positions by `changedAt` instead (After.CreatedAt is a changedAt), so a takedown or an erasure
+// that changes an entry without moving its lastMessageAt still reaches a cached device.
 type ListQuery struct {
 	Limit         int
 	Before, After *cursor.Cursor

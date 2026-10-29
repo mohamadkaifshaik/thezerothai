@@ -390,7 +390,9 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 // Delete whose copy an Accept has already superseded) must not put an older document back over a newer one. The
 // check-then-set is not atomic; the 60 s TTL bounds what a lost race can show (D14).
 func (s *service) putConv(id string, c ConvDoc) {
-	if old, ok := s.convs.Get(id); ok && old.UpdatedAt.After(c.UpdatedAt) {
+	// With equal updatedAt (a coarse clock, an erasure racing a late reader) the higher revision wins; the revision only breaks
+	// ties, so a newer document with a lower revision still replaces (ADR-0027 note 2026-10-29).
+	if old, ok := s.convs.Get(id); ok && (old.UpdatedAt.After(c.UpdatedAt) || (old.UpdatedAt.Equal(c.UpdatedAt) && old.Rev > c.Rev)) {
 		return
 	}
 	s.convs.Set(id, c)

@@ -254,12 +254,12 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// The sender's own entry: always dmInbox (the requester sees the conversation in the Inbox, as on X). unreadCount is
 	// not touched; createdAt is set when this send created the conversation.
 	own := map[string]any{
-		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "silent": p.CallerSilent,
+		"peerId": p.PeerUID, "peer": p.Peer.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.CallerSilent,
 		"last": LastDoc{MessageID: p.MsgID, FromSelf: true, Snippet: snippet, State: msgVisible}.fields(),
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
-		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "silent": p.Silent,
+		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.Silent,
 		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible}.fields(),
 	}
 	if !p.Silent {
@@ -319,12 +319,19 @@ func sortedPair(a, b string) []string {
 // a count() as 1 read per 1,000 matches, so the cap keeps "Message requests (N)" at 1 read; the client shows "999+".
 const requestCountCap = 1000
 
-// ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (automatic single-field
-// index, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
+// ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (a since refresh:
+// `changedAt DESC, __name__ DESC`; automatic single-field indexes, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
 // dmInboxCollection or dmRequestsCollection: the caller picks it from an enum, never from request text.
 func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
 	col := r.client.Collection(usersCollection).Doc(uid).Collection(folder)
-	query := col.OrderBy("lastMessageAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
+	// First and older pages follow the inbox order (lastMessageAt). A since refresh follows changedAt instead: a takedown or an
+	// erasure changes an entry without moving lastMessageAt, and only the change stamp can surface it. An entry without
+	// changedAt (written before it existed) never matches the since query.
+	field := "lastMessageAt"
+	if q.After != nil {
+		field = "changedAt"
+	}
+	query := col.OrderBy(field, firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc)
 	if q.Before != nil {
 		query = query.StartAfter(q.Before.CreatedAt, col.Doc(q.Before.DocID))
 	}
