@@ -916,7 +916,7 @@ Order:
 - **Observability.** `fs_reads` on `kind=list_messages` rises by 1 on a first page.
 - **Budget.** **+1 read on a first page** (worst case 24 → 25). A first page is opened once per thread open, so the cost is about one read per thread open per DAU.
 - **Flag.** Not globally off (F6).
-- **Seam.** `messaging.Service.ListMessages`. The client needs no change: `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row.
+- **Seam.** `messaging.Service.ListMessages`. `mergeThreadHeader` already lets a header `unread_count` above 0 win over the cached row, but it keeps the cached count when the header says 0. Once this lands a first-page 0 is authoritative (read on another device), so a small client follow-up (frontend-developer, right after the backend PR) goes with this ticket: take the first-page header count as it is, so a stale unread cached row does not lower the badge or send a needless mark-read.
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids).

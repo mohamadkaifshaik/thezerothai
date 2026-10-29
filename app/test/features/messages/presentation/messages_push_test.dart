@@ -615,8 +615,10 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('a push for the open conversation refreshes nothing, now or '
-        'on return', (tester) async {
+    testWidgets('a push for the open conversation requests nothing while it '
+        'is open, and one throttled refresh on return: its row went stale', (
+      tester,
+    ) async {
       await rig.start();
       await pumpInboxWithThreadRoute(tester);
       await openThreadOverInbox(tester);
@@ -627,9 +629,26 @@ void main() {
       verifyNever(() => repo.rateLimitedFor());
       verifyNever(() => repo.refreshConversations(any()));
 
+      // Back after the throttle window: the one refresh runs.
+      clock = clock.add(const Duration(seconds: 90));
       await back(tester);
+      await tester.pump();
+      verify(() => repo.refreshConversations(Folder.FOLDER_INBOX)).called(1);
+      await leave(tester);
+    });
+
+    testWidgets('an inbox that is on top skips a push that names an open '
+        'conversation', (tester) async {
+      await rig.start();
+      await pumpInboxWithThreadRoute(tester);
+      clearInteractions(repo);
+      rig.badge.opened(kThreadId); // open elsewhere (e.g. side by side)
+
+      rig.messagePush(kThreadId);
+      await tester.pump();
+      await tester.pump();
+
       verifyNever(() => repo.rateLimitedFor());
-      verifyNever(() => repo.refreshConversations(any()));
       await leave(tester);
     });
 

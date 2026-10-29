@@ -147,16 +147,19 @@ class _ConversationsViewState extends State<_ConversationsView>
     });
   }
 
-  /// A foreground message push (W7-19): refresh, unless the push names a
-  /// conversation that is open (its thread polls and updates the row itself)
-  /// or this list is covered by a route (one refresh follows on return).
+  /// A foreground message push (W7-19). While this list is covered by a route
+  /// (its tickers are off, e.g. a thread is open over it) nothing is requested:
+  /// the push is remembered and one throttled refresh runs on return, so the
+  /// row of the conversation that moved is fresh when the list is shown again.
+  /// While it is on top, a push that names an open conversation is skipped
+  /// (that thread polls); any other push refreshes (throttled).
   void _onMessagePush(String? conversationId) {
-    if (conversationId != null &&
-        context.read<MessagesBadgeCubit>().isOpen(conversationId)) {
-      return;
-    }
     if (_tickerMode?.value.enabled == false) {
       _pushWhileCovered = true;
+      return;
+    }
+    if (conversationId != null &&
+        context.read<MessagesBadgeCubit>().isOpen(conversationId)) {
       return;
     }
     unawaited(context.read<ConversationsCubit>().refreshIfStale());
