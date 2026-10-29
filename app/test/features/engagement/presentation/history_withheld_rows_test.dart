@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
@@ -26,6 +27,7 @@ import 'package:dzeroth/gen/dzeroth/engagement/v1/engagement.pb.dart' as eng;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
+import 'package:dzeroth/shared/widgets/post_media.dart';
 import 'package:dzeroth/shared/widgets/protected_post_box.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -206,6 +208,25 @@ void main() {
   Finder boxes() => find.byType(ProtectedPostBox);
   Finder button(String label) => find.widgetWithText(OutlinedButton, label);
 
+  /// The withheld row of [withheldView]`(leak: true)` shows its author and
+  /// nothing else: no text, hashtag, count or photo.
+  void expectNothingLeaked(WidgetTester tester) {
+    expect(find.text('secret words that must not show'), findsNothing);
+    expect(find.textContaining('secrettag'), findsNothing);
+    expect(find.text('4242'), findsNothing);
+    expect(find.byType(PostMedia), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is CachedNetworkImage &&
+            (w.imageUrl.contains('full.jpg') ||
+                w.imageUrl.contains('thumb.jpg')),
+      ),
+      findsNothing,
+    );
+    expect(find.text('Locked Author 2'), findsOneWidget);
+  }
+
   /// The Likes page of the tests: a live post, a withheld one and a live one.
   void scriptLikes() {
     likes.pages[''] = () =>
@@ -352,6 +373,52 @@ void main() {
 
       expect(find.byKey(ValueKey('like-${postId(2)}')), findsOneWidget);
     });
+    testWidgets('the Unlike button is one labelled node naming the author', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      scriptLikes();
+      await open(tester, location: '/bookmarks?tab=likes');
+
+      expect(
+        tester.getSemantics(button('Unlike')),
+        matchesSemantics(
+          label: "Unlike, @locked2's post",
+          isButton: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+        ),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('two quick taps on Unlike send ONE request', (tester) async {
+      scriptLikes();
+      final gate = likes.toggleGate = Completer<void>();
+      await open(tester, location: '/bookmarks?tab=likes');
+
+      // No frame between the taps: the second lands on the same button.
+      await tester.tap(button('Unlike'));
+      await tester.tap(button('Unlike'));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(likes.toggles, hasLength(1));
+      expect(unliked, [postId(2)]);
+      expect(boxes(), findsNothing);
+    });
+
+    testWidgets('a withheld row shows none of what a hostile or older server '
+        'could still send', (tester) async {
+      likes.pages[''] = () =>
+          likesPageOf([withheldView(2, leak: true), likedView(1)]);
+      await open(tester, location: '/bookmarks?tab=likes');
+
+      expect(boxes(), findsOneWidget);
+      expectNothingLeaked(tester);
+    });
   });
 
   group('Bookmarks tab', () {
@@ -471,6 +538,55 @@ void main() {
       await tester.pumpAndSettle();
       expect(bookmarks.toggles.single, isA<eng.RemoveBookmarkRequest>());
       expect(boxes(), findsNothing);
+    });
+
+    testWidgets('the Remove bookmark button is one labelled node naming the '
+        'author', (tester) async {
+      final semantics = tester.ensureSemantics();
+      scriptBookmarks();
+      await open(tester);
+
+      expect(
+        tester.getSemantics(button('Remove bookmark')),
+        matchesSemantics(
+          label: "Remove bookmark, @locked2's post",
+          isButton: true,
+          isEnabled: true,
+          hasEnabledState: true,
+          hasTapAction: true,
+        ),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('two quick taps on Remove bookmark send ONE request', (
+      tester,
+    ) async {
+      scriptBookmarks();
+      final gate = bookmarks.toggleGate = Completer<void>();
+      await open(tester);
+
+      // No frame between the taps: the second lands on the same button.
+      await tester.tap(button('Remove bookmark'));
+      await tester.tap(button('Remove bookmark'));
+      await tester.pump();
+      gate.complete();
+      await tester.pumpAndSettle();
+
+      expect(bookmarks.toggles, hasLength(1));
+      expect(boxes(), findsNothing);
+    });
+
+    testWidgets('a withheld row shows none of what a hostile or older server '
+        'could still send', (tester) async {
+      bookmarks.pages[''] = () => bookmarksPageOf([
+        withheldView(2, liked: false, bookmarked: true, leak: true),
+        postView(1)..bookmarkedByViewer = true,
+      ]);
+      await open(tester);
+
+      expect(boxes(), findsOneWidget);
+      expectNothingLeaked(tester);
     });
   });
 }

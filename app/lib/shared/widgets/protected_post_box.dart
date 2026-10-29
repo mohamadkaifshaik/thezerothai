@@ -10,13 +10,15 @@ import 'app_avatar.dart';
 /// author protects their posts (`EMBED_VIEWER_STATE_PROTECTED`). Other viewers
 /// never get such a row (ADR-0025 D4); the caller gets their own on their own
 /// profile so they can undo it (note W3-36 L-2). Nothing opens from it: the
-/// original answers NOT_FOUND.
+/// original answers NOT_FOUND. A gone original (`embedded.unavailable`)
+/// is not this case: `PostCard` answers it with the unavailable box first.
 bool isProtectedRepost(pb.PostView view) {
   final post = view.post;
   return post.kind == PostKind.POST_KIND_REPOST &&
       view.embedViewerState ==
           pb.EmbedViewerState.EMBED_VIEWER_STATE_PROTECTED &&
       post.hasEmbedded() &&
+      !post.embedded.unavailable &&
       post.embedded.postId.isNotEmpty;
 }
 

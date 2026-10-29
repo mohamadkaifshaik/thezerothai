@@ -81,7 +81,12 @@ void main() {
     });
   }
 
-  GoRouter routerFor(pb.PostView view, {String? viewer, bool? engagement}) {
+  GoRouter routerFor(
+    pb.PostView view, {
+    String? viewer,
+    bool? engagement,
+    Future<void> Function(String postId)? onDelete,
+  }) {
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -99,6 +104,7 @@ void main() {
                     viewerUserId: viewer,
                     graphEnabled: false,
                     reportsEnabled: false,
+                    onDelete: onDelete,
                     engagementEnabled:
                         engagement ??
                         isFeatureEnabled(context, kFeatureEngagement),
@@ -123,6 +129,7 @@ void main() {
     pb.PostView view, {
     String? viewer = 'me',
     bool? engagement,
+    Future<void> Function(String postId)? onDelete,
     Brightness brightness = Brightness.light,
     Size size = const Size(400, 800),
     double textScale = 1,
@@ -139,7 +146,12 @@ void main() {
               .copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        routerConfig: routerFor(view, viewer: viewer, engagement: engagement),
+        routerConfig: routerFor(
+          view,
+          viewer: viewer,
+          engagement: engagement,
+          onDelete: onDelete,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -327,12 +339,33 @@ void main() {
       ).called(1);
     });
 
-    testWidgets('`engagement` off: the box still shows, with no action (the '
-        'repost button is not offered either)', (tester) async {
-      await open(tester, ownProtectedRepostView(), engagement: false);
+    testWidgets('`engagement` off: the box still shows, with no Undo repost; '
+        'the overflow menu keeps Delete, an equivalent server-side undo', (
+      tester,
+    ) async {
+      final deleted = <String>[];
+      await open(
+        tester,
+        ownProtectedRepostView(repost: 70),
+        engagement: false,
+        onDelete: (id) async => deleted.add(id),
+      );
 
       expect(find.byType(ProtectedPostBox), findsOneWidget);
       expect(find.byType(OutlinedButton), findsNothing);
+      expect(find.byTooltip('More options'), findsOneWidget);
+      await tester.tap(find.byTooltip('More options'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete'), findsOneWidget);
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      // The confirmation dialog.
+      expect(find.text('Delete this post?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+      // Delete acts on the REPOST row's own id (the server releases the
+      // reposts doc and the count in the same batch).
+      expect(deleted, [postId(70)]);
       await tester.tap(find.text('Locked Author'));
       await tester.pumpAndSettle();
       expect(find.textContaining('post page'), findsNothing);
@@ -373,6 +406,62 @@ void main() {
       await tester.tap(find.text('my take'));
       await tester.pumpAndSettle();
       expect(find.textContaining('post page'), findsOneWidget);
+    });
+  });
+
+  testWidgets('two quick taps on Undo repost send ONE request', (tester) async {
+    final gate = Completer<void>();
+    scriptUndo(gate: gate);
+    await open(tester, ownProtectedRepostView(original: 7));
+
+    // No frame between the taps: the second lands on the same button.
+    await tester.tap(undoButton());
+    await tester.tap(undoButton());
+    await tester.pump();
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    verify(
+      () => repository.undoRepost(
+        postId: postId(7),
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).called(1);
+    expect(find.byType(ProtectedPostBox), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  group('a gone original is not the protected case', () {
+    test('isProtectedRepost and canUndoProtectedRepost need a live embed', () {
+      final live = ownProtectedRepostView();
+      final gone = ownProtectedRepostView(unavailable: true);
+      expect(isProtectedRepost(live), isTrue);
+      expect(isProtectedRepost(gone), isFalse);
+      expect(
+        canUndoProtectedRepost(
+          live,
+          viewerUserId: 'me',
+          engagementEnabled: true,
+        ),
+        isTrue,
+      );
+      expect(
+        canUndoProtectedRepost(
+          gone,
+          viewerUserId: 'me',
+          engagementEnabled: true,
+        ),
+        isFalse,
+      );
+    });
+
+    testWidgets('PostCard answers it with the unavailable box first: no '
+        'protected box and no Undo repost', (tester) async {
+      await open(tester, ownProtectedRepostView(unavailable: true));
+
+      expect(find.byType(ProtectedPostBox), findsNothing);
+      expect(find.byType(OutlinedButton), findsNothing);
+      expect(find.text('This post is unavailable'), findsOneWidget);
     });
   });
 }

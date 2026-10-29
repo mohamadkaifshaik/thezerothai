@@ -21,7 +21,9 @@ import '../../../engagement/presentation/engagement_error_messages.dart';
 /// the caller's own REPOST on their own profile, W3-41b) is the exception: it
 /// opens nothing (the original answers NOT_FOUND), and with `engagement` on
 /// its box carries Undo repost, which removes the row at once and puts it
-/// back, with the failure's snackbar, if the undo fails.
+/// back, with the failure's snackbar, if the undo fails. With `engagement` off
+/// there is no Undo repost and the row keeps its overflow menu: Delete is an
+/// equivalent server-side undo.
 ///
 /// The flags are passed in (the caller reads them once for the whole list,
 /// not once per row). Display only: every action is a callback.
@@ -98,8 +100,11 @@ class FeedPostRow extends StatelessWidget {
 /// the session's [EngagementCubit] says the original is not reposted (the
 /// request runs, or it succeeded and the row still says what it said:
 /// `EngagementEntry.matches`, the rule the repost button uses) and returns by
-/// itself if the undo is rolled back. It stays mounted while hidden, so the
-/// failure of the undo is worded here, once, from the same row.
+/// itself if the undo is rolled back. The row words the failure of the undo,
+/// once, while it is built (it renders nothing but stays in the tree while
+/// hidden); a lazy `SliverList` disposes a row scrolled past its cache extent,
+/// which then rolls back without a snackbar (the repost button has the same
+/// limit).
 class _UndoableProtectedRepostRow extends StatelessWidget {
   const _UndoableProtectedRepostRow({required this.view, required this.card});
 

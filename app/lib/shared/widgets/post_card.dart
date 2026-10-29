@@ -247,8 +247,10 @@ class PostCard extends StatelessWidget {
         : _placeholderFor(context, embedded);
     if (isRepost && placeholder != null) {
       // The caller's own REPOST of a protected author they can no longer see
-      // (W3-41b): the box carries Undo repost, acting on the original's id,
-      // and the row has no menu (nothing else applies to it).
+      // (W3-41b): the box carries Undo repost, acting on the original's id, and
+      // the row has that one action only: Delete is an equivalent server-side
+      // undo (DeletePost of a REPOST releases its reposts doc and the count), so
+      // the menu is kept only when Undo repost is not offered.
       final undoable =
           placeholder == EmbedPlaceholder.protected &&
           canUndoProtectedRepost(
