@@ -4,7 +4,10 @@ import '../../core/theme/app_theme.dart';
 
 /// An empty list state: [icon], a short [title] and an optional one-line
 /// [subtitle]. Sized for a sliver/box inside a scroll view (Home, profile,
-/// thread replies).
+/// thread replies). In a bounded-height box (an `Expanded`, a `Center`) it
+/// scrolls when its content is taller than the space left, so a large text
+/// scale or a short window never overflows; its default rendering is
+/// unchanged.
 class AppEmptyView extends StatelessWidget {
   const AppEmptyView({
     super.key,
@@ -23,6 +26,21 @@ class AppEmptyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final content = _content(context);
+        // Bounded height (an `Expanded`, a `Center` in one): when the content
+        // is taller than the space left it scrolls instead of overflowing.
+        // The scroll view shrink-wraps, so when the content fits the layout
+        // is exactly the plain content. Unbounded (a sliver box adapter in a
+        // scroll view) the content is returned as is.
+        if (!constraints.hasBoundedHeight) return content;
+        return SingleChildScrollView(primary: false, child: content);
+      },
+    );
+  }
+
+  Widget _content(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(

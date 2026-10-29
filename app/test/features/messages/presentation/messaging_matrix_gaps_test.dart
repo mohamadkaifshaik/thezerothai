@@ -187,16 +187,13 @@ void main() {
     textScales: kMatrixTextScalesLarge,
   );
 
-  // DEFECT (reported, not fixed: this ticket is test-only). The draft's
-  // empty state is an `AppEmptyView` (a non-scrolling Column) inside an
-  // `Expanded`; when the space left by the header and the composer / the
-  // read-only line is shorter than its content it overflows: 360 x 640 at
-  // text scale 2.0 (the first state) and 360 x 800 at 2.0 after the first
-  // send is refused with CANNOT_MESSAGE (39 px). Source:
-  // app/lib/features/messages/presentation/draft_thread_screen.dart (the
-  // `AppEmptyView` in `_DraftView`). The two tests below describe the
-  // wanted behavior and are skipped (`skip: true`; the name says why) until
-  // it is fixed.
+  // Regression for a defect W7-21 found: the draft's empty state is an
+  // `AppEmptyView` inside an `Expanded`, and when the space left by the header
+  // and the composer / the read-only line is shorter than its content it
+  // overflowed: 360 x 640 at text scale 2.0 (the first state) and 360 x 800
+  // at 2.0 after the first send is refused with CANNOT_MESSAGE (39 px).
+  // `AppEmptyView` now scrolls in a bounded-height box. The test names keep
+  // the "defect:" prefix so the report that named them still finds them.
   for (final brightness in Brightness.values) {
     testWidgets(
       'defect: DraftThreadScreen empty state overflows on a short phone '
@@ -209,7 +206,6 @@ void main() {
           textScale: 2.0,
         ),
       ),
-      skip: true,
     );
     testWidgets(
       'defect: DraftThreadScreen empty state overflows by 39 px after '
@@ -222,7 +218,6 @@ void main() {
           textScale: 2.0,
         ),
       ),
-      skip: true,
     );
   }
 
