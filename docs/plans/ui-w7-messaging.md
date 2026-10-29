@@ -347,7 +347,7 @@ Prices (§7):
 | W7-15 | Conversation screen `/messages/:id`: message list, polling, mark read, read-only states | frontend-developer | M | W7-13 | yes | Done (#421) |
 | W7-16 | Conversation composer: send, optimistic bubble, retry with the same key, errors | frontend-developer | S | W7-15 | yes | Done (#426) |
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | In review (PR pending) |
-| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Open |
+| W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | In review (PR #442) |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Open |
 | W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Open |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Open |
@@ -774,7 +774,7 @@ Order:
 - **Flag.** `messaging` per caller; `search` optional; `graph` for the Following list.
 - **Seam.** `RecipientPicker` depends on a `PeopleSource` interface (Following now, search when present), so the W4 dependency is optional.
 
-### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Open
+### W7-18 — Request actions and the report-message sheet  [owner: frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: In review (PR #442)
 - **Description.**
   - In a request thread, a bottom banner "<name> wants to message you" with **Accept**, **Delete** and **Block**. Accept calls AcceptMessageRequest; Delete calls DeleteConversation and returns to the list; Block uses the existing `showBlockConfirmationDialog` + `GraphRepository.block`.
   - A long press or overflow on a peer bubble → "Report message" (the existing report sheet with `target_type = MESSAGE`; only when `reports` is on).
