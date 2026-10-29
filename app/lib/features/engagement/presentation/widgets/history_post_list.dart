@@ -14,10 +14,13 @@ import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../shared/widgets/app_notice_banner.dart';
 import '../../../../shared/widgets/post_card.dart';
 import '../../../../shared/widgets/post_list_skeleton.dart';
+import '../../../../shared/widgets/protected_post_box.dart';
 import '../../../moderation/domain/reports_feature_flag.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../domain/engagement_entry.dart';
 import '../../domain/engagement_feature_flag.dart';
+import '../bloc/bookmarks_cubit.dart';
+import '../bloc/engagement_cubit.dart';
 
 /// The scrolling list of one History tab (plan W2-7 / W3-18): live
 /// [PostCard] rows over a `CustomScrollView` with pull to refresh, a skeleton
@@ -52,6 +55,7 @@ class HistoryPostList extends StatefulWidget {
     required this.onLoadMore,
     required this.onReload,
     required this.onRetryNotice,
+    required this.withheldAction,
     this.error,
     this.notice,
     this.noticeFromPaging = false,
@@ -111,8 +115,89 @@ class HistoryPostList extends StatefulWidget {
   /// The banner's Retry.
   final VoidCallback onRetryNotice;
 
+  /// What a withheld row (`PostView.withheld`, W3-41b) offers: Unlike on the
+  /// Likes tab, Remove bookmark on the Bookmarks tab.
+  final WithheldAction withheldAction;
+
   @override
   State<HistoryPostList> createState() => _HistoryPostListState();
+}
+
+/// The one action of a withheld History row.
+enum WithheldAction {
+  /// The Likes tab: `EngagementCubit.setLiked(liked: false)`. Offered with the
+  /// `engagement` flag, like the heart on a card.
+  unlike('Unlike'),
+
+  /// The Bookmarks tab: `BookmarksCubit.setBookmarked(saved: false)`. Always
+  /// offered (a removal works while the flag is not globally off, ADR-0023 D5).
+  removeBookmark('Remove bookmark');
+
+  const WithheldAction(this.label);
+
+  final String label;
+}
+
+/// A row of the caller's own Likes or Bookmarks whose post is by a protected
+/// author the caller can no longer see (W3-41b): the author in a
+/// [ProtectedPostBox] and one action. The server sent the post stripped to its
+/// id, kind and author, with the viewer flag still true. The action only
+/// dispatches to the session cubit; the list's cubit hides the row at once and
+/// brings it back, with the failure's snackbar, if the request fails.
+class _WithheldRow extends StatelessWidget {
+  const _WithheldRow({
+    required this.view,
+    required this.action,
+    required this.engagementEnabled,
+  });
+
+  final pb.PostView view;
+  final WithheldAction action;
+  final bool engagementEnabled;
+
+  void _run(BuildContext context) {
+    final target = engagementTargetId(view.post);
+    if (target.isEmpty) return;
+    switch (action) {
+      case WithheldAction.unlike:
+        unawaited(
+          context.read<EngagementCubit>().setLiked(
+            target,
+            liked: false,
+            shown: EngagementEntry.fromView(view),
+          ),
+        );
+      case WithheldAction.removeBookmark:
+        unawaited(
+          context.read<BookmarksCubit>().setBookmarked(
+            target,
+            view,
+            saved: false,
+          ),
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final offered =
+        action == WithheldAction.removeBookmark || engagementEnabled;
+    final handle = view.post.author.handle;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.smd,
+        AppSpacing.md,
+        AppSpacing.smd,
+      ),
+      child: ProtectedPostBox(
+        author: view.post.author,
+        actionLabel: offered ? action.label : null,
+        actionSemanticLabel: "${action.label}, @$handle's post",
+        onAction: offered ? () => _run(context) : null,
+      ),
+    );
+  }
 }
 
 class _HistoryPostListState extends State<HistoryPostList> {
@@ -235,6 +320,23 @@ class _HistoryPostListState extends State<HistoryPostList> {
         },
         itemBuilder: (context, index) {
           final view = rows[index];
+          // The server withheld this row: its post is by a protected author
+          // the caller can no longer see (W3-41b). The box and its one undo
+          // action; nothing opens, there is no card and no action row.
+          if (view.withheld) {
+            return Column(
+              key: ValueKey(_rowKey(view)),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _WithheldRow(
+                  view: view,
+                  action: widget.withheldAction,
+                  engagementEnabled: engagementEnabled,
+                ),
+                const Divider(height: 1),
+              ],
+            );
+          }
           return Column(
             key: ValueKey(_rowKey(view)),
             mainAxisSize: MainAxisSize.min,

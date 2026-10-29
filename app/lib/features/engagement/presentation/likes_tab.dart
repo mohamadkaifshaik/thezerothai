@@ -130,6 +130,7 @@ class _LikesTabView extends StatelessWidget {
           notice: state.notice,
           noticeFromPaging: cubit.noticeFromPaging,
           rowKeyPrefix: 'like',
+          withheldAction: WithheldAction.unlike,
           loadingLabel: 'Loading likes',
           noticeMessage: (error) => listNoticeMessage(error, noun: 'likes'),
           empty: const AppEmptyView(
