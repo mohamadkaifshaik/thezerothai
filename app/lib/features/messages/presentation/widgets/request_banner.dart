@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'not_encrypted_note.dart';
 
 /// Messages a sender may send to a request before the recipient accepts it
 /// (`MESSAGES_REQUEST_MAX_UNANSWERED`, ADR-0027 D13). Copy only: the server
@@ -132,6 +133,8 @@ class RequestBanner extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
+            const SizedBox(height: AppSpacing.xs),
+            const NotEncryptedNote(),
             const SizedBox(height: AppSpacing.smd),
             Wrap(
               spacing: AppSpacing.sm,

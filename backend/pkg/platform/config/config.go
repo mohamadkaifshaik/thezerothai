@@ -524,6 +524,27 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: MESSAGES_SENDS_PER_DAY must be > 0 (got %d)", messagesSendsPerDay)
 	}
 	rl.MessagesSendsPerDay = int64(messagesSendsPerDay)
+	// W7-29 (security review W7-22 M-1): MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
+	// cap shared by AcceptMessageRequest + DeleteConversation (limit_name "messages_mutation_daily"); see
+	// RateLimitConfig.MessagesMarkReadPerDay / MessagesMutationsPerDay for the defaults' math. A cap of 0 would lock every
+	// user out of the RPCs.
+	for _, f := range []struct {
+		dst *int64
+		key string
+		def int
+	}{
+		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
+		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
+	} {
+		v, err := getInt(f.key, f.def)
+		if err != nil {
+			return Config{}, err
+		}
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
+		}
+		*f.dst = int64(v)
+	}
 	// ADR-0024 D10: ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
 	// RateLimitConfig.SuggestionsCallsPerDay for the default's math. A cap of 0 would lock every user out of the RPC.
 	suggestionsCallsPerDay, err := getInt("SUGGESTIONS_CALLS_PER_DAY", 50)
