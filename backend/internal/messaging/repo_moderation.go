@@ -18,6 +18,14 @@ import (
 // snippet for a tombstone; the stored value only has to hold none of the removed text).
 const removedSnippet = "Message removed"
 
+// The stored message states as TakedownResult reports them, exported so the operator tool compares against the module's own
+// values and not against copies of the strings.
+const (
+	MessageStateVisible        = msgVisible
+	MessageStateRemoved        = msgRemoved
+	MessageStateDeletedAccount = msgDeletedAccount
+)
+
 // TakedownResult is what TakedownMessage did.
 type TakedownResult struct {
 	// Before and After are the message's stored state (VISIBLE, REMOVED or DELETED_ACCOUNT). After is REMOVED for a message

@@ -71,12 +71,12 @@ func takedownMessage(ctx context.Context, b *backends, project, convID, msgID st
 	}
 
 	switch {
-	case res.Before == "VISIBLE" && a.dryRun:
+	case res.Before == messaging.MessageStateVisible && a.dryRun:
 		fmt.Fprintf(out, "dry-run: would set the message REMOVED (text cleared) and rewrite %d inbox preview(s) (nothing written)\n", res.Entries)
-	case res.Before == "VISIBLE":
+	case res.Before == messaging.MessageStateVisible:
 		fmt.Fprintf(out, "message: VISIBLE -> REMOVED (text cleared); %d inbox preview(s) rewritten\n", res.Entries)
 		fmt.Fprintln(out, "both participants see \"This message was removed\" on their next load of the thread or the inbox; a client that cached the text keeps it until it reloads the first page")
-	case res.Before == "REMOVED":
+	case res.Before == messaging.MessageStateRemoved:
 		fmt.Fprintln(out, "message: already REMOVED; nothing written")
 	default:
 		fmt.Fprintf(out, "message: already %s (its sender deleted the account and the text was cleared then); nothing written\n", res.Before)

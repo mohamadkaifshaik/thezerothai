@@ -38,7 +38,7 @@ func (f *fakeMessageModerator) TakedownMessage(_ context.Context, convID, msgID 
 	}
 	res := f.res
 	if res.Before == "" {
-		res = messaging.TakedownResult{Before: "VISIBLE", After: "REMOVED", Entries: 2, Wrote: !dryRun}
+		res = messaging.TakedownResult{Before: messaging.MessageStateVisible, After: messaging.MessageStateRemoved, Entries: 2, Wrote: !dryRun}
 	}
 	if dryRun {
 		res.Wrote = false
@@ -176,8 +176,8 @@ func TestMessagesTakedown_DryRunWritesNothing(t *testing.T) {
 func TestMessagesTakedown_AlreadyTombstonedIsIdempotent(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct{ state, want string }{
-		"removed":         {"REMOVED", "already REMOVED; nothing written"},
-		"deleted account": {"DELETED_ACCOUNT", "already DELETED_ACCOUNT (its sender deleted the account"},
+		"removed":         {messaging.MessageStateRemoved, "already REMOVED; nothing written"},
+		"deleted account": {messaging.MessageStateDeletedAccount, "already DELETED_ACCOUNT (its sender deleted the account"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
