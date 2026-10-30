@@ -246,11 +246,11 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
 | W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
 | W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Done in the PR of branch `feat/ui-w4-14-search-field` (in review) |
+| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | In review |
+| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | In review |
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | In review (#472) |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
-| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | In review |
-| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | In review |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |

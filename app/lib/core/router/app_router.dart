@@ -31,7 +31,6 @@ import '../../features/search/domain/search_results_tab.dart';
 import '../../features/search/presentation/search_results_screen.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
-import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/explore_screen.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
