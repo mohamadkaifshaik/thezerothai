@@ -129,6 +129,10 @@ func toDoc(r Report) reportDoc {
 		ReporterID: r.ReporterID, TargetType: string(r.TargetType), TargetID: r.TargetID, TargetOwnerID: r.TargetOwnerID,
 		Reason: string(r.Reason), Note: r.Note, Status: string(r.Status), CreatedAt: r.CreatedAt,
 	}
+	if !r.ExpireAt.IsZero() {
+		exp := r.ExpireAt.UTC()
+		d.ExpireAt = &exp
+	}
 	if r.Evidence != nil {
 		ids := r.Evidence.MediaIDs
 		if ids == nil {
@@ -248,7 +252,12 @@ func reopenUpdates(rep Report) []firestore.Update {
 		{Path: "resolvedAt", Value: firestore.Delete},
 		{Path: "resolution", Value: firestore.Delete},
 		{Path: "resolutionNote", Value: firestore.Delete},
-		{Path: "expireAt", Value: firestore.Delete},
+	}
+	// A MESSAGE report carries its own open-report TTL (W7-36); the others have none while OPEN.
+	if d.ExpireAt != nil {
+		u = append(u, firestore.Update{Path: "expireAt", Value: *d.ExpireAt})
+	} else {
+		u = append(u, firestore.Update{Path: "expireAt", Value: firestore.Delete})
 	}
 	if d.Evidence != nil {
 		u = append(u, firestore.Update{Path: "evidence", Value: d.Evidence})

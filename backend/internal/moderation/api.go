@@ -76,6 +76,10 @@ const (
 	MaxNoteRunes = 500
 	// Retention is how long a resolved report is kept before the Firestore TTL deletes it (ADR-0016 D5).
 	Retention = 90 * 24 * time.Hour
+	// OpenMessageRetention is how long an OPEN (untriaged) MESSAGE report, and the private message text copied into it, is
+	// kept before the same Firestore TTL (`reports.expireAt`) deletes the document (ADR-0016 note 2026-10-30, security L-6,
+	// W7-36). Resolving the report replaces it with resolvedAt + Retention. POST and ACCOUNT reports stay without a TTL while OPEN.
+	OpenMessageRetention = 180 * 24 * time.Hour
 	// MaxListLimit is the largest page of Ops.List (CLAUDE.md rule 5: every query Limit <= 50).
 	MaxListLimit = 50
 	// DefaultListLimit is the default page of Ops.List.

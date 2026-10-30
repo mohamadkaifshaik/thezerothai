@@ -453,3 +453,42 @@ func TestRepo_IsOpen(t *testing.T) {
 	check("resolved", r.ID, false)
 	check("missing", ReportID("u-rep", TargetPost, pidN(32)), false)
 }
+
+// W7-36 (security L-6): an OPEN MESSAGE report is stored with expireAt = filing + 180 d (the Terraform TTL field), a
+// reopen sets a fresh one instead of deleting it, and resolving replaces it with resolvedAt + 90 d. Same budgets as
+// any report: create 2 reads / 2 writes, resolve 1 / 1.
+func TestRepo_OpenMessageReportTTL(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	file := func(at time.Time) Report {
+		r := sampleReport("u-rep", TargetMessage, "c1:m1", "u-bob", at)
+		r.Evidence = &Evidence{Text: "private", AuthorHandle: "bob", PostCreatedAt: at}
+		r.ExpireAt = at.Add(OpenMessageRetention)
+		return r
+	}
+	first := file(t0)
+	ctx, c := counted()
+	if _, err := repo.Create(ctx, CreateParams{Report: first, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Create message report", c, budgettest.Budget{Reads: 2, Writes: 2})
+	got, err := repo.Get(context.Background(), first.ID)
+	if err != nil || !got.ExpireAt.Equal(t0.Add(180*24*time.Hour)) {
+		t.Fatalf("open message report = %+v err=%v, want expireAt filing + 180 d", got, err)
+	}
+
+	resolvedAt := t0.Add(100 * 24 * time.Hour)
+	if got, err = repo.Resolve(context.Background(), first.ID, ResolutionNoAction, "", resolvedAt); err != nil || !got.ExpireAt.Equal(resolvedAt.Add(Retention)) {
+		t.Fatalf("resolved = %+v err=%v, want expireAt resolvedAt + 90 d", got, err)
+	}
+
+	again := file(t0.Add(200 * 24 * time.Hour))
+	if res, err := repo.Create(context.Background(), CreateParams{Report: again, QuotaLimit: 5}); err != nil || !res.Reopened {
+		t.Fatalf("reopen: res=%+v err=%v", res, err)
+	}
+	got, err = repo.Get(context.Background(), first.ID)
+	if err != nil || got.Status != StatusOpen || !got.ExpireAt.Equal(again.ExpireAt) {
+		t.Fatalf("reopened = %+v err=%v, want a fresh filing + 180 d TTL", got, err)
+	}
+}

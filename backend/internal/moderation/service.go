@@ -205,6 +205,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// the conversation. The text is private content (ADR-0016 note 2026-10-28); it is never logged.
 		rep.TargetOwnerID = m.SenderUID
 		rep.Evidence = &Evidence{Text: m.Text, AuthorHandle: m.SenderHandle, PostCreatedAt: m.CreatedAt}
+		// W7-36 (security L-6): an untriaged report must not hold the private text forever. The TTL runs from this
+		// filing (a reopen counts as a new filing); Resolve replaces it with resolvedAt + Retention.
+		rep.ExpireAt = rep.CreatedAt.Add(OpenMessageRetention)
 	}
 
 	limit := s.d.ReportsPerDay

@@ -392,3 +392,16 @@ and, like every report's document id, it can confirm a guessed reporter uid. Acc
 cannot be undone; a message stays reportable when its sender is no longer ACTIVE, after the reporter's delete-for-me, and
 when the peer is blocked. The privacy policy line (D5) now also covers a copy of one private message kept until 90 days
 after resolution, even after the sender deletes their account (`docs/plans/roadmap.md` section 9, item 3.18).
+
+## Note (2026-10-30): an OPEN MESSAGE report has a 180-day limit (security L-6, W7-36; founder decision 2026-10-29)
+D5 sets `expireAt` only at resolution, so an untriaged MESSAGE report would hold one private message indefinitely, even after
+the sender's account was erased. Change, for MESSAGE reports only:
+- `ReportContent` writes `expireAt = createdAt + 180 days` (`moderation.OpenMessageRetention`) on a new MESSAGE report, and a
+  reopen of a RESOLVED one sets a fresh `now + 180 days` (a reopen is a new filing) instead of deleting the field.
+- `Resolve` is unchanged: it replaces the value with `resolvedAt + 90 days`, so triage never shortens or extends the 90-day rule.
+- The mechanism is the existing TTL policy on `reports.expireAt` (Terraform `reports_expire_at`): 0 new Scheduler jobs, 0 index or
+  Terraform changes, 0 extra reads or writes (the value rides on the create/reopen write already made). The TTL deletes the
+  **whole report document** (text, handle, target owner and reporter link), not just the text; a report older than 180 days
+  that nobody triaged is treated as abandoned. The 48 h triage SLA in the runbook still applies.
+- POST and ACCOUNT reports are unchanged: no TTL while OPEN. Privacy-policy line: a copy of one private message is kept until 90
+  days after resolution, or 180 days after the report if nobody resolves it, even after the sender deletes their account.
