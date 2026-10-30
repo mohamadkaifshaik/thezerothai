@@ -145,7 +145,7 @@ void main() {
           ),
           now: _now,
           onOpenProfile: opened.add,
-          onHashtagTap: () => hashtagTaps++,
+          onHashtagTap: (_) => hashtagTaps++,
         ),
       ),
     );

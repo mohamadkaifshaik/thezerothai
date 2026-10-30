@@ -246,8 +246,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
 | W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
 | W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Done in the PR of branch `feat/ui-w4-14-search-field` (in review) |
-| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | Open |
-| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | Open |
+| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | In review |
+| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | In review |
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | Open |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | Open |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | Open |
@@ -589,7 +589,7 @@ Order:
 - **Seam.** The suggestions cubit depends on `SearchRepository` and the store only.
 - **Parallel with W3:** yes.
 
-### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: Open
+### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: In review (PR stacked on W4-14)
 - **Description.** `/search?q=<query>&tab=top|latest|people|media`:
   - the search field in the header (`AppBackHeader` variant) and an `AppTabBar` with Top · Latest · People · Media (content-sized);
   - the default tab is Top, or People for an `@` query;
@@ -611,7 +611,7 @@ Order:
 - **Seam.** One `SearchResultsCubit` per tab over `SearchRepository`.
 - **Parallel with W3:** yes.
 
-### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: Open
+### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: In review (PR stacked on W4-14)
 - **Description.**
   - In `PostRichText`, a hashtag span tap opens `/search?q=%23<tag>&tab=top` when `search` is on; otherwise the existing "Hashtags are coming soon." stays (W2 kept it).
   - It applies to posts, quotes' own text and the thread view (every `PostRichText`).

@@ -354,9 +354,9 @@ Effect on the quotas (additive):
 
 | ID | Ticket | Owner | Size | Depends | Runs alongside W3/W4/W5? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W6-1 | ADR-0028 (or the next free number) "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | Open |
-| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | Open |
-| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | Open |
+| W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
+| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
+| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Open |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
@@ -396,8 +396,8 @@ Order:
 
 ## Tickets
 
-### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** ADR-0028, or the next free number when the PR opens: W3 holds 0024/0025, W4 0026, W5 0027. It covers:
+### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #473)
+- **Description.** ADR-0029 (`docs/adr/0029-composer-extras-remainder-polls-drafts-gif.md`; 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4). It covers:
   - the poll model and the vote path (A1–A9);
   - F1–F6 and F10–F12 as founder items with options, defaults and INR at 300 / 1,000 / 3,000 DAU citing `cost-model.md`;
   - the per-RPC table and the rate limits above;
@@ -425,7 +425,7 @@ Order:
 - **Seam.** `posts.EngagementWriter.StagePollVote`, `posts.ViewerSet.PollChoice`, `engagement.Service.VotePoll`, the `media` content-type table and `Moderator`, and the client `DraftsRepository` and `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: Open
+### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: In review (PR #473)
 - **Description.** Additive changes only, with numbers as of `main` d2ff011 (re-check at PR time):
   - **`posts.proto`:**
     - `message PollChoice { string label = 1; int64 votes = 2; /* 0 when hidden */ }`;
@@ -436,6 +436,12 @@ Order:
   - **`common.proto`:** `ERROR_REASON_POLL_CLOSED` and `ERROR_REASON_ALREADY_VOTED` at the next free numbers when the PR opens (18 and 19 today: W3-25a took 17 for `PROTECTED_ACCOUNT`), if A6 keeps them.
   - **`firebase/firestore.indexes.json`:** a `posts.poll` fieldOverride `indexes: []`, plus the `field-overrides.ack` hash (**gate files**).
   - The `firestore-data-model` rows.
+  - **As done (2026-10-30, ADR-0029 D13):** `main` had moved, so the numbers taken are `CreatePostRequest.poll = 10`,
+    `Post.poll = 21`, `EmbeddedPost.poll = 10`, **`PostView.viewer_poll_choice = 8`** (7 is `withheld`, W3-41a),
+    **`ERROR_REASON_POLL_CLOSED = 19`, `ERROR_REASON_ALREADY_VOTED = 20`** (18 is `CANNOT_MESSAGE`, W7), plus
+    `MediaRef.content_type = 8` (W6-3, D10). The fieldOverrides (`posts.poll` **and `userLikes.pollVotes`**) with
+    their ack hashes and the data-model rows are follow-ups FU-1 and FU-4 of ADR-0029 (gate files and `.claude/` were
+    not edited in the ADR PR); generated code is W6-4.
 - **Acceptance criteria.**
   - Given `make proto`, then Go and Dart generate, `buf lint` passes and `buf breaking` against `main` is clean.
   - Given each RPC and field comment, then it states the worst and typical reads, the limits (F4) and the redaction rule (F3).
@@ -446,11 +452,14 @@ Order:
 - **Seam.** `Poll` is a message (choices with images or a "poll ended" state can be added later); `viewer_poll_choice` is per-viewer and never cached across viewers.
 - **Runs alongside W3/W4/W5:** the field and `ErrorReason` numbers collide textually with any other wave's proto PR, so one PR at a time.
 
-### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: Open
+### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: In review (PR #473)
 - **Description.** In `media.proto`:
   - the `UploadItem.content_type` comment allows `image/gif` (POST only);
   - add `string thumb_content_type = 8` (`image/jpeg` or `image/webp`; empty = same as `content_type`, today's behaviour), or document the fixed JPEG rule per A10;
   - update the CreateUpload and FinalizeUpload budget comments (Class B full read and Vision units for a GIF).
+  - **As done (2026-10-30, ADR-0029 D10):** `UploadItem.thumb_content_type = 8` was chosen over the fixed JPEG rule,
+    and `common.v1.MediaRef.content_type = 8` was added so clients badge and play a GIF without parsing the URL (posts
+    copy it from the media claim).
 - **Acceptance criteria.** Given `make proto`, then the code generates and `buf breaking` is clean; an old client that sends no `thumb_content_type` behaves exactly as today.
 - **Test notes.** `buf breaking`.
 - **Observability.** —
@@ -561,7 +570,7 @@ Order:
 - **Description.**
   - Eraser step `poll_votes` (engagement): `pollVotes where uid == X`, pages ≤ 500, 1 read and 1 delete per doc. Registered `BeforeIdentity` after `engagement`, with the pinned order in `lifecycle_wiring_test.go` updated. Counts are left as they are (F6).
   - Export section `poll_votes`: `postId`, `choice`, `createdAt` per doc.
-  - T11 row `{Name: "pollVotes", Disposition: erasedByStep, Step: "poll_votes", Section: "poll_votes", Owner: "engagement", Cite: "ADR-0028"}`; `userLikes.pollVotes` is covered by the existing `userLikes` row.
+  - T11 row `{Name: "pollVotes", Disposition: erasedByStep, Step: "poll_votes", Section: "poll_votes", Owner: "engagement", Cite: "ADR-0029"}`; `userLikes.pollVotes` is covered by the existing `userLikes` row.
   - Runbook `docs/runbooks/engagement.md`, new section "Polls":
     - a hot poll and the `poll_vote_contention` signal → the sharding trigger;
     - the kill switch;
