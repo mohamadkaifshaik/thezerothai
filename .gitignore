@@ -19,6 +19,7 @@ firestore-debug.log
 pubsub-debug.log
 ui-debug.log
 .firebase/
+.idea/
 
 # Local editor workspace (gopls); CI builds backend/ as a plain module
 go.work
