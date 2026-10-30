@@ -71,6 +71,20 @@ type RateLimitConfig struct {
 	LikesListPerUserPerMinute           int
 	ProfileRelationshipPerUserPerMinute int
 
+	// SearchPeoplePerUserPerMinute is SearchPeople (ADR-0028 D9), env RATE_LIMIT_SEARCH_PEOPLE_PER_MIN, default 30;
+	// SearchPostsPerUserPerMinute is SearchPosts, env RATE_LIMIT_SEARCH_POSTS_PER_MIN, default 20. Both per instance, so the
+	// effective ceiling is x max-instances (90 and 60 per minute with 3). GetTrends uses the PerUserPerMinute default bucket.
+	SearchPeoplePerUserPerMinute int
+	SearchPostsPerUserPerMinute  int
+
+	// SearchCallsPerDay is the in-memory daily cap on SearchPeople + SearchPosts calls together (one counter per uid per
+	// instance, ratelimit.DailyCap), env SEARCH_CALLS_PER_DAY, logged as limit_name "search_daily" (ADR-0028 D9).
+	//
+	// Default 300. At most 300 x 3 instances = 900 calls per account per day; the per-uid daily read budget
+	// (READ_BUDGET_PER_UID_PER_DAY 2,000 per instance, ADR-0010 D5) binds first for post searches (33 cold reads each).
+	// Worst people rows 900 x 20 = 18,000 handles a day, already public on profiles.
+	SearchCallsPerDay int64
+
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest (ADR-0025 D13), env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph
 	// list bucket (GraphListPerMinute) and its graph_list_daily cap.
