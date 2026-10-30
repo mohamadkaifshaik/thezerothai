@@ -16,9 +16,9 @@ import 'dart:core' as $core;
 import 'package:fixnum/fixnum.dart' as $fixnum;
 import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
-    as $1;
+    as $0;
 
-import '../../common/v1/common.pb.dart' as $0;
+import '../../common/v1/common.pb.dart' as $1;
 import 'posts.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -93,6 +93,258 @@ class Mention extends $pb.GeneratedMessage {
   void clearHandle() => $_clearField(2);
 }
 
+/// One choice of a poll (ADR-0029).
+class PollChoice extends $pb.GeneratedMessage {
+  factory PollChoice({
+    $core.String? label,
+    $fixnum.Int64? votes,
+  }) {
+    final result = PollChoice._();
+    if (label != null) result.label = label;
+    if (votes != null) result.votes = votes;
+    return result;
+  }
+
+  PollChoice._();
+
+  factory PollChoice.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PollChoice()..mergeFromBuffer(data, registry);
+  factory PollChoice.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PollChoice()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PollChoice',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PollChoice.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'label')
+    ..aInt64(2, _omitFieldNames ? '' : 'votes')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PollChoice clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PollChoice copyWith(void Function(PollChoice) updates) =>
+      super.copyWith((message) => updates(message as PollChoice)) as PollChoice;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PollChoice() / PollChoice.new instead')
+  static PollChoice create() => PollChoice._();
+  static $pb.GeneratedMessage $_createMessage() => PollChoice._();
+  @$core.override
+  PollChoice createEmptyInstance() => PollChoice._();
+  @$core.pragma('dart2js:noInline')
+  static PollChoice getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PollChoice>(PollChoice.$_createMessage);
+  static PollChoice? _defaultInstance;
+
+  /// 1-25 code points, as the author wrote it (normalised by the text rules).
+  @$pb.TagNumber(1)
+  $core.String get label => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set label($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasLabel() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearLabel() => $_clearField(1);
+
+  /// Votes for this choice. 0 whenever Poll.results_visible is false: hidden, not zero (the bytes are the same whatever
+  /// the real count). Never render bars or percentages from it unless results_visible is true.
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get votes => $_getI64(1);
+  @$pb.TagNumber(2)
+  set votes($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasVotes() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearVotes() => $_clearField(2);
+}
+
+/// A poll on a root post (ADR-0029 D1, D4). Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
+/// Counts are the post's instance-cached state (up to 60 s stale), except in the VotePoll response (the committed
+/// counts). Per viewer: never cache a Post with a poll across viewers on the client.
+/// In EmbeddedPost.poll (a repost or quote row) it is a frozen definition: labels and closes_at only, every votes 0,
+/// total_votes 0 and results_visible false always; render a compact "Poll · N choices" and open the original (GetPost)
+/// for live results.
+class Poll extends $pb.GeneratedMessage {
+  factory Poll({
+    $core.Iterable<PollChoice>? choices,
+    $0.Timestamp? closesAt,
+    $fixnum.Int64? totalVotes,
+    $core.bool? resultsVisible,
+    $core.bool? closed,
+  }) {
+    final result = Poll._();
+    if (choices != null) result.choices.addAll(choices);
+    if (closesAt != null) result.closesAt = closesAt;
+    if (totalVotes != null) result.totalVotes = totalVotes;
+    if (resultsVisible != null) result.resultsVisible = resultsVisible;
+    if (closed != null) result.closed = closed;
+    return result;
+  }
+
+  Poll._();
+
+  factory Poll.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Poll()..mergeFromBuffer(data, registry);
+  factory Poll.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      Poll()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'Poll',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: Poll.$_createMessage)
+    ..pPM<PollChoice>(1, _omitFieldNames ? '' : 'choices',
+        subBuilder: PollChoice.$_createMessage)
+    ..aOM<$0.Timestamp>(2, _omitFieldNames ? '' : 'closesAt',
+        subBuilder: $0.Timestamp.$_createMessage)
+    ..aInt64(3, _omitFieldNames ? '' : 'totalVotes')
+    ..aOB(4, _omitFieldNames ? '' : 'resultsVisible')
+    ..aOB(5, _omitFieldNames ? '' : 'closed')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Poll clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  Poll copyWith(void Function(Poll) updates) =>
+      super.copyWith((message) => updates(message as Poll)) as Poll;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use Poll() / Poll.new instead')
+  static Poll create() => Poll._();
+  static $pb.GeneratedMessage $_createMessage() => Poll._();
+  @$core.override
+  Poll createEmptyInstance() => Poll._();
+  @$core.pragma('dart2js:noInline')
+  static Poll getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<Poll>(Poll.$_createMessage);
+  static Poll? _defaultInstance;
+
+  /// 2-4 choices in the author's order; VotePoll.choice_index indexes this list.
+  @$pb.TagNumber(1)
+  $pb.PbList<PollChoice> get choices => $_getList(0);
+
+  /// Server time; created_at + the requested duration. The client counts down from it; it never decides "closed" for
+  /// the server.
+  @$pb.TagNumber(2)
+  $0.Timestamp get closesAt => $_getN(1);
+  @$pb.TagNumber(2)
+  set closesAt($0.Timestamp value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasClosesAt() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearClosesAt() => $_clearField(2);
+  @$pb.TagNumber(2)
+  $0.Timestamp ensureClosesAt() => $_ensure(1);
+
+  /// Total votes, always shown (F3), including while per-choice counts are hidden. 0 in EmbeddedPost.poll.
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get totalVotes => $_getI64(2);
+  @$pb.TagNumber(3)
+  set totalVotes($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTotalVotes() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTotalVotes() => $_clearField(3);
+
+  /// True when the viewer may see per-choice counts: the poll is closed, the viewer is the author, the viewer voted, or
+  /// FEATURE_POLLS is globally off (voting impossible). Nobody can see who voted for what.
+  @$pb.TagNumber(4)
+  $core.bool get resultsVisible => $_getBF(3);
+  @$pb.TagNumber(4)
+  set resultsVisible($core.bool value) => $_setBool(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasResultsVisible() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearResultsVisible() => $_clearField(4);
+
+  /// now >= closes_at by server time when the response was built.
+  @$pb.TagNumber(5)
+  $core.bool get closed => $_getBF(4);
+  @$pb.TagNumber(5)
+  set closed($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasClosed() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearClosed() => $_clearField(5);
+}
+
+/// The poll a CreatePost asks for (ADR-0029 D1, F4).
+class PollDraft extends $pb.GeneratedMessage {
+  factory PollDraft({
+    $core.Iterable<$core.String>? choices,
+    $core.int? durationMinutes,
+  }) {
+    final result = PollDraft._();
+    if (choices != null) result.choices.addAll(choices);
+    if (durationMinutes != null) result.durationMinutes = durationMinutes;
+    return result;
+  }
+
+  PollDraft._();
+
+  factory PollDraft.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PollDraft()..mergeFromBuffer(data, registry);
+  factory PollDraft.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PollDraft()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PollDraft',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PollDraft.$_createMessage)
+    ..pPS(1, _omitFieldNames ? '' : 'choices')
+    ..aI(2, _omitFieldNames ? '' : 'durationMinutes')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PollDraft clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PollDraft copyWith(void Function(PollDraft) updates) =>
+      super.copyWith((message) => updates(message as PollDraft)) as PollDraft;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use PollDraft() / PollDraft.new instead')
+  static PollDraft create() => PollDraft._();
+  static $pb.GeneratedMessage $_createMessage() => PollDraft._();
+  @$core.override
+  PollDraft createEmptyInstance() => PollDraft._();
+  @$core.pragma('dart2js:noInline')
+  static PollDraft getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PollDraft>(PollDraft.$_createMessage);
+  static PollDraft? _defaultInstance;
+
+  /// 2-4 choices, each 1-25 code points, distinct after NFC and case folding.
+  @$pb.TagNumber(1)
+  $pb.PbList<$core.String> get choices => $_getList(0);
+
+  /// 5 to 10080 (7 days). The client default is 1440 (1 day).
+  @$pb.TagNumber(2)
+  $core.int get durationMinutes => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set durationMinutes($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasDurationMinutes() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearDurationMinutes() => $_clearField(2);
+}
+
 /// A one-level, denormalized copy of another post (quoted or reposted), frozen at write time (the original's
 /// author snapshot is not refreshed by the profile-snapshot job). Replaced by a tombstone (unavailable = true, only
 /// post_id set) by the post-delete job when the original is deleted, and when its author deletes their account.
@@ -100,14 +352,15 @@ class Mention extends $pb.GeneratedMessage {
 class EmbeddedPost extends $pb.GeneratedMessage {
   factory EmbeddedPost({
     $core.String? postId,
-    $0.AuthorSnapshot? author,
+    $1.AuthorSnapshot? author,
     $core.String? text,
-    $core.Iterable<$0.MediaRef>? media,
-    $1.Timestamp? createdAt,
+    $core.Iterable<$1.MediaRef>? media,
+    $0.Timestamp? createdAt,
     $core.bool? unavailable,
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
     ReplyPolicy? replyPolicy,
+    Poll? poll,
   }) {
     final result = EmbeddedPost._();
     if (postId != null) result.postId = postId;
@@ -119,6 +372,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     if (paidPartnership != null) result.paidPartnership = paidPartnership;
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    if (poll != null) result.poll = poll;
     return result;
   }
 
@@ -137,18 +391,20 @@ class EmbeddedPost extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
       createEmptyInstance: EmbeddedPost.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'postId')
-    ..aOM<$0.AuthorSnapshot>(2, _omitFieldNames ? '' : 'author',
-        subBuilder: $0.AuthorSnapshot.$_createMessage)
+    ..aOM<$1.AuthorSnapshot>(2, _omitFieldNames ? '' : 'author',
+        subBuilder: $1.AuthorSnapshot.$_createMessage)
     ..aOS(3, _omitFieldNames ? '' : 'text')
-    ..pPM<$0.MediaRef>(4, _omitFieldNames ? '' : 'media',
-        subBuilder: $0.MediaRef.$_createMessage)
-    ..aOM<$1.Timestamp>(5, _omitFieldNames ? '' : 'createdAt',
-        subBuilder: $1.Timestamp.$_createMessage)
+    ..pPM<$1.MediaRef>(4, _omitFieldNames ? '' : 'media',
+        subBuilder: $1.MediaRef.$_createMessage)
+    ..aOM<$0.Timestamp>(5, _omitFieldNames ? '' : 'createdAt',
+        subBuilder: $0.Timestamp.$_createMessage)
     ..aOB(6, _omitFieldNames ? '' : 'unavailable')
     ..aOB(7, _omitFieldNames ? '' : 'paidPartnership')
     ..aOB(8, _omitFieldNames ? '' : 'madeWithAi')
     ..aE<ReplyPolicy>(9, _omitFieldNames ? '' : 'replyPolicy',
         enumValues: ReplyPolicy.values)
+    ..aOM<Poll>(10, _omitFieldNames ? '' : 'poll',
+        subBuilder: Poll.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -183,15 +439,15 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   void clearPostId() => $_clearField(1);
 
   @$pb.TagNumber(2)
-  $0.AuthorSnapshot get author => $_getN(1);
+  $1.AuthorSnapshot get author => $_getN(1);
   @$pb.TagNumber(2)
-  set author($0.AuthorSnapshot value) => $_setField(2, value);
+  set author($1.AuthorSnapshot value) => $_setField(2, value);
   @$pb.TagNumber(2)
   $core.bool hasAuthor() => $_has(1);
   @$pb.TagNumber(2)
   void clearAuthor() => $_clearField(2);
   @$pb.TagNumber(2)
-  $0.AuthorSnapshot ensureAuthor() => $_ensure(1);
+  $1.AuthorSnapshot ensureAuthor() => $_ensure(1);
 
   @$pb.TagNumber(3)
   $core.String get text => $_getSZ(2);
@@ -203,18 +459,18 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   void clearText() => $_clearField(3);
 
   @$pb.TagNumber(4)
-  $pb.PbList<$0.MediaRef> get media => $_getList(3);
+  $pb.PbList<$1.MediaRef> get media => $_getList(3);
 
   @$pb.TagNumber(5)
-  $1.Timestamp get createdAt => $_getN(4);
+  $0.Timestamp get createdAt => $_getN(4);
   @$pb.TagNumber(5)
-  set createdAt($1.Timestamp value) => $_setField(5, value);
+  set createdAt($0.Timestamp value) => $_setField(5, value);
   @$pb.TagNumber(5)
   $core.bool hasCreatedAt() => $_has(4);
   @$pb.TagNumber(5)
   void clearCreatedAt() => $_clearField(5);
   @$pb.TagNumber(5)
-  $1.Timestamp ensureCreatedAt() => $_ensure(4);
+  $0.Timestamp ensureCreatedAt() => $_ensure(4);
 
   /// True when the original was deleted or became invisible; render a tombstone.
   @$pb.TagNumber(6)
@@ -254,15 +510,28 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   $core.bool hasReplyPolicy() => $_has(8);
   @$pb.TagNumber(9)
   void clearReplyPolicy() => $_clearField(9);
+
+  /// The original's poll as a frozen definition (ADR-0029 D5): labels and closes_at, no counts (see Poll). Unset when
+  /// the original has no poll, in a tombstone, and when the embed is stripped (EMBED_VIEWER_STATE_PROTECTED).
+  @$pb.TagNumber(10)
+  Poll get poll => $_getN(9);
+  @$pb.TagNumber(10)
+  set poll(Poll value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasPoll() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearPoll() => $_clearField(10);
+  @$pb.TagNumber(10)
+  Poll ensurePoll() => $_ensure(9);
 }
 
 class Post extends $pb.GeneratedMessage {
   factory Post({
     $core.String? postId,
-    $0.AuthorSnapshot? author,
+    $1.AuthorSnapshot? author,
     PostKind? kind,
     $core.String? text,
-    $core.Iterable<$0.MediaRef>? media,
+    $core.Iterable<$1.MediaRef>? media,
     $core.String? replyToPostId,
     $core.String? replyToHandle,
     $core.String? conversationId,
@@ -274,10 +543,11 @@ class Post extends $pb.GeneratedMessage {
     $fixnum.Int64? replyCount,
     $fixnum.Int64? quoteCount,
     Visibility? visibility,
-    $1.Timestamp? createdAt,
+    $0.Timestamp? createdAt,
     ReplyPolicy? replyPolicy,
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
+    Poll? poll,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -300,6 +570,7 @@ class Post extends $pb.GeneratedMessage {
     if (replyPolicy != null) result.replyPolicy = replyPolicy;
     if (paidPartnership != null) result.paidPartnership = paidPartnership;
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
+    if (poll != null) result.poll = poll;
     return result;
   }
 
@@ -318,13 +589,13 @@ class Post extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
       createEmptyInstance: Post.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'postId')
-    ..aOM<$0.AuthorSnapshot>(2, _omitFieldNames ? '' : 'author',
-        subBuilder: $0.AuthorSnapshot.$_createMessage)
+    ..aOM<$1.AuthorSnapshot>(2, _omitFieldNames ? '' : 'author',
+        subBuilder: $1.AuthorSnapshot.$_createMessage)
     ..aE<PostKind>(3, _omitFieldNames ? '' : 'kind',
         enumValues: PostKind.values)
     ..aOS(4, _omitFieldNames ? '' : 'text')
-    ..pPM<$0.MediaRef>(5, _omitFieldNames ? '' : 'media',
-        subBuilder: $0.MediaRef.$_createMessage)
+    ..pPM<$1.MediaRef>(5, _omitFieldNames ? '' : 'media',
+        subBuilder: $1.MediaRef.$_createMessage)
     ..aOS(6, _omitFieldNames ? '' : 'replyToPostId')
     ..aOS(7, _omitFieldNames ? '' : 'replyToHandle')
     ..aOS(8, _omitFieldNames ? '' : 'conversationId')
@@ -339,12 +610,14 @@ class Post extends $pb.GeneratedMessage {
     ..aInt64(15, _omitFieldNames ? '' : 'quoteCount')
     ..aE<Visibility>(16, _omitFieldNames ? '' : 'visibility',
         enumValues: Visibility.values)
-    ..aOM<$1.Timestamp>(17, _omitFieldNames ? '' : 'createdAt',
-        subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$0.Timestamp>(17, _omitFieldNames ? '' : 'createdAt',
+        subBuilder: $0.Timestamp.$_createMessage)
     ..aE<ReplyPolicy>(18, _omitFieldNames ? '' : 'replyPolicy',
         enumValues: ReplyPolicy.values)
     ..aOB(19, _omitFieldNames ? '' : 'paidPartnership')
     ..aOB(20, _omitFieldNames ? '' : 'madeWithAi')
+    ..aOM<Poll>(21, _omitFieldNames ? '' : 'poll',
+        subBuilder: Poll.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -378,15 +651,15 @@ class Post extends $pb.GeneratedMessage {
   void clearPostId() => $_clearField(1);
 
   @$pb.TagNumber(2)
-  $0.AuthorSnapshot get author => $_getN(1);
+  $1.AuthorSnapshot get author => $_getN(1);
   @$pb.TagNumber(2)
-  set author($0.AuthorSnapshot value) => $_setField(2, value);
+  set author($1.AuthorSnapshot value) => $_setField(2, value);
   @$pb.TagNumber(2)
   $core.bool hasAuthor() => $_has(1);
   @$pb.TagNumber(2)
   void clearAuthor() => $_clearField(2);
   @$pb.TagNumber(2)
-  $0.AuthorSnapshot ensureAuthor() => $_ensure(1);
+  $1.AuthorSnapshot ensureAuthor() => $_ensure(1);
 
   @$pb.TagNumber(3)
   PostKind get kind => $_getN(2);
@@ -407,7 +680,7 @@ class Post extends $pb.GeneratedMessage {
   void clearText() => $_clearField(4);
 
   @$pb.TagNumber(5)
-  $pb.PbList<$0.MediaRef> get media => $_getList(4);
+  $pb.PbList<$1.MediaRef> get media => $_getList(4);
 
   /// Set for replies.
   @$pb.TagNumber(6)
@@ -504,15 +777,15 @@ class Post extends $pb.GeneratedMessage {
   void clearVisibility() => $_clearField(16);
 
   @$pb.TagNumber(17)
-  $1.Timestamp get createdAt => $_getN(16);
+  $0.Timestamp get createdAt => $_getN(16);
   @$pb.TagNumber(17)
-  set createdAt($1.Timestamp value) => $_setField(17, value);
+  set createdAt($0.Timestamp value) => $_setField(17, value);
   @$pb.TagNumber(17)
   $core.bool hasCreatedAt() => $_has(16);
   @$pb.TagNumber(17)
   void clearCreatedAt() => $_clearField(17);
   @$pb.TagNumber(17)
-  $1.Timestamp ensureCreatedAt() => $_ensure(16);
+  $0.Timestamp ensureCreatedAt() => $_ensure(16);
 
   /// Effective reply policy (ADR-0021 D2); on replies, the one inherited from the conversation. UNSPECIFIED ==
   /// EVERYONE.
@@ -543,6 +816,19 @@ class Post extends $pb.GeneratedMessage {
   $core.bool hasMadeWithAi() => $_has(19);
   @$pb.TagNumber(20)
   void clearMadeWithAi() => $_clearField(20);
+
+  /// The post's poll (ADR-0029), root posts only; unset otherwise. Redacted per viewer (Poll.results_visible). Unset on a
+  /// withheld row (PostView.withheld). Vote with dzeroth.engagement.v1.EngagementService.VotePoll.
+  @$pb.TagNumber(21)
+  Poll get poll => $_getN(20);
+  @$pb.TagNumber(21)
+  set poll(Poll value) => $_setField(21, value);
+  @$pb.TagNumber(21)
+  $core.bool hasPoll() => $_has(20);
+  @$pb.TagNumber(21)
+  void clearPoll() => $_clearField(21);
+  @$pb.TagNumber(21)
+  Poll ensurePoll() => $_ensure(20);
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
@@ -557,6 +843,7 @@ class PostView extends $pb.GeneratedMessage {
     EmbedViewerState? embedViewerState,
     $core.bool? bookmarkedByViewer,
     $core.bool? withheld,
+    $core.int? viewerPollChoice,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
@@ -568,6 +855,7 @@ class PostView extends $pb.GeneratedMessage {
     if (bookmarkedByViewer != null)
       result.bookmarkedByViewer = bookmarkedByViewer;
     if (withheld != null) result.withheld = withheld;
+    if (viewerPollChoice != null) result.viewerPollChoice = viewerPollChoice;
     return result;
   }
 
@@ -595,6 +883,7 @@ class PostView extends $pb.GeneratedMessage {
         enumValues: EmbedViewerState.values)
     ..aOB(6, _omitFieldNames ? '' : 'bookmarkedByViewer')
     ..aOB(7, _omitFieldNames ? '' : 'withheld')
+    ..aI(8, _omitFieldNames ? '' : 'viewerPollChoice')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -700,6 +989,20 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasWithheld() => $_has(6);
   @$pb.TagNumber(7)
   void clearWithheld() => $_clearField(7);
+
+  /// The caller's own vote in this item's poll (ADR-0029 D3): 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
+  /// the caller, or the vote is older than the newest 500 the server keeps for the check mark), 1-4 = choice index + 1.
+  /// For a REPOST row it describes the original's poll (embedded.post_id), like liked_by_viewer. Hydrated from
+  /// userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
+  /// 0 on a withheld row.
+  @$pb.TagNumber(8)
+  $core.int get viewerPollChoice => $_getIZ(7);
+  @$pb.TagNumber(8)
+  set viewerPollChoice($core.int value) => $_setSignedInt32(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasViewerPollChoice() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearViewerPollChoice() => $_clearField(8);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {
@@ -713,6 +1016,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     ReplyPolicy? replyPolicy,
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
+    PollDraft? poll,
   }) {
     final result = CreatePostRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -724,6 +1028,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     if (replyPolicy != null) result.replyPolicy = replyPolicy;
     if (paidPartnership != null) result.paidPartnership = paidPartnership;
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
+    if (poll != null) result.poll = poll;
     return result;
   }
 
@@ -751,6 +1056,8 @@ class CreatePostRequest extends $pb.GeneratedMessage {
         enumValues: ReplyPolicy.values)
     ..aOB(8, _omitFieldNames ? '' : 'paidPartnership')
     ..aOB(9, _omitFieldNames ? '' : 'madeWithAi')
+    ..aOM<PollDraft>(10, _omitFieldNames ? '' : 'poll',
+        subBuilder: PollDraft.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -847,6 +1154,18 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   $core.bool hasMadeWithAi() => $_has(8);
   @$pb.TagNumber(9)
   void clearMadeWithAi() => $_clearField(9);
+
+  /// A poll on a root post (ADR-0029 D1); FEATURE_POLLS. Rules in the CreatePost comment.
+  @$pb.TagNumber(10)
+  PollDraft get poll => $_getN(9);
+  @$pb.TagNumber(10)
+  set poll(PollDraft value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasPoll() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearPoll() => $_clearField(10);
+  @$pb.TagNumber(10)
+  PollDraft ensurePoll() => $_ensure(9);
 }
 
 class CreatePostResponse extends $pb.GeneratedMessage {
@@ -1368,15 +1687,15 @@ class ScheduledPost extends $pb.GeneratedMessage {
   factory ScheduledPost({
     $core.String? scheduledId,
     $core.String? text,
-    $core.Iterable<$0.MediaRef>? media,
+    $core.Iterable<$1.MediaRef>? media,
     ReplyPolicy? replyPolicy,
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
-    $1.Timestamp? publishAt,
+    $0.Timestamp? publishAt,
     ScheduledPostStatus? status,
     $core.String? postId,
     ScheduledPostFailure? failure,
-    $1.Timestamp? createdAt,
+    $0.Timestamp? createdAt,
   }) {
     final result = ScheduledPost._();
     if (scheduledId != null) result.scheduledId = scheduledId;
@@ -1409,21 +1728,21 @@ class ScheduledPost extends $pb.GeneratedMessage {
       createEmptyInstance: ScheduledPost.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'scheduledId')
     ..aOS(2, _omitFieldNames ? '' : 'text')
-    ..pPM<$0.MediaRef>(3, _omitFieldNames ? '' : 'media',
-        subBuilder: $0.MediaRef.$_createMessage)
+    ..pPM<$1.MediaRef>(3, _omitFieldNames ? '' : 'media',
+        subBuilder: $1.MediaRef.$_createMessage)
     ..aE<ReplyPolicy>(4, _omitFieldNames ? '' : 'replyPolicy',
         enumValues: ReplyPolicy.values)
     ..aOB(5, _omitFieldNames ? '' : 'paidPartnership')
     ..aOB(6, _omitFieldNames ? '' : 'madeWithAi')
-    ..aOM<$1.Timestamp>(7, _omitFieldNames ? '' : 'publishAt',
-        subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$0.Timestamp>(7, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $0.Timestamp.$_createMessage)
     ..aE<ScheduledPostStatus>(8, _omitFieldNames ? '' : 'status',
         enumValues: ScheduledPostStatus.values)
     ..aOS(9, _omitFieldNames ? '' : 'postId')
     ..aE<ScheduledPostFailure>(10, _omitFieldNames ? '' : 'failure',
         enumValues: ScheduledPostFailure.values)
-    ..aOM<$1.Timestamp>(11, _omitFieldNames ? '' : 'createdAt',
-        subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$0.Timestamp>(11, _omitFieldNames ? '' : 'createdAt',
+        subBuilder: $0.Timestamp.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1470,7 +1789,7 @@ class ScheduledPost extends $pb.GeneratedMessage {
 
   /// Including alt text; lists render thumb_url only. Empty unless PENDING (the draft is cleared on PUBLISHED, CANCELLED and FAILED).
   @$pb.TagNumber(3)
-  $pb.PbList<$0.MediaRef> get media => $_getList(2);
+  $pb.PbList<$1.MediaRef> get media => $_getList(2);
 
   @$pb.TagNumber(4)
   ReplyPolicy get replyPolicy => $_getN(3);
@@ -1501,15 +1820,15 @@ class ScheduledPost extends $pb.GeneratedMessage {
 
   /// UTC, a whole minute, as stored by the server (show this, not the requested time).
   @$pb.TagNumber(7)
-  $1.Timestamp get publishAt => $_getN(6);
+  $0.Timestamp get publishAt => $_getN(6);
   @$pb.TagNumber(7)
-  set publishAt($1.Timestamp value) => $_setField(7, value);
+  set publishAt($0.Timestamp value) => $_setField(7, value);
   @$pb.TagNumber(7)
   $core.bool hasPublishAt() => $_has(6);
   @$pb.TagNumber(7)
   void clearPublishAt() => $_clearField(7);
   @$pb.TagNumber(7)
-  $1.Timestamp ensurePublishAt() => $_ensure(6);
+  $0.Timestamp ensurePublishAt() => $_ensure(6);
 
   @$pb.TagNumber(8)
   ScheduledPostStatus get status => $_getN(7);
@@ -1541,15 +1860,15 @@ class ScheduledPost extends $pb.GeneratedMessage {
   void clearFailure() => $_clearField(10);
 
   @$pb.TagNumber(11)
-  $1.Timestamp get createdAt => $_getN(10);
+  $0.Timestamp get createdAt => $_getN(10);
   @$pb.TagNumber(11)
-  set createdAt($1.Timestamp value) => $_setField(11, value);
+  set createdAt($0.Timestamp value) => $_setField(11, value);
   @$pb.TagNumber(11)
   $core.bool hasCreatedAt() => $_has(10);
   @$pb.TagNumber(11)
   void clearCreatedAt() => $_clearField(11);
   @$pb.TagNumber(11)
-  $1.Timestamp ensureCreatedAt() => $_ensure(10);
+  $0.Timestamp ensureCreatedAt() => $_ensure(10);
 }
 
 class SchedulePostRequest extends $pb.GeneratedMessage {
@@ -1561,7 +1880,7 @@ class SchedulePostRequest extends $pb.GeneratedMessage {
     ReplyPolicy? replyPolicy,
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
-    $1.Timestamp? publishAt,
+    $0.Timestamp? publishAt,
   }) {
     final result = SchedulePostRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -1597,8 +1916,8 @@ class SchedulePostRequest extends $pb.GeneratedMessage {
         enumValues: ReplyPolicy.values)
     ..aOB(6, _omitFieldNames ? '' : 'paidPartnership')
     ..aOB(7, _omitFieldNames ? '' : 'madeWithAi')
-    ..aOM<$1.Timestamp>(8, _omitFieldNames ? '' : 'publishAt',
-        subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$0.Timestamp>(8, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $0.Timestamp.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1680,15 +1999,15 @@ class SchedulePostRequest extends $pb.GeneratedMessage {
 
   /// UTC; truncated to the minute by the server. The client's time zone is display-only.
   @$pb.TagNumber(8)
-  $1.Timestamp get publishAt => $_getN(7);
+  $0.Timestamp get publishAt => $_getN(7);
   @$pb.TagNumber(8)
-  set publishAt($1.Timestamp value) => $_setField(8, value);
+  set publishAt($0.Timestamp value) => $_setField(8, value);
   @$pb.TagNumber(8)
   $core.bool hasPublishAt() => $_has(7);
   @$pb.TagNumber(8)
   void clearPublishAt() => $_clearField(8);
   @$pb.TagNumber(8)
-  $1.Timestamp ensurePublishAt() => $_ensure(7);
+  $0.Timestamp ensurePublishAt() => $_ensure(7);
 }
 
 class SchedulePostResponse extends $pb.GeneratedMessage {
@@ -2122,6 +2441,20 @@ class PostServiceApi {
   /// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
   /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
+  /// Polls (ADR-0029 D1, D2; FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
+  /// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
+  /// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
+  /// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
+  /// choices, each 1-25 code points after the text rules (NFC, no control or bidi formatting characters, trimmed),
+  /// distinct after NFC and case folding; mentions and hashtags in choices are not parsed. duration_minutes 5..10080
+  /// (7 days). Otherwise VALIDATION field "poll". The server sets closes_at = created_at + duration. The poll is stored
+  /// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
+  /// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
+  /// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
+  /// GIF media (ADR-0029 D10; FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
+  /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
+  /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
+  /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
   $async.Future<CreatePostResponse> createPost(
           $pb.ClientContext? ctx, CreatePostRequest request) =>
       _client.invoke<CreatePostResponse>(
@@ -2199,6 +2532,8 @@ class PostServiceApi {
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
   ///
+  /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
+  /// here: VALIDATION field "media_ids" (ADR-0029 D10).
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
   /// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION

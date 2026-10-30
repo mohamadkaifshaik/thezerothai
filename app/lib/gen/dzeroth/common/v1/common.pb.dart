@@ -166,6 +166,7 @@ class MediaRef extends $pb.GeneratedMessage {
     $core.int? height,
     $core.String? blurhash,
     $core.String? altText,
+    $core.String? contentType,
   }) {
     final result = MediaRef._();
     if (mediaId != null) result.mediaId = mediaId;
@@ -175,6 +176,7 @@ class MediaRef extends $pb.GeneratedMessage {
     if (height != null) result.height = height;
     if (blurhash != null) result.blurhash = blurhash;
     if (altText != null) result.altText = altText;
+    if (contentType != null) result.contentType = contentType;
     return result;
   }
 
@@ -199,6 +201,7 @@ class MediaRef extends $pb.GeneratedMessage {
     ..aI(5, _omitFieldNames ? '' : 'height')
     ..aOS(6, _omitFieldNames ? '' : 'blurhash')
     ..aOS(7, _omitFieldNames ? '' : 'altText')
+    ..aOS(8, _omitFieldNames ? '' : 'contentType')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -286,6 +289,21 @@ class MediaRef extends $pb.GeneratedMessage {
   $core.bool hasAltText() => $_has(6);
   @$pb.TagNumber(7)
   void clearAltText() => $_clearField(7);
+
+  /// The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+  /// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
+  /// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
+  /// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
+  /// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+  /// that cannot play.
+  @$pb.TagNumber(8)
+  $core.String get contentType => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set contentType($core.String value) => $_setString(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasContentType() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearContentType() => $_clearField(8);
 }
 
 /// Why a request failed, attached to Connect errors as an error detail.

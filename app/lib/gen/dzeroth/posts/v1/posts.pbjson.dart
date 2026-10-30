@@ -16,9 +16,9 @@ import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
-    as $1;
+    as $0;
 
-import '../../common/v1/common.pbjson.dart' as $0;
+import '../../common/v1/common.pbjson.dart' as $1;
 
 @$core.Deprecated('Use postKindDescriptor instead')
 const PostKind$json = {
@@ -165,6 +165,67 @@ final $typed_data.Uint8List mentionDescriptor = $convert.base64Decode(
     'CgdNZW50aW9uEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBIWCgZoYW5kbGUYAiABKAlSBmhhbm'
     'RsZQ==');
 
+@$core.Deprecated('Use pollChoiceDescriptor instead')
+const PollChoice$json = {
+  '1': 'PollChoice',
+  '2': [
+    {'1': 'label', '3': 1, '4': 1, '5': 9, '10': 'label'},
+    {'1': 'votes', '3': 2, '4': 1, '5': 3, '10': 'votes'},
+  ],
+};
+
+/// Descriptor for `PollChoice`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pollChoiceDescriptor = $convert.base64Decode(
+    'CgpQb2xsQ2hvaWNlEhQKBWxhYmVsGAEgASgJUgVsYWJlbBIUCgV2b3RlcxgCIAEoA1IFdm90ZX'
+    'M=');
+
+@$core.Deprecated('Use pollDescriptor instead')
+const Poll$json = {
+  '1': 'Poll',
+  '2': [
+    {
+      '1': 'choices',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PollChoice',
+      '10': 'choices'
+    },
+    {
+      '1': 'closes_at',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'closesAt'
+    },
+    {'1': 'total_votes', '3': 3, '4': 1, '5': 3, '10': 'totalVotes'},
+    {'1': 'results_visible', '3': 4, '4': 1, '5': 8, '10': 'resultsVisible'},
+    {'1': 'closed', '3': 5, '4': 1, '5': 8, '10': 'closed'},
+  ],
+};
+
+/// Descriptor for `Poll`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pollDescriptor = $convert.base64Decode(
+    'CgRQb2xsEjYKB2Nob2ljZXMYASADKAsyHC5kemVyb3RoLnBvc3RzLnYxLlBvbGxDaG9pY2VSB2'
+    'Nob2ljZXMSNwoJY2xvc2VzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFII'
+    'Y2xvc2VzQXQSHwoLdG90YWxfdm90ZXMYAyABKANSCnRvdGFsVm90ZXMSJwoPcmVzdWx0c192aX'
+    'NpYmxlGAQgASgIUg5yZXN1bHRzVmlzaWJsZRIWCgZjbG9zZWQYBSABKAhSBmNsb3NlZA==');
+
+@$core.Deprecated('Use pollDraftDescriptor instead')
+const PollDraft$json = {
+  '1': 'PollDraft',
+  '2': [
+    {'1': 'choices', '3': 1, '4': 3, '5': 9, '10': 'choices'},
+    {'1': 'duration_minutes', '3': 2, '4': 1, '5': 5, '10': 'durationMinutes'},
+  ],
+};
+
+/// Descriptor for `PollDraft`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List pollDraftDescriptor = $convert.base64Decode(
+    'CglQb2xsRHJhZnQSGAoHY2hvaWNlcxgBIAMoCVIHY2hvaWNlcxIpChBkdXJhdGlvbl9taW51dG'
+    'VzGAIgASgFUg9kdXJhdGlvbk1pbnV0ZXM=');
+
 @$core.Deprecated('Use embeddedPostDescriptor instead')
 const EmbeddedPost$json = {
   '1': 'EmbeddedPost',
@@ -206,6 +267,14 @@ const EmbeddedPost$json = {
       '6': '.dzeroth.posts.v1.ReplyPolicy',
       '10': 'replyPolicy'
     },
+    {
+      '1': 'poll',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.Poll',
+      '10': 'poll'
+    },
   ],
 };
 
@@ -218,7 +287,8 @@ final $typed_data.Uint8List embeddedPostDescriptor = $convert.base64Decode(
     'YXRlZEF0EiAKC3VuYXZhaWxhYmxlGAYgASgIUgt1bmF2YWlsYWJsZRIpChBwYWlkX3BhcnRuZX'
     'JzaGlwGAcgASgIUg9wYWlkUGFydG5lcnNoaXASIAoMbWFkZV93aXRoX2FpGAggASgIUgptYWRl'
     'V2l0aEFpEkAKDHJlcGx5X3BvbGljeRgJIAEoDjIdLmR6ZXJvdGgucG9zdHMudjEuUmVwbHlQb2'
-    'xpY3lSC3JlcGx5UG9saWN5');
+    'xpY3lSC3JlcGx5UG9saWN5EioKBHBvbGwYCiABKAsyFi5kemVyb3RoLnBvc3RzLnYxLlBvbGxS'
+    'BHBvbGw=');
 
 @$core.Deprecated('Use postDescriptor instead')
 const Post$json = {
@@ -300,6 +370,14 @@ const Post$json = {
     },
     {'1': 'paid_partnership', '3': 19, '4': 1, '5': 8, '10': 'paidPartnership'},
     {'1': 'made_with_ai', '3': 20, '4': 1, '5': 8, '10': 'madeWithAi'},
+    {
+      '1': 'poll',
+      '3': 21,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.Poll',
+      '10': 'poll'
+    },
   ],
 };
 
@@ -320,7 +398,8 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     'dHkSOQoKY3JlYXRlZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZW'
     'F0ZWRBdBJACgxyZXBseV9wb2xpY3kYEiABKA4yHS5kemVyb3RoLnBvc3RzLnYxLlJlcGx5UG9s'
     'aWN5UgtyZXBseVBvbGljeRIpChBwYWlkX3BhcnRuZXJzaGlwGBMgASgIUg9wYWlkUGFydG5lcn'
-    'NoaXASIAoMbWFkZV93aXRoX2FpGBQgASgIUgptYWRlV2l0aEFp');
+    'NoaXASIAoMbWFkZV93aXRoX2FpGBQgASgIUgptYWRlV2l0aEFpEioKBHBvbGwYFSABKAsyFi5k'
+    'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGw=');
 
 @$core.Deprecated('Use postViewDescriptor instead')
 const PostView$json = {
@@ -366,6 +445,13 @@ const PostView$json = {
       '10': 'bookmarkedByViewer'
     },
     {'1': 'withheld', '3': 7, '4': 1, '5': 8, '10': 'withheld'},
+    {
+      '1': 'viewer_poll_choice',
+      '3': 8,
+      '4': 1,
+      '5': 5,
+      '10': 'viewerPollChoice'
+    },
   ],
 };
 
@@ -378,7 +464,7 @@ final $typed_data.Uint8List postViewDescriptor = $convert.base64Decode(
     'ZXJtaXNzaW9uElAKEmVtYmVkX3ZpZXdlcl9zdGF0ZRgFIAEoDjIiLmR6ZXJvdGgucG9zdHMudj'
     'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZRIwChRib29rbWFya2VkX2J5X3Zp'
     'ZXdlchgGIAEoCFISYm9va21hcmtlZEJ5Vmlld2VyEhoKCHdpdGhoZWxkGAcgASgIUgh3aXRoaG'
-    'VsZA==');
+    'VsZBIsChJ2aWV3ZXJfcG9sbF9jaG9pY2UYCCABKAVSEHZpZXdlclBvbGxDaG9pY2U=');
 
 @$core.Deprecated('Use createPostRequestDescriptor instead')
 const CreatePostRequest$json = {
@@ -400,6 +486,14 @@ const CreatePostRequest$json = {
     },
     {'1': 'paid_partnership', '3': 8, '4': 1, '5': 8, '10': 'paidPartnership'},
     {'1': 'made_with_ai', '3': 9, '4': 1, '5': 8, '10': 'madeWithAi'},
+    {
+      '1': 'poll',
+      '3': 10,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PollDraft',
+      '10': 'poll'
+    },
   ],
 };
 
@@ -411,7 +505,8 @@ final $typed_data.Uint8List createPostRequestDescriptor = $convert.base64Decode(
     'RfaWQYBSABKAlSDXF1b3RlT2ZQb3N0SWQSJgoPbWVkaWFfYWx0X3RleHRzGAYgAygJUg1tZWRp'
     'YUFsdFRleHRzEkAKDHJlcGx5X3BvbGljeRgHIAEoDjIdLmR6ZXJvdGgucG9zdHMudjEuUmVwbH'
     'lQb2xpY3lSC3JlcGx5UG9saWN5EikKEHBhaWRfcGFydG5lcnNoaXAYCCABKAhSD3BhaWRQYXJ0'
-    'bmVyc2hpcBIgCgxtYWRlX3dpdGhfYWkYCSABKAhSCm1hZGVXaXRoQWk=');
+    'bmVyc2hpcBIgCgxtYWRlX3dpdGhfYWkYCSABKAhSCm1hZGVXaXRoQWkSLwoEcG9sbBgKIAEoCz'
+    'IbLmR6ZXJvdGgucG9zdHMudjEuUG9sbERyYWZ0UgRwb2xs');
 
 @$core.Deprecated('Use createPostResponseDescriptor instead')
 const CreatePostResponse$json = {
@@ -815,13 +910,16 @@ const $core.Map<$core.String, $core.dynamic> PostServiceBase$json = {
 const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
     PostServiceBase$messageJson = {
   '.dzeroth.posts.v1.CreatePostRequest': CreatePostRequest$json,
+  '.dzeroth.posts.v1.PollDraft': PollDraft$json,
   '.dzeroth.posts.v1.CreatePostResponse': CreatePostResponse$json,
   '.dzeroth.posts.v1.PostView': PostView$json,
   '.dzeroth.posts.v1.Post': Post$json,
-  '.dzeroth.common.v1.AuthorSnapshot': $0.AuthorSnapshot$json,
-  '.dzeroth.common.v1.MediaRef': $0.MediaRef$json,
+  '.dzeroth.common.v1.AuthorSnapshot': $1.AuthorSnapshot$json,
+  '.dzeroth.common.v1.MediaRef': $1.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': EmbeddedPost$json,
-  '.google.protobuf.Timestamp': $1.Timestamp$json,
+  '.google.protobuf.Timestamp': $0.Timestamp$json,
+  '.dzeroth.posts.v1.Poll': Poll$json,
+  '.dzeroth.posts.v1.PollChoice': PollChoice$json,
   '.dzeroth.posts.v1.Mention': Mention$json,
   '.dzeroth.posts.v1.DeletePostRequest': DeletePostRequest$json,
   '.dzeroth.posts.v1.DeletePostResponse': DeletePostResponse$json,

@@ -133,6 +133,20 @@ type PostServiceClient interface {
 	// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
 	// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
 	// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
+	// Polls (ADR-0029 D1, D2; FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
+	// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
+	// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
+	// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
+	// choices, each 1-25 code points after the text rules (NFC, no control or bidi formatting characters, trimmed),
+	// distinct after NFC and case folding; mentions and hashtags in choices are not parsed. duration_minutes 5..10080
+	// (7 days). Otherwise VALIDATION field "poll". The server sets closes_at = created_at + duration. The poll is stored
+	// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
+	// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
+	// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
+	// GIF media (ADR-0029 D10; FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
+	// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
+	// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
+	// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success with 0 writes,
@@ -194,6 +208,8 @@ type PostServiceClient interface {
 	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
 	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
 	//
+	// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
+	// here: VALIDATION field "media_ids" (ADR-0029 D10).
 	// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
 	// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
 	// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
@@ -410,6 +426,20 @@ type PostServiceHandler interface {
 	// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
 	// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
 	// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
+	// Polls (ADR-0029 D1, D2; FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
+	// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
+	// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
+	// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
+	// choices, each 1-25 code points after the text rules (NFC, no control or bidi formatting characters, trimmed),
+	// distinct after NFC and case folding; mentions and hashtags in choices are not parsed. duration_minutes 5..10080
+	// (7 days). Otherwise VALIDATION field "poll". The server sets closes_at = created_at + duration. The poll is stored
+	// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
+	// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
+	// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
+	// GIF media (ADR-0029 D10; FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
+	// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
+	// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
+	// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success with 0 writes,
@@ -471,6 +501,8 @@ type PostServiceHandler interface {
 	// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
 	// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
 	//
+	// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
+	// here: VALIDATION field "media_ids" (ADR-0029 D10).
 	// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
 	// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
 	// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
