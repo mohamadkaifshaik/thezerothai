@@ -76,6 +76,10 @@ const (
 	MaxNoteRunes = 500
 	// Retention is how long a resolved report is kept before the Firestore TTL deletes it (ADR-0016 D5).
 	Retention = 90 * 24 * time.Hour
+	// MessageEvidenceRetention is how long the copied text of a MESSAGE report is kept (ADR-0016 note 2026-10-30, security
+	// L-6, W7-36): the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
+	// deletes it, open or not; resolving the report shortens it to at most resolvedAt + Retention. The report itself stays.
+	MessageEvidenceRetention = 180 * 24 * time.Hour
 	// MaxListLimit is the largest page of Ops.List (CLAUDE.md rule 5: every query Limit <= 50).
 	MaxListLimit = 50
 	// DefaultListLimit is the default page of Ops.List.
@@ -109,6 +113,9 @@ type Evidence struct {
 	Website     string
 	AvatarURL   string
 	BannerURL   string
+	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran, W7-36):
+	// Text is then empty because the copy was deleted, not because the message was empty. Never stored.
+	TextExpired bool
 }
 
 // Report is the domain form of reports/{reportId}. ReporterID is "" after the reporter's account was deleted.
@@ -174,7 +181,8 @@ type Ops interface {
 	// List returns reports with the given status, oldest first, at most limit (clamped to 1..MaxListLimit).
 	// Reads: len(result), minimum 1.
 	List(ctx context.Context, status Status, limit int) ([]Report, error)
-	// Get returns one report (ErrNotFound when missing). Reads 1.
+	// Get returns one report (ErrNotFound when missing). Reads 1; a MESSAGE report reads its evidence child too (2), and
+	// Evidence.TextExpired says the child is gone (W7-36).
 	Get(ctx context.Context, id string) (Report, error)
 	// Resolve closes a report. Resolving an already RESOLVED report is a no-op that returns it unchanged
 	// (0 writes). Reads 1, writes 1. A re-report after RESOLVED reopens the same document (Repo.Create).

@@ -15,6 +15,9 @@ import (
 type ExportSource interface {
 	ExportConversations(ctx context.Context, uid string) ([]ExportConv, error)
 	ExportMessages(ctx context.Context, uid, convID string, after *ExportMsg) ([]ExportMsg, error)
+	// GetEntry reads the caller's own entry of one conversation (folder from ExportConv.Folder): 1 read, found false when missing.
+	// Only a conversation whose peer is blocked needs it (the frozen peer snapshot, W7-30).
+	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
 }
 
 var _ ExportSource = (*FirestoreRepo)(nil)
@@ -49,11 +52,13 @@ type exportItem struct {
 type exporter struct {
 	src     ExportSource
 	handles HandleSource
+	social  Social
 }
 
-// NewExporter builds the `messages` export section (ADR-0027 D8, F5) on an ExportSource and a handle lookup.
-func NewExporter(src ExportSource, handles HandleSource) Exporter {
-	return &exporter{src: src, handles: handles}
+// NewExporter builds the `messages` export section (ADR-0027 D8, F5) on an ExportSource, a handle lookup and the caller's social
+// context (W7-30: a peer who blocked the caller is named by the handle frozen on the caller's entry, never the live one).
+func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter {
+	return &exporter{src: src, handles: handles, social: social}
 }
 
 // ExportUser implements Exporter: {"conversations":[...]} streamed to w, conversations newest first (by creation), each
@@ -72,7 +77,7 @@ func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 		}
 		return convs[i].ID > convs[j].ID
 	})
-	handles, err := x.peerHandles(ctx, convs)
+	handles, err := x.peerHandles(ctx, uid, convs)
 	if err != nil {
 		return err
 	}
@@ -131,25 +136,55 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 	return nil
 }
 
-// peerHandles maps each live peer uid to its current handle in directory calls of at most 50. A deleted or suspended
-// peer is absent (empty handle).
-func (x *exporter) peerHandles(ctx context.Context, convs []ExportConv) (map[string]string, error) {
+// peerHandles maps each peer uid to the handle the export shows. A peer who is blocked either way (the caller's Blocked, the
+// caller's BlockedBy, or every peer when BlockedByOverflow) is never looked up in the directory (W7-30, security review M-2: a
+// renamed handle of someone who blocked the caller must not leak): the handle is the one frozen on the caller's own entry, read
+// once for that conversation, or none when the entry is gone or names another peer (frozenPeer, the same rule as the thread
+// header). Every other live peer is looked up in directory calls of at most 50; a deleted or suspended peer is absent (empty).
+// The caller's graph is read (Social, cached 60 s) only when there is a peer to decide about; a graph error fails the section
+// (fail closed, the job retries).
+func (x *exporter) peerHandles(ctx context.Context, uid string, convs []ExportConv) (map[string]string, error) {
 	seen := map[string]bool{}
-	var uids []string
+	var peers []ExportConv
 	for _, c := range convs {
 		if c.PeerUID != "" && !c.PeerGone && !seen[c.PeerUID] {
 			seen[c.PeerUID] = true
-			uids = append(uids, c.PeerUID)
+			peers = append(peers, c)
 		}
 	}
-	out := make(map[string]string, len(uids))
+	out := make(map[string]string, len(peers))
+	if len(peers) == 0 {
+		return out, nil
+	}
+	snap, err := x.social.Snapshot(ctx, uid)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: export social context: %w", err)
+	}
+	var uids []string
+	for _, c := range peers {
+		if !snap.Blocked[c.PeerUID] && !peerBlockedCaller(snap, c.PeerUID) {
+			uids = append(uids, c.PeerUID)
+			continue
+		}
+		entry, found, err := x.src.GetEntry(ctx, uid, c.ID, c.Folder)
+		if err != nil {
+			return nil, fmt.Errorf("messaging: export frozen peer: %w", err)
+		}
+		var own *EntryDoc
+		if found {
+			own = &entry
+		}
+		if frozen, ok := frozenPeer(c.PeerUID, own); ok {
+			out[c.PeerUID] = frozen.Handle
+		}
+	}
 	for start := 0; start < len(uids); start += peerLookupChunk {
 		got, err := x.handles.GetProfiles(ctx, uids[start:min(start+peerLookupChunk, len(uids))])
 		if err != nil {
 			return nil, fmt.Errorf("messaging: export peer handles: %w", err)
 		}
-		for uid, p := range got {
-			out[uid] = p.Handle
+		for u, p := range got {
+			out[u] = p.Handle
 		}
 	}
 	return out, nil

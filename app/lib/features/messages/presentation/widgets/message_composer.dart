@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/app_notice_banner.dart';
@@ -15,9 +14,11 @@ import '../../../posts/domain/post_text_rules.dart' show PostDraftProblem;
 import '../../../posts/presentation/composer_screen.dart'
     show kComposerInputCap;
 import '../../../posts/presentation/widgets/draft_problem_hint.dart';
-import '../../domain/messaging_feature_flag.dart';
+import '../../domain/messaging_feature_gate.dart';
 import '../bloc/message_composer_cubit.dart';
 import '../messaging_error_messages.dart';
+import '../thread_screen.dart' show ThreadReadOnlyLine, kMessagingReadOnlyText;
+import 'messaging_access_builder.dart';
 
 /// The counter shows from this many code points left (and for any draft with
 /// a problem, so 281 reads -1 in red).
@@ -110,9 +111,20 @@ class _MessageComposerState extends State<MessageComposer> {
 
   @override
   Widget build(BuildContext context) {
-    if (!isFeatureEnabled(context, kFeatureMessaging)) {
-      return const SizedBox.shrink();
-    }
+    // W7-26: no field without `messaging` for this caller; read-only Messages
+    // says so in one line, hidden Messages shows nothing.
+    return MessagingAccessBuilder(
+      builder: (context, access) => switch (access) {
+        MessagingAccess.full => _composer(context),
+        MessagingAccess.readOnly => const ThreadReadOnlyLine(
+          text: kMessagingReadOnlyText,
+        ),
+        MessagingAccess.hidden => const SizedBox.shrink(),
+      },
+    );
+  }
+
+  Widget _composer(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final cubit = context.read<MessageComposerCubit>();

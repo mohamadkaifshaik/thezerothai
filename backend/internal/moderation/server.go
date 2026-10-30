@@ -40,7 +40,7 @@ var _ moderationv1connect.ModerationServiceHandler = (*Server)(nil)
 
 // ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads, when off). A MESSAGE report
 // also needs FEATURE_MESSAGING not globally off (guardMessaging, feature=messaging). Worst case reads and writes per
-// target are on Service.Report: MESSAGE 6 reads cold / 3 warm (interceptor included), 2 writes.
+// target are on Service.Report: MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
 func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderationv1.ReportContentRequest]) (*connect.Response[moderationv1.ReportContentResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {

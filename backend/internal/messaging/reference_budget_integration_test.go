@@ -77,7 +77,7 @@ func TestExport_ReferenceAccountBudget(t *testing.T) {
 	e.seedReferenceAccount(alice)
 	var buf bytes.Buffer
 	ctx, c := budget.WithCounter(t.Context())
-	if err := NewExporter(e.repo, e.profs).ExportUser(ctx, alice, &buf); err != nil {
+	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(ctx, alice, &buf); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("REFBUDGET export reads=%d writes=%d bytes=%d (plan: ~620 / 0)", c.Reads(), c.Writes(), buf.Len())

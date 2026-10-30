@@ -279,7 +279,7 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 			}
 			// Bob's export names the peer as deleted and carries no uid.
 			var exp bytes.Buffer
-			if err := NewExporter(e.repo, e.profs).ExportUser(context.Background(), bob, &exp); err != nil {
+			if err := NewExporter(e.repo, e.profs, e.social).ExportUser(context.Background(), bob, &exp); err != nil {
 				t.Fatal(err)
 			}
 			if !strings.Contains(exp.String(), `"peerDeleted":true`) || strings.Contains(exp.String(), alice) {
@@ -346,6 +346,9 @@ func TestEraser_RequestRecipientEntryInDmRequests(t *testing.T) {
 	req, ok := e.entry(alice, "dmInbox", convID)
 	if !ok || req.Peer.DisplayName != DeletedAccountName || req.Last.Snippet != "hello?" {
 		t.Errorf("the requester's entry = %+v, %v: placeholder expected, her own last message kept", req, ok)
+	}
+	if req.RequestPending {
+		t.Error("requestPending survived MarkGone: a request whose recipient is gone must not read as waiting (W7-25)")
 	}
 	for _, m := range e.msgs(convID) {
 		if m.State != msgVisible || m.Text == "" {
@@ -555,7 +558,7 @@ func TestExport_MatchesGolden(t *testing.T) {
 
 	var buf bytes.Buffer
 	ctx, c := budget.WithCounter(context.Background())
-	if err := NewExporter(e.repo, e.profs).ExportUser(ctx, alice, &buf); err != nil {
+	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(ctx, alice, &buf); err != nil {
 		t.Fatal(err)
 	}
 	// 4 conversations + 3 + 2 + 1 + 1 messages (both sides are read to order the section).

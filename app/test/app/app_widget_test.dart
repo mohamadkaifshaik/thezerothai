@@ -20,6 +20,7 @@ import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
@@ -60,7 +61,14 @@ class MockPostsRepository extends Mock implements PostsRepository {}
 
 class MockTimelineRepository extends Mock implements TimelineRepository {}
 
-class MockMessagingRepository extends Mock implements MessagingRepository {}
+class MockMessagingRepository extends Mock implements MessagingRepository {
+  MockMessagingRepository() {
+    // W7-26: the router listens to the gate; app_widget runs the probe.
+    when(() => gate)
+        .thenReturn(MessagingFeatureGate(isMessagingEnabled: () => false));
+    when(probeAccess).thenAnswer((_) async {});
+  }
+}
 
 class MockNotificationsRepository extends Mock
     implements NotificationsRepository {}

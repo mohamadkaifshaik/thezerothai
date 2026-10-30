@@ -38,6 +38,8 @@ const ErrorReason$json = {
     {'1': 'ERROR_REASON_REPLY_NOT_ALLOWED', '2': 16},
     {'1': 'ERROR_REASON_PROTECTED_ACCOUNT', '2': 17},
     {'1': 'ERROR_REASON_CANNOT_MESSAGE', '2': 18},
+    {'1': 'ERROR_REASON_POLL_CLOSED', '2': 19},
+    {'1': 'ERROR_REASON_ALREADY_VOTED', '2': 20},
   ],
 };
 
@@ -54,7 +56,9 @@ final $typed_data.Uint8List errorReasonDescriptor = $convert.base64Decode(
     'UklDVEVEEAwSHwobRVJST1JfUkVBU09OX1RBUkdFVF9CTE9DS0VEEA0SIQodRVJST1JfUkVBU0'
     '9OX0ZFQVRVUkVfRElTQUJMRUQQDhIgChxFUlJPUl9SRUFTT05fUkVBVVRIX1JFUVVJUkVEEA8S'
     'IgoeRVJST1JfUkVBU09OX1JFUExZX05PVF9BTExPV0VEEBASIgoeRVJST1JfUkVBU09OX1BST1'
-    'RFQ1RFRF9BQ0NPVU5UEBESHwobRVJST1JfUkVBU09OX0NBTk5PVF9NRVNTQUdFEBI=');
+    'RFQ1RFRF9BQ0NPVU5UEBESHwobRVJST1JfUkVBU09OX0NBTk5PVF9NRVNTQUdFEBISHAoYRVJS'
+    'T1JfUkVBU09OX1BPTExfQ0xPU0VEEBMSHgoaRVJST1JfUkVBU09OX0FMUkVBRFlfVk9URUQQFA'
+    '==');
 
 @$core.Deprecated('Use authorSnapshotDescriptor instead')
 const AuthorSnapshot$json = {
@@ -87,6 +91,7 @@ const MediaRef$json = {
     {'1': 'height', '3': 5, '4': 1, '5': 5, '10': 'height'},
     {'1': 'blurhash', '3': 6, '4': 1, '5': 9, '10': 'blurhash'},
     {'1': 'alt_text', '3': 7, '4': 1, '5': 9, '10': 'altText'},
+    {'1': 'content_type', '3': 8, '4': 1, '5': 9, '10': 'contentType'},
   ],
 };
 
@@ -95,7 +100,7 @@ final $typed_data.Uint8List mediaRefDescriptor = $convert.base64Decode(
     'CghNZWRpYVJlZhIZCghtZWRpYV9pZBgBIAEoCVIHbWVkaWFJZBIQCgN1cmwYAiABKAlSA3VybB'
     'IbCgl0aHVtYl91cmwYAyABKAlSCHRodW1iVXJsEhQKBXdpZHRoGAQgASgFUgV3aWR0aBIWCgZo'
     'ZWlnaHQYBSABKAVSBmhlaWdodBIaCghibHVyaGFzaBgGIAEoCVIIYmx1cmhhc2gSGQoIYWx0X3'
-    'RleHQYByABKAlSB2FsdFRleHQ=');
+    'RleHQYByABKAlSB2FsdFRleHQSIQoMY29udGVudF90eXBlGAggASgJUgtjb250ZW50VHlwZQ==');
 
 @$core.Deprecated('Use errorDetailDescriptor instead')
 const ErrorDetail$json = {

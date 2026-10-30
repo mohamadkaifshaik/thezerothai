@@ -237,6 +237,10 @@ class MessagingStateEntries extends Table {
 /// leaves nothing behind (CLAUDE.md rule 10).
 const kAccountSettingPrefix = 'account:';
 
+/// The uid whose data the cache tables hold (W7-35, L-4). It is an account
+/// setting, so [AppDatabase.clearAll] removes it with the data it describes.
+const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
+
 /// A device-level setting (key -> value text), e.g. the appearance choice.
 ///
 /// Unlike every other table this one is **not** wiped on sign-out
@@ -253,6 +257,40 @@ class AppSettingEntries extends Table {
   Set<Column> get primaryKey => {settingKey};
 }
 
+/// One unsent post kept on the device (W6-14, ADR-0029 F7/F8): text, poll,
+/// reply audience and disclosure labels; never photos or GIFs. Unlike every
+/// other account table this one is **not** wiped by [AppDatabase.clearAll]:
+/// the owner may sign out and back in and expects the draft (F7). Every read
+/// and write is filtered by [uid], so another account on the device never sees
+/// it; `DraftsRepository.deleteAll` removes one uid's rows when that account
+/// is deleted. Only `DraftsRepository` reads and writes it.
+@DataClassName('ComposerDraftRow')
+class ComposerDraftEntries extends Table {
+  /// Opaque random id, unique per device.
+  TextColumn get draftId => text()();
+
+  /// Firebase uid of the author.
+  TextColumn get uid => text()();
+
+  /// The post text (named so it does not shadow drift's `text()`).
+  TextColumn get draftText => text()();
+
+  /// JSON `{"c": [choices], "d": minutes}`; '' = no poll.
+  TextColumn get pollJson => text().withDefault(const Constant(''))();
+
+  /// `ReplyAudience.name`.
+  TextColumn get replyPolicy =>
+      text().withDefault(const Constant('everyone'))();
+  BoolColumn get paidPartnership =>
+      boolean().withDefault(const Constant(false))();
+  BoolColumn get madeWithAi => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {draftId};
+}
+
 @DriftDatabase(
   tables: [
     ProfileCacheEntries,
@@ -266,6 +304,7 @@ class AppSettingEntries extends Table {
     MessageEntries,
     MessagingStateEntries,
     AppSettingEntries,
+    ComposerDraftEntries,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -279,7 +318,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -321,6 +360,10 @@ class AppDatabase extends _$AppDatabase {
           messagingStateEntries,
           messagingStateEntries.requestCount,
         );
+      }
+      // v8 -> v9 (W6-14): unsent posts, kept per uid across sign-out.
+      if (from < 9) {
+        await m.createTable(composerDraftEntries);
       }
     },
   );
@@ -470,10 +513,31 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// Makes the cache belong to [uid] (W7-35, L-4), before any cache read.
+  ///
+  /// The wipe on sign-out can be missed (the process dies first, or the auth
+  /// stream goes from one user straight to another), so the cache says whose it
+  /// is. When the owner stamp differs from [uid], or there is none, the session
+  /// epoch ends (late writes of the old session are dropped), every cache table
+  /// is cleared and the stamp is written, all in one transaction. A null [uid]
+  /// (nobody signed in) wipes a cache that still carries a stamp. Returns true
+  /// when it wiped.
+  Future<bool> claimCacheFor(String? uid) async {
+    final stamp = await readSetting(kCacheOwnerKey);
+    if (uid == null ? stamp == null : stamp == uid) return false;
+    sessionEpoch.end();
+    await transaction(() async {
+      await clearAll();
+      if (uid != null) await writeSetting(kCacheOwnerKey, uid);
+    });
+    return true;
+  }
+
   /// Wipes all cached data. Called on sign-out so the next user on a shared
   /// device never sees a stale profile or follow list (privacy: CLAUDE.md
   /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose,
   /// except the account-derived ones under [kAccountSettingPrefix].
+  /// Unsent posts ([ComposerDraftEntries]) are kept too, scoped by uid (F7).
   Future<void> clearAll() async {
     await transaction(() async {
       await delete(profileCacheEntries).go();

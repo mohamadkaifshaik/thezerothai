@@ -1,5 +1,6 @@
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_bubble.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:flutter/gestures.dart';
@@ -233,6 +234,66 @@ void main() {
         expect(opened, Uri.parse('https://example.com/x'));
       },
     );
+
+    testWidgets('linksEnabled false (W7-35 L-9): plain text, no tap, no '
+        '"Open link" action', (tester) async {
+      final handle = tester.ensureSemantics();
+      var opened = 0;
+      await pumpThemed(
+        tester,
+        MessageBubble(
+          message: msg(1, text: 'see https://example.com/x'),
+          peerName: 'Sam Rivera',
+          now: kMsgBase.add(const Duration(minutes: 5)),
+          firstOfGroup: true,
+          lastOfGroup: true,
+          onOpenLink: (_) => opened++,
+          linksEnabled: false,
+        ),
+      );
+
+      expect(find.textContaining('https://example.com/x'), findsOneWidget);
+      final spans = <TextSpan>[];
+      tester
+          .widget<RichText>(
+            find
+                .descendant(
+                  of: find.byType(MessageText),
+                  matching: find.byType(RichText),
+                )
+                .first,
+          )
+          .text
+          .visitChildren((s) {
+            if (s is TextSpan && (s.recognizer != null || s.style != null)) {
+              spans.add(s);
+            }
+            return true;
+          });
+      expect(spans.where((s) => s.recognizer != null), isEmpty);
+      final data = tester
+          .getSemantics(find.bySemanticsLabel(RegExp('Sam Rivera said')))
+          .getSemanticsData();
+      expect(data.customSemanticsActionIds, isEmpty);
+      expect(opened, 0);
+      handle.dispose();
+    });
+
+    test('messageLinksEnabled: a REQUEST holds the peer\'s links back, and so '
+        'does a missing header', () {
+      final request = conv(
+        'c1',
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+      final accepted = conv(
+        'c1',
+        state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+      );
+      expect(messageLinksEnabled(request, msg(1)), isFalse);
+      expect(messageLinksEnabled(null, msg(1)), isFalse);
+      expect(messageLinksEnabled(accepted, msg(1)), isTrue);
+      expect(messageLinksEnabled(request, msg(1, fromSelf: true)), isTrue);
+    });
 
     testWidgets('a javascript: link is plain text', (tester) async {
       await pumpThemed(tester, bubble(msg(1, text: 'javascript:alert(1)')));
