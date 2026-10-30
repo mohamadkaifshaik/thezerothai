@@ -42,6 +42,12 @@ Branches: `feat/ui-w4-N-<slug>` off `main` (not stacked); one ticket per PR; mer
 | Scheduler | prod: `daily-maintenance` (live), `publish-scheduled` (defined, not applied); dev: `jobs = {}` | F1 |
 | Who to follow | **not built**; W3 owns the suggestion query (roadmap W3 row: "suggestion query with read cap"); **no W3 plan exists yet** | W4 renders it only (W4-19) |
 
+**Update 2026-10-30 (W4-1, `main` 1dff3b3).** W3 and W7 merged after this table was written; ADR-0028 "Context" lists what changed. In short:
+- private accounts shipped (ADR-0025): A9 is not deferred, so SearchPosts goes through `posts.Audience` and the trends sweep skips protected authors;
+- `posts.hasMedia` exists (ADR-0024 D4): A3 keeps the post-filter on `len(media) > 0` and names the index switch;
+- who to follow exists (`ListSuggestedUsers`, flag `follow_suggestions`, 48 h client cache): W4-19 waits only for W4-17;
+- the cost baseline moved: W4 at 3,000 DAU is about INR 275, not 169, because it now pays Cloud Run vCPU-s and requests (ADR-0028 Cost impact).
+
 **Ownership decision (who-to-follow):** **W3 owns the suggestion query, its RPC, flag, read cap and budget.** W4 only renders that list in an Explore section and in the desktop side column, behind W3's flag, and adds 0 RPCs of its own for it. W3's budget should count one call per Explore open (1.0 a DAU a day, below) plus side-column mounts under a 5-minute client cache. If W3's RPC has not shipped, the slot renders nothing.
 
 ## Goal & user value
@@ -82,7 +88,7 @@ People can find accounts and topics: type a handle and get matching people as th
 - private-account exclusion: every post is PUBLIC today (ADR-0008 D1); architect A9 names the seam;
 - square organisation avatars.
 
-The stage-ladder skill has no search row today. ADR W4-1 proposes one (Stage 0 choice, seam, Stage 2/3 target, trigger), and the skill edit lands with that ADR's PR.
+The stage-ladder skill has no search row today. ADR-0028 (W4-1) proposes the rows (Stage 0 choice, seam, Stage 2/3 target, trigger) in its "Stage ladder" and "Proposed skill rows" sections; the skill edit itself is a follow-up `.claude/` PR (the W4-1 PR does not edit `.claude/`).
 
 ## Non-functional targets (Stage 0, 0–300 DAU; credit mode to ~3k DAU changes no target)
 - **Latency (warm):**
@@ -141,7 +147,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 ## Flags
 - `FEATURE_SEARCH` (wire name `search`) gates SearchPeople and SearchPosts. The client gates the search field, `/search`, the hashtag tap-through and the Explore destination on it.
 - `FEATURE_TRENDS` (wire name `trends`) gates GetTrends, the trends sections and the refresh step. The step honours only `Registry.GloballyOff` (`flag-rollout`: only `off` is a kill switch for a job).
-- **Ceilings.** `scripts/promotion/flag-ceiling.json` gets `SEARCH` and `TRENDS` in `flags` and dev entries `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}`, with **no prod raise**. **That file is founder-gated (CODEOWNERS)**: W4-3's PR needs the founder's review.
+- **Ceilings.** `scripts/promotion/flag-ceiling.json` gets `SEARCH` and `TRENDS` in `flags` and dev entries `{"mode": "allowlist", "max_allowlist": 6, "max_percent": 0}` (6 since #463, ADR-0028 D8), with **no prod raise**. **That file is founder-gated (CODEOWNERS)**: W4-3's PR needs the founder's review.
 - **Terraform.** `feature_search*` and `feature_trends*` variables go in `envs/dev` and `envs/prod`, default `off` (copy `feature_bookmarks`). Nothing is applied.
 - **Ramp.** Dev allowlist (3 uids) → the founder's MVP launch decision for prod: allowlist → percent 5 → 25 → 100 → `on`, each step a Terraform change plus a tagged revision (ADR-0019). `FEATURE_TRENDS` never ramps ahead of `FEATURE_SEARCH`: the trend rows link to search.
 
@@ -161,7 +167,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   | Read budget (ADR-0010 D5) | 2,000 reads/uid/day | binds first: at most 2,368 reads per uid per day across everything |
 
   Worst people rows per account per day: 900 × 20 = 18,000 handles, already public on profiles. Worst post rows: bounded by the read budget.
-- **Query grammar (validated before any read, 0 reads on rejection):**
+- **Query grammar (validated before any read, 0 reads on rejection; ADR-0028 D1 is authoritative and settles the sigil, length and one-character cases below, with the shared fixture `testdata/search_query_grammar.json`):**
   - Normalise: NFC, trim, lower-case.
   - At most 50 code points. Control characters and bidi formatting controls are rejected, as in ADR-0010 D9.
   - People: `@?[a-z0-9_]{2,15}`.
@@ -196,7 +202,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 - The founder's answers to F1 to F8 above.
 - The W4 capture session (roadmap section 5, W4 row: search box focused with suggestions, results tabs, empty results). **Optional; it does not block.** The UI tickets use X-like defaults and say so. **UNKNOWN until captured:** the suggestion dropdown content, the results tabs' look, empty and error states, and the Trending tab content (`explore.md` §8, §10).
 
-**Questions for @architect (ADR W4-1):**
+**Questions for @architect (ADR W4-1; answered in ADR-0028):**
 - **A1. People query.** `users` range on `handleLower`, with status and blockedBy filtered in memory (no composite index; short results allowed), vs a `handles` doc-id range plus a `GetAll` of `users` (2× reads). **Default: the `users` range.** A `status == ACTIVE` filter in the query would need a composite index (gate file) and is not worth it at Stage 0.
 - **A2.** Tag entry size (30), the Top score (default likes + 2 × reposts + 2 × quotes + replies, posts from the last 7 days, ties newest first), and the cache sizes (`CACHE_SEARCH_PREFIX_ENTRIES` 2,000; `CACHE_SEARCH_TAG_ENTRIES` 500).
 - **A3. Media tab.** Bounded post-filter (default) vs W3's `hasMedia` plus a composite index (gate file).
@@ -225,8 +231,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W4-1 | ADR-0024 (or the next free number) "Search, trends and Explore at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
-| W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | Open |
+| W4-1 | ADR-0028 "Search, trends and Explore at Stage 0" (0024 to 0027 went to W3, W8 and W7) | architect | M | — | **yes, start now** (new file) | In review (PR #465) |
+| W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | In review (PR #465) |
 | W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | Open |
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Open |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
@@ -266,8 +272,8 @@ Order:
 
 ## Tickets
 
-### W4-1 — ADR "Search, trends and Explore at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** ADR-0024, or the next free number when the PR opens: W3 may claim 0024 first. The ADR covers:
+### W4-1 — ADR "Search, trends and Explore at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #465)
+- **Description.** ADR-0028 (`docs/adr/0028-search-trends-and-explore-at-stage-0.md`; 0024 to 0027 were taken by W3, W8 and W7 before the PR opened). The ADR covers:
   - the query grammar and normalisation;
   - People search (A1; F2 and A8 as a founder question);
   - the four tabs at Stage 0 (A2, A3);
@@ -294,7 +300,7 @@ Order:
 - **Seam.** It defines `search.Service` (People, Posts, Trends), `search.TrendsRefresher`, `identity.Directory.SearchHandles` and `posts.Reader.ByHashtag` / `CreatedAfter`.
 - **Parallel with W3:** yes.
 
-### W4-2 — `dzeroth.search.v1` proto  [owner: architect] [size: S] [depends: W4-1 drafted]  Status: Open
+### W4-2 — `dzeroth.search.v1` proto  [owner: architect] [size: S] [depends: W4-1 drafted]  Status: In review (PR #465)
 - **Description.** A new `proto/dzeroth/search/v1/search.proto`, `option go_package` as the others. The service (all `NO_SIDE_EFFECTS`), each RPC with a cost comment:
   - `SearchPeople(query, limit 0→10, max 20)` → `repeated dzeroth.graph.v1.UserListItem` (reuses the graph row so `UserListRow` / `FollowButton` render it with 0 extra reads).
   - `SearchPosts(query, tab SearchTab {UNSPECIFIED = TOP, TOP, LATEST, MEDIA}, page_size 0→20 max 50, page_token)` → `repeated dzeroth.posts.v1.PostView posts`, `next_page_token`, `normalized_tag`, `unsupported_query`.
@@ -314,9 +320,9 @@ Order:
 ### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: Open
 - **Description.**
   - Register `FEATURE_SEARCH` and `FEATURE_TRENDS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
-  - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "".
+  - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "", `TRENDS_MIN_INTERVAL` 12 h (ADR-0028 D6: a run within it of the last list is skipped as `fresh`).
   - Map the limits in `ratelimit_config.go` (two limiters, one shared `DailyCap` `search_daily`).
-  - `flag-ceiling.json`: `SEARCH` and `TRENDS` dev allowlist 3 (**founder-gated file**).
+  - `flag-ceiling.json`: `SEARCH` and `TRENDS` dev allowlist 6 (since #463; **founder-gated file**).
   - Terraform `feature_search*` / `feature_trends*` in `envs/dev` and `envs/prod`, default `off`, not applied.
   - `internal/search` with `api.go` (interfaces), a Connect server whose three handlers return FEATURE_DISABLED or Unimplemented, and wiring in `apiserver.Build`.
 - **Acceptance criteria.**
@@ -484,6 +490,7 @@ Order:
 - **Acceptance criteria (B).**
   - Given the backstop fails, then 500 is returned, whatever trends did; Scheduler retries the backstop (trends resumes from its watermark, so a retry double-counts nothing).
   - Given trends fail or are skipped, then the status reflects the backstop only, and the reason is logged.
+  - Given a Scheduler retry minutes after a successful run, then the trends step is skipped as `fresh` (ADR-0028 D6) and the list is not replaced.
   - Given the backstop takes 26 s, then trends is skipped with `trends_skipped reason=deadline`.
 - **Acceptance criteria (A).** The targeted prod plan shows exactly one added job; nothing is applied without the founder's OK.
 - **Test notes.** The status-code matrix (backstop ok / failed × trends ok / failed / skipped) with a fake clock; ADR-0011's backstop tests are unchanged and green.
@@ -788,5 +795,5 @@ Order:
 | Trends composed into `daily-maintenance` delay or break the deletion backstop | backstop first and unchanged, status code from the backstop only, a trends sub-deadline, skip and resume |
 | Merge conflicts with W3 in shared files | the parallel column above; one PR at a time |
 | Uncaptured visuals (suggestions, results tabs, empty states, Trending tab) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
-| ADR number clash with W3 | "ADR-0024 or the next free number" |
+| ADR number clash with W3 | resolved: W4 took ADR-0028, the next free number when the PR opened |
 | The Media tab's post-filter returns short or empty pages | allowed by the contract; A3 moves to an index if W3 adds `hasMedia` |
