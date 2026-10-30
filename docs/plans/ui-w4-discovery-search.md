@@ -1012,7 +1012,7 @@ Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **bef
 - **Seam.** `search.Service.Posts(LATEST)`; the token stays opaque and sealed (D5).
 - **Parallel with W3:** yes.
 
-### W4-28 — GetTrends daily call cap  [owner: backend-developer] [size: XS] [depends: W4-10 merged]  Status: Open
+### W4-28 — GetTrends daily call cap  [owner: backend-developer] [size: XS] [depends: W4-10 merged]  Status: Done
 Source: security review W4-22 L-4; ADR-0028 note 2026-10-31, part 4. Gate: **before `trends` leaves the allowlist in prod** (prod percent).
 - **Description.**
   - **Config.**

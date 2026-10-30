@@ -631,6 +631,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SEARCH_CALLS_PER_DAY must be > 0 (got %d)", searchCallsPerDay)
 	}
 	rl.SearchCallsPerDay = int64(searchCallsPerDay)
+	// ADR-0028 note 2026-10-31 part 4 (W4-28, review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
+	// RateLimitConfig.TrendsCallsPerDay for the default's math. A cap of 0 would lock every user out of trends.
+	trendsCallsPerDay, err := getInt("TRENDS_CALLS_PER_DAY", 400)
+	if err != nil {
+		return Config{}, err
+	}
+	if trendsCallsPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: TRENDS_CALLS_PER_DAY must be > 0 (got %d)", trendsCallsPerDay)
+	}
+	rl.TrendsCallsPerDay = int64(trendsCallsPerDay)
 	// W3-22 L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
 	// for the default's math. A cap of 0 would lock every user out of the RPC.
 	profileUpdatesPerDay, err := getInt("PROFILE_UPDATES_PER_DAY", 100)
