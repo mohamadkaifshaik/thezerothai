@@ -25,7 +25,7 @@ import (
 // counter pre-charged with the account-status interceptor's 1 read, so the budgets are the per-RPC table of ADR-0027.
 
 func (e *itEnv) accept(svc *service, uid, convID string) (*budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, c := budget.WithCounter(verifiedCtx())
 	c.AddReads(1)
 	_, err := svc.Accept(ctx, uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return c, err

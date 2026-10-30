@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -42,12 +43,18 @@ type Limits struct {
 // Deps are the collaborators of the service. Repo and Social are required for ListConversations, Repo, Social and Profiles for SendMessage; Events and Badge may
 // be nil (no push, no badge cache yet).
 type Deps struct {
-	Repo     Repo
-	Social   Social
-	Profiles Profiles
-	Events   Events
-	Badge    BadgeCache
-	Limits   Limits
+	Repo   Repo
+	Social Social
+	// TxSocial reads the recipient's graph inside the send transaction and TxProfiles the recipient's users doc inside the
+	// transaction of a send that creates a conversation (ADR-0027 note W7-33); both are required for SendMessage.
+	TxSocial   TxSocial
+	TxProfiles identity.TxProfiles
+	Profiles   Profiles
+	Events     Events
+	Badge      BadgeCache
+	Limits     Limits
+	// AllowAnonymous is config.AuthEmulator only: the verified-email gate of Send and Accept lets emulator callers through.
+	AllowAnonymous bool
 	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.
 	CursorKey []byte
 	// TokenTTL is the lifetime of a persisted since or page token (RefreshTokenTTL, 30 days, when zero).

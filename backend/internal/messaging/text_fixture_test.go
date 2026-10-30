@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -95,7 +94,7 @@ func FuzzSendText(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, s string) {
 		r := newRig(t, nil)
-		_, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, s))
+		_, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, s))
 		if err != nil {
 			var ae *apierr.Error
 			if !asAPI(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != "text" {

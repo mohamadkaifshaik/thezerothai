@@ -31,12 +31,16 @@ type itEnv struct {
 	repo   *FirestoreRepo
 	social *fakeSocial
 	profs  *fakeProfiles
-	events *recEvents
-	badge  *recBadge
-	limits Limits
-	reg    *flags.Registry
-	clock  atomic.Int64 // unix micro; advance with tick
-	svc    *service
+	// txSocial and txProfs are the real graph and identity repos (W7-33): the send transaction reads the recipient.s graph/{uid}
+	// and users/{uid} documents through them, so setSocial and addUser write those documents too.
+	txSocial graph.TxReader
+	txProfs  identity.TxProfiles
+	events   *recEvents
+	badge    *recBadge
+	limits   Limits
+	reg      *flags.Registry
+	clock    atomic.Int64 // unix micro; advance with tick
+	svc      *service
 }
 
 func newIT(t *testing.T, mut func(*itEnv)) *itEnv {
@@ -55,6 +59,8 @@ func newIT(t *testing.T, mut func(*itEnv)) *itEnv {
 		limits: Limits{RequestMaxUnanswered: 3, DMNewPerDay: 20, NewAccountDMNewPerDay: 5, NewAccountSendsPerDay: 50, NewAccountWindow: 72 * time.Hour, ConversationCacheEntries: 100},
 		reg:    flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}),
 	}
+	graphRepo := graph.NewFirestoreRepo(fs)
+	e.txSocial, e.txProfs = graphRepo, identity.NewFirestoreRepo(fs, graphRepo)
 	e.clock.Store(time.Now().UTC().Truncate(time.Second).UnixMicro())
 	e.profs = &fakeProfiles{profiles: map[string]identity.Profile{}}
 	e.addUser(alice, "alice", false)
@@ -76,7 +82,8 @@ func (e *itEnv) tick(d time.Duration) time.Time {
 // newService builds another service instance over the same storage (a second Cloud Run instance).
 func (e *itEnv) newService() *service {
 	return New(e.reg, Deps{
-		Repo: e.repo, Social: e.social, Profiles: e.profs, Events: e.events, Badge: e.badge, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
+		Repo: e.repo, Social: e.social, TxSocial: e.txSocial, TxProfiles: e.txProfs, AllowAnonymous: true,
+		Profiles: e.profs, Events: e.events, Badge: e.badge, Limits: e.limits, CursorKey: testCursorKey, Now: e.now,
 	}).(*service)
 }
 
@@ -88,12 +95,14 @@ func (e *itEnv) addUser(uid, handle string, isNew bool) {
 	e.profs.mu.Lock()
 	e.profs.profiles[uid] = activeProfile(uid, handle, created)
 	e.profs.mu.Unlock()
+	e.writeUserDoc(uid, handle, created, "ACTIVE")
 }
 
 func (e *itEnv) setSocial(uid string, s graph.Snapshot) {
 	e.social.mu.Lock()
 	e.social.snaps[uid] = s
 	e.social.mu.Unlock()
+	e.writeGraphDoc(uid, s)
 }
 
 // mutual makes a and b follow each other.
@@ -108,7 +117,7 @@ func (e *itEnv) send(from string, req *messagingv1.SendMessageRequest) (*messagi
 }
 
 func (e *itEnv) sendOn(svc *service, from string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, c := budget.WithCounter(verifiedCtx())
 	resp, err := svc.Send(ctx, from, req)
 	return resp, c, err
 }
@@ -257,3 +266,37 @@ type (
 	firestoreUpdate = firestore.Update
 	identityProfile = identity.Profile
 )
+
+// writeUserDoc stores users/{uid} as the send transaction reads it (identity.TxProfiles); status is the stored string
+// ("ACTIVE", "SUSPENDED", "DELETING").
+func (e *itEnv) writeUserDoc(uid, handle string, created time.Time, status string) {
+	e.t.Helper()
+	_, err := e.fs.Collection("users").Doc(uid).Set(context.Background(), map[string]any{
+		"handle": handle, "handleLower": handle, "displayName": "Name " + handle, "status": status, "createdAt": created, "updatedAt": created,
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// writeGraphDoc stores graph/{uid} from a snapshot (what graph.TxReader reads). It does not touch this instance's cached
+// fakeSocial: tests that want a stale cache set the two separately.
+func (e *itEnv) writeGraphDoc(uid string, s graph.Snapshot) {
+	e.t.Helper()
+	keys := func(m map[string]bool) []string {
+		out := []string{}
+		for k, v := range m {
+			if v {
+				out = append(out, k)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	_, err := e.fs.Collection("graph").Doc(uid).Set(context.Background(), map[string]any{
+		"following": keys(s.Following), "blocked": keys(s.Blocked), "muted": keys(s.Muted),
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}

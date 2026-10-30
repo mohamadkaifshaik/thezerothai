@@ -14,6 +14,8 @@ import (
 	"io"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -61,8 +63,8 @@ type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }
 
-// Social is the seam to graph.Reader (*graph.service satisfies it): the 60 s cached social context of one user, used for
-// the block, mute and mutual-follow rules of a send (ADR-0027 D4 step 3, A8).
+// Social is the seam to graph.Reader (*graph.service satisfies it): the 60 s cached social context of the CALLER, used for
+// the caller-side block, mute and follow rules of a send (ADR-0027 D4 step 3). The recipient's graph is TxSocial (W7-33).
 type Social interface {
 	Snapshot(ctx context.Context, uid string) (graph.Snapshot, error)
 }
@@ -113,4 +115,11 @@ func NewUnreadBadge(c UnreadCounter) *UnreadBadge { return &UnreadBadge{counter:
 // UnreadConversations: 1 read, 0 writes. The result is at most 100.
 func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int64, error) {
 	return b.counter.CountUnreadConversations(ctx, uid)
+}
+
+// TxSocial is the seam to graph.TxReader (*graph.FirestoreRepo satisfies it): the recipient's graph/{uid} read INSIDE
+// the send transaction, uncached, so a Block, Mute or Unfollow by the recipient that committed on any instance decides
+// the send, and a concurrent one conflicts with it (ADR-0027 note W7-33, A8). messaging never builds a graph path.
+type TxSocial interface {
+	SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (graph.Snapshot, error)
 }

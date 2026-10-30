@@ -67,7 +67,7 @@ func TestRoutes_EveryRouteRefusesAnUnauthenticatedCaller(t *testing.T) {
 
 			for _, p := range []string{
 				"/internal/", "/internal/unknown/path",
-				"/internal/pubsub/jobs", "/internal/cron/daily-maintenance", "/internal/cron/publish-scheduled", "/internal/pubsub/notifications-fanout",
+				"/internal/pubsub/jobs", "/internal/cron/daily-maintenance", "/internal/cron/publish-scheduled", "/internal/cron/trends-refresh", "/internal/pubsub/notifications-fanout",
 			} {
 				for _, prefix := range []string{"", "/api"} {
 					if got := post(prefix + p); got != http.StatusUnauthorized {
