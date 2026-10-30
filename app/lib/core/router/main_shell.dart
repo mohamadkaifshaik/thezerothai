@@ -12,9 +12,8 @@ import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
-import '../../features/search/presentation/search_navigation.dart';
+import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
-import '../../features/search/presentation/widgets/search_pill_button.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
@@ -263,7 +262,7 @@ class MainShell extends StatelessWidget {
         // The search pill (W4-18): the new shell with `search` on, except on
         // Explore, where the pill is in the centre header.
         header: exploreEntry && !location.startsWith(AppRouter.explorePath)
-            ? SearchPillButton(onTap: () => openSearch(context))
+            ? const AppSearchField()
             : null,
         // "You might like" (W3-19): the new shell, `graph` and
         // `follow_suggestions` all on. The card draws nothing until the shared

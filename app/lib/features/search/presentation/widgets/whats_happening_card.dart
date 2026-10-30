@@ -9,7 +9,7 @@ import '../../../../shared/widgets/app_surface.dart';
 import '../../domain/search_feature_flags.dart';
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';
-import '../search_navigation.dart';
+import '../../domain/search_routes.dart';
 import 'trend_row.dart';
 import 'trends_loader.dart';
 import 'trends_status_views.dart';
@@ -65,7 +65,8 @@ class WhatsHappeningCard extends StatelessWidget {
                   TrendRow(
                     key: ValueKey(trend.tag),
                     trend: trend,
-                    onTap: () => openSearch(context, query: '#${trend.tag}'),
+                    onTap: () =>
+                        context.push(searchResultsLocation('#${trend.tag}')),
                   ),
                 Align(
                   alignment: AlignmentDirectional.centerStart,

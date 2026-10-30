@@ -5,6 +5,8 @@ import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/search/data/recent_searches_store.dart';
+import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -13,6 +15,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/fake_search_repository.dart';
+import '../../../support/search_field_rig.dart';
 import '../../../support/suggestions_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
@@ -68,8 +72,16 @@ void main() {
     );
     await pumpThemed(
       tester,
-      RepositoryProvider<GraphRepository>.value(
-        value: graphRepo,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<GraphRepository>.value(value: graphRepo),
+          RepositoryProvider<SearchRepository>.value(
+            value: FakeSearchRepository(),
+          ),
+          RepositoryProvider<RecentSearchesStore>.value(
+            value: FakeRecentSearchesStore(),
+          ),
+        ],
         child: MultiBlocProvider(
           providers: [
             BlocProvider<OnboardingBloc>.value(value: onboarding),

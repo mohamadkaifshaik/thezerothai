@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/app_empty_view.dart';
 import '../../data/search_repository.dart' show Trend;
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';
-import '../search_navigation.dart';
+import '../../domain/search_routes.dart';
 import 'trend_row.dart';
 import 'trends_loader.dart';
 import 'trends_status_views.dart';
@@ -117,7 +118,7 @@ class _ExploreTrendsSectionState extends State<ExploreTrendsSection> {
   Widget _row(BuildContext context, Trend trend) => TrendRow(
     key: ValueKey(trend.tag),
     trend: trend,
-    onTap: () => openSearch(context, query: '#${trend.tag}'),
+    onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
   );
 }
 

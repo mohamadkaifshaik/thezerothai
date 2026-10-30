@@ -16,7 +16,8 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/bloc/trends_cubit.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
-import 'package:dzeroth/features/search/presentation/widgets/search_pill_button.dart';
+import 'package:dzeroth/features/search/data/recent_searches_store.dart';
+import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/fake_search_repository.dart';
+import '../../support/search_field_rig.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -125,8 +127,16 @@ void main() {
             create: (_) => ThemeModeCubit(_MemoryThemeStore()),
           ),
         ],
-        child: RepositoryProvider<GraphRepository>.value(
-          value: _MockGraph(),
+        child: MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
+            RepositoryProvider<SearchRepository>.value(
+              value: search ?? FakeSearchRepository(),
+            ),
+            RepositoryProvider<RecentSearchesStore>.value(
+              value: FakeRecentSearchesStore(),
+            ),
+          ],
           child: MaterialApp.router(
             theme: buildAppTheme(brightness: brightness),
             routerConfig: router,
@@ -141,6 +151,12 @@ void main() {
     );
     await tester.pumpAndSettle();
     return router;
+  }
+
+  Future<void> submitSearch(WidgetTester tester, String text) async {
+    await tester.enterText(find.byType(TextField), text);
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
   }
 
   group('which flag combinations show the destination', () {
@@ -162,6 +178,21 @@ void main() {
         );
       });
     }
+  });
+
+  testWidgets('every flag on: the bar holds exactly 5 items', (tester) async {
+    await pump(
+      tester,
+      location: '/home',
+      flags: {'posts', 'notifications', 'messaging', 'bookmarks', 'search'},
+    );
+
+    final cells = find.descendant(
+      of: find.byType(AppBottomBar),
+      matching: find.byType(InkResponse),
+    );
+    expect(cells, findsNWidgets(5));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('sits second, right after Home, in the bar', (tester) async {
@@ -223,24 +254,23 @@ void main() {
   testWidgets('the centre pill opens the search page', (tester) async {
     await pump(tester);
 
-    await tester.tap(find.byType(SearchPillButton));
-    await tester.pumpAndSettle();
+    await submitSearch(tester, 'go');
 
-    expect(find.text('search q=null'), findsOneWidget);
+    expect(find.text('search q=go'), findsOneWidget);
   });
 
   group('desktop side column pill (W4-18)', () {
     testWidgets('shows on Home at 1200', (tester) async {
       await pump(tester, location: '/home', size: const Size(1200, 900));
-      expect(find.byType(SearchPillButton), findsOneWidget);
+      expect(find.byType(AppSearchField), findsOneWidget);
     });
 
     testWidgets('is hidden on /explore (only the centre header has it)', (
       tester,
     ) async {
       await pump(tester, size: const Size(1536, 900));
-      expect(find.byType(SearchPillButton), findsOneWidget);
-      final x = tester.getCenter(find.byType(SearchPillButton)).dx;
+      expect(find.byType(AppSearchField), findsOneWidget);
+      final x = tester.getCenter(find.byType(AppSearchField)).dx;
       expect(x, lessThan(1536 - AppSize.sideColumn));
     });
 
@@ -251,14 +281,13 @@ void main() {
         size: const Size(1536, 900),
         flags: {'posts'},
       );
-      expect(find.byType(SearchPillButton), findsNothing);
+      expect(find.byType(AppSearchField), findsNothing);
     });
 
     testWidgets('opens the search page', (tester) async {
       await pump(tester, location: '/home', size: const Size(1200, 900));
-      await tester.tap(find.byType(SearchPillButton));
-      await tester.pumpAndSettle();
-      expect(find.text('search q=null'), findsOneWidget);
+      await submitSearch(tester, 'go');
+      expect(find.text('search q=go'), findsOneWidget);
     });
   });
 
@@ -282,22 +311,26 @@ void main() {
             );
             expect(tester.takeException(), isNull);
             expect(find.text('Trending'), findsOneWidget);
-            expect(find.byType(SearchPillButton), findsOneWidget);
-            final pill = tester.getSize(find.byType(SearchPillButton));
+            expect(find.byType(AppSearchField), findsOneWidget);
+            final pill = tester.getSize(find.byType(AppSearchField));
             expect(pill.height, greaterThanOrEqualTo(48));
+            // The pinned header reserves its height up front: the field fits.
+            expect(
+              pill.height,
+              lessThanOrEqualTo(
+                searchFieldHeightFor(TextScaler.linear(scale)) + AppSpacing.sm,
+              ),
+            );
           });
         }
       }
     }
   });
 
-  testWidgets('semantics: the pill is a labelled button', (tester) async {
+  testWidgets('semantics: the field is labelled', (tester) async {
     final handle = tester.ensureSemantics();
     await pump(tester);
-    expect(
-      tester.getSemantics(find.byType(SearchPillButton)),
-      matchesSemantics(label: 'Search', isButton: true, hasTapAction: true),
-    );
+    expect(find.bySemanticsLabel(RegExp('Search query')), findsOneWidget);
     handle.dispose();
   });
 

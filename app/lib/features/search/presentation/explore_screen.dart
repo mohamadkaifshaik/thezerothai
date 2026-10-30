@@ -7,22 +7,30 @@ import '../../../shared/widgets/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../domain/search_feature_flags.dart';
-import 'search_navigation.dart';
 import 'widgets/explore_trends_section.dart';
-import 'widgets/search_pill_button.dart';
+import 'widgets/app_search_field.dart';
 
 /// `/explore` (W4-17, ADR-0028, F7): a root destination of the new shell. A
-/// two-row sticky header (the search pill, then a one-tab "Trending" bar), the
+/// two-row sticky header (the search field, then a one-tab "Trending" bar), the
 /// trends list, and the "Who to follow" card (W3's, which draws nothing unless
 /// its own flags are on). No news, sports or entertainment tabs, no promoted
 /// hero, no "Posts for you" (F7). The route needs `search` and `ui_shell`.
+/// The height reserved for the search field in Explore's header at text scale
+/// [scaler]: the 48dp target, or the text line plus the field's padding when the
+/// text is scaled up. A pinned sliver header needs its extent up front.
+double searchFieldHeightFor(TextScaler scaler) {
+  final padded =
+      scaler.scale(AppSpacing.lg + AppSpacing.xs) + 2 * AppSpacing.smd;
+  return padded < AppSpacing.minTapTarget ? AppSpacing.minTapTarget : padded;
+}
+
 class ExploreScreen extends StatelessWidget {
   const ExploreScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    final rowHeight = SearchPillButton.heightFor(scaler) + AppSpacing.sm;
+    final rowHeight = searchFieldHeightFor(scaler) + AppSpacing.sm;
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -88,9 +96,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
                 else
                   const SizedBox(width: AppSpacing.md),
                 if (showAvatar) const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: SearchPillButton(onTap: () => openSearch(context)),
-                ),
+                Expanded(child: const Center(child: AppSearchField())),
                 const SizedBox(width: AppSpacing.md),
               ],
             ),
