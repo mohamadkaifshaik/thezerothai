@@ -1,0 +1,185 @@
+syntax = "proto3";
+
+// Search, hashtag results and trends at Stage 0 (ADR-0028, W4). Owner module: backend/internal/search.
+// Collection owned: trends/current (tags and counts only, no uid). People come from identity
+// (Directory.SearchHandles over users.handleLower) and posts from posts.Reader.ByHashtag; search never queries another
+// module's collection directly. There is no search engine at Stage 0: people are found by handle prefix and posts by
+// one exact hashtag. Words in post text and display names are not searchable (ADR-0028 F2, F4; the Stage ladder names
+// the engine and its trigger). Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
+// answering under DEGRADED_MODE=readonly. Signed-in callers only (App Check plus a Firebase ID token, like every RPC).
+//
+// Query grammar (ADR-0028 D1), applied before any Firestore read:
+// - The query is normalised (NFC, trimmed, lower-cased). Empty, longer than 50 code points, or holding a control
+//   character or a bidi formatting control => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads.
+// - People: one leading '@' is ignored; the rest must be a handle prefix [a-z0-9_]{2,15}. A single [a-z0-9_]
+//   character => VALIDATION "query" (send at least 2). Anything else => an empty answer with unsupported_query = true
+//   and 0 Firestore reads.
+// - Posts: one leading '#' is ignored; the rest must be exactly one hashtag body as posts define it (ADR-0010 D8; the
+//   shared fixtures in testdata/post_text_grammar.json). Anything else (several words, "#123" with no letter) => an
+//   empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+//
+// Flags (ADR-0028 D8; clients learn them from IdentityService.GetMe enabled_features):
+// - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
+//   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
+//   or "trends", 0 reads.
+//
+// Errors (clients branch on ErrorDetail.reason):
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix; 0 reads.
+//   A negative page_size or limit is VALIDATION; values above the maximum are clamped.
+// - FAILED_PRECONDITION + FEATURE_DISABLED (above).
+// - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily"
+//   and the per-uid daily read budget (ADR-0010 D5, "read_budget_daily"); honour retry_after.
+// - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (ADR-0025;
+//   PROTECTED_SET_MAX_STALE), as every list does. Retry later.
+//
+// Firestore budgets below are ADR-0028 "Cost impact" (per RPC). Worst-case reads include the account-status
+// interceptor; every call is charged to the per-uid daily read budget. Keep them in sync with
+// docs/reviews/cost-model.md.
+package dzeroth.search.v1;
+
+import "dzeroth/graph/v1/graph.proto";
+import "dzeroth/posts/v1/posts.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1;searchv1";
+
+service SearchService {
+  // People whose handle starts with the query (ADR-0028 D2), in handle order. At most limit rows (0 => 10, max 20)
+  // and NO PAGINATION: there is no page token, by design (handle enumeration costs one call per 20 handles).
+  // Rows: accounts that are not ACTIVE and accounts that block the caller are left out (the answer is then the same
+  // as for a handle nobody has); accounts the caller blocks or mutes stay, with relationship.blocking / muting set.
+  // Protected accounts are listed, with user.is_private set. Each row carries the caller's relationship (follow
+  // state incl. REQUESTED, from the caller's graph, 0 extra reads); since is unset. The caller appears when matched.
+  // A caller whose blocked-by list overflowed (ADR-0008 D2) sees only accounts they follow and themselves.
+  // Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
+  // within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
+  // Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
+  // SEARCH_CALLS_PER_DAY 300 calls/uid/IST day per instance shared with SearchPosts (<= 900 at 3) => RATE_LIMITED,
+  // metadata["limit"] = "search_daily".
+  // Firestore: reads 7 cold at limit 5 / 22 at limit 20 (interceptor 1, caller graph 1, query <= limit, min 1),
+  // 0-2 warm (the prefix entry is cached); a grammar rejection or an unsupported query reads nothing beyond the
+  // interceptor. Writes 0.
+  rpc SearchPeople(SearchPeopleRequest) returns (SearchPeopleResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Posts carrying one hashtag (ADR-0028 D3). The tab picks the order:
+  // - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
+  //   2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
+  //   latest").
+  // - LATEST: newest first, paged with next_page_token.
+  // - MEDIA: posts with their own images (a quote's embedded images do not count), newest first. Each older call scans
+  //   30 older tagged posts and returns the ones with images, so a page may be short or EMPTY while next_page_token is
+  //   non-empty: keep following it until it is "".
+  // Filtering (every tab, per caller): hidden posts (moderation) are dropped; posts by accounts the caller blocks,
+  // who block the caller, or whom the caller mutes are dropped, including a quote whose embedded author is one of
+  // them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
+  // follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
+  // caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
+  // therefore be short: next_page_token follows the query, not the number of rows returned.
+  // Viewer flags (liked, reposted, bookmarked) follow FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS as on timelines.
+  // page_size 0 => 20, max 50 (clamped); TOP returns at most 20 whatever page_size says.
+  // page_token: opaque, sealed, bound to the caller, the tag and the tab, 24 h TTL. Expired, foreign, tampered, or
+  // sent with another query or tab => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: drop it
+  // and search again with no token.
+  // Staleness: the newest 30 posts per tag are cached per instance for 60 s and shared across callers (a new tagged
+  // post shows on Top, Latest page 1 and Media page 1 within 60 s); every filter above is applied per caller after the
+  // cache, so a takedown or a new block applies at once on that instance.
+  // Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances) and
+  // the shared "search_daily" cap (see SearchPeople).
+  // Firestore: TOP, LATEST first page and MEDIA first page (page_size <= 30): reads 33 cold (interceptor 1, caller
+  // graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 50: 53; LATEST older page 23 / 53
+  // at page_size 20 / 50; MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
+  // beyond the interceptor. Writes 0.
+  rpc SearchPosts(SearchPostsRequest) returns (SearchPostsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)
+  // distinct accounts used it in the window; tags are ranked by distinct accounts, then posts, then tag. Hidden posts,
+  // reposts and posts by protected accounts are not counted; an operator denylist and the trends flag remove tags.
+  // The list is computed by a scheduled sweep (daily at Stage 0: "Trending today"); computed_at says when.
+  // limit 0 => 10, max 30 (clamped). prefix (optional; one leading '#' ignored; at most 50 code points; a control or
+  // bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
+  // hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
+  // Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old.
+  // Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances).
+  // Firestore: reads 2 cold (interceptor 1, trends/current 1), 0-1 warm; at most one doc read per instance per 10 min
+  // (<= 432 a day at 3 instances, whatever the number of callers). Writes 0.
+  rpc GetTrends(GetTrendsRequest) returns (GetTrendsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+// The order a SearchPosts call returns (ADR-0028 D3). There is no PEOPLE value: the client's People tab calls
+// SearchPeople with the same query. A new tab is an additive value.
+enum SearchTab {
+  // Treated as TOP.
+  SEARCH_TAB_UNSPECIFIED = 0;
+  // The newest 30 tagged posts re-ranked by engagement; one page, no token.
+  SEARCH_TAB_TOP = 1;
+  // Newest first, paged.
+  SEARCH_TAB_LATEST = 2;
+  // Posts with their own images, newest first; pages may be short or empty while a token remains.
+  SEARCH_TAB_MEDIA = 3;
+}
+
+message SearchPeopleRequest {
+  // A handle prefix, with or without '@' (grammar in the file comment).
+  string query = 1;
+  // 0 => 10; max 20 (clamped); negative => VALIDATION "limit".
+  int32 limit = 2;
+}
+
+message SearchPeopleResponse {
+  // Handle order; at most limit. Each row has user (a live row: is_private is set) and relationship; since is unset.
+  repeated dzeroth.graph.v1.UserListItem users = 1;
+  // True when the query is not a handle prefix (users is then empty and nothing was read). Not an error.
+  bool unsupported_query = 2;
+}
+
+message SearchPostsRequest {
+  // One hashtag, with or without '#' (grammar in the file comment).
+  string query = 1;
+  // UNSPECIFIED => TOP.
+  SearchTab tab = 2;
+  // 0 => 20; max 50 (clamped); negative => VALIDATION "page_size". TOP returns at most 20.
+  int32 page_size = 3;
+  // next_page_token of the previous page for the same query and tab.
+  string page_token = 4;
+}
+
+message SearchPostsResponse {
+  repeated dzeroth.posts.v1.PostView posts = 1;
+  // "" => no more. Always "" for TOP and for an unsupported query.
+  string next_page_token = 2;
+  // The tag searched, as posts store it (lower-case, NFC, no '#'), e.g. "#Go" and "go" both give "go". Empty when
+  // unsupported_query is true.
+  string normalized_tag = 3;
+  // True when the query is not a single hashtag (posts is then empty and nothing was read). Not an error.
+  bool unsupported_query = 4;
+}
+
+message GetTrendsRequest {
+  // 0 => 10; max 30 (clamped); negative => VALIDATION "limit".
+  int32 limit = 1;
+  // Optional tag prefix for suggestions (see GetTrends).
+  string prefix = 2;
+}
+
+// One trending hashtag.
+message Trend {
+  // Lower-case, NFC, without '#'.
+  string tag = 1;
+  // Posts that carried the tag in the window (hidden posts, reposts and protected accounts' posts excluded).
+  int64 post_count = 2;
+  // 1-based rank in the whole list; with a prefix the ranks keep their gaps.
+  int32 rank = 3;
+}
+
+message GetTrendsResponse {
+  // Best first; at most limit.
+  repeated Trend trends = 1;
+  // When the list was computed. Unset when there is no list yet.
+  google.protobuf.Timestamp computed_at = 2;
+}

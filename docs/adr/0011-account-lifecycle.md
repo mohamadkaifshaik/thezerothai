@@ -507,6 +507,20 @@ export; the one added write per export is inside the free quota).
   that stays stuck stays at the head of the next run; more than 200 such jobs (each a DLQ alert) log WARN
   `backstop_page_full` with `cursor_at`.
 
+## Note 2026-10-30 (ADR-0028 D7, Proposed): `daily-maintenance` also runs the trends step
+ADR-0028 (search and trends, W4) chooses, by default, to run its daily trends sweep from this ADR's
+`/internal/cron/daily-maintenance` route instead of spending the third free Cloud Scheduler job (ADR-0028 F1 = B). This
+note records the composition; **the decision below is unchanged** and takes effect only when ADR-0028 is accepted.
+- `apiserver` mounts the route as a wrapper that calls `Lifecycle.CronHandler()` **unchanged** through a
+  status-capturing writer, then runs `search.TrendsRefresher.Refresh` under `min(10 s, 28 s − elapsed)` (skipped below
+  3 s), then answers with **the backstop's status only**. `identity/lifecycle_jobs.go` is not edited.
+- The backstop keeps its contract: never behind a flag or `DEGRADED_MODE`, its own 25 s deadline, 500 so that Cloud
+  Scheduler retries it. The trends step has its own switches (`FEATURE_TRENDS` globally off, `DEGRADED_MODE=readonly`,
+  `TRENDS_MIN_INTERVAL`), its own panic recovery and budget counter, and it never changes the status code. A retry of
+  the backstop re-runs trends harmlessly (the `fresh` skip).
+- The Scheduler job and its 30 s attempt deadline are unchanged. ADR-0028 W4-9b implements this and keeps this ADR's
+  backstop tests green.
+
 ## Decision (Accepted 2026-10-07)
 - **D-A: option D with A.** A shared `jobs` Pub/Sub topic with push to `/internal/pubsub/jobs`. Its subscription has
   `minimum_backoff = 60s` and `max_delivery_attempts = 10`. Each invocation self-chains, saves the seq-deduped state
