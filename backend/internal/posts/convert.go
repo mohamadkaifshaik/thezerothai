@@ -102,7 +102,7 @@ func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post
 		BookmarkedByViewer:    vs.Bookmarked(p),
 		ViewerReplyPermission: replyPermissionFor(p, viewer)}
 	if i, voted := vs.PollChoice(p); voted {
-		v.ViewerPollChoice = int32(i) + 1 // index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
+		v.ViewerPollChoice = int32(i) + 1 //nolint:gosec // i is 0..3 (WithPollVotes drops anything else); index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
 	}
 	return v
 }
