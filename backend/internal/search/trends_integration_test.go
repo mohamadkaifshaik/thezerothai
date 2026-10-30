@@ -52,7 +52,7 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	store := NewTrendsRepo(c)
 	reader := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(c), Cache: posts.NewCache(time.Minute, 0, 0)})
 	reg := flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.On})
-	prot := &fakeProtected{set: map[string]bool{"p": true}}
+	prot := &trendsFakeProtected{set: map[string]bool{"p": true}}
 	r := NewRefresher(store, reader, prot, reg, RefresherConfig{MinAuthors: 3, MaxPosts: 2000, MinInterval: 12 * time.Hour, Denylist: []string{"banned"},
 		Now: func() time.Time { return now }})
 

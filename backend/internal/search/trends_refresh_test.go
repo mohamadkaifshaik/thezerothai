@@ -59,7 +59,7 @@ func (f *fakeScanner) CreatedAfter(ctx context.Context, after posts.Position, li
 	return out, nil
 }
 
-type fakeProtected struct {
+type trendsFakeProtected struct {
 	set map[string]bool
 	err error
 	n   int
@@ -72,7 +72,7 @@ func (p protSet) CanSee(viewer, author string, following bool) bool {
 	return viewer == author || !p[author] || following
 }
 
-func (f *fakeProtected) Current(context.Context) (identity.ProtectedSet, error) {
+func (f *trendsFakeProtected) Current(context.Context) (identity.ProtectedSet, error) {
 	f.n++
 	if f.err != nil {
 		return nil, f.err
@@ -88,14 +88,14 @@ type harness struct {
 	clk   *fakeClock
 	store *fakeTrendsStore
 	scan  *fakeScanner
-	prot  *fakeProtected
+	prot  *trendsFakeProtected
 	logs  *bytes.Buffer
 	r     *Refresher
 }
 
 func newHarness(t *testing.T, on bool, mutate func(*RefresherConfig)) *harness {
 	t.Helper()
-	h := &harness{clk: &fakeClock{t: t0}, store: &fakeTrendsStore{}, scan: &fakeScanner{}, prot: &fakeProtected{set: map[string]bool{}}, logs: &bytes.Buffer{}}
+	h := &harness{clk: &fakeClock{t: trendsT0}, store: &fakeTrendsStore{}, scan: &fakeScanner{}, prot: &trendsFakeProtected{set: map[string]bool{}}, logs: &bytes.Buffer{}}
 	mode := flags.Off
 	if on {
 		mode = flags.On
@@ -122,7 +122,7 @@ func (h *harness) items() []TrendItem {
 	return h.store.doc.Items
 }
 
-func ago(d time.Duration) time.Time { return t0.Add(-d) }
+func ago(d time.Duration) time.Time { return trendsT0.Add(-d) }
 
 func TestRefresh_Counting(t *testing.T) {
 	t.Parallel()
@@ -278,7 +278,7 @@ func TestRefresh_FreshSkipAndWindow(t *testing.T) {
 		t.Fatalf("first run: %+v %v", res, err)
 	}
 	first := *h.store.doc
-	if !first.WindowStart.Equal(t0.Add(-24 * time.Hour)) {
+	if !first.WindowStart.Equal(trendsT0.Add(-24 * time.Hour)) {
 		t.Errorf("first window start = %v, want now-24h", first.WindowStart)
 	}
 	if first.Watermark.ID != post(3, "", time.Time{}).ID || !first.Watermark.At.Equal(ago(3*time.Hour)) {
@@ -293,7 +293,7 @@ func TestRefresh_FreshSkipAndWindow(t *testing.T) {
 	}
 	// 12 h later it runs again, resuming at the watermark: the window starts there.
 	h.clk.advance(12 * time.Hour)
-	h.scan.posts = append(h.scan.posts, post(4, "a", t0.Add(time.Hour), "y"))
+	h.scan.posts = append(h.scan.posts, post(4, "a", trendsT0.Add(time.Hour), "y"))
 	if res, err := h.run(t); err != nil || res.Skipped != "" {
 		t.Fatalf("next day: %+v %v", res, err)
 	}
@@ -372,7 +372,7 @@ func TestRefresh_Cap_Resume_And_StaleWatermark(t *testing.T) {
 		if _, err := h.run(t); err != nil {
 			t.Fatal(err)
 		}
-		if !h.store.doc.Watermark.At.Equal(t0.Add(-emptySettle)) || len(h.store.doc.Items) != 0 || h.store.puts != 1 {
+		if !h.store.doc.Watermark.At.Equal(trendsT0.Add(-emptySettle)) || len(h.store.doc.Items) != 0 || h.store.puts != 1 {
 			t.Fatalf("doc %+v puts %d", h.store.doc, h.store.puts)
 		}
 	})

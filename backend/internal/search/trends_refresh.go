@@ -262,7 +262,7 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 
 	if !read {
 		// Nothing new: hold the watermark a moment behind now, never before the old one.
-		wm = Watermark{At: latest(wm.At, now.Add(-emptySettle))}
+		wm = Watermark{At: laterOf(wm.At, now.Add(-emptySettle))}
 	}
 	items := r.rank(tags)
 	res.TagsCounted = len(tags)
@@ -277,7 +277,7 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 	return res, nil
 }
 
-func latest(a, b time.Time) time.Time {
+func laterOf(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a
 	}

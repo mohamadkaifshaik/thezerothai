@@ -66,10 +66,10 @@ func (c *fakeClock) advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-var t0 = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+var trendsT0 = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 func sampleDoc() *TrendsDoc {
-	return &TrendsDoc{ComputedAt: t0.Add(-2 * time.Hour), Items: []TrendItem{
+	return &TrendsDoc{ComputedAt: trendsT0.Add(-2 * time.Hour), Items: []TrendItem{
 		{Tag: "launch", Posts: 9, Authors: 5}, {Tag: "lakers", Posts: 7, Authors: 4}, {Tag: "go", Posts: 6, Authors: 4},
 		{Tag: "lang", Posts: 5, Authors: 3}, {Tag: "भारत", Posts: 4, Authors: 3},
 	}}
@@ -123,7 +123,7 @@ func TestTrends_ListPrefixLimitAndRanks(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			clk := &fakeClock{t: t0}
+			clk := &fakeClock{t: trendsT0}
 			svc := trendsSvc(t, &fakeTrendsStore{doc: sampleDoc()}, clk)
 			got, err := svc.Trends(context.Background(), "u1", tc.limit, tc.prefix)
 			if err != nil {
@@ -144,7 +144,7 @@ func TestTrends_ListPrefixLimitAndRanks(t *testing.T) {
 	}
 	t.Run("post_count carries the posts", func(t *testing.T) {
 		t.Parallel()
-		svc := trendsSvc(t, &fakeTrendsStore{doc: sampleDoc()}, &fakeClock{t: t0})
+		svc := trendsSvc(t, &fakeTrendsStore{doc: sampleDoc()}, &fakeClock{t: trendsT0})
 		got, _ := svc.Trends(context.Background(), "u1", 1, "")
 		if got.Trends[0].PostCount != 9 {
 			t.Errorf("post_count = %d, want 9", got.Trends[0].PostCount)
@@ -155,7 +155,7 @@ func TestTrends_ListPrefixLimitAndRanks(t *testing.T) {
 func TestTrends_NoDocumentIsAnEmptyList(t *testing.T) {
 	t.Parallel()
 	store := &fakeTrendsStore{}
-	svc := trendsSvc(t, store, &fakeClock{t: t0})
+	svc := trendsSvc(t, store, &fakeClock{t: trendsT0})
 	got, err := svc.Trends(context.Background(), "u1", 0, "")
 	if err != nil || len(got.Trends) != 0 || got.ComputedAt != nil {
 		t.Fatalf("got %+v err %v, want an empty answer with computed_at unset", got, err)
@@ -183,7 +183,7 @@ func TestTrends_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			store := &fakeTrendsStore{doc: sampleDoc()}
-			svc := trendsSvc(t, store, &fakeClock{t: t0})
+			svc := trendsSvc(t, store, &fakeClock{t: trendsT0})
 			_, err := svc.Trends(context.Background(), "u1", tc.limit, tc.prefix)
 			ae := apiErr(t, err)
 			if ae.Code != connect.CodeInvalidArgument || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != tc.field {
@@ -196,7 +196,7 @@ func TestTrends_Validation(t *testing.T) {
 	}
 	t.Run("50 code points after the hash is accepted", func(t *testing.T) {
 		t.Parallel()
-		svc := trendsSvc(t, &fakeTrendsStore{doc: sampleDoc()}, &fakeClock{t: t0})
+		svc := trendsSvc(t, &fakeTrendsStore{doc: sampleDoc()}, &fakeClock{t: trendsT0})
 		if _, err := svc.Trends(context.Background(), "u1", 0, "#"+repeat("a", 50)); err != nil {
 			t.Fatal(err)
 		}
@@ -215,7 +215,7 @@ func repeat(s string, n int) string {
 // and the copy expires after exactly 10 minutes by the injected clock.
 func TestTrends_CacheTTLAndBudget(t *testing.T) {
 	t.Parallel()
-	clk := &fakeClock{t: t0}
+	clk := &fakeClock{t: trendsT0}
 	store := &fakeTrendsStore{doc: sampleDoc()}
 	svc := trendsSvc(t, store, clk)
 	call := func() int64 {
@@ -238,7 +238,7 @@ func TestTrends_CacheTTLAndBudget(t *testing.T) {
 		t.Fatalf("just inside the TTL: reads = %d, want 0", r)
 	}
 	// A refresh lands; the instance still serves the old list until the TTL runs out.
-	store.doc = &TrendsDoc{ComputedAt: t0, Items: []TrendItem{{Tag: "new", Posts: 3, Authors: 3}}}
+	store.doc = &TrendsDoc{ComputedAt: trendsT0, Items: []TrendItem{{Tag: "new", Posts: 3, Authors: 3}}}
 	got, _ := svc.Trends(context.Background(), "u1", 0, "")
 	if tags(got)[0] != "launch" {
 		t.Fatalf("inside the TTL the old list must be served, got %v", tags(got))
@@ -256,7 +256,7 @@ func TestTrends_CacheTTLAndBudget(t *testing.T) {
 func TestTrends_StoreErrorIsNotCached(t *testing.T) {
 	t.Parallel()
 	store := &fakeTrendsStore{getErr: errors.New("boom"), doc: sampleDoc()}
-	svc := trendsSvc(t, store, &fakeClock{t: t0})
+	svc := trendsSvc(t, store, &fakeClock{t: trendsT0})
 	if _, err := svc.Trends(context.Background(), "u1", 0, ""); err == nil {
 		t.Fatal("want an error")
 	}
@@ -270,7 +270,7 @@ func TestTrends_StoreErrorIsNotCached(t *testing.T) {
 func TestTrends_ConcurrentColdCallersShareOneRead(t *testing.T) {
 	t.Parallel()
 	store := &fakeTrendsStore{doc: sampleDoc()}
-	svc := trendsSvc(t, store, &fakeClock{t: t0})
+	svc := trendsSvc(t, store, &fakeClock{t: trendsT0})
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Add(1)
