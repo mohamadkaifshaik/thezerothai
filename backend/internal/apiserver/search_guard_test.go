@@ -149,3 +149,57 @@ func TestSearchDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 		t.Fatalf("another user must not share the counter: %v", err)
 	}
 }
+
+// TestSearchPosts_PerMinuteBucket (W4-7 acceptance): through the wired interceptor the 21st SearchPosts call of one user in
+// a minute is RESOURCE_EXHAUSTED (RATE_LIMITED, 20/min per instance); SearchPeople's own bucket and another user are
+// untouched.
+func TestSearchPosts_PerMinuteBucket(t *testing.T) {
+	cfg := defaultRateLimitCfg()
+	cfg.RateLimit.PerUserPerMinute = 100000
+	cfg.RateLimit.PerIPPerMinute = 100000
+	cfg.RateLimit.SearchPeoplePerUserPerMinute = 100000
+	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
+	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
+	cfg.RateLimit.SearchCallsPerDay = 100000
+	rl := RateLimitConfig(cfg)
+
+	uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get("X-Test-Uid"), SignInProvider: authn.SignInProviderGoogle}), req)
+		}
+	})
+	opts := connect.WithInterceptors(uidOf, ratelimit.Interceptor(rl))
+	mux := http.NewServeMux()
+	for _, p := range searchDailyProcedures {
+		mux.Handle(p, connect.NewUnaryHandler(p,
+			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			}, opts))
+	}
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	invoke := func(uid, proc string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+		req := connect.NewRequest(&commonv1.ErrorDetail{})
+		req.Header().Set("X-Test-Uid", uid)
+		_, err := c.CallUnary(context.Background(), req)
+		return err
+	}
+	postsProc := searchv1connect.SearchServiceSearchPostsProcedure
+	for i := 0; i < 20; i++ {
+		if err := invoke("uid-m", postsProc); err != nil {
+			t.Fatalf("call %d must pass: %v", i+1, err)
+		}
+	}
+	err := invoke("uid-m", postsProc)
+	var ce *connect.Error
+	if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+		t.Fatalf("call 21: err = %v, want ResourceExhausted", err)
+	}
+	if err := invoke("uid-m", searchv1connect.SearchServiceSearchPeopleProcedure); err != nil {
+		t.Fatalf("SearchPeople has its own bucket: %v", err)
+	}
+	if err := invoke("uid-other", postsProc); err != nil {
+		t.Fatalf("another user must not share the bucket: %v", err)
+	}
+}

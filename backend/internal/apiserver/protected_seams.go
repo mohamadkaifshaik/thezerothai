@@ -26,7 +26,7 @@ type protectedSeam struct {
 	value any
 }
 
-// requireProtectedSeams returns an error naming every seam that is nil (including a typed nil), or nil when all seven
+// requireProtectedSeams returns an error naming every seam that is nil (including a typed nil), or nil when all eight
 // are wired. It runs before ListenAndServe, so a refactor that drops one fails the deploy, not a user's privacy.
 func requireProtectedSeams(seams []protectedSeam) error {
 	var missing []string

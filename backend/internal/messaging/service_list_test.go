@@ -155,7 +155,7 @@ func TestListConversations_PagesAndSince(t *testing.T) {
 	if got := convIDs(ref); len(got) != 1 || got[0] != moved.ID {
 		t.Fatalf("refresh = %v, want only the moved entry", got)
 	}
-	if ref.NextPageToken != "" || ref.SinceToken == "" || ref.RequestCount != 0 || rg.repo.counts != 1 {
+	if ref.NextPageToken != "" || ref.SinceToken == "" || ref.RequestCount != 0 || rg.repo.counts != 2 {
 		t.Errorf("refresh: next=%q since=%q request_count=%d counts=%d", ref.NextPageToken, ref.SinceToken, ref.RequestCount, rg.repo.counts)
 	}
 	if ref.Conversations[0].LastMessage.Snippet != "newer" {
@@ -367,7 +367,7 @@ func TestListConversations_PeerSnapshotAndTombstones(t *testing.T) {
 	}
 }
 
-func TestListConversations_RequestCountOnFirstInboxPageOnly(t *testing.T) {
+func TestListConversations_RequestCountOnFirstPageAndSinceRefresh(t *testing.T) {
 	rg := newRig(t, nil)
 	for i := range 3 {
 		rg.put(alice, dmRequestsCollection, rg.entryAt(fmt.Sprintf("r%d", i), i))
@@ -380,15 +380,27 @@ func TestListConversations_RequestCountOnFirstInboxPageOnly(t *testing.T) {
 		t.Fatalf("first INBOX page: request_count=%d counts=%d, want 3 and 1", first.RequestCount, rg.repo.counts)
 	}
 	older := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, PageSize: 2, PageToken: first.NextPageToken})
-	refresh := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	req := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: requests})
-	for name, r := range map[string]*messagingv1.ListConversationsResponse{"older page": older, "since": refresh, "REQUESTS": req} {
+	reqSince := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: req.SinceToken})
+	for name, r := range map[string]*messagingv1.ListConversationsResponse{"older page": older, "REQUESTS": req, "REQUESTS since": reqSince} {
 		if r.RequestCount != 0 {
 			t.Errorf("%s: request_count = %d, want 0", name, r.RequestCount)
 		}
 	}
 	if rg.repo.counts != 1 {
 		t.Errorf("count() ran %d times over four calls, want once", rg.repo.counts)
+	}
+	// W7-37: an INBOX since refresh carries the current count, a request created after the first page included, and an
+	// empty refresh too.
+	rg.put(alice, dmRequestsCollection, rg.entryAt("r-new", 9))
+	refresh := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	if refresh.RequestCount != 4 || rg.repo.counts != 2 {
+		t.Errorf("since refresh: request_count=%d counts=%d, want 4 and 2", refresh.RequestCount, rg.repo.counts)
+	}
+	rg.now = rg.now.Add(time.Hour)
+	empty := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: refresh.SinceToken, PageSize: 2})
+	if len(empty.Conversations) != 0 || empty.RequestCount != 4 || rg.repo.counts != 3 {
+		t.Errorf("empty since refresh: rows=%d request_count=%d counts=%d, want 0, 4, 3", len(empty.Conversations), empty.RequestCount, rg.repo.counts)
 	}
 	// An unrelated user has no requests.
 	if got := rg.list(t, bob, &messagingv1.ListConversationsRequest{Folder: inbox}); got.RequestCount != 0 {
@@ -456,6 +468,19 @@ func TestListConversations_Errors(t *testing.T) {
 		}
 		if got := err.Error(); containsAny(got, alice) {
 			t.Errorf("error leaks the uid: %q", got)
+		}
+	})
+	t.Run("count error fails a first page and a since refresh", func(t *testing.T) {
+		rg := newRig(t, nil)
+		rg.put(alice, dmInboxCollection, rg.entryAt("p", 1))
+		first := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+		rg.repo.countErr = errors.New("boom")
+		for name, req := range map[string]*messagingv1.ListConversationsRequest{
+			"first": {Folder: inbox}, "since": {Folder: inbox, SinceToken: first.SinceToken},
+		} {
+			if _, err := rg.svc.ListConversations(context.Background(), alice, req); err == nil {
+				t.Errorf("%s: want an error, never a silent 0", name)
+			}
 		}
 	})
 	t.Run("graph error", func(t *testing.T) {

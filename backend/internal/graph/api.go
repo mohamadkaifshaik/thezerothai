@@ -12,6 +12,7 @@ import (
 	"context"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
@@ -134,6 +135,18 @@ type Service interface {
 type Reader interface {
 	// Snapshot returns uid's whole social context, cached 60s (0 reads on a cache hit).
 	Snapshot(ctx context.Context, uid string) (Snapshot, error)
+}
+
+// TxReader lets another module read graph/{uid} INSIDE its own transaction, uncached, so a concurrent write of that
+// document (a Block, Mute, Follow or Unfollow of the owner, or anyone's Block of the owner, which writes blockedBy)
+// conflicts with the transaction instead of being missed. It is the read-side companion of Reader for the one path
+// that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way (ADR-0027 note W7-33, A8).
+// *FirestoreRepo implements it.
+type TxReader interface {
+	// SnapshotInTx reads graph/{uid} through tx: 1 read (charged to ctx's budget.Counter), never the 60 s cache (it
+	// neither reads nor fills it). A missing document is an empty Snapshot, like Reader.Snapshot. The error text names
+	// no uid.
+	SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error)
 }
 
 // FollowEvents is a post-commit hook, a no-op until the notifications plan (ADR-0008 D11): "graph calls a

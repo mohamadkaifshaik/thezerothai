@@ -46,7 +46,7 @@ func TestRequireProtectedSeams(t *testing.T) {
 	}
 }
 
-// The W3-35a guard for L-5: apiserver.go still passes the protected set or audience to all seven seams and checks them.
+// The W3-35a guard for L-5: apiserver.go still passes the protected set or audience to all eight seams and checks them.
 // A source scan (no emulator), so a refactor that drops a site fails `make ci`, not only the integration suite.
 func TestProtectedSeamsAllWiredInBuild(t *testing.T) {
 	t.Parallel()
@@ -63,6 +63,8 @@ func TestProtectedSeamsAllWiredInBuild(t *testing.T) {
 		"posts.WithProtectedAuthors(protectedAuthors)",
 		"Audience: engAudience,",
 		"timeline.WithProtectedAuthors(protectedAuthors)",
+		"posts.NewSnapshotAudience(protectedAuthors)",
+		"Audience: searchAudience,",
 		"requireProtectedSeams([]protectedSeam{",
 	} {
 		if !strings.Contains(src, want) {
