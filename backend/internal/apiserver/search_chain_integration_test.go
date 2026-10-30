@@ -31,6 +31,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -521,10 +522,7 @@ func TestSearchChain_PageTokenBinding(t *testing.T) {
 	if r, err := e.posts(x, tag, searchv1.SearchTab_SEARCH_TAB_LATEST, 20, p1.GetNextPageToken()); err != nil || len(r.GetPosts()) != 20 {
 		t.Fatalf("page 2: %v rows, err %v", len(r.GetPosts()), err)
 	}
-	tampered := p1.GetNextPageToken()[:len(p1.GetNextPageToken())-2] + "AA"
-	if tampered == p1.GetNextPageToken() {
-		tampered = p1.GetNextPageToken()[:len(p1.GetNextPageToken())-2] + "BB"
-	}
+	tampered := cursortest.Tamper(p1.GetNextPageToken())
 	for _, tc := range []struct {
 		name  string
 		who   sUser
