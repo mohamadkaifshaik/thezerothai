@@ -5,7 +5,7 @@ package apiserver
 // Report a message (ADR-0027 D12, plan W7-12) over the real Build chain on the emulators: ReportContent with a MESSAGE target
 // through the account-status, rate-limit and degraded-mode interceptors, the flag matrix (reports on for the caller, messaging
 // only not globally off), the participant matrix with byte-identical NOT_FOUND, the evidence and the report log line (no
-// text), the budget of the RPC doc comment (6 reads cold, 3 warm, 2 writes) asserted with budgettest on the logged fs_reads /
+// text), the budget of the RPC doc comment (6 reads cold, 3 warm, 3 writes) asserted with budgettest on the logged fs_reads /
 // fs_writes, the moderator takedown as both participants see it, and the reporter's erasure. Chains that measure are booted
 // AFTER the data is written, so no cache is warm (a cold instance).
 
@@ -68,7 +68,15 @@ func (e *dmChain) reportDoc(t *testing.T, reportID string) map[string]any {
 	if err != nil {
 		t.Fatalf("report %s: %v", reportID, err)
 	}
-	return snap.Data()
+	data := snap.Data()
+	// W7-36: a MESSAGE report keeps its private text in the child reports/{id}/evidence/message, not in the report; put it back
+	// into the evidence map so the assertions read the report as a whole.
+	if cs, err := e.fs.Collection("reports").Doc(reportID).Collection("evidence").Doc("message").Get(context.Background()); err == nil {
+		if ev, ok := data["evidence"].(map[string]any); ok {
+			ev["text"] = cs.Data()["text"]
+		}
+	}
+	return data
 }
 
 func (e *dmChain) handleOf(t *testing.T, u dmUser) string {
@@ -318,7 +326,7 @@ func TestMessageReport_BlockedPeerIsStillReportable(t *testing.T) {
 }
 
 // The budget of the RPC doc comment, through the whole chain: 6 reads cold (interceptor, conversation, message, sender profile,
-// report, quotas) and 2 writes; a second message in the same conversation on the same instance 3 reads (the conversation, the
+// report, quotas) and 3 writes (report, quotas, the evidence child, W7-36); a second message in the same conversation on the same instance 3 reads (the conversation, the
 // sender's profile and the caller's profile are cached; the message, the report and the quotas are not); a repeat 2 reads
 // (message, report) and 0 writes.
 func TestMessageReport_BudgetColdWarmAndDuplicate(t *testing.T) {
@@ -335,12 +343,12 @@ func TestMessageReport_BudgetColdWarmAndDuplicate(t *testing.T) {
 		}
 		t.Logf("REPORTBUDGET case=%q reads=%d writes=%d deletes=%d", label, got.Reads(), got.Writes(), got.Deletes())
 	}
-	measure("cold", 6, 2, func() {
+	measure("cold", 6, 3, func() {
 		if _, err := e.report(th.b, th.convID, th.m1); err != nil {
 			t.Fatal(err)
 		}
 	})
-	measure("warm, a second message", 3, 2, func() {
+	measure("warm, a second message", 3, 3, func() {
 		if _, err := e.report(th.b, th.convID, th.m2); err != nil {
 			t.Fatal(err)
 		}
@@ -419,8 +427,12 @@ func TestMessageReport_TakedownAndReporterErasure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := resolvedAt.Add(moderation.Retention); !rr.ExpireAt.Equal(want) || rr.Evidence == nil || rr.Evidence.Text != "secret text three from b" {
+	if want := resolvedAt.Add(moderation.Retention); !rr.ExpireAt.Equal(want) || rr.Evidence == nil {
 		t.Errorf("resolved report = expire %v evidence %+v, want expire %v with the evidence kept until then", rr.ExpireAt, rr.Evidence, want)
+	}
+	// W7-36: the text is in the child, whose expiry is not later than the report's.
+	if got, err := mrepo.Get(context.Background(), res.GetReportId()); err != nil || got.Evidence == nil || got.Evidence.Text != "secret text three from b" {
+		t.Errorf("evidence after resolve = %+v err=%v", got.Evidence, err)
 	}
 }
 
