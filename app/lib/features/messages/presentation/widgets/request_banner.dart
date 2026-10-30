@@ -40,7 +40,9 @@ class ThreadRequestActions {
     this.blocking = false,
   });
 
-  final VoidCallback accept;
+  /// Null hides Accept (W7-26: read-only Messages cannot accept; Delete, Block
+  /// and the info menu's Report stay).
+  final VoidCallback? accept;
   final VoidCallback delete;
 
   /// Null hides Block (the `graph` flag is off for the caller). While a block
@@ -140,21 +142,22 @@ class RequestBanner extends StatelessWidget {
               spacing: AppSpacing.sm,
               runSpacing: AppSpacing.sm,
               children: [
-                FilledButton(
-                  key: acceptKey,
-                  style: FilledButton.styleFrom(minimumSize: minSize),
-                  onPressed: busy ? null : actions.accept,
-                  child: actions.accepting
-                      ? const SizedBox(
-                          width: AppIconSize.md,
-                          height: AppIconSize.md,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            semanticsLabel: 'Accepting',
-                          ),
-                        )
-                      : const Text('Accept'),
-                ),
+                if (actions.accept != null)
+                  FilledButton(
+                    key: acceptKey,
+                    style: FilledButton.styleFrom(minimumSize: minSize),
+                    onPressed: busy ? null : actions.accept,
+                    child: actions.accepting
+                        ? const SizedBox(
+                            width: AppIconSize.md,
+                            height: AppIconSize.md,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              semanticsLabel: 'Accepting',
+                            ),
+                          )
+                        : const Text('Accept'),
+                  ),
                 OutlinedButton(
                   key: deleteKey,
                   style: OutlinedButton.styleFrom(minimumSize: minSize),

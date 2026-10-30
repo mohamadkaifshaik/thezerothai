@@ -167,4 +167,57 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+
+  // W7-26: messaging off for this caller only (the third mode). The reports
+  // flag still decides the report actions; ui_shell never adds the bar entry.
+  for (final reports in [false, true]) {
+    for (final uiShell in [false, true]) {
+      testWidgets("messaging=readOnly ui_shell=$uiShell reports=$reports", (
+        tester,
+      ) async {
+        final server = MessagingFlowRig.serverWithConversation();
+        final rig = MessagingFlowRig(
+          server: server,
+          flags: {
+            "graph",
+            if (uiShell) kFeatureUiShell,
+            if (reports) kFeatureReports,
+          },
+        );
+        await rig.primeReadOnly(tester);
+        await rig.pump(tester);
+
+        expect(rig.path, AppRouter.messagesPath);
+        expect(find.byType(ConversationsScreen), findsOneWidget);
+        expect(find.byIcon(Icons.mail), findsNothing, reason: "no bar entry");
+        expect(find.byTooltip("New message"), findsNothing);
+
+        rig.appRouter.router.go(AppRouter.messageNewPath);
+        await tester.pumpAndSettle();
+        expect(rig.path, AppRouter.messagesPath);
+
+        await tester.tap(find.byKey(ValueKey("conversation-$kThreadId")));
+        await tester.pumpAndSettle();
+        expect(find.byType(ThreadScreen), findsOneWidget);
+        await tester.longPress(find.byKey(peerBubble));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(kReportMessageLabel),
+          reports ? findsOneWidget : findsNothing,
+        );
+        if (reports) {
+          await tester.tapAt(const Offset(2, 2));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.byTooltip("Conversation info"));
+        await tester.pumpAndSettle();
+        expect(find.text("Block @sam"), findsOneWidget);
+        expect(find.text("Delete conversation"), findsOneWidget);
+        expect(server.sends, isEmpty);
+        await tester.tapAt(const Offset(2, 2));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
 }

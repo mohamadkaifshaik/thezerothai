@@ -8,7 +8,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
-import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
@@ -20,11 +19,12 @@ import '../../../shared/widgets/app_notice_banner.dart';
 import '../../../shared/widgets/user_list_skeleton.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
-import '../domain/messaging_feature_flag.dart';
+import '../domain/messaging_feature_gate.dart';
 import 'bloc/conversations_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'widgets/conversation_row.dart';
+import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
 
 /// `/messages` and `/messages/requests` (W7-14, ADR-0027 D7, D14): the inbox.
@@ -61,33 +61,42 @@ class ConversationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isFeatureEnabled(context, kFeatureMessaging)) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Messages')),
-        body: const Center(
-          child: AppEmptyView(
-            icon: Icons.mail_outline,
-            title: "Messages aren't available yet",
+    // W7-26: `readOnly` (messaging off for this caller only) keeps the list,
+    // the requests and the clean-up, and drops the New message action.
+    return MessagingAccessBuilder(
+      builder: (context, access) {
+        if (access == MessagingAccess.hidden) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Messages')),
+            body: const Center(
+              child: AppEmptyView(
+                icon: Icons.mail_outline,
+                title: "Messages aren't available yet",
+              ),
+            ),
+          );
+        }
+        return BlocProvider<ConversationsCubit>(
+          create: (context) => ConversationsCubit(
+            repository: context.read<MessagingRepository>(),
+            folder: folder,
+            now: refreshClock,
+            onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+            // A first Inbox page loaded: its rows are the server's unread
+            // state, so the Messages badge re-syncs from them (0 extra reads,
+            // D10).
+            onInboxSynced: (rows, {required hasMore}) => context
+                .read<MessagesBadgeCubit>()
+                .resync(rows, hasMore: hasMore),
+          )..load(),
+          child: _ConversationsView(
+            folder: folder,
+            onOpenConversation: onOpenConversation,
+            onNewMessage: access == MessagingAccess.full ? onNewMessage : null,
+            canCompose: access == MessagingAccess.full,
           ),
-        ),
-      );
-    }
-    return BlocProvider<ConversationsCubit>(
-      create: (context) => ConversationsCubit(
-        repository: context.read<MessagingRepository>(),
-        folder: folder,
-        now: refreshClock,
-        onUnexpectedError: context.read<UnexpectedErrorReporter>(),
-        // A first Inbox page loaded: its rows are the server's unread state,
-        // so the Messages badge re-syncs from them (0 extra reads, D10).
-        onInboxSynced: (rows, {required hasMore}) =>
-            context.read<MessagesBadgeCubit>().resync(rows, hasMore: hasMore),
-      )..load(),
-      child: _ConversationsView(
-        folder: folder,
-        onOpenConversation: onOpenConversation,
-        onNewMessage: onNewMessage,
-      ),
+        );
+      },
     );
   }
 }
@@ -97,11 +106,15 @@ class _ConversationsView extends StatefulWidget {
     required this.folder,
     required this.onOpenConversation,
     required this.onNewMessage,
+    required this.canCompose,
   });
 
   final Folder folder;
   final void Function(String conversationId)? onOpenConversation;
   final VoidCallback? onNewMessage;
+
+  /// False in read-only mode (W7-26): no New message action.
+  final bool canCompose;
 
   @override
   State<_ConversationsView> createState() => _ConversationsViewState();
@@ -230,11 +243,12 @@ class _ConversationsViewState extends State<_ConversationsView>
                         AppTopBar.sliver(
                           title: 'Messages',
                           actions: [
-                            IconButton(
-                              tooltip: 'New message',
-                              onPressed: widget.onNewMessage,
-                              icon: const Icon(Icons.mail_outline),
-                            ),
+                            if (widget.canCompose)
+                              IconButton(
+                                tooltip: 'New message',
+                                onPressed: widget.onNewMessage,
+                                icon: const Icon(Icons.mail_outline),
+                              ),
                           ],
                         )
                       else

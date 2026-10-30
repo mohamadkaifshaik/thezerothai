@@ -207,6 +207,9 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
   Set<String>? _lastFeatures;
+
+  /// The user the Messages access probe last ran for (W7-26).
+  String? _probedUid;
   int _lastUnread = 0;
   int _lastUnreadConversations = 0;
 
@@ -227,6 +230,7 @@ class _AppWidgetState extends State<AppWidget> {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
         _lastFeatures = null;
+        _probedUid = null;
         _lastUnread = 0;
         _lastUnreadConversations = 0;
         unawaited(widget.pushCubit.stop());
@@ -288,6 +292,15 @@ class _AppWidgetState extends State<AppWidget> {
     final last = _lastFeatures;
     final flagsChanged =
         last == null || !setEquals(last, state.enabledFeatures);
+    // W7-26: the one Messages access probe, at session start, for another
+    // user, and when the flag set changes, never on an unread-count change.
+    // It sends nothing when messaging is on for the caller or the cache is
+    // empty.
+    final uid = state.profile?.userId;
+    if (flagsChanged || uid != _probedUid) {
+      _probedUid = uid;
+      unawaited(widget.messagingRepository.probeAccess());
+    }
     final unreadChanged = _lastUnread != state.unreadNotificationCount;
     final conversationsChanged =
         _lastUnreadConversations != state.unreadConversationCount;
@@ -336,6 +349,7 @@ class _AppWidgetState extends State<AppWidget> {
   late final AppRouter _appRouter = AppRouter(
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
+    messagingGate: widget.messagingRepository.gate,
   );
 
   @override
