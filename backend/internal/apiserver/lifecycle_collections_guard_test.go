@@ -96,6 +96,10 @@ var lifecycleCollections = []collectionRow{
 	// ADR-0016 D10 + amendment 2026-10-18 (b): a log keyed by post id (state, createdAt, expireAt) whose entries carry
 	// the post author's uid (authorId, a pseudonymous link) so readers can scope them per feed. The posts step deletes
 	// them by authorId (PurgeUser phase 2); the 32-day TTL is only the backstop, so no residue allowlist entry exists.
+	// W7-36 (security L-6): reports/{id}/evidence/message holds only the copied text of a MESSAGE report and its expireAt (no uid
+	// field). A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days. PurgeReporter keeps no
+	// reference to it; nothing in it names the reporter, so there is nothing to erase at account deletion.
+	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): text only, no uid field, TTL <= 180 d"},
 	{Name: "postRemovals", Disposition: erasedByStep, Step: "posts", ExportNote: "operator-internal moderation log (post id, state, timestamps, author uid); not user content, not exported", Owner: "posts", Cite: "ADR-0016 amendment 2026-10-18 (b), ADR-0011 Q10"},
 	// ADR-0021 D4 (CMP-D2): scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
 	// does not remove. The `scheduled` step (posts.ScheduledEraser, BeforeIdentity after reports) deletes every
@@ -313,7 +317,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerFollowRequestsLifecycle(l, graph.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err != nil {
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

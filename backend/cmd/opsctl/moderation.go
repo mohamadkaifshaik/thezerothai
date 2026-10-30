@@ -149,6 +149,13 @@ func printReport(out io.Writer, r moderation.Report) {
 	case r.TargetType == moderation.TargetMessage && r.Evidence != nil:
 		// ADR-0027 D12: one private message, copied at report time. owner above is the sender's uid; the handle is "" when
 		// the sender was not ACTIVE then. takedown with `opsctl messages takedown <target>`.
+		if r.Evidence.TextExpired {
+			// W7-36: the copied text lives in reports/{id}/evidence/message and its TTL deleted it (180 days after filing, or
+			// resolved + 90 days); the report itself is kept.
+			fmt.Fprintf(out, "evidence expired: the copied message text was deleted by its retention limit (message from @%s sent %s)\n",
+				r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339))
+			break
+		}
 		fmt.Fprintf(out, "evidence message from @%s sent %s (PRIVATE text, copied at report time): %q\n",
 			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
 	case r.TargetType == moderation.TargetMessage:

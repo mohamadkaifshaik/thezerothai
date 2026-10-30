@@ -178,6 +178,7 @@
 
     { "collectionGroup": "reports", "fieldPath": "evidence", "indexes": [] },
     { "collectionGroup": "reports", "fieldPath": "note", "indexes": [] },
+    { "collectionGroup": "evidence", "fieldPath": "text", "indexes": [] },
     { "collectionGroup": "devices", "fieldPath": "token", "indexes": [] },
 
     { "collectionGroup": "messages", "fieldPath": "text", "indexes": [] },

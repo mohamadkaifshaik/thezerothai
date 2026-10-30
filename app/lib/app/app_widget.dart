@@ -43,6 +43,7 @@ import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
+import '../features/posts/data/drafts_repository.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
@@ -172,6 +173,8 @@ class _AppWidgetState extends State<AppWidget> {
   // The "Turn on notifications" card's memory (W2-12): one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
+  // Unsent posts on this device (W6-14); Delete account wipes the deleted uid's.
+  late final DraftsRepository _drafts = DraftsRepository(widget.database);
   // deleted uid's record there (W2-14 L-6).
   late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
     widget.database,
@@ -204,6 +207,9 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
   Set<String>? _lastFeatures;
+
+  /// The user the Messages access probe last ran for (W7-26).
+  String? _probedUid;
   int _lastUnread = 0;
   int _lastUnreadConversations = 0;
 
@@ -224,6 +230,7 @@ class _AppWidgetState extends State<AppWidget> {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
         _lastFeatures = null;
+        _probedUid = null;
         _lastUnread = 0;
         _lastUnreadConversations = 0;
         unawaited(widget.pushCubit.stop());
@@ -285,6 +292,15 @@ class _AppWidgetState extends State<AppWidget> {
     final last = _lastFeatures;
     final flagsChanged =
         last == null || !setEquals(last, state.enabledFeatures);
+    // W7-26: the one Messages access probe, at session start, for another
+    // user, and when the flag set changes, never on an unread-count change.
+    // It sends nothing when messaging is on for the caller or the cache is
+    // empty.
+    final uid = state.profile?.userId;
+    if (flagsChanged || uid != _probedUid) {
+      _probedUid = uid;
+      unawaited(widget.messagingRepository.probeAccess());
+    }
     final unreadChanged = _lastUnread != state.unreadNotificationCount;
     final conversationsChanged =
         _lastUnreadConversations != state.unreadConversationCount;
@@ -333,6 +349,7 @@ class _AppWidgetState extends State<AppWidget> {
   late final AppRouter _appRouter = AppRouter(
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
+    messagingGate: widget.messagingRepository.gate,
   );
 
   @override
@@ -345,6 +362,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.authRepository),
         RepositoryProvider.value(value: widget.database),
         RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
+        RepositoryProvider<DraftsRepository>.value(value: _drafts),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,
         ),

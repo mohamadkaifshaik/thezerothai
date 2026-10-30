@@ -19,6 +19,7 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/conversation_id.dart'
     show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/domain/messaging_feature_gate.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
 import '../../features/messages/presentation/recipient_picker_screen.dart';
@@ -67,11 +68,18 @@ class AppRouter {
   AppRouter({
     required AuthBloc authBloc,
     required OnboardingBloc onboardingBloc,
+    MessagingFeatureGate? messagingGate,
   }) : _authBloc = authBloc,
-       _onboardingBloc = onboardingBloc;
+       _onboardingBloc = onboardingBloc,
+       _messagingGate = messagingGate;
 
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
+
+  /// W7-26: decides the read-only Messages routes and re-runs the redirects
+  /// when the probe answers or messaging turns out to be globally off. Null
+  /// (a test) means the flag alone decides.
+  final MessagingFeatureGate? _messagingGate;
 
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
@@ -159,9 +167,9 @@ class AppRouter {
 
   late final GoRouter router = GoRouter(
     initialLocation: '/',
-    refreshListenable: GoRouterRefreshStream([
-      _authBloc.stream,
-      _onboardingBloc.stream,
+    refreshListenable: Listenable.merge([
+      GoRouterRefreshStream([_authBloc.stream, _onboardingBloc.stream]),
+      ?_messagingGate,
     ]),
     redirect: _redirect,
     routes: [
@@ -621,6 +629,9 @@ class AppRouter {
   /// thread pattern), `/messages/new/draft` and `/messages/<id>` redirect Home
   /// unless `messaging` is on for this caller (W7-14, W7-15). `GetMe` lists
   /// the flag per caller, so a flag that is off for everyone is the same case.
+  /// W7-26: while the gate is `readOnly` (off for this caller only), all but
+  /// `/messages/new` and `/messages/new/draft` open, and those two land on
+  /// `/messages`.
   String? _messagesFlagRedirect(String loc) {
     if (loc != messagesPath &&
         loc != messageRequestsPath &&
@@ -628,9 +639,17 @@ class AppRouter {
         !_messageThreadPath.hasMatch(loc)) {
       return null;
     }
-    return _onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)
-        ? null
-        : homePath;
+    if (_onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)) {
+      return null;
+    }
+    // W7-26 (ADR-0027 F6(a)): off for this caller only. The inbox, the
+    // requests and a thread open; starting a message does not.
+    if (_messagingGate?.access == MessagingAccess.readOnly) {
+      return loc == messageNewPath || loc == messageDraftPath
+          ? messagesPath
+          : null;
+    }
+    return homePath;
   }
 
   /// `/follow-requests` redirects Home unless `graph` is on and the caller is

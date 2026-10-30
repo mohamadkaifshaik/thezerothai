@@ -442,7 +442,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// messaging (ADR-0027 D8): the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
 	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
-	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), log); err != nil {
+	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), graphSvc, log); err != nil {
 		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
 	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.

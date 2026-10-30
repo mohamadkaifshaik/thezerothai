@@ -32,7 +32,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
-import '../domain/messaging_feature_flag.dart';
+import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import '../domain/thread_push_coverage.dart';
 import 'bloc/message_composer_cubit.dart';
@@ -42,12 +42,18 @@ import 'messaging_error_messages.dart';
 import 'report_conversation.dart';
 import 'thread_items.dart';
 import 'widgets/message_bubble.dart';
+import 'widgets/messaging_access_builder.dart';
 import 'widgets/outgoing_bubble.dart';
 import 'widgets/request_banner.dart';
 import 'widgets/thread_push_scope.dart';
 
 /// The line that replaces the composer on a read-only conversation.
 const kThreadReadOnlyText = "You can't reply to this conversation";
+
+/// The line that replaces the composer when messaging is off for this caller
+/// but not for everyone (W7-26, ADR-0027 F6(a)): list, read, delete, report and
+/// block still work.
+const kMessagingReadOnlyText = "You can't send messages right now.";
 
 /// Shown for a malformed id, NOT_FOUND, a non-participant and a deleted
 /// conversation alike.
@@ -155,17 +161,24 @@ class ThreadScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isFeatureEnabled(context, kFeatureMessaging)) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Messages')),
-        body: const Center(
-          child: AppEmptyView(
-            icon: Icons.mail_outline,
-            title: "Messages aren't available yet",
-          ),
-        ),
-      );
-    }
+    // W7-26: `readOnly` keeps the thread (read, delete, report, block) and
+    // drops the composer and Accept.
+    return MessagingAccessBuilder(
+      builder: (context, access) => access == MessagingAccess.hidden
+          ? Scaffold(
+              appBar: AppBar(title: const Text('Messages')),
+              body: const Center(
+                child: AppEmptyView(
+                  icon: Icons.mail_outline,
+                  title: "Messages aren't available yet",
+                ),
+              ),
+            )
+          : _body(context),
+    );
+  }
+
+  Widget _body(BuildContext context) {
     return MultiBlocProvider(
       providers: [
         BlocProvider<ThreadCubit>(create: _createThreadCubit),
@@ -478,6 +491,22 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     // Read here: `select` is only allowed in `build`, not in a builder.
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
+    return MessagingAccessBuilder(
+      builder: (context, access) => _scaffold(
+        cubit,
+        graphEnabled: graphEnabled,
+        reportsEnabled: reportsEnabled,
+        canAccept: access == MessagingAccess.full,
+      ),
+    );
+  }
+
+  Widget _scaffold(
+    ThreadCubit cubit, {
+    required bool graphEnabled,
+    required bool reportsEnabled,
+    required bool canAccept,
+  }) {
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -537,7 +566,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                       a.accepting != b.accepting ||
                       a.deleting != b.deleting,
                   builder: (context, state) =>
-                      _bottom(cubit, state, graphEnabled),
+                      _bottom(cubit, state, graphEnabled, canAccept),
                 ),
               ],
             ),
@@ -814,7 +843,12 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   /// The bottom of a ready thread: the read-only line, or the request area
   /// and the composer. A received request shows the banner INSTEAD of the
   /// composer (Accept brings the composer); the sender's note sits above it.
-  Widget _bottom(ThreadCubit cubit, ThreadState state, bool graphEnabled) {
+  Widget _bottom(
+    ThreadCubit cubit,
+    ThreadState state,
+    bool graphEnabled,
+    bool canAccept,
+  ) {
     if (state.status != ThreadStatus.ready) return const SizedBox.shrink();
     if (state.readOnly) return const ThreadReadOnlyLine();
     final conversation = state.conversation;
@@ -823,12 +857,23 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ? const SizedBox.shrink()
         : composerBuilder(context, conversation);
     final bannerBuilder = widget.bannerBuilder;
-    final banner = conversation == null || bannerBuilder == null
+    // The sender's waiting note promises sends, so read-only mode (no Accept)
+    // shows only the received-request banner.
+    final banner =
+        conversation == null ||
+            bannerBuilder == null ||
+            (!canAccept && !isReceivedRequest(conversation))
         ? null
         : bannerBuilder(
             context,
             conversation,
-            _requestActions(cubit, state, conversation, graphEnabled),
+            _requestActions(
+              cubit,
+              state,
+              conversation,
+              graphEnabled,
+              canAccept,
+            ),
           );
     if (banner == null) return composer;
     if (conversation != null && isReceivedRequest(conversation)) return banner;
@@ -840,13 +885,15 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     ThreadState state,
     pb.Conversation conversation,
     bool graphEnabled,
+    bool canAccept,
   ) {
     final peer = conversation.peer;
     // Block stays visible while it runs (the banner turns every button off).
     final canBlock =
         graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked;
     return ThreadRequestActions(
-      accept: () => unawaited(_accept(cubit)),
+      // W7-26: no Accept in read-only mode (it needs `messaging`).
+      accept: canAccept ? () => unawaited(_accept(cubit)) : null,
       delete: () => unawaited(_delete(cubit, request: true)),
       block: canBlock ? () => unawaited(_block(cubit, peer)) : null,
       accepting: state.accepting,
@@ -1038,7 +1085,10 @@ class _DaySeparator extends StatelessWidget {
 /// Replaces the composer on a conversation nobody can reply to (public since
 /// W7-17: the draft thread uses it too).
 class ThreadReadOnlyLine extends StatelessWidget {
-  const ThreadReadOnlyLine({super.key});
+  const ThreadReadOnlyLine({super.key, this.text = kThreadReadOnlyText});
+
+  /// The line; [kMessagingReadOnlyText] for read-only Messages (W7-26).
+  final String text;
 
   @override
   Widget build(BuildContext context) {
@@ -1055,7 +1105,7 @@ class ThreadReadOnlyLine extends StatelessWidget {
           ),
         ),
         child: Text(
-          kThreadReadOnlyText,
+          text,
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
