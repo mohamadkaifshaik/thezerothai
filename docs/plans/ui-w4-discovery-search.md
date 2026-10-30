@@ -147,7 +147,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 ## Flags
 - `FEATURE_SEARCH` (wire name `search`) gates SearchPeople and SearchPosts. The client gates the search field, `/search`, the hashtag tap-through and the Explore destination on it.
 - `FEATURE_TRENDS` (wire name `trends`) gates GetTrends, the trends sections and the refresh step. The step honours only `Registry.GloballyOff` (`flag-rollout`: only `off` is a kill switch for a job).
-- **Ceilings.** `scripts/promotion/flag-ceiling.json` gets `SEARCH` and `TRENDS` in `flags` and dev entries `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}`, with **no prod raise**. **That file is founder-gated (CODEOWNERS)**: W4-3's PR needs the founder's review.
+- **Ceilings.** `scripts/promotion/flag-ceiling.json` gets `SEARCH` and `TRENDS` in `flags` and dev entries `{"mode": "allowlist", "max_allowlist": 6, "max_percent": 0}` (6 since #463, ADR-0028 D8), with **no prod raise**. **That file is founder-gated (CODEOWNERS)**: W4-3's PR needs the founder's review.
 - **Terraform.** `feature_search*` and `feature_trends*` variables go in `envs/dev` and `envs/prod`, default `off` (copy `feature_bookmarks`). Nothing is applied.
 - **Ramp.** Dev allowlist (3 uids) → the founder's MVP launch decision for prod: allowlist → percent 5 → 25 → 100 → `on`, each step a Terraform change plus a tagged revision (ADR-0019). `FEATURE_TRENDS` never ramps ahead of `FEATURE_SEARCH`: the trend rows link to search.
 
@@ -167,7 +167,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   | Read budget (ADR-0010 D5) | 2,000 reads/uid/day | binds first: at most 2,368 reads per uid per day across everything |
 
   Worst people rows per account per day: 900 × 20 = 18,000 handles, already public on profiles. Worst post rows: bounded by the read budget.
-- **Query grammar (validated before any read, 0 reads on rejection):**
+- **Query grammar (validated before any read, 0 reads on rejection; ADR-0028 D1 is authoritative and settles the sigil, length and one-character cases below, with the shared fixture `testdata/search_query_grammar.json`):**
   - Normalise: NFC, trim, lower-case.
   - At most 50 code points. Control characters and bidi formatting controls are rejected, as in ADR-0010 D9.
   - People: `@?[a-z0-9_]{2,15}`.
@@ -320,9 +320,9 @@ Order:
 ### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: Open
 - **Description.**
   - Register `FEATURE_SEARCH` and `FEATURE_TRENDS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
-  - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "".
+  - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "", `TRENDS_MIN_INTERVAL` 12 h (ADR-0028 D6: a run within it of the last list is skipped as `fresh`).
   - Map the limits in `ratelimit_config.go` (two limiters, one shared `DailyCap` `search_daily`).
-  - `flag-ceiling.json`: `SEARCH` and `TRENDS` dev allowlist 3 (**founder-gated file**).
+  - `flag-ceiling.json`: `SEARCH` and `TRENDS` dev allowlist 6 (since #463; **founder-gated file**).
   - Terraform `feature_search*` / `feature_trends*` in `envs/dev` and `envs/prod`, default `off`, not applied.
   - `internal/search` with `api.go` (interfaces), a Connect server whose three handlers return FEATURE_DISABLED or Unimplemented, and wiring in `apiserver.Build`.
 - **Acceptance criteria.**
@@ -490,6 +490,7 @@ Order:
 - **Acceptance criteria (B).**
   - Given the backstop fails, then 500 is returned, whatever trends did; Scheduler retries the backstop (trends resumes from its watermark, so a retry double-counts nothing).
   - Given trends fail or are skipped, then the status reflects the backstop only, and the reason is logged.
+  - Given a Scheduler retry minutes after a successful run, then the trends step is skipped as `fresh` (ADR-0028 D6) and the list is not replaced.
   - Given the backstop takes 26 s, then trends is skipped with `trends_skipped reason=deadline`.
 - **Acceptance criteria (A).** The targeted prod plan shows exactly one added job; nothing is applied without the founder's OK.
 - **Test notes.** The status-code matrix (backstop ok / failed × trends ok / failed / skipped) with a fake clock; ADR-0011's backstop tests are unchanged and green.

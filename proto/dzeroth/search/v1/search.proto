@@ -8,15 +8,18 @@ syntax = "proto3";
 // the engine and its trigger). Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
 // answering under DEGRADED_MODE=readonly. Signed-in callers only (App Check plus a Firebase ID token, like every RPC).
 //
-// Query grammar (ADR-0028 D1), applied before any Firestore read:
-// - The query is normalised (NFC, trimmed, lower-cased). Empty, longer than 50 code points, or holding a control
-//   character or a bidi formatting control => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads.
-// - People: one leading '@' is ignored; the rest must be a handle prefix [a-z0-9_]{2,15}. A single [a-z0-9_]
-//   character => VALIDATION "query" (send at least 2). Anything else => an empty answer with unsupported_query = true
-//   and 0 Firestore reads.
-// - Posts: one leading '#' is ignored; the rest must be exactly one hashtag body as posts define it (ADR-0010 D8; the
-//   shared fixtures in testdata/post_text_grammar.json). Anything else (several words, "#123" with no letter) => an
-//   empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+// Query grammar (ADR-0028 D1; the shared cases are testdata/search_query_grammar.json), applied before any read:
+// - Normalise: NFC, trim, lower-case. Then remove at most one leading sigil, '@' or '#'.
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads, when nothing is left (empty, "@" or "#"
+//   alone), when more than 50 code points are left (the sigil does NOT count: '#' plus a 50-code-point tag is valid),
+//   or when the query holds a control character or a bidi formatting control.
+// - People: a '#' sigil => unsupported. Otherwise the rest must match [a-z0-9_]{1,15}: 1 character => VALIDATION
+//   "query" (too short; "@a" and "a" alike); 2 to 15 => a handle prefix ("@ab" and "ab" are valid; full handles are
+//   3 to 15). Anything else => an empty answer with unsupported_query = true and 0 Firestore reads.
+// - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it
+//   (ADR-0010 D8), 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
+//   word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
+//   "#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
 //
 // Flags (ADR-0028 D8; clients learn them from IdentityService.GetMe enabled_features):
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
@@ -99,7 +102,7 @@ service SearchService {
   // distinct accounts used it in the window; tags are ranked by distinct accounts, then posts, then tag. Hidden posts,
   // reposts and posts by protected accounts are not counted; an operator denylist and the trends flag remove tags.
   // The list is computed by a scheduled sweep (daily at Stage 0: "Trending today"); computed_at says when.
-  // limit 0 => 10, max 30 (clamped). prefix (optional; one leading '#' ignored; at most 50 code points; a control or
+  // limit 0 => 10, max 30 (clamped). prefix (optional; one leading '#' ignored; at most 50 code points after it; a control or
   // bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
   // hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
   // Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old.

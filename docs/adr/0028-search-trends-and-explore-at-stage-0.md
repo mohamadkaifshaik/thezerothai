@@ -92,23 +92,47 @@ of §7, INR 95 per USD, 0.1 s of vCPU per request).
 ## Decision
 
 ### D1. Query grammar and normalisation (validated before any read; 0 reads on rejection)
-1. Normalise: NFC, trim, Unicode lower-case.
-2. `query` that is empty, longer than 50 code points, or holds a control character (`\p{Cc}`) or a bidi formatting
-   control (ADR-0010 D9) → INVALID_ARGUMENT + VALIDATION, `field=query`.
-3. **People:** one leading `@` is stripped. The rest matching `[a-z0-9_]{2,15}` is a handle prefix. A single
-   `[a-z0-9_]` character → VALIDATION `query` (the client never sends it). Anything else (a `#`, a space, other
-   characters, longer than 15) → an empty result with `unsupported_query = true`, 0 Firestore reads. Handles are 3 to 15
-   characters (`pkg/platform/handle`), so a 2-character minimum is a prefix only.
-4. **Posts:** one leading `#` is stripped. The rest must be exactly one ADR-0010 D8 hashtag body, decided by the same
-   extractor (`posts/text.Hashtags("#" + rest)` returns exactly `[rest]`) and the shared `testdata/post_text_grammar.json`
-   fixtures, so client and server agree. `normalized_tag` is the stored form (lower-case, NFC). Anything else → empty with
-   `unsupported_query = true`, 0 reads. `#123` is not a tag (no letter), so it is unsupported.
-5. **Range upper bound:** `succ(p)` replaces the last character by the next code point. The class is ASCII
-   (`_` → `` ` ``, `z` → `{`, `9` → `:`), so it never overflows. The `firestore-data-model` skill's literal
-   `q + ""` line lost its ``; do not copy it (follow-up F-2).
-6. **GetTrends `prefix`:** optional; one leading `#` stripped; at most 50 code points; control or bidi characters →
-   VALIDATION `field=prefix`. Characters outside the D8 body class simply match nothing.
-7. **Limits:** a negative `limit` or `page_size` → VALIDATION (`field=limit` or `page_size`); values above the maximum are
+Settled with W4-13 (the client parser, PR #464) on 2026-10-30. Client and server apply the same rules in the same order.
+1. **Normalise:** NFC, trim, Unicode lower-case.
+2. **Sigil:** at most one leading sigil is recognised, `@` or `#`. It is removed **before** the length check.
+3. **Invalid → INVALID_ARGUMENT + VALIDATION, `field=query`:**
+   - nothing left after step 2 (an empty query, `@` alone, `#` alone);
+   - **more than 50 code points after step 2**, so the sigil does **not** count: `#` + a 50-code-point tag body is
+     valid (51 code points in all), and a tag tap-through can always search its own tag;
+   - a control character (`\p{Cc}`) or a bidi formatting control (ADR-0010 D9) anywhere.
+4. **People** (SearchPeople, and the client's People tab and typeahead):
+   - a `#` sigil → unsupported;
+   - otherwise (an `@` sigil or none) the rest must match `[a-z0-9_]{1,15}`:
+     - **1 character → VALIDATION `query` ("too short")**; `@a` and `a` alike;
+     - **2 to 15 characters → a handle prefix** (`@ab` and `ab` are valid). Full handles are 3 to 15
+       (`pkg/platform/handle`); 2 is the minimum for a *prefix*.
+   - Anything else (a space, another character, more than 15) → an empty result with `unsupported_query = true`, 0
+     Firestore reads.
+5. **Posts** (SearchPosts, the Top / Latest / Media tabs):
+   - an `@` sigil → unsupported;
+   - otherwise (a `#` sigil or none) the rest must be exactly one ADR-0010 D8 hashtag body, decided by the same
+     extractor (`posts/text.Hashtags("#" + rest)` returns exactly `[rest]`). This includes **a 1-code-point body**: `#a`
+     and the plain word `a` both search the tag `a`. D8 allows such tags, and a tap on `#a` in a post must work. So **a
+     one-character plain word is valid for Posts and too short for People.** The client skips the SearchPeople call
+     and its People tab shows the "too short" hint, while the posts tabs search. Typeahead still makes no call below 2
+     characters (W4-14), because typeahead suggests people.
+   - `normalized_tag` is the stored form (lower-case, NFC).
+   - Anything else (`#123` with no letter, several words, `#go!`) → empty with `unsupported_query = true`, 0 reads.
+6. **Range upper bound:** `succ(p)` replaces the last character by the next code point. The class is ASCII
+   (`_` → `` ` ``, `z` → `{`, `9` → `:`), so it never overflows. The `firestore-data-model` skill's prefix line
+   `q + "..."` has lost its U+F8FF sentinel character; do not copy it (follow-up F-2).
+7. **GetTrends `prefix`:** optional; one leading `#` removed; at most 50 code points after that; control or bidi
+   characters → VALIDATION `field=prefix`. Characters outside the D8 body class simply match nothing.
+8. **Shared fixture:** `testdata/search_query_grammar.json`, read by the Go and Dart tests, as
+   `post_text_grammar.json` is for whole post text. Each case is
+   `{ "query": "...", "people": {"result": "prefix|too_short|unsupported|invalid", "prefix": "..."}, "posts": {"result": "tag|unsupported|invalid", "tag": "..."} }`.
+   - It must cover every example in steps 2 to 5: `@`, `#`, `@a`, `a`, `ab`, `@ab`, `#a`, `@AbC`, `#Go` / `go`, `#123`,
+     `#भारत`, `#café`, `go lang`, `#go!`, a 50-code-point body with and without `#`, a 51-code-point body, a body with a
+     bidi control, and a 16-character handle-class word.
+   - **The W4-13 follow-up PR (frontend-developer) adds the fixture** and the Dart test. W4-5 (People) and W4-7 (Posts)
+     load it in their Go tests.
+   - Where this ADR and the fixture disagree, the ADR wins and the fixture is fixed.
+9. **Limits:** a negative `limit` or `page_size` → VALIDATION (`field=limit` or `page_size`); values above the maximum are
    clamped (the repo convention).
 
 ### D2. People search (plan A1; F2 = no)
@@ -386,11 +410,11 @@ the founder answers F1 to F8 differently; or when an offensive tag needs the den
 ## Handoff
 - **architect:** W4-2 in this PR. Follow-ups F-1 and F-2 (skill rows) in a `.claude/` PR the founder approves.
 - **backend-developer:** W4-3 flags, config (D9), limits, skeleton (`make proto`, generated code); W4-4
-  `SearchHandles` (D11); W4-5 People (D2); W4-6 `ByHashtag` / `CreatedAfter` (D11, projection never cached); W4-7 and
+  `SearchHandles` (D11); W4-5 People (D2) and W4-7 load `testdata/search_query_grammar.json` (D1 step 8); W4-6 `ByHashtag` / `CreatedAfter` (D11, projection never cached); W4-7 and
   W4-8 tabs (D3, D5) through `posts.Audience` `SurfaceList`; W4-9 refresh (D6) with the guard row, runbook
   `docs/runbooks/search.md` and the `trends.items` override + ack (founder-gated); W4-9b wrapper (D7); W4-10 GetTrends.
   Log fields per D10.
-- **frontend-developer:** W4-13 parser against `testdata/post_text_grammar.json`; W4-14 to W4-18 per the plan;
+- **frontend-developer:** W4-13 parser per D1 (the sigil is not counted in the 50, a one-character word is a tag but too short for people); its follow-up PR adds `testdata/search_query_grammar.json` (D1 step 8) and the Dart test; W4-14 to W4-18 per the plan;
   W4-19 renders `ListSuggestedUsers` from W3's repository and cache only (D12).
 - **tester:** W4-20 flag matrix, D1 grammar table (0 reads per rejection), budgets above, block oracle byte identity,
   protected-author drops and the PROTECTED embed, D5 token binding, the D6 sweep (distinct authors, min, denylist,
