@@ -36,9 +36,10 @@ const (
 // entry's unreadCount now counts in the Inbox badge (Deps.Badge, W7-11; nil until then). Nothing is emitted.
 //
 // Worst-case Firestore cost (budget.Counter, the account-status interceptor read counted as the proto comment does):
-//   - accept: reads 3 (interceptor 1, conversation 1, request entry 1), planning 2.5; writes 2 (conversation state, dmInbox
-//     entry); deletes 1 (dmRequests entry)
-//   - already accepted: reads 2, writes 0; unknown id, non-participant or the requester: NOT_FOUND after 2 reads
+//   - accept: reads 4 (interceptor 1, conversation 1, request entry 1, the requester's entry 1, W7-25), planning 3.5; writes 3
+//     (conversation state, dmInbox entry, the requester's entry with requestPending cleared; 2 when the requester deleted
+//     that entry, which is never recreated); deletes 1 (dmRequests entry)
+//   - already accepted: reads 2 (the requester's entry is not read), writes 0; unknown id, non-participant or the requester: NOT_FOUND after 2 reads
 func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.AcceptMessageRequestRequest) (*messagingv1.AcceptMessageRequestResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err

@@ -54,6 +54,13 @@ variable "ttl_fields" {
       collection = "scheduled"
       field      = "expireAt"
     }
+    # ADR-0029 D8, D9: a poll vote (pollVotes/{postId}_{uid}); expireAt = the poll's closesAt + 30 days
+    # (POLL_VOTE_TTL_AFTER_CLOSE), so the votes on a deleted poll post expire by TTL. Edited only, not applied: apply
+    # it before FEATURE_POLLS leaves off in a project (otherwise vote docs simply stay).
+    poll_votes_expire_at = {
+      collection = "pollVotes"
+      field      = "expireAt"
+    }
   }
 }
 

@@ -108,6 +108,9 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 
 		ReplyPolicy:          int32(m.GetReplyPolicy()),
 		ReplyAudienceEnabled: s.replyAudienceEnabled(uid),
+
+		HasPoll:      m.GetPoll() != nil,
+		PollsEnabled: s.pollsEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -199,6 +202,15 @@ const ContentDisclosureFlagName = "content_disclosure"
 // disclosureEnabled is the FEATURE_CONTENT_DISCLOSURE decision for uid (off when no checker is wired).
 func (s *Server) disclosureEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, ContentDisclosureFlagName)
+}
+
+// PollsFlagName is the wire name of FEATURE_POLLS (ADR-0029 D12). It gates CREATING a poll on CreatePost; voting
+// (engagement) needs it only not globally off, and rendering a stored poll never consults it.
+const PollsFlagName = "polls"
+
+// pollsEnabled is the FEATURE_POLLS decision for uid (off when no checker is wired).
+func (s *Server) pollsEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, PollsFlagName)
 }
 
 // ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE (ADR-0021 D2). It gates only SETTING a reply

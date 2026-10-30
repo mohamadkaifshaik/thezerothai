@@ -205,6 +205,16 @@ locals {
     { name = "FEATURE_TRENDS", value = var.feature_trends },
     { name = "FEATURE_TRENDS_ALLOWLIST", value = var.feature_trends_allowlist },
     { name = "FEATURE_TRENDS_PERCENT", value = tostring(var.feature_trends_percent) },
+    // ADR-0029 D12 (W6-4): polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
+    { name = "FEATURE_POLLS", value = var.feature_polls },
+    { name = "FEATURE_POLLS_ALLOWLIST", value = var.feature_polls_allowlist },
+    { name = "FEATURE_POLLS_PERCENT", value = tostring(var.feature_polls_percent) },
+    { name = "FEATURE_DRAFTS", value = var.feature_drafts },
+    { name = "FEATURE_DRAFTS_ALLOWLIST", value = var.feature_drafts_allowlist },
+    { name = "FEATURE_DRAFTS_PERCENT", value = tostring(var.feature_drafts_percent) },
+    { name = "FEATURE_GIF", value = var.feature_gif },
+    { name = "FEATURE_GIF_ALLOWLIST", value = var.feature_gif_allowlist },
+    { name = "FEATURE_GIF_PERCENT", value = tostring(var.feature_gif_percent) },
     { name = "QUOTA_REPORTS_PER_DAY", value = "20" },
     { name = "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", value = "5" },
   ]

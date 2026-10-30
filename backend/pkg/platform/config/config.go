@@ -89,6 +89,9 @@ type Config struct {
 	// Search holds the cache sizes and trend-refresh values of search and trends (ADR-0028 D9). The search buckets and the
 	// shared daily cap live in RateLimit.
 	Search SearchConfig
+	// Composer holds the poll and GIF limits of the composer extras (ADR-0029). The VotePoll bucket and the poll_votes_daily
+	// cap live in RateLimit.
+	Composer ComposerConfig
 	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts (ADR-0025 D2, D3).
 	Privacy PrivacyConfig
 
@@ -223,6 +226,17 @@ type Config struct {
 	// (which honours only a globally-off flag). FEATURE_TRENDS[_ALLOWLIST|_PERCENT], default off in every environment;
 	// it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrends flags.Spec
+	// FeaturePolls is the ADR-0029 D12 flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
+	// FEATURE_DISABLED feature=polls, 0 reads). VotePoll needs engagement on for the caller and polls NOT globally off.
+	// It never ramps ahead of FEATURE_ENGAGEMENT and leaves off only once 100% of traffic is on a revision that stores
+	// and enforces polls (ADR-0021 L-1). FEATURE_POLLS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeaturePolls flags.Spec
+	// FeatureDrafts is the ADR-0029 D12 client-only flag (wire name `drafts`, like ui_shell): no RPC guard; it is registered
+	// so GetMe.enabled_features reports it. FEATURE_DRAFTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDrafts flags.Spec
+	// FeatureGif is the ADR-0029 D12 flag (wire name `gif`) gating CreateUpload with image/gif (0 reads) and CreatePost
+	// with a GIF media doc. It never ramps ahead of FEATURE_MEDIA. FEATURE_GIF[_ALLOWLIST|_PERCENT], default off.
+	FeatureGif flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -481,6 +495,8 @@ func Load() (Config, error) {
 		// ADR-0024 D10: ListSuggestedUsers 10/min, ListLikedPosts 10/min, GetProfileRelationship 60/min (all per instance).
 		// ADR-0028 D9: SearchPeople 30/min and SearchPosts 20/min (per instance, 90 and 60 with 3). GetTrends uses the default bucket.
 		{"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", 30, &rl.SearchPeoplePerUserPerMinute},
+		// ADR-0029 D6: VotePoll 30/min per instance (90 with 3).
+		{"RATE_LIMIT_POLL_VOTE_PER_MIN", 30, &rl.PollVotePerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
@@ -582,6 +598,29 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
 	}
 	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
+	// ADR-0029 D6 (option D): the VotePoll daily cap (limit_name "poll_votes_daily"), POLL_VOTES_PER_DAY, and the lower value
+	// for accounts inside the new-account window, POLL_VOTES_PER_DAY_NEW_ACCOUNT; see RateLimitConfig.PollVotesPerDay. Both
+	// must be > 0 and the new-account value must not exceed the general one.
+	for _, f := range []struct {
+		dst *int64
+		key string
+		def int
+	}{
+		{&rl.PollVotesPerDay, "POLL_VOTES_PER_DAY", 300},
+		{&rl.PollVotesPerDayNewAccount, "POLL_VOTES_PER_DAY_NEW_ACCOUNT", 50},
+	} {
+		v, err := getInt(f.key, f.def)
+		if err != nil {
+			return Config{}, err
+		}
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
+		}
+		*f.dst = int64(v)
+	}
+	if rl.PollVotesPerDayNewAccount > rl.PollVotesPerDay {
+		return Config{}, fmt.Errorf("config: POLL_VOTES_PER_DAY_NEW_ACCOUNT (%d) must not exceed POLL_VOTES_PER_DAY (%d)", rl.PollVotesPerDayNewAccount, rl.PollVotesPerDay)
+	}
 	// ADR-0028 D9: ONE daily call cap shared by SearchPeople and SearchPosts (limit_name "search_daily"); see
 	// RateLimitConfig.SearchCallsPerDay for the default's math. A cap of 0 would lock every user out of search.
 	searchCallsPerDay, err := getInt("SEARCH_CALLS_PER_DAY", 300)
@@ -815,6 +854,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	composer, err := loadComposer()
+	if err != nil {
+		return Config{}, err
+	}
 	suggestions, err := loadSuggestions()
 	if err != nil {
 		return Config{}, err
@@ -985,6 +1028,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePolls, err := flags.LoadSpec("POLLS", "polls", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureDrafts, err := flags.LoadSpec("DRAFTS", "drafts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureGif, err := flags.LoadSpec("GIF", "gif", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1053,6 +1108,7 @@ func Load() (Config, error) {
 		Messaging:                 messaging,
 		Lists:                     lists,
 		Search:                    search,
+		Composer:                  composer,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -1084,6 +1140,9 @@ func Load() (Config, error) {
 		FeaturePrivateAccounts:    featurePrivateAccounts,
 		FeatureSearch:             featureSearch,
 		FeatureTrends:             featureTrends,
+		FeaturePolls:              featurePolls,
+		FeatureDrafts:             featureDrafts,
+		FeatureGif:                featureGif,
 		FeatureUIShell:            featureUIShell,
 		FeatureShells:             featureShells,
 		FeatureRemovedIDs:         featureRemovedIDs,

@@ -62,6 +62,7 @@ class MessageBubble extends StatelessWidget {
     required this.lastOfGroup,
     required this.onOpenLink,
     this.use24Hour = false,
+    this.linksEnabled = true,
     this.onReport,
   });
 
@@ -76,6 +77,11 @@ class MessageBubble extends StatelessWidget {
   final bool lastOfGroup;
   final void Function(Uri uri) onOpenLink;
   final bool use24Hour;
+
+  /// False in a REQUEST thread for a stranger's message (W7-35, L-9): its links
+  /// are shown as plain text, with no tap and no "Open link" action, until the
+  /// request is accepted. The raw text is never hidden.
+  final bool linksEnabled;
 
   /// Opens the "Report message" menu at [anchor] (null = not reportable).
   final void Function(Rect anchor)? onReport;
@@ -116,7 +122,7 @@ class MessageBubble extends StatelessWidget {
       bottomStart: own || !lastOfGroup ? radius : tail,
       bottomEnd: !own || !lastOfGroup ? radius : tail,
     );
-    final links = tombstone
+    final links = tombstone || !linksEnabled
         ? const <PostSpan>[]
         : [
             for (final s in parsePostText(text, const []))
@@ -147,6 +153,7 @@ class MessageBubble extends StatelessWidget {
                 text: text,
                 style: theme.textTheme.bodyLarge?.copyWith(color: foreground),
                 linkColor: linkColor,
+                linksEnabled: linksEnabled,
                 onOpenLink: onOpenLink,
               ),
       ),
@@ -316,12 +323,16 @@ class MessageText extends StatefulWidget {
     required this.style,
     required this.linkColor,
     required this.onOpenLink,
+    this.linksEnabled = true,
   });
 
   final String text;
   final TextStyle? style;
   final Color linkColor;
   final void Function(Uri uri) onOpenLink;
+
+  /// False = every link renders as plain text (no style, no tap).
+  final bool linksEnabled;
 
   @override
   State<MessageText> createState() => _MessageTextState();
@@ -361,7 +372,9 @@ class _MessageTextState extends State<MessageText> {
     _disposeRecognizers();
     final children = <InlineSpan>[
       for (final span in _spans)
-        if (span.kind == PostSpanKind.link && span.url != null)
+        if (widget.linksEnabled &&
+            span.kind == PostSpanKind.link &&
+            span.url != null)
           TextSpan(
             text: span.text,
             style: TextStyle(

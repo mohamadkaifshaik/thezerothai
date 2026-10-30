@@ -949,3 +949,87 @@ variable "feature_trends_percent" {
     error_message = "feature_trends_percent must be an integer 0-100."
   }
 }
+
+variable "feature_polls" {
+  description = "FEATURE_POLLS rollout mode for polls (ADR-0029 D12; gates creating a poll per caller; voting needs engagement per caller and polls not globally off; never ramps ahead of engagement; leaves off only once 100 percent of traffic is on a revision that stores and enforces polls, ADR-0021 L-1): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_polls)
+    error_message = "feature_polls must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_polls_allowlist" {
+  description = "FEATURE_POLLS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_polls_percent" {
+  description = "FEATURE_POLLS_PERCENT: 0-100, only meaningful when feature_polls = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_polls_percent >= 0 && var.feature_polls_percent <= 100 && floor(var.feature_polls_percent) == var.feature_polls_percent
+    error_message = "feature_polls_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_drafts" {
+  description = "FEATURE_DRAFTS rollout mode for drafts (ADR-0029 D12; client only, no RPC guard, mirrored to clients through GetMe.enabled_features): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_drafts)
+    error_message = "feature_drafts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_drafts_allowlist" {
+  description = "FEATURE_DRAFTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_drafts_percent" {
+  description = "FEATURE_DRAFTS_PERCENT: 0-100, only meaningful when feature_drafts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_drafts_percent >= 0 && var.feature_drafts_percent <= 100 && floor(var.feature_drafts_percent) == var.feature_drafts_percent
+    error_message = "feature_drafts_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_gif" {
+  description = "FEATURE_GIF rollout mode for GIF (ADR-0029 D12; gates CreateUpload with image/gif and CreatePost with a GIF media doc; never ramps ahead of media; leaves off only once 100 percent of traffic is on a revision that enforces it): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_gif)
+    error_message = "feature_gif must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_gif_allowlist" {
+  description = "FEATURE_GIF_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_gif_percent" {
+  description = "FEATURE_GIF_PERCENT: 0-100, only meaningful when feature_gif = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_gif_percent >= 0 && var.feature_gif_percent <= 100 && floor(var.feature_gif_percent) == var.feature_gif_percent
+    error_message = "feature_gif_percent must be an integer 0-100."
+  }
+}

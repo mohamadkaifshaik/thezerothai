@@ -73,6 +73,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// reposts by quota.Posts, and every read by the ADR-0010 D5 read budget.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
+	// ADR-0029 D6: VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
+	// DailyCap (POLL_VOTES_PER_DAY, 300). Both run in the interceptor, so a refused vote is also counted. The cap is in memory
+	// (option D): the natural key admits one vote per account per poll, so the writes are bounded by 3 x the open polls the
+	// account can see whatever the cap does after a restart. POLL_VOTES_PER_DAY_NEW_ACCOUNT is applied by the service (W6-7).
+	rlPollVote := ratelimit.NewLimiter(cfg.RateLimit.PollVotePerUserPerMinute, idleBucketTTL)
+	pollVotesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.PollVotesPerDay)
+
 	// ADR-0023 D4: AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
 	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded per day by quota.Bookmarks (200, 50 for new
 	// accounts) and the cap, every call by the ADR-0010 D5 read budget. DEGRADED_MODE=readonly rejects Add and Remove through
@@ -153,6 +160,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceRepostPostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceUndoRepostProcedure:          rlEngagement,
+			engagementv1connect.EngagementServiceVotePollProcedure:            rlPollVote,
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:         rlBookmarks,
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:      rlBookmarks,
 			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
@@ -203,6 +211,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceUnblockProcedure:  {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceMuteProcedure:     {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
+
+			engagementv1connect.EngagementServiceVotePollProcedure: {Name: "poll_votes_daily", Cap: pollVotesDailyCap},
 
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:    {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
