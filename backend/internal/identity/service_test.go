@@ -3,6 +3,8 @@ package identity
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +35,9 @@ type fakeRepo struct {
 	resolveManyCalls int
 	resolveManyArgs  [][]string
 	resolveManyErr   error
+
+	searchCalls int
+	searchArgs  []searchArg
 }
 
 func newFakeRepo() *fakeRepo {
@@ -924,4 +929,28 @@ func TestProfileNotFoundError_IsTheGetProfileError(t *testing.T) {
 	if !errors.As(ProfileNotFoundError(), &a) || !errors.As(notFoundErr(), &b) || a.Code != b.Code || a.Reason != b.Reason || a.Message != b.Message {
 		t.Fatalf("ProfileNotFoundError = %#v, want %#v", a, b)
 	}
+}
+
+// SearchHandles mirrors FirestoreRepo: users whose handleLower has the prefix, in handleLower order, at most limit;
+// reads = len(result), minimum 1.
+func (f *fakeRepo) SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error) {
+	f.searchCalls++
+	f.searchArgs = append(f.searchArgs, searchArg{prefix, limit})
+	var all []Profile
+	for _, p := range f.profiles {
+		if strings.HasPrefix(p.HandleLower, prefix) {
+			all = append(all, p)
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].HandleLower < all[j].HandleLower })
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	budget.FromContext(ctx).AddReads(int64(max(len(all), 1)))
+	return all, nil
+}
+
+type searchArg struct {
+	prefix string
+	limit  int
 }

@@ -158,6 +158,8 @@ type Repo interface {
 	// ResolveHandles batch-reads handles/{h} for every handle in handleLowers via one GetAll (<=
 	// MaxResolveHandles). Reads: len(handleLowers). Handles with no document are absent from the result.
 	ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error)
+	// SearchHandles runs the handleLower prefix range query (limit already clamped 1..20). Reads: len(result), min 1.
+	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	// CreateProfile runs the signup transaction (ADR-0003): read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
 	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
@@ -233,6 +235,12 @@ type Directory interface {
 	// (<= 10, typically 0-4). Handles that are unknown, reserved or malformed are absent from the map and cost
 	// nothing; the caller leaves them as plain text. It does not check account status.
 	ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error)
+	// SearchHandles lists users whose handleLower starts with prefix (lower-cased by the service), in handleLower
+	// order so an exact match comes first, raw profiles including status (SUSPENDED and DELETING included;
+	// filtering is the caller's job, as with posts.Reader). limit is clamped to 1..20. Firestore: reads =
+	// len(result), minimum 1, so at most 20; writes 0; an empty prefix returns nothing with 0 reads. Not cached
+	// here (ADR-0028 D11); the search module caches by (prefix, limit) for 60 s.
+	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	Forget(uids ...string)
 	// ForgetUnread evicts only uid's cached unread count, leaving the profile cached (for a caller that just
 	// wrote a notification row: the profile is unchanged, the badge is not).

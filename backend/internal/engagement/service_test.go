@@ -985,3 +985,8 @@ func TestUndoNeverConsultsAudience(t *testing.T) {
 		t.Fatalf("undo called Viewable %d times", e.posts.viewCalls-before)
 	}
 }
+
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (fakeDir) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}
