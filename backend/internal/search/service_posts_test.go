@@ -346,7 +346,7 @@ func TestLatest_PageSizeEdges(t *testing.T) {
 		{"a full entry of exactly 30 and page 30: token", 30, 30, 30, true, []int{30}},
 		{"entry longer than the page: token", 40, 10, 10, true, []int{30}},
 		{"page 50 skips the entry", 60, 50, 50, true, []int{50}},
-		{"page 31 skips the entry", 60, 31, 31, true, []int{31}},
+		{"page 31 skips the entry: a fixed 50-row window", 60, 31, 31, true, []int{50}},
 		{"page above 50 is clamped", 60, 500, 50, true, []int{50}},
 		{"empty tag", 0, 20, 0, false, []int{30}},
 	}
@@ -405,7 +405,8 @@ func TestPageToken_Rejections(t *testing.T) {
 	}
 }
 
-// Given a page whose rows are all by a blocked author, then they are dropped and the token still advances.
+// Given the newest 20 rows are by a blocked author, then page 1 filters the whole 30-row entry first, so the 10 visible rows
+// come back (not an empty page), and the token still advances past the entry (W4-27).
 func TestLatest_DroppedPostStillAdvancesToken(t *testing.T) {
 	t.Parallel()
 	all := newestFirst(45, func(n int, p *posts.Post) {
@@ -415,12 +416,12 @@ func TestLatest_DroppedPostStillAdvancesToken(t *testing.T) {
 	})
 	r := newRig(map[string][]*posts.Post{"go": all}, withSnap(func(s *graph.Snapshot) { s.Blocked["bad"] = true }))
 	p1 := doPosts(t, r, "u", "go", latest, 0, "")
-	if len(p1.Posts) != 0 || p1.NextPageToken == "" {
-		t.Fatalf("page 1: %d posts, token %q; want an empty page with a token", len(p1.Posts), p1.NextPageToken)
+	if len(p1.Posts) != 10 || p1.NextPageToken == "" || ids(p1)[0] != idOf(25) || ids(p1)[9] != idOf(16) {
+		t.Fatalf("page 1: %d posts, token %q; want the 10 visible rows 25..16 and a token", len(p1.Posts), p1.NextPageToken)
 	}
 	p2 := doPosts(t, r, "u", "go", latest, 0, p1.NextPageToken)
-	if len(p2.Posts) != 20 || ids(p2)[0] != idOf(25) {
-		t.Fatalf("page 2 = %d posts starting %v", len(p2.Posts), ids(p2)[:1])
+	if len(p2.Posts) != 15 || p2.NextPageToken != "" || ids(p2)[0] != idOf(15) {
+		t.Fatalf("page 2 = %d posts, token %q", len(p2.Posts), p2.NextPageToken)
 	}
 }
 

@@ -82,3 +82,10 @@ Expect 204 and one `trends_refresh` (or `trends_skipped`) line. Locally, with th
 ## 6. Rollback and kill
 - Kill the sweep: `FEATURE_TRENDS=off`, deploy. Kill the RPC for everyone: the same. No data migration.
 - The `trends.items` index exemption is not additive: rolling back to a revision that never wrote `trends` is harmless (the collection is unused), and no query reads `items`.
+
+## 7. SearchPosts LATEST paging (W4-27, security review L-1)
+Not a failure, but it looks like one in a support ticket: a LATEST page can be **short while a token is present** (the window was filtered whole, then cut to `page_size`), and a tag with fewer than 30 posts ends on a **tail token** (`search|<uid>|<tag>|LATEST_TAIL`). Both are by design: the reply must not depend on how many posts the caller cannot see (blocked, muted, protected, taken down). Clients keep following `next_page_token` until it is empty.
+- Windows are fixed tiers, not the page size: page 1 is the 30-post entry (50 rows at `page_size` 31 to 50); an older page is 20 rows at `page_size` <= 20, else 50; a tail page reads the whole rest of the tag (at most 52 reads). The app sends 20, so its cost is unchanged (33 / 23 / <= 32 including the interceptor).
+- Request-line `dropped_*` now count the whole window, not only the returned rows.
+- A tail token on another tag, tab or caller, or a tampered one, is VALIDATION `page_token` with 0 reads (the same answer as any bad token).
+- Accepted residual (ADR-0028 note 2026-10-31 part 3): on a tag of 30 or more posts a short page with a token shows how many rows of that window are hidden; attribution needs a second account.
