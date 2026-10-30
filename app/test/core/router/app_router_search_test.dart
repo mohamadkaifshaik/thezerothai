@@ -14,8 +14,9 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/search/data/recent_searches_store.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
-import 'package:dzeroth/features/search/domain/search_results_tab.dart';
+import 'package:dzeroth/features/search/domain/search_routes.dart';
 import 'package:dzeroth/features/search/presentation/search_results_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
@@ -24,6 +25,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/fake_search_repository.dart';
+import '../../support/search_field_rig.dart' show FakeRecentSearchesStore;
 import '../../support/posts_fixtures.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
@@ -93,6 +95,9 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<SearchRepository>.value(value: search),
+          RepositoryProvider<RecentSearchesStore>.value(
+            value: FakeRecentSearchesStore(),
+          ),
           RepositoryProvider<GraphRepository>.value(
             value: _MockGraphRepository(),
           ),
@@ -116,16 +121,6 @@ void main() {
   }
 
   setUp(() => search = FakeSearchRepository());
-
-  test('searchPath keeps the sigil, percent-encoded, and the tab', () {
-    expect(AppRouter.searchPath('#launch'), '/search?q=%23launch');
-    expect(
-      AppRouter.searchPath('#launch', tab: SearchResultsTab.latest),
-      '/search?q=%23launch&tab=latest',
-    );
-    expect(AppRouter.searchPath('@bob'), '/search?q=%40bob');
-    expect(AppRouter.searchPath('a b&c'), '/search?q=a+b%26c');
-  });
 
   testWidgets('without the search flag the caller is sent Home', (
     tester,
@@ -172,9 +167,7 @@ void main() {
     await openAt(tester, const {'search'}, '/search?q=%23go');
 
     unawaited(
-      appRouter.router.push(
-        AppRouter.searchPath('#other', tab: SearchResultsTab.top),
-      ),
+      appRouter.router.push(searchResultsLocation('#other', tab: 'top')),
     );
     await tester.pumpAndSettle();
 

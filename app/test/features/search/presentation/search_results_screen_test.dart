@@ -7,6 +7,7 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/search/data/recent_searches_store.dart';
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/search_results_screen.dart';
@@ -22,6 +23,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_people_source.dart' show person;
 import '../../../support/fake_search_repository.dart';
+import '../../../support/search_field_rig.dart' show FakeRecentSearchesStore;
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
@@ -74,8 +76,10 @@ void main() {
         ),
         GoRoute(
           path: '/search',
-          builder: (context, state) =>
-              SearchResultsScreen(query: query, initialTab: tab),
+          builder: (context, state) => SearchResultsScreen(
+            query: state.uri.queryParameters['q'] ?? query,
+            initialTab: tab,
+          ),
         ),
         GoRoute(
           path: '/post/:id',
@@ -88,6 +92,9 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<SearchRepository>.value(value: search),
+          RepositoryProvider<RecentSearchesStore>.value(
+            value: FakeRecentSearchesStore(),
+          ),
           RepositoryProvider<GraphRepository>.value(
             value: _MockGraphRepository(),
           ),
@@ -109,7 +116,7 @@ void main() {
         ),
       ),
     );
-    unawaited(router.push('/search'));
+    unawaited(router.push('/search?q=${Uri.encodeQueryComponent(query)}'));
     if (settle) {
       await tester.pumpAndSettle();
     } else {
@@ -490,7 +497,11 @@ void main() {
         expect(find.text('User 1'), findsOneWidget);
 
         await tapTab(tester, 'Top');
-        expect(search.calls, ['people:123'], reason: 'no posts call');
+        expect(
+          search.calls.where((c) => c.startsWith('posts:')),
+          isEmpty,
+          reason: 'no posts call',
+        );
         expect(find.text(kSearchPostsHintTitle), findsOneWidget);
       },
     );
@@ -556,11 +567,29 @@ void main() {
       textScales: kMatrixTextScalesLarge,
     );
 
-    testWidgets('the query pill is one labelled node', (tester) async {
+    testWidgets('the header field shows the query and is editable', (
+      tester,
+    ) async {
       search.postsResult = page([1]);
       await open(tester);
-
-      expect(find.bySemanticsLabel('Search query: #go'), findsOneWidget);
+      expect(find.widgetWithText(TextField, '#go'), findsOneWidget);
+    });
+    testWidgets('a new search replaces the page: one Back leaves the results', (
+      tester,
+    ) async {
+      search.postsResult = page([1]);
+      await open(tester);
+      await tester.enterText(find.byType(TextField), '#other');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(search.calls, [
+        'posts:#go:SEARCH_TAB_TOP',
+        'posts:#other:SEARCH_TAB_TOP',
+      ]);
+      expect(find.widgetWithText(TextField, '#other'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(find.text('came from'), findsOneWidget);
     });
   });
 }

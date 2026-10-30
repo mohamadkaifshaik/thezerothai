@@ -23,8 +23,10 @@ import '../../graph/presentation/widgets/user_list_row.dart';
 import '../data/search_repository.dart';
 import '../domain/search_query.dart';
 import '../domain/search_results_tab.dart';
+import '../domain/search_routes.dart';
 import 'bloc/search_results_cubit.dart';
 import 'bloc/search_results_state.dart';
+import 'widgets/app_search_field.dart';
 
 /// Copy of the results screen (our own wording).
 const kSearchPostsHintTitle = 'Search posts by #hashtag';
@@ -118,7 +120,14 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
               AppBackHeader(
                 title: 'Search',
                 onBack: _back,
-                titleContent: _QueryPill(query: widget.query),
+                // Editable in place; a new search replaces this page, so the
+                // stack never grows with every edit.
+                titleContent: AppSearchField(
+                  key: ValueKey(widget.query),
+                  initialText: widget.query,
+                  onSubmitted: (context, canonical) =>
+                      context.pushReplacement(searchResultsLocation(canonical)),
+                ),
               ),
               AppTabBar(
                 semanticLabel: 'Search results',
@@ -149,51 +158,6 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The query as a read-only pill in the header, one line.
-class _QueryPill extends StatelessWidget {
-  const _QueryPill({required this.query});
-
-  final String query;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      label: 'Search query: $query',
-      excludeSemantics: true,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: AppSpacing.xl),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.search,
-              size: AppIconSize.md,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                query,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge,
-              ),
-            ),
-          ],
         ),
       ),
     );

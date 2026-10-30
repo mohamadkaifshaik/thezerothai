@@ -22,6 +22,7 @@ import '../../features/profile/presentation/pin_error_messages.dart';
 import '../../features/profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/domain/search_query.dart';
+import '../../features/search/domain/search_routes.dart';
 import '../../features/search/domain/search_results_tab.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -641,9 +642,9 @@ void _openHashtag(BuildContext context, String tag) {
     // The canonical form (NFC, lower case), so the URL, the header and the
     // empty state agree; Top is named, as the plan says.
     context.push(
-      AppRouter.searchPath(
+      searchResultsLocation(
         SearchQuery.parse('#$tag').canonical,
-        tab: SearchResultsTab.top,
+        tab: SearchResultsTab.top.queryValue,
       ),
     );
   } else {

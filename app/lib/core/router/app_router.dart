@@ -119,7 +119,8 @@ class AppRouter {
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
-  // W4-15: the search results, behind the `search` flag (see `searchPath`).
+  // W4-15: the search results, behind the `search` flag; build links with
+  // `searchResultsLocation` (domain/search_routes.dart).
   static const searchRoute = '/search';
   // W3-34: the Follow requests list of a protected account, a ShellRoute child.
   // Needs `graph`, and `private_accounts` or a protected caller (the undo rule).
@@ -148,13 +149,6 @@ class AppRouter {
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
 
-  /// The search results (W4-15): `/search?q=<query>[&tab=<tab>]`. The query
-  /// keeps its sigil (`#launch`, `@bob`), percent-encoded by [Uri]. Needs
-  /// `search`; redirects Home without it.
-  static String searchPath(String query, {SearchResultsTab? tab}) => Uri(
-    path: searchRoute,
-    queryParameters: {'q': query, if (tab != null) 'tab': tab.queryValue},
-  ).toString();
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
