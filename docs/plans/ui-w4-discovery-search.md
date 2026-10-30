@@ -253,7 +253,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
-| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |
+| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups W4-25 to W4-28 proposed) |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Open |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged | serialise dev applies with W3's | Open |
 
@@ -721,7 +721,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Open
+### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Done (`docs/reviews/security-w4-search.md`, SECURITY: CLEAR; M-1, M-2, L-1, L-4 proposed as W4-25 to W4-28, gated before prod percent)
 - **Description.** A threat model for the new public reads:
   - handle enumeration (cap 20, no pagination, 2-character minimum, 30/min × 3 instances, `search_daily` 300 × 3, read budget);
   - hashtag scraping (sealed cursors, page ≤ 50);
