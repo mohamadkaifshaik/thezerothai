@@ -3,6 +3,7 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
@@ -157,6 +158,11 @@ void main() {
         ),
         RepositoryProvider<AuthRepository>.value(value: MockAuthRepository()),
         RepositoryProvider<PushOptInStore>.value(value: FakePushOptInStore()),
+        RepositoryProvider<DraftsRepository>.value(
+          value: DraftsRepository(
+            AppDatabase.forTesting(NativeDatabase.memory()),
+          ),
+        ),
         RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
       ],
     );
@@ -240,6 +246,7 @@ void main() {
         ),
         RepositoryProvider<AuthRepository>.value(value: MockAuthRepository()),
         RepositoryProvider<AppDatabase>.value(value: db),
+        RepositoryProvider<DraftsRepository>.value(value: DraftsRepository(db)),
         RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
       ],
     );

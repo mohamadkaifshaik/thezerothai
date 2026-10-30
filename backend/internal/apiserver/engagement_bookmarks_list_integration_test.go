@@ -27,6 +27,7 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 )
 
 const rpcListBookmarks = "/dzeroth.engagement.v1.EngagementService/ListBookmarks"
@@ -207,7 +208,7 @@ func TestListBookmarksChain_ForeignAndTamperedTokens(t *testing.T) {
 	if _, err := r.list(b, 0, ""); err != nil { // warms b's account-status read
 		t.Fatal(err)
 	}
-	tampered := pa.GetNextPageToken()[:len(pa.GetNextPageToken())-3] + "AAA"
+	tampered := cursortest.Tamper(pa.GetNextPageToken())
 	for name, token := range map[string]string{"another user's token": pa.GetNextPageToken(), "tampered": tampered, "garbage": "not-a-token"} {
 		_, err := r.list(b, 0, token)
 		d := wireError(t, err, connect.CodeInvalidArgument)

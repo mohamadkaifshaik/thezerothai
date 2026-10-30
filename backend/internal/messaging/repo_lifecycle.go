@@ -128,7 +128,7 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 				b.Update(r.convRef(convID), []firestore.Update{{Path: "gone", Value: firestore.ArrayUnion(uid)}, {Path: "updatedAt", Value: wireTime(r.now())}})
 			}
 			if peerRef != nil {
-				ups := []firestore.Update{{Path: "peer", Value: PeerDoc{DisplayName: DeletedAccountName}.fields()}, {Path: "peerId", Value: DeletedUID}, {Path: "changedAt", Value: wireTime(r.now())}} // changedAt: the peer's next inbox since refresh returns the rewritten entry
+				ups := []firestore.Update{{Path: "peer", Value: PeerDoc{DisplayName: DeletedAccountName}.fields()}, {Path: "peerId", Value: DeletedUID}, {Path: "changedAt", Value: wireTime(r.now())}, {Path: "requestPending", Value: firestore.Delete}} // requestPending (W7-25): a request whose recipient is gone is read-only, never "waiting" (+0). changedAt: the peer's next inbox since refresh returns the rewritten entry
 				if !peerEntry.Last.FromSelf {
 					ups = append(ups, firestore.Update{Path: "last.snippet", Value: deletedSnippet}, firestore.Update{Path: "last.state", Value: msgDeletedAccount})
 				}
@@ -299,6 +299,7 @@ type ExportConv struct {
 	CreatedAt time.Time
 	ClearedAt time.Time
 	PeerGone  bool
+	Folder    string // the caller's entry collection (entryFolder), for the frozen peer snapshot of a blocked peer (W7-30)
 }
 
 // ExportMsg is one message of the account export.
@@ -333,7 +334,7 @@ func (r *FirestoreRepo) ExportConversations(ctx context.Context, uid string) ([]
 			peer := peerOf(c.Participants, uid)
 			out = append(out, ExportConv{
 				ID: d.Ref.ID, PeerUID: peer, State: c.State, CreatedAt: c.CreatedAt.UTC(),
-				ClearedAt: c.ClearedAt[uid].UTC(), PeerGone: c.isGone(peer),
+				ClearedAt: c.ClearedAt[uid].UTC(), PeerGone: c.isGone(peer), Folder: entryFolder(c, uid),
 			})
 		}
 		if len(docs) < lifecyclePage {

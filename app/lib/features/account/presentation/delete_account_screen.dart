@@ -14,6 +14,7 @@ import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../auth/presentation/bloc/auth_state.dart';
 import '../../notifications/data/push_opt_in_store.dart';
+import '../../posts/data/drafts_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
@@ -78,6 +79,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   // listener below can fire after the user is already gone).
   late final String? _uid;
   late final PushOptInStore _optInStore;
+  late final DraftsRepository _drafts;
   late final UnexpectedErrorReporter _reportUnexpected;
 
   @override
@@ -85,6 +87,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     super.initState();
     _uid = context.read<AuthBloc>().state.user?.uid;
     _optInStore = context.read<PushOptInStore>();
+    _drafts = context.read<DraftsRepository>();
     _reportUnexpected = context.read<UnexpectedErrorReporter>();
     _cubit = AccountCubit(
       accountRepository: context.read<AccountRepository>(),
@@ -124,6 +127,13 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   Future<void> _forgetAccount() async {
     final uid = _uid;
     if (uid == null) return;
+    // Drafts first and apart from the opt-in record, so one failing never
+    // keeps the other (the unsent text of a deleted account must not stay).
+    try {
+      await _drafts.deleteAll(uid);
+    } catch (error, stack) {
+      _reportUnexpected.call(error, stack);
+    }
     try {
       await _optInStore.forget(uid);
     } catch (error, stack) {
