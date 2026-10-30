@@ -593,7 +593,7 @@ Order:
 - **Seam.** The `identity.StepEraser` / `ExportSection` adapters.
 - **Runs alongside W3/W4/W5:** the pinned order and the guard test are shared, so one PR at a time.
 
-### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR TBD; flag stays off until W6-10 merges)
+### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR #496; flag stays off until W6-10 merges)
 - **Description.**
   - CreateUpload accepts `image/gif` for `MEDIA_PURPOSE_POST` only (AVATAR and BANNER refuse), behind `FEATURE_GIF` (FEATURE_DISABLED `feature=gif`).
   - Items: exactly 1 GIF per CreateUpload and never mixed with other items; full ≤ `MaxFullBytes` (2 MiB); the thumbnail per `thumb_content_type` (JPEG or WebP ≤ 256 KiB).
