@@ -13,14 +13,19 @@ import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cu
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/search/data/search_repository.dart';
+import 'package:dzeroth/features/search/presentation/bloc/trends_cubit.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
 import 'package:dzeroth/features/search/presentation/widgets/search_pill_button.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../support/fake_search_repository.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -63,6 +68,7 @@ void main() {
     bool newShell = true,
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    FakeSearchRepository? search,
   }) async {
     whenListen(
       onboarding,
@@ -102,6 +108,8 @@ void main() {
     addTearDown(messages.close);
     final unread = UnreadBadgeCubit();
     addTearDown(unread.close);
+    final trends = TrendsCubit(repository: search ?? FakeSearchRepository());
+    addTearDown(trends.close);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
@@ -112,6 +120,7 @@ void main() {
           BlocProvider<AuthBloc>.value(value: auth),
           BlocProvider<UnreadBadgeCubit>.value(value: unread),
           BlocProvider<MessagesBadgeCubit>.value(value: messages),
+          BlocProvider<TrendsCubit>.value(value: trends),
           BlocProvider<ThemeModeCubit>(
             create: (_) => ThemeModeCubit(_MemoryThemeStore()),
           ),
@@ -212,7 +221,7 @@ void main() {
   });
 
   testWidgets('the centre pill opens the search page', (tester) async {
-    final router = await pump(tester);
+    await pump(tester);
 
     await tester.tap(find.byType(SearchPillButton));
     await tester.pumpAndSettle();
@@ -246,11 +255,7 @@ void main() {
     });
 
     testWidgets('opens the search page', (tester) async {
-      final router = await pump(
-        tester,
-        location: '/home',
-        size: const Size(1200, 900),
-      );
+      await pump(tester, location: '/home', size: const Size(1200, 900));
       await tester.tap(find.byType(SearchPillButton));
       await tester.pumpAndSettle();
       expect(find.text('search q=null'), findsOneWidget);
@@ -294,5 +299,183 @@ void main() {
       matchesSemantics(label: 'Search', isButton: true, hasTapAction: true),
     );
     handle.dispose();
+  });
+
+  group('trends (W4-17/18)', () {
+    const withTrends = {'posts', 'search', 'trends'};
+
+    Trend trend(int rank, {String? tag, int posts = 120}) =>
+        Trend(tag: tag ?? 'tag$rank', rank: rank, postCount: Int64(posts));
+
+    FakeSearchRepository repo(int n) =>
+        FakeSearchRepository()
+          ..trendsResult = TrendsResult(
+            trends: [for (var i = 1; i <= n; i++) trend(i)],
+            computedAt: DateTime.now().subtract(const Duration(hours: 2)),
+          );
+
+    testWidgets('flag off: no trends section, no call', (tester) async {
+      final search = repo(3);
+      await pump(tester, search: search);
+      expect(find.text('Trending today'), findsNothing);
+      expect(search.calls, isEmpty);
+    });
+
+    testWidgets('Explore shows 10 rows, Show more expands to 30', (
+      tester,
+    ) async {
+      final search = repo(30);
+      await pump(tester, flags: withTrends, search: search);
+      await tester.scrollUntilVisible(
+        find.text('Show more'),
+        400,
+        scrollable: find
+            .descendant(
+              of: find.byType(ExploreScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.text('#tag10'), findsOneWidget);
+      expect(find.text('#tag11', skipOffstage: false), findsNothing);
+      await tester.tap(find.text('Show more'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('#tag30'),
+        400,
+        scrollable: find
+            .descendant(
+              of: find.byType(ExploreScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.text('#tag30'), findsOneWidget);
+    });
+
+    testWidgets('a row shows rank, name and compact count; tap searches', (
+      tester,
+    ) async {
+      final search = FakeSearchRepository()
+        ..trendsResult = TrendsResult(
+          trends: [trend(1, tag: 'launch', posts: 1200)],
+          computedAt: DateTime.now(),
+        );
+      await pump(tester, flags: withTrends, search: search);
+      expect(find.text('1 · Trending'), findsOneWidget);
+      expect(find.text('#launch'), findsOneWidget);
+      expect(find.text('1.2K posts'), findsOneWidget);
+      await tester.tap(find.text('#launch'));
+      await tester.pumpAndSettle();
+      expect(find.text('search q=#launch'), findsOneWidget);
+    });
+
+    testWidgets('empty list: Nothing is trending yet', (tester) async {
+      final search = FakeSearchRepository()
+        ..trendsResult = const TrendsResult();
+      await pump(tester, flags: withTrends, search: search);
+      expect(find.text('Nothing is trending yet'), findsOneWidget);
+    });
+
+    testWidgets('a failed first call shows a message and Retry', (
+      tester,
+    ) async {
+      final search = FakeSearchRepository()
+        ..error = const SearchRateLimitedException();
+      await pump(tester, flags: withTrends, search: search);
+      expect(find.textContaining('a bit too fast'), findsOneWidget);
+      search
+        ..error = null
+        ..trendsResult = TrendsResult(
+          trends: [trend(1)],
+          computedAt: DateTime.now(),
+        );
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('#tag1'), findsOneWidget);
+      expect(search.calls.length, 2);
+    });
+
+    testWidgets('a list over 36 hours old says so', (tester) async {
+      final search = FakeSearchRepository()
+        ..trendsResult = TrendsResult(
+          trends: [trend(1)],
+          computedAt: DateTime.now().subtract(const Duration(hours: 40)),
+        );
+      await pump(tester, flags: withTrends, search: search);
+      expect(find.textContaining('more than a day old'), findsOneWidget);
+    });
+
+    testWidgets('FEATURE_DISABLED hides the section quietly', (tester) async {
+      final search = FakeSearchRepository()
+        ..error = const SearchUnavailableException('trends');
+      await pump(tester, flags: withTrends, search: search);
+      expect(find.text('Nothing is trending yet'), findsNothing);
+      expect(find.textContaining('loaded'), findsNothing);
+    });
+
+    testWidgets('side column card: top 5, Show more goes to Explore', (
+      tester,
+    ) async {
+      final search = repo(8);
+      await pump(
+        tester,
+        location: '/home',
+        size: const Size(1200, 900),
+        flags: withTrends,
+        search: search,
+      );
+      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text('#tag5'), findsOneWidget);
+      expect(find.text('#tag6'), findsNothing);
+      await tester.tap(find.text('Show more'));
+      await tester.pumpAndSettle();
+      expect(find.text('Trending today'), findsOneWidget);
+    });
+
+    testWidgets('card flag off: no card, no call', (tester) async {
+      final search = repo(8);
+      await pump(
+        tester,
+        location: '/home',
+        size: const Size(1200, 900),
+        search: search,
+      );
+      expect(find.text("What's happening"), findsNothing);
+      expect(search.calls, isEmpty);
+    });
+
+    testWidgets('Explore + side column at 1200: exactly one GetTrends', (
+      tester,
+    ) async {
+      final search = repo(8);
+      await pump(
+        tester,
+        size: const Size(1200, 900),
+        flags: withTrends,
+        search: search,
+      );
+      expect(find.text("What's happening"), findsOneWidget);
+      expect(find.text('Trending today'), findsOneWidget);
+      expect(search.calls, ['trends:']);
+    });
+
+    for (final size in const [Size(360, 740), Size(1536, 900)]) {
+      for (final b in Brightness.values) {
+        testWidgets('no overflow at ${size.width.toInt()}dp ${b.name} x2.0', (
+          tester,
+        ) async {
+          await pump(
+            tester,
+            size: size,
+            flags: withTrends,
+            search: repo(30),
+            textScale: 2,
+            brightness: b,
+          );
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
   });
 }

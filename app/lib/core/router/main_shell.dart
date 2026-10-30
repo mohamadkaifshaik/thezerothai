@@ -13,6 +13,7 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/search_navigation.dart';
+import '../../features/search/presentation/widgets/whats_happening_card.dart';
 import '../../features/search/presentation/widgets/search_pill_button.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../shared/widgets/app_side_column.dart';
@@ -268,6 +269,9 @@ class MainShell extends StatelessWidget {
         // `follow_suggestions` all on. The card draws nothing until the shared
         // list has rows, so the column is unchanged otherwise.
         sections: [
+          // "What's happening" (W4-18): the top 5 trends; draws nothing unless
+          // `search` + `trends` are on and the shared list has rows.
+          if (exploreEntry) const WhatsHappeningCard(),
           if (newShell && isFollowSuggestionsEnabled(context))
             const WhoToFollowCard(
               title: 'You might like',

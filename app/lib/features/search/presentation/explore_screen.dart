@@ -4,8 +4,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/app_tab_bar.dart';
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
+import '../domain/search_feature_flags.dart';
 import 'search_navigation.dart';
+import 'widgets/explore_trends_section.dart';
 import 'widgets/search_pill_button.dart';
 
 /// `/explore` (W4-17, ADR-0028, F7): a root destination of the new shell. A
@@ -30,6 +33,8 @@ class ExploreScreen extends StatelessWidget {
               rowHeight: rowHeight,
             ),
           ),
+          if (isFeatureEnabled(context, kFeatureTrends))
+            const ExploreTrendsSection(),
           const SliverToBoxAdapter(
             child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
           ),

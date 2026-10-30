@@ -30,6 +30,7 @@ import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/search/data/search_repository.dart';
+import '../features/search/presentation/bloc/trends_cubit.dart';
 import '../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
@@ -161,6 +162,12 @@ class _AppWidgetState extends State<AppWidget> {
   late final SuggestionsCubit _suggestions = SuggestionsCubit(
     repository: widget.suggestionsRepository,
   );
+  // The session's trends list (W4-17/18, ADR-0028): one app-level cubit, one
+  // GetTrends per 5 minutes for Explore and the side column; null without a
+  // search repository (tests). Sign-out forgets it.
+  late final TrendsCubit? _trends = widget.searchRepository == null
+      ? null
+      : TrendsCubit(repository: widget.searchRepository!);
   // The "Turn on notifications" card's memory (W2-12): one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -207,6 +214,7 @@ class _AppWidgetState extends State<AppWidget> {
         _engagement.reset();
         _bookmarks.reset();
         _suggestions.reset();
+        _trends?.reset();
         widget.likesRepository.clearSession();
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -310,6 +318,7 @@ class _AppWidgetState extends State<AppWidget> {
     _engagement.close();
     _bookmarks.close();
     _suggestions.close();
+    _trends?.close();
     _themeMode.close();
     _pushOptIn.close();
     _messagesBadge.close();
@@ -358,6 +367,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: _engagement),
           BlocProvider.value(value: _bookmarks),
           BlocProvider.value(value: _suggestions),
+          if (_trends case final trends?) BlocProvider.value(value: trends),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: _pushOptIn),
           BlocProvider.value(value: widget.unreadBadgeCubit),
