@@ -1,5 +1,5 @@
 # 0029. Composer extras remainder: polls, drafts on the device, GIFs from the device (W6)
-Status: Proposed
+Status: Accepted (founder, 2026-10-30: F1–F12 as written, including F2 the rule-4 natural-key bend and F11 sampled-frame GIF screening with its residual risk, the API reading the uploaded GIF, and GIFs rejected at the Vision cap)
 Date: 2026-10-30
 Deciders: architect (proposal); founder (accepts by merging the PR). F2 was decided by the founder on 2026-10-27 (plan
 header) and is restated here as a rule-4 bend; the merge confirms it. **F11 needs the founder's explicit acceptance**
