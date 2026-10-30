@@ -207,20 +207,6 @@ func TestSend_RefusalsAreByteIdentical(t *testing.T) {
 	}
 }
 
-type profilesFuncImpl struct {
-	get    func(context.Context, []string) (map[string]identity.Profile, error)
-	forget func(...string)
-}
-
-func (p profilesFuncImpl) GetProfiles(ctx context.Context, u []string) (map[string]identity.Profile, error) {
-	return p.get(ctx, u)
-}
-func (p profilesFuncImpl) Forget(u ...string) { p.forget(u...) }
-
-func profilesFunc(get func(context.Context, []string) (map[string]identity.Profile, error), forget func(...string)) Profiles {
-	return profilesFuncImpl{get, forget}
-}
-
 // Routing facts handed to the transaction: mutual, silent (the recipient muted the caller), and the caller's own mute flag.
 func TestSend_RoutingFlagsReachTheTransaction(t *testing.T) {
 	tests := []struct {
