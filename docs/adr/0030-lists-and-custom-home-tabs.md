@@ -30,7 +30,7 @@ following everyone in it, and custom Home tabs let them pin those feeds next to 
 means: pull-on-read with a `since` cursor (rule 2), no write fan-out, instance and client caches, opaque cursors and a
 `Limit` on every query (rule 5), idempotency on every mutation (rule 4), no fixed cost.
 
-**Cost baseline (ADR-0029, on `docs/reviews/cost-model.md`'s 2026-10-29 block plus W4 and W6):** 358.65 reads, 40.58
+**Cost baseline (ADR-0029, on `docs/reviews/cost-model.md` §5 and §7, 2026-10-29 block plus W4 and W6):** 358.65 reads, 40.58
 writes, 8.82 deletes per DAU per day; 1,759 Cloud Run requests and 176.2 vCPU-s per DAU-month. Free reads run out at
 about **139 DAU**, writes at about 493, deletes at about 2,268, requests at about 1,137 and vCPU-s at about 1,021 DAU.
 The Stage 0 bill is about **INR 547 / 1,811 / 4,822** a month at 300 / 1,000 / 3,000 DAU.
@@ -56,7 +56,8 @@ The Stage 0 bill is about **INR 547 / 1,811 / 4,822** a month at 300 / 1,000 / 3
    (W5-3 adds them with their `Record` cases, ADR-0021 I-3).
 
 ## Founder decisions (Part A)
-INR are per month, the Part A increment over ADR-0029's baseline, at 300 / 1,000 / 3,000 DAU (Cost impact). "Default"
+INR are per month, the Part A increment over ADR-0029's baseline (`cost-model.md` §5 totals, §7 prices), at 300 / 1,000 / 3,000
+DAU (Cost impact). "Default"
 = applied by this ADR; **decided by default; the founder may override at acceptance.**
 
 | # | Question | Options | Decision | INR 300 / 1,000 / 3,000 |
@@ -108,9 +109,12 @@ Other modules read lists only through **`lists.Reader`**:
   the owner), plus the owner id and the header; per-viewer drops are the caller's job, as on Home.
 - `OwnedBy(ctx, uid)`: the caller's own lists (for SetHomeTabs titles).
 
-`lists` depends on `identity` (`Directory`, the `HomeTabsStore` adapter for DeleteList), `graph` (`Reader.Snapshot`)
-and the platform packages; `timeline` gains a dependency on `lists.Reader`. No cycle: `lists` never imports `timeline`
-or `posts`.
+`lists` depends on `identity` (`Directory`), `graph` (`Reader.Snapshot`) and the platform packages, and declares its
+own consumer-side **`lists.Pins`** (`Unpin(ctx, uid, listID)`, `Retitle(ctx, uid, listID, name)`) for DeleteList and a
+pinned rename. `timeline` gains a dependency on `lists.Reader`. No cycle: `lists` never imports `timeline` or `posts`;
+one identity adapter over `users/{uid}.homeTabs` satisfies both `lists.Pins` and `timeline.HomeTabsStore` (D6), and
+`apiserver` wires it into both modules. Both interfaces use only identity's own tab type (`identity.HomeTab`) or
+built-in types in their signatures, never a `timeline` or `lists` type, so identity imports neither.
 
 **D2. Data model: `lists/{listId}`** (Snowflake id, rule 1):
 | Field | Type | Notes |
@@ -133,7 +137,7 @@ or `posts`.
   bucket (30/min per instance, 1.5/s at 3 instances) is the only way to exceed 1 write/s on it. Contention signal:
   `ABORTED` or `txn_attempts > 3` on a list transaction (`list_txn_attempts` on the request line). Fallback: lower
   `RATE_LIMIT_LISTS_WRITE_PER_MIN`; there is no counter to shard.
-- **`users/{uid}.homeTabs`** (identity owns the doc; written only through `timeline.HomeTabsStore`): an array of at
+- **`users/{uid}.homeTabs`** (identity owns the doc; written only through identity's adapter behind `timeline.HomeTabsStore` and `lists.Pins`): an array of at
   most 5 maps `{kind, id, title}`. `title` is stored only for the caller's own lists (D6). Absent = no pins. No
   backfill. It is not in `AuthorSnapshot`, so no snapshot job.
 - **`quotas/{uid}`** gains `listCreates` and `listAdds` (daily, with their `Record` `valueFor`/`increment` cases in the
@@ -190,7 +194,7 @@ it ships).
   list is always accepted. Stored tabs of a kind whose flag is off for the caller are kept after the sent ones and
   count toward the cap.
 - **Storage:** one transaction in identity behind **`timeline.HomeTabsStore`** (`Replace(ctx, uid, key, requestHash,
-  next func(current []HomeTab) ([]HomeTab, error)) ([]HomeTab, error)`): reads the idempotency doc and `users/{uid}`
+  next func(current []identity.HomeTab) ([]identity.HomeTab, error)) ([]identity.HomeTab, error)`): reads the idempotency doc and `users/{uid}`
   fresh, writes `homeTabs` field-level (no other field) and the idempotency doc. List validation runs before the
   transaction (cache-first reads), never inside it. The writing instance's profile cache is updated in place.
 - **GetMe `home_tabs`** comes from the doc GetMe already reads: **+0 reads**. Tabs of a kind whose flag is off for the
@@ -201,8 +205,9 @@ it ships).
   user's list. So no other user's text is ever copied onto `users/{uid}`, and erasing a list owner leaves only an
   opaque list id in other users' tabs, which their next GetListTimeline answers NOT_FOUND. The client labels a tab from
   the newest `ListInfo` header it holds and calls GetList once for a tab it has no label for (a new device).
-- DeleteList removes the caller's own pin of that list in the same call (+1 read, +1 write, only when pinned). Other
-  users' pins dangle as above.
+- DeleteList removes the caller's own pin of that list in the same call (+1 read, +1 write, only when pinned), and the
+  owner's rename of a pinned list refreshes its title, both through `lists.Pins` (D1), never by importing timeline.
+  Other users' pins dangle as above.
 
 **D7. Idempotency (rule 4, Option D a).** All six mutations (CreateList, UpdateList, DeleteList, AddListMember,
 RemoveListMember, SetHomeTabs) take `idempotency_key` and store the standard `idempotency/{sha256(uid|rpc|key)}`
@@ -362,7 +367,7 @@ priced at the margin, so a quota the product already exhausts bills Part A in fu
   a Logs Explorer query for `timeline_op=list`.
 - **FU-5 (optional, founder-gated, not required):** a fieldOverride exempting `users.homeTabs` from single-field
   indexing (an array of ≤ 5 maps; nothing queries it). Only worth bundling with another `users` override.
-- **FU-6 `docs/code-map.md`:** `lists.Service`, `lists.Reader`, `timeline.HomeTabsStore`, `listFeed` (with the PRs
+- **FU-6 `docs/code-map.md`:** `lists.Service`, `lists.Reader`, `lists.Pins`, `timeline.HomeTabsStore`, `listFeed` (with the PRs
   that add them).
 
 ## Consequences
@@ -392,7 +397,8 @@ a list a practical harassment or scraping tool; or the founder answers an F diff
   - W5-8: D5 in `service_list.go`, `listFeed` in `tokens.go`; reuse `homeSources`, `Merge`, `removedIDs`,
     `newAudienceFilter` unchanged. W5-9: D6 `SetHomeTabs`, `timeline.HomeTabsStore` in a new identity file, GetMe
     `home_tabs`, UpdateList title refresh, the export profile field.
-  - Seams: `lists.Service`, `lists.Reader`, `timeline.HomeTabsStore`; timeline names only posts, graph, identity and
+  - Seams: `lists.Service`, `lists.Reader`, `lists.Pins`, `timeline.HomeTabsStore` (one identity adapter implements
+    both); lists never imports timeline; timeline names only posts, graph, identity and
     lists seams.
 - **frontend-developer:** W5-10 to W5-14. Send `is_private` explicitly from the create sheet (Private on by default).
   Label tabs from the newest `ListInfo` you hold; call GetList once for a tab with an empty title and no cached
