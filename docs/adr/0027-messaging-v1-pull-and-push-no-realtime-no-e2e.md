@@ -590,3 +590,144 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 - The Cost impact table row "ListConversations `since` | 3 | 2" above is superseded by 4 / 3. The budget holds at 300, 1,000 and 3,000 DAU.
 
 **Stage ladder.** The count stays a field of the list response behind `messaging.Service.ListConversations` and `MessagingRepository.refreshConversations`. A Stage 1 owner-only listener (D16) can later feed the same client value without changing a screen. Plan ticket W7-37 (W7-37a backend, W7-37b client) blocks prod messaging.
+
+## Implementation note (W7-25), 2026-10-30: the requester's Inbox row carries REQUEST
+
+**Problem (from the PR #442 review).** `ListConversations` maps every `dmInbox` entry to ACCEPTED. `conversationOf` takes the state from the folder because the entry has no state, and reading the conversation for every row would break the budget. A sender's pending request lives in the sender's own `dmInbox`, so their Inbox row reads ACCEPTED. Only the `ListMessages` header (first or older page) says REQUEST. The W7-18 waiting note ("Waiting for them to accept…") therefore disappears when the sender reopens the thread from the cache, and stays after the peer accepts, because a `since` poll carries no header.
+
+**Options.**
+- **(a) Chosen (default; founder may override): a `requestPending` flag on the requester's own `dmInbox` entry.** Send carries it in the entry writes it already makes, and Accept clears it. Cost: +1 read and +1 write per Accept. Accept is about 0.05 calls per DAU per day or fewer.
+- (b) Read `conversations/{id}` for every INBOX row in `ListConversations`. That is up to +20 reads on a first page and +1 per row on a refresh, about +4 reads per DAU per day (≈ INR 12 a month at 3,000 DAU), for one bit. Rejected.
+- (c) Keep the header as the only source and have the client remember the state. The client cannot see an Accept made on the peer's side without a header. Rejected.
+- (d) A `state` field on every entry, both sides. It means nothing on the recipient's side, where the folder already says REQUEST, and it adds a field every writer must keep right. Rejected for (a)'s single-purpose flag.
+
+**Decision (additive; D1, D4 and D5 wording unchanged).**
+1. **Field.** `users/{uid}/dmInbox/{convId}.requestPending` (bool). It is true only on the requester's own entry while the conversation is `REQUEST`, and absent otherwise (absent = false). It is never set on `dmRequests`. It stays on the automatic single-field index: no query uses it, so no exemption and no gate-file change. It is not exported (the export already carries the conversation state).
+2. **Writers.**
+   - **SendMessage, +0 reads, +0 writes.** The sender's entry write sets `requestPending: true` when the conversation is `REQUEST` after this send (the requester's first to third message). Otherwise it sets `firestore.Delete` in the same `MergeAll` map. The recipient's entry write always sets `firestore.Delete`. So the reply that accepts a request clears the requester's flag in the write it already makes.
+   - **AcceptMessageRequest, +1 read and +1 write.** Inside its transaction, after the request entry read and before any write, it reads the requester's `dmInbox/{convId}`. If the entry exists, one field-level `Update` deletes `requestPending` and sets `changedAt` to the accept stamp, so the requester's next INBOX `since` refresh returns the row. If the entry is missing (the requester deleted it for themselves), Accept writes nothing for it and never creates it. A blind `Update` would fail the whole transaction, and a `Set(MergeAll)` would create a ghost entry the `changedAt` query returns.
+   - **The eraser's `MarkGone` peer-entry rewrite** deletes `requestPending` in the write it already makes (+0). A request whose recipient erased their account is read-only, never "waiting".
+   - **DeleteConversation** is unchanged. A recipient's delete keeps the conversation `REQUEST`, so the requester's row keeps REQUEST and the requester's cap. A requester's delete removes their entry; their next request message recreates it with the flag. Takedown and MarkRead do not touch the flag.
+3. **Read.** `conversationOf` maps an INBOX row with `requestPending` to state `REQUEST`, folder `INBOX`. That is the same pair the `ListMessages` header already returns for the requester. +0 reads. `ListMessages` and `SendMessage` keep the conversation document as their source.
+4. **Contract.** Comments only, in `messaging.proto`: on `Conversation.state` (its source per RPC) and on `AcceptMessageRequest` (the cost line). The exact text is in plan ticket W7-25a. There is no new field and no renumbering (rule 9), and `buf breaking` stays clean. The implementer regenerates.
+5. **Legacy entries.** Entries written before W7-25a have no flag and read ACCEPTED until the requester's next send or the Accept. Only dev holds them (messaging was never on in prod). No backfill.
+
+**Client (W7-25b).**
+- The waiting note follows the row. The thread takes `state` and `folder` from the cached row whenever the repository reports that the conversations changed.
+- A `since` page that brings a peer message in a sent request means the peer replied. Only the recipient's reply can add a peer message, and that reply accepts the request (D4 step 5). So the thread marks the conversation ACCEPTED locally. This follows from a server invariant; it is not a guess.
+- The note also requires `can_reply`.
+
+**D14 addition.** The requester's Inbox row is as fresh as the requester's last INBOX refresh: an Accept and the accepting reply both move `changedAt`. After an accept made on another instance, the `ListMessages` header can read REQUEST for up to 60 s, because it comes from the cached conversation copy. The client converges at the next list refresh or poll.
+
+**Contention.** Accept now also reads the requester's entry, which the requester's own send writes. A concurrent request message and Accept make one transaction retry (`messaging_txn_contention`). The requester is capped at 3 messages, so this is rare.
+
+**Cost impact.** Fixed cost INR 0.
+- AcceptMessageRequest: reads 3 → **4** worst (planning 2.5 → 3.5). Writes 2 → **3**, or 2 when the requester's entry is gone. Deletes stay at 1. A replay and NOT_FOUND are unchanged.
+- SendMessage, ListConversations, ListMessages, the eraser and the export: +0.
+- Per DAU: at most +0.05 reads and +0.05 writes a day. That is under INR 0.1 / 0.3 / 0.6 a month at 300 / 1,000 / 3,000 DAU.
+- The free-writes crossover (about 506 DAU) moves by less than 1 DAU. Storage: one bool on pending senders' entries.
+- The Cost impact row "AcceptMessageRequest | 3 | 2.5 | 2 | 1" is superseded by 4 / 3.5 / 3 / 1.
+
+**Stage ladder.** The flag is a per-user entry field, like `unreadCount`. A group fan-out or an owner-only `dmInbox` listener (D16) carries it unchanged, and no caller changes. Plan ticket W7-25 (W7-25a backend, W7-25b client) blocks prod messaging.
+
+## Implementation note (W7-26), 2026-10-30: the client honours F6(a) (read-only Messages for a caller outside the rollout)
+
+**Problem (from the PR #442 review).** F6(a) and D6 say that list, read, mark-read, delete and report need messaging to be only "not globally off", so a user dropped from an allowlist can still clean up and report. The app instead hides all of Messages when `messaging` is missing from `GetMe.enabled_features`: the `/messages` routes redirect Home, and the thread says "Messages aren't available yet". `enabled_features` is per caller, so the client cannot tell "off for me" from "off for everyone".
+
+**Options.**
+- **(a) Chosen (default; founder may override): client-only.** The existing `MessagingFeatureGate.runRead`, an entry point scoped to the device cache, and one probe at session start. 0 server change.
+- (b) An additive `GetMeResponse` field listing flags that are "not globally off" for the caller (`readable_features`). It costs 0 reads but cannot decide alone. During an allowlist or percent rollout it is true for every user outside the rollout. Showing an entry to all of them would put an empty Messages, with no way to send, in front of 95 % of users at percent 5, and every tap would cost a ListConversations. Deciding "this user has conversations" on the server needs a `count()` per GetMe for the whole user base: about 3 reads per non-enabled DAU, ≈ INR 9 a month at 3,000 DAU at percent 5. Rejected for now; it is the upgrade path if the population grows.
+- (c) A ListConversations probe by every non-enabled user at every session start: +1 request and 2 to 4 reads per session across the whole user base. Rejected.
+
+**Decision (client only; no proto change, no server change).**
+1. **Three modes, decided by the client.**
+   - `full`: `messaging` is in `enabled_features`, as today.
+   - `readOnly`: messaging is not enabled for the caller, the gate's `canRead` holds, and the local cache holds at least one conversation **for this owner**. The owner check is W7-35's L-4 stamp.
+   - `hidden`: everything else, including after any FEATURE_DISABLED on a read, which means globally off.
+2. **The probe.** At session start, after GetMe, and again when `enabled_features` changes, the client makes one INBOX `ListConversations` refresh through `runRead`. It does this only when messaging is not enabled and the owner's cache holds a conversation. Success means `readOnly`, and the cache is refreshed too. FEATURE_DISABLED means `hidden`.
+3. **The read-only UI.**
+   - Routes: `/messages`, `/messages/requests` and `/messages/<id>` open. `/messages/new` and `/messages/new/draft` redirect to `/messages`.
+   - Entry point: a Settings row "Messages", in both chromes. The bar and rail destination stays `full` only, because F10's 5th slot is for people who can send.
+   - The Inbox has no New message action.
+   - The thread has no composer. It shows one line instead ("You can't send messages right now.", our copy).
+   - The request banner shows Delete, Block and Report, without Accept.
+   - Report a message, Delete conversation and mark-read work.
+   - No Messages badge (GetMe computes the count only for enabled callers) and no profile Message button.
+   - No push arrives, because the fan-out needs `messaging` on for the recipient. A push still in the tray opens its thread.
+4. **Global off.** A FEATURE_DISABLED from any read while in `readOnly` switches to `hidden` at once and redirects Home. That is the existing gate behaviour.
+
+**Staleness.** The mode is decided at session start and whenever GetMe's flag set changes. A kill switch reaches a `readOnly` client at its next read call or its next session.
+
+**Security.** Nothing new is disclosed. The client binary already names the flag, and any read call already tells FEATURE_DISABLED apart from data. The entry depends on the device cache, which W7-35 L-4 ties to its owner, so W7-26 merges after W7-35.
+
+**Cost impact.** Fixed cost INR 0, server +0.
+- The probe runs only for users outside the rollout whose device holds one of their conversations: an allowlist removal or a ramp-down.
+- It costs at most 4 reads (an INBOX `since` refresh after W7-37), or 1 when messaging is globally off (the interceptor's, usually cached), once per session start. ≈ INR 0 at any modelled DAU.
+
+**Stage ladder.** `MessagingFeatureGate` stays the one place that decides. Option (b) is the additive upgrade. Its trigger: a prod rollout that keeps a percent step for more than 30 days, or a founder request that every user outside the rollout can reach an inbox.
+
+## Implementation note (W7-33), 2026-10-30: the recipient's graph and status are read inside the send transaction, plus a verified-email gate (security review L-1, L-3, L-8; A8 flipped by the founder 2026-10-29)
+
+**Problem.**
+- **L-1 (A8).** Send reads the recipient's graph from the 60 s cache. A Block made on another instance lets a harasser send for up to 60 s (about 60 messages across 3 instances). Each message moves the badge and may push. A stale `Following` can also make a new conversation "mutual", so it skips Requests, the 3-message cap and the no-push rule. It also lets a send within 60 s of a block refresh the frozen peer snapshot of W7-30 (the 2026-10-29 note, item 4).
+- **L-3.** The purge-race check `FreshRecipient` is a directory read outside the transaction's read set.
+- **L-8.** Send and Accept do not re-check a verified email themselves.
+
+**Options for L-1.**
+- **(a) Chosen.** Read `graph/{recipient}` **inside** the send transaction through a new graph seam, and **drop** the cached recipient snapshot read before the transaction. Worst cold stays 5; warm goes 1 → 2.
+- (b) Keep the cached pre-check and add the read inside the transaction: worst cold 6. The transaction read is the authoritative one, so the extra cold read buys nothing. Rejected.
+- (c) A fresh read before the transaction, outside it. The same +1 read, but it does not serialise with a concurrent Block, so the window shrinks only to the length of the transaction. Kept as the contention fallback (below).
+
+**Decision (additive; D4 steps 3 to 5 now read as below, the D4 text stays as the record).**
+1. **Seam.** `graph.TxReader` in `backend/internal/graph/api.go`: `SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error)`.
+   - It makes 1 read through `tx`, charged to the context's `budget.Counter`, and never touches the 60 s cache (neither reads it nor fills it).
+   - A missing document is an empty `Snapshot`, like `GetSnapshot`.
+   - Error text names no uid.
+   - It is implemented by graph's `FirestoreRepo`, the way identity's `FirestoreRepo` implements `TxProfiles`.
+   - Messaging declares the consumer-side interface (`messaging.TxSocial`) and reuses `identity.TxProfiles`. `apiserver` wires both.
+   - The only collection messaging reads through this seam is `graph`, which graph still owns.
+2. **The send order.**
+   - **Before the transaction (unchanged apart from one removal):**
+     - validation, the flag and the verified-email gate;
+     - the caps;
+     - the caller's graph (cached);
+     - the recipient's profile through the directory (cached; ACTIVE, the flag and the peer snapshot for the entry);
+     - refusals: the caller blocks the recipient; the recipient is not ACTIVE; the recipient has the flag off.
+
+     The cached recipient snapshot read is removed.
+   - **In the transaction, in this order:**
+     1. The conversation; `gone` → refused.
+     2. The recipient's graph through `SnapshotInTx`. `Blocked[caller]` → CANNOT_MESSAGE, `refused_reason=blocked`. Mutual = the caller's cached `Following[recipient]` and the fresh `Following[caller]`. Silent = the fresh `Muted[caller]`.
+     3. `decideSend`, which applies the request cap.
+     4. For a new conversation only: `identity.TxProfiles.ProfileInTx(recipient)`, which **replaces** `FreshRecipient` (+0 reads). A status other than ACTIVE, or NotFound, is CANNOT_MESSAGE with `refused_reason=recipient_inactive`. Then `quotas.dmNew`.
+     5. The writes.
+
+     The block check still comes before every cap, so no cap reveals a block.
+   - **`SendResult` returns `Silent` and `Mutual` as decided in the transaction.** `afterSend` uses them for the push decision, the `silent` log field and the response. It never uses the values computed before the transaction, so a mute made 59 s ago no longer pushes.
+   - The caller's own graph stays cached. Its staleness is self-inflicted (the review's own reasoning).
+3. **L-8.** `authn.RequireVerifiedEmail(ctx, allowAnonymous, "sending messages")` in Send, and `"accepting message requests"` in Accept.
+   - It runs after the flag guard and before validation: 0 reads, FAILED_PRECONDITION `EMAIL_NOT_VERIFIED`.
+   - `allowAnonymous` is `config.AuthEmulator`, passed through `messaging.Deps` as posts does.
+   - It is defence in depth behind `authn.VerifiedIdentityInterceptor`.
+4. **Contract.** Comments only, in `messaging.proto`: the SendMessage A8 sentence and its cost line. The exact text is in plan ticket W7-33. `buf breaking` stays clean, and the implementer regenerates.
+5. **Not done (founder may override): `ProfileInTx` on every send.** It would cost +1 read per send (+1.5 per DAU, ≈ INR 0.5 / 1.5 / 4.6 a month) to close a 60 s window for a recipient suspended mid-conversation. Existing conversations already stop at `gone` for erased users, and a suspension's 60 s lag matches every other directory read.
+
+**D14 change.** On send, the recipient's graph is **fresh** and serialised with Block, which writes `graph/{recipient}`. The caller's graph stays at 60 s. The push fan-out keeps its own cached snapshot for suppression (ADR-0017 D5), but a send refused in the transaction emits nothing.
+
+**Contention signal and fallback.**
+- The send transaction holds a read lock on `graph/{recipient}`. Every writer of that document conflicts with sends in flight to that recipient, and one side retries:
+  - the recipient's own Block, Mute, Follow and Unfollow;
+  - anyone's Block of the recipient, which writes `blockedBy`.
+- Signals: `messaging_txn_contention` (attempts > 1 on `kind=send` lines), retries on the graph mutation lines, and p95 SendMessage > 500 ms.
+- The rate is bounded by the send caps (60 a minute per sender across 3 instances).
+- Latency: `graph/{uid}` can be about 566 KB at every cap, and a recipient with a large document costs that transfer on every send. Watch the SendMessage p95 for such recipients.
+- Fallback when contention or latency is measured: option (c), at the same read cost.
+
+**Cost impact.** Fixed cost INR 0.
+- SendMessage, accepted conversation: reads stay at **5 worst cold** (the recipient's graph moves into the transaction). Warm goes 1 → **2**, planning 2.5 → **3.5**.
+- New conversation: 7 (unchanged; `ProfileInTx` replaces `FreshRecipient`). Refused: at most 5. Replay: +1. Writes unchanged. Accept: +0.
+- Per DAU: +1.5 reads a day (1.5 sends × 1), ≈ INR 0.5 / 1.5 / 4.6 a month at 300 / 1,000 / 3,000 DAU.
+- **This is already counted** in the "41.55 reads per DAU" total of the W7-37 note, so that total is unchanged.
+- The Cost impact row "SendMessage, accepted conversation | 5 | 2.5" now reads 5 / 3.5.
+
+**Stage ladder.** `graph.TxReader` takes a `*firestore.Transaction`, as `identity.TxProfiles` does. That ties the send's block check to graph and messaging living in the same Firestore database. If an ADR moves either of them out of `(default)` (Stage 2: Cloud SQL, or a split service), replace this read with an optimistic version check: a `rev` on `graph/{uid}`, read before the transaction and re-checked at commit. That is the revisit trigger. Plan ticket W7-33 is gated before prod percent or `on`.
