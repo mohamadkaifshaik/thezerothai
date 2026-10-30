@@ -360,7 +360,7 @@ Prices (§7):
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
 | W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | In review (PR #455) |
-| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | In review (PR #458): rollout prepared, founder apply pending |
+| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Done in dev 2026-10-30 (API smoke); owed: in-app UI check, leg 5 Android push, leg 7 tombstone before prod |
 | W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
 | W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
 | W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | In review (PR #459) |
@@ -914,7 +914,7 @@ Order:
 - **Flag.** n/a.
 - **Seam.** —
 
-### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: In review (PR #458): rollout prepared, founder apply pending
+### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: Done in dev 2026-10-30 (API smoke); owed: in-app UI check, leg 5 Android push, leg 7 tombstone before prod
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_messaging*` and the messaging config env vars.
   - The fieldOverrides deploy with the dev deploy workflow after the W7-3 merge; for prod they wait for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `messaging` leaves `off` there.
@@ -929,7 +929,8 @@ Order:
     - account deletion of a throwaway test user (tombstone).
   - Prod: no change (on hold).
   - **Prepared (PR #458, 2026-10-29).** Runbook `docs/runbooks/w7-messaging-dev-rollout.md`; the W7-29 caps `MESSAGES_MARK_READ_PER_DAY` and `MESSAGES_MUTATIONS_PER_DAY` are now explicit config in `envs/dev` and `envs/prod` (prod also gets the other messaging limits, all inert). The `changedAt` query ran clean on dev Firestore (read-only, non-existent parent; the control on an exempt field failed as it should). Not applied. Waits for W7-27 (not merged). Founder decision 2026-10-29: the throwaway-user account-deletion (tombstone) leg is owed, skipped in this dev smoke and run before prod (the W7-20 emulator tests cover the eraser meanwhile); the Android push leg stays in.
-- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state.
+- **Result (2026-10-30, dev).** Applied 2026-10-29 (revision `api-00375-dx9`) and widened to 6 uids per allowlist 2026-10-30 (PR #463; the dev test accounts are in `docs/runbooks/smoke-accounts.md`). API smoke passes legs 1, 3, 4 (server side), 6 and 8, and leg 2 server side. The founder's UI run passed legs 0 and 1 and found defect **W7-37** at leg 2 (the server was right; the Inbox never showed Message requests). Owed: the in-app UI check with the test accounts, leg 5 (Android push and deep link), leg 7 (tombstone, before prod). Measured send to delivery: p95 15.5 s (server side, under the 20 s trigger). Record: `docs/runbooks/w7-messaging-dev-rollout.md` section 10.
+- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state. Not met as written: the dev allowlists are 6 uids since 2026-10-30 (the plan's 3 uids is superseded, see the runbook's section 10.1 note), and the legs above are open.
 - **Test notes.** —
 - **Observability.** Check the `kind=send|poll` lines, `notification_delivery type=message` and the `account_job step=messaging` line in dev logs.
 - **Budget.** A few hundred reads inside the dev project's free quota.

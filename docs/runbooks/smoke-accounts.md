@@ -1,6 +1,7 @@
 # Runbook (PROPOSAL): dev smoke accounts, credentials lifecycle and environment restriction
 Status: **Implemented.** The two dev accounts and the `dev` Environment secrets (`SMOKE_A_EMAIL`, `SMOKE_A_PASSWORD`, `SMOKE_B_EMAIL`, `SMOKE_B_PASSWORD`) exist since 2026-10-19, with the environment limited to branch `main`. The dev deploy workflow now uses account A for the authenticated smoke (step `4b/8` of `promote-dev.sh`, fail closed on main; see `docs/runbooks/authenticated-smoke.md`, "Dev (CI)"). The text below is the original design proposal.
 Owner and incident responder: the founder (confirmed 2026-10-19). Store: GitHub Actions **`dev` Environment secrets** (confirmed).
+Note (2026-10-30): the CI smoke accounts were deleted from dev Auth outside the API and recreated as handles `smoke_a2` / `smoke_b2`. Gotcha: Git Bash `openssl rand` output ends with a CR, so generate passwords with `openssl rand -hex 24 | tr -d '\r\n'`.
 
 ## Purpose and limits
 Two dev-only Firebase Auth identities let the dev deploy workflow smoke authenticated paths against a 0% candidate before promotion.
