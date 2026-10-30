@@ -169,11 +169,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
-//     may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//     (snapshotted when the row was written);
-//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//     cache, up to 60 s stale).
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -185,8 +185,8 @@ type AuthorSnapshot struct {
 	// True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
 	// badge, never an access decision.
 	// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
-	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers), copied from the hydrated profile at
-	// 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`
+	// (ADR-0028 D2), copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
 	// ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
 	// `notifications.v1.Notification.actor`.
 	// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
