@@ -166,7 +166,7 @@ class _BarRow extends StatelessWidget {
         if (showAvatar)
           const Padding(
             padding: EdgeInsets.only(left: AppSpacing.sm),
-            child: _AvatarButton(),
+            child: AppAvatarButton(),
           )
         else
           const SizedBox(width: AppSpacing.md),
@@ -185,9 +185,11 @@ class _BarRow extends StatelessWidget {
   }
 }
 
-/// The 32dp avatar in a 48dp tap target; opens the drawer.
-class _AvatarButton extends StatelessWidget {
-  const _AvatarButton();
+/// The 32dp avatar in a 48dp tap target; opens the drawer. Public so other
+/// header rows (the Explore search row) can lead with it on narrow layouts;
+/// it needs an [AppShellScope] above it.
+class AppAvatarButton extends StatelessWidget {
+  const AppAvatarButton({super.key});
 
   @override
   Widget build(BuildContext context) {

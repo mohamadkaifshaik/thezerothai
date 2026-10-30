@@ -14,7 +14,7 @@ import (
 // found it. A participant's warm path stays at 0 reads.
 func TestConversationCache_NonParticipantProbeIsOneReadAndLeavesNoTrace(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := verifiedCtx()
 	unknown := ConversationID(alice, "uid-nobody")
 
 	// Each path is one of the three callers of conversationHit, driven through its public entry point.

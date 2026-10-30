@@ -42,10 +42,15 @@ class AppSideLink {
 class AppSideColumn extends StatelessWidget {
   const AppSideColumn({
     super.key,
+    this.header,
     this.profile,
     this.sections = const [],
     required this.links,
   });
+
+  /// A widget above everything else: the search pill (W4-18). Presentational
+  /// like the rest; its own gating is the caller's (null draws nothing).
+  final Widget? header;
 
   final AppSideProfile? profile;
 
@@ -64,6 +69,10 @@ class AppSideColumn extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (header != null) ...[
+            header!,
+            const SizedBox(height: AppSpacing.md),
+          ],
           if (card != null) ...[
             _ProfileCard(profile: card),
             const SizedBox(height: AppSpacing.md),
