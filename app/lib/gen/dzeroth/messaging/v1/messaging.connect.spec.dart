@@ -113,8 +113,9 @@ abstract final class MessagingService {
   /// NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
   /// Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
   /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
-  /// Firestore: reads 3 worst (interceptor, conversation, request entry), planning 2.5; writes 2 (conversation state,
-  /// dmInbox entry); deletes 1 (dmRequests entry).
+  /// Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3
+  /// (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester
+  /// deleted that entry); deletes 1 (dmRequests entry).
   static const acceptMessageRequest = connect.Spec(
     '/$name/AcceptMessageRequest',
     connect.StreamType.unary,

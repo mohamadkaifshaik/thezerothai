@@ -317,7 +317,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerFollowRequestsLifecycle(l, graph.NewFirestoreRepo(nil)); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err != nil {
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
