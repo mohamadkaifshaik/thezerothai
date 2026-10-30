@@ -4,7 +4,7 @@ Source: `docs/plans/roadmap.md` (W4 row, sections 3, 5, 7), `docs/plans/ui-w2-en
 Branches: `feat/ui-w4-N-<slug>` off `main` (not stacked); one ticket per PR; merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
-- **F1. Where does the trends sweep run?** Cloud Scheduler gives 3 free jobs per billing account. The account defines 2 today, both prod: `daily-maintenance` is live, and `publish-scheduled` is defined but not applied (`pending.md` 1.18; the prod apply is on hold, 1.2). `envs/prod/main.tf` keeps the third slot free as headroom. The read cost is the same in every option, about 1 read per new post, because the sweep reads only posts newer than its watermark. Options:
+- **F1. Where does the trends sweep run?** Cloud Scheduler gives 3 free jobs per billing account. The account defines 2 today, both prod: `daily-maintenance` is live, and `publish-scheduled` is defined but not applied (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.18; the prod apply is on hold, dated step 1.2). `envs/prod/main.tf` keeps the third slot free as headroom. The read cost is the same in every option, about 1 read per new post, because the sweep reads only posts newer than its watermark. Options:
   - **(A) Spend the third free job.** It runs hourly as `trends-refresh`. Cost: INR 0, and it is clean module ownership. Afterwards the account is at 3 of 3, so any later job costs about USD 0.10/month and needs an ADR.
   - **(B) Piggyback on `daily-maintenance`.** The handler runs the trends step after the deletion backstop, inside the same 30 s request, and it never changes the status code (a 500 would make Scheduler retry the backstop). Freshness is daily ("Trending today"), with 0 new jobs.
   - **(C) Piggyback on `publish-scheduled`.** It runs on the first tick of each hour. That gives hourly freshness with 0 new jobs, but it couples trends to a job that is not applied in prod and to the scheduled-posts route.
@@ -219,7 +219,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 2. **M4.2 Search backend:** W4-3 to W4-8. Flags off; dev check by allowlist.
 3. **M4.3 Trends backend:** W4-9, W4-9b (per F1), W4-10.
 4. **M4.4 Client:** W4-13 to W4-19.
-5. **M4.5 Verify and roll:** W4-20 to W4-24. Dev allowlist only; prod waits for the held prod apply (`pending.md` 1.2) and the founder's MVP launch decision.
+5. **M4.5 Verify and roll:** W4-20 to W4-24. Dev allowlist only; prod waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and the founder's MVP launch decision.
 
 (W4-11 and W4-12 are conditional on F2.)
 
@@ -262,7 +262,7 @@ Order:
 - Backend: Go unit tests plus emulator integration (`make test-int`, `budgettest.Assert` on every RPC).
 - Client: widget tests in light and dark at 360 / 600 / 1200 via `test/support/theme_harness.dart` for every new screen or widget, and text scale 1.0 / 1.3 / 2.0. Pixel goldens deferred (B-01).
 - `make ci` green.
-- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status and the `docs/pending.md` row 3.12 updated in the PR.
+- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status updated in the PR.
 
 ## Tickets
 
@@ -750,12 +750,12 @@ Order:
 
 ### W4-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W4-20, W4-22, W4-23, ADR merged]  Status: Open
 - **Description.**
-  - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe) for `feature_search*`, `feature_trends*` and the search config env vars.
-  - If A4 = fieldOverride: the `trends.items` override deploys with the dev deploy workflow's `firebase deploy --only firestore:indexes` after merge. For prod it waits for the held release (`pending.md` 1.2) and must be deployed before `FEATURE_TRENDS` leaves `off` there.
+  - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_search*`, `feature_trends*` and the search config env vars.
+  - If A4 = fieldOverride: the `trends.items` override deploys with the dev deploy workflow's `firebase deploy --only firestore:indexes` after merge. For prod it waits for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `FEATURE_TRENDS` leaves `off` there.
   - Apply only on OK, allowlist 3 test uids, then smoke: people search, hashtag tap → Top / Latest / Media, Explore with trends.
-  - Exercising the refresh in dev needs a direct OIDC call to `/internal/cron/trends-refresh` (no dev Scheduler job). That needs the opt-in `cron_test_invoker` grant recreated by a targeted apply with the founder's OK, and removed after (`pending.md` 1.20, ADR-0021 D1).
+  - Exercising the refresh in dev needs a direct OIDC call to `/internal/cron/trends-refresh` (no dev Scheduler job). That needs the opt-in `cron_test_invoker` grant recreated by a targeted apply with the founder's OK, and removed after (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.20, ADR-0021 D1).
   - Prod: no change (on hold). With F1 = A, the prod job is a separate plan-then-OK at MVP launch, after confirming 2 jobs exist on the billing account.
-- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed; `pending.md` 3.12 is updated.
+- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed.
 - **Test notes.** —
 - **Observability.** Check the `trends_refresh` line and the search request lines in dev logs.
 - **Budget.** A handful of reads in the dev project's free quota.
@@ -786,7 +786,7 @@ Order:
 | Handle enumeration | cap 20, no paging, 2-character minimum, rate × 3 instances, daily cap, read budget; handles are public on profiles anyway |
 | The prefix and tag caches are per instance (3 cold caches) | the 60 s bound is stated; hit rates in the model are conservative |
 | Trends composed into `daily-maintenance` delay or break the deletion backstop | backstop first and unchanged, status code from the backstop only, a trends sub-deadline, skip and resume |
-| Merge conflicts with W3 in shared files | the parallel column above; one PR at a time (`pending.md` rules) |
+| Merge conflicts with W3 in shared files | the parallel column above; one PR at a time |
 | Uncaptured visuals (suggestions, results tabs, empty states, Trending tab) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
 | ADR number clash with W3 | "ADR-0024 or the next free number" |
 | The Media tab's post-filter returns short or empty pages | allowed by the contract; A3 moves to an index if W3 adds `hasMedia` |

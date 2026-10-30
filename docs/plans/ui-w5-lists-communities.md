@@ -219,7 +219,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 ## Flags: FEATURE_LISTS, FEATURE_COMMUNITIES
 | Flag (wire name) | Gates | Dev ceiling (`flag-ceiling.json`) | Prod |
 |---|---|---|---|
-| `FEATURE_LISTS` (`lists`) | every `ListService` RPC; `GetListTimeline`; LIST entries in `SetHomeTabs` and in `GetMe.home_tabs`; the client's Lists screens, drawer row, "Add to Lists" and list tabs | `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}` | no raise (prod apply on hold, `pending.md` 1.2) |
+| `FEATURE_LISTS` (`lists`) | every `ListService` RPC; `GetListTimeline`; LIST entries in `SetHomeTabs` and in `GetMe.home_tabs`; the client's Lists screens, drawer row, "Add to Lists" and list tabs | `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}` | no raise (prod apply on hold, `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) |
 | `FEATURE_COMMUNITIES` (`communities`) | every `CommunityService` RPC; `GetCommunityTimeline`; `CreatePost.community_id` (FEATURE_DISABLED `feature=communities` when set while off); COMMUNITY entries in `SetHomeTabs` and `GetMe.home_tabs`; the client's community screens, audience picker and community tabs | same | none |
 | `posts` (existing) | both timelines need it, as Home does | unchanged | unchanged |
 | `reports` (existing) | the new COMMUNITY / LIST report targets | unchanged | unchanged |
@@ -326,7 +326,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 6. **M5.6 Communities client:** W5-30 to W5-35.
 7. **M5.7 Communities verify and roll:** W5-36 to W5-40, with W5-38 and W5-39 done before `communities` leaves `off` in dev.
 
-Prod for both parts waits for the held prod apply (`pending.md` 1.2) and the founder's MVP launch decision.
+Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and the founder's MVP launch decision.
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3 Part A / W4? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -407,13 +407,13 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 | `app/lib/shared/widgets/post_card.dart` (context label, post menu) | W5-33, W5-35 | W3-17 (pinned label, pin menu), W4-16 (hashtag tap) | one at a time |
 | `app/lib/features/profile/presentation/widgets/profile_header.dart` (overflow menu) | W5-13 | W3-13, W3-14 | after W3-14 |
 | composer files (`app/lib/features/compose/...`) | W5-34 | W1.5 composer conformance, W6 | one at a time |
-| `docs/code-map.md`, `docs/ui-catalog.md`, `docs/pending.md` | every ticket | every wave | trivial merges |
+| `docs/code-map.md`, `docs/ui-catalog.md` | every ticket | every wave | trivial merges |
 
 **Definition of done per ticket:**
 - Backend: Go unit tests plus emulator integration (`make test-int`, `budgettest.Assert` on every RPC).
 - Client: widget tests in light and dark at 360 / 600 / 1200 via `test/support/theme_harness.dart` for every new screen or widget, at text scale 1.0 / 1.3 / 2.0. Pixel goldens are deferred (B-01).
 - `make ci` green.
-- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status and the `docs/pending.md` row 3.14 updated in the PR.
+- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status updated in the PR.
 
 ## Tickets
 
@@ -779,11 +779,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ### W5-19 — Part A dev rollout  [owner: production-deployer] [size: S] [depends: W5-15, W5-17, W5-18, ADR-0027 merged]  Status: Open
 - **Description.**
-  - Show the founder a **targeted** dev Terraform plan for `feature_lists*` and the list config env vars (`pending.md` 3.10: a full dev apply is unsafe).
+  - Show the founder a **targeted** dev Terraform plan for `feature_lists*` and the list config env vars (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe).
   - Apply only on OK, with an allowlist of 3 test uids.
   - Smoke: create a list, add 3 members, open the timeline, pin it, reorder, unpin, delete, turn the flag off.
   - Prod: no change.
-- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state; `pending.md` 3.14 is updated.
+- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state.
 - **Test notes.** —
 - **Observability.** Check the `timeline_op=list` and `list_op` lines in dev logs.
 - **Budget.** A handful of reads inside dev's free quota.
@@ -1235,7 +1235,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Apply on OK, with an allowlist of 3 uids.
   - Smoke: create a community, join from a second account, post, see the label in Home, pin the tab, hide, ban, report, suspend through opsctl in dev, flag off.
   - Prod: no change.
-- **Acceptance criteria.** The smoke passes; the flags are back to their planned state; `pending.md` 3.14 is updated.
+- **Acceptance criteria.** The smoke passes; the flags are back to their planned state.
 - **Test notes.** —
 - **Observability.** `timeline_op=community`, `community_op` and `mod_action` lines in dev logs.
 - **Budget.** A handful of reads inside dev's free quota.

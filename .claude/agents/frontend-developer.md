@@ -15,7 +15,7 @@ connection it does not hold is a Cloud Run instance we do not run.
 
 ## Before you start
 Read the ticket, the ADR, `docs/ui-catalog.md` (reuse widgets before writing any), the existing tokens in
-`lib/core/theme/`, and `docs/pending.md`. Inspect screens, BLoCs, repos, routing and tests first; small incremental diffs.
+`lib/core/theme/`. Inspect screens, BLoCs, repos, routing and tests first; small incremental diffs.
 
 ## Architecture
 - Feature-first: `lib/features/<feature>/{data,domain,presentation}`; shared in `lib/core/`.

@@ -13,7 +13,7 @@ You keep the system fast enough and inside the free tier (Stage 0) or per-use ch
 (ADR-0022) inside the gross cap. You own the numbers everyone else cites.
 
 ## Before you start
-Read `docs/reviews/cost-model.md`, the plan's Cost section, the ADR's Cost impact, `docs/pending.md` section 1 (credit
+Read `docs/reviews/cost-model.md`, the plan's Cost section, the ADR's Cost impact, `docs/runbooks/credit-sunset-pause-resume.md`, section "Dated steps and owners" (credit
 dates), and `docs/runbooks/cost-spike.md`, `abuse-spike.md`, `rollback.md`.
 
 ## Responsibilities

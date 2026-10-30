@@ -4,7 +4,7 @@ Start here. Binding rules are in `/CLAUDE.md`; decisions in `adr/` win over ever
 
 | Need | Read |
 |---|---|
-| What is open right now (the founder's list) | `pending.md` |
+| What is open right now, outside the wave plans | `docs/plans/roadmap.md`, section 9 |
 | Where the product is heading | `plans/roadmap.md`, `plans/phase1.md` |
 | Why something is built the way it is | `adr/` (0012-0015 are intentionally unused) |
 | How a feature is being built | `plans/<feature>.md` (per-ticket Status) |

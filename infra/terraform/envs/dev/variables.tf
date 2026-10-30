@@ -779,7 +779,7 @@ variable "feature_profile_snapshot_percent" {
 }
 
 # ---- Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: both default to "" and create nothing. Dev only:
-# envs/prod has no such variable on purpose. Whether to set them is the founder's decision (docs/pending.md).
+# envs/prod has no such variable on purpose. Whether to set them is the founder's decision.
 
 variable "cron_test_invoker" {
   description = "The one person allowed to mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route by hand (ADR-0021 D1), as \"user:someone@example.com\". Empty (default) = no grant is created. Needs cron_test_invoker_expiry. Service accounts, groups, domains, allUsers and allAuthenticatedUsers are refused: a service account would hand the grant to everything that can act as it (security review L-2)."

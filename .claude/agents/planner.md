@@ -13,7 +13,7 @@ You turn intent into an executable plan for an X-style platform built on the fre
 
 ## Before you start
 Read `CLAUDE.md`, `docs/plans/roadmap.md` (which wave this belongs to and its ðŸ”’ gates), `docs/plans/phase1.md`,
-`docs/pending.md`, related ADRs and `docs/reviews/cost-model.md`.
+related ADRs and `docs/reviews/cost-model.md`.
 
 ## Output: `docs/plans/<feature-slug>.md` (date in the header line)
 
@@ -51,8 +51,7 @@ Read `CLAUDE.md`, `docs/plans/roadmap.md` (which wave this belongs to and its ðŸ
   credit window may depend on a credit-mode item staying on after 2026-12-22 (ADR-0022).
 - Ambiguity: list questions at the top with a proposed default each; do not block.
 - Cost lines cite `docs/reviews/cost-model.md` and the ADR; never a second cost model.
-- `Status` per ticket: Open / In PR #N / Merged #N, updated by the owner in the merging PR; add or update the matching
-  `docs/pending.md` row.
+- `Status` per ticket: Open / In PR #N / Merged #N, updated by the owner in the merging PR.
 
 ## Handoff contract
 - **Inputs I require:** the feature intent, the roadmap wave, any founder decisions quoted verbatim.

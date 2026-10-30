@@ -207,7 +207,7 @@ the project. Vision `images:annotate` checks no Vision IAM permission, only bill
    line just gets a job with no usable token. `fmt` and `tflint` moved to a separate `lint` job with no environment, no `id-token`
    and `contents: read` only, so they run at once and never wait for approval.
    **Consequence:** every plan run waits for the founder's approval. That costs nothing today because the plan job skips auth
-   while an env is not bootstrapped (pending 1.19); the job still waits first, because `secrets` are not available to the
+   while an env is not bootstrapped (open follow-up in `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.19); the job still waits first, because `secrets` are not available to the
    `environment:` expression, so approve it and the gate step then skips the plan. Approve only after reading the PR's diff to
    `.github/workflows/`, `infra/terraform/` and `scripts/`: approval is the review.
 2. **Vision quota overrides (the second layer, `modules/vision-quota`).** Service Usage consumer quota overrides on
@@ -283,7 +283,7 @@ so this is the layer for the case where a reviewed run is later proved hostile, 
    in the dev app: it must still publish.
 6. **Prod: plan for your OK, then apply.** `cd infra/terraform/envs/prod`, real `terraform.tfvars`, the same two `-target` flags and
    `-out=tfplan`. The expected result is the same `19 to add, 1 to change, 0 to destroy`. Send the plan to the assistant or read it
-   yourself; apply `tfplan` only after the OK. Prod has other unapplied changes (`docs/pending.md` section 1), so keep the targets.
+   yourself; apply `tfplan` only after the OK. Prod has other unapplied changes (`docs/runbooks/credit-sunset-pause-resume.md`, dated steps), so keep the targets.
 7. **Settle images versus requests (optional, free).** In dev, send one `images:annotate` request with 16 `SAFE_SEARCH_DETECTION`
    entries (the same public object 16 times) and read the Quotas page (IAM & Admin > Quotas, filter "Safe search") or the
    `serviceruntime.googleapis.com/quota/rate/net_usage` metric: +1 means requests, +16 means images. It costs 16 of dev's 1,000 free
@@ -343,7 +343,7 @@ forge pagination cursors; it cannot read messages). An object-prefix IAM conditi
 `thezerothai/prod` for the prod SA) only stops the dev `tf-plan` from reading prod state; the prod `tf-plan` would still read
 the prod `CURSOR_HMAC_KEY`. The real fix is to take the secret out of state: an `ephemeral "random_password"` plus
 `secret_data_wo` / `secret_data_wo_version` on the secret version (needs `required_version >= 1.11`), then **rotate the key**,
-because older state generations stay readable in the versioned bucket. Follow-up (`docs/pending.md` 3.21), not part of W7-32.
+because older state generations stay readable in the versioned bucket. Follow-up (open item in `docs/plans/roadmap.md` section 9), not part of W7-32.
 
 **Adding a resource type to `infra/terraform`:** add its read permissions to `tfPlanReader` in the same PR. If a plan as
 `tf-plan` fails with a 403 on a refresh, add exactly the permission in the error. Never bind a predefined `*.viewer` role (they
@@ -433,7 +433,7 @@ single combined apply, `tf-plan` could end up with no roles at all.
    - The state bucket's policy (`gcloud storage buckets get-iam-policy gs://dzeroth-tfstate`) and the billing account's policy
      (`gcloud billing accounts get-iam-policy <billing-account-id>`) show only the intended `tf-plan` grants
      (`objectViewer` on the bucket, `billing.viewer` on the account) and nothing stray.
-   - Vision probe (measures finding M-A in `docs/pending.md` 3.20): one `images:annotate` call with the `tf-plan` token against
+   - Vision probe (measures finding M-A): one `images:annotate` call with the `tf-plan` token against
      dev (a 1x1 image, free inside the 1,000-unit tier). Record the status code; it is a follow-up input, not a pass/fail for W7-32.
 5. **Prod.** Repeat steps 0 to 4 with `envs/prod` (real tfvars, the same targets in the same two phases, `dzeroth-prod`). Show each
    saved plan to the founder-as-approver before `terraform apply` (plan-then-OK). Do not apply the other pending prod changes in
@@ -441,5 +441,5 @@ single combined apply, `tf-plan` could end up with no roles at all.
    tested after the prod apply.** A 403, or a new diff on `module.scheduler`, the `module.monitoring` alert policies or the
    `module.firestore` backup schedule, means a permission is missing. Fix it in a new PR; never roll back.
 6. **Rollback.** Only for a broken dev plan, and only until a corrected `tfPlanReader` is applied: re-add the old grants by hand
-   (`gcloud projects add-iam-policy-binding ... --role=roles/viewer`). This re-opens M-4, so record it in `docs/pending.md`. In
+   (`gcloud projects add-iam-policy-binding ... --role=roles/viewer`). This re-opens M-4. In
    prod a missing permission is fixed forward (step 5), not rolled back.

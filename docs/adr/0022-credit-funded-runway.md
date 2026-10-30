@@ -16,7 +16,7 @@ Founder decision, 2026-10-26, after reading the real credit. Firebase console: *
 - The cap is a **ceiling for the alerts, not a target and not a spending limit**: budgets only alert and the stop is the manual runbook. Real burn is about INR 31-45 a day, so this changes where the alerts fire, not what is spent. Its cost: the straight line is steeper (**INR 403/day** to the 12-24 pause, 391/day to 12-26), so a slow overspend is flagged later.
 - Alert thresholds scale, their dates do not: 10% 2,500; 25% 6,250; 50% 12,500; 75% 18,750; 90% 22,500; 100% 25,000.
 - Unchanged: the dates, the credit-mode profile, every abuse limit, the "not used" list, no fixed fee, nothing that bills after 2026-12-26, and the pause on 2026-12-24.
-- Changed with it, in the same PR: the hard limit in `infra/terraform/envs/prod/variables.tf` (23000 to 25000), `terraform.tfvars.example`, `CLAUDE.md` (credit mode and the Growth-stages row, because the constitution quotes the cap), the sunset runbook, `docs/pending.md`, and every 23,000 / 371 in D3 below. The cumulative tables in `docs/plans/credit-runway-cost-model.md` and `docs/reviews/cost-model.md` keep the 23,000 arithmetic and say so.
+- Changed with it, in the same PR: the hard limit in `infra/terraform/envs/prod/variables.tf` (23000 to 25000), `terraform.tfvars.example`, `CLAUDE.md` (credit mode and the Growth-stages row, because the constitution quotes the cap), the sunset runbook, and every 23,000 / 371 in D3 below. The cumulative tables in `docs/plans/credit-runway-cost-model.md` and `docs/reviews/cost-model.md` keep the 23,000 arithmetic and say so.
 
 ## Context
 **The exception.** The billing account has a GCP credit that **expires 2026-12-26**. We want to spend part of it to buy
