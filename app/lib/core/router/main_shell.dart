@@ -11,6 +11,9 @@ import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/search/domain/search_feature_flags.dart';
+import '../../features/search/presentation/search_navigation.dart';
+import '../../features/search/presentation/widgets/search_pill_button.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../shared/widgets/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
@@ -46,6 +49,7 @@ class MainShell extends StatelessWidget {
   /// with the `notifications` flag on (P6). Messages follows it, with
   /// `messaging` and the new shell (W7-19, F10).
   static List<_Destination> _destinationsFor({
+    required bool explore,
     required bool notifications,
     required bool messages,
     required bool bookmarks,
@@ -60,6 +64,15 @@ class MainShell extends StatelessWidget {
         label: 'Home',
       ),
     ),
+    if (explore)
+      const _Destination(
+        _Tab.explore,
+        AppNavDestination(
+          icon: Icons.search,
+          selectedIcon: Icons.manage_search,
+          label: 'Explore',
+        ),
+      ),
     if (notifications)
       const _Destination(
         _Tab.notifications,
@@ -126,6 +139,7 @@ class MainShell extends StatelessWidget {
   /// The selected tab, or null on screens that belong to no tab (Settings in
   /// the new shell, where it is not a destination).
   _Tab? _selectedTab({required bool settingsTab}) {
+    if (location.startsWith(AppRouter.explorePath)) return _Tab.explore;
     if (location.startsWith('/notifications')) return _Tab.notifications;
     // The inbox and its Requests folder (the shell's children). A conversation
     // and the people picker are full-screen routes outside the shell.
@@ -183,8 +197,11 @@ class MainShell extends StatelessWidget {
         newShell &&
         isFeatureEnabled(context, kFeatureBookmarks) &&
         isFeatureEnabled(context, kFeaturePosts);
+    // Explore (W4-17): the new shell with `search` on, second after Home.
+    final exploreEntry = newShell && isFeatureEnabled(context, kFeatureSearch);
     final shellEntries = shellEntriesFor(context);
     final tabs = _destinationsFor(
+      explore: exploreEntry,
       notifications: notificationsEnabled,
       messages: messagesEnabled,
       bookmarks: bookmarksEntry,
@@ -242,6 +259,11 @@ class MainShell extends StatelessWidget {
           ? (extended) => AppAccountChip(extended: extended)
           : null,
       sideColumn: AppSideColumn(
+        // The search pill (W4-18): the new shell with `search` on, except on
+        // Explore, where the pill is in the centre header.
+        header: exploreEntry && !location.startsWith(AppRouter.explorePath)
+            ? SearchPillButton(onTap: () => openSearch(context))
+            : null,
         // "You might like" (W3-19): the new shell, `graph` and
         // `follow_suggestions` all on. The card draws nothing until the shared
         // list has rows, so the column is unchanged otherwise.
@@ -279,6 +301,8 @@ class MainShell extends StatelessWidget {
         switch (tabs[index].tab) {
           case _Tab.home:
             context.go('/home');
+          case _Tab.explore:
+            context.go(AppRouter.explorePath);
           case _Tab.notifications:
             context.go(AppRouter.notificationsPath);
           case _Tab.messages:
@@ -341,7 +365,16 @@ class _SettingsMaster extends StatelessWidget {
   }
 }
 
-enum _Tab { home, notifications, messages, bookmarks, profile, settings, more }
+enum _Tab {
+  home,
+  explore,
+  notifications,
+  messages,
+  bookmarks,
+  profile,
+  settings,
+  more,
+}
 
 class _Destination {
   const _Destination(this.tab, this.destination);

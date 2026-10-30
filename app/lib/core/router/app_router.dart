@@ -28,6 +28,9 @@ import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/messages/presentation/widgets/request_banner.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
+import '../../features/search/domain/search_feature_flags.dart';
+import '../../features/search/presentation/explore_screen.dart';
+import '../feature_flags/ui_shell_feature_flag.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
@@ -76,6 +79,9 @@ class AppRouter {
   static const settingsPath = '/settings';
   // P6: the Notifications tab, behind the `notifications` flag.
   static const notificationsPath = '/notifications';
+  // W4-17: Explore, a ShellRoute child (a root destination). Needs `search`
+  // and `ui_shell`; redirects Home without them.
+  static const explorePath = '/explore';
   // W7-14: the inbox and its Requests folder, behind the `messaging` flag
   // (both redirect Home without it). ShellRoute children. W7-15:
   // `/messages/:id` is one conversation, full-screen outside the shell (like
@@ -227,6 +233,10 @@ class AppRouter {
             path: followRequestsPath,
             builder: (context, state) =>
                 const AuthGate(child: FollowRequestsScreen()),
+          ),
+          GoRoute(
+            path: explorePath,
+            builder: (context, state) => const AuthGate(child: ExploreScreen()),
           ),
           GoRoute(
             path: notificationsPath,
@@ -531,6 +541,7 @@ class AppRouter {
             _bookmarksFlagRedirect(loc) ??
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
+            _exploreFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.unknown:
       case OnboardingStatus.loading:
@@ -612,6 +623,17 @@ class AppRouter {
       isProtected: state.profile?.isPrivate ?? false,
     );
     return allowed ? null : homePath;
+  }
+
+  /// `/explore` redirects Home unless `search` and `ui_shell` are both on for
+  /// this caller (W4-17: the legacy chrome gets no Explore).
+  String? _exploreFlagRedirect(String loc) {
+    if (loc != explorePath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    return features.contains(kFeatureSearch) &&
+            features.contains(kFeatureUiShell)
+        ? null
+        : homePath;
   }
 
   /// `/notifications` redirects Home when the flag is off for this caller.
