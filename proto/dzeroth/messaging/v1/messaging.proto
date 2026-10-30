@@ -152,8 +152,9 @@ service MessagingService {
   // NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
   // Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
   // The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
-  // Firestore: reads 3 worst (interceptor, conversation, request entry), planning 2.5; writes 2 (conversation state,
-  // dmInbox entry); deletes 1 (dmRequests entry).
+  // Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3
+  // (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester
+  // deleted that entry); deletes 1 (dmRequests entry).
   rpc AcceptMessageRequest(AcceptMessageRequestRequest) returns (AcceptMessageRequestResponse);
 
   // Deletes the conversation for the caller only (also "delete request"): removes the caller's entry from either
@@ -205,6 +206,9 @@ message Conversation {
   // live from the identity directory (60 s) in ListMessages, except that a peer who blocked the caller is the entry's
   // frozen snapshot there. A peer who deleted the account reads "Deleted account".
   dzeroth.common.v1.AuthorSnapshot peer = 3;
+  // ListConversations: from the caller's entry. A REQUESTS row is REQUEST; an INBOX row is REQUEST for a request the caller sent
+  // that the peer has not accepted yet (ADR-0027 note W7-25), else ACCEPTED. SendMessage and ListMessages: from the
+  // conversation (ListMessages through the 60 s instance copy, so up to 60 s behind an accept made on another instance).
   ConversationState state = 4;
   // The folder of the caller's entry.
   Folder folder = 5;

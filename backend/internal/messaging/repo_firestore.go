@@ -156,7 +156,8 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). Accepted
 // conversation: 3 writes. An existing REQUEST: + the conversation (requestCount +1), 4. A new conversation: + the
 // conversation Create and quotas.dmNew, 5. The reply that accepts a request: the conversation state update, 4 writes,
-// plus 1 delete (the replier's dmRequests entry moves to dmInbox).
+// plus 1 delete (the replier's dmRequests entry moves to dmInbox). The entry maps also carry requestPending (set or
+// deleted inside the same MergeAll writes: +0 reads, +0 writes, W7-25).
 //
 // A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
 // message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
@@ -323,6 +324,15 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
 	}
+	// requestPending (ADR-0027 note W7-25, +0 reads, +0 writes): true on the requester's own entry while the conversation is
+	// REQUEST after this send, else deleted in the same MergeAll map. The peer's entry always deletes it, so the reply that
+	// accepts a request clears the requester's flag in the write it already makes.
+	if dec.State == stateRequest {
+		own["requestPending"] = true
+	} else {
+		own["requestPending"] = firestore.Delete
+	}
+	other["requestPending"] = firestore.Delete
 	if res.Created {
 		own["createdAt"], other["createdAt"] = now, now
 	}

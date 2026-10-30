@@ -193,7 +193,7 @@ Prices (§7):
 | ListMessages first page 20 / 50 (and older pages) | first page 25 / 55 since W7-27 (interceptor 1, conversation doc 1, query, peer `users` 1, caller graph 1 for `can_reply`, the caller's entry 1); older pages 24 / 54 | 15 (16 with the entry) | 0 | 0 | non-participant or unknown id → NOT_FOUND after ≤ 2 reads, byte-identical |
 | ListMessages `since` poll | 3 cold (interceptor, conversation doc, query min 1); **a `since` response omits `conversation`** (no peer or graph read) | 1.2 | 0 | 0 | + 1 read per new message returned |
 | MarkConversationRead | 1 (interceptor) | 0.3 | 1 (entry `unreadCount = 0`, `lastReadAt`; `Exists` precondition) | 0 | the client calls it only when it holds unread > 0 |
-| AcceptMessageRequest | 3 (interceptor, conversation, request entry) | 2.5 | 2 (conversation state, `dmInbox` entry) | 1 (`dmRequests` entry) | |
+| AcceptMessageRequest | 4 (interceptor, conversation, request entry, the requester's entry; W7-25a) | 3.5 | 3 (conversation state, `dmInbox` entry, the requester's entry with `requestPending` cleared; 2 when the requester deleted that entry) | 1 (`dmRequests` entry) | |
 | DeleteConversation (for me; also "delete request") | 3 | 2.5 | 1 (`clearedAt`) | 1 | |
 | `GetMe` badge (`unread_conversation_count`) | +1 (`count()`, 1 read per 1,000 matches, min 1) | +0.75 per GetMe | 0 | 0 | 0 reads when `messaging` is off for the caller |
 | ReportContent, MESSAGE | 6 (as the POST row: interceptor, conversation, message, report doc, quotas, caller graph) | 3 | 2 (report, quotas) | 0 | existing quota (20/day) |
@@ -632,7 +632,7 @@ Order:
   - Given B deletes, then B's inbox lacks it, and A's next message (if under the cap) re-creates B's request entry with only that message visible.
 - **Test notes.** `budgettest` 3 / 2 writes / 1 delete; replay; races (accept vs delete).
 - **Observability.** `kind=accept|delete`, `fs_writes`, `fs_deletes`.
-- **Budget.** Reads ≤ 3; writes 2 / 1; deletes 1.
+- **Budget.** Reads ≤ 3; writes 2 / 1; deletes 1. **W7-25a moves Accept to reads ≤ 4 (planning 3.5), writes 3 (2 when the requester deleted their entry), deletes 1.**
 - **Flag.** Accept per caller; Delete not globally off.
 - **Seam.** `messaging.Service`.
 
@@ -942,7 +942,7 @@ Order:
 - **Decision (ADR-0027 note W7-25; accepted by the founder 2026-10-30).** A `requestPending` bool on the requester's own `dmInbox` entry: true while the conversation is REQUEST, absent otherwise. Send writes it at +0. Accept clears it at +1 read and +1 write. `conversationOf` maps it to state REQUEST in folder INBOX. There is no new proto field.
 - **Seam.** `messaging.Service`; `conversationOf` stays the one mapper; the client's `MessagingRepository` is still the only RPC caller.
 
-#### W7-25a — backend (backend-developer)  Status: Open
+#### W7-25a — backend (backend-developer)  Status: In review (PR to be linked; merge after W7-33)
 - **Files.**
   - `backend/internal/messaging/model.go`: `EntryDoc.RequestPending bool` (`firestore:"requestPending,omitempty"`), with a doc comment citing the note.
   - `backend/internal/messaging/repo_firestore.go`, `sendTx`:
