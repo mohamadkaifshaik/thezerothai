@@ -642,7 +642,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 **Decision (client only; no proto change, no server change).**
 1. **Three modes, decided by the client.**
    - `full`: `messaging` is in `enabled_features`, as today.
-   - `readOnly`: messaging is not enabled for the caller, the gate's `canRead` holds, and the local cache holds at least one conversation **for this owner**. The owner check is W7-35's L-4 stamp.
+   - `readOnly`: messaging is not enabled for the caller, the local cache holds at least one conversation **for this owner** (the owner check is W7-35's L-4 stamp), **and a probe succeeded in this session**. Until the probe answers, the mode is `hidden`, so nothing flashes when the kill switch is thrown.
    - `hidden`: everything else, including after any FEATURE_DISABLED on a read, which means globally off.
 2. **The probe.** At session start, after GetMe, and again when `enabled_features` changes, the client makes one INBOX `ListConversations` refresh through `runRead`. It does this only when messaging is not enabled and the owner's cache holds a conversation. Success means `readOnly`, and the cache is refreshed too. FEATURE_DISABLED means `hidden`.
 3. **The read-only UI.**
@@ -662,7 +662,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 
 **Cost impact.** Fixed cost INR 0, server +0.
 - The probe runs only for users outside the rollout whose device holds one of their conversations: an allowlist removal or a ramp-down.
-- It costs at most 4 reads (an INBOX `since` refresh after W7-37), or 1 when messaging is globally off (the interceptor's, usually cached), once per session start. ≈ INR 0 at any modelled DAU.
+- It costs about 4 reads (an INBOX `since` refresh after W7-37). A cold open after the 30-day token TTL costs up to 23. When messaging is globally off it costs 1 (the interceptor's, usually cached). It runs once per session start. ≈ INR 0 at any modelled DAU.
 
 **Stage ladder.** `MessagingFeatureGate` stays the one place that decides. Option (b) is the additive upgrade. Its trigger: a prod rollout that keeps a percent step for more than 30 days, or a founder request that every user outside the rollout can reach an inbox.
 

@@ -1012,12 +1012,12 @@ Order:
 - **Problem.** The app hides all of Messages when `messaging` is off for the caller: the `/messages` routes redirect Home, and the thread shows "Messages aren't available yet". But F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
 - **Decision (ADR-0027 note W7-26; default, founder may override).** Client only. There are three modes:
   - `full`: `messaging` is in `enabled_features`.
-  - `readOnly`: not enabled, `MessagingFeatureGate.canRead` holds, and the owner-stamped cache holds at least one conversation.
+  - `readOnly`: not enabled, the owner-stamped cache holds at least one conversation, and a probe succeeded in this session. Until the probe answers the mode is `hidden`, so nothing flashes when the kill switch is thrown.
   - `hidden`: anything else.
 
   A single probe decides `readOnly`: one INBOX `ListConversations` refresh through `runRead` at session start (after GetMe, and when the flag set changes), only when not enabled and the cache holds a conversation. Rejected: an additive GetMe field (the note explains why); it is the upgrade path.
 - **Files.**
-  - `app/lib/features/messages/domain/messaging_feature_gate.dart`: a `MessagingAccess` value (`full` / `readOnly` / `hidden`) derived from `enabled`, `canRead` and a "has cached conversations" flag, and a `probe()` that runs the refresh through `runRead`.
+  - `app/lib/features/messages/domain/messaging_feature_gate.dart`: a `MessagingAccess` value (`full` / `readOnly` / `hidden`) derived from `enabled`, a "has cached conversations" flag and the outcome of this session's probe (`readOnly` only after a probe success), and a `probe()` that runs the refresh through `runRead`.
   - `app/lib/features/messages/data/messaging_repository.dart` and `messaging_store.dart`: `hasCachedConversations()` (a `LIMIT 1` drift query; the owner check is W7-35's stamp).
   - `app/lib/app/app_widget.dart` (`_onOnboarding`): trigger the probe when the flag set changes, and only then.
   - `app/lib/core/router/app_router.dart`, `_messagesFlagRedirect`:
@@ -1049,7 +1049,7 @@ Order:
   - The 360 / 600 / 1200 × light / dark × 1.0 / 1.3 / 2.0 matrix for the read-only composer notice and the banner without Accept.
   - Extend `messaging_flag_matrix_test` with the `readOnly` case.
 - **Observability.** —
-- **Budget.** Server +0. The probe is at most 4 reads (an INBOX `since` refresh after W7-37), or 1 when globally off, once per session start, and only for users outside the rollout with a cached conversation (≈ INR 0).
+- **Budget.** Server +0. The probe is about 4 reads (an INBOX `since` refresh after W7-37). A cold open after the 30-day token TTL costs up to 23, and globally off costs 1. It runs once per session start, and only for users outside the rollout with a cached conversation (≈ INR 0).
 - **Flag.** `messaging` (per caller and globally).
 - **Seam.** `MessagingFeatureGate` is the one place that decides the mode. An additive GetMe field can later replace the probe without touching a screen.
 
@@ -1256,7 +1256,7 @@ A **lane** is one implementer doing one ticket at a time in their own worktree u
   - W7-26: for W7-35 (the owner stamp) and W7-37b.
   - W7-25b: for W7-26, and it merges after W7-25a serves dev.
   - W7-34: for W7-25a and W7-30 export.
-- **Critical path:** BE-1, W7-37a → W7-25a → W7-34. The client tail is W7-35 → W7-26 → W7-25b.
+- **Critical path:** W7-33 → (W7-25a, which also needs W7-37a, and W7-30 export) → W7-34. The client tail is W7-35 → W7-26 → W7-25b, with W7-25b also waiting for W7-25a to serve dev. With fewer than five implementers, run the lanes one after another under the same rules.
 - **Proto rule.** W7-37a, W7-33 and W7-25a edit comments on different RPCs in `messaging.proto`. Each merges `origin/main` and reruns `make proto` before it merges. Generated Go and Dart are regenerated, never hand-merged.
 - **Budget-test rule.** W7-33 moves Send (warm +1) and W7-25a moves Accept (+1 read, +1 write). Whichever merges second reruns `make test-int`.
 - **Client rule.** Merging to `main` deploys the dev web client. So W7-37b merges only after W7-37a serves dev, and W7-25b only after W7-25a does.
