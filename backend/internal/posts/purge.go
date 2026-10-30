@@ -207,6 +207,17 @@ type exportedPost struct {
 	MadeWithAI      bool `json:"madeWithAi,omitempty"`
 	// The effective reply policy of the conversation (ADR-0021 D2; a reply exports the policy it inherited); omitted when EVERYONE. Holds no user id.
 	ReplyPolicy string `json:"replyPolicy,omitempty"`
+	// The author's own poll (ADR-0029 D8): choices, closesAt, per-choice counts and the total; omitted for a post without a poll,
+	// so plain posts export byte for byte as before. Counts are anonymous totals.
+	Poll *exportedPoll `json:"poll,omitempty"`
+}
+
+// exportedPoll is a poll in the export.
+type exportedPoll struct {
+	Choices  []string  `json:"choices"`
+	ClosesAt time.Time `json:"closesAt"`
+	Counts   []int64   `json:"counts"`
+	Total    int64     `json:"total"`
 }
 
 // ExportUser implements Exporter: it streams {"userId": ..., "posts": [...]} to w, newest first, in pages of
@@ -239,6 +250,9 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			}
 			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID,
 				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy}
+			if po := d.Poll.toPoll(); po != nil {
+				ep.Poll = &exportedPoll{Choices: po.Options, ClosesAt: po.ClosesAt, Counts: po.Counts, Total: po.Total}
+			}
 			if k := Kind(d.Kind); k == KindRepost || k == KindQuote {
 				ep.Kind, ep.RepostOfID, ep.QuoteOfID = d.Kind, d.RepostOfID, d.QuoteOfID
 			}

@@ -109,13 +109,13 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		ReplyPolicy:          int32(m.GetReplyPolicy()),
 		ReplyAudienceEnabled: s.replyAudienceEnabled(uid),
 
-		HasPoll:      m.GetPoll() != nil,
+		Poll:         pollInputOf(m.GetPoll()),
 		PollsEnabled: s.pollsEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
 	}
-	view := &postsv1.PostView{Post: ToProto(post)}
+	view := &postsv1.PostView{Post: ToProtoForViewer(post, uid)}
 	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
 		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
 	}

@@ -300,6 +300,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
 		CursorKey:             cfg.CursorHMACKey,
+		// Poll creation limits (ADR-0029; config.Composer). The zero value would reject every poll.
+		Poll: posts.PollLimits{
+			MaxChoices: cfg.Composer.PollMaxChoices, ChoiceMaxCodepoints: cfg.Composer.PollChoiceMaxCodepoints,
+			MinDuration: cfg.Composer.PollMinDuration, MaxDuration: cfg.Composer.PollMaxDuration,
+		},
 		// Scheduled posts (ADR-0021 D4): the repository and the limits come from config; the RPCs stay behind
 		// FEATURE_SCHEDULED_POSTS (server.go), so wiring them costs nothing while the flag is off.
 		Scheduled: postsRepo,

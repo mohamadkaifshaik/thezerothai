@@ -37,6 +37,10 @@ import (
 //	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
 //
+// Poll (ADR-0029 D1, FEATURE_POLLS): a root post with a poll costs exactly a root post, +0 reads and +0 writes (the poll is a field of
+// the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
+// nothing.
+//
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
 // FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
@@ -73,15 +77,18 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, featureDisabled("content_disclosure")
 	}
 	// polls (ADR-0029 D2) comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED, 0 reads.
-	if in.HasPoll && !in.PollsEnabled {
+	if in.Poll != nil && !in.PollsEnabled {
 		return nil, featureDisabled("polls")
-	}
-	if in.HasPoll { // W6-5 replaces this with the validation and the stored poll
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("polls are not implemented yet"))
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
+	// A poll's own and combination rules come first, so a poll with images or a reply is always field=poll (ADR-0029 D1).
+	pollDraft, err := s.checkPoll(in)
+	if err != nil {
+		return nil, err
+	}
+	logger.SetRequestField(ctx, fieldHasPoll, pollDraft != nil)
 	policy, err := validateReplyPolicy(in)
 	if err != nil {
 		return nil, err
@@ -150,7 +157,8 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI),
+		RequestHash: requestHashWithPoll(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI, pollDraft),
+		Poll:        pollDraft,
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,

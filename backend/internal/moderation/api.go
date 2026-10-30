@@ -109,6 +109,9 @@ type Evidence struct {
 	Website     string
 	AvatarURL   string
 	BannerURL   string
+	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
+	// the original's (from its frozen embed). Labels only: no counts, no voters.
+	PollChoices []string
 }
 
 // Report is the domain form of reports/{reportId}. ReporterID is "" after the reporter's account was deleted.

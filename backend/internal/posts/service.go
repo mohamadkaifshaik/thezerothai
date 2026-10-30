@@ -51,6 +51,8 @@ type Deps struct {
 	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route (ADR-0021 CMP-D4). A zero value
 	// leaves Sweep returning an error; the wiring never mounts the route then.
 	Sweep SweepDeps
+	// Poll holds the poll creation limits (config.Composer; ADR-0029). The zero value rejects every poll.
+	Poll PollLimits
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 }
@@ -67,6 +69,7 @@ type service struct {
 	cursorKey []byte
 	scheduled ScheduledRepo
 	schedule  ScheduleLimits
+	poll      PollLimits
 	sweep     SweepDeps
 	// sweepTimeLeft is a test seam: the time left in the sweep run. Nil means the context deadline against real time.
 	sweepTimeLeft func(ctx context.Context) time.Duration
@@ -100,7 +103,7 @@ func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 func New(d Deps, opts ...Option) Service {
 	s := &service{
 		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
-		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, sweep: d.Sweep,
+		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, poll: d.Poll, sweep: d.Sweep,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
 	}
 	for _, o := range opts {
