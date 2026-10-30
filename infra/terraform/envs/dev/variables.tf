@@ -415,6 +415,34 @@ variable "feature_messaging_percent" {
   }
 }
 
+variable "feature_lists" {
+  description = "FEATURE_LISTS rollout mode for Lists and custom Home tabs (ADR-0030 D9; gates every ListService RPC, GetListTimeline, SetHomeTabs LIST entries and GetMe.home_tabs): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_lists)
+    error_message = "feature_lists must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_lists_allowlist" {
+  description = "FEATURE_LISTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_lists_percent" {
+  description = "FEATURE_LISTS_PERCENT: 0-100, only meaningful when feature_lists = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_lists_percent >= 0 && var.feature_lists_percent <= 100 && floor(var.feature_lists_percent) == var.feature_lists_percent
+    error_message = "feature_lists_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_profile_extras" {
   description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

@@ -15,6 +15,21 @@ import 'dart:convert' as $convert;
 import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
+@$core.Deprecated('Use homeTabKindDescriptor instead')
+const HomeTabKind$json = {
+  '1': 'HomeTabKind',
+  '2': [
+    {'1': 'HOME_TAB_KIND_UNSPECIFIED', '2': 0},
+    {'1': 'HOME_TAB_KIND_LIST', '2': 1},
+    {'1': 'HOME_TAB_KIND_COMMUNITY', '2': 2},
+  ],
+};
+
+/// Descriptor for `HomeTabKind`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List homeTabKindDescriptor = $convert.base64Decode(
+    'CgtIb21lVGFiS2luZBIdChlIT01FX1RBQl9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSSE9NRV9UQU'
+    'JfS0lORF9MSVNUEAESGwoXSE9NRV9UQUJfS0lORF9DT01NVU5JVFkQAg==');
+
 @$core.Deprecated('Use errorReasonDescriptor instead')
 const ErrorReason$json = {
   '1': 'ErrorReason',
@@ -101,6 +116,28 @@ final $typed_data.Uint8List mediaRefDescriptor = $convert.base64Decode(
     'IbCgl0aHVtYl91cmwYAyABKAlSCHRodW1iVXJsEhQKBXdpZHRoGAQgASgFUgV3aWR0aBIWCgZo'
     'ZWlnaHQYBSABKAVSBmhlaWdodBIaCghibHVyaGFzaBgGIAEoCVIIYmx1cmhhc2gSGQoIYWx0X3'
     'RleHQYByABKAlSB2FsdFRleHQSIQoMY29udGVudF90eXBlGAggASgJUgtjb250ZW50VHlwZQ==');
+
+@$core.Deprecated('Use homeTabDescriptor instead')
+const HomeTab$json = {
+  '1': 'HomeTab',
+  '2': [
+    {
+      '1': 'kind',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.common.v1.HomeTabKind',
+      '10': 'kind'
+    },
+    {'1': 'id', '3': 2, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'title', '3': 3, '4': 1, '5': 9, '10': 'title'},
+  ],
+};
+
+/// Descriptor for `HomeTab`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List homeTabDescriptor = $convert.base64Decode(
+    'CgdIb21lVGFiEjIKBGtpbmQYASABKA4yHi5kemVyb3RoLmNvbW1vbi52MS5Ib21lVGFiS2luZF'
+    'IEa2luZBIOCgJpZBgCIAEoCVICaWQSFAoFdGl0bGUYAyABKAlSBXRpdGxl');
 
 @$core.Deprecated('Use errorDetailDescriptor instead')
 const ErrorDetail$json = {

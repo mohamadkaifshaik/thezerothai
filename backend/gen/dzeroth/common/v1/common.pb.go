@@ -35,6 +35,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// What a pinned Home tab shows. A new kind is additive: a client that does not know a kind hides that tab.
+type HomeTabKind int32
+
+const (
+	HomeTabKind_HOME_TAB_KIND_UNSPECIFIED HomeTabKind = 0
+	// A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
+	HomeTabKind_HOME_TAB_KIND_LIST HomeTabKind = 1
+	// A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
+	// SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+	HomeTabKind_HOME_TAB_KIND_COMMUNITY HomeTabKind = 2
+)
+
+// Enum value maps for HomeTabKind.
+var (
+	HomeTabKind_name = map[int32]string{
+		0: "HOME_TAB_KIND_UNSPECIFIED",
+		1: "HOME_TAB_KIND_LIST",
+		2: "HOME_TAB_KIND_COMMUNITY",
+	}
+	HomeTabKind_value = map[string]int32{
+		"HOME_TAB_KIND_UNSPECIFIED": 0,
+		"HOME_TAB_KIND_LIST":        1,
+		"HOME_TAB_KIND_COMMUNITY":   2,
+	}
+)
+
+func (x HomeTabKind) Enum() *HomeTabKind {
+	p := new(HomeTabKind)
+	*p = x
+	return p
+}
+
+func (x HomeTabKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (HomeTabKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_common_v1_common_proto_enumTypes[0].Descriptor()
+}
+
+func (HomeTabKind) Type() protoreflect.EnumType {
+	return &file_dzeroth_common_v1_common_proto_enumTypes[0]
+}
+
+func (x HomeTabKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use HomeTabKind.Descriptor instead.
+func (HomeTabKind) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{0}
+}
+
 type ErrorReason int32
 
 const (
@@ -163,11 +216,11 @@ func (x ErrorReason) String() string {
 }
 
 func (ErrorReason) Descriptor() protoreflect.EnumDescriptor {
-	return file_dzeroth_common_v1_common_proto_enumTypes[0].Descriptor()
+	return file_dzeroth_common_v1_common_proto_enumTypes[1].Descriptor()
 }
 
 func (ErrorReason) Type() protoreflect.EnumType {
-	return &file_dzeroth_common_v1_common_proto_enumTypes[0]
+	return &file_dzeroth_common_v1_common_proto_enumTypes[1]
 }
 
 func (x ErrorReason) Number() protoreflect.EnumNumber {
@@ -176,7 +229,7 @@ func (x ErrorReason) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ErrorReason.Descriptor instead.
 func (ErrorReason) EnumDescriptor() ([]byte, []int) {
-	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{0}
+	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{1}
 }
 
 // A user's display data. Two kinds of copy share this message:
@@ -389,6 +442,75 @@ func (x *MediaRef) GetContentType() string {
 	return ""
 }
 
+// One pinned Home tab (ADR-0030 D6, founder decision F5). Home always starts with the fixed "Following" tab, which is
+// never stored or sent; these are the up to HOME_TABS_MAX_PINNED (5) tabs after it, in the user's order. Stored on
+// users/{uid}.homeTabs, written only by TimelineService.SetHomeTabs, returned by IdentityService.GetMe home_tabs.
+// It lives in common so identity does not import timeline (or, through it, posts).
+type HomeTab struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Kind  HomeTabKind            `protobuf:"varint,1,opt,name=kind,proto3,enum=dzeroth.common.v1.HomeTabKind" json:"kind,omitempty"`
+	// The list id (LIST) or community id (COMMUNITY): a 19-digit Snowflake.
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
+	// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
+	// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
+	// for that id, and calls GetList once for a tab it has no label for.
+	Title         string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HomeTab) Reset() {
+	*x = HomeTab{}
+	mi := &file_dzeroth_common_v1_common_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HomeTab) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HomeTab) ProtoMessage() {}
+
+func (x *HomeTab) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_common_v1_common_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HomeTab.ProtoReflect.Descriptor instead.
+func (*HomeTab) Descriptor() ([]byte, []int) {
+	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *HomeTab) GetKind() HomeTabKind {
+	if x != nil {
+		return x.Kind
+	}
+	return HomeTabKind_HOME_TAB_KIND_UNSPECIFIED
+}
+
+func (x *HomeTab) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *HomeTab) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
 // Why a request failed, attached to Connect errors as an error detail.
 // Clients branch on `reason`, never on the message text.
 type ErrorDetail struct {
@@ -406,7 +528,7 @@ type ErrorDetail struct {
 
 func (x *ErrorDetail) Reset() {
 	*x = ErrorDetail{}
-	mi := &file_dzeroth_common_v1_common_proto_msgTypes[2]
+	mi := &file_dzeroth_common_v1_common_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -418,7 +540,7 @@ func (x *ErrorDetail) String() string {
 func (*ErrorDetail) ProtoMessage() {}
 
 func (x *ErrorDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_common_v1_common_proto_msgTypes[2]
+	mi := &file_dzeroth_common_v1_common_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -431,7 +553,7 @@ func (x *ErrorDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorDetail.ProtoReflect.Descriptor instead.
 func (*ErrorDetail) Descriptor() ([]byte, []int) {
-	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{2}
+	return file_dzeroth_common_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ErrorDetail) GetReason() ErrorReason {
@@ -484,7 +606,11 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\x05R\x06height\x12\x1a\n" +
 	"\bblurhash\x18\x06 \x01(\tR\bblurhash\x12\x19\n" +
 	"\balt_text\x18\a \x01(\tR\aaltText\x12!\n" +
-	"\fcontent_type\x18\b \x01(\tR\vcontentType\"\xa2\x02\n" +
+	"\fcontent_type\x18\b \x01(\tR\vcontentType\"c\n" +
+	"\aHomeTab\x122\n" +
+	"\x04kind\x18\x01 \x01(\x0e2\x1e.dzeroth.common.v1.HomeTabKindR\x04kind\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\"\xa2\x02\n" +
 	"\vErrorDetail\x126\n" +
 	"\x06reason\x18\x01 \x01(\x0e2\x1e.dzeroth.common.v1.ErrorReasonR\x06reason\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12:\n" +
@@ -493,7 +619,11 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xd1\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*a\n" +
+	"\vHomeTabKind\x12\x1d\n" +
+	"\x19HOME_TAB_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12HOME_TAB_KIND_LIST\x10\x01\x12\x1b\n" +
+	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xd1\x05\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -530,25 +660,28 @@ func file_dzeroth_common_v1_common_proto_rawDescGZIP() []byte {
 	return file_dzeroth_common_v1_common_proto_rawDescData
 }
 
-var file_dzeroth_common_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_dzeroth_common_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_dzeroth_common_v1_common_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_dzeroth_common_v1_common_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_dzeroth_common_v1_common_proto_goTypes = []any{
-	(ErrorReason)(0),            // 0: dzeroth.common.v1.ErrorReason
-	(*AuthorSnapshot)(nil),      // 1: dzeroth.common.v1.AuthorSnapshot
-	(*MediaRef)(nil),            // 2: dzeroth.common.v1.MediaRef
-	(*ErrorDetail)(nil),         // 3: dzeroth.common.v1.ErrorDetail
-	nil,                         // 4: dzeroth.common.v1.ErrorDetail.MetadataEntry
-	(*durationpb.Duration)(nil), // 5: google.protobuf.Duration
+	(HomeTabKind)(0),            // 0: dzeroth.common.v1.HomeTabKind
+	(ErrorReason)(0),            // 1: dzeroth.common.v1.ErrorReason
+	(*AuthorSnapshot)(nil),      // 2: dzeroth.common.v1.AuthorSnapshot
+	(*MediaRef)(nil),            // 3: dzeroth.common.v1.MediaRef
+	(*HomeTab)(nil),             // 4: dzeroth.common.v1.HomeTab
+	(*ErrorDetail)(nil),         // 5: dzeroth.common.v1.ErrorDetail
+	nil,                         // 6: dzeroth.common.v1.ErrorDetail.MetadataEntry
+	(*durationpb.Duration)(nil), // 7: google.protobuf.Duration
 }
 var file_dzeroth_common_v1_common_proto_depIdxs = []int32{
-	0, // 0: dzeroth.common.v1.ErrorDetail.reason:type_name -> dzeroth.common.v1.ErrorReason
-	5, // 1: dzeroth.common.v1.ErrorDetail.retry_after:type_name -> google.protobuf.Duration
-	4, // 2: dzeroth.common.v1.ErrorDetail.metadata:type_name -> dzeroth.common.v1.ErrorDetail.MetadataEntry
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0, // 0: dzeroth.common.v1.HomeTab.kind:type_name -> dzeroth.common.v1.HomeTabKind
+	1, // 1: dzeroth.common.v1.ErrorDetail.reason:type_name -> dzeroth.common.v1.ErrorReason
+	7, // 2: dzeroth.common.v1.ErrorDetail.retry_after:type_name -> google.protobuf.Duration
+	6, // 3: dzeroth.common.v1.ErrorDetail.metadata:type_name -> dzeroth.common.v1.ErrorDetail.MetadataEntry
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_common_v1_common_proto_init() }
@@ -561,8 +694,8 @@ func file_dzeroth_common_v1_common_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_common_v1_common_proto_rawDesc), len(file_dzeroth_common_v1_common_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   4,
+			NumEnums:      2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

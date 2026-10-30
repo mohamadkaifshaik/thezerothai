@@ -63,6 +63,22 @@ type RateLimitConfig struct {
 	// further by the requests there are to answer (3 unanswered per sender, 20 new conversations per sender per day).
 	MessagesMutationsPerDay int64
 
+	// ListsWritePerUserPerMinute is the bucket shared by the six list mutations (CreateList, UpdateList, DeleteList, AddListMember,
+	// RemoveListMember and SetHomeTabs), env RATE_LIMIT_LISTS_WRITE_PER_MIN, default 30; ListsReadPerUserPerMinute is GetList,
+	// ListUserLists and ListListMembers, env RATE_LIMIT_LISTS_READ_PER_MIN, default 30; ListTimelinePerUserPerMinute is
+	// GetListTimeline, env RATE_LIMIT_LIST_TIMELINE_PER_MIN, default 12 (tabs switch quickly; Home stays 6). All per instance, so
+	// 90, 90 and 36 per minute with 3 instances (ADR-0030 D10).
+	ListsWritePerUserPerMinute   int
+	ListsReadPerUserPerMinute    int
+	ListTimelinePerUserPerMinute int
+
+	// ListMutationsPerDay is the in-memory daily cap shared by the six list mutations (one counter per uid per instance,
+	// ratelimit.DailyCap), env LIST_MUTATIONS_PER_DAY, default 500, logged as limit_name "list_mutation_daily" (ADR-0030 D10).
+	// Without it 30/min x 3 instances x 1,440 min of UpdateList calls a day would be about 130k idempotency-plus-list writes. Each
+	// mutation writes at most 3 documents, so the bound is 500 x 3 instances x 3 = 4,500 writes per account per day against the
+	// 20k a day free quota, and real work is bounded further by the caps (20 lists, 150 members, 10 creates, 300 adds).
+	ListMutationsPerDay int64
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket (ADR-0024 D10), env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the
@@ -248,4 +264,14 @@ type QuotaConfig struct {
 	// (5, accounts younger than NewAccountWindow). Messages in an existing conversation are not charged.
 	DMNewConversationsPerDay           int
 	NewAccountDMNewConversationsPerDay int
+
+	// ListCreatesPerDay/NewAccountListCreatesPerDay cap CreateList writes per IST day (ADR-0030 D10, quota.ListCreates), env
+	// QUOTA_LIST_CREATES_PER_DAY (10) and QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY (3); ListAddsPerDay/NewAccountListAddsPerDay cap
+	// AddListMember writes (quota.ListAdds), env QUOTA_LIST_ADDS_PER_DAY (300) and QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY (50). The
+	// new-account tier applies to accounts younger than NewAccountWindow. A replay and an already-present member are not charged;
+	// Remove has no quota.
+	ListCreatesPerDay           int
+	NewAccountListCreatesPerDay int
+	ListAddsPerDay              int
+	NewAccountListAddsPerDay    int
 }

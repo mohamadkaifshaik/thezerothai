@@ -54,6 +54,12 @@ const (
 	// DMNew counts new direct-message conversations the caller opened (ADR-0027 D13): charged in the SendMessage
 	// transaction that creates the conversation. Messages in an existing conversation are not charged here.
 	DMNew Kind = "dmNew"
+	// ListCreates counts CreateList calls that wrote a list (ADR-0030 D10). A replay is not charged; UpdateList, DeleteList and
+	// SetHomeTabs never are.
+	ListCreates Kind = "listCreates"
+	// ListAdds counts AddListMember calls that added a member (ADR-0030 D10). A replay and an already-present member are not
+	// charged; RemoveListMember never is.
+	ListAdds Kind = "listAdds"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -103,6 +109,11 @@ type Record struct {
 	// DMNew counts new conversations opened (ADR-0027 D13). Absent in older docs, so it decodes as 0. It lives in the
 	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
 	DMNew int64 `firestore:"dmNew"`
+	// ListCreates counts CreateList writes (ADR-0030 D10). Absent in older docs, so it decodes as 0. It lives in the Record so the
+	// whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	ListCreates int64 `firestore:"listCreates"`
+	// ListAdds counts AddListMember writes (ADR-0030 D10); same rule as ListCreates.
+	ListAdds int64 `firestore:"listAdds"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -131,6 +142,10 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.PrivacyToggles
 	case DMNew:
 		return r.DMNew
+	case ListCreates:
+		return r.ListCreates
+	case ListAdds:
+		return r.ListAdds
 	default:
 		return 0
 	}
@@ -162,6 +177,10 @@ func (r *Record) increment(k Kind, n int64) {
 		r.PrivacyToggles += n
 	case DMNew:
 		r.DMNew += n
+	case ListCreates:
+		r.ListCreates += n
+	case ListAdds:
+		r.ListAdds += n
 	}
 }
 

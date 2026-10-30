@@ -14,6 +14,34 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
+/// What a pinned Home tab shows. A new kind is additive: a client that does not know a kind hides that tab.
+class HomeTabKind extends $pb.ProtobufEnum {
+  static const HomeTabKind HOME_TAB_KIND_UNSPECIFIED =
+      HomeTabKind._(0, _omitEnumNames ? '' : 'HOME_TAB_KIND_UNSPECIFIED');
+
+  /// A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
+  static const HomeTabKind HOME_TAB_KIND_LIST =
+      HomeTabKind._(1, _omitEnumNames ? '' : 'HOME_TAB_KIND_LIST');
+
+  /// A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
+  /// SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+  static const HomeTabKind HOME_TAB_KIND_COMMUNITY =
+      HomeTabKind._(2, _omitEnumNames ? '' : 'HOME_TAB_KIND_COMMUNITY');
+
+  static const $core.List<HomeTabKind> values = <HomeTabKind>[
+    HOME_TAB_KIND_UNSPECIFIED,
+    HOME_TAB_KIND_LIST,
+    HOME_TAB_KIND_COMMUNITY,
+  ];
+
+  static final $core.List<HomeTabKind?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static HomeTabKind? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const HomeTabKind._(super.value, super.name);
+}
+
 class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_UNSPECIFIED =
       ErrorReason._(0, _omitEnumNames ? '' : 'ERROR_REASON_UNSPECIFIED');

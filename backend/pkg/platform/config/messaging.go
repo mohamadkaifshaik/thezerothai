@@ -1,7 +1,5 @@
 package config
 
-import "fmt"
-
 // MessagingConfig holds the direct-message values that are neither a rate limit nor a daily quota (ADR-0027 D13). The
 // SendMessage and read buckets and the daily send cap are RateLimitConfig fields; the new-conversation quota is a
 // QuotaConfig field. Every value is > 0: a 0 would lock every user out of the feature or disable a cap, so startup fails
@@ -25,24 +23,11 @@ type MessagingConfig struct {
 // loadMessaging reads and validates the MESSAGES_* and CACHE_MESSAGING_* keys; a value <= 0 fails startup.
 func loadMessaging() (MessagingConfig, error) {
 	var c MessagingConfig
-	for _, f := range []struct {
-		dst *int
-		key string
-		def int
-	}{
+	err := loadPositiveInts([]positiveInt{
 		{&c.NewAccountSendsPerDay, "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", 50},
 		{&c.RequestMaxUnanswered, "MESSAGES_REQUEST_MAX_UNANSWERED", 3},
 		{&c.PushesPerRecipientPerHour, "MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", 20},
 		{&c.ConversationCacheEntries, "CACHE_MESSAGING_CONVERSATION_ENTRIES", 5000},
-	} {
-		v, err := getInt(f.key, f.def)
-		if err != nil {
-			return MessagingConfig{}, err
-		}
-		if v <= 0 {
-			return MessagingConfig{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
-		}
-		*f.dst = v
-	}
-	return c, nil
+	})
+	return c, err
 }
