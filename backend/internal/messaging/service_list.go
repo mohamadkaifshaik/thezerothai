@@ -77,8 +77,10 @@ func clampPageSize(n int32) int {
 //
 // Worst-case Firestore cost (budget.Counter; the account-status interceptor read is counted as the proto comment does):
 //   - first INBOX page of 20: 23 reads (interceptor 1, query 20, caller graph 1, requests count() 1), planning 9
-//   - REQUESTS page, or an older INBOX page: 22 (no count())
-//   - since refresh: 3 (interceptor, query min 1, caller graph; the graph is not read for an empty query), planning 2
+//   - REQUESTS page, or an older INBOX page: 22 (no count(); request_count is 0)
+//   - INBOX since refresh: 4 with one entry (interceptor, query min 1, caller graph, requests count() 1), planning 3; an
+//     empty one 3 (no graph read). W7-37: request_count rides every INBOX first page and since refresh (the count runs in
+//     parallel with the query; a failed count() fails the call, never answers 0). REQUESTS since refresh: 3, no count()
 //   - writes 0
 func (s *service) ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
@@ -101,8 +103,9 @@ type listInput struct {
 	folder, label string
 	limit         int
 	before, since *cursor.Cursor
-	// first: no token at all, the only page that carries request_count (INBOX).
-	first bool
+	// withCount: INBOX and not an older page (no page_token): a first page or a since refresh, the responses that carry
+	// request_count (W7-37).
+	withCount bool
 }
 
 func (s *service) validateList(uid string, req *messagingv1.ListConversationsRequest) (listInput, error) {
@@ -133,9 +136,8 @@ func (s *service) validateList(uid string, req *messagingv1.ListConversationsReq
 			return in, apierr.Validation("page_token", "invalid or expired page_token")
 		}
 		in.before = &c
-	default:
-		in.first = true
 	}
+	in.withCount = in.folder == dmInboxCollection && in.before == nil
 	return in, nil
 }
 
@@ -157,7 +159,7 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 		rows, err = s.d.Repo.ListEntries(gctx, uid, in.folder, ListQuery{Limit: in.limit, Before: in.before, After: in.since})
 		return err
 	})
-	if in.first && in.folder == dmInboxCollection {
+	if in.withCount {
 		g.Go(func() (err error) {
 			count, err = s.d.Repo.CountRequests(gctx, uid)
 			return err

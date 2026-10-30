@@ -189,7 +189,7 @@ Prices (§7):
 | SendMessage, refused (blocked, flag off for the recipient, request cap, gone) | ≤ 5 | — | 0 | 0 | one error code, "can't message this account" |
 | Push delivery (Pub/Sub push to `/internal`, `message` type, no row) | 9 (actor and recipient `users` fresh 2, recipient graph 1, devices ≤ 5, +1 actor graph on overflow) | 3.5 | 0 | 0 | lever (architect A4): skip the 2 fresh profile reads for push-only events → 1.5 |
 | ListConversations, first page 20 (INBOX) | 23 (interceptor 1, query 20, caller graph 1, `count()` of requests 1) | 9 (about 6 conversations) | 0 | 0 | REQUESTS folder the same without the `count()` |
-| ListConversations `since` refresh | 3 (interceptor, query min 1, graph) | 2 | 0 | 0 | |
+| ListConversations `since` refresh (INBOX) | 4 (interceptor, query min 1, graph, `count()` of requests 1; empty refresh 3; W7-37a) | 3 | 0 | 0 | REQUESTS `since` refresh stays 3 / 2 (no `count()`) |
 | ListMessages first page 20 / 50 (and older pages) | first page 25 / 55 since W7-27 (interceptor 1, conversation doc 1, query, peer `users` 1, caller graph 1 for `can_reply`, the caller's entry 1); older pages 24 / 54 | 15 (16 with the entry) | 0 | 0 | non-participant or unknown id → NOT_FOUND after ≤ 2 reads, byte-identical |
 | ListMessages `since` poll | 3 cold (interceptor, conversation doc, query min 1); **a `since` response omits `conversation`** (no peer or graph read) | 1.2 | 0 | 0 | + 1 read per new message returned |
 | MarkConversationRead | 1 (interceptor) | 0.3 | 1 (entry `unreadCount = 0`, `lastReadAt`; `Exists` precondition) | 0 | the client calls it only when it holds unread > 0 |
@@ -205,7 +205,7 @@ Prices (§7):
 |---|---|---|---|---|
 | SendMessage (messages sent per DAU per day, the main sensitivity) | **1.5** | 2.5 | 3.75 | 4.65 (3.1 average: 3 + request and new-conversation extras) |
 | Push delivery (1 per message; Android recipients send FCM, every message is one internal request) | 1.5 | 3.5 | 5.25 | 0 |
-| ListConversations (0.5 first page + 1.5 `since` refresh) | 2.0 | 9 / 2 | 7.5 | 0 |
+| ListConversations (0.5 first page + 1.5 `since` refresh) | 2.0 | 9 / 3 | 9.0 | 0 |
 | ListMessages open (0.5 first page + 1.0 `since` resume from the drift cache) | 1.5 | 15 / 2 | 9.5 | 0 |
 | ListMessages `since` polls on a visible thread (web has no push; Android hot interval 30 s) | **5** | 1.2 | 6.0 | 0 |
 | New messages read once by the recipient | 1.5 messages | 1 | 1.5 | 0 |
@@ -373,7 +373,7 @@ Prices (§7):
 | W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
 | W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Open |
 | W7-36 | L-6: open MESSAGE reports clear their copied text after 180 days even if untriaged (founder decision 2026-10-29) | backend-developer | S | — | moderation only | Open |
-| W7-37 | `request_count` on every INBOX refresh, so a request that arrives after the Inbox was first opened shows "Message requests (N)" (found in the W7-24 dev smoke, leg 2, 2026-10-30; founder decision 2026-10-30). **Gate: before prod** | architect (ticket + ADR-0027 note), then W7-37a backend-developer and W7-37b frontend-developer | S | W7-7, W7-14 | yes (messaging module, the proto comment, the messages client); **W7-37b merges only after W7-37a serves dev** | Open |
+| W7-37 | `request_count` on every INBOX refresh, so a request that arrives after the Inbox was first opened shows "Message requests (N)" (found in the W7-24 dev smoke, leg 2, 2026-10-30; founder decision 2026-10-30). **Gate: before prod** | architect (ticket + ADR-0027 note), then W7-37a backend-developer and W7-37b frontend-developer | S | W7-7, W7-14 | yes (messaging module, the proto comment, the messages client); **W7-37b merges only after W7-37a serves dev** | Ticketed (#462); W7-37a In review (PR #PRNUM); W7-37b Open |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -591,7 +591,7 @@ Order:
   - Given a request from a blocked account, then it is absent and the token still advances.
   - Given a foreign or tampered token, then VALIDATION with 0 reads.
   - Given `messaging` allowlist-off for the caller (not globally off), then the list still works.
-- **Test notes.** `budgettest` 23 cold first page, 3 refresh; the block and mute matrix; token binding.
+- **Test notes.** `budgettest` 23 cold first page, 4 refresh (W7-37a); the block and mute matrix; token binding.
 - **Observability.** `kind=list_conversations`, `folder`, `results`, `dropped` by cause, `fs_reads`.
 - **Budget.** 23 worst / 9 planning cold page; 2 refresh; writes 0.
 - **Flag.** Not globally off (F6).
@@ -1002,7 +1002,7 @@ scenario no longer works".
   (W7-33, ADR-0027 note); L-6 → 180-day TTL (W7-36).
 - Not ticketed: L-10 (the F2(d) requests setting, planner follow-up).
 
-### W7-37 — `request_count` on every INBOX refresh  [owner: architect, then backend-developer (W7-37a) and frontend-developer (W7-37b)] [size: S] [depends: W7-7, W7-14]  Status: Open
+### W7-37 — `request_count` on every INBOX refresh  [owner: architect, then backend-developer (W7-37a) and frontend-developer (W7-37b)] [size: S] [depends: W7-7, W7-14]  Status: Ticketed (#462); W7-37a In review (PR #PRNUM); W7-37b Open
 - **Why (found in the W7-24 dev smoke, leg 2, 2026-10-30 07:28 UTC).** C (not mutual with A) sent A three messages. The server was right (`state=new`, then `request` twice, the fourth refused `request_unanswered`), but A's Messages screen never showed the "Message requests (N)" row. Cause, verified in code:
   - Server: `backend/internal/messaging/service_list.go` runs the `dmRequests` `count()` only when `in.first && folder == INBOX` (no token at all). The proto says the same twice (`messaging.proto` RPC comment: "request_count is set on the first INBOX page only (no token); 0 everywhere else"; the `ListConversationsResponse.request_count` field comment: "set on the first INBOX page only, else 0"), and so does W7-7.
   - Client: `MessagingRepository._refreshConversations` cold-opens only when the stored since token is empty, rejected, or answered with a full page. Otherwise it applies a since refresh, and `applyConversationsRefresh` never touches the stored `requestCount`. `ConversationsCubit.load()` always refreshes, but that refresh is a since refresh. The persisted count (drift / IndexedDB) stays at what the first cold open saw (A's was 0 at 07:18, before C's request), and `conversations_screen.dart` draws the row only when `requestCount > 0`. Since tokens live 30 days and every refresh issues a new one, so a user who has opened Messages once does not learn of a new request until sign-out, token expiry or a full since page. Only the local `adjustRequestCount(-1)` on Accept and Delete moves it. Block (`dropBlockedRequest`) removes the cached row but leaves the count "for the next first Inbox page to correct".
