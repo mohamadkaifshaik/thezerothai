@@ -108,6 +108,17 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_CANNOT_MESSAGE =
       ErrorReason._(18, _omitEnumNames ? '' : 'ERROR_REASON_CANNOT_MESSAGE');
 
+  /// FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+  /// and show its final results; do not retry.
+  static const ErrorReason ERROR_REASON_POLL_CLOSED =
+      ErrorReason._(19, _omitEnumNames ? '' : 'ERROR_REASON_POLL_CLOSED');
+
+  /// FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+  /// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
+  /// that choice: a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  static const ErrorReason ERROR_REASON_ALREADY_VOTED =
+      ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -128,10 +139,12 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_REPLY_NOT_ALLOWED,
     ERROR_REASON_PROTECTED_ACCOUNT,
     ERROR_REASON_CANNOT_MESSAGE,
+    ERROR_REASON_POLL_CLOSED,
+    ERROR_REASON_ALREADY_VOTED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 18);
+      $pb.ProtobufEnum.$_initByValueList(values, 20);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

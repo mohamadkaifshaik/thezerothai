@@ -232,6 +232,8 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.Post': $1.Post$json,
   '.dzeroth.common.v1.MediaRef': $3.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': $1.EmbeddedPost$json,
+  '.dzeroth.posts.v1.Poll': $1.Poll$json,
+  '.dzeroth.posts.v1.PollChoice': $1.PollChoice$json,
   '.dzeroth.posts.v1.Mention': $1.Mention$json,
   '.dzeroth.search.v1.GetTrendsRequest': GetTrendsRequest$json,
   '.dzeroth.search.v1.GetTrendsResponse': GetTrendsResponse$json,

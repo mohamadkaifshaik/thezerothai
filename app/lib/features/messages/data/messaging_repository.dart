@@ -98,6 +98,7 @@ class MessagingRepository {
   /// Sign-out: forget in-flight work (the shared session epoch is ended by
   /// `wipeSessionData`, which drops their writes).
   void clearSession() {
+    _gate.endSession();
     _inflight.clear();
     _tail = Future<void>.value();
   }
@@ -111,6 +112,18 @@ class MessagingRepository {
   RateLimitHold get rateLimitHold => _hold;
 
   // --- conversations -------------------------------------------------------
+
+  /// Whether the cache holds any conversation. Local only (W7-26).
+  Future<bool> hasCachedConversations() => _store.hasConversations();
+
+  /// The one session-start probe of a caller outside the rollout (W7-26,
+  /// ADR-0027 F6(a)): [MessagingFeatureGate.probe] with the cache check and
+  /// one INBOX refresh. Sends nothing when messaging is enabled or the cache
+  /// is empty. Never throws.
+  Future<void> probeAccess() => _gate.probe(
+    hasCached: hasCachedConversations,
+    refresh: () => refreshConversations(Folder.FOLDER_INBOX),
+  );
 
   /// What is on disk for [folder]. Never touches the network.
   Future<ConversationsSnapshot> cachedConversations(Folder folder) =>

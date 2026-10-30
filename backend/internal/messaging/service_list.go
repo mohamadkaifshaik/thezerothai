@@ -270,7 +270,9 @@ func requestHiddenBy(peer string, snap graph.Snapshot) string {
 }
 
 // conversationOf maps an entry to the wire Conversation. The state comes from the folder (the entry holds none, and a
-// conversation read per row would break the budget): REQUESTS is REQUEST, INBOX is ACCEPTED.
+// conversation read per row would break the budget): REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with
+// RequestPending (the requester's own entry while the peer has not accepted, ADR-0027 note W7-25), which is REQUEST in the
+// INBOX, the same pair the ListMessages header returns for the requester. +0 reads.
 func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{
 		Id: r.ID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
@@ -281,6 +283,9 @@ func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1
 	}
 	if folder == dmRequestsCollection {
 		c.State, c.Folder = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, messagingv1.Folder_FOLDER_REQUESTS
+	}
+	if folder == dmInboxCollection && r.RequestPending {
+		c.State = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
 	}
 	return c
 }

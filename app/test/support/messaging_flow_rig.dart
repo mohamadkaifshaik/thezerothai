@@ -229,7 +229,11 @@ class MessagingFlowRig {
     messagingRepository = MessagingRepository(
       apiClient: api,
       store: MessagingStore(database),
-      gate: MessagingFeatureGate(isMessagingEnabled: () => true),
+      // The flag follows [flags] (W7-26); without `messaging` the gate is
+      // hidden until a probe (see [probeReadOnly]).
+      gate: MessagingFeatureGate(
+        isMessagingEnabled: () => this.flags.contains('messaging'),
+      ),
       rateLimitHold: RateLimitHold(),
     );
     graphRepository = GraphRepository(apiClient: api, database: database);
@@ -285,6 +289,37 @@ class MessagingFlowRig {
       .last
       .matchedLocation;
 
+  /// W7-26: a caller outside the rollout whose device holds conversations:
+  /// loads the Inbox into the cache (as an earlier session did), then runs the
+  /// session-start probe. [server].calls is cleared first, so a test counts
+  /// only what follows.
+  ///
+  /// Run it through [primeReadOnly]: a drift query started inside
+  /// `tester.runAsync` leaves the in-memory database waiting forever when the
+  /// test ends.
+  Future<void> probeReadOnly({bool seedCache = true}) async {
+    if (seedCache) {
+      await messagingRepository.refreshConversations(Folder.FOLDER_INBOX);
+      await messagingRepository.refreshConversations(Folder.FOLDER_REQUESTS);
+    }
+    server.calls.clear();
+    await messagingRepository.probeAccess();
+  }
+
+  /// [probeReadOnly], pumped in the test zone until it is done.
+  Future<void> primeReadOnly(
+    WidgetTester tester, {
+    bool seedCache = true,
+  }) async {
+    var finished = false;
+    final done = probeReadOnly(seedCache: seedCache)
+        .whenComplete(() => finished = true);
+    for (var i = 0; i < 200 && !finished; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    await done;
+  }
+
   /// Opens the app at [location] (default the Inbox).
   Future<void> pump(
     WidgetTester tester, {
@@ -309,7 +344,11 @@ class MessagingFlowRig {
         enabledFeatures: flags,
       ),
     );
-    appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
+    appRouter = AppRouter(
+      authBloc: auth,
+      onboardingBloc: onboarding,
+      messagingGate: messagingRepository.gate,
+    );
     appRouter.router.go(location);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;

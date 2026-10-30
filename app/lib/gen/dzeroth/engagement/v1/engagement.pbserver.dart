@@ -37,6 +37,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $3.ListBookmarksRequest request);
   $async.Future<$3.ListLikedPostsResponse> listLikedPosts(
       $pb.ServerContext ctx, $3.ListLikedPostsRequest request);
+  $async.Future<$3.VotePollResponse> votePoll(
+      $pb.ServerContext ctx, $3.VotePollRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -56,6 +58,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
         return $3.ListBookmarksRequest();
       case 'ListLikedPosts':
         return $3.ListLikedPostsRequest();
+      case 'VotePoll':
+        return $3.VotePollRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -80,6 +84,8 @@ abstract class EngagementServiceBase extends $pb.GeneratedService {
         return listBookmarks(ctx, request as $3.ListBookmarksRequest);
       case 'ListLikedPosts':
         return listLikedPosts(ctx, request as $3.ListLikedPostsRequest);
+      case 'VotePoll':
+        return votePoll(ctx, request as $3.VotePollRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

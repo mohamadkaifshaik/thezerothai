@@ -192,6 +192,16 @@ class MessagingStore {
     );
   }
 
+  /// Whether any conversation, in either folder, is cached (W7-26: a LIMIT 1
+  /// query; the cache is the signed-in user's own, see
+  /// `AppDatabase.claimCacheFor`).
+  Future<bool> hasConversations() async {
+    final row = await (_db.select(
+      _db.conversationEntries,
+    )..limit(1)).getSingleOrNull();
+    return row != null;
+  }
+
   /// The cached conversation [id], whichever folder it is in.
   Future<pb.Conversation?> conversation(String id) async {
     final row = await (_db.select(

@@ -400,8 +400,8 @@ func TestTakedownReach_AcceptReachesTheOtherDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Reads() != 3 || c.Writes() != 2 || c.Deletes() != 1 {
-		t.Errorf("accept reads/writes/deletes = %d/%d/%d, want 3/2/1", c.Reads(), c.Writes(), c.Deletes())
+	if c.Reads() != 4 || c.Writes() != 3 || c.Deletes() != 1 {
+		t.Errorf("accept reads/writes/deletes = %d/%d/%d, want 4/3/1", c.Reads(), c.Writes(), c.Deletes())
 	}
 	ref, _ := e.mustList(e.msgSvc(), bob, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: other.inbox})
 	if got := respIDs(ref); len(got) != 1 || got[0] != convID {

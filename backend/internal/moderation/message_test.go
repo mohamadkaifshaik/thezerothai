@@ -366,3 +366,17 @@ func TestServer_PostReportIgnoresTheMessagingFlag(t *testing.T) {
 		t.Fatalf("a POST report with messaging off: %v", err)
 	}
 }
+
+// W7-36: the service still hands the repo the text in Evidence (the repo, not the service, decides where it is stored),
+// and a POST report is untouched.
+func TestReport_MessageEvidenceTextReachesTheRepo(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	l := &fakeLookup{msg: ReportedMessage{SenderUID: sender, Text: "x"}}
+	if _, err := f.msgSvc(l).Report(gctx(), reporter, msgInput()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.repo.calls[0].Report; got.Evidence == nil || got.Evidence.Text != "x" || !got.ExpireAt.IsZero() {
+		t.Errorf("report = %+v, want text kept for the repo and no parent expireAt", got)
+	}
+}

@@ -13,7 +13,8 @@ import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/bloc/auth_event.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
-import '../../messages/domain/messaging_feature_flag.dart';
+import '../../messages/domain/messaging_feature_gate.dart';
+import '../../messages/presentation/widgets/messaging_access_builder.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
@@ -75,7 +76,11 @@ class SettingsList extends StatelessWidget {
   final String? selectedPath;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => MessagingAccessBuilder(
+    builder: (context, access) => _withProtect(context, access),
+  );
+
+  Widget _withProtect(BuildContext context, MessagingAccess access) {
     // The protect switch's cubit exists only when the row can show, so a
     // caller without the flag reads no IdentityRepository here.
     final isPrivate = context.select(
@@ -83,7 +88,9 @@ class SettingsList extends StatelessWidget {
     );
     final candidate =
         isPrivate || isFeatureEnabled(context, kFeaturePrivateAccounts);
-    if (!candidate) return _buildList(context, showProtect: false);
+    if (!candidate) {
+      return _buildList(context, showProtect: false, messaging: access);
+    }
     return BlocProvider<ProtectPostsCubit>(
       create: (context) => ProtectPostsCubit(
         identityRepository: context.read<IdentityRepository>(),
@@ -94,6 +101,7 @@ class SettingsList extends StatelessWidget {
       child: Builder(
         builder: (context) => _buildList(
           context,
+          messaging: access,
           showProtect:
               isPrivate ||
               !context.select((ProtectPostsCubit c) => c.state.refused),
@@ -102,7 +110,11 @@ class SettingsList extends StatelessWidget {
     );
   }
 
-  Widget _buildList(BuildContext context, {required bool showProtect}) {
+  Widget _buildList(
+    BuildContext context, {
+    required bool showProtect,
+    required MessagingAccess messaging,
+  }) {
     final masterDetail =
         MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     void open(String path) =>
@@ -125,9 +137,13 @@ class SettingsList extends StatelessWidget {
 
     // W7-19: the legacy chrome (no `ui_shell`) has no Messages tab, so Settings
     // carries the only entry. The new shell has the bar / rail destination.
-    final messagesEntry =
-        isFeatureEnabled(context, kFeatureMessaging) &&
-        !isFeatureEnabled(context, kFeatureUiShell);
+    // W7-26: read-only Messages (off for this caller only, with a cached
+    // conversation) keeps the row in both chromes: it is the only way in.
+    final messagesEntry = switch (messaging) {
+      MessagingAccess.full => !isFeatureEnabled(context, kFeatureUiShell),
+      MessagingAccess.readOnly => true,
+      MessagingAccess.hidden => false,
+    };
 
     final groups = <(String, List<Widget>)>[
       (
