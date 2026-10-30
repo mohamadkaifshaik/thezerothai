@@ -12,12 +12,14 @@ import (
 // ToProto converts a Post to its wire shape. Exported for the timeline module, which returns the same PostView.
 // A QUOTE or REPOST carries its frozen Embedded snapshot (a tombstone has only post_id and unavailable). Every
 // MediaRef carries thumb_url (lists render it).
-func ToProto(p *Post) *postsv1.Post { return toProtoAt(p, "", time.Now()) }
+func ToProto(p *Post) *postsv1.Post { return toProtoAt(p, ViewerSet{}, "", time.Now()) }
 
 // ToProtoForViewer is ToProto for a known viewer: the author sees the per-choice counts of their own poll (ADR-0029 D4).
-func ToProtoForViewer(p *Post, viewer string) *postsv1.Post { return toProtoAt(p, viewer, time.Now()) }
+func ToProtoForViewer(p *Post, viewer string) *postsv1.Post {
+	return toProtoAt(p, ViewerSet{}, viewer, time.Now())
+}
 
-func toProtoAt(p *Post, viewer string, now time.Time) *postsv1.Post {
+func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post {
 	out := &postsv1.Post{
 		PostId: p.ID,
 		Author: &commonv1.AuthorSnapshot{
@@ -51,7 +53,7 @@ func toProtoAt(p *Post, viewer string, now time.Time) *postsv1.Post {
 		out.Mentions = append(out.Mentions, &postsv1.Mention{UserId: m.UserID, Handle: m.Handle})
 	}
 	out.Media = mediaRefsToProto(p.Media)
-	out.Poll = pollToProto(p, viewer, now)
+	out.Poll = pollToProto(p, vs, viewer, now)
 	return out
 }
 
@@ -90,10 +92,19 @@ func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 // hint (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data). bookmarked_by_viewer is
 // ViewerSet.Bookmarked (ADR-0023 D3): HydrateViewer decides whether the set is filled, so this adds no read.
 func ToView(p *Post, vs ViewerSet, viewer string) *postsv1.PostView {
+	return ToViewAt(p, vs, viewer, time.Now())
+}
+
+// ToViewAt is ToView with the server clock passed in: the seam for poll closing in tests (ADR-0029 D4). Production callers use ToView.
+func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.PostView {
 	liked, reposted := vs.Flags(p)
-	return &postsv1.PostView{Post: toProtoAt(p, viewer, time.Now()), LikedByViewer: liked, RepostedByViewer: reposted,
+	v := &postsv1.PostView{Post: toProtoAt(p, vs, viewer, now), LikedByViewer: liked, RepostedByViewer: reposted,
 		BookmarkedByViewer:    vs.Bookmarked(p),
 		ViewerReplyPermission: replyPermissionFor(p, viewer)}
+	if i, voted := vs.PollChoice(p); voted {
+		v.ViewerPollChoice = int32(i) + 1 // index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
+	}
+	return v
 }
 
 // replyPermissionFor is the viewer hint the timelines compute with 0 reads (ADR-0021 D2, review I-6). It is
@@ -158,16 +169,16 @@ func kindToProto(k Kind) postsv1.PostKind {
 // pollToProto is the one rule for what a viewer may see of a post's poll (ADR-0029 D4). Hidden is the default: every
 // per-choice votes is 0 and results_visible false, so the bytes are the same whatever the real counts; total_votes is
 // always the real total. The counts are shown when the poll is closed (by the server clock passed in) or the viewer is the
-// author. Voters see their results in W6-6, which adds the ViewerSet check here; until then a voter's feed hides them and the
-// VotePoll response (W6-7) carries them. A new proto is built on every call: the cached *Post is shared by viewers and is
-// never written to. nil for a post without a poll.
-func pollToProto(p *Post, viewer string, now time.Time) *postsv1.Poll {
+// author, has voted (vs.PollChoice), or FEATURE_POLLS is globally off (vs, ADR-0029 D4). A new proto is built on every call: the cached *Post is
+// shared by viewers and is never written to. nil for a post without a poll.
+func pollToProto(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Poll {
 	po := p.Poll
 	if po == nil {
 		return nil
 	}
 	closed := po.Closed(now)
-	visible := closed || (viewer != "" && viewer == p.AuthorID)
+	_, voted := vs.PollChoice(p)
+	visible := closed || vs.pollsOff || voted || (viewer != "" && viewer == p.AuthorID)
 	out := &postsv1.Poll{
 		ClosesAt: timestamppb.New(po.ClosesAt), TotalVotes: po.Total, ResultsVisible: visible, Closed: closed,
 		Choices: make([]*postsv1.PollChoice, len(po.Options)),
