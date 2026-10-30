@@ -47,6 +47,7 @@ import (
 // writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
+	logger.SetRequestField(ctx, fieldHasPoll, in.Poll != nil) // also on the refusals: a count of polls attempted, never the labels
 	defer func() {
 		if err != nil {
 			noteRejected(ctx, err)
@@ -88,7 +89,6 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if err != nil {
 		return nil, err
 	}
-	logger.SetRequestField(ctx, fieldHasPoll, pollDraft != nil)
 	policy, err := validateReplyPolicy(in)
 	if err != nil {
 		return nil, err

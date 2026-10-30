@@ -122,7 +122,7 @@ func TestCreate_PollValidation(t *testing.T) {
 		{"reply", base(func(in *CreateInput) { in.ReplyToPostID = rReply1 })},
 		{"quote", base(func(in *CreateInput) { in.QuoteOfPostID = rReply1 })},
 		{"empty text", base(func(in *CreateInput) { in.Text = "" })},
-		{"blank text", base(func(in *CreateInput) { in.Text = " ​ " })},
+		{"blank text", base(func(in *CreateInput) { in.Text = " \u200b " })},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -225,10 +225,10 @@ func TestCreate_PollReplayAndReuse(t *testing.T) {
 	}
 	in.Poll = &PollInput{Choices: []string{"Yes", "Maybe"}, DurationMinutes: 1440}
 	_, _, err = e.create(in)
-	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	in.Poll = nil
 	_, _, err = e.create(in)
-	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
 // Far from "now" on both sides, so the tests never depend on the clock edge.

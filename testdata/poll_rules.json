@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared poll creation rules (ADR-0029 D1, plan W6-5). Go: backend/internal/posts/poll_rules_test.go; Dart: the composer's poll validator (W6-11) runs the same rows. A valid row lists the stored (normalised) labels; an invalid row is VALIDATION field=poll. Combination rules (media, reply, quote, empty text) are server-only and are tested in Go.",
+  "_comment": "Shared poll creation rules (ADR-0029 D1, plan W6-5). Go: backend/internal/posts/poll_rules_test.go; Dart: the composer's poll validator (W6-12) runs the same rows. A valid row lists the stored (normalised) labels; an invalid row is VALIDATION field=poll. Combination rules (media, reply, quote, empty text) are server-only and are tested in Go.",
   "limits": {"max_choices": 4, "choice_max_codepoints": 25, "min_duration_minutes": 5, "max_duration_minutes": 10080},
   "cases": [
     {"name": "two choices, one day", "choices": ["Yes", "No"], "duration_minutes": 1440, "valid": true, "stored": ["Yes", "No"]},
