@@ -244,8 +244,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | Open |
 | W4-11 | *(conditional, F2 = yes)* `nameKeys` written by identity + `opsctl` backfill | backend-developer | M | W4-1 (A8), W4-4 | **conflicts with W3 profile-write changes**: sequence after W3's identity PRs | Open (conditional) |
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
-| W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | In review (PR #464): parser + store; repository waits for W4-3 |
-| W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Open |
+| W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
+| W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Done in the PR of branch `feat/ui-w4-14-search-field` (in review) |
 | W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | Open |
 | W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | Open |
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | Open |
@@ -569,7 +569,7 @@ Order:
 - **Seam.** `SearchRepository` is the only place that calls the RPCs; recent searches stay behind a store interface, so a server history later changes no caller.
 - **Parallel with W3:** the parser and store, **yes, now**.
 
-### W4-14 — Search field and suggestions  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: Open
+### W4-14 — Search field and suggestions  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: In review
 - **Description.** A pill search field (`AppSearchField`, a new shared widget: 1 dp outline `#333639` dark, fully rounded, search icon, "Search" placeholder; `explore.md` §2). On focus, an overlay shows:
   - empty input: "Recent" (from the store) with "Clear all";
   - typing: hashtag suggestions from GetTrends `prefix` (needs `trends`) and people rows from SearchPeople with limit 5 (debounce 300 ms, at least 2 characters, the in-flight call cancelled on the next keystroke);
