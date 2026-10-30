@@ -185,7 +185,12 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   - Users who block the caller are dropped from People results, matching GetProfile's NOT_FOUND. Suspended and deleting users are dropped too.
   - Users the caller blocks or mutes stay, with the relationship set so `FollowButton` shows "Unblock".
   - Posts follow ADR-0010 D6 (Home column): drop blocked, blocking and muted authors, including a QUOTE's embedded author, and `!Visible()`.
-  - A short page is allowed. *Corrected 2026-10-31 (W4-22 L-1):* as built, varying `page_size` and watching the token reveals how many rows the caller cannot see, and where they sit. W4-27 fixes the query windows (the page-1 entry of 30, then 20 or 50) and filters before cutting, so a reply depends only on the visible rows and on whether the window was full. What remains is a per-window hidden count on tags with 30 or more posts (accepted, ADR-0028 note 2026-10-31).
+  - A short page is allowed. *Corrected 2026-10-31 (W4-22 L-1):* as built, varying `page_size` and watching the token reveals how many rows the caller cannot see, and where they sit. W4-27 makes three changes:
+    - fixed query windows: the page-1 entry of 30, then 20 or 50;
+    - filtering before cutting;
+    - a tail token when page 1's entry was not full.
+
+    A tag with fewer than 30 posts then reveals nothing beyond its visible rows. On busier tags, the per-window hidden count, and positions found by sliding windows, remain derivable (accepted as Low, ADR-0028 note 2026-10-31).
   - **`blockedByOverflow` (ADR-0008 D2):** no per-row graph read. The lists precedent fails closed: `timeline.embedAllowed` and `service_bookmarks_list.go:92`. So when the caller's `blockedBy` overflowed:
     - People keeps only accounts the caller follows, plus the caller (a block removes the follow edges);
     - Posts keeps only the caller's posts and posts by followed authors.
@@ -266,7 +271,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Open |
 | W4-25 | Trends fast removal: `trends/hidden` + `opsctl trends hide\|unhide\|list`, serve-time denylist and hidden filter in GetTrends, skeleton matching, `trends_denylist` Terraform variable, runbook 4.3 | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged | yes (search module, `cmd/opsctl`) | Open |
 | W4-26 | Trends counts only established authors (ACTIVE, `TRENDS_MIN_ACCOUNT_AGE` 72 h); `trends_min_authors` Terraform variable (prod 5) | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged; after W4-25 (both edit `trends_refresh.go`) | yes | Open |
-| W4-27 | SearchPosts LATEST: fixed query windows, filter before cutting, token from the last returned row | backend-developer (+ tester for the W4-20 case) | S | W4-8 merged | yes | Open |
+| W4-27 | SearchPosts LATEST: fixed query windows, filter before cutting, token from the last returned row, tail token once the end of the tag is in view | backend-developer (+ tester for the W4-20 case) | S | W4-8 merged | yes | Open |
 | W4-28 | GetTrends daily call cap `trends_daily` (`TRENDS_CALLS_PER_DAY` 400) + guard test | backend-developer | XS | W4-10 merged | `ratelimit_config.go` and `config.go` are shared: merge one at a time | Open |
 
 Order:
@@ -955,23 +960,38 @@ Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **bef
   6. **Resume position:**
      - when `len(kept) > k`, the **last returned row**: the rows after it were not shown, and the next page queries them again;
      - otherwise, the window's last queried row. Every row after the last returned one was hidden, and a full window with every row hidden keeps its token (no stall, no repeat).
+  7. **Tail token (a window that was not full).** A window that comes back not full holds the end of the tag: the entry under 30 rows, or a query under W rows. No older post can appear later, because ids and `createdAt` are time-ordered.
+     - The token is sealed as a **tail token**, with the binding `search|<uid>|<tag>|LATEST_TAIL` instead of `…|LATEST`. The decoder tries LATEST, then LATEST_TAIL, so both are opaque and need no new codec. `cursor.EncodeRevAt` (ADR-0027's precedent) is the alternative if a binding variant is awkward.
+     - Such a page issues a token only when `len(kept) > k` (rule 5 already gives that), and the token is a tail token.
+     - A page reached with a tail token queries the whole remaining tail: `ByHashtag(Before cursor, 50)`, which by construction returns fewer rows than the earlier window held.
+     - It sets `more = len(kept) > k` only; window-full is ignored, because no older row exists.
+     - Its next token is again a tail token, resuming from the last returned row.
+     - If 50 rows ever come back (a late commit inside the settle gap), it falls back to rules 1–6 and issues a normal token.
+     - Every page of such a chain then depends only on the visible rows. Without this rule a tag of about 21 to 29 posts still leaks: page 1 at k = 1, then an older page at k = 20 over a full 20-row window, shows the hidden count.
 
-  **Why not the review's page_size floor of 10.** Querying `max(k, 10)` still lets a caller vary k from 10 to 50 on an older page. The token then tells them the exact number of rows left, and the row counts tell them where the hidden rows are. With fixed windows a reply depends only on the visible rows of the window and on whether the window was full.
+  **Why not the review's page_size floor of 10.** Querying `max(k, 10)` still lets a caller vary k from 10 to 50 on an older page. The token then tells them the exact number of rows left, and the row counts tell them where the hidden rows are. With fixed windows, each reply depends only on the visible rows of its window and on whether the window was full. The tail token closes small tags completely.
 
   **No proto change.**
   - `page_size` keeps "0 ⇒ 20, max 50", and a reply never holds more than k rows.
   - The proto's cost lines are unchanged: 33 for the first page at ≤ 30, 53 at 50, 23 / 53 for an older page at 20 / 50.
   - The client sends 20 (`search_repository.dart`), so its cost does not move.
 
-  Update the `search` doc comment (cost per tier) and the D5 meaning of the LATEST token ("the last returned row when the page was cut, else the window's last row").
+  Update the `search` doc comment (cost per tier) and the D5 meaning of the LATEST token: "the last returned row when the page was cut, else the window's last row; LATEST_TAIL when page 1's entry was not full".
+
+  The `SearchPosts` comment in `search.proto` says "next_page_token follows the query, not the number of rows returned", and that no longer describes the rule. Correcting it is a comment-only edit with no field and no semantic change for clients. The ADR-0028 note 2026-10-31 says who makes it.
 - **Acceptance criteria.**
   - **Page 1.** Take tag A with V visible and H hidden posts (V + H < 30) and tag B with the same V visible posts and none hidden, for H ∈ {1, 5} and V ∈ {0, 1, 10, 29 − H}. For every k from 1 to 30, LATEST page 1 returns the same number of rows and the same token presence for A and B.
-  - **Older pages.**
+  - **Whole chain, small tag.** For V + H = 25 (and 29), the same A and B, walk every page to the end at k = 1 and at k = 20, and at k = 1 on page 1 then k = 20 after. The sequence of (row count, token presence) is identical for A and B, and every page after page 1 carries a tail token.
+  - **Older pages, busy tag.**
     - Two full 20-row windows with the same number of visible rows give the same (row count, token presence) for every k from 1 to 20.
     - The same holds for 50-row windows and k from 21 to 50.
   - A full entry whose 30 rows are all hidden returns an empty page 1 with a token, and the next page starts after the entry's 30th row.
   - With `len(kept) > k`, the next page's first row is `kept[k]`: no gap, no duplicate.
-  - `budgettest`, cold: page 1 with k ≤ 30 reads 33; page 1 with k 31–50 reads 53; an older page with k ≤ 20 reads 23; an older page with k 21–50 reads 53.
+  - `budgettest`, cold:
+    - page 1 with k ≤ 30 reads 33, and with k 31–50 reads 53;
+    - an older page with k ≤ 20 reads 23, and with k 21–50 reads 53;
+    - a tail page reads 3 + the remaining rows: ≤ 32 after a page-1 entry, ≤ 52 after a 50-row window, minimum 1 query read.
+  - A tampered tail token, or a LATEST token sent as a tail token on another tag or tab, is VALIDATION `page_token` with 0 reads.
 - **Test notes.** The page-1 and older-page equivalence cases also go into W4-20, as the review asks, with the "same number of visible rows" comparison. Use the block, mute, protected and takedown causes for the hidden rows.
 - **Observability.** Unchanged fields. `dropped_*` now counts the whole window, not just the returned rows.
 - **Budget.**
@@ -979,11 +999,15 @@ Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **bef
   - At page sizes the client never sends:
     - at most +29 reads: an older page at k = 21 reads 53 instead of 24;
     - +19 for page 1 at k = 31 (53 instead of 34) and for an older page at k = 1 (23 instead of 4).
+  - Tail pages: 3 + the remaining rows. That is ≤ 32 after a page-1 entry and ≤ 52 after a 50-row window, and usually fewer than a normal older page, because only the end of the tag is left.
   - Charged to the caller's read budget, so it is self-limiting. Writes 0.
-- **Residual (accepted, ADR-0028 note).** On a tag with 30 or more posts:
-  - a short page with a token shows how many rows of that window the caller cannot see;
-  - a hidden post arriving in the newest 30 shows as a visible one dropping out.
-  - It cannot be attributed without a second account (ADR-0008 D9). The niche-tag case in the review's attack (`#janesdiary`, under 30 posts) is fully closed.
+- **Residual (accepted, ADR-0028 note).**
+  - **Closed:** from the first window that comes back not full, every later page depends only on the visible rows. So a tag with fewer than 30 posts (the review's `#janesdiary` case) reveals nothing beyond its visible rows, on any page.
+  - **Accepted, Low:** on a tag with 30 or more posts,
+    - a short page with a token shows how many rows of that window the caller cannot see;
+    - by choosing k on the page before, a caller picks where the next window starts, so sliding windows recover where hidden rows sit;
+    - a hidden post entering the newest 30 shows as a visible one dropping out.
+  - Attribution still needs a second account (ADR-0008 D9).
 - **Flag.** `FEATURE_SEARCH`.
 - **Seam.** `search.Service.Posts(LATEST)`; the token stays opaque and sealed (D5).
 - **Parallel with W3:** yes.

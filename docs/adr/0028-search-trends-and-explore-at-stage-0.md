@@ -434,8 +434,11 @@ This dated note amends D2, D3, D4, D5, D6 and D9, following the security review 
 - **No proto field or semantic change.**
   - `Trend.rank` keeps "rank in the whole list"; the whole list is now the served list.
   - `page_size` keeps "0 ⇒ 20, max 50".
-  - Two **comments** in `search.proto` go stale once W4-25 and W4-28 ship. GetTrends says "reads 2 cold", "≤ 432 a day" and "the 60/min default bucket"; part 6 has the new values.
-  - Updating those comments is comment-only and invisible to `buf breaking`. It is left to the founder whether the W4-25 / W4-28 PRs carry that edit (architect review) or a separate proto PR does.
+  - Some **comments** in `search.proto` go stale or are already wrong:
+    - GetTrends: "reads 2 cold", "≤ 432 a day" and "the 60/min default bucket" (after W4-25 and W4-28; part 6 has the new values);
+    - SearchPosts: "next_page_token follows the query, not the number of rows returned" (after W4-27, part 3);
+    - SearchPosts, Staleness: "a takedown ... applies at once on that instance". It is within 60 s, already today (part 5).
+  - Updating them is comment-only and invisible to `buf breaking`. It is left to the founder whether the W4-25, W4-27 and W4-28 PRs carry those edits (architect review) or one separate proto PR does.
 
 ### 1. D4 and D6: a hide list operators write without a deploy (W4-25, review M-1)
 **Problem.** The denylist is applied only by the sweep (D6 step 6), and with F1 = B the sweep runs once a day. `TRENDS_MIN_INTERVAL` turns an earlier manual call into a `fresh` skip. Changing the denylist needs a prod release (ADR-0019), and `TRENDS_DENYLIST` is not even wired into Terraform yet. Matching is exact on trimmed, lower-cased input, so `#slur` with a ZWJ, an `_`, NFD input or fullwidth letters gets past it.
@@ -489,12 +492,21 @@ This dated note amends D2, D3, D4, D5, D6 and D9, following the security review 
 - **Filter the whole window, then cut to k.**
 - **Token:** `more` = window full OR rows kept > k.
 - **D5 token position:** the last **returned** row when the page was cut, else the window's last queried row. A window with every row hidden keeps its token and never stalls.
-- **Cost:** the client sends 20, so reads do not move. The proto's cost lines (33 / 53 / 23 / 53) hold. Other page sizes cost up to +29 reads, charged to the caller.
-- **Residual (accepted, Low).** A tag with fewer than 30 posts (the review's `#janesdiary` case) reveals nothing beyond the visible rows. On a tag with 30 or more posts:
-  - a short page with a token shows how many rows of that window are hidden;
-  - a hidden post entering the newest 30 shows as a visible post dropping out.
-
-  Attribution still needs a second account (ADR-0008 D9).
+- **Tail token.** A window that comes back not full holds the end of the tag; ids and `createdAt` are time-ordered, so no older post appears later. Its token, if any, is a **tail token**: the binding `search|<uid>|<tag>|LATEST_TAIL`, so D5 gains a binding kind and needs no new codec.
+  - A tail page queries the whole remaining tail (`ByHashtag(Before, 50)`).
+  - It sets `more` only when rows kept > k, and issues a tail token again.
+  - Without this rule a 25-post tag still leaks: page 1 at k = 1, then a full 20-row older window at k = 20, shows the hidden count.
+- **Cost:**
+  - The client sends 20, so reads do not move. The proto's cost lines (33 / 53 / 23 / 53) hold.
+  - Other page sizes cost up to +29 reads, charged to the caller.
+  - A tail page reads 3 + the remaining rows: ≤ 32 after the entry, ≤ 52 after a 50-row window.
+- **Residual (accepted, Low).**
+  - **Closed:** from the first window that is not full, every later page depends only on visible rows, so a tag with fewer than 30 posts (the review's `#janesdiary` case) reveals nothing.
+  - **Remains** on a tag with 30 or more posts:
+    - a short page with a token shows how many rows of that window are hidden;
+    - choosing k on the page before sets where the next window starts, so sliding windows recover where hidden rows sit;
+    - a hidden post entering the newest 30 shows as a visible post dropping out.
+  - Attribution still needs a second account (ADR-0008 D9).
 
 ### 4. D9: GetTrends daily cap (W4-28, review L-4)
 GetTrends is a warm 0-read call on the 60/min default bucket, with no daily cap. One account at 180/min across 3 instances costs about INR 680 to 2,190 a month in requests, vCPU and memory (the review's 660 to 2,100 left out GiB-s).
