@@ -556,3 +556,37 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 **Client.** `mergeThreadHeader` must take the first-page header count as authoritative, including 0 (a read on another device), instead of keeping the larger cached count. **One exception, up to 60 s:** after a request is accepted on another server instance, that instance's cached copy of the conversation can still point at `dmRequests`, so the entry read misses and answers 0 for a conversation that still has unread messages in `dmInbox`. A first-page 0 is therefore authoritative except within 60 s of an accept on another instance (an accept is by the recipient, who has just read the thread, so the window is rare and self-correcting at the next Inbox load). The client change is a separate frontend PR.
 
 **Cost impact.** Fixed cost INR 0. +1 read per thread open; writes 0.
+
+## Implementation note (W7-37), 2026-10-30: `request_count` on every INBOX refresh (founder decision 2026-10-30)
+
+**Problem (found in the W7-24 dev smoke, leg 2, 2026-10-30 07:28 UTC).** C (not mutual with A) sent A three messages. The server was right (`state=new`, then `request` twice, the fourth refused `request_unanswered`), but A never saw "Message requests (N)". `ListConversations` filled `request_count` (the `dmRequests` `count()`) only on a first INBOX page (no token). The client cold-opens a folder only when it holds no since token, its token is rejected, or a since answer is a full page. Since tokens live 30 days and every refresh issues a new one, so the count stored on the device stayed at what the first open saw (0 for A, before C's request). Requests never push (F7), so nothing else could surface them. The Messages badge (D10, `unread_conversation_count`) is not involved.
+
+**Decision (founder, 2026-10-30; additive, D4/D5/D7 wording unchanged).**
+1. The server sets `request_count` on **every INBOX first page and every INBOX since refresh**, an empty since refresh included. It sets it on no older page (`page_token`) and never on REQUESTS (both stay 0). The `count()` runs in parallel with the folder query. A failed `count()` fails the call and never answers 0 in its place.
+2. The client applies it from every INBOX since refresh as well, stored with the since token and emitted to the list. Accept and Delete keep their local −1 until the next refresh.
+3. Contract: `request_count = 4` keeps its number and type. Only its two comments (the RPC comment and the field comment) change. `buf breaking` is clean (rule 9).
+
+**Compatibility (architect).** proto3 `int64` cannot tell 0 from unset, so the client treats the INBOX value as authoritative, including 0. **No new field.**
+- Rejected: `optional` on field 4. It changes the generated code and the field's presence, which the founder decision keeps unchanged.
+- Rejected: a marker field (`bool request_count_set = 5`). It is additive and costs 0 reads, but it only guards a new client talking to a messaging-on server without W7-37a. Two rules remove that case:
+  - (a) W7-37b (client) merges only after W7-37a serves dev. Merging deploys the dev web client.
+  - (b) The first prod release that turns `messaging` on contains W7-37a, so a prod rollback below it lands on a revision with `messaging` off. `messaging` has never been on in prod.
+- Residual risk in dev: a rollback to the pre-W7-37a revision that has `messaging` on (`api-00375-dx9`; the runbook fallback `api-00767-viv` has it off) hides the row until the first refresh after the re-deploy. No data is lost. Accepted for 3 testers.
+- An installed app without W7-37b keeps the old behaviour, which is no regression. The app build that `messaging` is turned on for in prod carries W7-37b.
+
+**Rejected alternatives to the decision.**
+- A cold open of the Inbox on every open: 9 planning reads (23 worst) instead of +1.
+- A denormalised request counter on a per-user doc maintained by send, accept, delete and the eraser: writes on every request path, plus a second source of truth.
+- The count in `GetMe`: called about 4 times per DAU against 1.5 Inbox refreshes, and it would couple identity to request semantics.
+
+**Known, unchanged.** `count()` includes `dmRequests` entries that REQUESTS hides at read time (a peer the caller blocks or mutes, or who blocks the caller). Block and Mute delete no entry. The row can therefore promise a request the folder does not show, and after this note it can do so after any refresh, not only after a cold open. A fix (a graph-filtered count, or removing the entry on Block) is a follow-up for the planner and architect before prod.
+
+**D14 addition.** "Message requests (N)" is as fresh as the last INBOX refresh. The `count()` is a strongly consistent aggregation with no server cache, capped at 1,000. On the device it is that value plus local Accept/Delete adjustments until the next refresh.
+
+**Cost impact.** Fixed cost INR 0.
+- `ListConversations` since refresh with one entry returned goes from 3 to **4** reads (5 when another conversation moved), and from 2 to 3 with no entry. Planning goes from 2 to **3**. Writes 0, requests +0.
+- The client refreshes the Inbox only on open, pull to refresh, resume and a foreground push (resume and push throttled to once per 60 s). It has no timer. The W7-23 mix has 1.5 since refreshes per DAU per day across both folders, so the change is **at most +1.5 reads per DAU per day**: about INR 0.45 / 1.5 / 4.6 a month at 300 / 1,000 / 3,000 DAU.
+- W7 with W7-27, W7-33 and W7-37 comes to about 41.55 reads per DAU (rollback line about 83.1). The free reads run out at about 154.1 DAU instead of 154.8. Writes, the binding free quota at about 506 DAU, are unchanged.
+- The Cost impact table row "ListConversations `since` | 3 | 2" above is superseded by 4 / 3. The budget holds at 300, 1,000 and 3,000 DAU.
+
+**Stage ladder.** The count stays a field of the list response behind `messaging.Service.ListConversations` and `MessagingRepository.refreshConversations`. A Stage 1 owner-only listener (D16) can later feed the same client value without changing a screen. Plan ticket W7-37 (W7-37a backend, W7-37b client) blocks prod messaging.
