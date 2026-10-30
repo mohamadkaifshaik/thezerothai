@@ -12,6 +12,7 @@ import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
 import '../../domain/conversation_id.dart';
 import '../../domain/thread_poller.dart';
+import '../widgets/request_banner.dart' show isSentRequest;
 
 export '../../domain/conversation_id.dart' show isConversationId;
 
@@ -187,10 +188,16 @@ class ThreadCubit extends Cubit<ThreadState> {
   String? _markKey;
   String? _deleteKey;
   String? _acceptKey;
+  StreamSubscription<void>? _changes;
 
   /// Opens the screen: cache first, then one refresh.
   Future<void> load() async {
     if (!isConversationId(conversationId)) return;
+    // W7-25b: the header follows the cached row, so a sent request's waiting
+    // note goes when an Inbox refresh brings the accept. Local re-read only.
+    _changes ??= _repository.conversationsChanged.listen(
+      (_) => unawaited(_followRow()),
+    );
     final ThreadSnapshot cached;
     try {
       cached = await _repository.cachedThread(conversationId);
@@ -209,6 +216,40 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     _poller.start();
     await _refresh(open: true);
+  }
+
+  /// Takes `state`, `folder` and `can_reply` from the cached list row into the
+  /// header when they differ (W7-25b). The row is what ListConversations wrote,
+  /// so it carries REQUEST for a sent request and ACCEPTED after the accept.
+  /// Nothing else on the header moves, and nothing is fetched.
+  Future<void> _followRow() async {
+    if (isClosed || state.conversation == null || state.deleting) return;
+    final pb.Conversation? row;
+    try {
+      row = await _repository.cachedConversation(conversationId);
+    } on Object catch (error, stack) {
+      onUnexpectedError?.call(error, stack);
+      return;
+    }
+    final header = state.conversation;
+    if (isClosed || row == null || header == null) return;
+    if (row.state == ConversationState.CONVERSATION_STATE_UNSPECIFIED ||
+        row.folder == Folder.FOLDER_UNSPECIFIED) {
+      return;
+    }
+    if (row.state == header.state &&
+        row.folder == header.folder &&
+        row.canReply == header.canReply) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        conversation: header.deepCopy()
+          ..state = row.state
+          ..folder = row.folder
+          ..canReply = row.canReply,
+      ),
+    );
   }
 
   /// Retry after a blocking error.
@@ -326,6 +367,20 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     _latest = messages;
 
+    // W7-25b: a peer message that arrives in a request the caller sent can
+    // only be the recipient's reply, and that reply accepts the request
+    // (ADR-0027 D4 step 5). So the request is answered: ACCEPTED here and in
+    // the cached row. A cold open never counts (arrivedFromPeer is 0 then).
+    var shownConversation = conversation;
+    if (arrivedFromPeer > 0) {
+      final current = conversation ?? state.conversation;
+      if (current != null && isSentRequest(current)) {
+        shownConversation = current.deepCopy()
+          ..state = ConversationState.CONVERSATION_STATE_ACCEPTED;
+        unawaited(_noteAnswered());
+      }
+    }
+
     // Held back while the reader is scrolled up, so the list does not move.
     var shown = messages;
     var pending = 0;
@@ -341,10 +396,18 @@ class ThreadCubit extends Cubit<ThreadState> {
       state.copyWith(
         messages: shown,
         pendingNew: pending,
-        conversation: conversation,
+        conversation: shownConversation,
         hasMore: snapshot.hasMore,
       ),
     );
+  }
+
+  Future<void> _noteAnswered() async {
+    try {
+      await _repository.noteSentRequestAnswered(conversationId);
+    } on Object catch (error, stack) {
+      onUnexpectedError?.call(error, stack);
+    }
   }
 
   /// The reader reached (or left) the newest message. Reaching it shows the
@@ -546,6 +609,7 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   @override
   Future<void> close() {
+    unawaited(_changes?.cancel());
     _poller.dispose();
     return super.close();
   }
