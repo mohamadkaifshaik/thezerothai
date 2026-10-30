@@ -319,3 +319,34 @@ ADR-0022 D5 step 2. One hour on **dev**, before the first prod credit-mode apply
 - [ ] **T7 confirm.** `describe` shows `Scaling: Auto (Min: 0, Max: N)`, traffic back to the baseline, instance count back to 0 after about 15 minutes, `terraform plan` on dev shows no change. Write the answers to (a), (b), (c) and the billing observation (Billing > Reports, group by SKU, filter `dzeroth-dev`, next day) into the ADR-0022 status notes. Only then may the prod apply of `min_instance_count = 1` be planned.
 
 If any step shows min 1 warming a tagged or non-serving revision, prod credit mode is not approved on this basis: keep `min_instance_count = 0` and use the free fallback (Scheduler keep-warm, ADR-0022 option D).
+
+## Dated steps and owners (moved from docs/pending.md, 2026-10-30)
+
+The credit-runway steps (ADR-0022) lived in the founder's task list, `docs/pending.md`, which was removed on 2026-10-30. This section is their home. The step IDs (1.x) are kept so older notes still find them.
+
+Decisions already made: Vision at the cap = `reject`; use Cloud Run's native spend cap on prod as a backstop if the account is eligible; if no funding arrives, run Stage 0 as configured for the first month after expiry (about INR 434 a month at 300 daily users) and then stay paused; upgrade the account to paid before expiry so that paused costs about INR 0 to 15 a month. Spend cap `credit_spend_cap_inr` = INR 25,000 (ADR-0022 Amendment 1; remaining credit minus the INR 2,000 reserve still holds).
+
+Facts (read 2026-10-26 from the Firebase console): remaining credit INR 28,659.76 on a Google Cloud Free Trial that is not upgraded, valid until 2026-12-26; billing account `013E50-9BB269-139268` is used by dev and prod; a payment method is attached; no funding is coming. Because the trial is not upgraded, ADR-0022's deletion risk is real (billing disabled at expiry, resources deleted after a 30-day grace).
+
+Done: 1.2 (R0 applied to prod 2026-10-26: credit and prod gross budgets, request-flood alert, reads alert at 250,000 a day, upload CORS fix, 0% `api` revision), 1.15 and 1.16 (wording and Terraform comments, 2026-10-26), 1.18 (`publish-scheduled` job defined in `envs/prod/main.tf`, not applied), 1.20 (opt-in dev token grant created and removed, 2026-10-26).
+
+Open, in order:
+
+| Step | When | Owner | Status | Task |
+|---|---|---|---|---|
+| 1.1 | Now | Founder | PARTIAL | Billing > Credits: confirm which services the credit covers (all, or a list; Firebase Hosting is unverified in ADR-0022). Tell Claude. |
+| 1.2 (rest) | When the MVP roadmap and the remaining phases are complete | Both | HOLD | Still unapplied in prod (about 7 to add, 1 to change, as of 2026-10-26): Firestore TTL fields for `scheduled`, `reports` and `post_removals`, the FCM send role and binding, the notifications publisher binding, the `publish-scheduled` job (1.18) and an Artifact Registry repo update. Founder decision 2026-10-26. Re-plan before any apply; each needs its own plan and OK. |
+| 1.3 | By 2026-11-15 | Both | TODO | Dev rehearsal of the pause and resume steps in this file and of the one-hour dev test "service-level min instance" (no merges to `main` meanwhile). Write the results back into this file. |
+| 1.4 | After 1.2 and 1.3 | Both | TODO | R1: `min_instance_count = 1` in the prod tfvars (a warm instance, about INR 936 a month, paid by the credit), plan, review, OK, apply. Expect a 0%-traffic revision in the plan. |
+| 1.5 | When `FEATURE_MEDIA` serves images in prod | Both | WAIT | R2: `vision_monthly_cap = 20000` and `vision_exhausted_policy = "reject"`. Normal release path (three ADR-0019 approvals). |
+| 1.6 | When `FEATURE_SCHEDULED_POSTS` leaves off | Claude | WAIT | R3: scheduled-post sweep every minute instead of every 5 minutes (free). |
+| 1.7 | Daily users above 1,300 for 3 days, or Vision above 600 units a day | Both | WAIT | R4: Vision cap 40,000. |
+| 1.8 | Before launch traffic | Founder | TODO | Cloud Run native spend cap on prod in the console if the account is eligible (Billing > Budgets). To bring the API back after it trips: Lift spend cap, wait up to an hour; do not run `terraform apply` while capped. Unverified for Free Trial accounts. |
+| 1.9 | 2026-12-22 | Both | WAIT | Heavy items off: revert the prod tfvars to the Stage 0 values (min 0, Vision cap 10000, `unscreened_established`, reads threshold 40000), plan, OK, apply. Then merge a PR removing every `until:2026-12-22` line in `infra/terraform/envs/prod/main.tf` and the tfvars example. From 2026-12-23 CI goes red on every PR until this is done (deliberate). |
+| 1.10 | 2026-12-24 | Both | WAIT | Pause both projects per section 3 (remove the public invoker, disable the deploy workflows, keep `daily-maintenance` running). The mandatory data export (section 3, part A) comes first. |
+| 1.11 | Before 2026-12-26 | Founder | TODO | Upgrade the account to paid so data is kept (decided: between 2026-12-24 and 12-26, after the 12-15 export). Confirm a payment method is attached and that nothing is left running that bills after expiry. |
+| 1.12 | 2026-12-26 | Founder | WAIT | Credit expires. Check Billing reports that spend has stopped. |
+| 1.13 | From 2026-12-27 | Both | WAIT | Remove the two credit budget modules and the flood alert (their `until:2026-12-26` markers). Destroying a budget needs the founder's confirmation. |
+| 1.14 | After expiry | Founder | WAIT | If funded: resume per section 4. If not: Stage 0 as configured for the first month, then stay paused. |
+| 1.17 | No date | Claude | TODO | Follow-ups F1 to F6: a `service_paused` Terraform variable, tested `pause.sh` and `resume.sh`, a budget-triggered automatic pause (level 1 only), a gross-spend budget, a maintenance page and a way to mute the uptime alert while paused, and the dev rehearsal results. |
+| 1.19 | No date | Claude | TODO | Make CI able to run a real `terraform plan` (the plan service-account secrets do not exist yet; `plan (dev)` and `plan (prod)` run only fmt and tflint). Needs the founder's bootstrap per `docs/runbooks/cloud-bootstrap.md`. |

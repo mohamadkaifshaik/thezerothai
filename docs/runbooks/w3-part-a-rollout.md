@@ -6,7 +6,7 @@ Backfill: dry run `scanned=74 missing=73 would_update=73`; real run `reads=74 wr
 (24 env entries added, 0 removed, 0 changed); apply `0 added, 1 changed, 0 destroyed` at about 17:15 UTC. The new revision `api-00306-482` (same image digest as the one that served before,
 `api-00564-vik`, main `b0bc56d7`) has served 100% since about 17:16 UTC. Fallback revision: `api-00564-vik` (no W3 env; `last-good` is `api-00561-meb`). Smoke: the server-side legs that need no
 credential ran and passed; the authenticated legs (4.1, 4.2) are still owed to the testers (section 8). The text of sections 1 to 7 below is the plan as written before the apply; the revision names
-in it (`api-00558-viz`, `api-00555-yeq`) are the ones that served then. Prod: no change, and prod stays on hold (`docs/pending.md` 1.2).
+in it (`api-00558-viz`, `api-00555-yeq`) are the ones that served then. Prod: no change, and prod stays on hold (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2).
 **Current dev revision (2026-10-27 17:56 UTC): `api-00307-fcs`**, not `api-00306-482`: the ADR-0024 A4 switch `PROFILE_MEDIA_RETIRE` went `off` to `banner` as its own targeted plan and apply
 (one env value, same image digest, the four W3 flags still `allowlist` 3/3; `docs/runbooks/media.md`, "Results, dev, banner switch"). `api-00306-482` is now the previous revision and the
 fast fallback for that change (same image, switch `off`, W3 flags unchanged); the W3-24 fallback above (`api-00564-vik`) is for rolling the W3 flags back. `last-good` is still `api-00561-meb`.
@@ -136,7 +136,7 @@ No scaling, image, traffic, IAM or other attribute changes.
 (W2-16 applied only the nine bookmark vars). They equal the code defaults (and `PROFILE_MEDIA_RETIRE=off` is the default), so the only behaviour change is the four flags. Redacted plan text (uids
 as `<uid-n>`) and the uid-free list to compare against were kept in the preparing session (not committed); the command that produces the list is in step 2.
 
-**The known dev drift (`docs/pending.md` 3.10) is NOT in this plan; `-target` excludes it.** An untargeted plan from the same tree is `Plan: 1 to add, 2 to change,
+**The known dev drift (`docs/plans/roadmap.md` section 9, item 3.10) is NOT in this plan; `-target` excludes it.** An untargeted plan from the same tree is `Plan: 1 to add, 2 to change,
 0 to destroy`: it adds the unapplied #244 TTL field `module.firestore.google_firestore_field.ttl["scheduled_expire_at"]`, changes `module.apikeys.google_apikeys_key.android`
 (strips the console-set package and SHA-1 restriction) and the `api` service. The two `-target` flags name the `api` service and the `billing_alerts` topic, so the
 apply cannot touch the other two (the topic target is the 3.10 workaround for a state move; today a plan with the `api` target alone is identical, so it is harmless; keep

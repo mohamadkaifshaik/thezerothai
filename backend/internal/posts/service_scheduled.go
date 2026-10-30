@@ -203,7 +203,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, apierr.Validation("publish_at", "publish_at is too far ahead")
 	}
 
-	// 6. The caps. What is exact and what is soft (ADR-0021 D4, pending.md 2.16):
+	// 6. The caps. What is exact and what is soft (ADR-0021 D4):
 	//   - The pending cap is SOFT. Its count() runs here, outside the transaction (1 read, charged by the repository),
 	//     because reading up to MaxPending+1 documents inside it would blow the read budget. Concurrent calls can overshoot
 	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the

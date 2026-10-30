@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// Unit tests of the media hold (pending 2.15, security review of #289 Low 2): while FEATURE_MEDIA is globally off the sweep
+// Unit tests of the media hold (security review of #289 Low 2): while FEATURE_MEDIA is globally off the sweep
 // leaves items that carry images PENDING, with no read and no write, instead of attaching images CreatePost would refuse.
 
 // withImages gives the item's draft images with the sweepMediaID(n) ids.

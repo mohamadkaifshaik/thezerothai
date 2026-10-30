@@ -23,12 +23,12 @@ Branches: `feat/ui-w6-N-<slug>` off `main` (not stacked); one ticket per PR unle
 - content disclosure (CMP-C: backend done; the CMP-C3 UI is on hold by the founder);
 - scheduled posts end to end (CMP-D), with the single `publish-scheduled` sweep.
 
-They are tracked in `docs/plans/composer-w15-w6.md` and `docs/pending.md` section 2. The composer conformance tickets CMP-1 and CMP-2 also stay there; W6-15 takes over the "Save post?" prompt from CMP-2 (see that ticket).
+They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). The composer conformance tickets CMP-1 and CMP-2 also stay there; W6-15 takes over the "Save post?" prompt from CMP-2 (see that ticket).
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR ticket)
 - **F1. How a poll closes.**
   - **(A) Read-time check on `closesAt` (default).** It costs 0 reads, 0 writes and no job. `VotePoll` refuses once `now ≥ closesAt` by server time, and the converter shows the final results from then on.
-  - (B) A hop on the existing `publish-scheduled` tick. It needs an index on `poll.closesAt`, which clashes with the A9 exemption. It costs 1 read per tick while idle (288/day at `*/5`) plus 1 per closed poll. It only pays off for "poll ended" notifications, which are a fan-out and out of scope at Stage 0. It also ties polls to a job that is not applied in prod (`pending.md` 1.18).
+  - (B) A hop on the existing `publish-scheduled` tick. It needs an index on `poll.closesAt`, which clashes with the A9 exemption. It costs 1 read per tick while idle (288/day at `*/5`) plus 1 per closed poll. It only pays off for "poll ended" notifications, which are a fan-out and out of scope at Stage 0. It also ties polls to a job that is not applied in prod (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.18).
   - (C) A new Scheduler job. That is the third and last free slot, and W4's option A wants it too.
 
   **Default: (A).** "Poll ended" notifications are the Stage 2 version, with their trigger under Out of scope.
@@ -288,7 +288,7 @@ Effect on the quotas (additive):
   - the Unsent posts tab with rows;
   - what Save in "Save post?" does.
 
-**Shared files that must serialise with W3, W4 and W5** (merge one PR at a time, as `pending.md` asks):
+**Shared files that must serialise with W3, W4 and W5** (merge one PR at a time):
 - **Backend config:** `backend/pkg/platform/config/config.go`, `config_test.go`, `flags.NewRegistry`, `backend/internal/apiserver/{apiserver.go, ratelimit_config.go, engagement_wiring.go, media_wiring.go}`.
 - **Lifecycle wiring:** `apiserver/lifecycle_wiring.go`, `lifecycle_wiring_test.go` (the pinned eraser order) and `lifecycle_collections_guard_test.go` (T11 rows).
 - **Protos:** `proto/dzeroth/posts/v1/posts.proto` (field numbers and **CreatePost**), `common/v1/common.proto` (`ErrorReason` numbers), `engagement/v1/engagement.proto`, `media/v1/media.proto` (W3-5 adds `MEDIA_PURPOSE_BANNER`).
@@ -301,7 +301,7 @@ Effect on the quotas (additive):
   - `app/lib/core/storage/app_database.dart` (schema version: any wave adding a table);
   - `app/lib/core/router/app_router.dart`;
   - the media `attachments_cubit.dart`, `image_picker_service.dart` and `image_processor.dart`.
-- **Docs:** `docs/code-map.md`, `docs/ui-catalog.md`, `docs/pending.md`.
+- **Docs:** `docs/code-map.md`, `docs/ui-catalog.md`.
 
 **Questions for @architect (W6-1; the ADR decides and states each budget):**
 - **A1. Poll storage.**
@@ -349,7 +349,7 @@ Effect on the quotas (additive):
 3. **M6.3 Polls backend:** W6-5, W6-6, then W6-7 + W6-8 (**one PR**).
 4. **M6.4 GIF backend:** W6-9, W6-10.
 5. **M6.5 Client:** W6-11 to W6-16. W6-14 (the drafts store) starts now.
-6. **M6.6 Verify and roll:** W6-17 to W6-22. Dev allowlist only; prod waits for the held prod apply (`pending.md` 1.2) and your MVP launch decision.
+6. **M6.6 Verify and roll:** W6-17 to W6-22. Dev allowlist only; prod waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and your MVP launch decision.
 7. **M6.7 (conditional on F9):** W6-23, W6-24.
 
 | ID | Ticket | Owner | Size | Depends | Runs alongside W3/W4/W5? | Status |
@@ -392,7 +392,7 @@ Order:
 - Client: widget tests in light and dark at 360 / 600 / 1200 via `test/support/theme_harness.dart`, and text scale 1.0 / 1.3 / 2.0, for every new screen or widget. Pixel goldens are deferred (B-01).
 - `make ci` green.
 - `docs/code-map.md` / `docs/ui-catalog.md` updated.
-- This table's Status and `docs/pending.md` row 3.15 updated in the PR.
+- This table's Status updated in the PR.
 
 ## Tickets
 
@@ -858,8 +858,8 @@ Order:
 
 ### W6-22 — Dev rollout  [owner: production-deployer] [size: S] [depends: W6-17 to W6-21, ADR merged]  Status: Open
 - **Description.**
-  - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe) for `feature_polls*`, `feature_drafts*`, `feature_gif*`, the config env vars and the `pollVotes.expireAt` TTL field.
-  - The `posts.poll` fieldOverride deploys with the dev deploy workflow after merge. For prod it waits for the held release (`pending.md` 1.2) and must be deployed before `FEATURE_POLLS` leaves `off` there.
+  - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_polls*`, `feature_drafts*`, `feature_gif*`, the config env vars and the `pollVotes.expireAt` TTL field.
+  - The `posts.poll` fieldOverride deploys with the dev deploy workflow after merge. For prod it waits for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `FEATURE_POLLS` leaves `off` there.
   - Apply only on OK; allowlist 3 test uids.
   - Smoke:
     - create a poll, vote from a second account, see results, wait for close, see final results;
@@ -867,7 +867,7 @@ Order:
     - save, reopen and post a draft;
     - post a GIF and play it.
   - Prod: no change (on hold).
-- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; `pending.md` 3.15 is updated.
+- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state.
 - **Test notes.** —
 - **Observability.** Check the `poll_vote` and `gif_screen` lines in dev logs.
 - **Budget.** A handful of reads and 2–4 Vision units in dev.
@@ -929,11 +929,11 @@ Order:
 | A viral poll breaks rule 3 (votes and likes on one doc) | batch increments with no reads; `poll_vote_contention`; the stage-ladder trigger and sharding ADR; the load shape in W6-17 / W6-21 |
 | The GIF moderation gap (first frame only) | F11 (a) frame sampling; (b) as a fallback; the rollback trigger; report-driven review |
 | GIF egress dominates the bill at scale | 2 MiB cap; static thumbnail in feeds and tap to play (F10); the MP4 trigger in the stage ladder |
-| GIFs bring the Vision cap forward (822 → about 747 DAU) | the cap policy is unchanged; R4 (`pending.md` 1.7) watches daily units |
+| GIFs bring the Vision cap forward (822 → about 747 DAU) | the cap policy is unchanged; R4 (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.7) watches daily units |
 | Drafts exposed on shared devices | per-uid scoping; wipe on deletion; "Delete all"; F7 lets you choose clear-on-sign-out |
 | Users expect drafts on every device | stated in the copy; the synced-drafts trigger in the stage ladder |
 | Hidden counts leak through a list that bypasses the converter | one converter, plus the A4 guard test over every PostView producer |
 | Old app versions show a poll post as text only | acceptable: the question still reads; no server change needed |
-| Merge conflicts with W3/W4/W5 in shared files | the serialisation list above; one PR at a time (`pending.md` rules) |
+| Merge conflicts with W3/W4/W5 in shared files | the serialisation list above; one PR at a time |
 | ADR or `ErrorReason` number clash | "the next free number when the PR opens" |
 | The founder's GIF decision is read as "picker now" | F9 restates the 2026-10-22 decision; the picker tickets are conditional and gated on written terms |
