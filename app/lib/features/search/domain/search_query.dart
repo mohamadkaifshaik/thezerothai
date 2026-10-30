@@ -7,50 +7,51 @@ enum SearchQueryKind {
   /// `@bob`: people only (handle prefix).
   handle,
 
-  /// `#launch`: posts tagged with exactly this tag (plus the People tab).
+  /// `#launch`: posts tagged with exactly this tag (no people).
   tag,
 
   /// `launch`: people by handle prefix and posts tagged `#launch` (plan F4).
   word,
 }
 
-/// Why a query makes no call. [none] means it can be sent.
+/// Why a query is not searched at all. [none] means at least one search can
+/// be sent (see [SearchQuery.canSearchPeople] / [SearchQuery.canSearchPosts]).
 enum SearchQueryIssue {
   none,
 
-  /// Nothing left after trimming.
+  /// Nothing left after trimming and removing the sigil (`''`, `@`, `#`).
   empty,
 
-  /// A handle or word shorter than [SearchQuery.minLength].
+  /// Too short for people and no tag to search instead (`@a`, `1`).
   tooShort,
 
-  /// More than [SearchQuery.maxCodePoints] code points, or a handle prefix
-  /// longer than [SearchQuery.maxHandleLength].
+  /// More than [SearchQuery.maxCodePoints] code points after the sigil.
   tooLong,
 
-  /// Control or bidi characters, or a `@handle` / `#tag` whose body is not in
-  /// the grammar.
+  /// A control or bidi formatting character anywhere.
   invalid,
 
-  /// A plain query that is neither a handle prefix nor a tag body (a phrase,
-  /// an accented word longer than 15, ...). Stage 0 has no full-text search:
-  /// the UI says "Search posts by #hashtag" and sends nothing.
+  /// Neither a handle prefix nor one tag body (a phrase, `#123`, `#go!`).
+  /// Stage 0 has no full-text search: the UI says "Search posts by #hashtag".
   unsupported,
 }
 
-/// A search-box query, classified with the server's grammar (W4 plan, "Query
-/// grammar"; the server validates again and is the source of truth):
+/// A search-box query, classified with ADR-0028 D1 (client and server apply
+/// the same rules in the same order; the server validates again):
 ///
-/// - normalise: NFC, trim, lower-case;
-/// - at most [maxCodePoints] code points (the marker counts), no control or
-///   bidi formatting characters (ADR-0010 D9);
-/// - people: `@?[a-z0-9_]{2,15}`;
-/// - posts: `#?` + one hashtag body, judged by [parsePostText], the same
-///   grammar the shared `testdata/post_text_grammar.json` fixtures pin on
-///   both sides (ADR-0010 D8).
+/// 1. NFC, trim, lower-case;
+/// 2. at most one leading sigil, `@` or `#`, is removed **before** the length
+///    check, so it does not count: `#` + a 50-code-point tag is valid;
+/// 3. empty rest, more than [maxCodePoints] code points, or a control / bidi
+///    character: no call;
+/// 4. people: not for a `#` sigil; the rest must be `[a-z0-9_]{1,15}`, where
+///    1 character is too short ([peopleTooShort]) and 2 to 15 is a prefix;
+/// 5. posts: not for an `@` sigil; the rest must be exactly one hashtag body,
+///    judged by [parsePostText] (ADR-0010 D8), including a 1-character body:
+///    `a` and `#a` both search the tag `a`.
 ///
-/// Pure: no I/O, no clock. Nothing here is ever sent to a server unless
-/// [canSearchPeople] or [canSearchPosts] is true.
+/// Pure: no I/O, no clock. Nothing is sent unless [canSearchPeople] or
+/// [canSearchPosts] is true; the UI runs only the searches that are allowed.
 class SearchQuery {
   const SearchQuery._({
     required this.kind,
@@ -58,32 +59,38 @@ class SearchQuery {
     required this.issue,
     this.peopleQuery,
     this.tagBody,
+    this.peopleTooShort = false,
   });
 
-  /// Shortest handle prefix or plain word that is searched (1-character
-  /// prefixes are refused by the server: enumeration guard).
+  /// Shortest handle prefix (1-character prefixes are refused: enumeration
+  /// guard). Typeahead also makes no call below this (it suggests people).
   static const minLength = 2;
 
   /// Longest handle prefix (the longest handle).
   static const maxHandleLength = 15;
 
-  /// Longest normalised query, counting `@` or `#`.
+  /// Longest rest of the query, not counting the sigil.
   static const maxCodePoints = 50;
 
   final SearchQueryKind kind;
 
-  /// The normalised query without its `@` / `#` marker, e.g. `launch`.
+  /// The normalised query without its sigil, e.g. `launch`.
   final String body;
 
   final SearchQueryIssue issue;
 
-  /// The handle prefix to send to SearchPeople, or null when this query
-  /// cannot search people (a `#tag`, or a word that is not a handle prefix).
+  /// The handle prefix for SearchPeople, or null when people are not searched
+  /// (a `#tag`, a rest outside the handle class, or [peopleTooShort]).
   final String? peopleQuery;
 
-  /// The tag body (no `#`) to send to SearchPosts, or null when the query
-  /// cannot search posts (a `@handle`, or a body outside the tag grammar).
+  /// The tag body (no `#`) for SearchPosts, or null when posts are not
+  /// searched (a `@handle`, or a rest that is not one tag body).
   final String? tagBody;
+
+  /// People are skipped because the rest is one character (`a`, `@a`, `#a`
+  /// has no people at all). The People tab shows the "too short" hint while
+  /// the post tabs may still search tag `a`.
+  final bool peopleTooShort;
 
   bool get isValid => issue == SearchQueryIssue.none;
   bool get canSearchPeople => peopleQuery != null;
@@ -105,8 +112,8 @@ class SearchQuery {
 
   static final _handleChars = RegExp(r'^[a-z0-9_]+$');
 
-  // Control characters (\p{Cc}) and the bidi formatting controls the post
-  // grammar also refuses (ADR-0010 D9). ZWJ/ZWNJ stay: tag bodies may hold them.
+  // Control characters and the bidi formatting controls the post grammar also
+  // refuses (ADR-0010 D9). ZWJ/ZWNJ stay: tag bodies may hold them.
   static bool _isForbidden(int r) =>
       r < 0x20 ||
       (r >= 0x7F && r <= 0x9F) ||
@@ -129,57 +136,41 @@ class SearchQuery {
     SearchQuery fail(SearchQueryIssue issue) =>
         SearchQuery._(kind: kind, body: body, issue: issue);
 
-    if (text.isEmpty) return fail(SearchQueryIssue.empty);
-    if (text.runes.length > maxCodePoints) {
-      return fail(SearchQueryIssue.tooLong);
-    }
     if (text.runes.any(_isForbidden)) return fail(SearchQueryIssue.invalid);
+    if (body.isEmpty) return fail(SearchQueryIssue.empty);
+    final length = body.runes.length;
+    if (length > maxCodePoints) return fail(SearchQueryIssue.tooLong);
 
-    switch (kind) {
-      case SearchQueryKind.handle:
-        if (body.isEmpty) return fail(SearchQueryIssue.tooShort);
-        if (!_handleChars.hasMatch(body)) {
-          return fail(SearchQueryIssue.invalid);
-        }
-        if (body.length < minLength) return fail(SearchQueryIssue.tooShort);
-        if (body.length > maxHandleLength) {
-          return fail(SearchQueryIssue.tooLong);
-        }
-        return SearchQuery._(
-          kind: kind,
-          body: body,
-          issue: SearchQueryIssue.none,
-          peopleQuery: body,
-        );
-      case SearchQueryKind.tag:
-        if (body.isEmpty) return fail(SearchQueryIssue.tooShort);
-        if (!_isTagBody(body)) return fail(SearchQueryIssue.invalid);
-        return SearchQuery._(
-          kind: kind,
-          body: body,
-          issue: SearchQueryIssue.none,
-          tagBody: body,
-        );
-      case SearchQueryKind.word:
-        if (body.runes.length < minLength) {
-          return fail(SearchQueryIssue.tooShort);
-        }
-        final people =
-            body.length <= maxHandleLength && _handleChars.hasMatch(body)
-            ? body
-            : null;
-        final tag = _isTagBody(body) ? body : null;
-        if (people == null && tag == null) {
-          return fail(SearchQueryIssue.unsupported);
-        }
-        return SearchQuery._(
-          kind: kind,
-          body: body,
-          issue: SearchQueryIssue.none,
-          peopleQuery: people,
-          tagBody: tag,
-        );
+    final handleShaped =
+        length <= maxHandleLength && _handleChars.hasMatch(body);
+    final tooShortForPeople =
+        kind != SearchQueryKind.tag && handleShaped && length < minLength;
+    final people =
+        kind != SearchQueryKind.tag && handleShaped && length >= minLength
+        ? body
+        : null;
+    final tag = kind != SearchQueryKind.handle && _isTagBody(body)
+        ? body
+        : null;
+
+    if (people == null && tag == null) {
+      return SearchQuery._(
+        kind: kind,
+        body: body,
+        issue: tooShortForPeople
+            ? SearchQueryIssue.tooShort
+            : SearchQueryIssue.unsupported,
+        peopleTooShort: tooShortForPeople,
+      );
     }
+    return SearchQuery._(
+      kind: kind,
+      body: body,
+      issue: SearchQueryIssue.none,
+      peopleQuery: people,
+      tagBody: tag,
+      peopleTooShort: tooShortForPeople,
+    );
   }
 
   /// Whether `#[body]` is exactly one hashtag under the post grammar: the one

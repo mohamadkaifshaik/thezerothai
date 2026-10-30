@@ -30,8 +30,26 @@ void main() {
       final q = _p('@a');
       expect(q.kind, SearchQueryKind.handle);
       expect(q.issue, SearchQueryIssue.tooShort);
+      expect(q.peopleTooShort, isTrue);
       expect(q.canSearchPeople, isFalse);
       expect(q.canSearchPosts, isFalse);
+    });
+
+    test('a one-character word: people too short, tag a still searched', () {
+      final q = _p('a');
+      expect(q.isValid, isTrue);
+      expect(q.peopleTooShort, isTrue);
+      expect(q.canSearchPeople, isFalse);
+      expect(q.tagBody, 'a');
+      expect(q.postsRequest, '#a');
+      final tag = _p('#a');
+      expect(tag.tagBody, 'a');
+      expect(tag.peopleTooShort, isFalse);
+    });
+
+    test('a 50-code-point tag with its # is valid (the sigil is free)', () {
+      expect(_p('#${'a' * 50}').tagBody, 'a' * 50);
+      expect(_p('#${'a' * 51}').issue, SearchQueryIssue.tooLong);
     });
   });
 
@@ -46,30 +64,36 @@ void main() {
       expect(_p('@${'a' * 15}').isValid, isTrue);
     });
 
-    test('bare @ is still being typed, 16 characters is too long', () {
-      expect(_p('@').issue, SearchQueryIssue.tooShort);
-      expect(_p('@${'a' * 16}').issue, SearchQueryIssue.tooLong);
+    test('bare @ is empty; a handle over 15 characters is unsupported', () {
+      expect(_p('@').issue, SearchQueryIssue.empty);
+      expect(_p('@${'a' * 16}').issue, SearchQueryIssue.unsupported);
     });
 
-    test('characters outside the charset are invalid', () {
-      expect(_p('@bo-b').issue, SearchQueryIssue.invalid);
-      expect(_p('@bob smith').issue, SearchQueryIssue.invalid);
-      expect(_p('@bób').issue, SearchQueryIssue.invalid);
-      expect(_p('@@bob').issue, SearchQueryIssue.invalid);
+    test('characters outside the charset are unsupported (server: empty)', () {
+      expect(_p('@bo-b').issue, SearchQueryIssue.unsupported);
+      expect(_p('@bob smith').issue, SearchQueryIssue.unsupported);
+      expect(_p('@bob').canSearchPosts, isFalse);
+    });
+
+    test('only one sigil is removed', () {
+      expect(_p('@@bob').issue, SearchQueryIssue.unsupported);
+      expect(_p('@#bob').issue, SearchQueryIssue.unsupported);
+      expect(_p('##go').issue, SearchQueryIssue.unsupported);
     });
   });
 
   group('tag', () {
     test('a one-character tag is valid, # alone is not', () {
       expect(_p('#a').tagBody, 'a');
-      expect(_p('#').issue, SearchQueryIssue.tooShort);
+      expect(_p('#').issue, SearchQueryIssue.empty);
     });
 
     test('digits only, spaces and nested # are not a tag body', () {
-      expect(_p('#123').issue, SearchQueryIssue.invalid);
-      expect(_p('#go lang').issue, SearchQueryIssue.invalid);
-      expect(_p('#a#b').issue, SearchQueryIssue.invalid);
-      expect(_p('#go.').issue, SearchQueryIssue.invalid);
+      expect(_p('#123').issue, SearchQueryIssue.unsupported);
+      expect(_p('#go lang').issue, SearchQueryIssue.unsupported);
+      expect(_p('#a#b').issue, SearchQueryIssue.unsupported);
+      expect(_p('#go.').issue, SearchQueryIssue.unsupported);
+      expect(_p('#go!').issue, SearchQueryIssue.unsupported);
     });
 
     test('non-ASCII letters are fine', () {
@@ -78,8 +102,10 @@ void main() {
     });
 
     test('NFC is applied before the grammar', () {
-      // "e" + combining acute is the same tag as the precomposed "é".
-      expect(_p('#café').tagBody, _p('#café').tagBody);
+      final decomposed = 'cafe${String.fromCharCode(0x301)}';
+      final composed = 'caf${String.fromCharCode(0xE9)}';
+      expect(decomposed, isNot(composed));
+      expect(_p('#$decomposed').tagBody, composed);
     });
   });
 
@@ -108,8 +134,11 @@ void main() {
       expect(q.isValid, isTrue);
     });
 
-    test('one character is too short; empty and blank are empty', () {
-      expect(_p('a').issue, SearchQueryIssue.tooShort);
+    test('one digit is too short (no tag to fall back on)', () {
+      expect(_p('7').issue, SearchQueryIssue.tooShort);
+    });
+
+    test('empty and blank are empty', () {
       expect(_p('').issue, SearchQueryIssue.empty);
       expect(_p('   ').issue, SearchQueryIssue.empty);
     });
@@ -123,11 +152,12 @@ void main() {
   });
 
   group('limits and forbidden characters', () {
-    test('50 code points pass, 51 are too long (the marker counts)', () {
+    test('50 code points pass, 51 are too long (the sigil is not counted)', () {
       expect(_p('a' * 50).isValid, isTrue);
       expect(_p('a' * 51).issue, SearchQueryIssue.tooLong);
-      expect(_p('#${'a' * 49}').isValid, isTrue);
-      expect(_p('#${'a' * 50}').issue, SearchQueryIssue.tooLong);
+      expect(_p('#${'a' * 50}').isValid, isTrue);
+      expect(_p('@${'a' * 50}').issue, SearchQueryIssue.unsupported);
+      expect(_p('@${'a' * 51}').issue, SearchQueryIssue.tooLong);
     });
 
     test('astral characters count as one code point', () {
