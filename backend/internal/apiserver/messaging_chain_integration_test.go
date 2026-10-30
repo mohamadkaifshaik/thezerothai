@@ -212,7 +212,7 @@ func TestMessagingChain_BudgetTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := warm.lineBudget(t, rpcSendMessage)
-	budgettest.Assert(t, "SendMessage accepted, warm", got, budgettest.Budget{Reads: 1, Writes: 3})
+	budgettest.Assert(t, "SendMessage accepted, warm", got, budgettest.Budget{Reads: 2, Writes: 3})
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "accepted conversation, warm", got.Reads(), got.Writes(), got.Deletes())
 }
 

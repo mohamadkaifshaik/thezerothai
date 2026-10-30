@@ -519,7 +519,7 @@ note records the composition; **the decision below is unchanged** and takes effe
   `TRENDS_MIN_INTERVAL`), its own panic recovery and budget counter, and it never changes the status code. A retry of
   the backstop re-runs trends harmlessly (the `fresh` skip).
 - The Scheduler job and its 30 s attempt deadline are unchanged. ADR-0028 W4-9b implements this and keeps this ADR's
-  backstop tests green.
+  backstop tests green. Implemented in `apiserver/daily_maintenance.go` (W4-9b); the backstop's own tests are untouched.
 
 ## Decision (Accepted 2026-10-07)
 - **D-A: option D with A.** A shared `jobs` Pub/Sub topic with push to `/internal/pubsub/jobs`. Its subscription has

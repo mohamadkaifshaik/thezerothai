@@ -125,6 +125,9 @@ var lifecycleCollections = []collectionRow{
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
+	// ADR-0028 D6 (W4-9): trends/current holds tags and counts only (distinct authors are counted in memory and never
+	// persisted), so there is no uid to erase and nothing to export.
+	{Name: "trends", Disposition: notPersonal, ExportNote: "tags and counts only, no uid; not exported", Owner: "search", Cite: "ADR-0028 D6"},
 }
 
 // gcsPrefixRow is one GCS object namespace.

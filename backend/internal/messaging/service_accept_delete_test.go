@@ -37,7 +37,7 @@ func (r *rig) putRequest(mut func(*ConvDoc)) {
 }
 
 func (r *rig) accept(uid, convID string) error {
-	_, err := r.svc.Accept(context.Background(), uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
+	_, err := r.svc.Accept(verifiedCtx(), uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
 	return err
 }
 
@@ -146,7 +146,7 @@ func TestDecideDeleteAndReplay(t *testing.T) {
 func TestAccept_MovesTheRequest(t *testing.T) {
 	rg := newRig(t, nil)
 	rg.putRequest(nil)
-	ctx, info := logger.WithRequestInfo(context.Background())
+	ctx, info := logger.WithRequestInfo(verifiedCtx())
 	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestAccept_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	writes, deletes, evictions := rg.repo.writes, rg.repo.deletedDocs, len(rg.badge.got)
-	ctx, info := logger.WithRequestInfo(context.Background())
+	ctx, info := logger.WithRequestInfo(verifiedCtx())
 	if _, err := rg.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestAcceptDelete_MalformedKey(t *testing.T) {
 			rg.putRequest(nil)
 			for _, call := range map[string]func() error{
 				"accept": func() error {
-					_, err := rg.svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
+					_, err := rg.svc.Accept(verifiedCtx(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: aliceBobConv})
 					return err
 				},
 				"delete": func() error {
@@ -325,7 +325,7 @@ func TestAcceptDelete_MalformedKey(t *testing.T) {
 					return err
 				},
 				"accept, bad id too": func() error {
-					_, err := rg.svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: "nope"})
+					_, err := rg.svc.Accept(verifiedCtx(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: "nope"})
 					return err
 				},
 			} {
@@ -395,7 +395,7 @@ func TestAcceptDelete_FlagModes(t *testing.T) {
 func TestDelete_Request(t *testing.T) {
 	rg := newRig(t, nil)
 	rg.putRequest(nil)
-	ctx, info := logger.WithRequestInfo(context.Background())
+	ctx, info := logger.WithRequestInfo(verifiedCtx())
 	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestDelete_Replay(t *testing.T) {
 	cleared := rg.repo.convs[aliceBobConv].ClearedAt[bob]
 	writes, deletes, evictions := rg.repo.writes, rg.repo.deletedDocs, len(rg.badge.got)
 	rg.now = rg.now.Add(time.Minute)
-	ctx, info := logger.WithRequestInfo(context.Background())
+	ctx, info := logger.WithRequestInfo(verifiedCtx())
 	if _, err := rg.svc.Delete(ctx, bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv}); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestAcceptDelete_Errors(t *testing.T) {
 		t.Run(name+"/deadline", func(t *testing.T) {
 			rg := newRig(t, nil)
 			rg.repo.lifeErr = context.DeadlineExceeded
-			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			ctx, cancel := context.WithDeadline(verifiedCtx(), time.Now().Add(-time.Second))
 			defer cancel()
 			var err error
 			if name == "accept" {
@@ -580,7 +580,7 @@ func TestAcceptDelete_Errors(t *testing.T) {
 			svc := New(newRig(t, nil).reg, Deps{})
 			var err error
 			if name == "accept" {
-				_, err = svc.Accept(context.Background(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
+				_, err = svc.Accept(verifiedCtx(), bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			} else {
 				_, err = svc.Delete(context.Background(), bob, &messagingv1.DeleteConversationRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
 			}

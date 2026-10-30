@@ -80,9 +80,15 @@ func TestFlagModes(t *testing.T) {
 			t.Run(rpc.name+"/"+m.name, func(t *testing.T) {
 				// Only the RPC's own flag carries the mode; the other flag is on, to prove it opens nothing here.
 				reg := flags.NewRegistry(m.spec(rpc.flag), flags.Spec{Name: other, Mode: flags.On})
-				srv := NewServer(New(reg))
+				srv := NewServer(New(reg, WithTrends(&fakeTrendsStore{}, nil)))
 				for uid, wantOn := range map[string]bool{in: m.wantIn, out: m.wantOut} {
 					err := rpc.call(srv, signedIn(uid))
+					if wantOn && rpc.name == "GetTrends" {
+						if err != nil {
+							t.Errorf("%s: GetTrends err = %v, want nil (built in W4-10)", uid, err)
+						}
+						continue
+					}
 					ae := apiErr(t, err)
 					if wantOn {
 						if ae.Code != connect.CodeUnimplemented {
