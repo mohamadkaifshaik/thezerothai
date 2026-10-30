@@ -387,6 +387,12 @@ void main() {
       await open(tester, folder: Folder.FOLDER_REQUESTS);
 
       expect(find.text('No message requests'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'Requests from accounts you blocked or muted are hidden.',
+        ),
+        findsOneWidget,
+      );
     });
   });
 
