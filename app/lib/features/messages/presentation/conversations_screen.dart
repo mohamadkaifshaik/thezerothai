@@ -324,7 +324,8 @@ class _ConversationsViewState extends State<_ConversationsView>
           title: 'No message requests',
           subtitle:
               'When someone new wants to message you, it will show up '
-              'here.',
+              'here. '
+              'Requests from accounts you blocked or muted are hidden.',
         );
       }
       return [_inset(inset, SliverToBoxAdapter(child: child))];
