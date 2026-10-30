@@ -1,0 +1,418 @@
+{
+ "_comment": "Shared search query grammar fixture (ADR-0028 D1 step 8). Architect-owned: review changes like proto changes. Go (backend/internal/search) and Dart (app/lib/features/search/domain/search_query.dart) tests run every row and assert the row count. people.result is invalid | too_short | unsupported | prefix (+ prefix); posts.result is invalid | unsupported | tag (+ tag). Where the ADR and this file disagree, the ADR wins and the file is fixed.",
+ "cases": [
+  {
+   "query": "",
+   "note": "empty",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "   ",
+   "note": "blank",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "@",
+   "note": "sigil @ alone",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "#",
+   "note": "sigil # alone",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "@ ",
+   "note": "sigil @ then blank",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "a",
+   "note": "one char word: too short for people, a valid tag",
+   "people": {
+    "result": "too_short"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "a"
+   }
+  },
+  {
+   "query": "@a",
+   "note": "one char handle: too short",
+   "people": {
+    "result": "too_short"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "#a",
+   "note": "one char tag: no people at all",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "a"
+   }
+  },
+  {
+   "query": "ab",
+   "note": "two chars: prefix and tag",
+   "people": {
+    "result": "prefix",
+    "prefix": "ab"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "ab"
+   }
+  },
+  {
+   "query": "@ab",
+   "note": "handle prefix",
+   "people": {
+    "result": "prefix",
+    "prefix": "ab"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "@AbC",
+   "note": "upper case is lowered",
+   "people": {
+    "result": "prefix",
+    "prefix": "abc"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "  @Ali  ",
+   "note": "trimmed",
+   "people": {
+    "result": "prefix",
+    "prefix": "ali"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "#Go",
+   "note": "tag, upper case",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "go"
+   }
+  },
+  {
+   "query": "go",
+   "note": "plain word",
+   "people": {
+    "result": "prefix",
+    "prefix": "go"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "go"
+   }
+  },
+  {
+   "query": "a_b",
+   "note": "underscore in a handle prefix",
+   "people": {
+    "result": "prefix",
+    "prefix": "a_b"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "a_b"
+   }
+  },
+  {
+   "query": "@ab_",
+   "note": "trailing underscore",
+   "people": {
+    "result": "prefix",
+    "prefix": "ab_"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "123",
+   "note": "digits only: a prefix, not a tag",
+   "people": {
+    "result": "prefix",
+    "prefix": "123"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "#123",
+   "note": "digits only is not a tag",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "#भारत",
+   "note": "Devanagari tag",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "भारत"
+   }
+  },
+  {
+   "query": "#café",
+   "note": "precomposed e-acute tag",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "café"
+   }
+  },
+  {
+   "query": "#café",
+   "note": "decomposed e-acute is NFC-normalised",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "café"
+   }
+  },
+  {
+   "query": "café",
+   "note": "non-ASCII word: no handle, a tag",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "café"
+   }
+  },
+  {
+   "query": "go lang",
+   "note": "two words",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "#go!",
+   "note": "punctuation in a tag",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "##ab",
+   "note": "only one sigil is removed",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "@@ab",
+   "note": "only one sigil is removed (@)",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "@#ab",
+   "note": "a tag after @",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "abcdefghijklmno",
+   "note": "15 chars: the longest handle prefix",
+   "people": {
+    "result": "prefix",
+    "prefix": "abcdefghijklmno"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "abcdefghijklmno"
+   }
+  },
+  {
+   "query": "abcdefghijklmnop",
+   "note": "16 chars: no handle",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "abcdefghijklmnop"
+   }
+  },
+  {
+   "query": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "note": "50 code point body, no sigil",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  },
+  {
+   "query": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "note": "50 code point body with # (51 in all) is valid",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "tag",
+    "tag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+  },
+  {
+   "query": "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "note": "50 code point body with @",
+   "people": {
+    "result": "unsupported"
+   },
+   "posts": {
+    "result": "unsupported"
+   }
+  },
+  {
+   "query": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "note": "51 code point body",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "note": "51 code point body with #",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "a‮b",
+   "note": "bidi override",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "ab⁦",
+   "note": "bidi isolate",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "ab‎",
+   "note": "left-to-right mark (refused in a query, allowed in a post)",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "a\tb",
+   "note": "control character inside",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  },
+  {
+   "query": "\u0000ab",
+   "note": "NUL",
+   "people": {
+    "result": "invalid"
+   },
+   "posts": {
+    "result": "invalid"
+   }
+  }
+ ]
+}

@@ -14,12 +14,25 @@ import (
 )
 
 type service struct {
-	flags FlagChecker
+	flags  FlagChecker
+	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the W4-3 skeleton)
 }
 
-// New builds the Service: the flag gate of each RPC, then (from W4-5) the rules. A nil FlagChecker is off for everyone.
-func New(fc FlagChecker) Service {
-	return &service{flags: fc}
+// Option wires one RPC family into the Service. Each W4 ticket adds its own option, so the constructor's callers change
+// by one argument per ticket.
+type Option func(*service)
+
+// WithPeople wires SearchPeople (W4-5): the identity handle reader, the graph snapshot and the prefix cache.
+func WithPeople(d PeopleDeps) Option { return func(s *service) { s.people = newPeople(d) } }
+
+// New builds the Service: the flag gate of each RPC, then the rules of every RPC an option wired. A nil FlagChecker is
+// off for everyone; an RPC whose option is missing answers Unimplemented to a caller its flag lets through.
+func New(fc FlagChecker, opts ...Option) Service {
+	s := &service{flags: fc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // guard is the flag gate of every method, run before any Firestore access. Disabled is FAILED_PRECONDITION +
@@ -41,15 +54,6 @@ func (s *service) guard(ctx context.Context, uid, name string) error {
 // errNotImplemented is what a caller the flag lets through gets until the RPC's ticket lands. It reads nothing.
 func errNotImplemented() error {
 	return apierr.New(connect.CodeUnimplemented, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "not implemented yet")
-}
-
-// People is SearchPeople. Flag: search. Skeleton (W4-3): FEATURE_DISABLED or Unimplemented, 0 reads, 0 writes.
-// Worst case once built (W4-5): 22 reads at limit 20 (ADR-0028 D2), 0 writes.
-func (s *service) People(ctx context.Context, uid, _ string, _ int32) (*searchv1.SearchPeopleResponse, error) {
-	if err := s.guard(ctx, uid, FlagSearch); err != nil {
-		return nil, err
-	}
-	return nil, errNotImplemented()
 }
 
 // Posts is SearchPosts. Flag: search. Skeleton (W4-3): FEATURE_DISABLED or Unimplemented, 0 reads, 0 writes.

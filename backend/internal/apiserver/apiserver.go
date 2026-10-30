@@ -567,9 +567,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Search and trends (ADR-0028, W4): the skeleton (W4-3) answers FEATURE_DISABLED per flag (FEATURE_SEARCH gates
-	// SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends) and Unimplemented for a caller the flag lets through,
-	// with 0 Firestore reads; W4-5, W4-7 and W4-9 add the readers.
-	searchServer := search.NewServer(search.New(featureFlags))
+	// SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends); SearchPeople is built (W4-5), the others answer
+	// Unimplemented to a caller the flag lets through, with 0 Firestore reads; W4-7 and W4-9 add the other readers.
+	searchServer := search.NewServer(search.New(featureFlags,
+		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries}))) // W4-5
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return searchv1connect.NewSearchServiceHandler(searchServer, o...)
 	})
