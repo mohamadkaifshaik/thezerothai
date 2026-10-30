@@ -18,6 +18,7 @@ import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
+import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
@@ -28,6 +29,7 @@ import '../../media/presentation/media_error_messages.dart';
 import '../../media/presentation/widgets/attachment_grid.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/posts_repository.dart';
+import '../domain/composer_attachment_rules.dart';
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
@@ -35,6 +37,7 @@ import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
+import 'widgets/composer_extras_buttons.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
@@ -380,6 +383,18 @@ class _ComposerViewState extends State<_ComposerView> {
         // A time is only shown (and "Schedule" only written) while the
         // composer can still schedule: never a line the button cannot honour.
         final scheduling = state.isScheduling && cubit.canSchedule;
+        // One rule decides which toolbar buttons are on (W6-11). The poll
+        // and GIF attachments arrive with W6-12 / W6-16, so none is attached
+        // yet; the rule already reads the schedule and the photos.
+        final rules = ComposerAttachmentRules(
+          flagPolls: featureEnabledSnapshot(context, kFeaturePolls),
+          engagementOn: featureEnabledSnapshot(context, kFeatureEngagement),
+          flagGif: featureEnabledSnapshot(context, kFeatureGif),
+          mediaOn: widget.mediaEnabled,
+          isQuote: isQuote,
+          hasPhotos: state.hasAttachments,
+          scheduled: scheduling,
+        );
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
@@ -516,11 +531,25 @@ class _ComposerViewState extends State<_ComposerView> {
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (widget.mediaEnabled) const _AddPhotoButton(),
+                              if (widget.mediaEnabled)
+                                _AddPhotoButton(block: rules.photo),
+                              if (rules.showGif)
+                                ComposerGifButton(
+                                  block: rules.gif,
+                                  enabled: !state.isSubmitting,
+                                ),
+                              if (rules.showPoll)
+                                ComposerPollButton(
+                                  block: rules.poll,
+                                  enabled: !state.isSubmitting,
+                                ),
                               if (cubit.canSchedule)
                                 ScheduleButton(
                                   scheduled: scheduling,
-                                  enabled: !state.isSubmitting,
+                                  enabled:
+                                      !state.isSubmitting &&
+                                      rules.schedule == ComposerBlock.none,
+                                  tooltip: rules.schedule.scheduleTooltip,
                                   onPressed: () => _openSchedule(context),
                                 ),
                             ],
@@ -571,7 +600,10 @@ class _ScheduleImagesNoteBox extends StatelessWidget {
 /// The "Add photos" action in the composer's bottom bar. Disabled while the
 /// post is sending or when four photos are attached.
 class _AddPhotoButton extends StatelessWidget {
-  const _AddPhotoButton();
+  const _AddPhotoButton({required this.block});
+
+  /// Why photos are off for a rule (a poll or a GIF), or none.
+  final ComposerBlock block;
 
   @override
   Widget build(BuildContext context) {
@@ -585,9 +617,13 @@ class _AddPhotoButton extends StatelessWidget {
       builder: (context, flags) {
         final (full, busy) = flags;
         return IconButton(
-          tooltip: full ? 'Four photos is the limit' : 'Add photos',
+          tooltip: block != ComposerBlock.none
+              ? block.photoTooltip
+              : full
+              ? 'Four photos is the limit'
+              : 'Add photos',
           icon: const Icon(Icons.image_outlined),
-          onPressed: submitting || full || busy
+          onPressed: submitting || full || busy || block != ComposerBlock.none
               ? null
               : () => context.read<AttachmentsCubit>().pick(),
         );
