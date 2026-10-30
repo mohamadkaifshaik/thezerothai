@@ -330,8 +330,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3 Part A / W4? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
-| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | Open |
+| W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #485) |
+| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | In review (PR #485) |
 | W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | Open |
 | W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | Open |
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | Open |
@@ -417,7 +417,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ## Tickets
 
-### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
+### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #485)
 - **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Proposed). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
   - the `lists` collection and doc shape (A5);
   - the member cap (F2) with the chunk arithmetic above, and the per-user caps and quotas;
@@ -443,7 +443,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** It defines `lists.Service`, `lists.Reader` (`Members(ctx, viewer, listID)`) and `timeline.HomeTabsStore`; the list timeline sits behind the `timeline` interface.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-2 — Part A protos  [owner: architect] [size: S] [depends: W5-1 drafted]  Status: Open
+### W5-2 — Part A protos  [owner: architect] [size: S] [depends: W5-1 drafted]  Status: In review (PR #485)
 - **Description.** All changes are additive; `buf lint` and `buf breaking` are clean; field numbers are the architect's.
   - New `proto/dzeroth/lists/v1/lists.proto`, `ListService`:
     - CreateList(idempotency_key, name, description, private);
