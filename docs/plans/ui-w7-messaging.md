@@ -356,24 +356,28 @@ Prices (§7):
 | W7-17 | New-message flow `/messages/new` (people picker) + profile "Message" button | frontend-developer | M | W7-13; W3-14 for the profile button | picker yes; `profile_header.dart` after W3-14; W4 search optional | Done (#435) |
 | W7-18 | Request actions (Accept / Delete / Block / Report) and the report-message sheet | frontend-developer | S | W7-14, W7-15 | yes | Done (#442) |
 | W7-19 | Shell: Messages destination + badge cubit, push routing (`notificationLocation`), deep-link allowlist `/messages/<32 hex>`, foreground-push rules | frontend-developer | M | W7-14, W7-15 | **shared:** `main_shell.dart`, bar / rail / drawer, `app_router.dart`, `notification_location.dart` serialise with W4-17 and any W5/W6 nav or route change | Done (#441) |
-| W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | In review (PR #453) |
+| W7-20 | Backend tests: flag matrix, authz, block oracle, caps, budgets, eraser, export, push hook | tester | M | W7-5 to W7-12 | yes | Done (#453) |
 | W7-21 | Client tests: responsive matrix, polling with a fake clock, flows, deep link | tester | S | W7-14 to W7-19 | yes | Done (#447) |
 | W7-22 | Security review (mandatory: private content) | security-auditor | M | W7-5 to W7-12, W7-19 | yes | Done (#446) |
-| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | In review (PR #455) |
-| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Done in dev 2026-10-30 (API smoke); owed: in-app UI check, leg 5 Android push, leg 7 tombstone before prod |
-| W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect, then backend-developer | S | W7-7, W7-9 | after W7-9 | Open |
-| W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect, then frontend-developer | S | W7-14, W7-15 | yes | Open |
-| W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | In review (PR #459) |
+| W7-23 | Cost report: `cost-model.md` rows, emulator load smoke (polling and send burst), delivery-latency measurement, triggers | sre-performance | S | W7-8, W7-10 | yes | Done (#455) |
+| W7-24 | Dev rollout: targeted Terraform plan, fieldOverrides deployed, allowlist, two-account smoke incl. Android push | production-deployer | S | W7-20, W7-22, W7-23, ADR merged | serialise dev applies with W3 / W4 rollouts | Done in dev 2026-10-30 (API smoke; prepared #458, results #468); owed before prod: in-app UI check, leg 5 Android push, leg 7 tombstone, the W7-37 leg 2 re-run |
+| W7-25 | Request state for the sender: the requester's pending request reads REQUEST in the Inbox list (follow-up from the PR #442 review) | architect (ADR-0027 note 2026-10-30, done), then W7-25a backend-developer and W7-25b frontend-developer | S | W7-7, W7-9; W7-25a after W7-37a; W7-25b after W7-25a serves dev and after W7-26 | see "Prod blockers and order" | Ready to build (design: ADR-0027 note W7-25, 2026-10-30); a and b Open |
+| W7-26 | Client honours F6(a) for the clean-up RPCs when `messaging` is off for the caller only (follow-up from the PR #442 review) | architect (ADR-0027 note 2026-10-30, done), then frontend-developer | S | W7-14, W7-15; W7-35 (owner stamp) and W7-37b merged | see "Prod blockers and order" | Ready to build (design: ADR-0027 note W7-26, 2026-10-30; client only); Open |
+| W7-27 | ListMessages first page returns `unread_count` (so a cold-opened thread can mark itself read in the badge) | architect, then backend-developer | S | W7-8 | yes (messaging module and the proto comment only); **must land before W7-24** | Done (#459; client follow-up #460) |
 | W7-28 | H-1: non-participant conversation-cache isolation (`conversationHit`), from the W7-22 review | backend-developer | S | — | yes (messaging only) | Done (#448) |
 | W7-29 | M-1: daily caps for MarkConversationRead and Accept/Delete (`messages_mark_read_daily`, `messages_mutation_daily`) | backend-developer | S | — | yes (rate-limit config) | Done (#451) |
-| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | In review (PR #459): thread header part; the export part stays Open |
+| W7-30 | M-2: frozen peer snapshot when the peer blocked the caller (thread header and export) | backend-developer | S | W7-27 | with W7-27 | Thread header part Done (#459); **export part Open** (prod blocker) |
 | W7-31 | M-3: "Messages are not end-to-end encrypted" copy (Inbox, new message, request banner) | frontend-developer | XS | — | yes | Done (#450) |
-| W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Open |
-| W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (note), then backend-developer | S | — | messaging + graph seam | Open |
+| W7-32 | M-4: custom read role for the `tf-plan` CI identity (no `datastore.entities.*`) | production-deployer, founder decision | S | — | Terraform; founder-gated | Done: `tfPlanReader` role applied and proven in dev and prod 2026-10-29 (#449, #456, #457; `docs/runbooks/ci-enforcement.md` section 13) |
+| W7-33 | L-1 (A8) recipient graph read in the send transaction, L-3 `ProfileInTx` for the recipient, L-8 verified-email gate | architect (ADR-0027 note 2026-10-30, done), then backend-developer | S | — | messaging + graph seam; see "Prod blockers and order" | Ready to build (design: ADR-0027 note W7-33, 2026-10-30); Open |
 | W7-34 | L-2 erasure placeholder `_deleted` (+ dev migration), L-7 keyed `conversation_hash` and peer-uid redaction | backend-developer | S | — | messaging + logger | Open |
 | W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Open |
 | W7-36 | L-6: open MESSAGE reports clear their copied text after 180 days even if untriaged (founder decision 2026-10-29) | backend-developer | S | — | moderation only | Open |
+<<<<<<< HEAD
 | W7-37 | `request_count` on every INBOX refresh, so a request that arrives after the Inbox was first opened shows "Message requests (N)" (found in the W7-24 dev smoke, leg 2, 2026-10-30; founder decision 2026-10-30). **Gate: before prod** | architect (ticket + ADR-0027 note), then W7-37a backend-developer and W7-37b frontend-developer | S | W7-7, W7-14 | yes (messaging module, the proto comment, the messages client); **W7-37b merges only after W7-37a serves dev** | Ticketed (#462); W7-37a In review (PR #PRNUM); W7-37b Open |
+=======
+| W7-37 | `request_count` on every INBOX refresh, so a request that arrives after the Inbox was first opened shows "Message requests (N)" (found in the W7-24 dev smoke, leg 2, 2026-10-30; founder decision 2026-10-30). **Gate: before prod** | architect (ticket + ADR-0027 note), then W7-37a backend-developer and W7-37b frontend-developer | S | W7-7, W7-14 | yes (messaging module, the proto comment, the messages client); **W7-37b merges only after W7-37a serves dev** | Ticketed (#462: ticket and ADR-0027 note); W7-37a and W7-37b Open |
+>>>>>>> origin/main
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
@@ -834,7 +838,7 @@ Order:
 - **Flag.** `messaging` + `ui_shell` (destination), `notifications` (push).
 - **Seam.** Routes are built only through `AppRouter.messagePath(convId)`; the allowlist stays the one `deepLinkTarget` list.
 
-### W7-20 — Backend tests  [owner: tester] [size: M] [depends: W7-5 to W7-12]  Status: In review (PR #453)
+### W7-20 — Backend tests  [owner: tester] [size: M] [depends: W7-5 to W7-12]  Status: Done (#453)
 - **Description.** Emulator integration:
   - flag modes off / allowlist / percent / on for caller × recipient, and the not-globally-off reads;
   - the authz matrix (non-participant, guessed ids, foreign tokens) with byte-identical NOT_FOUND;
@@ -900,7 +904,7 @@ Order:
 - **Flag.** Reviews the `messaging` gates (per caller vs not globally off).
 - **Seam.** Checks the `stage-ladder` rate-limit multiplication and that `messages` is read only by `messaging.Service` (the E2E seam).
 
-### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: In review (PR #455)
+### W7-23 — Cost report  [owner: sre-performance] [size: S] [depends: W7-8, W7-10]  Status: Done (#455)
 - **Description.**
   - Add the W7 rows (≈ +37.0 reads, +5.8 writes, +12.6 requests per DAU) to `docs/reviews/cost-model.md` §1–§5 as an additive block like W2's.
   - Run `make loadtest SCENARIO=messaging` on emulators: a send burst, 300 pollers at 15 s, first pages cold and warm.
@@ -914,7 +918,7 @@ Order:
 - **Flag.** n/a.
 - **Seam.** —
 
-### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: Done in dev 2026-10-30 (API smoke); owed: in-app UI check, leg 5 Android push, leg 7 tombstone before prod
+### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: Done in dev 2026-10-30 (API smoke; #458, results #468); owed before prod: in-app UI check, leg 5 Android push, leg 7 tombstone, the W7-37 leg 2 re-run
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_messaging*` and the messaging config env vars.
   - The fieldOverrides deploy with the dev deploy workflow after the W7-3 merge; for prod they wait for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `messaging` leaves `off` there.
@@ -937,34 +941,123 @@ Order:
 - **Flag.** Dev: `feature_messaging` allowlist (3 uids); prod stays `off`.
 - **Seam.** —
 
-### W7-25 — Request state for the sender  [owner: architect, then backend-developer] [size: S] [depends: W7-7, W7-9]  Status: Open
-- **Description.**
-  - Problem: `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. The note disappears when the sender reopens the thread and stays after the peer accepts.
-  - Options for the architect: store `state` on the requester's `dmInbox` entry (+1 write on Accept, to flip it), or return it in `ListConversations`.
-  - Then the client reads the state from the list row and the header alike (no new client heuristic).
+### W7-25 — Request state for the sender  [owner: architect (done), then W7-25a backend-developer and W7-25b frontend-developer] [size: S] [depends: W7-7, W7-9; W7-25a after W7-37a; W7-25b after W7-25a serves dev and after W7-26]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-25), 2026-10-30"); W7-25a Open, W7-25b Open
+- **Problem.** `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. So the note disappears when the sender reopens the thread, and stays after the peer accepts.
+- **Decision (ADR-0027 note W7-25; accepted by the founder 2026-10-30).** A `requestPending` bool on the requester's own `dmInbox` entry: true while the conversation is REQUEST, absent otherwise. Send writes it at +0. Accept clears it at +1 read and +1 write. `conversationOf` maps it to state REQUEST in folder INBOX. There is no new proto field.
+- **Seam.** `messaging.Service`; `conversationOf` stays the one mapper; the client's `MessagingRepository` is still the only RPC caller.
+
+#### W7-25a — backend (backend-developer)  Status: Open
+- **Files.**
+  - `backend/internal/messaging/model.go`: `EntryDoc.RequestPending bool` (`firestore:"requestPending,omitempty"`), with a doc comment citing the note.
+  - `backend/internal/messaging/repo_firestore.go`, `sendTx`:
+    - the `own` map gets `"requestPending": true` when the conversation is REQUEST after this send (`dec.State == stateRequest` on create, or `dec.IncRequest`), otherwise `firestore.Delete`;
+    - the `other` map always gets `firestore.Delete`, which clears the flag on the requester's entry when the reply accepts;
+    - update the Send doc comment ("+0 reads, +0 writes").
+  - `backend/internal/messaging/repo_accept_delete.go`, `Accept`:
+    - after the request-entry read and before any write, `tx.Get(r.inboxRef(conv.RequestFrom, p.ConvID))` (+1 read, charged to the budget);
+    - if it exists, `b.Update(that ref, [{requestPending, firestore.Delete}, {changedAt, now}])`;
+    - if it is NotFound, nothing (no `Set`, no ghost doc);
+    - update the doc comment: reads 2 → 3 in the transaction, writes 2 → 3 (2 when the requester's entry is gone).
+  - `backend/internal/messaging/repo_lifecycle.go`, `MarkGone`: add `{requestPending, firestore.Delete}` to the existing peer-entry `ups` (+0).
+  - `backend/internal/messaging/service_list.go`, `conversationOf`: an INBOX row with `RequestPending` → `CONVERSATION_STATE_REQUEST`, folder INBOX; update its doc comment.
+  - `backend/internal/messaging/service_accept_delete.go`: update the cost lines in the doc comment.
+  - Any `Repo` fake in `fakes_test.go` that models entries.
+  - **`proto/dzeroth/messaging/v1/messaging.proto`, comments only, then `make proto`.** The generated Go and Dart change in comments only, and `buf breaking` stays clean.
+    - Above `ConversationState state = 4;` add: `// ListConversations: from the caller's entry. A REQUESTS row is REQUEST; an INBOX row is REQUEST for a request the caller sent that the peer has not accepted yet (ADR-0027 note W7-25), else ACCEPTED. SendMessage and ListMessages: from the conversation (ListMessages through the 60 s instance copy, so up to 60 s behind an accept made on another instance).`
+    - On `AcceptMessageRequest`, replace the Firestore line with: `// Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3 (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester deleted that entry); deletes 1 (dmRequests entry).`
+  - **Docs in the same PR:**
+    - this plan's per-RPC cost row "AcceptMessageRequest" (3 / 2.5 / 2 / 1 → 4 / 3.5 / 3 / 1);
+    - the W7-9 Budget line;
+    - `docs/runbooks/messaging.md` section 4;
+    - `docs/runbooks/w7-messaging-dev-rollout.md` leg 2 ("Accept … 3 reads 2 writes 1 delete" → 4 reads, 3 writes, 1 delete).
+  - **Follow-ups outside this PR:** the `firestore-data-model` skill rows for `dmInbox` (the new field) and "AcceptMessageRequest" (`.claude/`, whoever may edit it), and the `cost-model.md` rows (sre-performance, with the Budget below).
 - **Acceptance criteria.**
-  - Given a pending request, then the sender's Inbox row and thread header both read REQUEST, also after a reopen.
-  - Given the peer accepts, then the sender's next refresh reads ACCEPTED and the note goes.
-- **Test notes.** A contract test on the list and the header; a client test that the note follows the row.
-- **Observability.** —
-- **Budget.** Decided by the architect (the first option adds 1 write per Accept).
+  - Given A sends a first message to non-mutual B, then A's INBOX `ListConversations` row has state REQUEST and folder INBOX, on a first page and on a `since` refresh.
+  - Given B accepts, then A's next INBOX `since` refresh returns that row with state ACCEPTED (its `changedAt` moved).
+  - Given B replies instead of accepting, then A's next refresh reads ACCEPTED (the reply's entry write cleared the flag).
+  - Given A deleted the conversation for themselves before B accepts, then Accept succeeds with 4 reads, 2 writes and 1 delete, and A has no `dmInbox` entry afterwards (no ghost doc).
+  - Given B deletes the request, then A's row still reads REQUEST and A's cap still applies.
+  - Given B's account is erased, then A's row has no `requestPending` field (the `MarkGone` rewrite cleared it): it reads ACCEPTED in INBOX with `can_reply = false`.
+  - Given an entry written before this change (no field), then it reads ACCEPTED, as today (legacy dev data, no backfill).
+  - Given the mutual path, a REQUESTS row, or the recipient's own entry, then nothing changes.
+- **Test notes.**
+  - `list_integration_test.go` (row state; refresh after Accept and after the accepting reply).
+  - `accept_delete_integration_test.go`: `budgettest.Assert` "AcceptMessageRequest" moves from `{Reads: 3, Writes: 2, Deletes: 1}` to `{Reads: 4, Writes: 3, Deletes: 1}`. Add the requester-deleted case `{Reads: 4, Writes: 2, Deletes: 1}`. The replay and NOT_FOUND asserts are unchanged.
+  - `backend/internal/apiserver/messaging_accept_delete_chain_integration_test.go` if it pins Accept.
+  - The eraser test for `MarkGone`.
+  - A concurrency test: an Accept racing the requester's third message ends with the flag cleared and the counts right.
+- **Observability.** No new field. The `kind=accept` line's `fs_reads` and `fs_writes` rise by 1. Contention shows as `messaging_txn_contention`.
+- **Budget (ADR-0027 note W7-25).**
+  - Accept: 4 reads worst, 3.5 planning, 3 writes (2 when the requester's entry is gone), 1 delete.
+  - Send, lists, eraser and export: +0.
+  - At most +0.05 reads and +0.05 writes per DAU per day: under INR 0.1 / 0.3 / 0.6 a month at 300 / 1,000 / 3,000 DAU.
+  - The writes crossover (about 506 DAU) moves by under 1 DAU.
+- **Flag.** `messaging` (Accept is per caller; unchanged).
+
+#### W7-25b — client (frontend-developer)  Status: Open
+- **Files.**
+  - `app/lib/features/messages/presentation/bloc/thread_cubit.dart`:
+    - (1) Subscribe to `MessagingRepository.conversationsChanged` (W7-18) and, when it fires, re-read this conversation's cached row. Take its `state`, `folder` and `can_reply` into `ThreadState.conversation`. The row is what ListConversations wrote, so it now carries REQUEST for a sent request.
+    - (2) When a `since` page applies a message with `from_self = false` while the conversation is REQUEST in INBOX, set the state to ACCEPTED locally and write it to the row. Only the recipient's reply can add a peer message, and it accepts the request (ADR-0027 D4 step 5), so this follows from a server rule; it is not a guess.
+  - `app/lib/features/messages/presentation/widgets/request_banner.dart`: `isSentRequest` also requires `canReply`.
+  - `app/lib/features/messages/data/messaging_store.dart`: only if `_upsertConversations` does not already keep the list row's `state` and `folder` (verify first; a test pins it).
+- **Acceptance criteria.**
+  - Given A has a pending request to B, when A reopens the thread from the cache (a `since` resume, no header), then the waiting note shows.
+  - Given B accepts while A's thread is closed, when A's Inbox refreshes and A opens the thread, then no note.
+  - Given B replies while A's thread is open, then the note goes when the poll brings B's message.
+  - Given B accepts without replying while A's thread is open, then the note goes at A's next Inbox refresh (`conversationsChanged`) or at a reopen. That is the stated bound.
+  - Given `can_reply` false, then no note.
+- **Test notes.** `thread_cubit` tests with a fake repository: a row change flips the state, and a peer message flips it. `request_banner` widget tests: a sent request with `can_reply` false shows no note. A `messaging_store` test that a list row's REQUEST in INBOX survives the upsert. The 360 / 600 / 1200 × light / dark × 1.0 / 1.3 / 2.0 matrix only if a widget changes.
+- **Order.** Build after W7-26 merges (both edit the thread screen area); merge after W7-25a serves dev.
+- **Budget.** 0 RPCs of its own.
 - **Flag.** `messaging`.
-- **Seam.** `messaging.Service`; `conversationOf` stays the one mapper.
 
-### W7-26 — Client honours F6(a) for the clean-up RPCs  [owner: architect, then frontend-developer] [size: S] [depends: W7-14, W7-15]  Status: Open
-- **Description.**
-  - Problem: the app hides all of Messages when `messaging` is off for the caller (the `/messages` routes redirect Home, the thread shows "Messages aren't available yet"), but F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
-  - The architect decides: a contract signal (for example an additive `GetMe` field), or trying the call through `MessagingFeatureGate.runRead`. Then fix the W7-14 and W7-15 routing and screen gates.
+### W7-26 — Client honours F6(a) for the clean-up RPCs  [owner: architect (done), then frontend-developer] [size: S] [depends: W7-14, W7-15; W7-35 (owner stamp) and W7-37b merged]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-26), 2026-10-30"; client only, no proto or server change); Open
+- **Problem.** The app hides all of Messages when `messaging` is off for the caller: the `/messages` routes redirect Home, and the thread shows "Messages aren't available yet". But F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
+- **Decision (ADR-0027 note W7-26; accepted by the founder 2026-10-30).** Client only. There are three modes:
+  - `full`: `messaging` is in `enabled_features`.
+  - `readOnly`: not enabled, the owner-stamped cache holds at least one conversation, and a probe succeeded in this session. Until the probe answers the mode is `hidden`, so nothing flashes when the kill switch is thrown.
+  - `hidden`: anything else.
+
+  A single probe decides `readOnly`: one INBOX `ListConversations` refresh through `runRead` at session start (after GetMe, and when the flag set changes), only when not enabled and the cache holds a conversation. Rejected: an additive GetMe field (the note explains why); it is the upgrade path.
+- **Files.**
+  - `app/lib/features/messages/domain/messaging_feature_gate.dart`: a `MessagingAccess` value (`full` / `readOnly` / `hidden`) derived from `enabled`, a "has cached conversations" flag and the outcome of this session's probe (`readOnly` only after a probe success), and a `probe()` that runs the refresh through `runRead`.
+  - `app/lib/features/messages/data/messaging_repository.dart` and `messaging_store.dart`: `hasCachedConversations()` (a `LIMIT 1` drift query; the owner check is W7-35's stamp).
+  - `app/lib/app/app_widget.dart` (`_onOnboarding`): trigger the probe when the flag set changes, and only then.
+  - `app/lib/core/router/app_router.dart`, `_messagesFlagRedirect`:
+    - `full`: as today;
+    - `readOnly`: `/messages`, `/messages/requests` and `/messages/<id>` pass, and `/messages/new` and `/messages/new/draft` redirect to `/messages`;
+    - `hidden`: redirect Home.
+  - `app/lib/core/router/main_shell.dart`: the bar and rail destination stays `full` only.
+  - `app/lib/features/settings/presentation/settings_screen.dart`: the "Messages" row shows for `full` without `ui_shell` (today's rule) **and** for `readOnly` in both chromes.
+  - `app/lib/features/messages/presentation/conversations_screen.dart` and `thread_screen.dart`: gate on `full || readOnly` instead of `isFeatureEnabled`. Hide the New message action unless `full`.
+  - `presentation/widgets/message_composer.dart`: in `readOnly`, a one-line notice "You can't send messages right now." (our copy) instead of the field.
+  - `presentation/widgets/request_banner.dart` (`ThreadRequestActions`): no Accept unless `full`; Delete, Block and Report stay.
+  - `draft_thread_screen.dart` and `recipient_picker_screen.dart` stay `full` only.
+  - `profile_screen.dart`: no change (the Message button needs `full`).
+  - New strings go through the existing copy files; no hardcoded colours.
 - **Acceptance criteria.**
-  - Given `messaging` off for the caller but not globally, then the caller can still open an existing conversation to delete it or report a message, and cannot send or accept.
-  - Given `messaging` off for everyone, then Messages stays hidden.
-- **Test notes.** Widget tests on the routes and the thread for both cases.
+  - Given `messaging` off for the caller but not globally, and the caller's own cache holds a conversation, then:
+    - Settings shows "Messages";
+    - the Inbox and threads open;
+    - Delete conversation, Report message, Block and mark-read work;
+    - there is no composer, no Accept, no New message and no profile Message button;
+    - `/messages/new` lands on `/messages`.
+  - Given `messaging` off for everyone, then Messages stays hidden: no Settings row, routes redirect Home. A device with cached conversations learns this from its one probe (FEATURE_DISABLED, at most 1 read).
+  - Given a caller outside the rollout with no cached conversation, then nothing changes and no probe is sent (0 requests).
+  - Given user B signs in on a device that holds user A's cache, then B gets no `readOnly` entry from A's cache (W7-35 L-4).
+  - Given a FEATURE_DISABLED on any read while in `readOnly`, then `hidden` at once and a redirect Home.
+- **Test notes.**
+  - Widget tests on the routes, Settings, the inbox and the thread for `full`, `readOnly` and `hidden`.
+  - A gate unit test for the probe (success, FEATURE_DISABLED, no cache means no call).
+  - The 360 / 600 / 1200 × light / dark × 1.0 / 1.3 / 2.0 matrix for the read-only composer notice and the banner without Accept.
+  - Extend `messaging_flag_matrix_test` with the `readOnly` case.
 - **Observability.** —
-- **Budget.** 0 (client only), unless the contract signal adds a field.
+- **Budget.** Server +0. The probe is about 4 reads (an INBOX `since` refresh after W7-37). A cold open after the 30-day token TTL costs up to 23, and globally off costs 1. It runs once per session start, and only for users outside the rollout with a cached conversation (≈ INR 0).
 - **Flag.** `messaging` (per caller and globally).
-- **Seam.** `MessagingFeatureGate`.
+- **Seam.** `MessagingFeatureGate` is the one place that decides the mode. An additive GetMe field can later replace the probe without touching a screen.
 
-### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: In review (PR #459)
+### W7-27 — ListMessages first page returns unread_count  [owner: architect, then backend-developer] [size: S] [depends: W7-8]  Status: Done (#459; client follow-up #460)
 - **Why.** Found in the #441 review (W7-19 F-5). `ListMessages` carries the conversation header (identity, peer, state, folder, `can_reply`) but not the caller's entry, so a thread opened cold (a push tap, a deep link, nothing cached) cannot tell that the conversation was unread. The client then cannot take it out of the Messages badge, which keeps its number until the next Inbox load or `GetMe`. The client side is already in W7-19: the cold open merges the header into the cached row, so a cached `unread_count` survives.
 - **Description.**
   - **architect:** a one-line additive proto comment and field use: `Conversation.unread_count` is filled on the first page of `ListMessages` (not on a `since` or older page), from the caller's `dmInbox` entry. No new field, no renumbering (rule 9). A short ADR-0027 dated note.
@@ -981,28 +1074,104 @@ Order:
 - **Implementation note (2026-10-29, PR #459).** Backend, proto comment and ADR-0027 note are in one PR. New `Repo.GetEntry` (1 read, folder from `entryFolder`: `dmRequests` only for the recipient of an unaccepted request, else `dmInbox`; never a probe of both), run in the existing errgroup (limit 4) after the participant check, first page only. Measured in the chain test `TestMessagingChain_ReadBudgetTable`: first page 25 at page 20 and 55 at page 50, older page 24, poll 3. **W7-30 header part rides along** (about 40 lines): `BlockedBy[peer]` or `BlockedByOverflow` shows the entry's frozen peer snapshot, never the live profile; an older page and a first page with no entry read "Deleted account". The rule is: erased peer is the placeholder; else a block decides (frozen only if the entry names this peer), whatever the directory says, so a blocked caller learns nothing about the blocker's account status; else a peer the directory does not list is the placeholder; else live. The directory lookup is kept, in parallel with the graph read, for latency (no serial wait) and for liveness in the unblocked case, not to match read counts. Deviation from the review text: `BlockedByOverflow` is treated as blocked (0 reads, fail closed, security audit accepted) instead of reading the peer's graph, and `canReply` is false for it too. Complete only with W7-33 (a send in the 60 s stale-graph window can refresh the frozen snapshot). **Not in this PR:** the W7-30 export part (needs a graph dependency in `NewExporter` and apiserver wiring), and the client follow-up (`mergeThreadHeader` takes the first-page header count as authoritative, including 0), a separate frontend PR. Client follow-up PR #460.
 
 
-### W7-28 to W7-35 — Security-review follow-ups (W7-22)  Status: Open
+### W7-28 to W7-36 — Security-review follow-ups (W7-22)  Status: W7-28, W7-29, W7-31, W7-32 Done; W7-30 header part Done; W7-30 export part, W7-33, W7-34, W7-35, W7-36 Open (all prod blockers, see "Prod blockers and order")
 Source: `docs/reviews/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
 in that report (finding ids in brackets); acceptance is "the finding's fix is in place with a test, and the report's
 scenario no longer works".
 - **W7-28 (done, #448) [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
   non-participant probe costs exactly 1 read whether the conversation exists or not; participants +0.
 - **W7-29 (done, #451) [M-1]** daily caps. Gate: before the flag leaves the dev allowlist. Config only (rule 11).
-- **W7-30 [M-2]** (thread header part: in review, PR #459, with W7-27; export part still Open) frozen peer snapshot when blocked. Gate: before prod. +0 reads on the first page with W7-27; export +1
-  graph read.
+- **W7-30 [M-2]** frozen peer snapshot when blocked. **Thread header part: done (#459, with W7-27).** **Export part: Open**, backend-developer, gate before prod. Files: `backend/internal/messaging/export.go` (`peerHandles` skips the directory lookup for a peer in the caller's `Blocked` or `BlockedBy`, or every peer when `BlockedByOverflow`, and writes the handle frozen on the caller's entry, or none), `NewExporter` gains the `Social` dependency, `backend/internal/apiserver/messaging_wiring.go` (or `lifecycle_messaging.go`, wherever `NewExporter` is built), `export_test.go` and the export golden. Budget: +1 graph read per export (cached 60 s), 0 writes. Test: a blocked peer's renamed handle never appears in the export.
 - **W7-31 (done, #450) [M-3]** no-E2E copy. Gate: before any non-team user. Plus the founder's Privacy Policy and Terms lines.
-- **W7-32 [M-4]** `tf-plan` custom read role. Gate: founder decision before prod messaging.
-- **W7-33 [L-1 A8, L-3, L-8]** fresh recipient graph in the send transaction (+1 read per send, ADR-0027 note), recipient
-  `ProfileInTx`, verified-email gate. Gate: before prod percent / on.
-- **W7-34 [L-2, L-7]** placeholder and log pseudonyms. Gate: before prod.
-- **W7-35 [L-4, L-5, L-9]** client hardening. Gate: before prod.
-- **W7-36 [L-6]** a 180-day limit on the copied text of OPEN MESSAGE reports (founder decision 2026-10-29). Gate: before prod.
+- **W7-32 (done, #449, #456, #457) [M-4]** `tf-plan` custom read role `tfPlanReader`, applied and proven in dev and prod on 2026-10-29 (`docs/runbooks/ci-enforcement.md` section 13). Closed.
+- **W7-33 [L-1 A8, L-3, L-8]** fresh recipient graph in the send transaction, recipient `ProfileInTx`, verified-email gate. Gate: before prod percent / on. **Ready to build: full ticket below ("W7-33") and ADR-0027 note W7-33 (2026-10-30).**
+- **W7-34 [L-2, L-7]** placeholder and log pseudonyms. backend-developer. Gate: before prod. Files: `backend/internal/messaging/model.go` (`DeletedUID` becomes `_deleted`, which `ids.ValidUID` refuses, ADR-0008 A3), every reader of the placeholder (`eraser.go`, `repo_lifecycle.go`, `repo_moderation.go`, `service_list.go`, `service_messages.go`, `report.go`); `pkg/platform/logger` or the messaging log helper (`conversation_hash` becomes an HMAC keyed by an HKDF derivation of `CURSOR_HMAC_KEY`, so no new Secret Manager version); `service_messages.go` `messagesErr` adds the peer uid to its redact list; a dev-only data migration of `deleted` to `_deleted` in `participants`, `peerId` and `senderId` (a one-off `opsctl` subcommand or script, dry run first; messaging was never on in prod). **It must also update the operator method that finds a conversation's log lines:** `docs/runbooks/w7-messaging-dev-rollout.md` sections 6 and 7 use `h16` (plain SHA-256), and `docs/runbooks/messaging.md` (the NOT_FOUND row) uses `logger.HashUID(convId)`. A keyed hash breaks both. Give operators an `opsctl messages loghash <convId>` (or equivalent) that prints the keyed hash. `uid_hash` stays as it is unless the founder decides otherwise. Budget: 0 reads on hot paths; the migration is 1 read + at most 1 write per affected dev document.
+- **W7-35 [L-4, L-5, L-9]** client hardening. frontend-developer. Gate: before prod. Files: L-4 `app/lib/app/bootstrap.dart`, `app/lib/app/session_wiring.dart` and the `account:owner` setting in `app/lib/core/storage/app_database.dart` (await `clearAll()` before any cache read when the stamp differs or is missing; await the wipe in sign-out). Keep the check out of `messaging_store.dart` and `messaging_repository.dart` if possible: W7-37b edits them. If W7-35 must edit them, it merges after W7-37b. L-5 `app/android/app/src/main/AndroidManifest.xml` (`android:allowBackup="false"`, or `dataExtractionRules` excluding `databases/`). L-9 `presentation/widgets/message_bubble.dart` and `presentation/thread_screen.dart` (links in a REQUEST thread are plain text until accepted). Budget: 0 server.
+- **W7-36 [L-6]** a 180-day limit on the copied text of OPEN MESSAGE reports (founder decision 2026-10-29). backend-developer. Gate: before prod. `backend/internal/moderation` only (the report create path and its resolve path), plus a dated ADR-0016 note in the same PR. It is independent of every messaging file.
 - **Founder decisions (2026-10-29):** start W7-28, W7-29 and W7-31 now (before the dev rollout); M-4 → the custom read
   role (W7-32; Terraform PR by Claude, prod plan and apply by the founder); A8 → flip to the fresh recipient graph read
   (W7-33, ADR-0027 note); L-6 → 180-day TTL (W7-36).
 - Not ticketed: L-10 (the F2(d) requests setting, planner follow-up).
 
+<<<<<<< HEAD
 ### W7-37 — `request_count` on every INBOX refresh  [owner: architect, then backend-developer (W7-37a) and frontend-developer (W7-37b)] [size: S] [depends: W7-7, W7-14]  Status: Ticketed (#462); W7-37a In review (PR #PRNUM); W7-37b Open
+=======
+### W7-33 — Fresh recipient graph and status in the send transaction; verified-email gate  [owner: architect (done), then backend-developer] [size: S] [depends: —; merge before W7-25a and W7-30 export]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-33), 2026-10-30"); Open
+- **Problem.** Security review W7-22 has three findings here:
+  - L-1 (A8, flipped by the founder 2026-10-29): Send reads the recipient's graph from the 60 s cache.
+  - L-3: the new-conversation purge check (`FreshRecipient`) runs outside the transaction.
+  - L-8: Send and Accept do not re-check a verified email.
+- **Decision (ADR-0027 note W7-33).**
+  - A new seam `graph.TxReader.SnapshotInTx(ctx, tx, uid)`, implemented by graph's `FirestoreRepo`: 1 read through the transaction, never cached, a missing doc gives an empty snapshot.
+  - Send reads the recipient's graph **inside** its transaction and drops the cached recipient snapshot read before it.
+  - `ProfileInTx(recipient)` replaces `FreshRecipient` for a new conversation only.
+  - Silent and Mutual come from the transaction.
+  - `authn.RequireVerifiedEmail` in Send and Accept.
+- **Files.**
+  - `backend/internal/graph/api.go`: the `TxReader` interface (doc comment: uncached, through the caller's transaction, ADR-0027 note W7-33).
+  - `backend/internal/graph/repo_firestore.go`: `SnapshotInTx` (reuse `doc.toSnapshot()`; NotFound gives an empty snapshot; budget `AddReads(1)`; no uid in error text).
+  - `backend/internal/messaging/api.go`: the consumer-side `TxSocial` interface.
+  - `backend/internal/messaging/service.go`: `Deps.TxSocial`, `Deps.TxProfiles` (`identity.TxProfiles`) and `Deps.AllowAnonymous`.
+  - `backend/internal/messaging/repo.go`: `SendParams` loses `Mutual`, `Silent` and `FreshRecipient` and gains:
+    - `CallerFollowsPeer bool`;
+    - `RecipientGraphInTx func(ctx, *firestore.Transaction) (graph.Snapshot, error)`;
+    - `RecipientInTx func(ctx, *firestore.Transaction) (identity.Profile, error)`.
+
+    `SendResult` gains `Silent` and `Mutual`.
+  - `backend/internal/messaging/repo_firestore.go`, `sendTx`, in this order:
+    1. the conversation, then `gone`;
+    2. the recipient graph: `Blocked[caller]` → the blocked refusal; then Mutual and Silent;
+    3. `decideSend`;
+    4. for `CreateConv`: `RecipientInTx`, where non-ACTIVE or NotFound → `errRecipientInactive`; then the quota;
+    5. the writes, as today.
+
+    The block check stays ahead of both caps.
+  - `backend/internal/messaging/service_send.go`:
+    - remove `theirs := s.d.Social.Snapshot(ctx, in.peer)` and `freshRecipient`;
+    - keep the caller's cached snapshot and the directory profile checks;
+    - `afterSend` and `sendResponse` take `silent` from `SendResult`;
+    - add `RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "sending messages")` right after the flag guard;
+    - update the doc comment's cost lines.
+  - `backend/internal/messaging/service_accept_delete.go`: `RequireVerifiedEmail(…, "accepting message requests")` right after Accept's flag guard.
+  - `backend/internal/apiserver/messaging_wiring.go`: wire the graph repo as `TxSocial`, the identity repo as `TxProfiles`, and `config.AuthEmulator` as `AllowAnonymous`.
+  - **`proto/dzeroth/messaging/v1/messaging.proto`, comments only, then `make proto`** (`buf breaking` clean):
+    - in the SendMessage comment, replace "(the caller and recipient graph snapshots, cached 60 s, so a new Block applies at once on its instance and within 60 s elsewhere; ADR-0027 A8)" with "(the caller's graph snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies at once on every instance; ADR-0027 note W7-33)";
+    - add "The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.";
+    - replace the cost sentence's start with "accepted conversation reads 5 worst cold (interceptor, caller graph, recipient users via the directory, conversation and recipient graph in the transaction), planning 3.5;";
+    - change "New conversation reads 7 worst (+ fresh recipient status, quotas)" to "(+ the recipient's users doc in the transaction, quotas)";
+    - add the same verified-email line to `AcceptMessageRequest`.
+  - **Docs in the same PR:**
+    - this plan's cost row "SendMessage, accepted conversation" (planning 2.5 → 3.5);
+    - `docs/runbooks/messaging.md` section 4;
+    - the Staleness bounds row for graph snapshots ("the recipient's is read fresh in the send transaction since W7-33").
+  - **Follow-ups outside this PR:** the `firestore-data-model` skill rows "SendMessage" (warm 1 → 2), and `cost-model.md` (sre-performance; it already carries +1.5 reads per DAU for W7-33 in the 41.55 total, so only the per-RPC row moves).
+- **Acceptance criteria.**
+  - Given B blocks A on instance 1, then A's send through instance 2 within the next 60 s is CANNOT_MESSAGE (`refused_reason=blocked`), with no message, no entry write and no event. Test it with a warm stale snapshot in A's instance cache.
+  - Given B muted A within the last 60 s (stale cache), then A's message is delivered silent: no unread increment, no push event, and the `silent=true` log line.
+  - Given B unfollowed A within the last 60 s and A opens a new conversation, then it is a REQUEST (B's `dmRequests`), not mutual.
+  - Given B's `DeleteAccount` commits between A's directory read and A's new-conversation commit, then the send is CANNOT_MESSAGE, or the transaction retries and then refuses. No conversation, entry or quota is written (`ProfileInTx` conflicts).
+  - Given a concurrent Block of A by B and A's send, then exactly one of: the send commits before the Block, or the send is refused. Never a message after the Block's commit.
+  - Given a caller whose token has `email_verified = false` (and no Google or Apple provider), then Send and Accept are FAILED_PRECONDITION `EMAIL_NOT_VERIFIED` with 0 reads past the interceptor. With the flag off for the caller, FEATURE_DISABLED comes first.
+  - The refusal bytes stay identical across blocked, inactive, flag off and gone (the W7-20 byte test).
+  - Every cap still answers after the block check (a capped and blocked send says CANNOT_MESSAGE).
+- **Test notes.**
+  - `service_send_test.go` (fakes): the order and the source of `silent`.
+  - `send_integration_test.go`: the stale-cache cases above. Seed the graph cache, then write the graph doc directly.
+  - `concurrency_integration_test.go`: Block against send.
+  - `reference_budget_integration_test.go` and `apiserver/messaging_chain_integration_test.go`: the send budgets. Cold accepted stays 5; warm becomes 2; new conversation stays 7; refused at most 5.
+  - A graph unit test for `SnapshotInTx`: 1 read, cache untouched, missing doc gives an empty snapshot.
+  - Coverage ≥ 70 % on `internal/messaging` and `internal/graph`.
+- **Observability.** The existing `kind=send` line: `refused_reason`, `silent`, `fs_reads` (+1 warm). Contention: `messaging_txn_contention` (attempts > 1). Watch SendMessage p95 (< 500 ms) for recipients with large graph docs.
+- **Budget (ADR-0027 note W7-33).**
+  - SendMessage accepted: 5 worst cold (unchanged), 2 warm (was 1), 3.5 planning (was 2.5).
+  - New conversation: 7 (unchanged). Refused: at most 5. Replay: +1. Writes unchanged. Accept: +0.
+  - +1.5 reads per DAU per day, ≈ INR 0.5 / 1.5 / 4.6 a month at 300 / 1,000 / 3,000 DAU. That is already inside the W7 total of 41.55 reads per DAU (W7-37 note), so the total is unchanged.
+- **Flag.** `messaging` (per caller and per recipient; unchanged).
+- **Seam.** `graph.TxReader` (a consumer-side `messaging.TxSocial`) and `identity.TxProfiles`. Messaging never reads `graph/*` or `users/*` paths itself. Revisit: any ADR that moves graph or messaging out of the `(default)` database replaces this with an optimistic version check (ADR-0027 note W7-33, Stage ladder).
+- **Gate.** Before prod percent or `on`, and in practice before the first prod release that turns messaging on (see "Prod blockers and order").
+
+### W7-37 — `request_count` on every INBOX refresh  [owner: architect, then backend-developer (W7-37a) and frontend-developer (W7-37b)] [size: S] [depends: W7-7, W7-14]  Status: Ticketed (#462: ticket and ADR-0027 note); W7-37a Open, W7-37b Open
+>>>>>>> origin/main
 - **Why (found in the W7-24 dev smoke, leg 2, 2026-10-30 07:28 UTC).** C (not mutual with A) sent A three messages. The server was right (`state=new`, then `request` twice, the fourth refused `request_unanswered`), but A's Messages screen never showed the "Message requests (N)" row. Cause, verified in code:
   - Server: `backend/internal/messaging/service_list.go` runs the `dmRequests` `count()` only when `in.first && folder == INBOX` (no token at all). The proto says the same twice (`messaging.proto` RPC comment: "request_count is set on the first INBOX page only (no token); 0 everywhere else"; the `ListConversationsResponse.request_count` field comment: "set on the first INBOX page only, else 0"), and so does W7-7.
   - Client: `MessagingRepository._refreshConversations` cold-opens only when the stored since token is empty, rejected, or answered with a full page. Otherwise it applies a since refresh, and `applyConversationsRefresh` never touches the stored `requestCount`. `ConversationsCubit.load()` always refreshes, but that refresh is a since refresh. The persisted count (drift / IndexedDB) stays at what the first cold open saw (A's was 0 at 07:18, before C's request), and `conversations_screen.dart` draws the row only when `requestCount > 0`. Since tokens live 30 days and every refresh issues a new one, so a user who has opened Messages once does not learn of a new request until sign-out, token expiry or a full since page. Only the local `adjustRequestCount(-1)` on Accept and Delete moves it. Block (`dropBlockedRequest`) removes the cached row but leaves the count "for the next first Inbox page to correct".
@@ -1017,6 +1186,7 @@ scenario no longer works".
   - `MessagingRepository._refreshConversations`: on an INBOX since refresh, pass `page.requestCount` to the store and return it in `ConversationsResult.requestCount`. A REQUESTS refresh and an older page pass nothing (null = keep). `MessagingStore.applyConversationsRefresh` gains `int? requestCount`, saved in the same transaction as the since token (`_saveState(..., requestCount: ...)`). The cubit already takes a non-null `result.requestCount`. Its comment ("Only a first INBOX page carries the count") and the `ConversationsResult` doc comment change to "every INBOX first page and since refresh".
   - **Race with Accept and Delete.** These do not run through `_single`'s serial tail. A since refresh already in flight when one of them runs can return the count from before it, write that over the local −1 and show one request too many until the next refresh. Guard it with a generation: `adjustRequestCount` bumps an in-memory request-count generation. A refresh captures the generation before its RPC and writes the count only if the generation is unchanged. The rows and the since token are still applied. If this is not built, document the race as bounded (one row, until the next refresh).
   - Tests: (1) with a since token stored and `requestCount` 0, a since refresh answering `request_count = 1` stores 1 and the screen shows "Message requests (1)" with no cold open; (2) after Accept (or Delete) of that request, the next refresh answering 0 lands on 0 and the row goes; (3) a REQUESTS since refresh and an older INBOX page leave the stored count unchanged; (4) the race above (a refresh started before an Accept that answers after it does not undo the −1), if the guard is built.
+  - **Copy (founder decision 2026-10-30, ADR-0027 W7-37 "Known"):** the Requests folder's empty state adds one line, "Requests from accounts you blocked or muted are hidden.", so a "Message requests (N)" row that opens an empty list explains itself. Widget test: the REQUESTS empty state shows the line.
 - **Order.** W7-37a merges first and must serve dev before W7-37b **merges** (merging to `main` deploys the dev web client). W7-37b can be built and reviewed in parallel against the proto comment. A W7-37b client talking to a server without W7-37a would write 0 over the cold-open count on every since refresh, which is worse than the defect.
 - **Compatibility (architect decision): no new field, and the INBOX value is authoritative.** proto3 `int64` cannot tell 0 from unset. The client therefore treats `request_count` as authoritative on every INBOX first page and since refresh, including 0, and ignores it on an older page and on REQUESTS (where it stays 0).
   - Rejected: `optional` on field 4. A presence change alters the generated Go and Dart (pointer and `has` accessor), `buf breaking` can flag it, and the founder decision keeps the field unchanged.
@@ -1049,9 +1219,9 @@ scenario no longer works".
 - **Gate.** Before prod (with the gates under "Rollout plan → Prod"). Blocks prod messaging.
 
 ## Rollout plan
-- **Dev.** Allowlist (3 uids).
+- **Dev.** Allowlist. Since 2026-10-30 each allowlist holds 6 uids (#463: A, B, C and the three dev test accounts in `docs/runbooks/smoke-accounts.md`), up from the planned 3. The founder still has to confirm this against the security review's dev condition (2) (`docs/runbooks/w7-messaging-dev-rollout.md` section 10.1, "Deviation").
 - **Prod.** Your MVP launch decision: allowlist → percent 5 → 25 → 100 → `on`, or allowlist straight to `on` (Flags, because both participants need the flag). Each step is a Terraform change plus a tagged revision (ADR-0019). Before each step, check the `cost-model.md` headroom (writes cross the free quota at about 509 DAU with W7), the poll share and the error rate.
-  - **Prod gates named in the tickets** (collected here 2026-10-30; each ticket's own Gate line is the source): W7-30 export part, W7-32 (your decision), W7-33 (before percent / `on`), W7-34, W7-35, W7-36, the W7-24 leg 7 tombstone smoke, and **W7-37** (the first prod release that turns `messaging` on carries W7-37a, and the released app build carries W7-37b).
+  - **Prod gates:** everything in "Prod blockers and order" below. W7-32 is done and is no longer a gate. Each ticket's own Gate line stays the source.
 - **Rollback triggers:**
   - the error rate on messaging RPCs above 2 % for 15 min;
   - messaging reads per DAU above twice the W7-23 model for a day;
@@ -1060,11 +1230,75 @@ scenario no longer works".
   - any authz finding.
 - **Kill switches:**
   - `FEATURE_MESSAGING=off`: every RPC is FEATURE_DISABLED with 0 reads, the client hides the destination, the routes and the profile button, and the push hook drops `message` events.
-  - Allowlist removal of one user: that user can still read, clean up and report, but not send (F6).
+  - Allowlist removal of one user: that user can still read, clean up and report, but not send (F6). In the app this is the read-only mode of W7-26 (a Settings entry while their device holds their conversations).
   - `DEGRADED_MODE=readonly` refuses all sends product-wide.
 
   All need a deploy. No data migration: the data stays and is still erased by the account-deletion step whatever the flag (ADR-0011).
 - **Client-only pieces** roll back with the flag or by revert.
+
+### Prod blockers and order (2026-10-30)
+Messaging stays dev-only until every item in A to C is done. The design tickets are ready: ADR-0027 notes W7-25, W7-26 and W7-33 (2026-10-30), plus W7-37 (#462). Implementers start right after the PR that adds this list.
+
+A **lane** is one implementer doing one ticket at a time in their own worktree under `.claude/worktrees/`:
+- branch `feat/ui-w7-<N>-<slug>` off `main`;
+- one ticket per PR;
+- merge `origin/main` into the branch, never rebase.
+
+**A. Code (blocks the first prod release that turns `messaging` on)**
+| # | Ticket | Owner | Lane (worktree / branch) | Starts | Merges | Files it shares with another row (serialise) |
+|---|---|---|---|---|---|---|
+| 1 | W7-37a request count on every INBOX refresh | backend-developer | BE-1 `.claude/worktrees/w7-37a` / `feat/ui-w7-37a-request-count` | **now** | first | `messaging/service_list.go`; `messaging.proto` (ListConversations comments): with #6 |
+| 2 | W7-33 fresh recipient graph and status in the send transaction, verified-email gate | backend-developer | BE-2 `.claude/worktrees/w7-33` / `feat/ui-w7-33-send-fresh-graph` | **now** | before #6 and #7 | `messaging/repo_firestore.go` (`sendTx`), `repo.go` (`SendParams`), `service_send.go`, `service_accept_delete.go`, `apiserver/messaging_wiring.go`, `messaging.proto` (SendMessage and Accept comments), `graph/api.go`, `graph/repo_firestore.go`: with #6, #7, #10 and any open graph PR |
+| 3 | W7-36 180-day limit on OPEN message-report text | backend-developer | BE-3 `.claude/worktrees/w7-36` / `feat/ui-w7-36-message-report-limit` | **now** | any time | `internal/moderation` only, plus an ADR-0016 note. Serialise only with a W5 report-target PR if one is open |
+| 4 | W7-37b request count on every INBOX refresh (client) | frontend-developer | FE-1 `.claude/worktrees/w7-37b` / `feat/ui-w7-37b-request-count-client` | **now** (build and review) | only after #1 serves dev | `messages/data/messaging_repository.dart`, `messaging_store.dart`, `presentation/bloc/conversations_cubit.dart`: with #5 (only if L-4 must touch them), #8, #9 |
+| 5 | W7-35 client hardening (L-4 owner-stamped wipe, L-5 Android backup, L-9 links in requests) | frontend-developer | FE-2 `.claude/worktrees/w7-35` / `feat/ui-w7-35-client-hardening` | **now** | any time; after #4 if it edits the messaging store or repository | `app/bootstrap.dart`, `app/session_wiring.dart`, `core/storage/app_database.dart`, `AndroidManifest.xml`, `messages/presentation/widgets/message_bubble.dart`, `thread_screen.dart`: with #8 |
+| 6 | W7-25a requester's row carries REQUEST (backend) | backend-developer | BE-1 after #1 / `feat/ui-w7-25a-request-state` | when #1 merges | after #2 (merge `origin/main`, rerun `make proto` and `make test-int`) | `service_list.go`, `model.go`, `repo_firestore.go` (`sendTx` entry maps), `repo_accept_delete.go`, `repo_lifecycle.go` (`MarkGone`), `messaging.proto`: with #1, #2, #10 |
+| 7 | W7-30 export part (frozen peer handle when blocked) | backend-developer | BE-2 after #2 / `feat/ui-w7-30-export-frozen-peer` | when #2 merges | any time after | `messaging/export.go`, where `NewExporter` is wired (`apiserver/messaging_wiring.go` or `lifecycle_messaging.go`): with #2, #10 |
+| 8 | W7-26 read-only Messages for a caller outside the rollout (client only) | frontend-developer | FE-2 after #5 / `feat/ui-w7-26-read-only-messages` | when #5 and #4 have merged | any time after | `messaging_feature_gate.dart`, `core/router/app_router.dart`, `main_shell.dart`, `settings_screen.dart`, `app/app_widget.dart`, `conversations_screen.dart`, `thread_screen.dart`, `message_composer.dart`, `request_banner.dart`, the messaging repository and store: with #4, #5, #9, and W4-15 / W4-17 on `app_router.dart` |
+| 9 | W7-25b the waiting note follows the row (client) | frontend-developer | FE-1 after #4 / `feat/ui-w7-25b-request-state-client` | when #8 merges | only after #6 serves dev | `presentation/bloc/thread_cubit.dart`, `request_banner.dart`, possibly `messaging_store.dart`: with #8 |
+| 10 | W7-34 placeholder `_deleted` + dev migration, keyed `conversation_hash`, peer redaction | backend-developer | BE-1 after #6 / `feat/ui-w7-34-placeholder-log-pseudonyms` | when #6 and #7 have merged | last backend PR | placeholder readers across `internal/messaging`, the log helper, `docs/runbooks/w7-messaging-dev-rollout.md` sections 6 and 7 and `messaging.md` (the operator's hash lookup): with #2, #6, #7 |
+
+- **Start together now (5 lanes):** W7-37a (BE-1), W7-33 (BE-2), W7-36 (BE-3), W7-37b (FE-1, merge held), W7-35 (FE-2).
+- **Must wait:**
+  - W7-25a: for W7-37a to merge, and it merges after W7-33.
+  - W7-30 export: for W7-33.
+  - W7-26: for W7-35 (the owner stamp) and W7-37b.
+  - W7-25b: for W7-26, and it merges after W7-25a serves dev.
+  - W7-34: for W7-25a and W7-30 export.
+- **Critical path:** W7-33 → (W7-25a, which also needs W7-37a, and W7-30 export) → W7-34. The client tail is W7-35 → W7-26 → W7-25b, with W7-25b also waiting for W7-25a to serve dev. With fewer than five implementers, run the lanes one after another under the same rules.
+- **Proto rule.** W7-37a, W7-33 and W7-25a edit comments on different RPCs in `messaging.proto`. Each merges `origin/main` and reruns `make proto` before it merges. Generated Go and Dart are regenerated, never hand-merged.
+- **Budget-test rule.** W7-33 moves Send (warm +1) and W7-25a moves Accept (+1 read, +1 write). Whichever merges second reruns `make test-int`.
+- **Client rule.** Merging to `main` deploys the dev web client. So W7-37b merges only after W7-37a serves dev, and W7-25b only after W7-25a does.
+- **Status.** Each PR updates its own row in the ticket table.
+
+**B. Dev verification (production-deployer prepares, founder runs and approves any dev plan)**
+11. **W7-37 leg 2 re-run** (runbook section 6; W7-37 acceptance criteria): after W7-37a and W7-37b serve dev. Do not Accept or Delete C's pending request to A before it, because case (a) re-runs exactly that state.
+12. **Leg 7, the tombstone** (runbook section 6.10): after W7-25a and W7-34 serve dev. It exercises the new placeholder and the `MarkGone` rewrite. Every allowlist holds 6 uids at the ceiling of 6, so the throwaway user replaces one dev test account (a targeted dev plan, founder OK).
+13. **Leg 5, Android push and deep link** (founder's handset): on a dev Android build that includes W7-35, because L-5 changes the manifest. It does not depend on the backend tickets.
+14. **In-app UI check** (A, B, C on web and Android): once, after W7-37b, W7-25b, W7-26 and W7-35 serve dev. It covers:
+    - legs 0 to 4, 6 and 8 in the UI;
+    - the waiting note (W7-25);
+    - read-only mode (W7-26), with one tester dropped from the `messaging` allowlist for the check (a targeted dev plan);
+    - request links shown as plain text (W7-35 L-9).
+
+**C. Founder decisions and prod prerequisites**
+15. **Privacy Policy lines** (`docs/reviews/security-w7-messaging.md` section 4 item 1; roadmap section 9 item 3.18) and **Terms of Service** (section 4 item 2; roadmap item 3.9). Before any non-team user.
+16. **The 6-uid dev allowlist**: CONFIRMED by the founder 2026-10-30 (PR #463, requested by the founder), so the security review's dev condition (2) is met at 6.
+17. **Hidden requests in `request_count`** (W7-37 "Known"): the count includes requests the Requests folder hides (blocked or muted peers).
+    - **DECIDED (founder 2026-10-30): accept for v1.** The Requests empty state gets one line ("Requests from accounts you blocked or muted are hidden.", our copy), which rides with W7-37b.
+    - Not chosen: a fix ticket. Removing the entry on Block needs a graph → messaging event; a graph-filtered count costs up to a page of reads per refresh.
+18. **Prod prerequisites:**
+    - a `MESSAGING` prod entry in `scripts/promotion/flag-ceiling.json` (a gate file) and the prod Terraform vars;
+    - the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2);
+    - the six fieldOverrides deployed in prod before `messaging` leaves `off` there;
+    - the MVP launch decision and the ramp.
+19. **ADR-0027 notes W7-25, W7-26 and W7-33**: all twelve defaults ACCEPTED by the founder on 2026-10-30, before this PR merged.
+
+**D. Known, not blocking (listed so nobody reopens them)**
+- W7-20 D-1 (a `blockedByOverflow` caller's list and thread) and D-2 (a participant list that is not a pair answers INTERNAL): Low, skipped tests.
+- W7-18 R1: a reopened thread after `dropBlockedRequest` has no header (no Delete or Report) until a reload.
+- The W7-24 watch window's "send 7 reads, not explained yet" (runbook section 10.1) is the new-conversation worst case in ADR-0027's cost table: interceptor, caller graph, recipient graph, recipient profile, conversation, fresh recipient status and quotas. After W7-33 it is still 7. Not a defect.
+- ADR-0027 D13 lists the new-account send tier as 50 a day; that is per instance, so the effective limit is 150 a day at 3 instances (security review section 1). A wording fix for the next D13 edit.
 
 ## Risks
 | Risk | Mitigation |
