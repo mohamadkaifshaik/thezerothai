@@ -23,6 +23,8 @@ type fakeRepo struct {
 	lastAuthor    string
 	lastReplies   bool
 	lastMedia     bool
+	lastTag       string
+	lastCAfter    Position
 	lastKind      Kind
 	lastWindow    Window
 	lastLimit     int
@@ -106,6 +108,16 @@ func (r *fakeRepo) ByAuthor(ctx context.Context, authorID string, includeReplies
 func (r *fakeRepo) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
 	r.lastAuthor, r.lastMedia = authorID, true
 	return r.query(ctx, w, limit)
+}
+
+func (r *fakeRepo) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
+	r.lastTag = tag
+	return r.query(ctx, w, limit)
+}
+
+func (r *fakeRepo) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
+	r.lastCAfter = after
+	return r.query(ctx, Window{}, limit)
 }
 
 func (r *fakeRepo) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {

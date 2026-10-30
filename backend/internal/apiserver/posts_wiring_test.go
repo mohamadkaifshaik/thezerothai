@@ -118,3 +118,12 @@ type emptyGraph struct{}
 func (emptyGraph) Snapshot(context.Context, string) (graph.Snapshot, error) {
 	return graph.Snapshot{}, nil
 }
+
+// ByHashtag and CreatedAfter are search and trends queries (ADR-0028): empty here.
+func (emptyReader) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
+func (emptyReader) CreatedAfter(context.Context, posts.Position, int) ([]*posts.Post, error) {
+	return nil, nil
+}

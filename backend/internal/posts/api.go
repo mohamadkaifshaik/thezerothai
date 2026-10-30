@@ -252,6 +252,24 @@ type Reader interface {
 	// REPOST whose embedded author the viewer blocks or mutes (or who blocks the viewer) and every !Visible() row.
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, window Window, limit int) ([]*Post, error)
 
+	// ByHashtag returns posts whose stored hashtags contain tag (a bare lower-case NFC body: no "#", no spaces; the
+	// caller normalises, ADR-0028 D1), newest first, inside window, at most limit (clamped to 1..50). Query: hashtags
+	// array-contains tag ORDER BY createdAt DESC, __name__ DESC on the existing composite index posts(hashtags CONTAINS,
+	// createdAt DESC); no new index. A REPOST stores hashtags [] so it never matches. Reads: len(result), minimum 1;
+	// results fill the posts cache like ByAuthor. Unfiltered: NO visibility, block, mute or audience filtering; posts a
+	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search,
+	// W4-7) must drop !Visible() and decide each post through posts.Audience with SurfaceList (ADR-0025, ADR-0028 D3).
+	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
+	// CreatedAfter returns posts created strictly after the watermark, OLDEST first (createdAt ASC, __name__ ASC), at
+	// most limit (default 20, clamped to MaxCreatedAfterLimit 500), for the trends sweep (ADR-0028 D6). With an empty
+	// after.ID the bound is createdAt only; otherwise it resumes strictly after the (createdAt, id) pair. Query on the
+	// automatic single-field indexes (no composite). The result is PROJECTED: only ID, AuthorID, Hashtags, Moderation,
+	// CreatedAt and Kind are set; every other field (text, media, counts, visibility, author snapshot) is zero. Such a
+	// post is partial, so it is NEVER stored in the posts cache or the author-recent cache and callers must not pass it
+	// to either. A projected read still bills 1 read per doc: reads len(result), minimum 1. Unfiltered like the rest of
+	// the Reader: the sweep drops !Visible(), REPOST kinds and protected authors itself.
+	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
+
 	// AuthorRecent returns authorID's author-recent entry if it is still fresh (loaded within the cache TTL).
 	// It also serves as the profile Posts-tab first-page cache (ADR-0010 D15). 0 reads.
 	AuthorRecent(authorID string) (Recent, bool)
@@ -513,6 +531,8 @@ const (
 	MaxByAuthors = 30
 	// MaxLimit is the largest query Limit (CLAUDE.md rule 5).
 	MaxLimit = 50
+	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep, ADR-0028 D6).
+	MaxCreatedAfterLimit = 500
 	// MaxRecent is how many newest root posts one author-recent entry holds.
 	MaxRecent = 20
 	// MaxMedia is the most images one post carries (ADR-0005).
