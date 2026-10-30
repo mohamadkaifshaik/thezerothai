@@ -94,7 +94,10 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('#Launch'));
     await tester.pumpAndSettle();
 
-    expect(find.text('search page /search?q=%23Launch'), findsOneWidget);
+    expect(
+      find.text('search page /search?q=%23launch&tab=top'),
+      findsOneWidget,
+    );
     expect(find.text('Hashtags are coming soon.'), findsNothing);
   });
 
@@ -142,6 +145,9 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('#Launch'));
     await tester.pumpAndSettle();
 
-    expect(find.text('search page /search?q=%23Launch'), findsOneWidget);
+    expect(
+      find.text('search page /search?q=%23launch&tab=top'),
+      findsOneWidget,
+    );
   });
 }

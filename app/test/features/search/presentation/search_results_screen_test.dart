@@ -10,6 +10,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/search_results_screen.dart';
+import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
@@ -446,6 +447,53 @@ void main() {
 
       expect(find.text('Follow'), findsOneWidget);
     });
+
+    testWidgets('rows show Follow, Following and Unblock from relationship', (
+      tester,
+    ) async {
+      graph.UserListItem withRelationship(
+        int i, {
+        graph.FollowState state = graph.FollowState.FOLLOW_STATE_NONE,
+        bool blocking = false,
+      }) => person(i)
+        ..relationship = graph.Relationship(
+          userId: 'u$i',
+          followState: state,
+          blocking: blocking,
+        );
+      search.peopleResult = SearchPeopleResult(
+        users: [
+          withRelationship(1),
+          withRelationship(2, state: graph.FollowState.FOLLOW_STATE_FOLLOWING),
+          withRelationship(3, blocking: true),
+        ],
+      );
+      await open(
+        tester,
+        query: '@us',
+        tab: SearchResultsTab.people,
+        flags: const {'search', 'graph'},
+      );
+
+      expect(find.text('Follow'), findsOneWidget);
+      expect(find.text('Following'), findsOneWidget);
+      expect(find.text('Unblock'), findsOneWidget);
+    });
+
+    testWidgets(
+      'an unsupported word: People still works, posts show the hint',
+      (tester) async {
+        // "123" is a handle prefix but not a hashtag body (ADR-0010 D8).
+        search.peopleResult = SearchPeopleResult(users: [person(1)]);
+        await open(tester, query: '123', tab: SearchResultsTab.people);
+        expect(search.calls, ['people:123']);
+        expect(find.text('User 1'), findsOneWidget);
+
+        await tapTab(tester, 'Top');
+        expect(search.calls, ['people:123'], reason: 'no posts call');
+        expect(find.text(kSearchPostsHintTitle), findsOneWidget);
+      },
+    );
   });
 
   group('layout', () {
@@ -484,7 +532,7 @@ void main() {
         expect(find.byType(PostCard), findsWidgets);
       },
       widths: const [360, 600, 1200],
-      textScales: const [1.0, 2.0],
+      textScales: kMatrixTextScalesLarge,
     );
 
     forEachThemeAndWidth(
@@ -504,8 +552,8 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text(kSearchPostsHintTitle), findsOneWidget);
       },
-      widths: const [360, 1200],
-      textScales: const [1.0, 2.0],
+      widths: const [360, 600, 1200],
+      textScales: kMatrixTextScalesLarge,
     );
 
     testWidgets('the query pill is one labelled node', (tester) async {

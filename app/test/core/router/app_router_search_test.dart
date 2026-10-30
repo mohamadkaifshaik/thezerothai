@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -54,6 +56,8 @@ void main() {
 
   late FakeSearchRepository search;
 
+  late AppRouter appRouter;
+
   Future<String> openAt(
     WidgetTester tester,
     Set<String> flags,
@@ -80,7 +84,7 @@ void main() {
     );
     final engagement = EngagementCubit(repository: _MockEngagementRepository());
     addTearDown(engagement.close);
-    final appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
+    appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
     appRouter.router.go(location);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
@@ -160,5 +164,30 @@ void main() {
     await openAt(tester, const {'search'}, '/search?q=%23go&tab=nope');
 
     expect(search.calls, ['posts:#go:SEARCH_TAB_TOP']);
+  });
+
+  testWidgets('a tag tapped inside the results pushes another search page '
+      'with no navigator error', (tester) async {
+    search.postsResult = SearchPostsPage(posts: [postView(1)]);
+    await openAt(tester, const {'search'}, '/search?q=%23go');
+
+    unawaited(
+      appRouter.router.push(
+        AppRouter.searchPath('#other', tab: SearchResultsTab.top),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(search.calls, [
+      'posts:#go:SEARCH_TAB_TOP',
+      'posts:#other:SEARCH_TAB_TOP',
+    ]);
+    expect(find.byType(SearchResultsScreen), findsWidgets);
+
+    // Back returns to the first results.
+    appRouter.router.pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
