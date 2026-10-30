@@ -865,3 +865,59 @@ variable "firestore_reads_alert_per_day" {
   type        = number
   default     = 40000
 }
+
+variable "feature_search" {
+  description = "FEATURE_SEARCH rollout mode for search (ADR-0028 D8; gates SearchPeople and SearchPosts per caller): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_search)
+    error_message = "feature_search must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_search_allowlist" {
+  description = "FEATURE_SEARCH_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_search_percent" {
+  description = "FEATURE_SEARCH_PERCENT: 0-100, only meaningful when feature_search = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_search_percent >= 0 && var.feature_search_percent <= 100 && floor(var.feature_search_percent) == var.feature_search_percent
+    error_message = "feature_search_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_trends" {
+  description = "FEATURE_TRENDS rollout mode for trends (ADR-0028 D8; gates GetTrends per caller and the trends refresh step (never ramps ahead of search)): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_trends)
+    error_message = "feature_trends must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_trends_allowlist" {
+  description = "FEATURE_TRENDS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_trends_percent" {
+  description = "FEATURE_TRENDS_PERCENT: 0-100, only meaningful when feature_trends = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_trends_percent >= 0 && var.feature_trends_percent <= 100 && floor(var.feature_trends_percent) == var.feature_trends_percent
+    error_message = "feature_trends_percent must be an integer 0-100."
+  }
+}

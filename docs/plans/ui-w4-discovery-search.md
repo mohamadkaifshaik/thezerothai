@@ -233,7 +233,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | --- | --- | --- | --- | --- | --- | --- |
 | W4-1 | ADR-0028 "Search, trends and Explore at Stage 0" (0024 to 0027 went to W3, W8 and W7) | architect | M | — | **yes, start now** (new file) | In review (PR #465) |
 | W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | In review (PR #465) |
-| W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | Open |
+| W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | In review (PR #PRNUM) |
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Open |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Open |
@@ -317,7 +317,7 @@ Order:
 - **Seam.** `SearchTab` is an enum (a new tab is additive); every cursor is opaque.
 - **Parallel with W3:** yes.
 
-### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: Open
+### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: In review (PR #PRNUM)
 - **Description.**
   - Register `FEATURE_SEARCH` and `FEATURE_TRENDS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
   - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "", `TRENDS_MIN_INTERVAL` 12 h (ADR-0028 D6: a run within it of the last list is skipped as `fresh`).
@@ -332,7 +332,7 @@ Order:
 - **Test notes.** Flag modes off / allowlist / percent / on; the guard test; the config bounds (reject negative or zero).
 - **Observability.** Startup logs the flag modes (existing).
 - **Budget.** 0 reads (rejection paths).
-- **Flag.** Adds `FEATURE_SEARCH` and `FEATURE_TRENDS` (default `off`; dev ceiling allowlist 3).
+- **Flag.** Adds `FEATURE_SEARCH` and `FEATURE_TRENDS` (default `off`; dev ceiling allowlist 6, ADR-0028 D8).
 - **Seam.** `search.Service` Go interface; handlers call only it.
 - **Parallel with W3:** logic yes. These shared files conflict textually with W3's flag ticket, so merge one PR at a time:
   - `config.go`, `apiserver.go`, `ratelimit_config.go`;

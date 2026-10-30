@@ -191,6 +191,13 @@ locals {
     { name = "FEATURE_REMOVED_IDS", value = var.feature_removed_ids },
     { name = "FEATURE_REMOVED_IDS_ALLOWLIST", value = var.feature_removed_ids_allowlist },
     { name = "FEATURE_REMOVED_IDS_PERCENT", value = tostring(var.feature_removed_ids_percent) },
+    // ADR-0028 D8 (W4-3): search and trends. Default off; dev ceiling allowlist 6, no prod raise.
+    { name = "FEATURE_SEARCH", value = var.feature_search },
+    { name = "FEATURE_SEARCH_ALLOWLIST", value = var.feature_search_allowlist },
+    { name = "FEATURE_SEARCH_PERCENT", value = tostring(var.feature_search_percent) },
+    { name = "FEATURE_TRENDS", value = var.feature_trends },
+    { name = "FEATURE_TRENDS_ALLOWLIST", value = var.feature_trends_allowlist },
+    { name = "FEATURE_TRENDS_PERCENT", value = tostring(var.feature_trends_percent) },
     { name = "QUOTA_REPORTS_PER_DAY", value = "20" },
     { name = "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", value = "5" },
   ]
