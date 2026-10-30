@@ -480,7 +480,7 @@ func TestRefresh_Failures(t *testing.T) {
 	})
 }
 
-// TestRefresh_Budget: 1 read for the document + the posts read + 1 write, via the log line's own counter fields.
+// TestRefresh_Budget: 1 read for the document + 1 for the hide list + the posts read + 1 write, via the log line's own counter fields.
 func TestRefresh_Budget(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true, nil)
@@ -491,7 +491,7 @@ func TestRefresh_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := lastLine(h.logs.String(), "trends_refresh")
-	for _, want := range []string{`"fs_reads":38`, `"fs_writes":1`, `"trends_posts_scanned":37`, `"tags_kept":1`, `"backlog":false`} {
+	for _, want := range []string{`"fs_reads":39`, `"fs_writes":1`, `"trends_posts_scanned":37`, `"tags_kept":1`, `"backlog":false`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("trends_refresh line lacks %s: %s", want, line)
 		}

@@ -18,9 +18,10 @@ type service struct {
 	flags  FlagChecker
 	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the W4-3 skeleton)
 	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
-	pr     *postsRuntime
-	trends *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
-	now    func() time.Time
+	pr         *postsRuntime
+	trends     *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
+	trendsDeny []string     // TRENDS_DENYLIST (WithTrendsDenylist), folded into trendsCache.deny by New
+	now        func() time.Time
 }
 
 // WithPeople wires SearchPeople (W4-5): the identity handle reader, the graph snapshot and the prefix cache.
@@ -37,6 +38,11 @@ func WithTrends(store TrendsStore, now func() time.Time) Option {
 	}
 }
 
+// WithTrendsDenylist gives GetTrends the TRENDS_DENYLIST entries (tag bodies; matched by TrendKey). It applies at serve
+// time, so a denylist change takes effect on the new revision at once, no longer at the next sweep. Order among options
+// does not matter.
+func WithTrendsDenylist(deny []string) Option { return func(s *service) { s.trendsDeny = deny } }
+
 // New builds the Service: the flag gate of each RPC, then the rules of each RPC whose option is given (WithPeople: W4-5;
 // WithPosts: W4-7, W4-8; WithTrends: W4-10). A nil FlagChecker is off for everyone; an RPC whose option is missing
 // answers Unimplemented to a caller its flag lets through.
@@ -44,6 +50,9 @@ func New(fc FlagChecker, opts ...Option) Service {
 	s := &service{flags: fc, now: time.Now}
 	for _, o := range opts {
 		o(s)
+	}
+	if s.trends != nil {
+		s.trends.deny = trendKeySet(s.trendsDeny)
 	}
 	return s
 }
