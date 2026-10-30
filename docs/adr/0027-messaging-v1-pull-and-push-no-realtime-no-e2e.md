@@ -579,7 +579,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 - A denormalised request counter on a per-user doc maintained by send, accept, delete and the eraser: writes on every request path, plus a second source of truth.
 - The count in `GetMe`: called about 4 times per DAU against 1.5 Inbox refreshes, and it would couple identity to request semantics.
 
-**Known, unchanged.** `count()` includes `dmRequests` entries that REQUESTS hides at read time (a peer the caller blocks or mutes, or who blocks the caller). Block and Mute delete no entry. The row can therefore promise a request the folder does not show, and after this note it can do so after any refresh, not only after a cold open. A fix (a graph-filtered count, or removing the entry on Block) is a follow-up for the planner and architect before prod.
+**Known, made more visible by this note.** `count()` includes `dmRequests` entries that REQUESTS hides at read time (a peer the caller blocks or mutes, or who blocks the caller). Block and Mute delete no entry. The row can therefore promise a request the folder does not show, and after this note it can do so after any refresh, not only after a cold open. A fix (a graph-filtered count, or removing the entry on Block) is a follow-up for the planner and architect before prod.
 
 **D14 addition.** "Message requests (N)" is as fresh as the last INBOX refresh. The `count()` is a strongly consistent aggregation with no server cache, capped at 1,000. On the device it is that value plus local Accept/Delete adjustments until the next refresh.
 
