@@ -17,6 +17,7 @@ import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/thread_screen.dart';
@@ -67,7 +68,14 @@ class _MockTimeline extends Mock implements TimelineRepository {}
 
 class _MockNotifications extends Mock implements NotificationsRepository {}
 
-class _MockMessaging extends Mock implements MessagingRepository {}
+class _MockMessaging extends Mock implements MessagingRepository {
+  _MockMessaging() {
+    // W7-26: the router listens to the gate; app_widget runs the probe.
+    when(() => gate)
+        .thenReturn(MessagingFeatureGate(isMessagingEnabled: () => false));
+    when(probeAccess).thenAnswer((_) async {});
+  }
+}
 
 class _MockModeration extends Mock implements ModerationRepository {}
 
@@ -214,6 +222,24 @@ void main() {
     );
     await tester.pump();
   }
+
+  group('the read-only access probe (W7-26)', () {
+    testWidgets('runs once at session start and when the flag set changes, '
+        'never on an unread-count change', (tester) async {
+      await pump(tester, onboarding: ready(flags: {'graph'}));
+      verify(() => messagingRepo.probeAccess()).called(1);
+
+      // Only the unread count moved: no probe.
+      onboardingStates.add(ready(flags: {'graph'}, unreadConversations: 2));
+      await tester.pump();
+      verifyNever(() => messagingRepo.probeAccess());
+
+      // The flag set changed: one probe.
+      onboardingStates.add(ready(flags: {'graph', 'search'}));
+      await tester.pump();
+      verify(() => messagingRepo.probeAccess()).called(1);
+    });
+  });
 
   group('seeding from GetMe', () {
     testWidgets('a ready GetMe with messaging on seeds the Messages badge '
