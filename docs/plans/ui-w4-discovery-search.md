@@ -236,7 +236,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | Open |
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Open |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
-| W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Open |
+| W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | In review (PR #467) |
 | W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
 | W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |
 | W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | Open |
@@ -384,7 +384,7 @@ Order:
 - **Seam.** `search.Service.People`; the cache sits behind a small interface with a stated bound (60 s).
 - **Parallel with W3:** yes.
 
-### W4-6 — Posts reader methods  [owner: backend-developer] [size: S] [depends: W4-3]  Status: Open
+### W4-6 — Posts reader methods  [owner: backend-developer] [size: S] [depends: W4-3]  Status: In review (PR #467)
 - **Description.** Two methods on `posts.Reader`:
   - `ByHashtag(ctx, tag, window Window, limit)`: `hashtags array-contains tag`, `createdAt DESC, __name__ DESC`, Limit 1..50, existing composite index.
   - `CreatedAfter(ctx, after Position, limit)`: `createdAt ASC, __name__ ASC` from the watermark, Limit ≤ 500, projection of `hashtags`, `authorId`, `moderation`, `createdAt` and `kind` (still 1 read per doc). It runs on the automatic single-field index; confirm on the emulator and in dev that no composite index is needed, otherwise stop and ask (a gate file).
