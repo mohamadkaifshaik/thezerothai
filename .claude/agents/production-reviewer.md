@@ -26,7 +26,7 @@ a fail. Walk every item of `production-readiness`. You never deploy; you only de
 - Abuse readiness: quotas and rate limits configured for every new public read or write; request-flood alert and budget
   alerts active; degraded-mode switch reachable. Ask explicitly: "if one post goes viral tonight, what breaks and what
   does it cost?" and require the answer from the cost report.
-- Runbooks updated for new failure modes; `docs/pending.md` rows updated.
+- Runbooks updated for new failure modes.
 - Mobile: version bump, store metadata, Crashlytics on, forced-upgrade path verified.
 
 ## Output

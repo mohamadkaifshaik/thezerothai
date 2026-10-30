@@ -52,7 +52,7 @@ call (review I-3; bounded by one extra day's quota, still under the pending and 
 now runs a `scheduled` step after `reports`; a user with nothing scheduled costs 1 read and 0 deletes, and the export gains a
 `scheduled` section (1 read when empty). The failure modes of the publish sweep are section 12.
 
-SchedulePost caps and reads (pending.md 2.16). Exact: the per-account window cap (`SCHEDULED_PER_AUTHOR_PER_RUN` PENDING items, default 3,
+SchedulePost caps and reads. Exact: the per-account window cap (`SCHEDULED_PER_AUTHOR_PER_RUN` PENDING items, default 3,
 within +/-4 min of `publish_at`; `LIMIT_REACHED` `limit=scheduled_window`) and the daily quota (`QUOTA_SCHEDULES_PER_DAY`). Both are decided
 inside the schedule transaction, after it reads `quotas/{uid}`, which every schedule by one account reads and writes, so of two racing calls
 only one commits. Dev and prod run Firestore in `OPTIMISTIC` mode (`infra/terraform/modules/firestore/main.tf`): the loser is rejected ABORTED
@@ -67,7 +67,7 @@ account for one minute never leave more than the cap stored, and never reject wh
 (`TestSchedulerIT_ConcurrentWindowCap`, repeated runs, with and without an existing `quotas` document), and each attempt of a retried
 transaction counts afresh (`TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt`). REASONED: optimistic mode plus an existing
 `quotas/{uid}` document makes the cap exact, by the commit conflict on that document. VERIFIED on the real dev Firestore (`OPTIMISTIC`, the
-same mode and module as prod, 2026-10-26, result in pending 2.16): the same ten-call race, with a brand-new account (no `quotas/{uid}`
+same mode and module as prod, 2026-10-26): the same ten-call race, with a brand-new account (no `quotas/{uid}`
 document yet, where exactness needs Firestore to treat a not-found read as a conflict when another transaction creates the document) and with
 an existing one, left exactly the cap stored every time, `quotas.schedules` matched, and the transactional aggregation `count()` (the first
 one in the codebase; the others run outside transactions) works. NOT covered by that run: the deployed HTTP path with auth (it called the
@@ -239,7 +239,7 @@ while it is held for images (`held_media`). At most 100 due docs per run
 - **Dev.** `gcloud scheduler jobs run` cannot run a job that does not exist and dev has `jobs = {}`, so call the route directly with an OIDC
   token for the dev pubsub-push service account (ADR-0021 D1; the principal needs `roles/iam.serviceAccountOpenIdTokenCreator` on that SA,
   a 30-day conditional grant that is never applied in prod; it exists only while `cron_test_invoker` is set in the dev `terraform.tfvars`, and
-  a TARGETED apply creates or removes it, see pending 3.10). Mint the token through IAM Credentials `generateIdToken` with your own access
+  a TARGETED apply creates or removes it, see `docs/plans/roadmap.md` section 9, item 3.10). Mint the token through IAM Credentials `generateIdToken` with your own access
   token: gcloud's `print-identity-token --impersonate-service-account` does not work with this role, because it asks for `getAccessToken`.
   The `audience` must be the service's `INTERNAL_OIDC_AUDIENCE` (the deterministic `https://api-<project-number>.<region>.run.app` URL), not
   the `*.a.run.app` URL: a token for that one is a 401. Send an empty body with `--data ''`, or curl sends none and the route answers 411.
@@ -265,7 +265,7 @@ while it is held for images (`held_media`). At most 100 due docs per run
 
 ### Images held while `FEATURE_MEDIA` is off
 
-`FEATURE_MEDIA=off` is also a kill switch for the sweep (pending 2.15, security review of #289, Low 2). CreatePost refuses
+`FEATURE_MEDIA=off` is also a kill switch for the sweep (security review of #289, Low 2). CreatePost refuses
 `media_ids` while the flag is off for everyone, so the sweep does not publish already-uploaded images either. Each run asks once, with 0
 reads, whether `media` is globally off. Only `off` holds: `allowlist` and `percent` are rollouts, so the sweep keeps publishing images that
 were scheduled, as it does for `FEATURE_SCHEDULED_POSTS`. `DEGRADED_MODE=nomedia` holds nothing either: it blocks uploads only, for CreatePost

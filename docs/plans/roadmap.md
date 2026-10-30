@@ -93,3 +93,17 @@ REA capture times out on tabs that are not the active tab of their window, so ea
 
 ## 8. Documents this roadmap updates or supersedes
 `.claude/skills/mvp-roadmap/SKILL.md` (phases), `docs/plans/phase1.md` (decisions 1-3), `docs/plans/backlogs.md` (wave numbers, B-20), `.claude/skills/flutter-modern-ui/SKILL.md` (palette), `docs/adr/0020-ui-colour-system-follows-x.md` (needs the Q4 amendment), and, locally, `docs/x_research/` files 07, 13, 14 and the README.
+
+## 9. Open items outside the wave plans (moved from docs/pending.md, 2026-10-30)
+
+Items with no home in a wave plan. Wave status lives in the plans listed in section 3 and in each plan's per-ticket Status. Owner is in bold. IDs (3.x) are the former `docs/pending.md` numbers.
+
+- **3.1, Both, TODO.** ADR-0020 accent-colour amendment (section 7, Q4: accent text on light switches to X's `#1d9bf0`; the ticket keeps link underlines or weight cues for small text).
+- **3.2, Both, TODO.** UI wave W1.5 capture session (post detail, composer modal states, another user's profile, light-theme gaps), then the W1.5 client plan.
+- **3.4, Claude, TODO.** UI W0 leftovers: the W0-10 flag and pixel goldens (deferred).
+- **3.5, Both, TODO.** Authenticated smoke path for prod releases (work packages WP1 to WP3; prod credentials were lost and need a reset).
+- **3.7, Claude, TODO.** Docs PRs from the ADR-0019 rollout: Accepted status, and R4.
+- **3.9, Founder, TODO.** Terms of Service. A draft exists on branch `docs/terms-of-service-draft` (216 lines, `docs/legal/terms-of-service-DRAFT.md`); it is not on `main`, and `docs/plans/phase1.md` points at a file that is not there. Review it with legal advice, then reopen it as a PR or replace it. Needed before real users. The messaging and W8 copy lines wait on it too (`docs/reviews/security-w7-messaging.md` section 4, `docs/plans/ui-w8-shells.md`).
+- **3.10, Claude, TODO.** Dev Terraform drift. A full `terraform apply` in `envs/dev` is not safe: the plan (a) strips the dev Android API key's package and SHA-1 restriction (`android_allowed_applications` is empty in `main.tf`; the live key was restricted in the console), and (b) holds the unapplied #244 Firestore TTL field `scheduled.expireAt`. A targeted apply must also name `-target=module.budget.google_pubsub_topic.billing_alerts` (a pending state move). Fix: declare the restriction in the apikeys module (or `ignore_changes` it), apply the TTL field with the founder's OK, then a full dev plan should show only the known noise.
+- **3.18, Founder, TODO.** Privacy Policy clause for message reports (W7-12, ADR-0016 D5; extends the D5 founder action on report retention). Add: *a report of a direct message may keep a copy of that one private message (its text, the sender's handle and the time) until 90 days after the report is resolved, even if the sender deletes their account in the meantime.* Needed before `FEATURE_REPORTS` and `FEATURE_MESSAGING` are both on for real users. The other Privacy Policy lines are in `docs/reviews/security-w7-messaging.md` section 4.
+- **3.21, Both, TODO.** L-2: the cursor key is in Terraform state (follow-up to W7-32). Take it out of state (`ephemeral "random_password"` plus `secret_data_wo` / `secret_data_wo_version` on the secret version; needs `required_version >= 1.11`), then rotate the key, because older state generations stay readable in the versioned `dzeroth-tfstate` bucket. A prefix IAM condition alone only stops the dev `tf-plan` from reading prod state. Needs an apply in each env (plan-then-OK) and a rotation window.

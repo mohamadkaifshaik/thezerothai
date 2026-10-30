@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Concurrent SchedulePost calls and the per-author window cap (ADR-0021 D4, pending.md 2.16). The window cap must hold
+// Concurrent SchedulePost calls and the per-author window cap (ADR-0021 D4). The window cap must hold
 // exactly: concurrent schedules by one user conflict on quotas/{uid}, so a retried loser sees the winner's committed
 // document. A cap that only counts outside the transaction lets every concurrent first call through.
 

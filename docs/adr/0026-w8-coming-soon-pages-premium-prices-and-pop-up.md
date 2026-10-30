@@ -202,7 +202,7 @@ then, `shells` can sit at `on` in prod with no visible effect.
 ### D8. Advertise contact
 The address is `comingsoon@dzeroth.com` (F4). The mailbox does not exist (2026-10-28), so `kAdvertisingContactEmail`
 ships as `null` and the page shows no contact affordance. Once the founder confirms the mailbox receives mail
-(`docs/pending.md` 3.17), a one-line PR sets it. The button then opens
+(`docs/plans/ui-w8-shells.md`), a one-line PR sets it. The button then opens
 `mailto:comingsoon@dzeroth.com?subject=Advertising%20enquiry` through `url_launcher`, with an empty body and no account
 data. It should be a dedicated alias with a spam filter, never a personal inbox.
 
@@ -251,7 +251,7 @@ data. It should be a dedicated alias with a spam filter, never a personal inbox.
   - W8-1 registers the flag with the dev ceiling only, and records the prod ceiling per Q1;
   - W8-5 merges only after this ADR is Accepted;
   - W8-9 restates the store guideline wording before the prod raise;
-  - legal advice on the final Premium copy and price display rides with the Terms of Service review (`pending.md` 3.9);
+  - legal advice on the final Premium copy and price display rides with the Terms of Service review (`docs/plans/roadmap.md` section 9, item 3.9);
   - the "Email us" switch-on waits for the mailbox.
 - **Revisit when:**
   - a store rejects a build;
@@ -273,7 +273,7 @@ data. It should be a dedicated alias with a spam filter, never a personal inbox.
   - W8-2: entries and routes per D4 and D7 (`/premium` only by `push`, redirect as first location, no `deepLinkTarget`
     change);
   - W8-5: the pop-up exactly per D3, with `kPremiumPlans` as the only price source;
-  - W8-6: `kAdvertisingContactEmail = null` with a comment naming the address and `pending.md` 3.17 (D8);
+  - W8-6: `kAdvertisingContactEmail = null` with a comment naming the address and `docs/plans/ui-w8-shells.md` (D8);
   - W8-4 and W8-7 per the plan; no billing, ads, WebRTC or permission package.
 - **tester (W8-8):** the copy guard regex and amount rule of D3, the tap-only structural and widget tests of D4, the
   `shells` × `ui_shell` × `kVisibleShells` matrix, the 0-RPC test, and the bundle delta.

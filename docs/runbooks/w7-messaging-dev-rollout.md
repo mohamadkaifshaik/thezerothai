@@ -2,7 +2,7 @@
 
 Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and applied nothing.
 Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed or deployed. The evidence below is read-only (`gcloud run services describe`, `gcloud firestore indexes fields list`, and one read-only Firestore `runQuery` with a non-existent parent), all against `dzeroth-dev`.
-Prod: no change (on hold, `docs/pending.md` 1.2). `feature_messaging` stays `off` there. Plan: `docs/plans/ui-w7-messaging.md` (W7-24). Decisions: ADR-0027. Security condition: `docs/reviews/security-w7-messaging.md` (the dev allowlist is GO only with the 3 team test uids and no real-user data; `max_allowlist: 3` in `scripts/promotion/flag-ceiling.json`).
+Prod: no change (on hold, `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2). `feature_messaging` stays `off` there. Plan: `docs/plans/ui-w7-messaging.md` (W7-24). Decisions: ADR-0027. Security condition: `docs/reviews/security-w7-messaging.md` (the dev allowlist is GO only with the 3 team test uids and no real-user data; `max_allowlist: 3` in `scripts/promotion/flag-ceiling.json`).
 Related: `docs/runbooks/w3-part-b-rollout.md` (the precedent this copies: targeted plan, route, smoke, results), `docs/runbooks/messaging.md` (kill switch, push test, takedown), `docs/runbooks/account-deletion.md` section 6, `docs/runbooks/notifications.md`, `docs/reviews/cost-model.md` section 14.
 
 ## Decisions for the founder
@@ -10,7 +10,7 @@ Related: `docs/runbooks/w3-part-b-rollout.md` (the precedent this copies: target
 | # | Decision | Recommended | What it costs / risks |
 |---|---|---|---|
 | 1 | **OK to apply the saved targeted dev plan** (section 4): `feature_messaging` to `allowlist` for the same 3 tester uids as every other dev flag, plus two new cap env entries. 0 add, 1 change, 0 destroy, only the `api` service template. | Yes, after the preconditions of section 1 hold (W7-27 above all) and this PR is merged. | Creates a 0% revision; traffic moves only when you route it (section 5). Reversible in seconds (traffic back) or by Terraform (flag `off`). 3 users, a few hundred reads. |
-| 2 | **The account-deletion (tombstone) leg needs a throwaway user who has sent messages**, and sending needs `messaging` on for both people while in-app deletion needs `account_lifecycle`. Both allowlists are at the 3-uid ceiling and the security GO names "the 3 team test uids". | **DECIDED 2026-10-29 (founder): leg 7 is OWED, skipped in this dev smoke.** The W7-20 emulator tests cover the eraser end to end (`internal/messaging/eraser_test.go`, `lifecycle_integration_test.go`). Run the tombstone smoke later, with a throwaway user, **before prod** (`docs/pending.md` 3.16). No allowlist swap and no second plan in this rollout. | None now. Later, the way to run it stays in section 6.10 (a separate targeted plan that swaps C for a throwaway D in both allowlists, each staying at 3, then swaps back; or deleting C itself, which leaves a dead uid in the allowlists until the next swap). |
+| 2 | **The account-deletion (tombstone) leg needs a throwaway user who has sent messages**, and sending needs `messaging` on for both people while in-app deletion needs `account_lifecycle`. Both allowlists are at the 3-uid ceiling and the security GO names "the 3 team test uids". | **DECIDED 2026-10-29 (founder): leg 7 is OWED, skipped in this dev smoke.** The W7-20 emulator tests cover the eraser end to end (`internal/messaging/eraser_test.go`, `lifecycle_integration_test.go`). Run the tombstone smoke later, with a throwaway user, **before prod**. No allowlist swap and no second plan in this rollout. | None now. Later, the way to run it stays in section 6.10 (a separate targeted plan that swaps C for a throwaway D in both allowlists, each staying at 3, then swaps back; or deleting C itself, which leaves a dead uid in the allowlists until the next swap). |
 | 3 | **An Android device with `notifications` on** for the push leg (one handset signed in as B, device registered). | **DECIDED 2026-10-29 (founder): the founder has an Android phone with the dev app. Leg 5 stays in the smoke.** | Without the handset the push and deep-link leg would stay owed; every other leg runs on web. |
 
 ## 1. Preconditions, with evidence (dev project `dzeroth-dev`, captured 2026-10-29 about 12:45 UTC)
@@ -57,7 +57,7 @@ All four hashes must be equal, and equal to the one printed by step 1 of section
 One handset or emulator signed in as B with a registered device (`RegisterDevice`; web and iOS get no push, ADR-0017 D11), installed from the dev build as in `docs/runbooks/notifications.md`. Check the notifications fan-out subscription is healthy (same runbook). Web: `https://dzeroth-dev.web.app`. The client reads enabled features at **sign-in**: after the route (section 5) every tester hard-refreshes and signs in again before the Messages item appears (the W3 Part B rollout hit this).
 
 ### 1.6 Serialise
-No `deploy-dev` run in flight, nothing merged between the plan and the route, and no other dev rollout (W4-24, W5-19) applying. `docs/pending.md` 3.10 stays true: **never run a full `terraform apply` in `envs/dev`** (it strips the Android API key restriction and holds the unapplied TTL field). Use the saved targeted plan below only.
+No `deploy-dev` run in flight, nothing merged between the plan and the route, and no other dev rollout (W4-24, W5-19) applying. `docs/plans/roadmap.md` section 9, item 3.10 stays true: **never run a full `terraform apply` in `envs/dev`** (it strips the Android API key restriction and holds the unapplied TTL field). Use the saved targeted plan below only.
 
 ## 2. What changes: the env vars, read from the live service
 
@@ -133,7 +133,7 @@ terraform init -backend-config="bucket=dzeroth-tfstate" -lockfile=readonly      
 terraform plan -input=false -out="$PLAN" \
   -target=module.cloud_run_api.google_cloud_run_v2_service.api
 ```
-The target is the one `google_cloud_run_v2_service` resource. The module ignores `image` and `traffic` (`modules/cloud-run-api/main.tf`, `lifecycle.ignore_changes`), so **the plan cannot revert the CI-deployed image or the traffic split**; it deliberately does not ignore `template[0].revision`, so it always shows `revision -> null` (Cloud Run names the new revision). Earlier rollouts (W3 Part A, W3 Part B) used exactly this single target; if Terraform instead refuses with "Moved resource instances excluded by targeting", add `-target=module.budget.google_pubsub_topic.billing_alerts` (`docs/pending.md` 3.10) and nothing else.
+The target is the one `google_cloud_run_v2_service` resource. The module ignores `image` and `traffic` (`modules/cloud-run-api/main.tf`, `lifecycle.ignore_changes`), so **the plan cannot revert the CI-deployed image or the traffic split**; it deliberately does not ignore `template[0].revision`, so it always shows `revision -> null` (Cloud Run names the new revision). Earlier rollouts (W3 Part A, W3 Part B) used exactly this single target; if Terraform instead refuses with "Moved resource instances excluded by targeting", add `-target=module.budget.google_pubsub_topic.billing_alerts` (`docs/plans/roadmap.md` section 9, item 3.10) and nothing else.
 
 **Expected plan shape:** `Plan: 0 to add, 1 to change, 0 to destroy.` One resource, `module.cloud_run_api.google_cloud_run_v2_service.api`, action `update`. Inside it: `template.revision "api-00758-taj" -> null` (or the newer serving name) and exactly these env differences, 151 to 153 entries:
 ```
@@ -280,9 +280,9 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 
 ## 10. Afterwards, and the results record
 
-**The flag's planned state in dev after the smoke:** `feature_messaging = "allowlist"` with the same 3 uids stays (dev's planned state; the ceiling is `allowlist` / 3 / percent 0). Nothing is raised. The tfvars in the main checkout keep the two lines so a later targeted plan says `No changes` and a later apply keeps the flag. Prod stays `off`; the ramp is in the plan's Rollout plan section and needs the held prod apply (`docs/pending.md` 1.2), the prod-blocking findings of `docs/reviews/security-w7-messaging.md` fixed, and your launch decision.
+**The flag's planned state in dev after the smoke:** `feature_messaging = "allowlist"` with the same 3 uids stays (dev's planned state; the ceiling is `allowlist` / 3 / percent 0). Nothing is raised. The tfvars in the main checkout keep the two lines so a later targeted plan says `No changes` and a later apply keeps the flag. Prod stays `off`; the ramp is in the plan's Rollout plan section and needs the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2), the prod-blocking findings of `docs/reviews/security-w7-messaging.md` fixed, and your launch decision.
 
-**Record the results here** (fill in after the run, the way `w3-part-b-rollout.md` section 9 does), then update `docs/plans/ui-w7-messaging.md` (W7-24 to Done), `docs/pending.md` 3.16 and the new row for the apply, and `docs/reviews/cost-model.md` section 14. Do not write uids, tokens or message text in the repo; testers are named by handle and a uid hash prefix of 6 characters.
+**Record the results here** (fill in after the run, the way `w3-part-b-rollout.md` section 9 does), then update `docs/plans/ui-w7-messaging.md` (W7-24 to Done) and `docs/reviews/cost-model.md` section 14. Do not write uids, tokens or message text in the repo; testers are named by handle and a uid hash prefix of 6 characters.
 
 ### 10.1 Smoke results, dev (to fill in)
 | Step | Result | Evidence (times UTC, `rpc` and `kind`, `fs_reads` / `fs_writes`, no text) |
@@ -298,7 +298,7 @@ gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.serv
 | 4. Web polling | | |
 | 5. Android push and deep link (and the request negative) | | |
 | 6. Report a message | | |
-| 7. Throwaway account deletion, tombstone | owed (founder decision 2026-10-29) | Skipped here; covered meanwhile by the W7-20 emulator eraser tests. Run it with a throwaway user before prod (`docs/pending.md` 3.16). |
+| 7. Throwaway account deletion, tombstone | owed (founder decision 2026-10-29) | Skipped here; covered meanwhile by the W7-20 emulator eraser tests. Run it with a throwaway user before prod. |
 | 8. Takedown dry run, real takedown, "This message was removed" on a cached device | | |
 | Watch window (5xx, ERROR, contention) | | |
 | Rollback or flag-off check | | |

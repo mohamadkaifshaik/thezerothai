@@ -3,7 +3,7 @@
 Owner: the founder decides and runs every step that changes dev; `production-deployer` prepared this and applies nothing.
 Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed, deployed or written: the evidence below is read-only and the plan is saved, not applied.
 **APPLIED IN DEV 2026-10-29 (founder OK "apply w3-38").** The hold for the W7 lines was lifted: the W7 session has no dev credentials, and all 15 W7 messaging and `SHELLS` env entries were checked against the code (both flags `off`, empty allowlists, percent 0, every limit equal to its code default), so they changed no behaviour. They were applied with this rollout; the W7 work does not need to apply them again. Results: section 9.
-Prod: no change (on hold, `docs/pending.md` 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
+Prod: no change (on hold, `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
 Related: `docs/runbooks/w3-part-a-rollout.md` (the precedent: helpers, targeted-plan method), `docs/runbooks/private-accounts.md` (sections 1, 6, 8), `docs/runbooks/graph.md`,
 `docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).
 
@@ -72,7 +72,7 @@ The plan JSON lists 33 resources: 1 `update` (`module.cloud_run_api.google_cloud
 3 + 4 + 15 = 22. The dev ceiling in `scripts/promotion/flag-ceiling.json` is `PRIVATE_ACCOUNTS` `allowlist`, `max_allowlist 3`, `max_percent 0` (W3-25b); the plan is exactly at it (mode `allowlist`, 3 uids, percent 0). `MESSAGING` and `SHELLS` stay `off`, below their `allowlist` 3 ceilings.
 No ceiling change is needed or proposed.
 
-**Never run a full `terraform apply` in `envs/dev`, and apply only the saved plan file you reviewed.** An untargeted plan also contains the known dev drift (`docs/pending.md` 3.10: the unapplied TTL field and the Android API key restriction).
+**Never run a full `terraform apply` in `envs/dev`, and apply only the saved plan file you reviewed.** An untargeted plan also contains the known dev drift (`docs/plans/roadmap.md` section 9, item 3.10: the unapplied TTL field and the Android API key restriction).
 Part A also named `-target=module.budget.google_pubsub_topic.billing_alerts` as a state-move workaround; this plan with the `api` target alone is a clean `1 to change`, so that second target is not used here. If your plan shows anything else, stop.
 
 Redacted plan text (uids removed) was kept in the preparing session as `w3-38-dev-plan.txt`; it is not committed.

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestSweepIT_MediaHold (pending 2.15) runs the real Sweep over the real repository: while FEATURE_MEDIA is globally off an
+// TestSweepIT_MediaHold runs the real Sweep over the real repository: while FEATURE_MEDIA is globally off an
 // item with an image stays exactly as the query read it (no write, no transaction, no media read, no attempt), and once the
 // flag is back on the next run publishes it like any other.
 func TestSweepIT_MediaHold(t *testing.T) {

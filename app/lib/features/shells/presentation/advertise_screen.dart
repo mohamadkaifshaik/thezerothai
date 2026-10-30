@@ -13,7 +13,7 @@ import '../../../shared/widgets/app_main_column.dart';
 ///
 /// The decided address is `comingsoon@dzeroth.com`, but that mailbox does not
 /// exist yet (2026-10-28), so this ships as `null`. Once the founder confirms
-/// the mailbox receives mail (`docs/pending.md` 3.17), a one-line PR sets it.
+/// the mailbox receives mail (`docs/plans/ui-w8-shells.md`), a one-line PR sets it.
 /// Not `final` only so tests can set it (reset it in a `tearDown`);
 /// production code never assigns it.
 String? kAdvertisingContactEmail;
