@@ -64,7 +64,7 @@ mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS","value":"off"}]' revi
 expect "duplicate env" 1 "$V" "$tmp/r" "$ceil" dev
 mut '(.spec.containers[0].env[] | select(.name=="FEATURE_GRAPH") | .value) = "enabled"' revision-ok.json r
 expect "bad mode" 1 "$V" "$tmp/r" "$ceil" dev
-mut '(.spec.containers[0].env[] | select(.name=="FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST") | .value) = "fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D"' revision-ok.json r
+mut '(.spec.containers[0].env[] | select(.name=="FEATURE_ACCOUNT_LIFECYCLE_ALLOWLIST") | .value) = "fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D,fake-uid-E,fake-uid-F,fake-uid-G"' revision-ok.json r
 expect "allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_REPORTS_PERCENT","value":"5"}]' revision-ok.json r
 expect "percent over ceiling" 1 "$V" "$tmp/r" "$ceil" dev
