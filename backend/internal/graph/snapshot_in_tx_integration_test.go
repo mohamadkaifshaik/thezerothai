@@ -69,8 +69,10 @@ func TestSnapshotInTx_Integration_CacheNeitherReadNorFilled(t *testing.T) {
 	}
 	budgettest.Assert(t, "Reader.Snapshot after SnapshotInTx (cache was not filled)", counter, budgettest.Budget{Reads: 1})
 
-	// With the cache warm, a Block by B is invisible to the cached read but visible to SnapshotInTx.
-	if _, err := w.graph.Block(context.Background(), "uid-b", key1, "uid-a"); err != nil {
+	// With the cache warm (filled just above), a Block by B on ANOTHER instance sharing the database is invisible to this
+	// instance's cached read but visible to SnapshotInTx.
+	other := newInstance(w.client)
+	if _, err := other.graph.Block(context.Background(), "uid-b", key1, "uid-a"); err != nil {
 		t.Fatal(err)
 	}
 	stale, err := reader.Snapshot(context.Background(), "uid-b")

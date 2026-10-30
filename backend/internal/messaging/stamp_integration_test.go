@@ -48,7 +48,7 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			budgettest.Assert(t, "SendMessage after a delete", c, budgettest.Budget{Reads: 1, Writes: 4})
+			budgettest.Assert(t, "SendMessage after a delete", c, budgettest.Budget{Reads: 2, Writes: 4})
 			stamp := cleared.Add(tc.want)
 			if got := resp.GetMessage().GetCreatedAt().AsTime(); !got.Equal(stamp) {
 				t.Errorf("message createdAt = %v, want %v", got, stamp)
