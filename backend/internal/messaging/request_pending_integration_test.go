@@ -28,7 +28,8 @@ func (e *itEnv) rowState(svc *service, uid string, req *messagingv1.ListConversa
 }
 
 // Given A sends one to three request messages, then A's INBOX row reads REQUEST in the INBOX folder on a first page and on
-// a since refresh, the recipient's entry never carries the flag, and Send costs what it did (the flag rides the entry writes).
+// a since refresh, the recipient's entry never carries the flag, and Send costs what it did (the flag rides the entry writes;
+// the reads include W7-33's recipient graph read in the transaction).
 func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 	e := newIT(t, nil)
 	svc := e.listSvc()
@@ -40,9 +41,9 @@ func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 		if i == 0 {
-			budgettest.Assert(t, "SendMessage new conversation", c, budgettest.Budget{Reads: 3, Writes: 5})
+			budgettest.Assert(t, "SendMessage new conversation", c, budgettest.Budget{Reads: 4, Writes: 5})
 		} else {
-			budgettest.Assert(t, "SendMessage request message", c, budgettest.Budget{Reads: 1, Writes: 4})
+			budgettest.Assert(t, "SendMessage request message", c, budgettest.Budget{Reads: 2, Writes: 4})
 		}
 		if ent, ok := e.entry(alice, dmInboxCollection, id); !ok || !ent.RequestPending {
 			t.Fatalf("after message %d alice's entry = %+v %v, want requestPending", i, ent, ok)
