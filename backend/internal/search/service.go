@@ -15,12 +15,16 @@ import (
 )
 
 type service struct {
-	flags FlagChecker
+	flags  FlagChecker
+	people *people // nil until WithPeople: SearchPeople then answers Unimplemented (the W4-3 skeleton)
 	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
 	pr     *postsRuntime
 	trends *trendsCache // nil until WithTrends: GetTrends then answers Unimplemented for a caller the flag lets through
 	now    func() time.Time
 }
+
+// WithPeople wires SearchPeople (W4-5): the identity handle reader, the graph snapshot and the prefix cache.
+func WithPeople(d PeopleDeps) Option { return func(s *service) { s.people = newPeople(d) } }
 
 // WithTrends wires GetTrends (W4-10): the store behind the 10 min instance copy of trends/current. now is the clock
 // (nil: time.Now); tests pass a fake.
@@ -33,8 +37,9 @@ func WithTrends(store TrendsStore, now func() time.Time) Option {
 	}
 }
 
-// New builds the Service: the flag gate of each RPC, then the rules of each RPC whose option is given (WithPosts: W4-7,
-// W4-8; WithTrends: W4-10). A nil FlagChecker is off for everyone.
+// New builds the Service: the flag gate of each RPC, then the rules of each RPC whose option is given (WithPeople: W4-5;
+// WithPosts: W4-7, W4-8; WithTrends: W4-10). A nil FlagChecker is off for everyone; an RPC whose option is missing
+// answers Unimplemented to a caller its flag lets through.
 func New(fc FlagChecker, opts ...Option) Service {
 	s := &service{flags: fc, now: time.Now}
 	for _, o := range opts {
@@ -62,15 +67,6 @@ func (s *service) guard(ctx context.Context, uid, name string) error {
 // errNotImplemented is what a caller the flag lets through gets until the RPC's ticket lands. It reads nothing.
 func errNotImplemented() error {
 	return apierr.New(connect.CodeUnimplemented, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "not implemented yet")
-}
-
-// People is SearchPeople. Flag: search. Skeleton (W4-3): FEATURE_DISABLED or Unimplemented, 0 reads, 0 writes.
-// Worst case once built (W4-5): 22 reads at limit 20 (ADR-0028 D2), 0 writes.
-func (s *service) People(ctx context.Context, uid, _ string, _ int32) (*searchv1.SearchPeopleResponse, error) {
-	if err := s.guard(ctx, uid, FlagSearch); err != nil {
-		return nil, err
-	}
-	return nil, errNotImplemented()
 }
 
 // Posts is SearchPosts. Flag: search, checked before any read. Without WithPosts: Unimplemented, 0 reads.

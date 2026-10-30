@@ -167,6 +167,8 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.common.v1.MediaRef': $1.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': $0.EmbeddedPost$json,
   '.google.protobuf.Timestamp': $2.Timestamp$json,
+  '.dzeroth.posts.v1.Poll': $0.Poll$json,
+  '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
   '.dzeroth.timeline.v1.GetUserTimelineRequest': GetUserTimelineRequest$json,
   '.dzeroth.timeline.v1.GetUserTimelineResponse': GetUserTimelineResponse$json,

@@ -2,7 +2,8 @@
 //
 // Source: dzeroth/media/v1/media.proto
 
-// Media: images only at Stage 0 (ADR-0005). Owner module: backend/internal/media.
+// Media: images only at Stage 0 (ADR-0005; animated GIF for post media behind FEATURE_GIF, ADR-0029). Owner module:
+// backend/internal/media.
 // Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
 // objects are copied to the public-read media bucket (both us-central1).
@@ -59,6 +60,11 @@ type MediaServiceClient interface {
 	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
+	// GIF (ADR-0029 D10; FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
+	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", 0 reads. POST purpose only (AVATAR and
+	// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
+	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
+	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type"). Same Firestore cost as a photo.
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
 	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
@@ -73,6 +79,15 @@ type MediaServiceClient interface {
 	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
 	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
 	// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
+	// GIF (ADR-0029 D11): Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
+	// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
+	// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
+	// frames over its display time into one contact sheet and screens the sheet (by bytes) and the thumbnail (by URI):
+	// 2 Vision units, as for a photo. The worse verdict wins. Refused or blocked => REJECTED ("This GIF is too large or
+	// too long" for the limits), objects deleted. At the Vision cap a GIF is REJECTED for every account, never
+	// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
+	// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
+	// with it; the full GIF is published unchanged. Firestore cost as above.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
@@ -132,6 +147,11 @@ type MediaServiceHandler interface {
 	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
+	// GIF (ADR-0029 D10; FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
+	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", 0 reads. POST purpose only (AVATAR and
+	// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
+	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
+	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type"). Same Firestore cost as a photo.
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
 	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
@@ -146,6 +166,15 @@ type MediaServiceHandler interface {
 	// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
 	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
 	// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
+	// GIF (ADR-0029 D11): Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
+	// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
+	// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
+	// frames over its display time into one contact sheet and screens the sheet (by bytes) and the thumbnail (by URI):
+	// 2 Vision units, as for a photo. The worse verdict wins. Refused or blocked => REJECTED ("This GIF is too large or
+	// too long" for the limits), objects deleted. At the Vision cap a GIF is REJECTED for every account, never
+	// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
+	// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
+	// with it; the full GIF is published unchanged. Firestore cost as above.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 

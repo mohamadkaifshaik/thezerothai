@@ -97,9 +97,9 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 		t.Fatalf("Accept: %v", err)
 	}
 	line := e.lineBudget(t, rpcAccept)
-	budgettest.Assert(t, "AcceptMessageRequest cold", line, budgettest.Budget{Reads: 3, Writes: 2, Deletes: 1})
-	if line.Reads() != 3 || line.Writes() != 2 || line.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 3/2/1", line.Reads(), line.Writes(), line.Deletes())
+	budgettest.Assert(t, "AcceptMessageRequest cold", line, budgettest.Budget{Reads: 4, Writes: 3, Deletes: 1})
+	if line.Reads() != 4 || line.Writes() != 3 || line.Deletes() != 1 {
+		t.Errorf("reads/writes/deletes = %d/%d/%d, want 4/3/1", line.Reads(), line.Writes(), line.Deletes())
 	}
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "accept, cold", line.Reads(), line.Writes(), line.Deletes())
 
@@ -114,8 +114,17 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 	if !ok || in["unreadCount"] != int64(2) {
 		t.Errorf("b's dmInbox = %v, %v, want the request entry with unreadCount 2", in, ok)
 	}
-	if after, _ := setup.entry(t, a, b, "dmInbox"); fmt.Sprint(after) != fmt.Sprint(aliceBefore) {
-		t.Errorf("a's entry changed: %v -> %v", aliceBefore, after)
+	// W7-25a: the requester's entry loses requestPending and gets the accept changedAt; everything else is untouched.
+	after, _ := setup.entry(t, a, b, "dmInbox")
+	if aliceBefore["requestPending"] != true || after["requestPending"] != nil {
+		t.Errorf("a's requestPending: %v -> %v, want true -> absent", aliceBefore["requestPending"], after["requestPending"])
+	}
+	for _, m := range []map[string]any{aliceBefore, after} {
+		delete(m, "requestPending")
+		delete(m, "changedAt")
+	}
+	if fmt.Sprint(after) != fmt.Sprint(aliceBefore) {
+		t.Errorf("a's entry changed beyond the flag and changedAt: %v -> %v", aliceBefore, after)
 	}
 	for _, who := range []dmUser{a, b} {
 		got := newDMChain(t, nil).folder(t, who, messagingv1.Folder_FOLDER_INBOX)

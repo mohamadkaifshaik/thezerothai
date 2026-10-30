@@ -90,3 +90,12 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # feature_search_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 # feature_trends           = "allowlist"
 # feature_trends_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+
+# W6 (ADR-0029 D12, W6-4): polls, drafts (client only) and GIF. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
+# polls never ramps ahead of engagement, gif never ahead of media; polls and gif leave off only after 100 percent of traffic is on a revision that enforces them.
+# feature_polls           = "allowlist"
+# feature_polls_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+# feature_drafts           = "allowlist"
+# feature_drafts_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+# feature_gif           = "allowlist"
+# feature_gif_allowlist = "<uid-1>,<uid-2>,<uid-3>"

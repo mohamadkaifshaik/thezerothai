@@ -347,6 +347,9 @@ func TestEraser_RequestRecipientEntryInDmRequests(t *testing.T) {
 	if !ok || req.Peer.DisplayName != DeletedAccountName || req.Last.Snippet != "hello?" {
 		t.Errorf("the requester's entry = %+v, %v: placeholder expected, her own last message kept", req, ok)
 	}
+	if req.RequestPending {
+		t.Error("requestPending survived MarkGone: a request whose recipient is gone must not read as waiting (W7-25)")
+	}
 	for _, m := range e.msgs(convID) {
 		if m.State != msgVisible || m.Text == "" {
 			t.Errorf("the requester's message was touched: %+v", m)
