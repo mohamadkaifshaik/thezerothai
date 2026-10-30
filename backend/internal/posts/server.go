@@ -99,6 +99,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		ReplyToPostID:  m.GetReplyToPostId(),
 		QuoteOfPostID:  m.GetQuoteOfPostId(),
 		MediaEnabled:   s.mediaEnabled(uid),
+		GifEnabled:     s.gifEnabled(uid),
 		RepliesEnabled: s.repliesEnabled(uid),
 		QuotesEnabled:  s.quotesEnabled(uid),
 
@@ -288,4 +289,12 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 		out.Replies = append(out.Replies, view(p))
 	}
 	return connect.NewResponse(out), nil
+}
+
+// GifFlagName is the wire name of FEATURE_GIF (ADR-0029 D12; media.GifFlagName, a test keeps them equal).
+const GifFlagName = "gif"
+
+// gifEnabled is the FEATURE_GIF decision for uid (off when no checker is wired).
+func (s *Server) gifEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, GifFlagName)
 }

@@ -43,6 +43,7 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 		}
 	}
 	logger.SetRequestField(ctx, fieldPurpose, finalizePurpose(docs, ids))
+	logger.SetRequestField(ctx, fieldContentType, finalizeContentType(docs, ids))
 
 	results := make([]Result, len(items))
 	var (
@@ -247,6 +248,12 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		}
 	} else {
 		logger.SetRequestField(ctx, fieldExhausted, true)
+		if d.ContentType == ContentTypeGIF {
+			// ADR-0029 F11 point 4: at the cap a GIF is REJECTED for every account, never READY_UNSCREENED (a GIF is not
+			// screened by anything but Vision, and report-driven review is slower for an animation).
+			r, err := s.reject(ctx, d, reasonCapacity)
+			return r, 0, err
+		}
 		established, err := s.establishedAccount(ctx, uid)
 		if err != nil {
 			return Result{}, 0, err
@@ -259,8 +266,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 
 	// 3. Publish: copy into the public bucket, then flip the document, then drop the private copies.
-	ext := extension(d.ContentType)
-	pub, pubThumb := publicObject(d.ID, d.NameSuffix, ext), publicThumbObject(d.ID, d.NameSuffix, ext)
+	pub, pubThumb := publicObject(d.ID, d.NameSuffix, extension(d.ContentType)), publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))
 	if err := s.Objects.Publish(ctx, d.UploadPath, pub, d.ContentType); err != nil {
 		if errors.Is(err, objstore.ErrObjectNotFound) {
 			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
@@ -268,7 +274,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish full: %w", err), uid)
 	}
-	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, pubThumb, d.ContentType); err != nil {
+	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, pubThumb, d.ThumbType()); err != nil {
 		if errors.Is(err, objstore.ErrObjectNotFound) {
 			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
 			s.dropOrphanedCopies(ctx, d, r, pub)
@@ -387,12 +393,12 @@ func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Resu
 func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error) {
 	maxFull, maxThumb := capsFor(Purpose(d.Purpose))
 	for _, o := range []struct {
-		object, md5 string
-		size        int64
-		max         int64
+		object, md5, contentType string
+		size                     int64
+		max                      int64
 	}{
-		{d.UploadPath, d.FullMD5, d.Bytes, maxFull},
-		{d.ThumbUploadPath, d.ThumbMD5, d.ThumbBytes, maxThumb},
+		{d.UploadPath, d.FullMD5, d.ContentType, d.Bytes, maxFull},
+		{d.ThumbUploadPath, d.ThumbMD5, d.ThumbType(), d.ThumbBytes, maxThumb},
 	} {
 		a, err := s.Objects.UploadAttrs(ctx, o.object)
 		switch {
@@ -405,7 +411,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		switch {
 		case a.Size <= 0 || a.Size > o.max || a.Size != o.size:
 			return reasonInvalid, nil
-		case a.ContentType != d.ContentType:
+		case a.ContentType != o.contentType:
 			return reasonInvalid, nil
 		case derr != nil || string(a.MD5) != string(want):
 			return reasonInvalid, nil
@@ -417,7 +423,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		case err != nil:
 			return "", fmt.Errorf("media: object head: %w", err)
 		}
-		if sniffImage(head) != d.ContentType {
+		if sniffImage(head) != o.contentType {
 			return reasonInvalid, nil
 		}
 	}
@@ -430,6 +436,9 @@ func (s *service) screensThumb(d *Doc) bool {
 	return s.ScreenThumb || d.Purpose == string(PurposeBanner)
 }
 
+// W6-10 seam: for a GIF this is where the frame-sampled sheet replaces the full-object URI screen (ADR-0029 D11).
+// Until W6-10 merges a GIF is screened like a photo (Vision reads the first frame), which is why FEATURE_GIF must not
+// leave off before it (docs/runbooks/media.md).
 // screen runs SafeSearch on the full image and, when ScreenThumb, the thumbnail (the small image is what lists
 // show, and it is uploaded separately). It reports whether either is blocked by the policy.
 func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) {
@@ -511,4 +520,19 @@ func (s *service) deleteUploads(ctx context.Context, d *Doc) {
 			s.Log.WarnContext(ctx, "media_upload_delete_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, d.OwnerID))}, logger.TraceAttrs(ctx)...)...)
 		}
 	}
+}
+
+// finalizeContentType is the content type to log for a finalize: the shared one, or "MIXED". Values come from stored
+// documents (validated at CreateUpload), never from the request.
+func finalizeContentType(docs map[string]*Doc, ids []string) string {
+	t := ""
+	for _, id := range ids {
+		switch d := docs[id].ContentType; {
+		case t == "":
+			t = d
+		case t != d:
+			return "MIXED"
+		}
+	}
+	return t
 }

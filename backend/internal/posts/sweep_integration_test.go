@@ -75,7 +75,7 @@ func (m *sweepMedia) LoadForPost(ctx context.Context, tx *firestore.Transaction,
 			return nil, ErrMediaNotReady // already attached elsewhere
 		}
 		claim.ids = append(claim.ids, ids[i])
-		claim.refs = append(claim.refs, MediaRef{ID: ids[i], URL: "https://cdn.example/m/" + ids[i], ThumbURL: "https://cdn.example/t/" + ids[i], Width: 10, Height: 20})
+		claim.refs = append(claim.refs, MediaRef{ID: ids[i], URL: "https://cdn.example/m/" + ids[i], ThumbURL: "https://cdn.example/t/" + ids[i], Width: 10, Height: 20, ContentType: itContentType(s)})
 	}
 	return claim, nil
 }
@@ -87,6 +87,15 @@ type sweepClaim struct {
 }
 
 func (c *sweepClaim) Refs() []MediaRef { return c.refs }
+
+func (c *sweepClaim) HasGIF() bool {
+	for _, r := range c.refs {
+		if r.ContentType == "image/gif" {
+			return true
+		}
+	}
+	return false
+}
 func (c *sweepClaim) Attach(b store.Batch, postID string) {
 	for _, id := range c.ids {
 		b.Update(c.client.Collection("media").Doc(id), []firestore.Update{{Path: "postId", Value: postID}})

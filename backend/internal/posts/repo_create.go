@@ -63,7 +63,9 @@ type CreateParams struct {
 	// parallel). With MediaIDs the transaction adds len(MediaIDs) reads and as many media-doc updates.
 	MediaIDs  []string
 	MediaAlts []string
-	Draft     Post
+	// GifEnabled is CreateInput.GifEnabled: with it false a claim holding a GIF fails with ErrGifDisabled before any write.
+	GifEnabled bool
+	Draft      Post
 	// ParentID is the post being replied to (P3): its replyCount is incremented in the same transaction, which
 	// fails with ErrParentGone if the parent was deleted in the meantime. Empty for root posts.
 	ParentID string
@@ -170,6 +172,14 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		claim, err = r.w.Media.LoadForPost(ctx, tx, p.AuthorID, p.MediaIDs)
 		if err != nil {
 			return CreateResult{}, err
+		}
+		if claim.HasGIF() { // ADR-0029 D10: the second gate, then the only-image rule; nothing is staged yet
+			if !p.GifEnabled {
+				return CreateResult{}, ErrGifDisabled
+			}
+			if len(p.MediaIDs) > 1 {
+				return CreateResult{}, ErrGifNotAlone
+			}
 		}
 	}
 

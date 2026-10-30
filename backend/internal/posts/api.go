@@ -199,6 +199,9 @@ type MediaRef struct {
 	Height   int
 	Blurhash string
 	AltText  string
+	// ContentType is the full object's type (common.MediaRef.content_type, ADR-0029 D10), copied from the media claim.
+	// Empty on refs stored before W6 (a still JPEG or WebP).
+	ContentType string
 }
 
 // Position is a (createdAt, postId) point in the createdAt-descending order every post query uses.
@@ -341,6 +344,10 @@ type CreateInput struct {
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
 	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
 	MediaEnabled bool
+	// GifEnabled is FEATURE_GIF for the caller, made by server.go (never from the request). A GIF media doc with it false is
+	// FEATURE_DISABLED (metadata feature=gif); the content type is only known from the claim, so the refusal happens in the
+	// transaction after the media read and writes nothing (ADR-0029 D10).
+	GifEnabled bool
 	// QuotesEnabled is the FEATURE_QUOTES AND FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
 	// A non-empty QuoteOfPostID with it false is FEATURE_DISABLED (metadata feature=quotes).
 	QuotesEnabled bool
@@ -373,10 +380,22 @@ type CreateInput struct {
 // FAILED_PRECONDITION + MEDIA_NOT_READY.
 var ErrMediaNotReady = errors.New("posts: media not ready")
 
+// ErrGifDisabled is returned by Repo.Create when the claim holds a GIF and FEATURE_GIF is off for the caller
+// (CreateParams.GifEnabled false; ADR-0029 D10, the second gate). The service maps it to FEATURE_DISABLED feature=gif.
+var ErrGifDisabled = errors.New("posts: gif is disabled")
+
+// ErrGifNotAlone is returned when a GIF is attached next to another image (VALIDATION media_ids).
+var ErrGifNotAlone = errors.New("posts: a gif must be the only image")
+
+// ErrGifNotSchedulable is returned by Repo.CreateScheduled for a draft that carries a GIF (ADR-0029 F10; VALIDATION media_ids).
+var ErrGifNotSchedulable = errors.New("posts: a gif cannot be scheduled")
+
 // MediaClaim is a validated set of the caller's READY images, loaded inside the CreatePost transaction.
 type MediaClaim interface {
 	// Refs are the published refs in request order (AltText unset: the post owns the alt texts).
 	Refs() []MediaRef
+	// HasGIF reports whether any image is a GIF (ADR-0029 D10). The content-type table stays in media; posts only asks.
+	HasGIF() bool
 	// Attach marks every image as belonging to postID in the same batch that creates the post.
 	Attach(b store.Batch, postID string)
 }
