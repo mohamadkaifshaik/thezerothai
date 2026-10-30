@@ -55,6 +55,13 @@ message MediaRef {
   // BlurHash placeholder computed on device, <= 64 chars.
   string blurhash = 6;
   string alt_text = 7;
+  // The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+  // FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
+  // from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
+  // url is fetched only when the user taps to play (F10). Copied into posts from the media doc at CreatePost, and
+  // into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+  // that cannot play.
+  string content_type = 8;
 }
 
 // Why a request failed, attached to Connect errors as an error detail.
@@ -125,4 +132,11 @@ enum ErrorReason {
   // peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
   // message this account".
   ERROR_REASON_CANNOT_MESSAGE = 18;
+  // FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+  // and show its final results; do not retry.
+  ERROR_REASON_POLL_CLOSED = 19;
+  // FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+  // metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Refresh the post and show that
+  // choice; do not retry. A retry with the same choice is not an error: it returns the current state.
+  ERROR_REASON_ALREADY_VOTED = 20;
 }

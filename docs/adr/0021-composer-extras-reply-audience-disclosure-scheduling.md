@@ -1038,3 +1038,11 @@ they were not re-measured for these notes.
      `pubsubpush.NewVerifier(cfg.InternalOIDCAudience, ...)` in `backend/internal/apiserver/apiserver.go`), not the
      `*.a.run.app` URL, and curl needs an explicit empty body. The grant stays dev-only, 30-day and OpenID-only, as
      D1 says.
+
+## Note (ADR-0029, 2026-10-30; D4 unchanged)
+D4 left "polls with a schedule" to the polls ADR. ADR-0029 F5 decides: **polls and scheduled posts are not combined**.
+`SchedulePostRequest` gets no poll field, the scheduled doc stays at `schemaVersion: 1` and the sweep does not change.
+The composer disables Add poll while a time is set and Schedule while a poll is attached, as X does. SchedulePost also
+refuses GIF media (VALIDATION `field=media_ids`, ADR-0029 D10). A scheduled poll whose length starts at publish would
+need `schemaVersion: 2` and a sweep change, in a later ticket under its own decision. The L-1 100 % rule and the echo
+check extend to `FEATURE_POLLS` and `FEATURE_GIF` (ADR-0029 D12).

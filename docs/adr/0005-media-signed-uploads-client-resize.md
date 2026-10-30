@@ -1,6 +1,6 @@
 # 0005. Images via client-side resize, V4 signed PUT to GCS (us-central1), SafeSearch on every image
 Status: Accepted
-Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota; amended 2026-10-17: client image library; amendment note 2026-10-28: unguessable public names, W3-36 M-2)
+Date: 2026-09-26 (amended 2026-09-27: founder chose paid screening past the free quota; amended 2026-10-17: client image library; amendment note 2026-10-28: unguessable public names, W3-36 M-2; amendment note 2026-10-30: GIF for POST media, ADR-0029)
 Deciders: architect, founder
 
 ## Context
@@ -114,3 +114,20 @@ before then keep their names (ADR-0025 founder question B1). Buckets, public-rea
 screening are unchanged, and the change costs +0 operations. Design, cost and stage ladder: ADR-0025
 "Implementation note (W3-36 M-2, 2026-10-28)". Option C stays rejected: unguessable names are added, but objects are still
 screened before they are public.
+
+## Amendment note (ADR-0029, 2026-10-30; Proposed with ADR-0029, in force when the founder merges it)
+For POST media behind `FEATURE_GIF` (wire name `gif`), ADR-0029 D10 and D11 supersede two lines of the Decision above:
+"GIF → static first frame" and the magic-byte check for "JPEG/WebP only". Avatars and banners are unchanged and
+never accept GIFs.
+- `image/gif` is accepted for `MEDIA_PURPOSE_POST`, one per CreateUpload and one per post, ≤ 2 MiB (the existing
+  signed range), with a still JPEG or WebP thumbnail named by the new `UploadItem.thumb_content_type`. `sniffImage`
+  learns `GIF87a` / `GIF89a`. The original GIF bytes are published unchanged.
+- Cloud Vision screens only the first frame of an animated GIF ("Animated GIF (first frame only)",
+  <https://docs.cloud.google.com/vision/docs/supported-files>, page dated 2026-10-26, checked 2026-10-30). So FinalizeUpload
+  reads the whole uploaded GIF from the private bucket (+1 Class B), pre-scans it under hard limits, samples 4 frames
+  over its display time into one 2 × 2 contact sheet and screens that by bytes, plus the thumbnail by URI: 2 units per
+  GIF, as for a photo. At `VISION_MONTHLY_CAP` a GIF is REJECTED for every account (never READY_UNSCREENED).
+- `MediaRef` gains `content_type`, which posts copy from the media claim, so clients can badge and play a GIF.
+- Cost: about INR 53 / 6 / 342 a month at 300 / 1,000 / 3,000 DAU for GIFs and polls together (ADR-0029 Cost impact);
+  the Vision cap is reached at about 730 DAU instead of 802.
+The rest of this ADR is unchanged.
