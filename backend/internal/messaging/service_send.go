@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,9 +15,11 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -53,11 +56,11 @@ const (
 // cap run in the rate-limit interceptor; the new-account tier of that cap runs here.
 //
 // Worst-case Firestore cost (budget.Counter, interceptor read included as the proto comment counts it):
-//   - accepted conversation: reads 5 cold (interceptor, caller graph, recipient graph, recipient profile through the
-//     directory, conversation in the transaction), planning 2.5; writes 3 (message, two entries)
+//   - accepted conversation: reads 5 cold (interceptor, caller graph, recipient profile through the directory,
+//     conversation and the recipient.s graph in the transaction, W7-33), 2 warm, planning 3.5; writes 3 (message, two entries)
 //   - existing REQUEST, the requester's next message: writes 4 (+ requestCount); the reply that accepts it: 4 writes and
 //     1 delete (the replier's dmRequests entry moves to dmInbox)
-//   - new conversation: reads 7 (+ the recipient's status fresh, quotas), writes 5 (message, conversation, two entries,
+//   - new conversation: reads 7 (+ the recipient.s users doc in the transaction, quotas), writes 5 (message, conversation, two entries,
 //     quotas.dmNew)
 //   - by conversation_id: +1 read (the participant check) with a cold conversation cache, warm +0 for a participant; a
 //     non-participant always pays that 1 read (the cache never answers or learns from it, W7-28)
@@ -67,11 +70,15 @@ func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMes
 		return nil, err
 	}
 	logger.SetRequestField(ctx, fieldKind, kindSend)
+	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): 0 reads, after the flag, before validation.
+	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "sending messages"); err != nil {
+		return nil, err
+	}
 	in, err := validateSend(uid, req)
 	if err != nil {
 		return nil, err
 	}
-	if s.d.Repo == nil || s.d.Social == nil || s.d.Profiles == nil {
+	if s.d.Repo == nil || s.d.Social == nil || s.d.Profiles == nil || s.d.TxSocial == nil || s.d.TxProfiles == nil {
 		return nil, errors.New("messaging: send is not configured")
 	}
 	return s.send(ctx, uid, in)
@@ -136,15 +143,11 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		}
 	}
 
-	// Step 3: both graph snapshots (60 s cache) and both profiles (the caller's is warm behind the account-status
-	// interceptor, the recipient's is the one directory read).
+	// Step 3: the caller's graph snapshot (60 s cache; the recipient's graph is read inside the transaction, W7-33) and
+	// both profiles (the caller's is warm behind the account-status interceptor, the recipient's is the one directory read).
 	mine, err := s.d.Social.Snapshot(ctx, uid)
 	if err != nil {
 		return nil, s.mapErr(ctx, uid, in, fmt.Errorf("messaging: caller graph: %w", err))
-	}
-	theirs, err := s.d.Social.Snapshot(ctx, in.peer)
-	if err != nil {
-		return nil, s.mapErr(ctx, uid, in, fmt.Errorf("messaging: recipient graph: %w", err))
 	}
 	profiles, err := s.d.Profiles.GetProfiles(ctx, []string{uid, in.peer})
 	if err != nil {
@@ -159,20 +162,17 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		return nil, rerr
 	}
 
-	// Steps 3 and 4: every refusal is the one CANNOT_MESSAGE. A block is read from the two Blocked sets, which are
-	// authoritative for their owner (the recipient's snapshot has no overflow case, ADR-0027 Context).
+	// Steps 3 and 4: every refusal is the one CANNOT_MESSAGE. The caller's own Blocked set is read here; the recipient's
+	// is read inside the transaction (it has no overflow case, ADR-0027 Context), ahead of every cap.
 	peer, active := profiles[in.peer]
 	switch {
-	case mine.Blocked[in.peer] || theirs.Blocked[uid]:
+	case mine.Blocked[in.peer]:
 		return nil, s.refuse(ctx, refusedBlocked)
 	case !active:
 		return nil, s.refuse(ctx, refusedRecipientOff)
 	case s.flags == nil || !s.flags.Enabled(in.peer, FlagName):
 		return nil, s.refuse(ctx, refusedRecipientFlagOff)
 	}
-	silent := theirs.Muted[uid]
-	logger.SetRequestField(ctx, fieldSilent, silent)
-
 	limit := s.d.Limits.DMNewPerDay
 	if s.isNewAccount(caller, now) {
 		limit = s.d.Limits.NewAccountDMNewPerDay
@@ -180,23 +180,30 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	res, err := s.d.Repo.Send(ctx, SendParams{
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
 		Text: in.text, RequestHash: requestHash(in.convID, in.text), Now: now,
-		Mutual: mine.Following[in.peer] && theirs.Following[uid], Silent: silent, CallerSilent: mine.Muted[in.peer],
+		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
 		Caller: peerDocOf(caller), Peer: peerDocOf(peer),
 		MaxUnanswered: s.d.Limits.RequestMaxUnanswered, DMNewLimit: limit,
-		FreshRecipient: func(ctx context.Context) error { return s.freshRecipient(ctx, in.peer) },
+		RecipientGraphInTx: func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error) {
+			return s.d.TxSocial.SnapshotInTx(ctx, tx, in.peer)
+		},
+		RecipientInTx: func(ctx context.Context, tx *firestore.Transaction) (identity.Profile, error) {
+			return s.d.TxProfiles.ProfileInTx(ctx, tx, in.peer)
+		},
 	})
 	if err != nil {
 		return nil, s.mapErr(ctx, uid, in, err)
 	}
-	s.afterSend(ctx, uid, in, res, silent)
+	s.afterSend(ctx, uid, in, res)
 	return sendResponse(in.convID, MessageID(uid, in.key), peer, res, mine.Muted[in.peer]), nil
 }
 
 // afterSend is steps 6 and 7 and the request line: the instance cache is updated from the written data, the badge
 // cache of both participants is evicted, and the push event leaves only for an accepted, non-silent, non-replayed
-// message (a request never pushes, F7).
-func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res SendResult, silent bool) {
+// message (a request never pushes, F7). silent is the transaction's own read of the recipient's Muted set (W7-33), never a
+// value computed before it, so a mute made 59 s ago on another instance no longer pushes.
+func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res SendResult) {
 	logger.SetRequestField(ctx, fieldReplay, res.Replay)
+	logger.SetRequestField(ctx, fieldSilent, res.Silent)
 	switch {
 	case res.Created:
 		logger.SetRequestField(ctx, fieldState, stateLabelNew)
@@ -214,7 +221,7 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 	if s.d.Badge != nil {
 		s.d.Badge.Forget(uid, in.peer)
 	}
-	if s.d.Events != nil && !res.RecipientInRequests && !silent {
+	if s.d.Events != nil && !res.RecipientInRequests && !res.Silent {
 		s.d.Events.MessageSent(ctx, MessageEvent{ActorUID: uid, RecipientUID: in.peer, ConversationID: in.convID, At: res.Msg.CreatedAt})
 	}
 }
@@ -252,20 +259,6 @@ func (s *service) conversationHit(ctx context.Context, uid, id string) (ConvDoc,
 	return c, false, nil
 }
 
-// freshRecipient is the purge-race check of a new conversation (ADR-0027 D8): the recipient's account status without
-// the cache. The directory reports a non-ACTIVE or missing user as absent.
-func (s *service) freshRecipient(ctx context.Context, peerUID string) error {
-	s.d.Profiles.Forget(peerUID)
-	got, err := s.d.Profiles.GetProfiles(ctx, []string{peerUID})
-	if err != nil {
-		return fmt.Errorf("messaging: recipient status: %w", err)
-	}
-	if _, ok := got[peerUID]; !ok {
-		return errRecipientInactive
-	}
-	return nil
-}
-
 func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 	return !p.CreatedAt.IsZero() && now.Sub(p.CreatedAt) < s.d.Limits.NewAccountWindow
 }
@@ -301,6 +294,8 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 	switch {
 	case errors.Is(err, errRecipientInactive):
 		return s.refuse(ctx, refusedRecipientOff)
+	case errors.Is(err, errBlocked):
+		return s.refuse(ctx, refusedBlocked)
 	case errors.Is(err, ErrCannotMessage):
 		return s.refuse(ctx, refusedGone) // the peer deleted the account
 	case errors.Is(err, ErrRequestLimit):

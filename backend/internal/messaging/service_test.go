@@ -9,6 +9,7 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -84,7 +85,7 @@ func TestService_FlagModes(t *testing.T) {
 		for _, rpc := range rpcs {
 			t.Run(tt.name+"/"+rpc.name, func(t *testing.T) {
 				t.Parallel()
-				err := rpc.call(context.Background(), messaging.New(tt.reg, messaging.Deps{}), tt.uid)
+				err := rpc.call(authn.WithClaims(context.Background(), authn.Claims{SignInProvider: authn.SignInProviderGoogle}), messaging.New(tt.reg, messaging.Deps{}), tt.uid)
 				open := tt.wantNotOff
 				if rpc.perCaller {
 					open = tt.wantOn

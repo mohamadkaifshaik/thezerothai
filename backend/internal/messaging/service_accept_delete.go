@@ -6,6 +6,7 @@ import (
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -43,6 +44,10 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 		return nil, err
 	}
 	logger.SetRequestField(ctx, fieldKind, kindAccept)
+	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): 0 reads.
+	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "accepting message requests"); err != nil {
+		return nil, err
+	}
 	id := req.GetConversationId()
 	if err := validateKeyAndConv(req.GetIdempotencyKey(), id); err != nil {
 		return nil, err
