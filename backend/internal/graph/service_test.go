@@ -537,3 +537,8 @@ func TestIsFollowing(t *testing.T) {
 		t.Error("a snapshot failure must surface")
 	}
 }
+
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (f *fakeDirectory) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}
