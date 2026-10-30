@@ -81,8 +81,8 @@ func (e *itEnv) threadTexts(svc *service, uid, convID string) []string {
 }
 
 // Given B accepts, then both see the conversation in the Inbox, B's unread count is kept, the state is ACCEPTED, A's own
-// entry is untouched, nothing is emitted, and B's next reply pushes to A. A second message of A lands in B's Inbox, not in
-// Requests, and the unanswered-request cap no longer applies. Budget (ADR-0027 table): 3 reads, 2 writes, 1 delete.
+// entry loses requestPending and gets the accept changedAt (W7-25), nothing is emitted, and B's next reply pushes to A. A second message of A lands in B's Inbox, not in
+// Requests, and the unanswered-request cap no longer applies. Budget (ADR-0027 note W7-25): 4 reads, 3 writes, 1 delete.
 func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(2)
@@ -99,9 +99,9 @@ func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "AcceptMessageRequest", c, budgettest.Budget{Reads: 3, Writes: 2, Deletes: 1})
-	if c.Reads() != 3 || c.Writes() != 2 || c.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 3/2/1", c.Reads(), c.Writes(), c.Deletes())
+	budgettest.Assert(t, "AcceptMessageRequest", c, budgettest.Budget{Reads: 4, Writes: 3, Deletes: 1})
+	if c.Reads() != 4 || c.Writes() != 3 || c.Deletes() != 1 {
+		t.Errorf("reads/writes/deletes = %d/%d/%d, want 4/3/1", c.Reads(), c.Writes(), c.Deletes())
 	}
 	conv, _ := e.conv(id)
 	if conv.State != stateAccepted || conv.RequestTo != bob || conv.RequestFrom != alice || conv.RequestCount != 2 || !conv.UpdatedAt.Equal(e.now().Truncate(time.Microsecond)) {
@@ -120,8 +120,13 @@ func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 	if !ok || moved != requestEntry {
 		t.Errorf("bob's inbox entry = %+v %v, want the request entry as it was (unreadCount kept)", moved, ok)
 	}
-	if after, _ := e.entry(alice, dmInboxCollection, id); after != aliceBefore {
-		t.Errorf("alice's entry changed: %+v -> %+v", aliceBefore, after)
+	after, _ := e.entry(alice, dmInboxCollection, id)
+	if !aliceBefore.RequestPending || after.RequestPending || !after.ChangedAt.Equal(conv.UpdatedAt) {
+		t.Errorf("alice's entry: pending %v -> %v, changedAt %v (want the accept stamp %v)", aliceBefore.RequestPending, after.RequestPending, after.ChangedAt, conv.UpdatedAt)
+	}
+	aliceBefore.RequestPending, aliceBefore.ChangedAt, after.ChangedAt = false, time.Time{}, time.Time{}
+	if after != aliceBefore {
+		t.Errorf("alice's entry changed beyond the flag and changedAt: %+v -> %+v", aliceBefore, after)
 	}
 	if len(e.events.got) != events {
 		t.Error("accept emitted an event")

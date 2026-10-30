@@ -146,8 +146,9 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// (unread count kept). Only the recipient of the request may accept; the requester (or a non-participant) gets
   /// NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
   /// Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
-  /// Firestore: reads 3 worst (interceptor, conversation, request entry), planning 2.5; writes 2 (conversation state,
-  /// dmInbox entry); deletes 1 (dmRequests entry).
+  /// Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3
+  /// (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester
+  /// deleted that entry); deletes 1 (dmRequests entry).
   Future<dzerothmessagingv1messaging.AcceptMessageRequestResponse> acceptMessageRequest(
     dzerothmessagingv1messaging.AcceptMessageRequestRequest input, {
     connect.Headers? headers,

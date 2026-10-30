@@ -245,6 +245,7 @@ func (e *itEnv) seedConversation(a, b, state string, base time.Time, msgs ...[2]
 			PeerID: peer, Peer: PeerDoc{Handle: "h-" + peer, DisplayName: "Name " + peer}, LastMessageAt: base.Add(time.Duration(len(msgs)) * time.Second),
 			Last: LastDoc{MessageID: "m", FromSelf: last[0] == uid, Snippet: last[1], State: msgVisible}, CreatedAt: base,
 		}
+		ent.RequestPending = state == stateRequest && uid == a // the requester's entry as Send writes it (W7-25)
 		if _, err := e.fs.Collection("users").Doc(uid).Collection(folder).Doc(id).Set(ctx, ent); err != nil {
 			e.t.Fatal(err)
 		}
