@@ -817,7 +817,8 @@ class ListConversationsResponse extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   void clearSinceToken() => $_clearField(3);
 
-  /// Pending message requests ("Message requests (N)"): set on the first INBOX page only, else 0.
+  /// Pending message requests ("Message requests (N)"): set on every INBOX first page and since refresh; 0 on an older
+  /// page and on REQUESTS. Authoritative on an INBOX response, including 0.
   @$pb.TagNumber(4)
   $fixnum.Int64 get requestCount => $_getI64(3);
   @$pb.TagNumber(4)
@@ -1447,13 +1448,14 @@ class MessagingServiceApi {
   /// Read-time rules (caller graph, cached 60 s): REQUESTS drops entries whose peer the caller blocks or mutes, or who
   /// blocks the caller; INBOX keeps every entry, with can_reply = false when either side blocks. Filtering runs after
   /// the page query, so a page may be short or empty while next_page_token is non-empty: keep following it.
-  /// request_count is set on the first INBOX page only (no token); 0 everywhere else.
+  /// request_count is set on every INBOX first page and since refresh (an empty refresh included); 0 on an older page and
+  /// on REQUESTS. Clients treat the INBOX value as authoritative, 0 included (W7-37).
   /// There is no gap_page_token here (plan W7-2): a since refresh returns at most page_size entries.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListMessages.
   /// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),
-  /// planning 9; REQUESTS the same without the count(). since refresh reads 3 worst (interceptor, query min 1, caller
-  /// graph), planning 2. Writes 0.
+  /// planning 9; REQUESTS the same without the count(). INBOX since refresh reads 4 worst (interceptor, query min 1, caller
+  /// graph, requests count()), planning 3; an empty one 3. Writes 0.
   $async.Future<ListConversationsResponse> listConversations(
           $pb.ClientContext? ctx, ListConversationsRequest request) =>
       _client.invoke<ListConversationsResponse>(ctx, 'MessagingService',
