@@ -33,6 +33,10 @@ import (
 
 const (
 	reportsCollection = "reports"
+	// evidenceSubcollection / messageEvidenceDoc: the copied text of a MESSAGE report lives in reports/{id}/evidence/message
+	// with its own expireAt (W7-36); the TTL policy is keyed by the collection group "evidence".
+	evidenceSubcollection = "evidence"
+	messageEvidenceDoc    = "message"
 	// txTimeout bounds the ReportContent transaction.
 	txTimeout = 5 * time.Second
 	// opsPage is the page size of the eraser and export queries and the batch bound (Firestore's 500 writes).
@@ -82,7 +86,7 @@ type Repo interface {
 	// (a repeat: Existing=true, 0 writes, no charge). A RESOLVED report is reopened in the same transaction
 	// (Reopened=true: status OPEN, reason/note/evidence replaced, the resolution fields and expireAt
 	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
-	// quotas; 1 on a repeat), writes 2.
+	// quotas; 1 on a repeat), writes 2; a MESSAGE report adds 1 write (the evidence child, W7-36): 3.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	// IsOpen reports whether report id exists and is OPEN (1 read, 0 writes). The service uses it to answer a
 	// replay from a reporter whose quota is spent with AlreadyReported instead of QUOTA_EXCEEDED (rule 4).
@@ -137,6 +141,9 @@ func toDoc(r Report) reportDoc {
 		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
 			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
 			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL}
+		if r.TargetType == TargetMessage {
+			d.Evidence.Text = "" // the text lives in the child document (W7-36)
+		}
 	}
 	return d
 }
@@ -164,6 +171,18 @@ func (d reportDoc) toReport(id string) Report {
 
 func (r *FirestoreRepo) ref(id string) *firestore.DocumentRef {
 	return r.client.Collection(reportsCollection).Doc(id)
+}
+
+// evidenceRef is reports/{id}/evidence/message.
+func (r *FirestoreRepo) evidenceRef(id string) *firestore.DocumentRef {
+	return r.ref(id).Collection(evidenceSubcollection).Doc(messageEvidenceDoc)
+}
+
+// evidenceChild is the child document: the copied message text and the instant the TTL policy deletes it. The text
+// is index-exempt (fieldOverride on the collection group "evidence") and is never logged.
+type evidenceChild struct {
+	Text     string    `firestore:"text"`
+	ExpireAt time.Time `firestore:"expireAt"`
 }
 
 // Create implements Repo.
@@ -207,6 +226,12 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			b.Update(r.ref(p.Report.ID), reopenUpdates(p.Report))
 		} else {
 			b.Create(r.ref(p.Report.ID), toDoc(p.Report))
+		}
+		// W7-36: the private text of a MESSAGE report goes to a child document with its own TTL (a full Set, so a reopen
+		// replaces the old copy and a leftover of a TTL-deleted parent cannot make the write fail). +1 write.
+		if p.Report.TargetType == TargetMessage && p.Report.Evidence != nil {
+			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: p.Report.Evidence.Text,
+				ExpireAt: p.Report.CreatedAt.Add(MessageEvidenceRetention).UTC()})
 		}
 		return b.Err()
 	})
@@ -305,10 +330,29 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 	if err := s.DataTo(&d); err != nil {
 		return Report{}, fmt.Errorf("moderation: decode report %s: %w", id, err)
 	}
-	return d.toReport(id), nil
+	rep := d.toReport(id)
+	// W7-36: a MESSAGE report's text is in the child document (+1 read); gone = its TTL ran.
+	if rep.TargetType == TargetMessage && rep.Evidence != nil {
+		cs, err := r.evidenceRef(id).Get(ctx)
+		budget.FromContext(ctx).AddReads(1)
+		switch {
+		case err == nil:
+			var c evidenceChild
+			if err := cs.DataTo(&c); err != nil {
+				return Report{}, fmt.Errorf("moderation: decode report evidence %s: %w", id, err)
+			}
+			rep.Evidence.Text = c.Text
+		case status.Code(err) == codes.NotFound:
+			rep.Evidence.TextExpired = true
+		default:
+			return Report{}, fmt.Errorf("moderation: get report evidence %s: %w", id, err)
+		}
+	}
+	return rep, nil
 }
 
-// Resolve implements Ops: one transaction, 1 read, 1 write (0 when already resolved).
+// Resolve implements Ops: one transaction, 1 read, 1 write (0 when already resolved, 1 read). A MESSAGE report adds 1 read
+// (its evidence child) and, when the child outlives resolvedAt + Retention, 1 write that shortens it to that instant.
 func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, note string, now time.Time) (Report, error) {
 	if !res.Valid() {
 		return Report{}, fmt.Errorf("moderation: invalid resolution %q", res)
@@ -335,6 +379,22 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 			out = d.toReport(id)
 			return nil
 		}
+		// W7-36: read the child before any write; it must not outlive the report (a TTL'd parent does not delete it).
+		var child *evidenceChild
+		if TargetType(d.TargetType) == TargetMessage {
+			cs, err := tx.Get(r.evidenceRef(id))
+			counter.AddReads(1)
+			switch {
+			case err == nil:
+				var c evidenceChild
+				if err := cs.DataTo(&c); err != nil {
+					return fmt.Errorf("moderation: decode report evidence %s: %w", id, err)
+				}
+				child = &c
+			case status.Code(err) != codes.NotFound:
+				return fmt.Errorf("moderation: get report evidence %s: %w", id, err)
+			}
+		}
 		exp := now.Add(Retention).UTC()
 		at := now.UTC()
 		b := store.NewFirestoreTxBatch(tx, counter)
@@ -345,6 +405,9 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 			{Path: "resolutionNote", Value: note},
 			{Path: "expireAt", Value: exp},
 		})
+		if child != nil && child.ExpireAt.After(exp) {
+			b.Update(r.evidenceRef(id), []firestore.Update{{Path: "expireAt", Value: exp}})
+		}
 		if err := b.Err(); err != nil {
 			return err
 		}

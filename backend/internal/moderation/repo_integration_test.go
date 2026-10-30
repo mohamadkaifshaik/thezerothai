@@ -453,3 +453,113 @@ func TestRepo_IsOpen(t *testing.T) {
 	check("resolved", r.ID, false)
 	check("missing", ReportID("u-rep", TargetPost, pidN(32)), false)
 }
+
+// W7-36 (security L-6): a MESSAGE report keeps its private text in reports/{id}/evidence/message with expireAt = filing +
+// 180 d; the report document holds no text and no expireAt while OPEN. Budgets: create 2 reads / 3 writes, Get 2 reads,
+// resolve 2 reads / 2 writes (the child is shortened to resolvedAt + 90 d, never lengthened), an already resolved report 1
+// read, a reopen 2 reads / 3 writes with a fresh child. A deleted child reads as TextExpired.
+func TestRepo_MessageEvidenceChild(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	file := func(at time.Time, text string) Report {
+		r := sampleReport("u-rep", TargetMessage, "c1:m1", "u-bob", at)
+		r.Evidence = &Evidence{Text: text, AuthorHandle: "bob", PostCreatedAt: at}
+		return r
+	}
+	first := file(t0, "private words")
+	ctx, c := counted()
+	if _, err := repo.Create(ctx, CreateParams{Report: first, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Create message report", c, budgettest.Budget{Reads: 2, Writes: 3})
+	snap, err := client.Collection("reports").Doc(first.ID).Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := snap.DataAt("evidence.text"); v != "" {
+		t.Fatalf("parent evidence.text = %v, want empty", v)
+	}
+	if _, err := snap.DataAt("expireAt"); err == nil {
+		t.Fatal("an open report must not carry expireAt")
+	}
+	child := client.Collection("reports").Doc(first.ID).Collection("evidence").Doc("message")
+	cs, err := child.Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := cs.DataAt("text"); v != "private words" {
+		t.Fatalf("child text = %v", v)
+	}
+	if v, _ := cs.DataAt("expireAt"); !v.(time.Time).Equal(t0.Add(180 * 24 * time.Hour)) {
+		t.Fatalf("child expireAt = %v", v)
+	}
+
+	ctx, c = counted()
+	got, err := repo.Get(ctx, first.ID)
+	if err != nil || got.Evidence == nil || got.Evidence.Text != "private words" || got.Evidence.TextExpired {
+		t.Fatalf("get = %+v err=%v", got, err)
+	}
+	budgettest.Assert(t, "Get message report", c, budgettest.Budget{Reads: 2})
+
+	resolvedAt := t0.Add(10 * 24 * time.Hour) // resolved + 90 d (day 100) is earlier than filing + 180 d: the child is shortened
+	ctx, c = counted()
+	res, err := repo.Resolve(ctx, first.ID, ResolutionNoAction, "", resolvedAt)
+	if err != nil || !res.ExpireAt.Equal(resolvedAt.Add(Retention)) {
+		t.Fatalf("resolve = %+v err=%v", res, err)
+	}
+	budgettest.Assert(t, "Resolve message report", c, budgettest.Budget{Reads: 2, Writes: 2})
+	cs, _ = child.Get(context.Background())
+	if v, _ := cs.DataAt("expireAt"); !v.(time.Time).Equal(resolvedAt.Add(Retention)) {
+		t.Fatalf("child expireAt after resolve = %v, want resolvedAt + 90 d", v)
+	}
+	ctx, c = counted()
+	if _, err := repo.Resolve(ctx, first.ID, ResolutionNoAction, "", resolvedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Resolve again", c, budgettest.Budget{Reads: 1})
+
+	// The TTL deletes the child: Get says so, the report is still there.
+	if _, err := child.Delete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got, err = repo.Get(context.Background(), first.ID)
+	if err != nil || got.Evidence == nil || !got.Evidence.TextExpired || got.Evidence.Text != "" || got.Status != StatusResolved {
+		t.Fatalf("after TTL = %+v err=%v", got, err)
+	}
+
+	again := file(t0.Add(200*24*time.Hour), "second")
+	ctx, c = counted()
+	if cr, err := repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5}); err != nil || !cr.Reopened {
+		t.Fatalf("reopen: %+v err=%v", cr, err)
+	}
+	budgettest.Assert(t, "Reopen message report", c, budgettest.Budget{Reads: 2, Writes: 3})
+	got, err = repo.Get(context.Background(), first.ID)
+	if err != nil || got.Evidence.Text != "second" || !got.ExpireAt.IsZero() {
+		t.Fatalf("reopened = %+v err=%v", got, err)
+	}
+}
+
+// A report resolved late (resolved + 90 d is after filing + 180 d) leaves its child alone: 1 write, never lengthened.
+func TestRepo_MessageEvidenceChildNotLengthenedByLateResolve(t *testing.T) {
+	client := newTestClient(t)
+	repo := NewFirestoreRepo(client, quota.New(client))
+	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	r := sampleReport("u-rep", TargetMessage, "c2:m2", "u-bob", t0)
+	r.Evidence = &Evidence{Text: "t", AuthorHandle: "bob", PostCreatedAt: t0}
+	if _, err := repo.Create(context.Background(), CreateParams{Report: r, QuotaLimit: 5}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, c := counted()
+	if _, err := repo.Resolve(ctx, r.ID, ResolutionDismissed, "", t0.Add(100*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	budgettest.Assert(t, "Resolve late", c, budgettest.Budget{Reads: 2, Writes: 1})
+	cs, err := client.Collection("reports").Doc(r.ID).Collection("evidence").Doc("message").Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := cs.DataAt("expireAt"); !v.(time.Time).Equal(t0.Add(180 * 24 * time.Hour)) {
+		t.Fatalf("child expireAt = %v, want unchanged filing + 180 d", v)
+	}
+}
