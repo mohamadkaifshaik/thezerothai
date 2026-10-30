@@ -4186,6 +4186,592 @@ class AppSettingEntriesCompanion extends UpdateCompanion<DeviceSetting> {
   }
 }
 
+class $ComposerDraftEntriesTable extends ComposerDraftEntries
+    with TableInfo<$ComposerDraftEntriesTable, ComposerDraftRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ComposerDraftEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _draftIdMeta = const VerificationMeta(
+    'draftId',
+  );
+  @override
+  late final GeneratedColumn<String> draftId = GeneratedColumn<String>(
+    'draft_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<String> uid = GeneratedColumn<String>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _draftTextMeta = const VerificationMeta(
+    'draftText',
+  );
+  @override
+  late final GeneratedColumn<String> draftText = GeneratedColumn<String>(
+    'draft_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _pollJsonMeta = const VerificationMeta(
+    'pollJson',
+  );
+  @override
+  late final GeneratedColumn<String> pollJson = GeneratedColumn<String>(
+    'poll_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _replyPolicyMeta = const VerificationMeta(
+    'replyPolicy',
+  );
+  @override
+  late final GeneratedColumn<String> replyPolicy = GeneratedColumn<String>(
+    'reply_policy',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('everyone'),
+  );
+  static const VerificationMeta _paidPartnershipMeta = const VerificationMeta(
+    'paidPartnership',
+  );
+  @override
+  late final GeneratedColumn<bool> paidPartnership = GeneratedColumn<bool>(
+    'paid_partnership',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("paid_partnership" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _madeWithAiMeta = const VerificationMeta(
+    'madeWithAi',
+  );
+  @override
+  late final GeneratedColumn<bool> madeWithAi = GeneratedColumn<bool>(
+    'made_with_ai',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("made_with_ai" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    draftId,
+    uid,
+    draftText,
+    pollJson,
+    replyPolicy,
+    paidPartnership,
+    madeWithAi,
+    createdAt,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'composer_draft_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ComposerDraftRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('draft_id')) {
+      context.handle(
+        _draftIdMeta,
+        draftId.isAcceptableOrUnknown(data['draft_id']!, _draftIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_draftIdMeta);
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_uidMeta);
+    }
+    if (data.containsKey('draft_text')) {
+      context.handle(
+        _draftTextMeta,
+        draftText.isAcceptableOrUnknown(data['draft_text']!, _draftTextMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_draftTextMeta);
+    }
+    if (data.containsKey('poll_json')) {
+      context.handle(
+        _pollJsonMeta,
+        pollJson.isAcceptableOrUnknown(data['poll_json']!, _pollJsonMeta),
+      );
+    }
+    if (data.containsKey('reply_policy')) {
+      context.handle(
+        _replyPolicyMeta,
+        replyPolicy.isAcceptableOrUnknown(
+          data['reply_policy']!,
+          _replyPolicyMeta,
+        ),
+      );
+    }
+    if (data.containsKey('paid_partnership')) {
+      context.handle(
+        _paidPartnershipMeta,
+        paidPartnership.isAcceptableOrUnknown(
+          data['paid_partnership']!,
+          _paidPartnershipMeta,
+        ),
+      );
+    }
+    if (data.containsKey('made_with_ai')) {
+      context.handle(
+        _madeWithAiMeta,
+        madeWithAi.isAcceptableOrUnknown(
+          data['made_with_ai']!,
+          _madeWithAiMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {draftId};
+  @override
+  ComposerDraftRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ComposerDraftRow(
+      draftId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}draft_id'],
+      )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}uid'],
+      )!,
+      draftText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}draft_text'],
+      )!,
+      pollJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}poll_json'],
+      )!,
+      replyPolicy: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}reply_policy'],
+      )!,
+      paidPartnership: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}paid_partnership'],
+      )!,
+      madeWithAi: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}made_with_ai'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $ComposerDraftEntriesTable createAlias(String alias) {
+    return $ComposerDraftEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class ComposerDraftRow extends DataClass
+    implements Insertable<ComposerDraftRow> {
+  /// Opaque random id, unique per device.
+  final String draftId;
+
+  /// Firebase uid of the author.
+  final String uid;
+
+  /// The post text (named so it does not shadow drift's `text()`).
+  final String draftText;
+
+  /// JSON `{"c": [choices], "d": minutes}`; '' = no poll.
+  final String pollJson;
+
+  /// `ReplyAudience.name`.
+  final String replyPolicy;
+  final bool paidPartnership;
+  final bool madeWithAi;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const ComposerDraftRow({
+    required this.draftId,
+    required this.uid,
+    required this.draftText,
+    required this.pollJson,
+    required this.replyPolicy,
+    required this.paidPartnership,
+    required this.madeWithAi,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['draft_id'] = Variable<String>(draftId);
+    map['uid'] = Variable<String>(uid);
+    map['draft_text'] = Variable<String>(draftText);
+    map['poll_json'] = Variable<String>(pollJson);
+    map['reply_policy'] = Variable<String>(replyPolicy);
+    map['paid_partnership'] = Variable<bool>(paidPartnership);
+    map['made_with_ai'] = Variable<bool>(madeWithAi);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ComposerDraftEntriesCompanion toCompanion(bool nullToAbsent) {
+    return ComposerDraftEntriesCompanion(
+      draftId: Value(draftId),
+      uid: Value(uid),
+      draftText: Value(draftText),
+      pollJson: Value(pollJson),
+      replyPolicy: Value(replyPolicy),
+      paidPartnership: Value(paidPartnership),
+      madeWithAi: Value(madeWithAi),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory ComposerDraftRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ComposerDraftRow(
+      draftId: serializer.fromJson<String>(json['draftId']),
+      uid: serializer.fromJson<String>(json['uid']),
+      draftText: serializer.fromJson<String>(json['draftText']),
+      pollJson: serializer.fromJson<String>(json['pollJson']),
+      replyPolicy: serializer.fromJson<String>(json['replyPolicy']),
+      paidPartnership: serializer.fromJson<bool>(json['paidPartnership']),
+      madeWithAi: serializer.fromJson<bool>(json['madeWithAi']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'draftId': serializer.toJson<String>(draftId),
+      'uid': serializer.toJson<String>(uid),
+      'draftText': serializer.toJson<String>(draftText),
+      'pollJson': serializer.toJson<String>(pollJson),
+      'replyPolicy': serializer.toJson<String>(replyPolicy),
+      'paidPartnership': serializer.toJson<bool>(paidPartnership),
+      'madeWithAi': serializer.toJson<bool>(madeWithAi),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  ComposerDraftRow copyWith({
+    String? draftId,
+    String? uid,
+    String? draftText,
+    String? pollJson,
+    String? replyPolicy,
+    bool? paidPartnership,
+    bool? madeWithAi,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) => ComposerDraftRow(
+    draftId: draftId ?? this.draftId,
+    uid: uid ?? this.uid,
+    draftText: draftText ?? this.draftText,
+    pollJson: pollJson ?? this.pollJson,
+    replyPolicy: replyPolicy ?? this.replyPolicy,
+    paidPartnership: paidPartnership ?? this.paidPartnership,
+    madeWithAi: madeWithAi ?? this.madeWithAi,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  ComposerDraftRow copyWithCompanion(ComposerDraftEntriesCompanion data) {
+    return ComposerDraftRow(
+      draftId: data.draftId.present ? data.draftId.value : this.draftId,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      draftText: data.draftText.present ? data.draftText.value : this.draftText,
+      pollJson: data.pollJson.present ? data.pollJson.value : this.pollJson,
+      replyPolicy: data.replyPolicy.present
+          ? data.replyPolicy.value
+          : this.replyPolicy,
+      paidPartnership: data.paidPartnership.present
+          ? data.paidPartnership.value
+          : this.paidPartnership,
+      madeWithAi: data.madeWithAi.present
+          ? data.madeWithAi.value
+          : this.madeWithAi,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComposerDraftRow(')
+          ..write('draftId: $draftId, ')
+          ..write('uid: $uid, ')
+          ..write('draftText: $draftText, ')
+          ..write('pollJson: $pollJson, ')
+          ..write('replyPolicy: $replyPolicy, ')
+          ..write('paidPartnership: $paidPartnership, ')
+          ..write('madeWithAi: $madeWithAi, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    draftId,
+    uid,
+    draftText,
+    pollJson,
+    replyPolicy,
+    paidPartnership,
+    madeWithAi,
+    createdAt,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ComposerDraftRow &&
+          other.draftId == this.draftId &&
+          other.uid == this.uid &&
+          other.draftText == this.draftText &&
+          other.pollJson == this.pollJson &&
+          other.replyPolicy == this.replyPolicy &&
+          other.paidPartnership == this.paidPartnership &&
+          other.madeWithAi == this.madeWithAi &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
+  final Value<String> draftId;
+  final Value<String> uid;
+  final Value<String> draftText;
+  final Value<String> pollJson;
+  final Value<String> replyPolicy;
+  final Value<bool> paidPartnership;
+  final Value<bool> madeWithAi;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<int> rowid;
+  const ComposerDraftEntriesCompanion({
+    this.draftId = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.draftText = const Value.absent(),
+    this.pollJson = const Value.absent(),
+    this.replyPolicy = const Value.absent(),
+    this.paidPartnership = const Value.absent(),
+    this.madeWithAi = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ComposerDraftEntriesCompanion.insert({
+    required String draftId,
+    required String uid,
+    required String draftText,
+    this.pollJson = const Value.absent(),
+    this.replyPolicy = const Value.absent(),
+    this.paidPartnership = const Value.absent(),
+    this.madeWithAi = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.rowid = const Value.absent(),
+  }) : draftId = Value(draftId),
+       uid = Value(uid),
+       draftText = Value(draftText),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<ComposerDraftRow> custom({
+    Expression<String>? draftId,
+    Expression<String>? uid,
+    Expression<String>? draftText,
+    Expression<String>? pollJson,
+    Expression<String>? replyPolicy,
+    Expression<bool>? paidPartnership,
+    Expression<bool>? madeWithAi,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (draftId != null) 'draft_id': draftId,
+      if (uid != null) 'uid': uid,
+      if (draftText != null) 'draft_text': draftText,
+      if (pollJson != null) 'poll_json': pollJson,
+      if (replyPolicy != null) 'reply_policy': replyPolicy,
+      if (paidPartnership != null) 'paid_partnership': paidPartnership,
+      if (madeWithAi != null) 'made_with_ai': madeWithAi,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ComposerDraftEntriesCompanion copyWith({
+    Value<String>? draftId,
+    Value<String>? uid,
+    Value<String>? draftText,
+    Value<String>? pollJson,
+    Value<String>? replyPolicy,
+    Value<bool>? paidPartnership,
+    Value<bool>? madeWithAi,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return ComposerDraftEntriesCompanion(
+      draftId: draftId ?? this.draftId,
+      uid: uid ?? this.uid,
+      draftText: draftText ?? this.draftText,
+      pollJson: pollJson ?? this.pollJson,
+      replyPolicy: replyPolicy ?? this.replyPolicy,
+      paidPartnership: paidPartnership ?? this.paidPartnership,
+      madeWithAi: madeWithAi ?? this.madeWithAi,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (draftId.present) {
+      map['draft_id'] = Variable<String>(draftId.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<String>(uid.value);
+    }
+    if (draftText.present) {
+      map['draft_text'] = Variable<String>(draftText.value);
+    }
+    if (pollJson.present) {
+      map['poll_json'] = Variable<String>(pollJson.value);
+    }
+    if (replyPolicy.present) {
+      map['reply_policy'] = Variable<String>(replyPolicy.value);
+    }
+    if (paidPartnership.present) {
+      map['paid_partnership'] = Variable<bool>(paidPartnership.value);
+    }
+    if (madeWithAi.present) {
+      map['made_with_ai'] = Variable<bool>(madeWithAi.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ComposerDraftEntriesCompanion(')
+          ..write('draftId: $draftId, ')
+          ..write('uid: $uid, ')
+          ..write('draftText: $draftText, ')
+          ..write('pollJson: $pollJson, ')
+          ..write('replyPolicy: $replyPolicy, ')
+          ..write('paidPartnership: $paidPartnership, ')
+          ..write('madeWithAi: $madeWithAi, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4210,6 +4796,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $MessagingStateEntriesTable(this);
   late final $AppSettingEntriesTable appSettingEntries =
       $AppSettingEntriesTable(this);
+  late final $ComposerDraftEntriesTable composerDraftEntries =
+      $ComposerDraftEntriesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -4226,6 +4814,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     messageEntries,
     messagingStateEntries,
     appSettingEntries,
+    composerDraftEntries,
   ];
 }
 
@@ -6742,6 +7331,315 @@ typedef $$AppSettingEntriesTableProcessedTableManager =
       DeviceSetting,
       PrefetchHooks Function()
     >;
+typedef $$ComposerDraftEntriesTableCreateCompanionBuilder =
+    ComposerDraftEntriesCompanion Function({
+      required String draftId,
+      required String uid,
+      required String draftText,
+      Value<String> pollJson,
+      Value<String> replyPolicy,
+      Value<bool> paidPartnership,
+      Value<bool> madeWithAi,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<int> rowid,
+    });
+typedef $$ComposerDraftEntriesTableUpdateCompanionBuilder =
+    ComposerDraftEntriesCompanion Function({
+      Value<String> draftId,
+      Value<String> uid,
+      Value<String> draftText,
+      Value<String> pollJson,
+      Value<String> replyPolicy,
+      Value<bool> paidPartnership,
+      Value<bool> madeWithAi,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$ComposerDraftEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $ComposerDraftEntriesTable> {
+  $$ComposerDraftEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get draftId => $composableBuilder(
+    column: $table.draftId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get draftText => $composableBuilder(
+    column: $table.draftText,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get pollJson => $composableBuilder(
+    column: $table.pollJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get replyPolicy => $composableBuilder(
+    column: $table.replyPolicy,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get paidPartnership => $composableBuilder(
+    column: $table.paidPartnership,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get madeWithAi => $composableBuilder(
+    column: $table.madeWithAi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ComposerDraftEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $ComposerDraftEntriesTable> {
+  $$ComposerDraftEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get draftId => $composableBuilder(
+    column: $table.draftId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get draftText => $composableBuilder(
+    column: $table.draftText,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get pollJson => $composableBuilder(
+    column: $table.pollJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get replyPolicy => $composableBuilder(
+    column: $table.replyPolicy,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get paidPartnership => $composableBuilder(
+    column: $table.paidPartnership,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get madeWithAi => $composableBuilder(
+    column: $table.madeWithAi,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ComposerDraftEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ComposerDraftEntriesTable> {
+  $$ComposerDraftEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get draftId =>
+      $composableBuilder(column: $table.draftId, builder: (column) => column);
+
+  GeneratedColumn<String> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<String> get draftText =>
+      $composableBuilder(column: $table.draftText, builder: (column) => column);
+
+  GeneratedColumn<String> get pollJson =>
+      $composableBuilder(column: $table.pollJson, builder: (column) => column);
+
+  GeneratedColumn<String> get replyPolicy => $composableBuilder(
+    column: $table.replyPolicy,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get paidPartnership => $composableBuilder(
+    column: $table.paidPartnership,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get madeWithAi => $composableBuilder(
+    column: $table.madeWithAi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$ComposerDraftEntriesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ComposerDraftEntriesTable,
+          ComposerDraftRow,
+          $$ComposerDraftEntriesTableFilterComposer,
+          $$ComposerDraftEntriesTableOrderingComposer,
+          $$ComposerDraftEntriesTableAnnotationComposer,
+          $$ComposerDraftEntriesTableCreateCompanionBuilder,
+          $$ComposerDraftEntriesTableUpdateCompanionBuilder,
+          (
+            ComposerDraftRow,
+            BaseReferences<
+              _$AppDatabase,
+              $ComposerDraftEntriesTable,
+              ComposerDraftRow
+            >,
+          ),
+          ComposerDraftRow,
+          PrefetchHooks Function()
+        > {
+  $$ComposerDraftEntriesTableTableManager(
+    _$AppDatabase db,
+    $ComposerDraftEntriesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ComposerDraftEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ComposerDraftEntriesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ComposerDraftEntriesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> draftId = const Value.absent(),
+                Value<String> uid = const Value.absent(),
+                Value<String> draftText = const Value.absent(),
+                Value<String> pollJson = const Value.absent(),
+                Value<String> replyPolicy = const Value.absent(),
+                Value<bool> paidPartnership = const Value.absent(),
+                Value<bool> madeWithAi = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ComposerDraftEntriesCompanion(
+                draftId: draftId,
+                uid: uid,
+                draftText: draftText,
+                pollJson: pollJson,
+                replyPolicy: replyPolicy,
+                paidPartnership: paidPartnership,
+                madeWithAi: madeWithAi,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String draftId,
+                required String uid,
+                required String draftText,
+                Value<String> pollJson = const Value.absent(),
+                Value<String> replyPolicy = const Value.absent(),
+                Value<bool> paidPartnership = const Value.absent(),
+                Value<bool> madeWithAi = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => ComposerDraftEntriesCompanion.insert(
+                draftId: draftId,
+                uid: uid,
+                draftText: draftText,
+                pollJson: pollJson,
+                replyPolicy: replyPolicy,
+                paidPartnership: paidPartnership,
+                madeWithAi: madeWithAi,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$ComposerDraftEntriesTable, ComposerDraftRow>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $ComposerDraftEntriesTable,
+                    ComposerDraftRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ComposerDraftEntriesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ComposerDraftEntriesTable,
+      ComposerDraftRow,
+      $$ComposerDraftEntriesTableFilterComposer,
+      $$ComposerDraftEntriesTableOrderingComposer,
+      $$ComposerDraftEntriesTableAnnotationComposer,
+      $$ComposerDraftEntriesTableCreateCompanionBuilder,
+      $$ComposerDraftEntriesTableUpdateCompanionBuilder,
+      (
+        ComposerDraftRow,
+        BaseReferences<
+          _$AppDatabase,
+          $ComposerDraftEntriesTable,
+          ComposerDraftRow
+        >,
+      ),
+      ComposerDraftRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6771,4 +7669,6 @@ class $AppDatabaseManager {
       $$MessagingStateEntriesTableTableManager(_db, _db.messagingStateEntries);
   $$AppSettingEntriesTableTableManager get appSettingEntries =>
       $$AppSettingEntriesTableTableManager(_db, _db.appSettingEntries);
+  $$ComposerDraftEntriesTableTableManager get composerDraftEntries =>
+      $$ComposerDraftEntriesTableTableManager(_db, _db.composerDraftEntries);
 }

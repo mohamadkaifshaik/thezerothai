@@ -107,10 +107,10 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 8', () async {
+  test('a fresh database is at schema version 9', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 8);
+    expect(db.schemaVersion, 9);
   });
 
   test('clearAll wipes messaging rows but keeps device settings', () async {

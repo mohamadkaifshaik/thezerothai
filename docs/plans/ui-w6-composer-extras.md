@@ -98,7 +98,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
 | Media | `image/jpeg` and `image/webp` only (`media/service.go:131`); `sniffImage` knows those two; the thumbnail is published with the full image's content type (`finalize.go:184`); full ≤ 2 MiB, thumbnail ≤ 256 KiB; SafeSearch by `gs://` URI (`vision.go:60`), 2 units per image. The client re-encodes everything to JPEG (`image_processor.dart`), so a picked GIF loses its animation today | `image/gif` for post media, a thumbnail content type, frame sampling (W6-3, W6-9, W6-10, W6-16) |
-| Local storage | drift `AppDatabase` schema v6; `clearAll` wipes the cache tables on sign-out and keeps `AppSettingEntries`; `SessionEpoch` guards writes | a `ComposerDraftEntries` table, schema v7, outside `clearAll` (F7) (W6-14) |
+| Local storage | drift `AppDatabase` schema v6; `clearAll` wipes the cache tables on sign-out and keeps `AppSettingEntries`; `SessionEpoch` guards writes | a `ComposerDraftEntries` table, schema v9 (v7 and v8 went to W7), outside `clearAll` (F7) (W6-14) |
 | Drafts list | `/scheduled` (CMP-D6) lists scheduled items; X shows one "Drafts" dialog with tabs Unsent posts \| Scheduled (`composer.md` §1h, §6) | the Drafts screen gets both tabs (W6-15) |
 | Scheduler | prod: `daily-maintenance` (live) and `publish-scheduled` (defined, not applied); dev: none. 2 of 3 free jobs are spoken for, and W4's option A would take the third | **none** (F1 A) |
 
@@ -367,7 +367,7 @@ Effect on the quotas (additive):
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
-| W6-14 | Drafts store: drift table (schema v7), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | Open |
+| W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
@@ -706,9 +706,9 @@ Order:
 - **Seam.** `PollRepository` is the only caller of `VotePoll`; the card is presentational.
 - **Runs alongside W3/W4/W5:** `post_card.dart` also changes in W3 (pinned label) and W4-16 (hashtag tap), so rebase.
 
-### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: Open
+### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: In review
 - **Description.**
-  - A drift table `ComposerDraftEntries` (`draftId`, `uid`, `text`, `pollJson`, `replyPolicy`, `paidPartnership`, `madeWithAi`, `createdAt`, `updatedAt`) in `AppDatabase`, schema **v7** (additive migration).
+  - A drift table `ComposerDraftEntries` (`draftId`, `uid`, `draftText` (not `text`: it would shadow drift's `text()`), `pollJson`, `replyPolicy`, `paidPartnership`, `madeWithAi`, `createdAt`, `updatedAt`) in `AppDatabase`, schema **v9** (additive migration; v7 and v8 were taken by W7 messaging).
   - **Not** in `clearAll` (F7 default); every query is filtered by uid; writes are guarded by `SessionEpoch` (`epoch:`).
   - `DraftsRepository`:
     - `watch(uid)`, newest first;

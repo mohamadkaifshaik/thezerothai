@@ -42,6 +42,7 @@ import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
+import '../features/posts/data/drafts_repository.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/posts/presentation/bloc/pending_posts_cubit.dart';
@@ -165,6 +166,8 @@ class _AppWidgetState extends State<AppWidget> {
   // The "Turn on notifications" card's memory (W2-12): one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
+  // Unsent posts on this device (W6-14); Delete account wipes the deleted uid's.
+  late final DraftsRepository _drafts = DraftsRepository(widget.database);
   // deleted uid's record there (W2-14 L-6).
   late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
     widget.database,
@@ -336,6 +339,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.authRepository),
         RepositoryProvider.value(value: widget.database),
         RepositoryProvider<PushOptInStore>.value(value: _pushOptInStore),
+        RepositoryProvider<DraftsRepository>.value(value: _drafts),
         RepositoryProvider<UnexpectedErrorReporter>.value(
           value: reportUnexpectedError,
         ),
