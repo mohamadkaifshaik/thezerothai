@@ -291,6 +291,26 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 	return d.toSnapshot(), nil
 }
 
+var _ TxReader = (*FirestoreRepo)(nil)
+
+// SnapshotInTx implements TxReader (ADR-0027 note W7-33): graph/{uid} read through tx, 1 read, no cache involved. A
+// missing document is an empty Snapshot. Errors carry no uid (a Firestore error text would name the document path).
+func (r *FirestoreRepo) SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error) {
+	snap, err := tx.Get(r.graphRef(uid))
+	budget.FromContext(ctx).AddReads(1)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return Snapshot{}, nil
+		}
+		return Snapshot{}, fmt.Errorf("graph: read snapshot in transaction: %w", err)
+	}
+	var d doc
+	if err := snap.DataTo(&d); err != nil {
+		return Snapshot{}, errors.New("graph: decode snapshot in transaction")
+	}
+	return d.toSnapshot(), nil
+}
+
 // maxRequested is the cap of graph/{uid}.requested, the caller's outgoing pending follow requests (ADR-0025 D2, D6).
 const maxRequested = 500
 

@@ -127,7 +127,8 @@ func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
 
 // Given a since token and one new message, then that entry returns. The token trails the newest entry by the 5 s settle
 // window, so the previous newest comes back once as well when the new message lands in another conversation (the client
-// dedupes by id): 3 reads when the new message is in the newest conversation, 4 when it is in another one.
+// dedupes by id): 4 reads when the new message is in the newest conversation, 5 when it is in another one (W7-37: the
+// requests count() rides every INBOX since refresh).
 func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e := newIT(t, nil)
 	e.addUser(carol, "carol", false)
@@ -145,9 +146,15 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 		t.Fatalf("first page = %v", got)
 	}
 
+	// W7-37: a request that arrives after the first page is counted by the refresh.
+	e.seedConversation("req-late", alice, stateRequest, base, [2]string{"req-late", "hello"})
+
 	// Nothing new: the entry the token trails (carol) is the one row read.
 	quiet, cq := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
-	budgettest.Assert(t, "ListConversations since, nothing new", cq, budgettest.Budget{Reads: 3})
+	budgettest.Assert(t, "ListConversations since, nothing new", cq, budgettest.Budget{Reads: 4})
+	if quiet.RequestCount != 1 {
+		t.Errorf("since refresh request_count = %d, want 1 (the request created after the first page)", quiet.RequestCount)
+	}
 	if got := respIDs(quiet); len(got) != 1 || got[0] != carolConv {
 		t.Fatalf("quiet refresh = %v, want only the settle-window entry", got)
 	}
@@ -156,14 +163,14 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e.tick(time.Minute)
 	e.must(carol, toUser(skey(3), alice, "carol again"))
 	ref, c := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
-	budgettest.Assert(t, "ListConversations since", c, budgettest.Budget{Reads: 3})
-	if c.Reads() != 3 || c.Writes() != 0 {
-		t.Errorf("since reads/writes = %d/%d, want 3/0", c.Reads(), c.Writes())
+	budgettest.Assert(t, "ListConversations since", c, budgettest.Budget{Reads: 4})
+	if c.Reads() != 4 || c.Writes() != 0 {
+		t.Errorf("since reads/writes = %d/%d, want 4/0", c.Reads(), c.Writes())
 	}
 	if got := respIDs(ref); len(got) != 1 || got[0] != carolConv {
 		t.Fatalf("refresh = %v, want exactly the entry that moved", got)
 	}
-	if cv := ref.Conversations[0]; cv.LastMessage.Snippet != "carol again" || cv.UnreadCount != 2 || ref.RequestCount != 0 || ref.NextPageToken != "" {
+	if cv := ref.Conversations[0]; cv.LastMessage.Snippet != "carol again" || cv.UnreadCount != 2 || ref.RequestCount != 1 || ref.NextPageToken != "" {
 		t.Errorf("moved entry = %+v request_count=%d next=%q", cv, ref.RequestCount, ref.NextPageToken)
 	}
 
@@ -174,7 +181,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	if got := respIDs(other); len(got) != 2 || got[0] != bobConv || got[1] != carolConv {
 		t.Fatalf("refresh = %v, want bob's entry then carol's (settle window)", got)
 	}
-	budgettest.Assert(t, "ListConversations since, 2 rows", c4, budgettest.Budget{Reads: 4})
+	budgettest.Assert(t, "ListConversations since, 2 rows", c4, budgettest.Budget{Reads: 5})
 }
 
 // Given a request from a blocked (or muted, or blocking) account, then it is absent from REQUESTS, the INBOX is not
@@ -374,5 +381,29 @@ func TestList_ErasedPeerIsDeletedAccount(t *testing.T) {
 	}
 	for _, h := range e.uidHits(bob) {
 		t.Errorf("bob's uid remains: %s", h)
+	}
+}
+
+// W7-37: an EMPTY INBOX since refresh (no row, so no graph read) still carries the current request_count: 3 reads
+// (interceptor, query min 1, count()), and an older page or REQUESTS never carries it.
+func TestList_EmptySinceRefreshCarriesRequestCount(t *testing.T) {
+	e := newIT(t, nil)
+	svc := e.listSvc()
+	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	if first.RequestCount != 0 || first.SinceToken == "" {
+		t.Fatalf("first page: request_count=%d since=%q", first.RequestCount, first.SinceToken)
+	}
+	now := e.tick(time.Minute)
+	e.seedConversation("req-0", alice, stateRequest, now, [2]string{"req-0", "hello"})
+	e.seedConversation("req-1", alice, stateRequest, now, [2]string{"req-1", "hello"})
+	ref, c := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	budgettest.Assert(t, "ListConversations empty INBOX since", c, budgettest.Budget{Reads: 3})
+	if len(ref.Conversations) != 0 || ref.RequestCount != 2 {
+		t.Errorf("empty refresh: rows=%d request_count=%d, want 0 and 2", len(ref.Conversations), ref.RequestCount)
+	}
+	reqs, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests})
+	rsince, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: reqs.SinceToken})
+	if reqs.RequestCount != 0 || rsince.RequestCount != 0 {
+		t.Errorf("REQUESTS request_count = %d / %d, want 0", reqs.RequestCount, rsince.RequestCount)
 	}
 }

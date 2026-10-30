@@ -14,8 +14,10 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// text: the post grammar (NFC, <= 280 code points, <= 10 lines; testdata fixtures), validated before any read
   /// (VALIDATION "text", 0 reads).
   /// Flag: per caller AND per recipient. Caller off => FEATURE_DISABLED; recipient off => CANNOT_MESSAGE.
-  /// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller and recipient graph
-  /// snapshots, cached 60 s, so a new Block applies at once on its instance and within 60 s elsewhere; ADR-0027 A8),
+  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
+  /// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
+  /// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
+  /// at once on every instance; ADR-0027 note W7-33),
   /// the recipient is not ACTIVE or has messaging off, the conversation is gone (the peer deleted the account).
   /// Routing: a new conversation is ACCEPTED when the two follow each other, else REQUEST (the recipient's entry goes
   /// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
@@ -33,8 +35,8 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
   /// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
   /// Firestore (ADR-0027 Cost impact): accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
-  /// graph, recipient users via the directory, conversation doc in the transaction), planning 2.5; writes 3 (message,
-  /// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ fresh recipient status, quotas),
+  /// users via the directory, conversation and recipient graph in the transaction), planning 3.5; writes 3 (message,
+  /// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ the recipient's users doc in the transaction, quotas),
   /// writes 5 (message, conversation, 2 entries, quotas.dmNew). Replay +1 read (the stored message), 0 writes.
   /// Refused <= 5 reads, 0 writes; a validation rejection 0 reads. Deletes 0.
   Future<dzerothmessagingv1messaging.SendMessageResponse> sendMessage(
@@ -59,13 +61,14 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// Read-time rules (caller graph, cached 60 s): REQUESTS drops entries whose peer the caller blocks or mutes, or who
   /// blocks the caller; INBOX keeps every entry, with can_reply = false when either side blocks. Filtering runs after
   /// the page query, so a page may be short or empty while next_page_token is non-empty: keep following it.
-  /// request_count is set on the first INBOX page only (no token); 0 everywhere else.
+  /// request_count is set on every INBOX first page and since refresh (an empty refresh included); 0 on an older page and
+  /// on REQUESTS. Clients treat the INBOX value as authoritative, 0 included (W7-37).
   /// There is no gap_page_token here (plan W7-2): a since refresh returns at most page_size entries.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListMessages.
   /// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),
-  /// planning 9; REQUESTS the same without the count(). since refresh reads 3 worst (interceptor, query min 1, caller
-  /// graph), planning 2. Writes 0.
+  /// planning 9; REQUESTS the same without the count(). INBOX since refresh reads 4 worst (interceptor, query min 1, caller
+  /// graph, requests count()), planning 3; an empty one 3. Writes 0.
   Future<dzerothmessagingv1messaging.ListConversationsResponse> listConversations(
     dzerothmessagingv1messaging.ListConversationsRequest input, {
     connect.Headers? headers,
@@ -145,6 +148,7 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// (unread count kept). Only the recipient of the request may accept; the requester (or a non-participant) gets
   /// NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
   /// Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
+  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
   /// Firestore: reads 3 worst (interceptor, conversation, request entry), planning 2.5; writes 2 (conversation state,
   /// dmInbox entry); deletes 1 (dmRequests entry).
   Future<dzerothmessagingv1messaging.AcceptMessageRequestResponse> acceptMessageRequest(

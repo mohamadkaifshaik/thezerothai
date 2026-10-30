@@ -4,7 +4,6 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
@@ -33,10 +31,10 @@ func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage new+mutual", c, budgettest.Budget{Reads: 2, Writes: 5})
+	budgettest.Assert(t, "SendMessage new+mutual", c, budgettest.Budget{Reads: 4, Writes: 5})
 	convID := ConversationID(alice, bob)
-	if c.Reads() != 2 || c.Writes() != 5 || c.Deletes() != 0 {
-		t.Errorf("new conversation reads/writes/deletes = %d/%d/%d, want 2/5/0 (conversation, quotas / message, conversation, 2 entries, quotas)", c.Reads(), c.Writes(), c.Deletes())
+	if c.Reads() != 4 || c.Writes() != 5 || c.Deletes() != 0 {
+		t.Errorf("new conversation reads/writes/deletes = %d/%d/%d, want 4/5/0 (conversation, recipient graph, recipient users, quotas / message, conversation, 2 entries, quotas)", c.Reads(), c.Writes(), c.Deletes())
 	}
 	conv, ok := e.conv(convID)
 	if !ok || conv.State != stateAccepted || len(conv.Participants) != 2 {
@@ -69,9 +67,9 @@ func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage accepted", c2, budgettest.Budget{Reads: 1, Writes: 3})
-	if c2.Reads() != 1 || c2.Writes() != 3 || c2.Deletes() != 0 {
-		t.Errorf("accepted reads/writes/deletes = %d/%d/%d, want 1/3/0", c2.Reads(), c2.Writes(), c2.Deletes())
+	budgettest.Assert(t, "SendMessage accepted", c2, budgettest.Budget{Reads: 2, Writes: 3})
+	if c2.Reads() != 2 || c2.Writes() != 3 || c2.Deletes() != 0 {
+		t.Errorf("accepted reads/writes/deletes = %d/%d/%d, want 2/3/0 (conversation, recipient graph)", c2.Reads(), c2.Writes(), c2.Deletes())
 	}
 	if in, _ := e.entry(bob, "dmInbox", convID); in.UnreadCount != 2 || in.Last.Snippet != "again" {
 		t.Errorf("bob's entry after the second message = %+v", in)
@@ -92,9 +90,9 @@ func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 			t.Fatalf("request message %d: %v", i, err)
 		}
 		if i == 1 {
-			budgettest.Assert(t, "SendMessage new+request", c, budgettest.Budget{Reads: 2, Writes: 5})
+			budgettest.Assert(t, "SendMessage new+request", c, budgettest.Budget{Reads: 4, Writes: 5})
 		} else {
-			budgettest.Assert(t, "SendMessage request", c, budgettest.Budget{Reads: 1, Writes: 4})
+			budgettest.Assert(t, "SendMessage request", c, budgettest.Budget{Reads: 2, Writes: 4})
 			if c.Writes() != 4 {
 				t.Errorf("request message %d writes = %d, want 4 (message, 2 entries, requestCount)", i, c.Writes())
 			}
@@ -155,7 +153,7 @@ func TestSend_ReplyAcceptsARequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage reply that accepts", c, budgettest.Budget{Reads: 1, Writes: 4, Deletes: 1})
+	budgettest.Assert(t, "SendMessage reply that accepts", c, budgettest.Budget{Reads: 2, Writes: 4, Deletes: 1})
 	if c.Writes() != 4 || c.Deletes() != 1 {
 		t.Errorf("reply writes/deletes = %d/%d, want 4/1", c.Writes(), c.Deletes())
 	}
@@ -214,7 +212,7 @@ func TestSend_ReplayAndKeyReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage replay", c, budgettest.Budget{Reads: 2})
+	budgettest.Assert(t, "SendMessage replay", c, budgettest.Budget{Reads: 3})
 	if c.Writes() != 0 || c.Deletes() != 0 {
 		t.Errorf("replay wrote %d / deleted %d, want 0 / 0", c.Writes(), c.Deletes())
 	}
@@ -317,12 +315,12 @@ func TestSendIT_ByConversationID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage by conversation_id, cold cache", c, budgettest.Budget{Reads: 2, Writes: 3})
+	budgettest.Assert(t, "SendMessage by conversation_id, cold cache", c, budgettest.Budget{Reads: 3, Writes: 3})
 	_, c, err = e.sendOn(svc, bob, toConv(skey(3), convID, "still here"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage by conversation_id, warm cache", c, budgettest.Budget{Reads: 1, Writes: 3})
+	budgettest.Assert(t, "SendMessage by conversation_id, warm cache", c, budgettest.Budget{Reads: 2, Writes: 3})
 
 	e.addUser("uid-carol", "carol", false)
 	_, _, err = e.sendOn(svc, "uid-carol", toConv(skey(4), convID, "let me in"))
@@ -406,32 +404,6 @@ func TestSend_NeverTrustsTheCachedConversation(t *testing.T) {
 	}
 	_, _, err := e.send(alice, toConv(skey(2), convID, "stale cache"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-}
-
-// A recipient purged between the cached lookup and the new conversation's transaction (the purge race, D8): the fresh
-// read refuses and nothing is written.
-func TestSend_FreshRecipientReadRefusesAPurgedUser(t *testing.T) {
-	e := newIT(t, nil)
-	calls := 0
-	e.svc.d.Profiles = profilesFunc(func(ctx context.Context, uids []string) (map[string]identityProfile, error) {
-		calls++
-		if calls > 1 {
-			return map[string]identityProfile{}, nil // the fresh read: bob is gone
-		}
-		return e.profs.GetProfiles(ctx, uids)
-	}, e.profs.Forget)
-	_, c, err := e.send(alice, toUser(skey(1), bob, "hi"))
-	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-	if c.Writes() != 0 {
-		t.Errorf("wrote %d", c.Writes())
-	}
-	if _, ok := e.conv(ConversationID(alice, bob)); ok {
-		t.Error("a conversation was created for a purged user")
-	}
-	var ae *apierr.Error
-	if !errors.As(err, &ae) {
-		t.Fatalf("err = %T", err)
-	}
 }
 
 // A long text is stored whole while the entry snippet is cut to 100 code points.
