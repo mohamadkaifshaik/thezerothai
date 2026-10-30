@@ -354,9 +354,9 @@ Effect on the quotas (additive):
 
 | ID | Ticket | Owner | Size | Depends | Runs alongside W3/W4/W5? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | Open |
-| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | Open |
-| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | Open |
+| W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
+| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
+| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Open |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
@@ -396,7 +396,7 @@ Order:
 
 ## Tickets
 
-### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: Open
+### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #473)
 - **Description.** ADR-0029 (`docs/adr/0029-composer-extras-remainder-polls-drafts-gif.md`; 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4). It covers:
   - the poll model and the vote path (A1–A9);
   - F1–F6 and F10–F12 as founder items with options, defaults and INR at 300 / 1,000 / 3,000 DAU citing `cost-model.md`;
@@ -425,7 +425,7 @@ Order:
 - **Seam.** `posts.EngagementWriter.StagePollVote`, `posts.ViewerSet.PollChoice`, `engagement.Service.VotePoll`, the `media` content-type table and `Moderator`, and the client `DraftsRepository` and `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: Open
+### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: In review (PR #473)
 - **Description.** Additive changes only, with numbers as of `main` d2ff011 (re-check at PR time):
   - **`posts.proto`:**
     - `message PollChoice { string label = 1; int64 votes = 2; /* 0 when hidden */ }`;
@@ -452,7 +452,7 @@ Order:
 - **Seam.** `Poll` is a message (choices with images or a "poll ended" state can be added later); `viewer_poll_choice` is per-viewer and never cached across viewers.
 - **Runs alongside W3/W4/W5:** the field and `ErrorReason` numbers collide textually with any other wave's proto PR, so one PR at a time.
 
-### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: Open
+### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: In review (PR #473)
 - **Description.** In `media.proto`:
   - the `UploadItem.content_type` comment allows `image/gif` (POST only);
   - add `string thumb_content_type = 8` (`image/jpeg` or `image/webp`; empty = same as `content_type`, today's behaviour), or document the fixed JPEG rule per A10;
