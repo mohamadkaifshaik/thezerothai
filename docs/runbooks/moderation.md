@@ -220,13 +220,13 @@ change; after that only the ids and the text survive. This is the same rule as s
 - Evidence (the post text and author handle at report time; for an ACCOUNT report the profile the reporter saw: handle, display
   name, bio, location, website, avatar and banner URL, at most about 1.3 KB, ADR-0024 Amendment 1 A3) is kept **90 days after
   resolution**, then Firestore TTL deletes the report (`reports.expireAt`, set by `reports resolve`/`takedown-post`/`suspend-user`/`clear-profile-fields --report`). Open POST and ACCOUNT reports are
-  kept until resolved (an OPEN MESSAGE report is the exception, below). Check the TTL policy exists on the project (`gcloud firestore fields ttls list`).
+  kept until resolved (a MESSAGE report keeps its copied text for less, below). Check the TTL policy exists on the project (`gcloud firestore fields ttls list`).
 - Account deletion anonymises reports the user **filed** (`reporterId := ""`, step `reports`) and leaves them as safety
   evidence; reports **about** the user stay until resolved + 90 days. The privacy policy
   (`app/web/privacy.html`, "When your account is deleted") must say so before `FEATURE_REPORTS` is turned on for real
   users. The data export lists the reports the user filed, never reports about them.
 - A MESSAGE report's evidence is **one private message** (its text, the sender's handle, its time; ADR-0027 D12 and the 2026-10-28 note
-  on ADR-0016). The same retention applies: kept until resolved + 90 days, then the TTL deletes the report. **An OPEN (untriaged) MESSAGE report is deleted by the same TTL 180 days after it was filed** (`expireAt = createdAt + 180 d`, W7-36, ADR-0016 note 2026-10-30; a reopened one gets a fresh 180 days; `reports resolve` replaces it with resolved + 90 d; 0 jobs, 0 extra ops). The whole document goes, so triage a MESSAGE report inside the 48 h SLA and never rely on it past day 180. The reporter's erasure the reporter's erasure
+  on ADR-0016). The same retention applies: kept until resolved + 90 days, then the TTL deletes the report. **The copied text is stored apart, in `reports/{id}/evidence/message`, with its own `expireAt` = filing + 180 days (W7-36, ADR-0016 note 2026-10-30); a Firestore TTL on the collection group `evidence` deletes it, the report itself (target, reason, note, status, dates, handle) stays. `reports resolve` lowers it to at most resolved + 90 d; a re-file rewrites it with a fresh 180 days. `opsctl reports show` prints `evidence expired` once it is gone, so triage inside the 48 h SLA. The TTL policy is Terraform (`ttl_fields.report_evidence_expire_at`): check `gcloud firestore fields ttls list` shows `evidence` before relying on it.** The reporter's erasure the reporter's erasure
   (`reporterId := ""`) is unchanged and nothing in the evidence names the reporter. The report's `target` holds the conversation id, a
   one-way hash of the two participants' uids, so the operator could in principle test a candidate uid against it; it is operator-only data
   and never reaches a client or a log. The data export lists a reporter's own message reports with that `target` (no text).

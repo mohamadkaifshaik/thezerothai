@@ -367,17 +367,16 @@ func TestServer_PostReportIgnoresTheMessagingFlag(t *testing.T) {
 	}
 }
 
-// W7-36 (security L-6): a MESSAGE report carries the 180-day open-report TTL from its filing; POST and ACCOUNT reports
-// keep none while OPEN.
-func TestReport_MessageOpenReportGetsA180DayTTL(t *testing.T) {
+// W7-36: the service still hands the repo the text in Evidence (the repo, not the service, decides where it is stored),
+// and a POST report is untouched.
+func TestReport_MessageEvidenceTextReachesTheRepo(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
 	l := &fakeLookup{msg: ReportedMessage{SenderUID: sender, Text: "x"}}
 	if _, err := f.msgSvc(l).Report(gctx(), reporter, msgInput()); err != nil {
 		t.Fatal(err)
 	}
-	r := f.repo.calls[0].Report
-	if want := r.CreatedAt.Add(180 * 24 * time.Hour); !r.ExpireAt.Equal(want) || OpenMessageRetention != 180*24*time.Hour {
-		t.Errorf("ExpireAt = %v, want createdAt + 180 days (%v)", r.ExpireAt, want)
+	if got := f.repo.calls[0].Report; got.Evidence == nil || got.Evidence.Text != "x" || !got.ExpireAt.IsZero() {
+		t.Errorf("report = %+v, want text kept for the repo and no parent expireAt", got)
 	}
 }

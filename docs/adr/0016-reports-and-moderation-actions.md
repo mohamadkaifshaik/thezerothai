@@ -393,15 +393,27 @@ cannot be undone; a message stays reportable when its sender is no longer ACTIVE
 when the peer is blocked. The privacy policy line (D5) now also covers a copy of one private message kept until 90 days
 after resolution, even after the sender deletes their account (`docs/plans/roadmap.md` section 9, item 3.18).
 
-## Note (2026-10-30): an OPEN MESSAGE report has a 180-day limit (security L-6, W7-36; founder decision 2026-10-29)
+## Note (2026-10-30): the copied text of a MESSAGE report has a 180-day limit (security L-6, W7-36; founder decision 2026-10-30)
 D5 sets `expireAt` only at resolution, so an untriaged MESSAGE report would hold one private message indefinitely, even after
-the sender's account was erased. Change, for MESSAGE reports only:
-- `ReportContent` writes `expireAt = createdAt + 180 days` (`moderation.OpenMessageRetention`) on a new MESSAGE report, and a
-  reopen of a RESOLVED one sets a fresh `now + 180 days` (a reopen is a new filing) instead of deleting the field.
-- `Resolve` is unchanged: it replaces the value with `resolvedAt + 90 days`, so triage never shortens or extends the 90-day rule.
-- The mechanism is the existing TTL policy on `reports.expireAt` (Terraform `reports_expire_at`): 0 new Scheduler jobs, 0 index or
-  Terraform changes, 0 extra reads or writes (the value rides on the create/reopen write already made). The TTL deletes the
-  **whole report document** (text, handle, target owner and reporter link), not just the text; a report older than 180 days
-  that nobody triaged is treated as abandoned. The 48 h triage SLA in the runbook still applies.
-- POST and ACCOUNT reports are unchanged: no TTL while OPEN. Privacy-policy line: a copy of one private message is kept until 90
-  days after resolution, or 180 days after the report if nobody resolves it, even after the sender deletes their account.
+the sender's account was erased. The founder chose to limit **the copied text only** and keep the report. Change, for MESSAGE
+reports only:
+- The text moves out of the report into a child document `reports/{id}/evidence/message` `{text, expireAt}`. The report keeps
+  target, reason, note, status, dates, the sender's handle and the message time; `evidence.text` on it is empty. Open reports keep
+  no `expireAt` on the parent; a resolved report keeps today's `resolvedAt + 90 days` on the parent.
+- The child's `expireAt = createdAt + 180 days` (`moderation.MessageEvidenceRetention`). A Firestore TTL policy on the collection
+  group `evidence` (Terraform `ttl_fields.report_evidence_expire_at`) deletes it. A reopen (re-file) rewrites the child with a
+  fresh 180 days. Evidence must never outlive the report, and a TTL-deleted parent does not delete its children, so `Resolve`
+  explicitly lowers the child's `expireAt` to `resolvedAt + 90 days` when that is earlier (a field-level `Update` of a child read in the same transaction;
+  it never lengthens it).
+- Operators: `opsctl reports show` reads the child and prints `evidence expired` when it is gone (`Evidence.TextExpired`).
+  `List` does not read the child.
+- Erasure and export: the child holds no uid and names no reporter, so `PurgeReporter` and `ExportUser` are unchanged and no
+  orphan can remain (the TTL deletes it). T11 gets a `notPersonal` row for the `evidence` subcollection.
+- Index: no composite index; `evidence.text` is exempt from single-field indexing (fieldOverride on the collection group
+  `evidence`, acknowledged in `firebase/field-overrides.ack`). The TTL policy is Terraform, to be applied to dev with a targeted
+  apply and to prod later with the founder's approval; until applied, the 180-day limit is not enforced in that project.
+- Budgets: create or reopen 2 reads, 3 writes (was 2); `Get` 2 reads (was 1); `Resolve` of a MESSAGE report 2 reads, 2 writes
+  when the child is shortened, 1 write otherwise (an already resolved report: 1 read, 0 writes); POST and ACCOUNT reports
+  unchanged. No Scheduler job and no `daily-maintenance` step.
+- Privacy-policy line: a copy of one private message is kept for at most 180 days after the report, and no longer than 90 days
+  after resolution, even after the sender deletes their account; the report record itself (without the text) follows D5.

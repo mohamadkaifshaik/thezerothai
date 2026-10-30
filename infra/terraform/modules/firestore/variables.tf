@@ -42,6 +42,12 @@ variable "ttl_fields" {
       collection = "reports"
       field      = "expireAt"
     }
+    # ADR-0016 note 2026-10-30 (W7-36): the copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
+    # filing + 180 days, shortened to resolvedAt + 90 days when the report is resolved. Collection-group key; the report stays.
+    report_evidence_expire_at = {
+      collection = "evidence"
+      field      = "expireAt"
+    }
     # ADR-0016 D10: the moderation removal log (postRemovals/{postId}); expireAt = createdAt + 32 days
     # (posts.RemovalRetention), set against the 30-day timeline since token. Edited only, not applied.
     post_removals_expire_at = {
