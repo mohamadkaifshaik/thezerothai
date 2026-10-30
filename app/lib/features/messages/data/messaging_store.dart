@@ -249,6 +249,12 @@ class MessagingStore {
     });
   }
 
+  /// Bumped by every local request-count change, so a refresh that was sent
+  /// before it does not write its older count over it (W7-37b).
+  int _requestCountGeneration = 0;
+
+  int get requestCountGeneration => _requestCountGeneration;
+
   /// Merges a `since_token` refresh by conversation id (a conversation that
   /// moved folder is rewritten in place).
   Future<void> applyConversationsRefresh(
@@ -256,10 +262,22 @@ class MessagingStore {
     required List<pb.Conversation> items,
     required String sinceToken,
     required int session,
+    int? requestCount,
+    int? requestCountGeneration,
   }) {
     return _tx(session, () async {
       await _upsertConversations(_validConversations(items), folder);
-      await _saveState(_folderStateKey(folder), sinceToken: sinceToken);
+      // An Accept or Delete since the refresh was sent already moved the local
+      // count; the answer predates it, so keep the local value (rows and token
+      // are still applied).
+      final stale =
+          requestCountGeneration != null &&
+          requestCountGeneration != _requestCountGeneration;
+      await _saveState(
+        _folderStateKey(folder),
+        sinceToken: sinceToken,
+        requestCount: stale ? null : requestCount,
+      );
     });
   }
 
@@ -294,6 +312,7 @@ class MessagingStore {
   /// Adds [delta] to the stored request count, floor 0 (an accepted or
   /// deleted request). No-op while the count is unknown (null).
   Future<void> adjustRequestCount(int delta, {required int session}) {
+    _requestCountGeneration++;
     return _tx(session, () async {
       final old = (await _state('inbox'))?.requestCount;
       if (old == null) return;
