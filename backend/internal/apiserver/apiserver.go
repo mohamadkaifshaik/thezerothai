@@ -24,6 +24,7 @@ import (
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
@@ -34,6 +35,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -570,6 +572,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	messagingServer := messaging.NewServer(messagingSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
+	})
+
+	// Lists (ADR-0030, W5-3): the skeleton handler mounts all seven ListService routes behind FEATURE_LISTS (FEATURE_DISABLED
+	// feature=lists, 0 reads) so the interceptor chain covers them; W5-4, W5-6 and W5-7 replace the methods with the real service.
+	listsServer := lists.NewServer(featureFlags)
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
 
 	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
