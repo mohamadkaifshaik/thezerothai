@@ -16,6 +16,7 @@ package posts
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -128,6 +129,50 @@ type postDoc struct {
 	// too, so a doc that lacks it is exactly a pre-W3 doc the backfill still has to visit (rerun writes 0) and the
 	// (authorId, hasMedia, createdAt) index holds every post. Indexed.
 	HasMedia bool `firestore:"hasMedia"`
+	// Poll is ADR-0029 D1: root posts with a poll only; absent otherwise, no backfill. The whole map is index-exempt (fieldOverride
+	// posts.poll). A vote increments poll.counts.<i> and poll.total with field paths, never a whole-map write.
+	Poll *pollDoc `firestore:"poll,omitempty"`
+}
+
+// pollDoc is the stored poll: counts is keyed "0".."n-1" so a vote is Increment(poll.counts.<i>) plus Increment(poll.total).
+type pollDoc struct {
+	Options     []string         `firestore:"options"`
+	DurationMin int              `firestore:"durationMin"`
+	ClosesAt    time.Time        `firestore:"closesAt"`
+	Counts      map[string]int64 `firestore:"counts"`
+	Total       int64            `firestore:"total"`
+}
+
+// embeddedPollDoc is the frozen poll definition inside an embed (ADR-0029 D5): no counts.
+type embeddedPollDoc struct {
+	Options  []string  `firestore:"options"`
+	ClosesAt time.Time `firestore:"closesAt"`
+}
+
+func pollToDoc(p *Poll) *pollDoc {
+	if p == nil {
+		return nil
+	}
+	d := &pollDoc{Options: p.Options, DurationMin: p.DurationMin, ClosesAt: p.ClosesAt, Counts: make(map[string]int64, len(p.Options)), Total: p.Total}
+	for i := range p.Options {
+		var c int64
+		if i < len(p.Counts) {
+			c = p.Counts[i]
+		}
+		d.Counts[strconv.Itoa(i)] = c
+	}
+	return d
+}
+
+func (d *pollDoc) toPoll() *Poll {
+	if d == nil {
+		return nil
+	}
+	p := &Poll{Options: d.Options, DurationMin: d.DurationMin, ClosesAt: d.ClosesAt.UTC(), Counts: make([]int64, len(d.Options)), Total: d.Total}
+	for i := range p.Counts {
+		p.Counts[i] = d.Counts[strconv.Itoa(i)]
+	}
+	return p
 }
 
 type authorDoc struct {
@@ -151,6 +196,8 @@ type embeddedDoc struct {
 	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
 	// ADR-0021 D2: the embedded post's effective reply policy, copied by snapshotOf; absent = EVERYONE.
 	ReplyPolicy string `firestore:"replyPolicy,omitempty"`
+	// ADR-0029 D5: the embedded post's poll definition, copied by snapshotOf; absent = none.
+	Poll *embeddedPollDoc `firestore:"poll,omitempty"`
 }
 
 type mentionDoc struct {
@@ -187,12 +234,16 @@ func toDoc(p *Post) postDoc {
 		PaidPartnership: p.PaidPartnership, MadeWithAI: p.MadeWithAI,
 		ReplyPolicy: string(p.ReplyPolicy),
 		HasMedia:    HasMediaFor(p.Kind, len(p.Media)),
+		Poll:        pollToDoc(p.Poll),
 	}
 	if e := p.Embedded; e != nil {
 		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
 		if !e.Unavailable {
 			ed.PaidPartnership, ed.MadeWithAI = e.PaidPartnership, e.MadeWithAI
 			ed.ReplyPolicy = string(e.ReplyPolicy)
+			if e.Poll != nil {
+				ed.Poll = &embeddedPollDoc{Options: e.Poll.Options, ClosesAt: e.Poll.ClosesAt}
+			}
 			ed.Author = &authorDoc{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
 			ed.Text = e.Text
 			t := e.CreatedAt
@@ -236,6 +287,7 @@ func (d postDoc) toPost(id string) *Post {
 		PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI,
 		ReplyPolicy: ReplyPolicy(d.ReplyPolicy),
 		HasMedia:    d.HasMedia,
+		Poll:        d.Poll.toPoll(),
 	}
 	if e := d.Embedded; e != nil {
 		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable,
@@ -245,6 +297,9 @@ func (d postDoc) toPost(id string) *Post {
 		}
 		if e.CreatedAt != nil {
 			pe.CreatedAt = e.CreatedAt.UTC()
+		}
+		if e.Poll != nil {
+			pe.Poll = &EmbeddedPoll{Options: e.Poll.Options, ClosesAt: e.Poll.ClosesAt.UTC()}
 		}
 		for _, m := range e.Media {
 			pe.Media = append(pe.Media, MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText})

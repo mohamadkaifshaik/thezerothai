@@ -1,0 +1,33 @@
+{
+  "_comment": "Shared poll creation rules (ADR-0029 D1, plan W6-5). Go: backend/internal/posts/poll_rules_test.go; Dart: the composer's poll validator (W6-12) runs the same rows. A valid row lists the stored (normalised) labels; an invalid row is VALIDATION field=poll. Combination rules (media, reply, quote, empty text) are server-only and are tested in Go.",
+  "limits": {"max_choices": 4, "choice_max_codepoints": 25, "min_duration_minutes": 5, "max_duration_minutes": 10080},
+  "cases": [
+    {"name": "two choices, one day", "choices": ["Yes", "No"], "duration_minutes": 1440, "valid": true, "stored": ["Yes", "No"]},
+    {"name": "four choices, minimum duration", "choices": ["a", "b", "c", "d"], "duration_minutes": 5, "valid": true, "stored": ["a", "b", "c", "d"]},
+    {"name": "maximum duration", "choices": ["a", "b"], "duration_minutes": 10080, "valid": true, "stored": ["a", "b"]},
+    {"name": "labels are trimmed", "choices": ["  Yes  ", "\tNo\u200b"], "duration_minutes": 60, "valid": true, "stored": ["Yes", "No"]},
+    {"name": "labels are NFC", "choices": ["e\u0301", "x"], "duration_minutes": 60, "valid": true, "stored": ["\u00e9", "x"]},
+    {"name": "25 code points", "choices": ["aaaaaaaaaaaaaaaaaaaaaaaaa", "b"], "duration_minutes": 60, "valid": true, "stored": ["aaaaaaaaaaaaaaaaaaaaaaaaa", "b"]},
+    {"name": "25 emoji are 25 code points", "choices": ["\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00", "b"], "duration_minutes": 60, "valid": true, "stored": ["\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00", "b"]},
+    {"name": "mentions and hashtags are plain labels", "choices": ["@bob", "#tag"], "duration_minutes": 60, "valid": true, "stored": ["@bob", "#tag"]},
+    {"name": "one choice", "choices": ["Yes"], "duration_minutes": 60, "valid": false},
+    {"name": "no choices", "choices": [], "duration_minutes": 60, "valid": false},
+    {"name": "five choices", "choices": ["a", "b", "c", "d", "e"], "duration_minutes": 60, "valid": false},
+    {"name": "26 code points", "choices": ["aaaaaaaaaaaaaaaaaaaaaaaaaa", "b"], "duration_minutes": 60, "valid": false},
+    {"name": "empty label", "choices": ["", "b"], "duration_minutes": 60, "valid": false},
+    {"name": "blank label", "choices": ["   ", "b"], "duration_minutes": 60, "valid": false},
+    {"name": "newline in a label", "choices": ["a\nb", "c"], "duration_minutes": 60, "valid": false},
+    {"name": "control character", "choices": ["a\u0007", "c"], "duration_minutes": 60, "valid": false},
+    {"name": "bidi control", "choices": ["a\u202eb", "c"], "duration_minutes": 60, "valid": false},
+    {"name": "duplicate after case folding", "choices": ["Yes", "yes"], "duration_minutes": 60, "valid": false},
+    {"name": "duplicate after trimming", "choices": ["Yes", " Yes "], "duration_minutes": 60, "valid": false},
+    {"name": "duplicate after NFC", "choices": ["\u00e9", "e\u0301"], "duration_minutes": 60, "valid": false},
+    {"name": "duplicate after full case folding", "choices": ["Stra\u00dfe", "STRASSE"], "duration_minutes": 60, "valid": false},
+    {"name": "four minutes", "choices": ["a", "b"], "duration_minutes": 4, "valid": false},
+    {"name": "8 days", "choices": ["a", "b"], "duration_minutes": 11520, "valid": false},
+    {"name": "one minute over the maximum", "choices": ["a", "b"], "duration_minutes": 10081, "valid": false},
+    {"name": "zero duration", "choices": ["a", "b"], "duration_minutes": 0, "valid": false},
+    {"name": "negative duration", "choices": ["a", "b"], "duration_minutes": -1, "valid": false},
+    {"name": "huge duration", "choices": ["a", "b"], "duration_minutes": 2147483647, "valid": false}
+  ]
+}

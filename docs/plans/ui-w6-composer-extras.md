@@ -358,7 +358,7 @@ Effect on the quotas (additive):
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
-| W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
+| W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Done (#497) |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
@@ -494,7 +494,7 @@ Order:
   - Skeletons: `VotePoll` answers FEATURE_DISABLED per the D6 step 2 gate and Unimplemented after it; CreatePost with a poll answers FEATURE_DISABLED `feature=polls` when off and Unimplemented when on (W6-5 replaces it), so a poll is never silently dropped.
 - **Runs alongside W3/W4/W5:** logic yes. These shared files conflict textually with W3-4, W4-3 and W5's flag ticket, so merge one at a time: `config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, the Terraform vars.
 
-### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
+### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Done (#497)
 - **Description.**
   - Validate `CreatePostRequest.poll` (F4): 2–`POLL_MAX_CHOICES` choices, each 1–25 code points after D9 normalisation, distinct after NFC + case fold; duration within the min and max.
   - Reject the combinations: with media, reply, quote, or empty text → VALIDATION `field=poll`.
@@ -516,6 +516,14 @@ Order:
 - **Flag.** `FEATURE_POLLS` (per caller).
 - **Seam.** Poll validation in one `posts/poll.go` file, so the client mirror and the server share the rules (shared `testdata` fixture `poll_rules.json`).
 - **Runs alongside W3/W4/W5:** `service_create.go` / `repo_create.go` also change in W3-7 (`hasMedia`), so rebase.
+- **Implementation notes (W6-5, as built).**
+  - `CreateInput.HasPoll` became `CreateInput.Poll *PollInput` (the service validates; W6-4's Unimplemented branch is gone). Limits come from `posts.Deps.Poll` (`PollLimits`, wired from `config.Composer`); the zero value rejects every poll.
+  - The poll's own and combination rules run right after the `idempotency_key` format check and before `reply_policy` and media validation, so a poll with images, a reply, a quote or blank text is always `field=poll`; `field=poll` refusals read and write nothing.
+  - Stored `poll` is `{options, durationMin, closesAt, counts {"0".."n-1"}, total}`, built per transaction attempt in `createAttempt`. `Embedded.Poll` is a frozen `{options, closesAt}` copied by `snapshotOf` (so quotes and reposts of a poll post carry the definition; the existing tombstone writer replaces the whole `embedded` map and so drops it).
+  - Converter: `pollToProto(p, viewer, now)` is hidden by default (votes 0, `results_visible` false, real `total_votes`) and shows counts when closed or `viewer == author`. `ToView` and the new `ToProtoForViewer` (used by the CreatePost response) pass the viewer; plain `ToProto` has none and hides. `closed` uses `time.Now()` (no clock seam yet). The cached `*Post` is never written. **W6-6 adds** the "viewer voted" rule, the `FEATURE_POLLS` globally-off rule, `viewer_poll_choice` (also cleared in `ApplyWithheld`, which today rebuilds `Post` but leaves `PostView.viewer_poll_choice` alone) and a clock.
+  - Moderation: `moderation.Evidence.PollChoices` (labels only; `evidence.pollChoices`, omitempty) for a POST report and, for a REPOST report, the original's frozen labels; `opsctl reports show` prints `evidence poll choices`. Export: the author's posts section gains `poll {choices, closesAt, counts, total}` (ADR-0029 D8).
+  - W6-7 note: `Cache.AdjustCounts` shallow-copies `Post`, so every cached copy shares one `*Poll`; after a committed vote build a NEW `Poll` with fresh `Counts` for the cache, never mutate in place.
+  - W6-7 note: increment a vote with `firestore.FieldPath{"poll","counts",strconv.Itoa(i)}` and `{"poll","total"}`, not a dotted string (the keys are numeric strings).
 
 ### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Open
 - **Description.**

@@ -140,6 +140,8 @@ type Post struct {
 	// is derived from Media at write time and never set by a caller; a legacy doc written before W3 reads false until
 	// `opsctl backfill-has-media` ran. Only the ByAuthorMedia query (the Media tab index) filters on the stored field.
 	HasMedia bool
+	// Poll is the root post's poll (ADR-0029 D1), nil for every other post. Read-only once cached: a writer builds a new one.
+	Poll *Poll
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -181,6 +183,9 @@ type Embedded struct {
 	// ReplyPolicy is the embedded post's effective reply policy, frozen with the snapshot: the viewer hint of a
 	// REPOST row reads it (ADR-0021 D2, review I-6).
 	ReplyPolicy ReplyPolicy
+	// Poll is the frozen poll definition of the copied post (ADR-0029 D5): labels and closing time, no counts. Nil when the
+	// copied post has no poll.
+	Poll *EmbeddedPoll
 }
 
 // MediaRef is one image of a post (common.v1.MediaRef): the URLs are the published public-bucket objects, copied
@@ -356,11 +361,10 @@ type CreateInput struct {
 	// enforcement of a stored policy never consults it.
 	ReplyPolicy          int32
 	ReplyAudienceEnabled bool
-	// HasPoll is true when the request carries a poll (CreatePostRequest.poll, ADR-0029 D2); PollsEnabled is the
-	// FEATURE_POLLS decision for the caller, made by server.go (never from the request). HasPoll with PollsEnabled false is
-	// FEATURE_DISABLED (metadata feature=polls), 0 reads, checked after content_disclosure. W6-4 is the gate only: an enabled
-	// caller gets Unimplemented until W6-5 stores the poll, so a poll is never silently dropped.
-	HasPoll      bool
+	// Poll is the request's poll (CreatePostRequest.poll, ADR-0029 D1), nil for none; PollsEnabled is the FEATURE_POLLS decision for
+	// the caller, made by server.go (never from the request). A poll with PollsEnabled false is FEATURE_DISABLED (metadata
+	// feature=polls), 0 reads, checked after content_disclosure. The service validates it (poll.go) against PollLimits.
+	Poll         *PollInput
 	PollsEnabled bool
 }
 

@@ -7,6 +7,9 @@
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
 //	        (+ one media/{id}.postId update per image, <= 4)
 //
+// A poll (ADR-0029) is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration): +0 reads,
+// +0 writes.
+//
 // A replay reads only the idempotency doc and writes nothing. The post id (and so createdAt, the Snowflake's
 // millisecond) is drawn inside every attempt, so a retried attempt never commits a stale timestamp, which the
 // timeline's settle watermark depends on (D13).
@@ -67,6 +70,9 @@ type CreateParams struct {
 	// QuoteID is the post being quoted (P5): its quoteCount is incremented the same way (ErrParentGone when it is
 	// gone). A request carries a ParentID or a QuoteID, never both.
 	QuoteID string
+	// Poll is the validated poll of a root post (ADR-0029 D1), nil for none. The transaction builds the stored Poll from it inside
+	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0. +0 reads, +0 writes.
+	Poll *PollDraft
 }
 
 // CreateResult is the outcome of Repo.Create. Exactly one of Post (a new post, already committed) and ReplayID
@@ -180,6 +186,9 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 	post := p.Draft
 	post.ID, post.CreatedAt = id, createdAt
+	if p.Poll != nil {
+		post.Poll = p.Poll.newPoll(createdAt) // fresh per attempt: a retry never reuses a closesAt from an earlier id
+	}
 	if post.ConversationID == "" { // a reply's conversation is its parent's (P3); a root's is its own id
 		post.ConversationID = id
 	}

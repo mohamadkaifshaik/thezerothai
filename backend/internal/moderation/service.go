@@ -178,12 +178,12 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 			return ReportResult{}, apierr.Validation("target_id", "you cannot report your own post")
 		}
 		rep.TargetOwnerID = p.AuthorID
-		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt, MediaIDs: mediaIDs(p.Media)}
+		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt, MediaIDs: mediaIDs(p.Media), PollChoices: pollChoices(p.Poll)}
 		// A REPOST carries no content of its own: the evidence is the original it embeds (already loaded, 0 reads).
 		// TargetOwnerID stays the reposter. A tombstone or missing snapshot keeps the empty evidence above.
 		if e := p.Embedded; p.Kind == posts.KindRepost && e != nil && !e.Unavailable && e.PostID != "" {
 			rep.Evidence = &Evidence{Text: e.Text, AuthorHandle: e.Author.Handle, PostCreatedAt: e.CreatedAt,
-				MediaIDs: mediaIDs(e.Media), OriginalPostID: e.PostID}
+				MediaIDs: mediaIDs(e.Media), OriginalPostID: e.PostID, PollChoices: embeddedPollChoices(e.Poll)}
 		}
 	case TargetAccount:
 		prof, err := s.d.Accounts.GetProfile(ctx, uid, identity.ProfileTarget{UserID: in.TargetID})
@@ -314,4 +314,20 @@ func noteRejected(ctx context.Context, err error) {
 		}
 	}
 	logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reason)
+}
+
+// pollChoices are the labels of the reported post's poll (ADR-0029 D8; 0 reads, the post is loaded), nil without a poll.
+func pollChoices(p *posts.Poll) []string {
+	if p == nil {
+		return nil
+	}
+	return append([]string(nil), p.Options...)
+}
+
+// embeddedPollChoices are the labels of a reposted post's frozen poll definition, nil without one.
+func embeddedPollChoices(p *posts.EmbeddedPoll) []string {
+	if p == nil {
+		return nil
+	}
+	return append([]string(nil), p.Options...)
 }

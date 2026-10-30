@@ -24,6 +24,7 @@ const (
 	fieldTextLen          = "text_len"
 	fieldTxnAttempts      = "txn_attempts"
 	fieldFeature          = "feature"
+	fieldHasPoll          = "has_poll"
 )
 
 // outcomes of CreatePost (posts_op=create).

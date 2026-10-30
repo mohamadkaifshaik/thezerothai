@@ -51,7 +51,8 @@ func newCreateEnv(opts ...Option) *createEnv {
 	e.svc = New(Deps{
 		Repo: e.repo, Cache: e.cache, Events: e.events, Directory: e.dir, Graph: e.graph,
 		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
-		Now: func() time.Time { return now },
+		Poll: testPollLimits,
+		Now:  func() time.Time { return now },
 	}, opts...).(*service)
 	return e
 }
