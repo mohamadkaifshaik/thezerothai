@@ -939,7 +939,7 @@ Order:
 
 ### W7-25 — Request state for the sender  [owner: architect (done), then W7-25a backend-developer and W7-25b frontend-developer] [size: S] [depends: W7-7, W7-9; W7-25a after W7-37a; W7-25b after W7-25a serves dev and after W7-26]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-25), 2026-10-30"); W7-25a Open, W7-25b Open
 - **Problem.** `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. So the note disappears when the sender reopens the thread, and stays after the peer accepts.
-- **Decision (ADR-0027 note W7-25; default, founder may override).** A `requestPending` bool on the requester's own `dmInbox` entry: true while the conversation is REQUEST, absent otherwise. Send writes it at +0. Accept clears it at +1 read and +1 write. `conversationOf` maps it to state REQUEST in folder INBOX. There is no new proto field.
+- **Decision (ADR-0027 note W7-25; accepted by the founder 2026-10-30).** A `requestPending` bool on the requester's own `dmInbox` entry: true while the conversation is REQUEST, absent otherwise. Send writes it at +0. Accept clears it at +1 read and +1 write. `conversationOf` maps it to state REQUEST in folder INBOX. There is no new proto field.
 - **Seam.** `messaging.Service`; `conversationOf` stays the one mapper; the client's `MessagingRepository` is still the only RPC caller.
 
 #### W7-25a — backend (backend-developer)  Status: Open
@@ -1010,7 +1010,7 @@ Order:
 
 ### W7-26 — Client honours F6(a) for the clean-up RPCs  [owner: architect (done), then frontend-developer] [size: S] [depends: W7-14, W7-15; W7-35 (owner stamp) and W7-37b merged]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-26), 2026-10-30"; client only, no proto or server change); Open
 - **Problem.** The app hides all of Messages when `messaging` is off for the caller: the `/messages` routes redirect Home, and the thread shows "Messages aren't available yet". But F6(a) says list, read, mark-read, delete and report need only "not globally off". `GetMe` lists the flag per caller, so the client cannot tell "off for me" from "off for everyone".
-- **Decision (ADR-0027 note W7-26; default, founder may override).** Client only. There are three modes:
+- **Decision (ADR-0027 note W7-26; accepted by the founder 2026-10-30).** Client only. There are three modes:
   - `full`: `messaging` is in `enabled_features`.
   - `readOnly`: not enabled, the owner-stamped cache holds at least one conversation, and a probe succeeded in this session. Until the probe answers the mode is `hidden`, so nothing flashes when the kill switch is thrown.
   - `hidden`: anything else.
@@ -1178,6 +1178,7 @@ scenario no longer works".
   - `MessagingRepository._refreshConversations`: on an INBOX since refresh, pass `page.requestCount` to the store and return it in `ConversationsResult.requestCount`. A REQUESTS refresh and an older page pass nothing (null = keep). `MessagingStore.applyConversationsRefresh` gains `int? requestCount`, saved in the same transaction as the since token (`_saveState(..., requestCount: ...)`). The cubit already takes a non-null `result.requestCount`. Its comment ("Only a first INBOX page carries the count") and the `ConversationsResult` doc comment change to "every INBOX first page and since refresh".
   - **Race with Accept and Delete.** These do not run through `_single`'s serial tail. A since refresh already in flight when one of them runs can return the count from before it, write that over the local −1 and show one request too many until the next refresh. Guard it with a generation: `adjustRequestCount` bumps an in-memory request-count generation. A refresh captures the generation before its RPC and writes the count only if the generation is unchanged. The rows and the since token are still applied. If this is not built, document the race as bounded (one row, until the next refresh).
   - Tests: (1) with a since token stored and `requestCount` 0, a since refresh answering `request_count = 1` stores 1 and the screen shows "Message requests (1)" with no cold open; (2) after Accept (or Delete) of that request, the next refresh answering 0 lands on 0 and the row goes; (3) a REQUESTS since refresh and an older INBOX page leave the stored count unchanged; (4) the race above (a refresh started before an Accept that answers after it does not undo the −1), if the guard is built.
+  - **Copy (founder decision 2026-10-30, ADR-0027 W7-37 "Known"):** the Requests folder's empty state adds one line, "Requests from accounts you blocked or muted are hidden.", so a "Message requests (N)" row that opens an empty list explains itself. Widget test: the REQUESTS empty state shows the line.
 - **Order.** W7-37a merges first and must serve dev before W7-37b **merges** (merging to `main` deploys the dev web client). W7-37b can be built and reviewed in parallel against the proto comment. A W7-37b client talking to a server without W7-37a would write 0 over the cold-open count on every since refresh, which is worse than the defect.
 - **Compatibility (architect decision): no new field, and the INBOX value is authoritative.** proto3 `int64` cannot tell 0 from unset. The client therefore treats `request_count` as authoritative on every INBOX first page and since refresh, including 0, and ignores it on an older page and on REQUESTS (where it stays 0).
   - Rejected: `optional` on field 4. A presence change alters the generated Go and Dart (pointer and `has` accessor), `buf breaking` can flag it, and the founder decision keeps the field unchanged.
@@ -1274,16 +1275,16 @@ A **lane** is one implementer doing one ticket at a time in their own worktree u
 
 **C. Founder decisions and prod prerequisites**
 15. **Privacy Policy lines** (`docs/reviews/security-w7-messaging.md` section 4 item 1; roadmap section 9 item 3.18) and **Terms of Service** (section 4 item 2; roadmap item 3.9). Before any non-team user.
-16. **Confirm the 6-uid dev allowlist** against the security review's dev condition (2).
+16. **The 6-uid dev allowlist**: CONFIRMED by the founder 2026-10-30 (PR #463, requested by the founder), so the security review's dev condition (2) is met at 6.
 17. **Hidden requests in `request_count`** (W7-37 "Known"): the count includes requests the Requests folder hides (blocked or muted peers).
-    - **Default: accept for v1.** The Requests empty state gets one line ("Requests from accounts you blocked or muted are hidden.", our copy), which rides with W7-37b.
-    - Founder may override with a fix ticket. Removing the entry on Block needs a graph → messaging event; a graph-filtered count costs up to a page of reads per refresh.
+    - **DECIDED (founder 2026-10-30): accept for v1.** The Requests empty state gets one line ("Requests from accounts you blocked or muted are hidden.", our copy), which rides with W7-37b.
+    - Not chosen: a fix ticket. Removing the entry on Block needs a graph → messaging event; a graph-filtered count costs up to a page of reads per refresh.
 18. **Prod prerequisites:**
     - a `MESSAGING` prod entry in `scripts/promotion/flag-ceiling.json` (a gate file) and the prod Terraform vars;
     - the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2);
     - the six fieldOverrides deployed in prod before `messaging` leaves `off` there;
     - the MVP launch decision and the ramp.
-19. **ADR-0027 notes W7-25, W7-26 and W7-33**: accepted by the merge of the PR that adds them. Their defaults are marked "founder may override".
+19. **ADR-0027 notes W7-25, W7-26 and W7-33**: all twelve defaults ACCEPTED by the founder on 2026-10-30, before this PR merged.
 
 **D. Known, not blocking (listed so nobody reopens them)**
 - W7-20 D-1 (a `blockedByOverflow` caller's list and thread) and D-2 (a participant list that is not a pair answers INTERNAL): Low, skipped tests.

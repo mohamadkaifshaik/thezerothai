@@ -596,7 +596,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 **Problem (from the PR #442 review).** `ListConversations` maps every `dmInbox` entry to ACCEPTED. `conversationOf` takes the state from the folder because the entry has no state, and reading the conversation for every row would break the budget. A sender's pending request lives in the sender's own `dmInbox`, so their Inbox row reads ACCEPTED. Only the `ListMessages` header (first or older page) says REQUEST. The W7-18 waiting note ("Waiting for them to accept…") therefore disappears when the sender reopens the thread from the cache, and stays after the peer accepts, because a `since` poll carries no header.
 
 **Options.**
-- **(a) Chosen (default; founder may override): a `requestPending` flag on the requester's own `dmInbox` entry.** Send carries it in the entry writes it already makes, and Accept clears it. Cost: +1 read and +1 write per Accept. Accept is about 0.05 calls per DAU per day or fewer.
+- **(a) Chosen (accepted by the founder 2026-10-30): a `requestPending` flag on the requester's own `dmInbox` entry.** Send carries it in the entry writes it already makes, and Accept clears it. Cost: +1 read and +1 write per Accept. Accept is about 0.05 calls per DAU per day or fewer.
 - (b) Read `conversations/{id}` for every INBOX row in `ListConversations`. That is up to +20 reads on a first page and +1 per row on a refresh, about +4 reads per DAU per day (≈ INR 12 a month at 3,000 DAU), for one bit. Rejected.
 - (c) Keep the header as the only source and have the client remember the state. The client cannot see an Accept made on the peer's side without a header. Rejected.
 - (d) A `state` field on every entry, both sides. It means nothing on the recipient's side, where the folder already says REQUEST, and it adds a field every writer must keep right. Rejected for (a)'s single-purpose flag.
@@ -635,7 +635,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 **Problem (from the PR #442 review).** F6(a) and D6 say that list, read, mark-read, delete and report need messaging to be only "not globally off", so a user dropped from an allowlist can still clean up and report. The app instead hides all of Messages when `messaging` is missing from `GetMe.enabled_features`: the `/messages` routes redirect Home, and the thread says "Messages aren't available yet". `enabled_features` is per caller, so the client cannot tell "off for me" from "off for everyone".
 
 **Options.**
-- **(a) Chosen (default; founder may override): client-only.** The existing `MessagingFeatureGate.runRead`, an entry point scoped to the device cache, and one probe at session start. 0 server change.
+- **(a) Chosen (accepted by the founder 2026-10-30): client-only.** The existing `MessagingFeatureGate.runRead`, an entry point scoped to the device cache, and one probe at session start. 0 server change.
 - (b) An additive `GetMeResponse` field listing flags that are "not globally off" for the caller (`readable_features`). It costs 0 reads but cannot decide alone. During an allowlist or percent rollout it is true for every user outside the rollout. Showing an entry to all of them would put an empty Messages, with no way to send, in front of 95 % of users at percent 5, and every tap would cost a ListConversations. Deciding "this user has conversations" on the server needs a `count()` per GetMe for the whole user base: about 3 reads per non-enabled DAU, ≈ INR 9 a month at 3,000 DAU at percent 5. Rejected for now; it is the upgrade path if the population grows.
 - (c) A ListConversations probe by every non-enabled user at every session start: +1 request and 2 to 4 reads per session across the whole user base. Rejected.
 
@@ -710,7 +710,7 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
    - `allowAnonymous` is `config.AuthEmulator`, passed through `messaging.Deps` as posts does.
    - It is defence in depth behind `authn.VerifiedIdentityInterceptor`.
 4. **Contract.** Comments only, in `messaging.proto`: the SendMessage A8 sentence and its cost line. The exact text is in plan ticket W7-33. `buf breaking` stays clean, and the implementer regenerates.
-5. **Not done (founder may override): `ProfileInTx` on every send.** It would cost +1 read per send (+1.5 per DAU, ≈ INR 0.5 / 1.5 / 4.6 a month) to close a 60 s window for a recipient suspended mid-conversation. Existing conversations already stop at `gone` for erased users, and a suspension's 60 s lag matches every other directory read.
+5. **Not done (accepted by the founder 2026-10-30): `ProfileInTx` on every send.** It would cost +1 read per send (+1.5 per DAU, ≈ INR 0.5 / 1.5 / 4.6 a month) to close a 60 s window for a recipient suspended mid-conversation. Existing conversations already stop at `gone` for erased users, and a suspension's 60 s lag matches every other directory read.
 
 **D14 change.** On send, the recipient's graph is **fresh** and serialised with Block, which writes `graph/{recipient}`. The caller's graph stays at 60 s. The push fan-out keeps its own cached snapshot for suppression (ADR-0017 D5), but a send refused in the transaction emits nothing.
 
