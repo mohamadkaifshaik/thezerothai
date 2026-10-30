@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/feature_flags/feature_flags.dart';
 import '../../core/network/app_exception.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_theme.dart';
@@ -19,6 +20,10 @@ import '../../features/moderation/presentation/report_sheet.dart';
 import '../../features/posts/domain/post_text_parser.dart';
 import '../../features/profile/presentation/pin_error_messages.dart';
 import '../../features/profile/presentation/widgets/block_confirmation_dialog.dart';
+import '../../features/search/domain/search_feature_flags.dart';
+import '../../features/search/domain/search_query.dart';
+import '../../features/search/domain/search_routes.dart';
+import '../../features/search/domain/search_results_tab.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
@@ -163,8 +168,10 @@ class PostCard extends StatelessWidget {
   /// "Couldn't open link" snackbar on failure.
   final void Function(Uri uri)? onOpenLink;
 
-  /// Called when a hashtag is tapped. Defaults to a "coming soon" snackbar.
-  final VoidCallback? onHashtagTap;
+  /// Called with the tag body (no `#`) when a hashtag is tapped. Defaults to
+  /// opening `/search?q=%23tag` with the `search` flag on (W4-16), else a
+  /// "coming soon" snackbar.
+  final void Function(String tag)? onHashtagTap;
 
   /// Called with the author's new relationship after Block/Unblock/Mute/
   /// Unmute succeeded (the timeline hides blocked/muted authors, D6).
@@ -390,9 +397,9 @@ class PostCard extends StatelessWidget {
                   onOpenLink: (uri) => _openLink(context, uri),
                   onOpenMention: (userId, handle) =>
                       _openProfile(context, userId),
+                  hashtagSearch: _searchOn(context),
                   onHashtagTap:
-                      onHashtagTap ??
-                      () => _showMessage(context, 'Hashtags are coming soon.'),
+                      onHashtagTap ?? (tag) => _openHashtag(context, tag),
                 ),
               if (media.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.sm),
@@ -615,6 +622,33 @@ class _RepostPlaceholder extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Whether hashtags open search: the `search` flag, false when no session is
+/// above (a card shown outside the app, as in some tests).
+bool _searchOn(BuildContext context, {bool listen = true}) {
+  try {
+    return listen
+        ? isFeatureEnabled(context, kFeatureSearch)
+        : featureEnabledSnapshot(context, kFeatureSearch);
+  } on ProviderNotFoundException {
+    return false;
+  }
+}
+
+void _openHashtag(BuildContext context, String tag) {
+  if (_searchOn(context, listen: false)) {
+    // The canonical form (NFC, lower case), so the URL, the header and the
+    // empty state agree; Top is named, as the plan says.
+    context.push(
+      searchResultsLocation(
+        SearchQuery.parse('#$tag').canonical,
+        tab: SearchResultsTab.top.queryValue,
+      ),
+    );
+  } else {
+    _showMessage(context, 'Hashtags are coming soon.');
   }
 }
 

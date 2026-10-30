@@ -4,6 +4,10 @@ import (
 	"context"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -117,21 +121,27 @@ type SendParams struct {
 	// Text is the normalised message; RequestHash the digest that tells a replay from a reused key.
 	Text, RequestHash string
 	Now               time.Time
-	// Mutual: both follow each other; only decides the state of a conversation this send creates.
-	Mutual bool
-	// Silent: the recipient muted the caller (delivered without an unread increment). CallerSilent: the caller muted the
-	// recipient (the flag on the sender's own entry).
-	Silent, CallerSilent bool
+	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the
+	// recipient.s FRESH Following[caller] read in the transaction; it only decides the state of a conversation this send
+	// creates.
+	CallerFollowsPeer bool
+	// CallerSilent: the caller muted the recipient (the flag on the sender.s own entry). Whether the RECIPIENT muted the
+	// caller (Silent) is read in the transaction and returned in SendResult.
+	CallerSilent bool
 	// Caller and Peer are the snapshots written into the other side's entry (caller's into the recipient's, peer's into
 	// the sender's).
 	Caller, Peer PeerDoc
 	// MaxUnanswered is MESSAGES_REQUEST_MAX_UNANSWERED; DMNewLimit the daily new-conversation quota for this caller
 	// (the new-account tier already applied).
 	MaxUnanswered, DMNewLimit int64
-	// FreshRecipient re-reads the recipient's account status without the cache (ADR-0027 D8 purge race). It is called
-	// only when this send creates the conversation, inside the transaction, and returns ErrCannotMessage when the
-	// recipient is not ACTIVE.
-	FreshRecipient func(ctx context.Context) error
+	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached,
+	// 1 read; ADR-0027 note W7-33). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
+	// the conversation mutual; Muted[caller] makes it silent.
+	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
+	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx, +1 read). It
+	// is called only when this send creates the conversation (ADR-0027 D8 purge race, security review L-3); a missing
+	// document or a status other than ACTIVE refuses the send. Required for a new conversation.
+	RecipientInTx func(ctx context.Context, tx *firestore.Transaction) (identity.Profile, error)
 }
 
 // SendResult is the outcome of Send.
@@ -142,6 +152,9 @@ type SendResult struct {
 	Created bool
 	// AcceptedByReply: this send was the reply that accepted a request.
 	AcceptedByReply bool
+	// Silent: the recipient muted the caller (the delivery has no unread increment, no push); Mutual: both follow each
+	// other. Both come from the graph document read in the transaction, never from a cache.
+	Silent, Mutual bool
 	// RecipientInRequests: the recipient's entry for this message is in dmRequests (a request), else dmInbox.
 	RecipientInRequests bool
 	// Msg is the stored message (the replayed one on a replay); Conv the conversation after the send, best effort.

@@ -48,8 +48,8 @@ request, so Error Reporting counts one error per affected request, not one per r
 whose original is hidden echo the original's id, exactly like a deleted original.
 
 **Startup refusal (W3-36 L-5).** `apiserver.Build` refuses to start, with `protected-author seams not wired (would fail open): <names>`,
-when any of the seven protected-set seams is nil (the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications
-`Audience`, `posts.WithProtectedAuthors`, the engagement `Audience` from `posts.AudienceOf`, `timeline.WithProtectedAuthors`). Every
+when any of the eight protected-set seams is nil (the loader, graph `Protected`, `identity.WithProtectedAuthors`, the notifications
+`Audience`, `posts.WithProtectedAuthors`, the engagement `Audience` from `posts.AudienceOf`, `timeline.WithProtectedAuthors`, and the search `PostsDeps.Audience`). Every
 module reads a nil seam as "nobody is protected", so the deploy fails instead. A revision that crash-loops with this message has a
 wiring regression: roll back (never forward-fix by passing a nil).
 

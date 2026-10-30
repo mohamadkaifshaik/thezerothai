@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:fixnum/fixnum.dart' show Int64;
@@ -42,6 +44,7 @@ void main() {
   late List<Object> msgAnswers;
   Object? sendAnswer;
   Object? readAnswer;
+  Completer<void>? convGate;
 
   setUp(() {
     flagOn = true;
@@ -53,6 +56,7 @@ void main() {
     msgAnswers = [];
     sendAnswer = null;
     readAnswer = null;
+    convGate = null;
     db = AppDatabase.forTesting(NativeDatabase.memory());
     store = MessagingStore(db);
     gate = MessagingFeatureGate(
@@ -70,6 +74,8 @@ void main() {
       switch (procedure) {
         case _listConvs:
           convRequests.add(input as pb.ListConversationsRequest);
+          final g = convGate;
+          if (g != null) await g.future;
           return answer(convAnswers);
         case _listMsgs:
           msgRequests.add(input as pb.ListMessagesRequest);
@@ -406,7 +412,7 @@ void main() {
       );
     });
 
-    test('a since refresh merges by id and has no request_count', () async {
+    test('a since refresh merges by id and returns the INBOX request_count', () async {
       convAnswers.add(
         list([conv('a', minutesAgo: 5), conv('b', minutesAgo: 9)]),
       );
@@ -416,7 +422,7 @@ void main() {
       final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
 
       expect(convRequests.last.sinceToken, 's1');
-      expect(result.requestCount, isNull);
+      expect(result.requestCount, 0);
       expect(result.snapshot.conversations.map((c) => c.id), ['b', 'a']);
       expect(result.snapshot.conversations.first.unreadCount.toInt(), 2);
       expect(result.snapshot.sinceToken, 's2');
@@ -611,14 +617,14 @@ void main() {
       });
 
       test(
-        'a fresh first INBOX page overwrites it; a since keeps it',
+        'a first INBOX page and a since refresh both overwrite it',
         () async {
           convAnswers.add(list([conv('a')], requests: 3));
           await repo.refreshConversations(Folder.FOLDER_INBOX);
-          convAnswers.add(list([conv('a')], since: 's2'));
+          convAnswers.add(list([conv('a')], since: 's2', requests: 4));
           final since = await repo.refreshConversations(Folder.FOLDER_INBOX);
-          expect(since.requestCount, isNull);
-          expect(since.snapshot.requestCount, 3);
+          expect(since.requestCount, 4);
+          expect(since.snapshot.requestCount, 4);
 
           // A cold reopen (rejected since token) carries a fresh count.
           await store.clearConversationsSince(
@@ -634,6 +640,114 @@ void main() {
           );
         },
       );
+
+      test('an INBOX since refresh applies request_count with no cold open '
+          '(W7-37)', () async {
+        await seed(requests: 0);
+        convAnswers.add(list([conv('a')], since: 's2', requests: 1));
+
+        final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+        expect(convRequests.single.sinceToken, 'i');
+        expect(result.requestCount, 1);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          1,
+        );
+      });
+
+      test('after Accept the next since refresh answering 0 lands on 0 '
+          '(W7-37)', () async {
+        await seed(requests: 0);
+        convAnswers.add(list([conv('a')], since: 's2', requests: 1));
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        await repo.acceptMessageRequest(
+          idempotencyKey: 'k',
+          conversationId: 'q1',
+        );
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          0,
+        );
+        convAnswers.add(list([conv('a')], since: 's3', requests: 0));
+
+        final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+        expect(result.requestCount, 0);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          0,
+        );
+      });
+
+      test('a REQUESTS since refresh and an older INBOX page leave the '
+          'stored count alone (W7-37)', () async {
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [conv('a')],
+            sinceToken: 'i',
+            nextPageToken: 'older',
+            requestCount: Int64(2),
+          ),
+        );
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [request('q1')],
+            sinceToken: 'r',
+          ),
+        );
+        await repo.refreshConversations(Folder.FOLDER_REQUESTS);
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [request('q1')],
+            sinceToken: 'r2',
+          ),
+        );
+        final requestsSince = await repo.refreshConversations(
+          Folder.FOLDER_REQUESTS,
+        );
+        convAnswers.add(
+          pb.ListConversationsResponse(
+            conversations: [conv('z', minutesAgo: 90)],
+            sinceToken: 'i2',
+          ),
+        );
+        await repo.loadOlderConversations(Folder.FOLDER_INBOX);
+
+        expect(requestsSince.requestCount, isNull);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          2,
+        );
+      });
+
+      test('a since refresh sent before an Accept does not undo its -1 '
+          '(W7-37 race)', () async {
+        await seed(requests: 2);
+        final gateOpen = Completer<void>();
+        convGate = gateOpen;
+        // Answers with the count from before the Accept.
+        convAnswers.add(list([conv('a'), conv('n')], since: 's2', requests: 2));
+
+        final refresh = repo.refreshConversations(Folder.FOLDER_INBOX);
+        await pumpEventQueue();
+        await repo.acceptMessageRequest(
+          idempotencyKey: 'k',
+          conversationId: 'q1',
+        );
+        gateOpen.complete();
+        final result = await refresh;
+
+        // Rows and token are applied, the stale count is not.
+        expect(result.snapshot.conversations.map((c) => c.id), contains('n'));
+        expect(result.snapshot.sinceToken, 's2');
+        expect(result.requestCount, 1);
+        expect(
+          (await repo.cachedConversations(Folder.FOLDER_INBOX)).requestCount,
+          1,
+        );
+      });
 
       test('accepting a request lowers it by one', () async {
         await seed(requests: 2);

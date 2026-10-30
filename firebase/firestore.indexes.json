@@ -152,6 +152,8 @@
 
     { "collectionGroup": "privacy", "fieldPath": "uids", "indexes": [] },
 
+    { "collectionGroup": "trends", "fieldPath": "items", "indexes": [] },
+
     { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "bookmarks", "indexes": [] },

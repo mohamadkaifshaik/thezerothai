@@ -50,15 +50,15 @@ func (d *fakeDir) callCount() int {
 	return len(d.calls)
 }
 
-// fakeGraph serves a snapshot per viewer and counts reads.
-type fakeGraph struct {
+// peopleFakeGraph serves a snapshot per viewer and counts reads.
+type peopleFakeGraph struct {
 	mu    sync.Mutex
 	snaps map[string]graph.Snapshot
 	reads int
 	err   error
 }
 
-func (g *fakeGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
+func (g *peopleFakeGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.reads++
@@ -87,7 +87,7 @@ func withStatus(s identity.AccountStatus) func(*identity.Profile) {
 }
 func private(p *identity.Profile) { p.IsPrivate = true }
 
-func newTestService(t *testing.T, dir *fakeDir, g *fakeGraph, entries int) *Server {
+func newTestService(t *testing.T, dir *fakeDir, g *peopleFakeGraph, entries int) *Server {
 	t.Helper()
 	reg := flags.NewRegistry(flags.Spec{Name: FlagSearch, Mode: flags.On}, flags.Spec{Name: FlagTrends, Mode: flags.On})
 	return NewServer(New(reg, WithPeople(PeopleDeps{Directory: dir, Graph: g, PrefixEntries: entries})))
@@ -142,7 +142,7 @@ func TestPeopleFilters(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			g := &fakeGraph{snaps: map[string]graph.Snapshot{me: tc.snap}}
+			g := &peopleFakeGraph{snaps: map[string]graph.Snapshot{me: tc.snap}}
 			srv := newTestService(t, &fakeDir{users: all}, g, 10)
 			resp, err := callPeople(t, srv, me, "@Al", 20)
 			if err != nil {
@@ -166,7 +166,7 @@ func TestPeopleRelationshipsAndPrivacy(t *testing.T) {
 	snap := graph.Snapshot{
 		Following: set("u-bob"), Requested: set("u-bobby"), Blocked: set("u-bobbi"), Muted: set("u-bobo"),
 	}
-	srv := newTestService(t, dir, &fakeGraph{snaps: map[string]graph.Snapshot{me: snap}}, 10)
+	srv := newTestService(t, dir, &peopleFakeGraph{snaps: map[string]graph.Snapshot{me: snap}}, 10)
 	resp, err := callPeople(t, srv, me, "bob", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestPeopleRelationshipsAndPrivacy(t *testing.T) {
 func TestPeopleBlockOracle(t *testing.T) {
 	const me = "u-me"
 	run := func(users []identity.Profile, snap graph.Snapshot) []byte {
-		srv := newTestService(t, &fakeDir{users: users}, &fakeGraph{snaps: map[string]graph.Snapshot{me: snap}}, 10)
+		srv := newTestService(t, &fakeDir{users: users}, &peopleFakeGraph{snaps: map[string]graph.Snapshot{me: snap}}, 10)
 		resp, err := callPeople(t, srv, me, "carol", 20)
 		if err != nil {
 			t.Fatal(err)
@@ -230,7 +230,7 @@ func TestPeopleBlockOracle(t *testing.T) {
 // reads nothing from identity.
 func TestPeopleCache(t *testing.T) {
 	dir := &fakeDir{users: []identity.Profile{user("dave"), user("davey"), user("david")}}
-	g := &fakeGraph{snaps: map[string]graph.Snapshot{
+	g := &peopleFakeGraph{snaps: map[string]graph.Snapshot{
 		"v1": {},
 		"v2": {BlockedBy: set("u-davey")},
 	}}
@@ -269,7 +269,7 @@ func TestPeopleCache(t *testing.T) {
 
 // TestPeopleEmptyEntrySkipsGraph: no match, no graph read (7 reads at limit 5 become interceptor + 1).
 func TestPeopleEmptyEntrySkipsGraph(t *testing.T) {
-	g := &fakeGraph{snaps: map[string]graph.Snapshot{}}
+	g := &peopleFakeGraph{snaps: map[string]graph.Snapshot{}}
 	srv := newTestService(t, &fakeDir{}, g, 10)
 	resp, err := callPeople(t, srv, "v1", "zz", 5)
 	if err != nil || len(resp.GetUsers()) != 0 || resp.GetUnsupportedQuery() {
@@ -302,7 +302,7 @@ func TestPeopleLimit(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := &fakeDir{users: users}
-			srv := newTestService(t, dir, &fakeGraph{}, 10)
+			srv := newTestService(t, dir, &peopleFakeGraph{}, 10)
 			resp, err := callPeople(t, srv, "v1", "many", tc.limit)
 			if tc.wantErr != "" {
 				ae := apiErr(t, err)
@@ -349,7 +349,7 @@ func TestPeopleQueryRules(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			dir, g := &fakeDir{}, &fakeGraph{}
+			dir, g := &fakeDir{}, &peopleFakeGraph{}
 			srv := newTestService(t, dir, g, 10)
 			resp, err := callPeople(t, srv, "v1", tc.query, 0)
 			if dir.callCount() != 0 || g.reads != 0 {
@@ -392,7 +392,7 @@ func TestPeopleFlagModes(t *testing.T) {
 	}
 	for _, m := range modes {
 		t.Run(m.name, func(t *testing.T) {
-			dir, g := &fakeDir{users: []identity.Profile{user("erin")}}, &fakeGraph{}
+			dir, g := &fakeDir{users: []identity.Profile{user("erin")}}, &peopleFakeGraph{}
 			// FEATURE_TRENDS on must not open search.
 			reg := flags.NewRegistry(m.spec, flags.Spec{Name: FlagTrends, Mode: flags.On})
 			srv := NewServer(New(reg, WithPeople(PeopleDeps{Directory: dir, Graph: g})))
@@ -434,7 +434,7 @@ func TestPeopleErrors(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := &fakeDir{users: []identity.Profile{user("fran")}, err: tc.dirErr}
-			g := &fakeGraph{snaps: map[string]graph.Snapshot{}, err: tc.graphErr}
+			g := &peopleFakeGraph{snaps: map[string]graph.Snapshot{}, err: tc.graphErr}
 			_, err := callPeople(t, newTestService(t, dir, g, 10), "uid-secret", "fr", 0)
 			if err == nil {
 				t.Fatal("want an error")
