@@ -574,12 +574,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
 	// each FEATURE_DISABLED with 0 Firestore reads. SearchPosts (W4-7, W4-8) reads posts.Reader.ByHashtag and decides every
-	// row through a snapshot-based posts.Audience over the one protected-set loader (ADR-0025); SearchPeople (W4-5) and
-	// GetTrends (W4-10) answer Unimplemented to an enabled caller until they land.
+	// row through a snapshot-based posts.Audience over the one protected-set loader (ADR-0025). GetTrends (W4-9, W4-10)
+	// reads trends/current through a 10 min instance copy; the refresher is the daily step (and the standalone route). Both
+	// go through search.TrendsStore, the only code that touches the collection. SearchPeople (W4-5) answers Unimplemented
+	// to an enabled caller until it lands.
+	trendsStore := search.NewTrendsRepo(fsClient)
 	searchServer := search.NewServer(search.New(featureFlags, search.WithPosts(search.PostsDeps{
 		Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
 		CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
-	})))
+	}), search.WithTrends(trendsStore, nil)))
+	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
+		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
+		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
+	})
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return searchv1connect.NewSearchServiceHandler(searchServer, o...)
 	})
@@ -598,7 +605,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// ADR-0011: the shared jobs topic's push endpoint and the daily-maintenance backstop. Never behind the
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
-	routes.internal("/internal/cron/daily-maintenance", lifecycle.CronHandler())
+	// ADR-0028 D7 (F1 = B, W4-9b): the same route also runs the trends refresh after the backstop, but its status is the
+	// backstop's alone. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), trendsRefresher, log, cfg.ProjectID, time.Now))
+	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
 	// ADR-0021 D1: the scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
 	// budget counter and panic recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
 	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204 with 0 reads.
