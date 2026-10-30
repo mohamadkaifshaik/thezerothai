@@ -314,7 +314,7 @@ func TestTimeoutOnReadPathVersusTransaction(t *testing.T) {
 		var logs bytes.Buffer
 		rg := newRig(t, func(r *rig) { r.repo.sendErr = timeout })
 		rg.svc.d.Log = slog.New(slog.NewJSONHandler(&logs, nil))
-		_, err := rg.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+		_, err := rg.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
 		if code, _, _ := reasonOf(t, err); code != connect.CodeUnavailable {
 			t.Fatalf("err = %v, want UNAVAILABLE", err)
 		}

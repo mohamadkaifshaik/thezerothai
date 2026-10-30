@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -27,6 +29,7 @@ type fakeRepo struct {
 	gets     int
 	sends    []SendParams
 	sendRes  SendResult
+	lastRes  SendResult // what the fake transaction decided (Silent and Mutual from the recipient.s graph)
 	sendErr  error
 	freshErr error // what FreshRecipient returned when the fake ran it
 
@@ -305,22 +308,37 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	f.mu.Lock()
 	f.sends = append(f.sends, p)
 	f.mu.Unlock()
-	if p.FreshRecipient != nil && f.sendRes.Created {
-		f.freshErr = p.FreshRecipient(ctx)
+	if f.sendErr != nil {
+		return SendResult{}, f.sendErr
+	}
+	// The transaction's reads, in the real order (W7-33): the recipient's graph (block, mute, mutual), then for a new
+	// conversation the recipient's users doc.
+	theirs, err := p.RecipientGraphInTx(ctx, nil)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if theirs.Blocked[p.UID] {
+		return SendResult{}, errBlocked
+	}
+	f.mu.Lock()
+	res := f.sendRes
+	f.mu.Unlock()
+	res.Silent, res.Mutual = theirs.Muted[p.UID], p.CallerFollowsPeer && theirs.Following[p.UID]
+	if res.Created {
+		f.freshErr = checkRecipient(p.RecipientInTx(ctx, nil))
 		if f.freshErr != nil {
 			return SendResult{}, f.freshErr
 		}
 	}
-	if f.sendErr != nil {
-		return SendResult{}, f.sendErr
-	}
-	res := f.sendRes
 	if res.Msg.CreatedAt.IsZero() {
 		res.Msg = MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: wireTime(p.Now)}
 	}
 	if res.Conv.State == "" {
 		res.Conv = ConvDoc{Kind: kindDirect, Participants: sortedPair(p.UID, p.PeerUID), State: stateAccepted}
 	}
+	f.mu.Lock()
+	f.lastRes = res
+	f.mu.Unlock()
 	return res, nil
 }
 
@@ -406,15 +424,19 @@ func activeProfile(uid, handle string, createdAt time.Time) identity.Profile {
 
 // rig is one service over fakes. Both users have the flag on and are established accounts unless a test says otherwise.
 type rig struct {
-	svc    *service
-	repo   *fakeRepo
-	social *fakeSocial
-	profs  *fakeProfiles
-	events *recEvents
-	badge  *recBadge
-	reg    *flags.Registry
-	now    time.Time
-	limits Limits
+	svc      *service
+	repo     *fakeRepo
+	social   *fakeSocial
+	txSocial *fakeTxSocial
+	txProfs  *fakeTxProfiles
+	profs    *fakeProfiles
+	events   *recEvents
+	badge    *recBadge
+	reg      *flags.Registry
+	now      time.Time
+	limits   Limits
+	// allowAnon is Deps.AllowAnonymous (the emulator allowance); a context without claims still fails the verified-email gate.
+	allowAnon bool
 }
 
 func newRig(t *testing.T, mut func(*rig)) *rig {
@@ -425,13 +447,15 @@ func newRig(t *testing.T, mut func(*rig)) *rig {
 		limits: Limits{RequestMaxUnanswered: 3, DMNewPerDay: 20, NewAccountDMNewPerDay: 5, NewAccountSendsPerDay: 50, NewAccountWindow: 72 * time.Hour, ConversationCacheEntries: 100},
 		reg:    flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}),
 	}
+	r.allowAnon = true
 	old := r.now.Add(-30 * 24 * time.Hour)
 	r.profs = &fakeProfiles{profiles: map[string]identity.Profile{alice: activeProfile(alice, "alice", old), bob: activeProfile(bob, "bob", old)}}
+	r.txSocial, r.txProfs = &fakeTxSocial{social: r.social}, &fakeTxProfiles{profs: r.profs}
 	if mut != nil {
 		mut(r)
 	}
 	r.svc = New(r.reg, Deps{
-		Repo: r.repo, Social: r.social, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
+		Repo: r.repo, Social: r.social, TxSocial: r.txSocial, TxProfiles: r.txProfs, AllowAnonymous: r.allowAnon, Profiles: r.profs, Events: r.events, Badge: r.badge, Limits: r.limits, CursorKey: testCursorKey, Now: func() time.Time { return r.now },
 	}).(*service)
 	return r
 }
@@ -471,4 +495,54 @@ func reasonOf(t *testing.T, err error) (connect.Code, commonv1.ErrorReason, map[
 		}
 	}
 	return ce.Code(), commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil
+}
+
+// fakeTxSocial serves the recipient's graph inside the "transaction" from the same snapshots as fakeSocial, so a test sets
+// r.social.snaps[bob] once; txCalls counts the in-transaction reads (the cache is never involved).
+type fakeTxSocial struct {
+	social *fakeSocial
+	// override answers the in-transaction read for a uid when set, while the cached fakeSocial keeps its (stale) value.
+	override map[string]graph.Snapshot
+	txCalls  int
+	err      error
+}
+
+func (f *fakeTxSocial) SnapshotInTx(_ context.Context, _ *firestore.Transaction, uid string) (graph.Snapshot, error) {
+	f.txCalls++
+	if s, ok := f.override[uid]; ok {
+		return s, f.err
+	}
+	f.social.mu.Lock()
+	defer f.social.mu.Unlock()
+	return f.social.snaps[uid], f.err
+}
+
+// fakeTxProfiles is identity.TxProfiles over the fakeProfiles map (any status comes back, a missing user is ErrNotFound).
+type fakeTxProfiles struct {
+	profs   *fakeProfiles
+	txCalls int
+	// missing answers ErrNotFound; status, when set, replaces the stored status (a deletion or suspension that committed
+	// after the directory.s cached read).
+	missing bool
+	status  identity.AccountStatus
+}
+
+func (f *fakeTxProfiles) ProfileInTx(_ context.Context, _ *firestore.Transaction, uid string) (identity.Profile, error) {
+	f.txCalls++
+	f.profs.mu.Lock()
+	defer f.profs.mu.Unlock()
+	p, ok := f.profs.profiles[uid]
+	if f.status != identity.AccountStatusUnspecified {
+		p.Status = f.status
+	}
+	if !ok || f.missing {
+		return identity.Profile{}, identity.ErrNotFound
+	}
+	return p, nil
+}
+
+// verifiedCtx is a context whose caller passed the verified-identity gate (a Google sign-in), which Send and Accept re-check
+// themselves (W7-33, L-8). A context without claims is refused with EMAIL_NOT_VERIFIED.
+func verifiedCtx() context.Context {
+	return authn.WithClaims(context.Background(), authn.Claims{SignInProvider: authn.SignInProviderGoogle})
 }

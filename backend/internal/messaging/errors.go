@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
@@ -28,6 +29,24 @@ var (
 // errRecipientInactive is ErrCannotMessage for a recipient whose fresh status read (a new conversation, ADR-0027 D8) was
 // not ACTIVE. It only exists to give the log its own refused_reason; the wire answer is the same.
 var errRecipientInactive = fmt.Errorf("%w: recipient is not active", ErrCannotMessage)
+
+// errBlocked is ErrCannotMessage for a send whose recipient blocked the caller, as the send transaction read it (ADR-0027
+// note W7-33). Like errRecipientInactive it only gives the log its own refused_reason; the wire answer is the same.
+var errBlocked = fmt.Errorf("%w: blocked", ErrCannotMessage)
+
+// checkRecipient is the status rule of a send that creates a conversation, applied to the transaction's read of the
+// recipient's users document: absent or not ACTIVE is errRecipientInactive; any other read error is returned as is.
+func checkRecipient(p identity.Profile, err error) error {
+	switch {
+	case errors.Is(err, identity.ErrNotFound):
+		return errRecipientInactive
+	case err != nil:
+		return fmt.Errorf("messaging: recipient status: %w", err)
+	case p.Status != identity.AccountStatusActive:
+		return errRecipientInactive
+	}
+	return nil
+}
 
 // errPeerFlagOff is ErrCannotMessage for an AcceptMessageRequest whose other participant has messaging off (ADR-0027 D6:
 // Accept needs the flag on for the caller and the peer). Like errRecipientInactive it only gives the log its own

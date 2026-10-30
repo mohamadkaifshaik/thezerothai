@@ -185,7 +185,7 @@ func TestAcceptDelete_MalformedKeyOnEmulator(t *testing.T) {
 				return err
 			},
 		} {
-			ctx, c := budget.WithCounter(context.Background())
+			ctx, c := budget.WithCounter(verifiedCtx())
 			c.AddReads(1)
 			err := run(ctx)
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})

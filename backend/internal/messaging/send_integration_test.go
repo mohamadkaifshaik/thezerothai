@@ -4,7 +4,6 @@ package messaging
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
@@ -406,32 +404,6 @@ func TestSend_NeverTrustsTheCachedConversation(t *testing.T) {
 	}
 	_, _, err := e.send(alice, toConv(skey(2), convID, "stale cache"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-}
-
-// A recipient purged between the cached lookup and the new conversation's transaction (the purge race, D8): the fresh
-// read refuses and nothing is written.
-func TestSend_FreshRecipientReadRefusesAPurgedUser(t *testing.T) {
-	e := newIT(t, nil)
-	calls := 0
-	e.svc.d.Profiles = profilesFunc(func(ctx context.Context, uids []string) (map[string]identityProfile, error) {
-		calls++
-		if calls > 1 {
-			return map[string]identityProfile{}, nil // the fresh read: bob is gone
-		}
-		return e.profs.GetProfiles(ctx, uids)
-	}, e.profs.Forget)
-	_, c, err := e.send(alice, toUser(skey(1), bob, "hi"))
-	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-	if c.Writes() != 0 {
-		t.Errorf("wrote %d", c.Writes())
-	}
-	if _, ok := e.conv(ConversationID(alice, bob)); ok {
-		t.Error("a conversation was created for a purged user")
-	}
-	var ae *apierr.Error
-	if !errors.As(err, &ae) {
-		t.Fatalf("err = %T", err)
-	}
 }
 
 // A long text is stored whole while the entry snippet is cut to 100 code points.

@@ -546,6 +546,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// unread_conversation_count (W7-11); the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
 		Repo: messagingRepo, Social: graphSvc, Profiles: identitySvc.(identity.Directory), Events: messageNotifier{slot: notifSlot},
+		TxSocial: graphRepo, TxProfiles: identityRepo, AllowAnonymous: cfg.AuthEmulator, // W7-33: recipient graph and users doc in the send transaction
 		Badge: identity.NewMessageBadgeCache(identityCache),
 		Limits: messaging.Limits{
 			RequestMaxUnanswered: int64(cfg.Messaging.RequestMaxUnanswered),

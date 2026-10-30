@@ -147,8 +147,9 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 
 // Send implements Repo: one transaction (ADR-0027 D4 step 5).
 //
-// Reads, fresh and before any write: conversations/{convId} (1). A missing conversation adds the recipient's account
-// status without the cache (1, FreshRecipient) and quotas/{uid} (1): 3 in all. A send refused by the unanswered-request
+// Reads, fresh and before any write: conversations/{convId} (1) and the recipient.s graph/{uid} (1, RecipientGraphInTx,
+// W7-33: a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
+// conversation adds the recipient.s users/{uid} (1, RecipientInTx) and quotas/{uid} (1): 4 in all. A send refused by the unanswered-request
 // cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse.
 //
 // Writes: the message (Create, deterministic id), the sender's dmInbox entry and the recipient's entry (field-level
@@ -227,11 +228,31 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		return SendResult{}, err
 	}
 
-	dec, derr := decideSend(conv, p.UID, p.Mutual, p.MaxUnanswered)
 	res := SendResult{}
 	if conv != nil {
 		res.Conv = *conv
+		// Not a participant, or a participant of a conversation whose peer is gone: refused before the graph read.
+		if !conv.hasParticipant(p.UID) || len(conv.Gone) > 0 {
+			_, derr := decideSend(conv, p.UID, false, p.MaxUnanswered)
+			return res, derr
+		}
 	}
+
+	// The recipient.s graph, fresh and serialised with their Block, Mute, Follow and Unfollow (W7-33, A8). A block is
+	// checked before decideSend, so no cap (request limit, new-conversation quota) can reveal it.
+	if p.RecipientGraphInTx == nil {
+		return res, errors.New("messaging: send has no recipient graph reader")
+	}
+	theirs, gerr := p.RecipientGraphInTx(ctx, tx)
+	if gerr != nil {
+		return res, fmt.Errorf("messaging: recipient graph: %w", gerr)
+	}
+	res.Silent, res.Mutual = theirs.Muted[p.UID], p.CallerFollowsPeer && theirs.Following[p.UID]
+	if theirs.Blocked[p.UID] {
+		return res, errBlocked
+	}
+
+	dec, derr := decideSend(conv, p.UID, res.Mutual, p.MaxUnanswered)
 	if errors.Is(derr, ErrRequestLimit) {
 		// The refused send may be the replay of the last allowed message of this key: answer it as a replay.
 		return r.replayOrRefuse(ctx, tx, p, res, derr)
@@ -242,11 +263,13 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 
 	var qrec quota.Record
 	if dec.CreateConv {
-		// A new conversation: the recipient's status fresh (the purge race, D8), then today's new-conversation quota.
-		if p.FreshRecipient != nil {
-			if ferr := p.FreshRecipient(ctx); ferr != nil {
-				return res, ferr
-			}
+		// A new conversation: the recipient.s users doc through the transaction (the purge race, D8; a DeleteAccount or
+		// suspension committing meanwhile conflicts with this send), then today.s new-conversation quota.
+		if p.RecipientInTx == nil {
+			return res, errors.New("messaging: new conversation has no recipient reader")
+		}
+		if ferr := checkRecipient(p.RecipientInTx(ctx, tx)); ferr != nil {
+			return res, ferr
 		}
 		if qrec, err = r.quotas.Get(ctx, tx, p.UID); err != nil {
 			return res, fmt.Errorf("messaging: quota lookup: %w", err)
@@ -294,10 +317,10 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	}
 	// The recipient's entry: dmRequests while the request is unaccepted, else dmInbox.
 	other := map[string]any{
-		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": p.Silent,
+		"peerId": p.UID, "peer": p.Caller.fields(), "lastMessageAt": now, "changedAt": now, "silent": res.Silent,
 		"last": LastDoc{MessageID: p.MsgID, FromSelf: false, Snippet: snippet, State: msgVisible}.fields(),
 	}
-	if !p.Silent {
+	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
 	}
 	if res.Created {

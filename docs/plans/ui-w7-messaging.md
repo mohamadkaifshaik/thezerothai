@@ -144,7 +144,7 @@ People can talk privately one to one. Mutual follows message each other directly
   | Cached read | Bound |
   |---|---|
   | `conversations/{id}` per instance (membership, state, `clearedAt`, `gone`) | membership is immutable in 1:1. State and `clearedAt` are updated in place on the writing instance; other instances converge within **60 s** (a cleared history can show for up to 60 s on another instance). **Send never trusts the cache:** it re-reads the doc inside its transaction |
-  | Caller and recipient `graph` snapshots (60 s) | a new Block applies at once on the instance that handled it and within **60 s** elsewhere (architect A8: a fresh read instead costs +1 read per send) |
+  | Caller `graph` snapshot (60 s) | the caller's own Block, Mute and Follow apply at once on the instance that handled them and within **60 s** elsewhere (self-inflicted staleness, accepted). **The recipient's graph is not cached on a send:** it is read fresh in the send transaction since W7-33 (A8 flipped by the founder 2026-10-29, +1 read per send), so the recipient's Block applies at once on every instance, and a new conversation's recipient `users` doc is read in the transaction too (L-3) |
   | Peer snapshot stored on an inbox entry (name, handle, avatar) | refreshed on every message in either direction; between messages it can be as stale as the peer's last rename. The thread header uses `identity.Directory` (60 s) |
   | `unread_conversation_count` in GetMe | 30 s server cache (shared with the notifications count), evicted on this instance by a send to or a mark-read by that user; the client moves the badge locally on a foreground push and on open |
   | Client | the inbox and the last 200 messages per conversation are cached in drift per uid and wiped on sign-out (`SessionEpoch`); polls fetch only `since` |
@@ -183,7 +183,7 @@ Prices (§7):
 
 | RPC | Reads worst (cold) | Reads planning | Writes | Deletes | Notes |
 |---|---|---|---|---|---|
-| SendMessage, accepted conversation | 5 (interceptor 1, caller graph 1, recipient graph 1, recipient `users` via Directory 1, conversation doc in the txn 1) | 2.5 | 3 (message `Create`, 2 inbox entries) | 0 | +1 write while REQUEST (`requestCount`) |
+| SendMessage, accepted conversation | 5 (interceptor 1, caller graph 1, recipient `users` via Directory 1, conversation doc and recipient graph in the txn 2; warm 2, was 1, W7-33) | 3.5 | 3 (message `Create`, 2 inbox entries) | 0 | +1 write while REQUEST (`requestCount`) |
 | SendMessage, new conversation | 7 (above + fresh recipient status read, architect A7 + `quotas` in the txn) | — | 5 (message, conversation doc, sender entry, recipient entry, `quotas.dmNew`) | 0 | 0.05 of the 1.5 sends |
 | SendMessage, replay (same key, AlreadyExists at commit) | +1 (read the stored message to return it) | — | 0 | 0 | same key with a different body → VALIDATION `idempotency_key` |
 | SendMessage, refused (blocked, flag off for the recipient, request cap, gone) | ≤ 5 | — | 0 | 0 | one error code, "can't message this account" |

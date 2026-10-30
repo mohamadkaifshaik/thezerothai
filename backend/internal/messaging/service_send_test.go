@@ -16,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -76,7 +77,7 @@ func TestSend_ValidationCostsNoReads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t, nil)
-			_, err := r.svc.Send(context.Background(), alice, tt.req)
+			_, err := r.svc.Send(verifiedCtx(), alice, tt.req)
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": tt.field})
 			if r.repo.gets+len(r.repo.sends)+r.social.calls+r.profs.calls != 0 {
 				t.Errorf("a rejected request read or wrote: repo gets %d sends %d graph %d profiles %d", r.repo.gets, len(r.repo.sends), r.social.calls, r.profs.calls)
@@ -88,7 +89,7 @@ func TestSend_ValidationCostsNoReads(t *testing.T) {
 // Text goes through text.Normalize (A6): NFC and the stored form, never the raw input.
 func TestSend_TextIsNormalised(t *testing.T) {
 	r := newRig(t, nil)
-	resp, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "  é \r\nok\t "))
+	resp, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "  é \r\nok\t "))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestSend_FlagMatrix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t, func(r *rig) { r.reg = flags.NewRegistry(tt.spec) })
-			resp, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+			resp, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
 			switch {
 			case !tt.callerOn:
 				wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": "messaging"})
@@ -169,10 +170,18 @@ func TestSend_RefusalsAreByteIdentical(t *testing.T) {
 			r.repo.convs[convID] = ConvDoc{Participants: sortedPair(alice, bob), State: stateAccepted, Gone: []string{bob}}
 		}, refusedGone},
 		{"gone, seen inside the transaction", func(r *rig) { r.repo.sendErr = ErrCannotMessage }, refusedGone},
-		{"the fresh status read finds the recipient inactive", func(r *rig) {
+		{"the transaction's users read finds the recipient deleted", func(r *rig) {
 			r.repo.sendRes = SendResult{Created: true}
-			r.repo.sendErr = nil
+			r.txProfs.missing = true
 		}, refusedRecipientOff},
+		{"the transaction's users read finds the recipient suspended", func(r *rig) {
+			r.repo.sendRes = SendResult{Created: true}
+			r.txProfs.status = identity.AccountStatusSuspended
+		}, refusedRecipientOff},
+		{"the recipient blocked the caller 59 s ago (stale cache, fresh graph)", func(r *rig) {
+			// The cached snapshot the service could still hold says nothing; the transaction's read decides.
+			r.txSocial.override = map[string]graph.Snapshot{bob: {Blocked: map[string]bool{alice: true}}}
+		}, refusedBlocked},
 	}
 	var first []byte
 	for i, tt := range tests {
@@ -182,19 +191,7 @@ func TestSend_RefusalsAreByteIdentical(t *testing.T) {
 			if strings.Contains(tt.name, "(by id)") {
 				req = toConv(key1, convID, "hi")
 			}
-			if strings.Contains(tt.name, "fresh status") {
-				// The directory answers the first lookup but not the fresh one (the user was purged in between).
-				calls := 0
-				r.profs.err = nil
-				r.svc.d.Profiles = profilesFunc(func(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
-					calls++
-					if calls > 1 {
-						return map[string]identity.Profile{}, nil
-					}
-					return r.profs.GetProfiles(ctx, uids)
-				}, r.profs.Forget)
-			}
-			ctx, info := logger.WithRequestInfo(context.Background())
+			ctx, info := logger.WithRequestInfo(verifiedCtx())
 			_, err := r.svc.Send(ctx, alice, req)
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 			got := wireBytes(t, err)
@@ -245,13 +242,13 @@ func TestSend_RoutingFlagsReachTheTransaction(t *testing.T) {
 					r.social.snaps[u] = s
 				}
 			})
-			resp, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+			resp, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
 			if err != nil {
 				t.Fatal(err)
 			}
 			p := r.repo.sends[0]
-			if p.Mutual != tt.wantMutual || p.Silent != tt.wantSilent || p.CallerSilent != tt.mute {
-				t.Errorf("mutual/silent/callerSilent = %v/%v/%v, want %v/%v/%v", p.Mutual, p.Silent, p.CallerSilent, tt.wantMutual, tt.wantSilent, tt.mute)
+			if got := r.repo.lastRes; got.Mutual != tt.wantMutual || got.Silent != tt.wantSilent || p.CallerSilent != tt.mute {
+				t.Errorf("mutual/silent/callerSilent = %v/%v/%v, want %v/%v/%v", got.Mutual, got.Silent, p.CallerSilent, tt.wantMutual, tt.wantSilent, tt.mute)
 			}
 			if p.ConvID != ConversationID(alice, bob) || p.MsgID != MessageID(alice, key1) || p.RequestHash != requestHash(p.ConvID, "hi") {
 				t.Errorf("ids = %q %q %q", p.ConvID, p.MsgID, p.RequestHash)
@@ -293,7 +290,7 @@ func TestSend_EventsAndBadge(t *testing.T) {
 				}
 				r.repo.sendRes = tt.res
 			})
-			if _, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err != nil {
+			if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err != nil {
 				t.Fatal(err)
 			}
 			if len(r.events.got) != tt.wantEvents {
@@ -319,7 +316,7 @@ func TestSend_EventsAndBadge(t *testing.T) {
 func TestSend_NilSeamsAreSkipped(t *testing.T) {
 	r := newRig(t, nil)
 	r.svc.d.Events, r.svc.d.Badge = nil, nil
-	if _, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err != nil {
+	if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -343,7 +340,7 @@ func TestSend_RepoErrorMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t, func(r *rig) { r.repo.sendErr = tt.err })
-			ctx, info := logger.WithRequestInfo(context.Background())
+			ctx, info := logger.WithRequestInfo(verifiedCtx())
 			_, err := r.svc.Send(ctx, alice, toUser(key1, bob, "hi"))
 			wantAPI(t, err, tt.code, tt.reason, tt.meta)
 			if tt.meta["limit"] != "" && info.LimitName != tt.meta["limit"] {
@@ -358,7 +355,7 @@ func TestSend_InternalErrorIsRedacted(t *testing.T) {
 	r := newRig(t, func(r *rig) {
 		r.repo.sendErr = fmt.Errorf("rpc error: documents/users/%s/dmInbox/%s and %s failed", bob, ConversationID(alice, bob), alice)
 	})
-	_, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+	_, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
 	if err == nil || connect.CodeOf(apierr.ToConnect(err)) != connect.CodeInternal {
 		t.Fatalf("err = %v, want an internal error", err)
 	}
@@ -378,12 +375,12 @@ func TestSend_ContextEndMapsToItsCode(t *testing.T) {
 		code connect.Code
 	}{
 		{"canceled", func() (context.Context, context.CancelFunc) {
-			c, cancel := context.WithCancel(context.Background())
+			c, cancel := context.WithCancel(verifiedCtx())
 			cancel()
 			return c, cancel
 		}, connect.CodeCanceled},
 		{"deadline", func() (context.Context, context.CancelFunc) {
-			return context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+			return context.WithDeadline(verifiedCtx(), time.Now().Add(-time.Second))
 		}, connect.CodeDeadlineExceeded},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -407,7 +404,7 @@ func TestSend_ByConversationID(t *testing.T) {
 	t.Run("participant, cached after the first read", func(t *testing.T) {
 		r := newRig(t, func(r *rig) { r.repo.convs[convID] = stored })
 		for range 2 {
-			if _, err := r.svc.Send(context.Background(), alice, toConv(key1, convID, "hi")); err != nil {
+			if _, err := r.svc.Send(verifiedCtx(), alice, toConv(key1, convID, "hi")); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -422,7 +419,7 @@ func TestSend_ByConversationID(t *testing.T) {
 	t.Run("a malformed participant list is NOT_FOUND, not a send to nobody", func(t *testing.T) {
 		bad := strings.Repeat("b", 32)
 		r := newRig(t, func(r *rig) { r.repo.convs[bad] = ConvDoc{Participants: []string{alice}, State: stateAccepted} })
-		_, err := r.svc.Send(context.Background(), alice, toConv(key1, bad, "hi"))
+		_, err := r.svc.Send(verifiedCtx(), alice, toConv(key1, bad, "hi"))
 		wantAPI(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
 		if r.social.calls != 0 || len(r.repo.sends) != 0 {
 			t.Error("a malformed conversation reached the graph or the transaction")
@@ -433,8 +430,8 @@ func TestSend_ByConversationID(t *testing.T) {
 		r := newRig(t, func(r *rig) { r.repo.convs[convID] = stored })
 		foreign := ConversationID(bob, "uid-carol")
 		r.repo.convs[foreign] = ConvDoc{Participants: sortedPair(bob, "uid-carol"), State: stateAccepted}
-		_, unknownErr := r.svc.Send(context.Background(), alice, toConv(key1, strings.Repeat("a", 32), "hi"))
-		_, foreignErr := r.svc.Send(context.Background(), alice, toConv(key1, foreign, "hi"))
+		_, unknownErr := r.svc.Send(verifiedCtx(), alice, toConv(key1, strings.Repeat("a", 32), "hi"))
+		_, foreignErr := r.svc.Send(verifiedCtx(), alice, toConv(key1, foreign, "hi"))
 		wantAPI(t, unknownErr, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
 		if !bytes.Equal(wireBytes(t, unknownErr), wireBytes(t, foreignErr)) {
 			t.Errorf("NOT_FOUND bytes differ:\n unknown %q\n foreign %q", wireBytes(t, unknownErr), wireBytes(t, foreignErr))
@@ -455,11 +452,11 @@ func TestSend_NewAccountDailyCap(t *testing.T) {
 	t.Run("new account: the 4th call is RATE_LIMITED messages_daily", func(t *testing.T) {
 		r := newRig(t, fresh)
 		for i := range 3 {
-			if _, err := r.svc.Send(context.Background(), alice, toUser(fmt.Sprintf("send-key-%08d", i), bob, "hi")); err != nil {
+			if _, err := r.svc.Send(verifiedCtx(), alice, toUser(fmt.Sprintf("send-key-%08d", i), bob, "hi")); err != nil {
 				t.Fatalf("send %d: %v", i, err)
 			}
 		}
-		ctx, info := logger.WithRequestInfo(context.Background())
+		ctx, info := logger.WithRequestInfo(verifiedCtx())
 		_, err := r.svc.Send(ctx, alice, toUser("send-key-00000009", bob, "hi"))
 		wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, map[string]string{"limit": "messages_daily"})
 		if info.LimitName != "messages_daily" {
@@ -475,42 +472,20 @@ func TestSend_NewAccountDailyCap(t *testing.T) {
 	t.Run("established account is not capped by the tier", func(t *testing.T) {
 		r := newRig(t, func(r *rig) { r.limits.NewAccountSendsPerDay = 1 })
 		for i := range 4 {
-			if _, err := r.svc.Send(context.Background(), alice, toUser(fmt.Sprintf("send-key-%08d", i), bob, "hi")); err != nil {
+			if _, err := r.svc.Send(verifiedCtx(), alice, toUser(fmt.Sprintf("send-key-%08d", i), bob, "hi")); err != nil {
 				t.Fatalf("send %d: %v", i, err)
 			}
 		}
 	})
 	t.Run("a new account gets the smaller new-conversation quota", func(t *testing.T) {
 		r := newRig(t, fresh)
-		if _, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err != nil {
+		if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err != nil {
 			t.Fatal(err)
 		}
 		if got := r.repo.sends[0].DMNewLimit; got != 5 {
 			t.Errorf("DMNewLimit = %d, want the new-account 5", got)
 		}
 	})
-}
-
-// The fresh recipient check runs inside the transaction for a new conversation only: Forget, then a directory read.
-func TestSend_FreshRecipientCheck(t *testing.T) {
-	r := newRig(t, func(r *rig) { r.repo.sendRes = SendResult{Created: true} })
-	if _, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err != nil {
-		t.Fatal(err)
-	}
-	if len(r.profs.forgot) != 1 || r.profs.forgot[0] != bob {
-		t.Errorf("Forget = %v, want [bob]", r.profs.forgot)
-	}
-	if r.profs.calls != 2 {
-		t.Errorf("directory lookups = %d, want 2 (the cached one, then the fresh one)", r.profs.calls)
-	}
-	// An existing conversation never pays it.
-	r2 := newRig(t, nil)
-	if _, err := r2.svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err != nil {
-		t.Fatal(err)
-	}
-	if len(r2.profs.forgot) != 0 || r2.profs.calls != 1 {
-		t.Errorf("an existing conversation forgot %v and looked up %d times", r2.profs.forgot, r2.profs.calls)
-	}
 }
 
 // The request line (D11): the fixed fields, and never the text, a uid or the conversation id in clear.
@@ -532,7 +507,7 @@ func TestSend_RequestLineFields(t *testing.T) {
 				r.repo.sendRes = tt.res
 				r.social.snaps[bob] = graph.Snapshot{Muted: map[string]bool{alice: true}}
 			})
-			ctx, info := logger.WithRequestInfo(context.Background())
+			ctx, info := logger.WithRequestInfo(verifiedCtx())
 			if _, err := r.svc.Send(ctx, alice, toUser(key1, bob, "a secret sentence")); err != nil {
 				t.Fatal(err)
 			}
@@ -568,7 +543,7 @@ func TestSend_LookupFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newRig(t, tt.mut)
-			_, err := r.svc.Send(context.Background(), alice, toUser(key1, bob, "hi"))
+			_, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
 			if err == nil || apierr.ToConnect(err).Code() != connect.CodeInternal {
 				t.Fatalf("err = %v, want internal", err)
 			}
@@ -582,7 +557,133 @@ func TestSend_LookupFailures(t *testing.T) {
 // An unconfigured service refuses to send rather than panic.
 func TestSend_NotConfigured(t *testing.T) {
 	svc := New(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), Deps{})
-	if _, err := svc.Send(context.Background(), alice, toUser(key1, bob, "hi")); err == nil {
+	if _, err := svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err == nil {
 		t.Fatalf("err = %v, want a configuration error", err)
+	}
+}
+
+// W7-33 (L-1, L-3): the recipient's users doc is read through the transaction for a new conversation only (replacing the
+// old Forget plus directory lookup), and the recipient's graph through the transaction for every send, never the cache.
+func TestSend_RecipientReadsAreInTheTransaction(t *testing.T) {
+	tests := []struct {
+		name                       string
+		res                        SendResult
+		wantGraphTx, wantProfTx    int
+		wantCacheReads, wantForgot int
+	}{
+		{"existing conversation", SendResult{}, 1, 0, 1, 0},
+		{"new conversation", SendResult{Created: true}, 1, 1, 1, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newRig(t, func(r *rig) { r.repo.sendRes = tt.res })
+			if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err != nil {
+				t.Fatal(err)
+			}
+			if r.txSocial.txCalls != tt.wantGraphTx || r.txProfs.txCalls != tt.wantProfTx {
+				t.Errorf("in-transaction reads: graph %d, users %d, want %d and %d", r.txSocial.txCalls, r.txProfs.txCalls, tt.wantGraphTx, tt.wantProfTx)
+			}
+			// The cached Snapshot is the caller's only: the recipient's cached snapshot read was removed.
+			if r.social.calls != tt.wantCacheReads {
+				t.Errorf("cached graph reads = %d, want %d (the caller's)", r.social.calls, tt.wantCacheReads)
+			}
+			if r.profs.calls != 1 || len(r.profs.forgot) != tt.wantForgot {
+				t.Errorf("directory lookups %d, Forget %v, want 1 lookup and no Forget", r.profs.calls, r.profs.forgot)
+			}
+		})
+	}
+}
+
+// W7-33 (L-1): silent, mutual and the block come from the recipient's graph as the transaction read it, not from the
+// cached snapshot of the same user, which can be 60 s old.
+func TestSend_StaleCacheLosesToTheTransactionRead(t *testing.T) {
+	bobMutedAlice := graph.Snapshot{Following: map[string]bool{alice: true}, Muted: map[string]bool{alice: true}}
+	t.Run("a fresh mute is silent: no push, silent logged", func(t *testing.T) {
+		r := newRig(t, func(r *rig) {
+			r.social.snaps[alice] = follows(alice, bob)
+			r.social.snaps[bob] = follows(bob, alice) // the stale cache: followed, not muted
+		})
+		r.txSocial.override = map[string]graph.Snapshot{bob: bobMutedAlice}
+		ctx, info := logger.WithRequestInfo(verifiedCtx())
+		if _, err := r.svc.Send(ctx, alice, toUser(key1, bob, "hi")); err != nil {
+			t.Fatal(err)
+		}
+		if len(r.events.got) != 0 {
+			t.Errorf("a muted sender pushed %d events", len(r.events.got))
+		}
+		if v, _ := info.Get(fieldSilent); v != true {
+			t.Errorf("silent = %v, want true", v)
+		}
+	})
+	t.Run("a fresh unfollow makes the new conversation a request", func(t *testing.T) {
+		r := newRig(t, func(r *rig) {
+			r.social.snaps[alice] = follows(alice, bob)
+			r.social.snaps[bob] = follows(bob, alice) // the stale cache still says mutual
+			r.repo.sendRes = SendResult{Created: true}
+		})
+		r.txSocial.override = map[string]graph.Snapshot{bob: {}}
+		if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err != nil {
+			t.Fatal(err)
+		}
+		if r.repo.lastRes.Mutual {
+			t.Error("the stale Following[alice] made the conversation mutual")
+		}
+	})
+	t.Run("a fresh block refuses before any write or event", func(t *testing.T) {
+		r := newRig(t, nil)
+		r.txSocial.override = map[string]graph.Snapshot{bob: {Blocked: map[string]bool{alice: true}}}
+		_, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi"))
+		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
+		if len(r.events.got) != 0 || len(r.badge.got) != 0 {
+			t.Errorf("a blocked send emitted %d events and %d badge evictions", len(r.events.got), len(r.badge.got))
+		}
+	})
+	t.Run("a failing transaction read is an error, never a delivery", func(t *testing.T) {
+		r := newRig(t, nil)
+		r.txSocial.err = errors.New("backend down")
+		if _, err := r.svc.Send(verifiedCtx(), alice, toUser(key1, bob, "hi")); err == nil {
+			t.Fatal("sent without the recipient's graph")
+		}
+		if len(r.events.got) != 0 {
+			t.Error("event after a failed send")
+		}
+	})
+}
+
+// W7-33 (L-8): Send and Accept refuse an unverified caller with EMAIL_NOT_VERIFIED and 0 reads; the flag answers first.
+func TestSendAndAccept_RequireVerifiedEmail(t *testing.T) {
+	unverified := authn.WithClaims(context.Background(), authn.Claims{SignInProvider: authn.SignInProviderPassword, EmailVerified: false})
+	call := map[string]func(r *rig, ctx context.Context) error{
+		"send": func(r *rig, ctx context.Context) error {
+			_, err := r.svc.Send(ctx, alice, toUser(key1, bob, "hi"))
+			return err
+		},
+		"accept": func(r *rig, ctx context.Context) error {
+			_, err := r.svc.Accept(ctx, alice, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: aliceBobConv})
+			return err
+		},
+	}
+	for name, do := range call {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, func(r *rig) { r.allowAnon = false })
+			wantAPI(t, do(r, unverified), connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED, nil)
+			if r.social.calls+r.profs.calls+r.repo.gets+len(r.repo.sends)+len(r.repo.accepts)+r.txSocial.txCalls != 0 {
+				t.Error("an unverified caller cost a read")
+			}
+			// The flag is checked first.
+			off := newRig(t, func(r *rig) {
+				r.allowAnon = false
+				r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Off})
+			})
+			wantAPI(t, do(off, unverified), connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, nil)
+			// A Google sign-in passes the gate.
+			ok := newRig(t, nil)
+			if err := do(ok, verifiedCtx()); err != nil {
+				var ae *apierr.Error
+				if errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_EMAIL_NOT_VERIFIED {
+					t.Errorf("a verified caller was refused: %v", err)
+				}
+			}
+		})
 	}
 }
