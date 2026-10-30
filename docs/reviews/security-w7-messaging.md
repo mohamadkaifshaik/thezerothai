@@ -145,7 +145,7 @@ This is the same class as the bookmark idempotency writes (W2-14 M-1) and Update
 - `app/lib/features/messages/presentation/conversations_screen.dart:313-318`: the Inbox empty state reads "Welcome to your inbox / Start a conversation". No string containing "encrypt" exists in `app/lib` outside generated code.
 - ADR-0027 D11 (lines 288-289) and the plan's risk table (line 979) require the line.
 - No Privacy Policy is on `main`.
-- The Terms draft is not on `main` either (`pending.md` 3.9; PR #149 was closed unmerged).
+- The Terms draft is not on `main` either (`docs/plans/roadmap.md` section 9, item 3.9; PR #149 was closed unmerged).
 
 **Scenario:** users assume WhatsApp-style privacy and share sensitive content that operators, CI identities (M-4) and lawful-access requests can read. This is a transparency obligation under DPDP Act s.5 (notice) and GDPR Art. 13, and a deceptive-design risk.
 
@@ -256,7 +256,7 @@ There is no cap on how many requests one recipient can receive. A ring of N acco
 - **Non-participant answers:** NOT_FOUND bytes are identical for a missing conversation and a non-participant (`errors.go:53`). A malformed id is VALIDATION with 0 reads. Every refusal is the one `cannotMessage()` (`errors.go:41`), and the ordering puts block before the caps, so a cap never reveals a block.
 - **Retired since token:** `since_retired` uses the same `apierr.Validation("since_token", "invalid or expired since_token")` as a decode failure (`service_messages.go:123` and `:158`), so the bytes are identical. It is checked after the participant check. A pre-revision token decodes as rev 0, so it is retired, never accepted.
 - **`requestHash`:** no additional exposure. It lives in the same document as the plaintext, so anyone who can read it can already read the text. It is never on the wire, in exports or in logs, and it is cleared on takedown (`repo_moderation.go:145`) and on erasure (`repo_lifecycle.go:174`). Brute-forcing it gains nothing.
-- **`clearedKey`:** a digest of a random client key. It carries no content and is erased with `clearedAt` (`repo_lifecycle.go:237-242`). The T11 sweep does not scan map keys; that follow-up is already recorded in `pending.md` 3.16.
+- **`clearedKey`:** a digest of a random client key. It carries no content and is erased with `clearedAt` (`repo_lifecycle.go:237-242`). The T11 sweep does not scan map keys; that follow-up is still open.
 - **Push:** title and body are "New message" / "You have a new message". `data` is `{type, conversationId}` only (`fcm.go:40, 128`). No push for requests or muted senders, and the fan-out suppresses blocked actors (`fanout.go:252-286`).
 - **N6:** a tray push from a previous account cold-opens to "isn't available", and its text is generic. Sign-out unregisters the device and deletes the token (`push_cubit.dart:268-292`). Optional: cancel displayed notifications on sign-out.
 - **Deep link:** `deepLinkTarget` uses `^/messages/[0-9a-f]{32}$`, and a query or fragment rejects the link (`app_router.dart:421-444`). `%61` is normalised by `Uri` to the same id, which is benign. `notificationLocation` checks the raw id before building the path, so an encoded id is dropped.
@@ -292,13 +292,13 @@ Messages before `clearedAt` are included. That is correct: the data is still hel
 - `requestHash`: no exposure while live.
 
 ## 4. Founder actions
-1. **Privacy Policy, add these lines** (needed before any non-team user; extends `pending.md` 3.18):
+1. **Privacy Policy, add these lines** (needed before any non-team user; extends `docs/plans/roadmap.md` section 9, item 3.18):
    - Direct messages are **not end-to-end encrypted**. They are stored on our servers (Google Cloud, Mumbai) with Google-managed encryption at rest.
    - Who can read messages: a reported message is copied for moderators, kept until 90 days after the report is resolved (indefinitely while unresolved, see L-6), even after the sender deletes their account. Staff with database access can technically read messages and do so only for safety or legal reasons. Messages can be disclosed under lawful orders.
    - Retention: messages stay until the account is deleted; there is no time limit in v1. "Delete conversation" removes it only from your inbox, and the other person keeps their copy. After account deletion, your messages show as "Message deleted" to the other person and their text is erased.
    - Push notifications carry no sender and no text.
    - The data export includes your sent messages in full and received messages as timestamps only.
-2. **Terms of Service** (`pending.md` 3.9; the draft is not on `main`): add acceptable use for messages (no spam or unsolicited bulk messages, no harassment), the message-request limits, report and takedown (a takedown cannot be undone), and the no-E2E line.
+2. **Terms of Service** (`docs/plans/roadmap.md` section 9, item 3.9; the draft is not on `main`): add acceptable use for messages (no spam or unsolicited bulk messages, no harassment), the message-request limits, report and takedown (a takedown cannot be undone), and the no-E2E line.
 3. **M-4:** re-decide the `tf-plan` `roles/viewer` acceptance (its expiry condition is arguably met by the GitHub App identity), or approve the custom read role, before prod messaging.
 4. **A8:** acknowledge the flip, which goes in an ADR-0027 note.
 5. **L-6:** commit to the 48 h report triage SLA, or approve a TTL for OPEN MESSAGE reports.

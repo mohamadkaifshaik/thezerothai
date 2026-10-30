@@ -21,7 +21,7 @@ The plan output below is **expected**, not captured: run step 2 and compare.
 
 **Prerequisites.**
 - PR #392 (W8) is merged and its `deploy-dev` run succeeded: that ships the API with `FEATURE_SHELLS` registered (default off) and the dev web build with the pages. Until then the flag change does nothing visible.
-- No other dev apply in flight (serialise with W3–W7 rollouts, `pending.md` 3.10: never a full `terraform apply` in `envs/dev`).
+- No other dev apply in flight (serialise with W3–W7 rollouts, `docs/plans/roadmap.md` section 9, item 3.10: never a full `terraform apply` in `envs/dev`).
 - The cohort is the 3 testers that already have `ui_shell`: entries need `shells` **and** `ui_shell` (F6), so the lines copy `feature_ui_shell_allowlist`. No uid is typed or pasted.
 
 Run from your **MAIN checkout** (the real gitignored `terraform.tfvars` is there), Windows Git Bash, `export GOWORK=off`, `gcloud` and `terraform` on the PATH.
@@ -88,7 +88,7 @@ The new revision's startup `feature_flags` log line lists `shells` in allowlist 
 - [ ] The other account sees no entry, and a typed `/premium` or `/calls` lands on Home.
 - [ ] The network panel shows no `/api/` request while on a shell page.
 
-Record the result in `pending.md` 3.17 and set W8-11's status in the plan.
+Record the result and set W8-11's status in the plan.
 
 **Rollback:** remove the two lines from `terraform.tfvars` (or set `feature_shells = "off"`), the same targeted plan (expect only the three `FEATURE_SHELLS*` env changes), apply, route as step 4. Instant fallback: route traffic back to `$SERVING`.
 

@@ -54,7 +54,7 @@ runbook in `docs/runbooks/`. If the proto or data model does not support what yo
   (off/allowlist/percent/on) for any new RPC.
 - `make ci` green; `golangci-lint run ./...` and `go test -race ./...` before declaring done; `make test-int` for repo changes.
 - `docs/code-map.md` updated for any new shared helper; the runbook updated for any new failure mode; the plan ticket
-  `Status` and `docs/pending.md` updated in the same PR.
+  `Status` updated in the same PR.
 
 ## Handoff contract
 - **Inputs I require:** plan ticket with acceptance criteria and budget line; ADR and proto merged (`make proto` green).

@@ -42,7 +42,7 @@ android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto cre
 ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)
 
 # Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: leave both commented out and nothing is created.
-# The founder decides whether to set them (see docs/pending.md). Together they create ONE time-boxed IAM binding
+# The founder decides whether to set them. Together they create ONE time-boxed IAM binding
 # on the dev pubsub-push service account: roles/iam.serviceAccountOpenIdTokenCreator (only getOpenIdToken) for ONE
 # person ("user:" only: a service account, group or domain is refused), with an IAM condition that stops it working at
 # the expiry. The expiry is REQUIRED with the invoker, in the exact UTC form below; `terraform plan` refuses one that is

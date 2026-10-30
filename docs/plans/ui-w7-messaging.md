@@ -333,7 +333,7 @@ Prices (§7):
 2. **M7.2 Messaging backend:** W7-4 to W7-9 (W7-5 and W7-6 in one PR), then W7-27 (the ListMessages unread count, before W7-24). Flags off; dev check by allowlist.
 3. **M7.3 Cross-module hooks:** W7-10 (push), W7-11 (badge), W7-12 (report).
 4. **M7.4 Client:** W7-13 to W7-19.
-5. **M7.5 Verify and roll:** W7-20 to W7-24. Dev allowlist only; prod waits for the held prod apply (`pending.md` 1.2) and your MVP launch decision.
+5. **M7.5 Verify and roll:** W7-20 to W7-24. Dev allowlist only; prod waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and your MVP launch decision.
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3–W6? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -408,7 +408,7 @@ Order:
 - Client: widget tests in light and dark at 360 / 600 / 1200 via `test/support/theme_harness.dart`, and text scale 1.0 / 1.3 / 2.0, for every new screen or widget. Pixel goldens deferred (B-01).
 - `make ci` green.
 - `docs/code-map.md` / `docs/ui-catalog.md` updated.
-- This table's Status and `docs/pending.md` row 3.16 updated in the PR.
+- This table's Status updated in the PR.
 
 ## Tickets
 
@@ -890,7 +890,7 @@ Order:
   - drift storage on shared devices (sign-out wipe);
   - link rendering in messages (phishing; the same rules as posts);
   - degraded mode;
-  - the decision record for "no E2E" in user-facing copy (Privacy Policy: messages are not end-to-end encrypted; the Terms draft `pending.md` 3.9 needs the line).
+  - the decision record for "no E2E" in user-facing copy (Privacy Policy: messages are not end-to-end encrypted; the Terms draft `docs/plans/roadmap.md` section 9, item 3.9 needs the line).
 
   Findings are fixed or ticketed before any dev allowlist.
 - **Acceptance criteria.** A report in `docs/reviews/` with no open Critical or High findings, and an explicit verdict on A8 and F5.
@@ -916,8 +916,8 @@ Order:
 
 ### W7-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W7-20, W7-22, W7-23, ADR merged]  Status: In review (PR #458): rollout prepared, founder apply pending
 - **Description.**
-  - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe) for `feature_messaging*` and the messaging config env vars.
-  - The fieldOverrides deploy with the dev deploy workflow after the W7-3 merge; for prod they wait for the held release (`pending.md` 1.2) and must be deployed before `messaging` leaves `off` there.
+  - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_messaging*` and the messaging config env vars.
+  - The fieldOverrides deploy with the dev deploy workflow after the W7-3 merge; for prod they wait for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `messaging` leaves `off` there.
   - Apply only on OK, allowlist 3 test uids (with `notifications` on for at least one Android device).
   - Smoke:
     - a mutual pair sends both ways;
@@ -929,7 +929,7 @@ Order:
     - account deletion of a throwaway test user (tombstone).
   - Prod: no change (on hold).
   - **Prepared (PR #458, 2026-10-29).** Runbook `docs/runbooks/w7-messaging-dev-rollout.md`; the W7-29 caps `MESSAGES_MARK_READ_PER_DAY` and `MESSAGES_MUTATIONS_PER_DAY` are now explicit config in `envs/dev` and `envs/prod` (prod also gets the other messaging limits, all inert). The `changedAt` query ran clean on dev Firestore (read-only, non-existent parent; the control on an exempt field failed as it should). Not applied. Waits for W7-27 (not merged). Founder decision 2026-10-29: the throwaway-user account-deletion (tombstone) leg is owed, skipped in this dev smoke and run before prod (the W7-20 emulator tests cover the eraser meanwhile); the Android push leg stays in.
-- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state; `pending.md` 3.16 updated.
+- **Acceptance criteria.** The dev smoke passes; the flag is back to its planned state.
 - **Test notes.** —
 - **Observability.** Check the `kind=send|poll` lines, `notification_delivery type=message` and the `account_job step=messaging` line in dev logs.
 - **Budget.** A few hundred reads inside the dev project's free quota.
@@ -1077,6 +1077,6 @@ scenario no longer works".
 | Private text copied into reports | only the reported message, ADR-0016 note, the existing TTL after resolution |
 | Purge race recreates a deleted user's entry | `gone` mark serialised with sends, a fresh status read on new conversations, the backstop re-run (A7) |
 | Uncaptured visuals (conversation view, new-message flow) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
-| Merge conflicts with W3–W6 in shared files | the shared-file table; one PR at a time (`pending.md` rules) |
+| Merge conflicts with W3–W6 in shared files | the shared-file table; one PR at a time |
 | ADR number clash | resolved: W7 is ADR-0027 (2026-10-28) |
 | 5-item bar is full once Explore and Messages land | F10 fixes the order; Lists (W5) go in the drawer |

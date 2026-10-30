@@ -32,7 +32,7 @@ leaks through a module seam.
   streams; UI not gated on `enabled_features`; colours outside ADR-0020 tokens.
 - **Tests:** meaningful assertions, edge cases, budget assertions present, flag modes covered, no sleeps.
 - **Observability:** request log line with `fs_reads`/`fs_writes` and trace id; no PII.
-- **Docs in the same PR:** plan ticket `Status`, `docs/pending.md`, `docs/code-map.md` / `docs/ui-catalog.md`, runbook for
+- **Docs in the same PR:** plan ticket `Status`, `docs/code-map.md` / `docs/ui-catalog.md`, runbook for
   any new failure mode, cost model if budgets changed.
 
 ## Output

@@ -19,7 +19,7 @@ W8 adds four client-only pages, a rail "More" menu, drawer rows, one client-only
 | I-3 | Info | `app/lib/features/shells/presentation/creator_studio_screen.dart` | Imports a generated *message* type (`identity.pb.dart`) to read the in-memory profile; not an RPC client. No `ApiClient`, `.connect.client.dart` or `data/` repository is imported under `features/shells/`. | W8-8's structural test allows `*.pb.dart`, forbids `*.connect*.dart`, `ApiClient` and `/data/`. | W8-8 |
 | I-4 | Info | `shell_entries.dart`; `advertise_screen.dart` | `kVisibleShells` and `kAdvertisingContactEmail` are mutable top-level variables for tests; nothing in `lib/` assigns them. | Optional `@visibleForTesting`. | — |
 | I-5 | Info | `creator_programs_group.dart`; `advertise_screen.dart`; `premium_dialog.dart` | Three statements are true today and must change when the real features ship: "Earnings from posts" / "Creator subscriptions" "Coming soon"; "there are no ads in your timeline"; "No payment details are asked for anywhere in the app." | Each replacing ADR (Payments, Creator payouts, Ads) lists the shell copy it retires. | — |
-| I-6 | Info | `advertise_screen.dart` | Once `kAdvertisingContactEmail` is set the address is public and will get spam (ADR-0026 D8). | Create `comingsoon@dzeroth.com` as a dedicated alias with a spam filter (`pending.md` 3.17). | Founder |
+| I-6 | Info | `advertise_screen.dart` | Once `kAdvertisingContactEmail` is set the address is public and will get spam (ADR-0026 D8). | Create `comingsoon@dzeroth.com` as a dedicated alias with a spam filter (`docs/plans/ui-w8-shells.md`). | Founder |
 
 ## Checks requested by W8-9
 1. **No data collection: verified.** No `TextField`, form, checkbox, consent prompt, analytics call, Crashlytics key or log, `SharedPreferences`, drift or secure-storage write in any W8 file. Creator tools only displays the `GetMe` profile already in memory.
@@ -42,4 +42,4 @@ Wording checked on 2026-10-28; recheck at the prod raise and before each store s
 Sources: [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/) · [Google Play Payments policy](https://support.google.com/googleplay/android-developer/answer/9858738?hl=en) · [Understanding Google Play's Payments policy](https://support.google.com/googleplay/android-developer/answer/10281818?hl=en) · [Functionality, Content, and User Experience](https://support.google.com/googleplay/android-developer/answer/9898783?hl=en)
 
 ## Not performed
-No browser run of M-1 (found by reading go_router 18.1.1 in `~/.pub-cache`; reproduced in a widget test). No bundle measurement (W8-8). No legal review of the copy (`pending.md` 3.9).
+No browser run of M-1 (found by reading go_router 18.1.1 in `~/.pub-cache`; reproduced in a widget test). No bundle measurement (W8-8). No legal review of the copy (`docs/plans/roadmap.md` section 9, item 3.9).

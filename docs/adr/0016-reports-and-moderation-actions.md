@@ -391,4 +391,4 @@ conversation id is a hash of both participants' uids. It stays after `PurgeRepor
 and, like every report's document id, it can confirm a guessed reporter uid. Accepted. Also confirmed: a message takedown
 cannot be undone; a message stays reportable when its sender is no longer ACTIVE, after the reporter's delete-for-me, and
 when the peer is blocked. The privacy policy line (D5) now also covers a copy of one private message kept until 90 days
-after resolution, even after the sender deletes their account (`docs/pending.md` 3.18).
+after resolution, even after the sender deletes their account (`docs/plans/roadmap.md` section 9, item 3.18).

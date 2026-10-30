@@ -923,7 +923,7 @@ and charges the edge read to callers that never render the chip. B rejected.
 
 | Flag | Gates | Ceiling in `flag-ceiling.json` (dev) | Prod |
 |---|---|---|---|
-| `FEATURE_PROFILE_EXTRAS` (`profile_extras`) | `UpdateProfile` banner, location, website and pin fields; `CreateUpload(BANNER)`, which also needs `media` | `{"mode":"allowlist","max_allowlist":3,"max_percent":0}` | no raise (prod apply on hold, `pending.md` 1.2) |
+| `FEATURE_PROFILE_EXTRAS` (`profile_extras`) | `UpdateProfile` banner, location, website and pin fields; `CreateUpload(BANNER)`, which also needs `media` | `{"mode":"allowlist","max_allowlist":3,"max_percent":0}` | no raise (prod apply on hold, `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) |
 | `FEATURE_PROFILE_TABS` (`profile_tabs`) | `GetUserTimeline` tab MEDIA and REPOSTS | same | none |
 | `FEATURE_LIKES_LIST` (`likes_list`) | `ListLikedPosts` (and `posts`) | same | none |
 | `FEATURE_FOLLOW_SUGGESTIONS` (`follow_suggestions`) | `ListSuggestedUsers` (and `graph`) | same | none |
