@@ -71,6 +71,7 @@ The step needs `identity.ProtectedAuthors`. When the loader cannot produce a tru
 - FEATURE_DISABLED `feature=trends`: the flag is off for that caller (0 reads).
 - VALIDATION `field=limit` (negative) or `field=prefix` (a control or bidi character, or more than 50 code points after `#`): 0 reads. A limit above 30 is clamped.
 - A Firestore error on the one document read is returned as INTERNAL and **not cached**; the next call retries. Look for the request line with `code` not ok.
+- RATE_LIMITED with `limit_name` `trends_daily` (W4-28): one uid made more than `TRENDS_CALLS_PER_DAY` (default 400 per instance, so up to 1,200 a day at 3 instances) GetTrends calls in an IST day; 0 reads. The typeahead and the `TrendsCubit` handle it quietly. A heavy honest user normally stays far below it (about 300 typeahead bursts + 100 loads); a user who hits it repeatedly is a scripted account (check `abuse-spike.md`). The cap is per instance and lost with it; raise it with the env var, not by code. The 60/min bucket is unchanged.
 
 ## 5. Calling the route in dev
 Dev has no Scheduler jobs. With the production-deployer's opt-in grant (founder OK, removed afterwards) and an OIDC identity token for the push service account:

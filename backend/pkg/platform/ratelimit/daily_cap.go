@@ -20,7 +20,7 @@ const maxTrackedDailyKeys = 100_000
 // LIFETIME, not per day. The counter lives in memory, so it resets whenever a Cloud Run instance scales to zero
 // and a new one starts, and a key can touch several lifetimes in one IST day (3 on a steady day, up to 6 on a
 // rollout day, many more if an attacker idle-cycles instances; ADR-0010 D5 "Residual risk" R1/R2). In one
-// lifetime a unit budget never passes limit - 1 + M (A1), e.g. 2,368 for the uid read budget of 2,000. The
+// lifetime a unit budget never passes limit - 1 + M (A1), e.g. 2,268 for the uid read budget of 2,000. The
 // same accepted trade-off as every other in-memory limiter here (no Redis at Stage 0).
 type DailyCap struct {
 	limit int64
