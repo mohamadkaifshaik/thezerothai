@@ -268,7 +268,7 @@ Order:
 - Backend: Go unit tests plus emulator integration (`make test-int`, `budgettest.Assert` on every RPC).
 - Client: widget tests in light and dark at 360 / 600 / 1200 via `test/support/theme_harness.dart` for every new screen or widget, and text scale 1.0 / 1.3 / 2.0. Pixel goldens deferred (B-01).
 - `make ci` green.
-- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status and the `docs/pending.md` row 3.13 updated in the PR.
+- `docs/code-map.md` / `docs/ui-catalog.md` updated; this table's Status and the `docs/pending.md` row 3.12 updated in the PR.
 
 ## Tickets
 
@@ -762,7 +762,7 @@ Order:
   - Apply only on OK, allowlist 3 test uids, then smoke: people search, hashtag tap → Top / Latest / Media, Explore with trends.
   - Exercising the refresh in dev needs a direct OIDC call to `/internal/cron/trends-refresh` (no dev Scheduler job). That needs the opt-in `cron_test_invoker` grant recreated by a targeted apply with the founder's OK, and removed after (`pending.md` 1.20, ADR-0021 D1).
   - Prod: no change (on hold). With F1 = A, the prod job is a separate plan-then-OK at MVP launch, after confirming 2 jobs exist on the billing account.
-- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed; `pending.md` 3.13 is updated.
+- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed; `pending.md` 3.12 is updated.
 - **Test notes.** —
 - **Observability.** Check the `trends_refresh` line and the search request lines in dev logs.
 - **Budget.** A handful of reads in the dev project's free quota.

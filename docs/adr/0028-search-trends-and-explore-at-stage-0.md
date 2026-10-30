@@ -43,7 +43,6 @@ Free reads run out at about **156 DAU**, writes at about 506, Cloud Run requests
    price vCPU-s, so W4's 3,000 DAU line rises from the plan's INR 169 to about **INR 275** (Cost impact).
 5. `posts.Reader` gained `ByAuthorMedia` and `ByAuthorKind`. `ByHashtag` and `CreatedAfter` (D11) follow their
    contract (unfiltered, `Hidden()` set, reads = len(result), minimum 1).
-6. The `docs/pending.md` row for W4 is **3.13**, not 3.12 (fixed in the plan in this PR).
 
 ## Founder decisions F1 to F8 (decided by default, founder may override at acceptance)
 INR are a month, the W4 increment, at 300 / 1,000 / 3,000 DAU, priced as the `cost-model.md` §5 W7 block (Mumbai prices
@@ -51,7 +50,7 @@ of §7, INR 95 per USD, 0.1 s of vCPU per request).
 
 | # | Question | Options | Default (applied) | INR 300 / 1,000 / 3,000 |
 |---|---|---|---|---|
-| F1 | Where the trends sweep runs | (A) a third free Scheduler job `trends-refresh`, hourly; (B) piggyback on `daily-maintenance`, daily; (C) piggyback on `publish-scheduled`, hourly | **B**. **Scheduler count: 2 of 3 free jobs used on the billing account** (`daily-maintenance` live in prod; `publish-scheduled` defined in `envs/prod/main.tf` but not applied, `pending.md` 1.18; dev has none). **Option A spends the third**, after which any job is about USD 0.10/month and needs an ADR. C couples trends to a job not applied in prod | B: 0 / 0 / 0 (1 write a day). A or C: +23 writes a day, ≈ 0 / 0.07 / 0.07. Reads are the same in every option (1 per new post) |
+| F1 | Where the trends sweep runs | (A) a third free Scheduler job `trends-refresh`, hourly; (B) piggyback on `daily-maintenance`, daily; (C) piggyback on `publish-scheduled`, hourly | **B**. **Scheduler count: 2 of 3 free jobs used on the billing account** (`daily-maintenance` live in prod; `publish-scheduled` defined in `envs/prod/main.tf` but not applied; dev has none). **Option A spends the third**, after which any job is about USD 0.10/month and needs an ADR. C couples trends to a job not applied in prod | B: 0 / 0 / 0 (1 write a day). A or C: +23 writes a day, ≈ 0 / 0.07 / 0.07. Reads are the same in every option (1 per new post) |
 | F2 | Display-name search in v1 | (no) handle prefix only; (yes) a derived `users.nameKeys` array (A8) | **No.** W4-11 and W4-12 stay conditional | no: 0. yes: +13.5 reads per DAU worst (1.5 × 5 + 0.3 × 20) ≈ 4.1 / 13.7 / 41.0, + a one-off 1 write per user, + about 2 KB of index per user |
 | F3 | One flag or two | one `FEATURE_SEARCH`; two, `FEATURE_SEARCH` + `FEATURE_TRENDS` | **Two** (D8). Trends show user-generated tags to everyone, so they need their own kill switch | 0 / 0 / 0 |
 | F4 | A plain word (not `@`, not `#`) | people by handle prefix + posts with the exact tag `#word`; full-text post search | **People by handle prefix + the exact tag**; the posts tabs show "Search posts by #hashtag" when the word is not a tag body. Full text is deferred with its trigger (Stage ladder) | default: inside the W4 total. Full text needs Cloud SQL or a VM: a fixed monthly fee (estimate INR 750+ for the smallest Cloud SQL instance, unverified), excluded at Stage 0 by `CLAUDE.md` |
