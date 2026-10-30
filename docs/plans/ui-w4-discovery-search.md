@@ -238,7 +238,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | Open |
 | W4-11 | *(conditional, F2 = yes)* `nameKeys` written by identity + `opsctl` backfill | backend-developer | M | W4-1 (A8), W4-4 | **conflicts with W3 profile-write changes**: sequence after W3's identity PRs | Open (conditional) |
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
-| W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Open |
+| W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | In review (PR #PRNUM): parser + store; repository waits for W4-3 |
 | W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Open |
 | W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | Open |
 | W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | Open |
@@ -544,7 +544,7 @@ Order:
 - **Seam.** `search.Service.People`.
 - **Parallel with W3:** yes.
 
-### W4-13 — Client data layer  [owner: frontend-developer] [size: S] [depends: — (parser, store); W4-3 (repository)]  Status: Open
+### W4-13 — Client data layer  [owner: frontend-developer] [size: S] [depends: — (parser, store); W4-3 (repository)]  Status: In review (PR #PRNUM): parser + store; repository waits for W4-3
 - **Description.**
   - `SearchQuery.parse` (pure) classifies `@handle` / `#tag` / plain word with the same rules as the server. It tests against the shared `testdata` hashtag grammar fixtures, as `parsePostText` does.
   - `RecentSearchesStore`: at most 10 entries per uid, newest first, de-duplicated, stored in `AppSettingEntries` (the local store used by W2-12), cleared on sign-out (`SessionEpoch`), with "Clear all" and per-item remove. Nothing is sent to the server.
