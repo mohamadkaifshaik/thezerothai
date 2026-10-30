@@ -31,12 +31,13 @@ type fakeRepo struct {
 	freshErr error // what FreshRecipient returned when the fake ran it
 
 	// entries is users/{uid}/{folder} keyed "uid|folder" (W7-7); lists and counts record the calls, queries the queries.
-	entries map[string][]EntryRow
-	lists   int
-	counts  int
-	unreads int // CountUnreadConversations calls
-	queries []ListQuery
-	listErr error
+	entries  map[string][]EntryRow
+	lists    int
+	counts   int
+	unreads  int // CountUnreadConversations calls
+	queries  []ListQuery
+	listErr  error
+	countErr error // CountRequests fails with it (W7-37)
 
 	// msgs is conversations/{id}/messages (W7-8); msgQueries records the queries. marked records MarkRead calls as
 	// "uid|convID"; markFound is what it answers (default found).
@@ -277,6 +278,9 @@ func (f *fakeRepo) CountRequests(_ context.Context, uid string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.counts++
+	if f.countErr != nil {
+		return 0, f.countErr
+	}
 	return int64(len(f.entries[entryKey(uid, dmRequestsCollection)])), nil
 }
 

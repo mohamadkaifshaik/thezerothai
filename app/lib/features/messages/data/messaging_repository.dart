@@ -21,14 +21,15 @@ const kMessagingEmptyPageRetries = 3;
 const kMaxGapPages = 4;
 
 /// A ListConversations answer: the cache after merging it, plus the pending
-/// request count the server sends on a first INBOX page only.
+/// request count the server sends on every INBOX first page and since refresh.
 class ConversationsResult {
   const ConversationsResult(this.snapshot, {this.requestCount});
 
   final ConversationsSnapshot snapshot;
 
-  /// `request_count` of a first INBOX page ("Message requests (N)"); null for
-  /// every other answer (the server sends 0 there, which means "unknown").
+  /// `request_count` of an INBOX first page or since refresh ("Message requests
+  /// (N)", W7-37); null for every other answer (an older page, REQUESTS), where
+  /// the server sends 0 and the stored count is kept.
   final int? requestCount;
 }
 
@@ -132,6 +133,9 @@ class MessagingRepository {
     Folder folder,
     int session,
   ) async {
+    // Captured before the RPC: an Accept or Delete that lands while it is in
+    // flight bumps the generation and the stale count is then not written.
+    final generation = _store.requestCountGeneration;
     final state = await _store.readConversations(folder);
     if (state.sinceToken.isEmpty) {
       return _conversationsColdOpen(folder, session);
@@ -148,13 +152,23 @@ class MessagingRepository {
     if (page.conversations.length >= _effectivePageSize) {
       return _conversationsColdOpen(folder, session);
     }
+    // INBOX only (W7-37): 0 is authoritative there. REQUESTS never carries it.
+    final int? requestCount = folder == Folder.FOLDER_INBOX
+        ? page.requestCount.toInt()
+        : null;
     await _store.applyConversationsRefresh(
       folder,
       items: page.conversations,
       sinceToken: page.sinceToken,
       session: session,
+      requestCount: requestCount,
+      requestCountGeneration: generation,
     );
-    return ConversationsResult(await _store.readConversations(folder));
+    final snapshot = await _store.readConversations(folder);
+    return ConversationsResult(
+      snapshot,
+      requestCount: requestCount == null ? null : snapshot.requestCount,
+    );
   }
 
   Future<ConversationsResult> _conversationsColdOpen(
