@@ -357,7 +357,7 @@ Effect on the quotas (additive):
 | W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
-| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #TBD) |
+| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
@@ -468,7 +468,7 @@ Order:
 - **Seam.** The content-type table stays inside `media`; posts never sees a MIME type except through `LoadForPost`'s claim.
 - **Runs alongside W3/W4/W5:** after W3-5's `MEDIA_PURPOSE_BANNER` change, or rebase.
 
-### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: In review (PR #TBD)
+### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: In review (PR #484)
 - **Description.**
   - Register `FEATURE_POLLS`, `FEATURE_DRAFTS` and `FEATURE_GIF` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`; `drafts` follows `ui_shell`: no RPC guard).
   - Config, added to `config_test.go`'s env list with range checks: `POLL_MAX_CHOICES` 4, `POLL_CHOICE_MAX_CODEPOINTS` 25, `POLL_MIN_DURATION` 5m, `POLL_MAX_DURATION` 168h, `POLL_VOTE_TTL_AFTER_CLOSE` 720h, `RATE_LIMIT_POLL_VOTE_PER_MIN` 30, `POLL_VOTES_PER_DAY` 300, `POLL_VOTES_PER_DAY_NEW_ACCOUNT` 50, `POLL_VIEWER_VOTES_KEPT` 500, `GIF_MAX_FRAMES` 300, `GIF_MAX_EDGE` 1280, `GIF_MAX_FRAME_AREA_SUM` 50,000,000.
