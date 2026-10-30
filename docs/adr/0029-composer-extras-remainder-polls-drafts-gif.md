@@ -160,8 +160,12 @@ better score per frame and is the step up if a sheet proves to miss (Stage ladde
 ### D3. Viewer choice (`userLikes.pollVotes`, plan A3)
 - `userLikes/{uid}.pollVotes`: strings `"<postId>:<index>"` (0-based), newest last. Written by the vote batch as a
   field-level `Set` + `MergeAll` `ArrayUnion` (0 reads; works when the user has no `userLikes` doc yet). Trimmed lazily
-  to the newest `POLL_VIEWER_VOTES_KEPT` (500) on a later read, as `recent` is. A trimmed entry only loses the check
-  mark on an old poll; the vote doc stays the one-vote authority.
+  to the newest `POLL_VIEWER_VOTES_KEPT` (500) on a later read, as `recent` is. The vote doc stays the one-vote
+  authority. **Edge (more than 500 votes within one poll's life, at most 7 days):** a trimmed entry on a poll that is
+  still open makes the feeds show it as not voted, so results are hidden again and the buttons return. Tapping any
+  choice then recovers: the same choice is a replay, and another one answers `ALREADY_VOTED`, which the client
+  follows with one `VotePoll` replay of `metadata["choice"]` (D6 steps 7 and 8). On a closed poll the trim only loses
+  the check mark.
 - `posts.ViewerSet` gains `PollChoice(p) (index int, voted bool)`, keyed by `viewerID(p)`, so a REPOST row resolves to
   the original. `HydrateViewer` keeps its shape: one cached `userLikes` read with `engagement` on.
 - **`ViewerSet.BookmarksOnly()` drops the poll choices** (a viewer with only `bookmarks` on sees `viewer_poll_choice`
@@ -209,8 +213,10 @@ Order (each step's refusal writes nothing):
    different choice is FAILED_PRECONDITION `ALREADY_VOTED` with `metadata["choice"]` = the stored 0-based index (the
    caller's own vote, never anyone else's).
 8. **Response:** the original's PostView with the committed counts (the instance post cache is updated in place
-   through a new `posts.Engagement` method, the `CountsChanged` pattern) and the viewer flags from the `userLikes`
-   cache, updated in place with the new choice.
+   through a new `posts.Engagement` method, the `CountsChanged` pattern) and the like, repost and bookmark flags from
+   the `userLikes` cache, which is updated in place with the new choice. **`viewer_poll_choice` and
+   `results_visible` come from this call's vote (the new vote, or the vote doc read at step 7), never from
+   `userLikes`**, so a replay shows the results even when the `userLikes` entry was trimmed (D3).
 9. **Contention:** ABORTED, DEADLINE_EXCEEDED or "too much contention" on the commit after the store's bounded retry →
    UNAVAILABLE with `retry_after`, counted as `contention=true` on the `poll_vote` line (Stage ladder signal).
 
@@ -458,8 +464,10 @@ moderation bypass is reported; or the founder answers an F differently.
   Seams: `posts.EngagementWriter.StagePollVote`, `posts.ViewerSet.PollChoice`, a `posts.Engagement` method that
   applies poll deltas to the instance copy, `engagement.Service.VotePoll`, `media.Moderator.SafeSearchBytes`.
 - **frontend-developer:** W6-11 to W6-16. Badge and play a GIF from `MediaRef.content_type == "image/gif"`, never from
-  the URL. Send `poll` only when `enabled_features` lists `polls`; run the echo check. Never render a poll's bars when
-  `results_visible` is false, and never render bars for `EmbeddedPost.poll`.
+  the URL (the `MediaRef` in FinalizeUpload's result carries it too, so the attachment tile can badge before posting).
+  Send `poll` only when `enabled_features` lists `polls`; run the echo check. Never render a poll's bars when
+  `results_visible` is false, and never render bars for `EmbeddedPost.poll`. On `ALREADY_VOTED`, call `VotePoll` once
+  more with `metadata["choice"]` (a replay, 0 writes) and render its response.
 - **tester:** W6-17 to W6-19: the D6 order and refusal matrix, D4 byte identity of hidden counts, D4 stripping
   (`withheld`, PROTECTED, `BookmarksOnly`), concurrency (50 voters; one voter × 10 mixed), D11 pre-scan bombs and the
   sampled verdict, budgets above.

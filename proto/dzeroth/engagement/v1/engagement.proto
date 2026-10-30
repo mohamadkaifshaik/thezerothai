@@ -182,7 +182,9 @@ service EngagementService {
   // 6. One batch, no read in it: Create the vote doc, Increment the post's poll counters (Exists precondition) and
   //    ArrayUnion the choice into userLikes/{uid}. A concurrent or repeated vote commits at most once.
   // 7. The vote doc already exists: the same choice is a replay (success, the current state, 0 writes); another choice
-  //    => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index.
+  //    => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
+  //    choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
+  //    userLikes.
   // 8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
   //    the same idempotency_key.
   // Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
