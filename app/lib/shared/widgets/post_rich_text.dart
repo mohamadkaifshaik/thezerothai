@@ -11,6 +11,7 @@ class PostRichText extends StatefulWidget {
     required this.onOpenLink,
     required this.onOpenMention,
     required this.onHashtagTap,
+    this.hashtagSearch = false,
     this.style,
     this.maxLines,
   });
@@ -24,7 +25,11 @@ class PostRichText extends StatefulWidget {
   final TextStyle? style;
   final void Function(Uri uri) onOpenLink;
   final void Function(String userId, String handle) onOpenMention;
-  final VoidCallback onHashtagTap;
+  /// Called with the tag body (no `#`, as written) when a hashtag is tapped.
+  final void Function(String tag) onHashtagTap;
+
+  /// Hashtags open search (W4-16): the span reads as a link "Search #tag".
+  final bool hashtagSearch;
 
   @override
   State<PostRichText> createState() => _PostRichTextState();
@@ -114,8 +119,10 @@ class _PostRichTextState extends State<PostRichText> {
           PostSpanKind.hashtag => TextSpan(
             text: span.text,
             style: tappableStyle,
-            semanticsLabel: 'Hashtag ${span.text}',
-            recognizer: _tap(widget.onHashtagTap),
+            semanticsLabel: widget.hashtagSearch
+                ? 'Search ${span.text}'
+                : 'Hashtag ${span.text}',
+            recognizer: _tap(() => widget.onHashtagTap(span.text.substring(1))),
           ),
         },
     ];

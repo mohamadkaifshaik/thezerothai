@@ -26,6 +26,9 @@ import '../../features/messages/presentation/report_conversation.dart';
 import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/messages/presentation/widgets/request_banner.dart';
+import '../../features/search/domain/search_feature_flags.dart';
+import '../../features/search/domain/search_results_tab.dart';
+import '../../features/search/presentation/search_results_screen.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -116,6 +119,8 @@ class AppRouter {
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
+  // W4-15: the search results, behind the `search` flag (see `searchPath`).
+  static const searchRoute = '/search';
   // W3-34: the Follow requests list of a protected account, a ShellRoute child.
   // Needs `graph`, and `private_accounts` or a protected caller (the undo rule).
   static const followRequestsPath = '/follow-requests';
@@ -142,6 +147,14 @@ class AppRouter {
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
+
+  /// The search results (W4-15): `/search?q=<query>[&tab=<tab>]`. The query
+  /// keeps its sigil (`#launch`, `@bob`), percent-encoded by [Uri]. Needs
+  /// `search`; redirects Home without it.
+  static String searchPath(String query, {SearchResultsTab? tab}) => Uri(
+    path: searchRoute,
+    queryParameters: {'q': query, if (tab != null) 'tab': tab.queryValue},
+  ).toString();
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
@@ -250,6 +263,21 @@ class AppRouter {
                 onOpenConversation: (id) => context.push(messagePath(id)),
               ),
             ),
+          ),
+          GoRoute(
+            path: searchRoute,
+            builder: (context, state) {
+              final query = state.uri.queryParameters['q'] ?? '';
+              return AuthGate(
+                child: SearchResultsScreen(
+                  query: query,
+                  initialTab: SearchResultsTab.fromQuery(
+                    state.uri.queryParameters['tab'],
+                    query: query,
+                  ),
+                ),
+              );
+            },
           ),
           GoRoute(
             path: bookmarksPath,
@@ -529,6 +557,7 @@ class AppRouter {
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
+            _searchFlagRedirect(loc) ??
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
             _notificationsFlagRedirect(loc);
@@ -643,6 +672,14 @@ class AppRouter {
   String? _bookmarksFlagRedirect(String loc) {
     if (loc != bookmarksPath) return null;
     return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
+        ? null
+        : homePath;
+  }
+
+  /// `/search` redirects Home unless `search` is on for this caller (W4-15).
+  String? _searchFlagRedirect(String loc) {
+    if (loc != searchRoute) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureSearch)
         ? null
         : homePath;
   }
