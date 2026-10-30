@@ -261,7 +261,7 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	if withConv {
 		// The peer blocked the caller (or the list cannot say): never the live profile, only the frozen snapshot of the
 		// caller's own entry (nil on an older page or when the entry is gone). Liveness and the block stay separate facts.
-		blocked := snap.BlockedBy[peer] || snap.BlockedByOverflow
+		blocked := peerBlockedCaller(snap, peer)
 		var own *EntryDoc
 		if found {
 			own = &entry
@@ -327,11 +327,12 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 	if blocked {
 		// The frozen snapshot is data the caller already received. During an erasure MarkGone rewrites the entry's peerId to
 		// DeletedUID before the participants, so a mismatch here is the placeholder.
-		if own == nil || own.PeerID != peer {
+		frozen, ok := frozenPeer(peer, own)
+		if !ok {
 			c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}
 			return c
 		}
-		c.Peer, c.CanReply = peerSnapshotOf(peer, own.Peer), canReply(peer, snap)
+		c.Peer, c.CanReply = peerSnapshotOf(peer, frozen), canReply(peer, snap)
 		return c
 	}
 	if !live {
@@ -388,4 +389,21 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 		s.d.Badge.Forget(uid)
 	}
 	return &messagingv1.MarkConversationReadResponse{}, nil
+}
+
+// peerBlockedCaller is the one rule for "the peer blocked the caller, or the list cannot say" (W7-30, security review M-2):
+// BlockedBy[peer], or BlockedByOverflow (the list is truncated, so it fails closed). The thread header and the account export
+// both decide through it.
+func peerBlockedCaller(snap graph.Snapshot, peer string) bool {
+	return snap.BlockedBy[peer] || snap.BlockedByOverflow
+}
+
+// frozenPeer is the one rule for the peer snapshot of a blocked caller (W7-30): the snapshot frozen on own, the caller's entry,
+// only when the entry exists and names this peer (an eraser rewriting the entry's peerId to DeletedUID, or a missing entry, is
+// not ok). The live directory profile is never a fallback. The thread header and the account export both use it.
+func frozenPeer(peer string, own *EntryDoc) (PeerDoc, bool) {
+	if own == nil || own.PeerID != peer {
+		return PeerDoc{}, false
+	}
+	return own.Peer, true
 }

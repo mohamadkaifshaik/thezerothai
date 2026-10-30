@@ -299,6 +299,7 @@ type ExportConv struct {
 	CreatedAt time.Time
 	ClearedAt time.Time
 	PeerGone  bool
+	Folder    string // the caller's entry collection (entryFolder), for the frozen peer snapshot of a blocked peer (W7-30)
 }
 
 // ExportMsg is one message of the account export.
@@ -333,7 +334,7 @@ func (r *FirestoreRepo) ExportConversations(ctx context.Context, uid string) ([]
 			peer := peerOf(c.Participants, uid)
 			out = append(out, ExportConv{
 				ID: d.Ref.ID, PeerUID: peer, State: c.State, CreatedAt: c.CreatedAt.UTC(),
-				ClearedAt: c.ClearedAt[uid].UTC(), PeerGone: c.isGone(peer),
+				ClearedAt: c.ClearedAt[uid].UTC(), PeerGone: c.isGone(peer), Folder: entryFolder(c, uid),
 			})
 		}
 		if len(docs) < lifecyclePage {

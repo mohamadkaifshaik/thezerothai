@@ -222,7 +222,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerFollowRequestsLifecycle(l, graphRepo); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err != nil {
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "identity", "auth_delete", "users_doc"}
@@ -242,7 +242,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerFollowRequestsLifecycle(l, graphRepo); err == nil {
 		t.Error("registering the follow_requests step twice was accepted")
 	}
-	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nil); err == nil {
+	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err == nil {
 		t.Error("registering the messaging step twice was accepted")
 	}
 }
@@ -388,4 +388,11 @@ func TestFollowRequestsEraserStep_Checkpoint(t *testing.T) {
 	if _, _, err := s.Run(context.Background(), "u1", []byte(`{"Phase":9}`)); err == nil {
 		t.Error("an unknown phase was accepted")
 	}
+}
+
+// nopSocial is a messaging.Social with an empty social context.
+type nopSocial struct{}
+
+func (nopSocial) Snapshot(context.Context, string) (graph.Snapshot, error) {
+	return graph.Snapshot{}, nil
 }
