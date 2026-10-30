@@ -252,7 +252,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
-| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
+| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | In review |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Open |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged | serialise dev applies with W3's | Open |
@@ -707,7 +707,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-21 — Client tests  [owner: tester] [size: S] [depends: W4-14 to W4-18]  Status: Open
+### W4-21 — Client tests  [owner: tester] [size: S] [depends: W4-14 to W4-18]  Status: In review (this PR; one Low defect D-1 reported, skipped repro committed)
 - **Description.** The cross-screen responsive matrix:
   - field → overlay → results → hashtag tap → Explore → side column;
   - flag combinations (`search` × `trends` × `ui_shell` × W3's flag);
