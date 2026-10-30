@@ -1,5 +1,5 @@
 # 0030. Lists and custom Home tabs at Stage 0 (W5 Part A)
-Status: Proposed
+Status: Accepted (founder, 2026-10-30: Part A defaults F2, F3, F4, F5, F10 and F13 for lists as written, plus the architect's calls: idempotency record on every mutation, PROTECTED_ACCOUNT on adding an unfollowed protected account, one NOT_FOUND for hidden lists)
 Date: 2026-10-30
 Deciders: architect (proposal); the founder accepts by merging the PR. The Part A founder questions (F2, F3, F4, F5,
 F10 for lists, F13 for lists) were not answered, so **each is decided by the plan's default and the founder may
@@ -357,7 +357,7 @@ priced at the margin, so a quota the product already exhausts bills Part A in fu
 | List ids | Snowflake, time-ordered | ids opaque to clients | hash-prefixed ids | list creation near 500/s (unreachable under the 10/day quota below about 4M DAU) |
 
 ## Proposed follow-ups (gate files and `.claude/` are not edited in this PR)
-- **FU-1 (W5-3, founder-gated):** `scripts/promotion/flag-ceiling.json` entry `LISTS` (dev allowlist 3, no prod raise);
+- **FU-1 (W5-3, founder-gated):** `scripts/promotion/flag-ceiling.json` entry `LISTS` (dev allowlist 6 (the dev ceiling for every flag since #463), no prod raise);
   Terraform `feature_lists*` and the D10 config variables in `envs/dev` and `envs/prod`, default `off`, not applied.
 - **FU-2 `stage-ladder` skill:** a "Lists and Home tabs (ADR-0030)" section with the five rows above (the plan's A11).
 - **FU-3 `firestore-data-model` skill:** a `lists/{listId}` [lists, ADR-0030] row (D2); `users` row: `homeTabs`

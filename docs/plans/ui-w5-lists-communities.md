@@ -479,7 +479,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Register `FEATURE_LISTS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
   - Config with `config_test.go` entries: `LISTS_MAX_PER_USER` 20, `LIST_MAX_MEMBERS` 150, `HOME_TABS_MAX_PINNED` 5, `CACHE_LISTS_ENTRIES` 5,000, and the rate limits from the abuse section, mapped in `ratelimit_config.go`.
   - `quota.Record` gets `listCreates` and `listAdds` with their `valueFor` / `increment` cases and new-account tiers.
-  - `flag-ceiling.json`: `LISTS` dev allowlist 3 (**founder-gated file**).
+  - `flag-ceiling.json`: `LISTS` dev allowlist 6 (every flag since #463) (**founder-gated file**).
   - Terraform `feature_lists*` in `envs/dev` and `envs/prod`, default `off`, not applied.
   - `internal/lists`: `api.go` (interfaces) and a Connect server whose handlers return FEATURE_DISABLED or Unimplemented, wired in `apiserver.Build`. **Name no collection constant here** (the T11 guard); W5-4 adds it with W5-5.
   - Timeline gets the two RPC handlers, flag-guarded and Unimplemented.
@@ -849,7 +849,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `COMMUNITY_CREATORS` (≤ 10 uids, validated with `ids.ValidUID`);
   - the community caps and rate limits from the abuse section, `CACHE_COMMUNITIES_ENTRIES` 2,000, `CACHE_COMMUNITY_FEED_ENTRIES` 500;
   - `quota.Record` `communityJoins` / `communityPosts` with tiers;
-  - `flag-ceiling.json` `COMMUNITIES` dev allowlist 3 (**founder-gated**);
+  - `flag-ceiling.json` `COMMUNITIES` dev allowlist 6 (every flag since #463) (**founder-gated**);
   - Terraform `feature_communities*` and `community_creators`, default `off` / empty;
   - the `internal/communities` skeleton (no collection constant);
   - the timeline handler stub;
