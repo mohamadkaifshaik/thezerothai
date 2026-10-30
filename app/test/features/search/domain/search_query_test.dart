@@ -223,4 +223,47 @@ void main() {
       expect(checked, greaterThan(0));
     });
   });
+
+  group('shared fixture testdata/search_query_grammar.json', () {
+    final cases =
+        (jsonDecode(
+              File('../testdata/search_query_grammar.json').readAsStringSync(),
+            ) as Map<String, dynamic>)['cases']
+            as List;
+
+    test('row count (keep in step with the Go test)', () {
+      expect(cases.length, 38);
+    });
+
+    for (final raw in cases) {
+      final row = raw as Map<String, dynamic>;
+      final query = row['query'] as String;
+      test('${row['note']}', () {
+        final q = _p(query);
+        final invalid = const {
+          SearchQueryIssue.empty,
+          SearchQueryIssue.tooLong,
+          SearchQueryIssue.invalid,
+        }.contains(q.issue);
+        final people = row['people'] as Map<String, dynamic>;
+        final posts = row['posts'] as Map<String, dynamic>;
+        final gotPeople = invalid
+            ? 'invalid'
+            : q.peopleQuery != null
+            ? 'prefix'
+            : q.peopleTooShort
+            ? 'too_short'
+            : 'unsupported';
+        final gotPosts = invalid
+            ? 'invalid'
+            : q.tagBody != null
+            ? 'tag'
+            : 'unsupported';
+        expect(gotPeople, people['result'], reason: jsonEncode(query));
+        expect(q.peopleQuery ?? '', people['prefix'] ?? '');
+        expect(gotPosts, posts['result'], reason: jsonEncode(query));
+        expect(q.tagBody ?? '', posts['tag'] ?? '');
+      });
+    }
+  });
 }

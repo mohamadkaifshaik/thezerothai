@@ -1,5 +1,5 @@
 # 0028. Search, trends and Explore at Stage 0 (W4)
-Status: Proposed
+Status: Accepted (founder, 2026-10-30, by merging #465; F1–F8 at the defaults)
 Date: 2026-10-30
 Deciders: architect (proposal); the founder accepts by merging the PR. The founder said "start W4" without answering
 F1 to F8, so **each F is decided by its default and the founder may override it at acceptance** (table below).

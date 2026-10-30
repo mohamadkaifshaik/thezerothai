@@ -237,6 +237,10 @@ class MessagingStateEntries extends Table {
 /// leaves nothing behind (CLAUDE.md rule 10).
 const kAccountSettingPrefix = 'account:';
 
+/// The uid whose data the cache tables hold (W7-35, L-4). It is an account
+/// setting, so [AppDatabase.clearAll] removes it with the data it describes.
+const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
+
 /// A device-level setting (key -> value text), e.g. the appearance choice.
 ///
 /// Unlike every other table this one is **not** wiped on sign-out
@@ -468,6 +472,26 @@ class AppDatabase extends _$AppDatabase {
         AppSettingEntriesCompanion.insert(settingKey: key, settingValue: value),
       );
     });
+  }
+
+  /// Makes the cache belong to [uid] (W7-35, L-4), before any cache read.
+  ///
+  /// The wipe on sign-out can be missed (the process dies first, or the auth
+  /// stream goes from one user straight to another), so the cache says whose it
+  /// is. When the owner stamp differs from [uid], or there is none, the session
+  /// epoch ends (late writes of the old session are dropped), every cache table
+  /// is cleared and the stamp is written, all in one transaction. A null [uid]
+  /// (nobody signed in) wipes a cache that still carries a stamp. Returns true
+  /// when it wiped.
+  Future<bool> claimCacheFor(String? uid) async {
+    final stamp = await readSetting(kCacheOwnerKey);
+    if (uid == null ? stamp == null : stamp == uid) return false;
+    sessionEpoch.end();
+    await transaction(() async {
+      await clearAll();
+      if (uid != null) await writeSetting(kCacheOwnerKey, uid);
+    });
+    return true;
   }
 
   /// Wipes all cached data. Called on sign-out so the next user on a shared

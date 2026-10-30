@@ -64,6 +64,31 @@ message MediaRef {
   string content_type = 8;
 }
 
+// One pinned Home tab (ADR-0030 D6, founder decision F5). Home always starts with the fixed "Following" tab, which is
+// never stored or sent; these are the up to HOME_TABS_MAX_PINNED (5) tabs after it, in the user's order. Stored on
+// users/{uid}.homeTabs, written only by TimelineService.SetHomeTabs, returned by IdentityService.GetMe home_tabs.
+// It lives in common so identity does not import timeline (or, through it, posts).
+message HomeTab {
+  HomeTabKind kind = 1;
+  // The list id (LIST) or community id (COMMUNITY): a 19-digit Snowflake.
+  string id = 2;
+  // Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
+  // the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
+  // users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
+  // for that id, and calls GetList once for a tab it has no label for.
+  string title = 3;
+}
+
+// What a pinned Home tab shows. A new kind is additive: a client that does not know a kind hides that tab.
+enum HomeTabKind {
+  HOME_TAB_KIND_UNSPECIFIED = 0;
+  // A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
+  HOME_TAB_KIND_LIST = 1;
+  // A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
+  // SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+  HOME_TAB_KIND_COMMUNITY = 2;
+}
+
 // Why a request failed, attached to Connect errors as an error detail.
 // Clients branch on `reason`, never on the message text.
 message ErrorDetail {

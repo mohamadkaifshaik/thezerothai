@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 
 import '../core/feature_flags/service_feature_gate.dart';
 import '../core/storage/app_database.dart';
+import '../features/auth/domain/app_user.dart';
+import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_gate.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
@@ -116,4 +120,84 @@ Future<void> wipeSessionData({
   notificationsRepository?.clearSession();
   messagingRepository?.clearSession();
   await database.clearAll();
+}
+
+/// Bridges auth state into the session (W7-35, L-4): OnboardingBloc reacts to
+/// sign-in/sign-out but never talks to AuthBloc directly (the two features stay
+/// decoupled, see the `flutter-feature` skill).
+///
+/// - A user going to null or to a different uid (a direct A to B switch counts)
+///   dispatches [OnboardingUserSignedOut], ends the session epoch and wipes the
+///   cache ([wipeSessionData]), and calls [onSignedOut] (in-memory caches).
+/// - A new uid claims the cache ([AppDatabase.claimCacheFor]: owner stamp, wipe
+///   when it is another user's or unstamped) and only then dispatches
+///   [OnboardingUserAuthenticated], so nothing reads the cache before it is the
+///   user's own.
+/// - Every cache step is chained after the previous one, so a sign-in never
+///   overtakes the sign-out wipe before it. A failed step is reported and the
+///   chain goes on; a failed claim falls back to a plain wipe.
+///
+/// [initialUser] is the user the app started with (already claimed at startup).
+/// Returns the subscription to [authStates].
+StreamSubscription<AuthState> wireAuthSession({
+  required Stream<AuthState> authStates,
+  required OnboardingBloc onboardingBloc,
+  required AppDatabase database,
+  required TimelineRepository timelineRepository,
+  required void Function() onSignedOut,
+  NotificationsRepository? notificationsRepository,
+  MessagingRepository? messagingRepository,
+  AppUser? initialUser,
+  UnexpectedErrorReporter onUnexpectedError = reportUnexpectedError,
+}) {
+  var cacheOps = Future<void>.value();
+  AppUser? lastUser;
+
+  void chain(Future<void> Function() step) {
+    cacheOps = cacheOps.then((_) => step()).catchError((
+      Object error,
+      StackTrace stack,
+    ) {
+      onUnexpectedError(error, stack);
+    });
+  }
+
+  void authenticate(AppUser user) => unawaited(
+    cacheOps.then((_) => onboardingBloc.add(OnboardingUserAuthenticated(user))),
+  );
+
+  if (initialUser != null) {
+    lastUser = initialUser;
+    authenticate(initialUser);
+  }
+  return authStates.listen((state) {
+    final user = state.user;
+    final previous = lastUser;
+    lastUser = user;
+    if (previous != null && (user == null || user.uid != previous.uid)) {
+      onboardingBloc.add(const OnboardingUserSignedOut());
+      // Privacy: CLAUDE.md rule 10. The epoch ends now (late writes of the
+      // old session are dropped); the wipe is awaited by the next step.
+      final wipe = wipeSessionData(
+        database: database,
+        timelineRepository: timelineRepository,
+        notificationsRepository: notificationsRepository,
+        messagingRepository: messagingRepository,
+      );
+      chain(() => wipe);
+      onSignedOut();
+    }
+    if (user != null && user.uid != previous?.uid) {
+      final uid = user.uid;
+      chain(() async {
+        try {
+          await database.claimCacheFor(uid);
+        } catch (_) {
+          await database.clearAll();
+          rethrow;
+        }
+      });
+      if (state.status == AuthStatus.authenticated) authenticate(user);
+    }
+  });
 }
