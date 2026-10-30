@@ -362,7 +362,7 @@ Effect on the quotas (additive):
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
-| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Open |
+| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
@@ -593,7 +593,7 @@ Order:
 - **Seam.** The `identity.StepEraser` / `ExportSection` adapters.
 - **Runs alongside W3/W4/W5:** the pinned order and the guard test are shared, so one PR at a time.
 
-### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
+### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR TBD; flag stays off until W6-10 merges)
 - **Description.**
   - CreateUpload accepts `image/gif` for `MEDIA_PURPOSE_POST` only (AVATAR and BANNER refuse), behind `FEATURE_GIF` (FEATURE_DISABLED `feature=gif`).
   - Items: exactly 1 GIF per CreateUpload and never mixed with other items; full ≤ `MaxFullBytes` (2 MiB); the thumbnail per `thumb_content_type` (JPEG or WebP ≤ 256 KiB).

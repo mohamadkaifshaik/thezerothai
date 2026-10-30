@@ -53,7 +53,7 @@ func mediaRefsToProto(refs []MediaRef) []*commonv1.MediaRef {
 	for _, m := range refs {
 		out = append(out, &commonv1.MediaRef{
 			MediaId: m.ID, Url: m.URL, ThumbUrl: m.ThumbURL, Width: int32(m.Width), Height: int32(m.Height), //nolint:gosec // validated <= 4096 at CreateUpload
-			Blurhash: m.Blurhash, AltText: m.AltText,
+			Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType,
 		})
 	}
 	return out

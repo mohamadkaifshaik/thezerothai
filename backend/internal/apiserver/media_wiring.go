@@ -99,7 +99,7 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		Directory: directoryAge{dir}, IDs: node, PublicBaseURL: cfg.MediaPublicBaseURL,
 		MediaPerDay: int64(cfg.Quota.MediaPerDay), NewAccountMediaPerDay: int64(cfg.Quota.NewAccountMediaPerDay),
 		NewAccountWindow: cfg.Quota.NewAccountWindow,
-		VisionMonthlyCap: int64(cfg.VisionMonthlyCap), Policy: cfg.VisionExhaustedPolicy, ScreenThumb: cfg.VisionScreenThumb,
+		VisionMonthlyCap: int64(cfg.VisionMonthlyCap), Policy: cfg.VisionExhaustedPolicy, ScreenThumb: cfg.VisionScreenThumb, GifMaxEdge: cfg.Composer.GifMaxEdge,
 		Log: log,
 	})
 	if err != nil {
@@ -194,9 +194,18 @@ type postsMediaClaim struct{ c *media.Claim }
 func (m postsMediaClaim) Refs() []posts.MediaRef {
 	out := make([]posts.MediaRef, len(m.c.Refs))
 	for i, r := range m.c.Refs {
-		out[i] = posts.MediaRef{ID: r.ID, URL: r.URL, ThumbURL: r.ThumbURL, Width: r.Width, Height: r.Height, Blurhash: r.Blurhash}
+		out[i] = posts.MediaRef{ID: r.ID, URL: r.URL, ThumbURL: r.ThumbURL, Width: r.Width, Height: r.Height, Blurhash: r.Blurhash, ContentType: r.ContentType}
 	}
 	return out
+}
+
+func (m postsMediaClaim) HasGIF() bool {
+	for _, r := range m.c.Refs {
+		if r.ContentType == media.ContentTypeGIF {
+			return true
+		}
+	}
+	return false
 }
 
 func (m postsMediaClaim) Attach(b store.Batch, postID string) { m.c.Attach(b, postID) }

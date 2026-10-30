@@ -87,10 +87,14 @@ func (s *Server) CreateUpload(ctx context.Context, req *connect.Request[mediav1.
 	if err := s.guardPurpose(ctx, uid, in.Purpose); err != nil {
 		return nil, err
 	}
+	if err := s.guardGIF(ctx, uid, m.GetItems()); err != nil {
+		return nil, err
+	}
 	for _, it := range m.GetItems() {
 		in.Items = append(in.Items, UploadItem{
 			ContentType: it.GetContentType(), FullBytes: it.GetFullSizeBytes(), ThumbBytes: it.GetThumbSizeBytes(),
 			Width: int(it.GetWidth()), Height: int(it.GetHeight()), FullMD5: it.GetFullMd5(), ThumbMD5: it.GetThumbMd5(),
+			ThumbContentType: it.GetThumbContentType(),
 		})
 	}
 	targets, err := s.svc.CreateUpload(ctx, uid, in)
@@ -139,7 +143,7 @@ func (s *Server) FinalizeUpload(ctx context.Context, req *connect.Request[mediav
 func RefToProto(r Ref) *commonv1.MediaRef {
 	return &commonv1.MediaRef{
 		MediaId: r.ID, Url: r.URL, ThumbUrl: r.ThumbURL,
-		Width: int32(r.Width), Height: int32(r.Height), Blurhash: r.Blurhash, //nolint:gosec // validated <= MaxDimension (4096) at CreateUpload
+		Width: int32(r.Width), Height: int32(r.Height), Blurhash: r.Blurhash, ContentType: r.ContentType, //nolint:gosec // validated <= MaxDimension (4096) at CreateUpload
 	}
 }
 
@@ -173,4 +177,26 @@ func statusToProto(s Status) mediav1.MediaStatus {
 	default:
 		return mediav1.MediaStatus_MEDIA_STATUS_UNSPECIFIED
 	}
+}
+
+// guardGIF is the FEATURE_GIF check (ADR-0029 D10): an item with content_type image/gif needs gif on for the caller, on
+// top of FEATURE_MEDIA. FEATURE_DISABLED with metadata feature=gif, before any Firestore access, signing or quota
+// (0 reads, 0 writes). It runs before the purpose is validated, so a GIF with the flag off is FEATURE_DISABLED even
+// for an AVATAR. A request without a GIF never touches the flag.
+func (s *Server) guardGIF(ctx context.Context, uid string, items []*mediav1.UploadItem) error {
+	isGIF := false
+	for _, it := range items {
+		if it.GetContentType() == ContentTypeGIF {
+			isGIF = true
+			break
+		}
+	}
+	if !isGIF {
+		return nil
+	}
+	if s.flags == nil || !s.flags.Enabled(uid, GifFlagName) {
+		logger.SetRequestField(ctx, "feature", GifFlagName)
+		return flags.DisabledError().WithMeta("feature", GifFlagName)
+	}
+	return nil
 }

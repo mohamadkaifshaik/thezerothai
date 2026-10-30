@@ -154,6 +154,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,
+		GifEnabled:  in.GifEnabled,
 		Draft: Post{
 			AuthorID: uid,
 			Author:   snapshot,
@@ -176,6 +177,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		if errors.Is(err, ErrMediaNotReady) {
 			return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 				"one of the images is not ready; upload it again")
+		}
+		if errors.Is(err, ErrGifDisabled) {
+			return nil, featureDisabled("gif")
+		}
+		if errors.Is(err, ErrGifNotAlone) {
+			return nil, apierr.Validation("media_ids", "a GIF must be the only image in a post")
 		}
 		if errors.Is(err, ErrParentGone) {
 			logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)

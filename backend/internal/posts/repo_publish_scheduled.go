@@ -228,6 +228,9 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 		if err != nil {
 			return PublishResult{}, fmt.Errorf("posts: publish media load: %w", err)
 		}
+		if claim.HasGIF() { // cannot be scheduled (F10); a draft that somehow holds one is unavailable, not published
+			return r.stageEnd(b, p, ScheduledFailed, FailureMediaUnavailable)
+		}
 	}
 
 	// (e) The mentions, last: handles may have changed since the post was scheduled.

@@ -57,7 +57,7 @@ var (
 func (l *Library) ref(d *Doc) Ref {
 	return Ref{
 		ID: d.ID, URL: l.publicBaseURL + "/" + d.PublicPath, ThumbURL: l.publicBaseURL + "/" + d.ThumbPath,
-		Width: d.Width, Height: d.Height, Blurhash: d.Blurhash,
+		Width: d.Width, Height: d.Height, Blurhash: d.Blurhash, ContentType: d.ContentType,
 	}
 }
 

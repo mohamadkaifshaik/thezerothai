@@ -257,6 +257,8 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	case errors.Is(err, ErrMediaNotReady):
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 			"one of the images is not ready; upload it again")
+	case errors.Is(err, ErrGifNotSchedulable):
+		return nil, apierr.Validation("media_ids", "a GIF can't be scheduled")
 	}
 	var ae *apierr.Error
 	if errors.As(err, &ae) {
