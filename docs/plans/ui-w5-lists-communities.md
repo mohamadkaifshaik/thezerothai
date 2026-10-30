@@ -293,7 +293,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 - **Captures (optional, non-blocking):** list detail, create-list flow, community page and About, join flow, the Manage timelines dialog, moderator menus. They are UNKNOWN today, so the UI tickets use X-like defaults and say so.
 
 **Questions for @architect:**
-- **ADR-0027 or the next free number (Part A, W5-1):**
+- **ADR-0030 (Part A, W5-1; answered there, see the ADR for each item):**
   - **A4. Home tab storage.** Default: `users/{uid}.homeTabs` (≤ 5 `{kind, id, title}`), written through a consumer-side `timeline.HomeTabsStore` that identity implements, and returned in `GetMeResponse.home_tabs` (0 reads). Alternatives: a `homeTabs/{uid}` doc (+1 read per session, its own eraser) or device-only drift.
   - **A5. The lists data model.**
     - `memberIds[]` is **not** index-exempt: the eraser needs `array-contains`, so there is no gate file.
@@ -330,8 +330,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3 Part A / W4? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W5-1 | ADR-0027 (or next free) "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
-| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | Open |
+| W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #485) |
+| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | In review (PR #485) |
 | W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | Open |
 | W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | Open |
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | Open |
@@ -348,7 +348,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
-| W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0027 merged | serialise dev applies with W3-24 / W4-24 | Open |
+| W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Open |
 | W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Open |
@@ -417,8 +417,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ## Tickets
 
-### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** `docs/adr/0027-lists-and-home-tabs.md` (Proposed), or the next free number when the PR opens: W3 holds 0024 and 0025, and W4 holds 0026. It decides:
+### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #485)
+- **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Proposed). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
   - the `lists` collection and doc shape (A5);
   - the member cap (F2) with the chunk arithmetic above, and the per-user caps and quotas;
   - the visibility and block rules (F3, F4);
@@ -443,7 +443,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** It defines `lists.Service`, `lists.Reader` (`Members(ctx, viewer, listID)`) and `timeline.HomeTabsStore`; the list timeline sits behind the `timeline` interface.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-2 — Part A protos  [owner: architect] [size: S] [depends: W5-1 drafted]  Status: Open
+### W5-2 — Part A protos  [owner: architect] [size: S] [depends: W5-1 drafted]  Status: In review (PR #485)
 - **Description.** All changes are additive; `buf lint` and `buf breaking` are clean; field numbers are the architect's.
   - New `proto/dzeroth/lists/v1/lists.proto`, `ListService`:
     - CreateList(idempotency_key, name, description, private);
@@ -460,6 +460,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `identity.proto`: `GetMeResponse.home_tabs` (repeated `dzeroth.common.v1.HomeTab`), its first import of `common`.
 
   Every RPC comment carries worst and warm reads, writes, caps and the error contract: VALIDATION `field=...`, NOT_FOUND byte-identical, LIMIT_REACHED `limit=list_members|lists|home_tabs`, FEATURE_DISABLED `feature=lists`, RATE_LIMITED, QUOTA_EXCEEDED.
+
+  **As built (ADR-0030, 2026-10-30), where it differs from the sketch above:** the header message is `ListInfo` (a message named `List` would shadow Dart's `dart:core` `List`), with `is_private` (and `CreateListRequest.is_private` is `optional`: absent = private, F3) and no stored member counter (`member_count` = the `memberIds` length); **every** mutation, SetHomeTabs included, takes `idempotency_key` and stores the standard idempotency document (ADR-0030 D7, rule 4 kept); `ListUserLists` has `page_size` / `page_token` / `next_page_token` and `contains_user_id` only for the caller's own lists, answering `containing_list_ids`; `HomeTab.title` is output only and stored only for the caller's own lists (D6); `AddListMember` of a protected account the owner does not follow is `PROTECTED_ACCOUNT` (D4). Numbers claimed: `GetMeResponse.home_tabs = 8`; `HomeTab` fields 1-3; `HomeTabKind` 0-2; `GetListTimelineResponse.list = 6` after Home's 1-5; no new `ErrorReason`.
 - **Acceptance criteria.**
   - Given `make proto` (run in W5-3), then Go and Dart generate.
   - Given `buf breaking` against `main`, then it is clean.
@@ -477,7 +479,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Register `FEATURE_LISTS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
   - Config with `config_test.go` entries: `LISTS_MAX_PER_USER` 20, `LIST_MAX_MEMBERS` 150, `HOME_TABS_MAX_PINNED` 5, `CACHE_LISTS_ENTRIES` 5,000, and the rate limits from the abuse section, mapped in `ratelimit_config.go`.
   - `quota.Record` gets `listCreates` and `listAdds` with their `valueFor` / `increment` cases and new-account tiers.
-  - `flag-ceiling.json`: `LISTS` dev allowlist 3 (**founder-gated file**).
+  - `flag-ceiling.json`: `LISTS` dev allowlist 6 (every flag since #463) (**founder-gated file**).
   - Terraform `feature_lists*` in `envs/dev` and `envs/prod`, default `off`, not applied.
   - `internal/lists`: `api.go` (interfaces) and a Connect server whose handlers return FEATURE_DISABLED or Unimplemented, wired in `apiserver.Build`. **Name no collection constant here** (the T11 guard); W5-4 adds it with W5-5.
   - Timeline gets the two RPC handlers, flag-guarded and Unimplemented.
@@ -777,7 +779,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-19 — Part A dev rollout  [owner: production-deployer] [size: S] [depends: W5-15, W5-17, W5-18, ADR-0027 merged]  Status: Open
+### W5-19 — Part A dev rollout  [owner: production-deployer] [size: S] [depends: W5-15, W5-17, W5-18, ADR-0030 merged]  Status: Open
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan for `feature_lists*` and the list config env vars (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe).
   - Apply only on OK, with an allowlist of 3 test uids.
@@ -847,7 +849,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `COMMUNITY_CREATORS` (≤ 10 uids, validated with `ids.ValidUID`);
   - the community caps and rate limits from the abuse section, `CACHE_COMMUNITIES_ENTRIES` 2,000, `CACHE_COMMUNITY_FEED_ENTRIES` 500;
   - `quota.Record` `communityJoins` / `communityPosts` with tiers;
-  - `flag-ceiling.json` `COMMUNITIES` dev allowlist 3 (**founder-gated**);
+  - `flag-ceiling.json` `COMMUNITIES` dev allowlist 6 (every flag since #463) (**founder-gated**);
   - Terraform `feature_communities*` and `community_creators`, default `off` / empty;
   - the `internal/communities` skeleton (no collection constant);
   - the timeline handler stub;
@@ -1270,6 +1272,6 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 | `recentRemovals` overflow (> 50 hides between refreshes) resets cached feeds | the documented ADR-0016 D10 contract (cold open); the moderation-log trigger |
 | Private accounts (W3 Part B) leak through the new feeds | the `keep` hook point named in W5-8 / W5-27; ADR-0025's matrix includes both feeds |
 | Merge conflicts with W3 and W4 in shared files | the shared-files table; one PR at a time; new logic in new files |
-| ADR number clash | "ADR-0027 / ADR-0028 or the next free number" |
+| ADR number clash | Part A took ADR-0030 (W5-1); Part B: "ADR-0028 or the next free number" |
 | Uncaptured visuals (list detail, community page, create flows, Manage timelines, moderator tools) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
 | Home tab titles go stale after a rename | the timeline response carries the current header and the device updates its label; storage is refreshed on the next SetHomeTabs |

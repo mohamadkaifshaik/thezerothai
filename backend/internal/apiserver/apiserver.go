@@ -573,16 +573,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
-	// each FEATURE_DISABLED with 0 Firestore reads. SearchPosts (W4-7, W4-8) reads posts.Reader.ByHashtag and decides every
-	// row through a snapshot-based posts.Audience over the one protected-set loader (ADR-0025). GetTrends (W4-9, W4-10)
-	// reads trends/current through a 10 min instance copy; the refresher is the daily step (and the standalone route). Both
-	// go through search.TrendsStore, the only code that touches the collection. SearchPeople (W4-5) answers Unimplemented
-	// to an enabled caller until it lands.
+	// each FEATURE_DISABLED with 0 Firestore reads. SearchPeople (W4-5) reads identity.Directory.SearchHandles through a
+	// shared prefix cache and filters with the caller's graph snapshot. SearchPosts (W4-7, W4-8) reads
+	// posts.Reader.ByHashtag and decides every row through a snapshot-based posts.Audience over the one protected-set
+	// loader (ADR-0025). GetTrends (W4-9, W4-10) reads trends/current through a 10 min instance copy; the refresher is the
+	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
-	searchServer := search.NewServer(search.New(featureFlags, search.WithPosts(search.PostsDeps{
-		Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
-		CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
-	}), search.WithTrends(trendsStore, nil)))
+	searchServer := search.NewServer(search.New(featureFlags,
+		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries}),
+		search.WithPosts(search.PostsDeps{
+			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
+			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
+		}),
+		search.WithTrends(trendsStore, nil)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,

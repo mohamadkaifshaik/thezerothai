@@ -15,10 +15,8 @@ import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
-import '../features/auth/domain/app_user.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
-import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
@@ -121,6 +119,10 @@ Future<void> bootstrap() async {
     database: database,
     onUnexpectedError: reportUnexpectedError,
   );
+  // Whose cache is this? (W7-35, L-4.) Settled before the first cache read
+  // below: a wipe that the last run missed is done here, for the uid the auth
+  // SDK restored (null when nobody is signed in).
+  await database.claimCacheFor(await _restoredUid(authRepository));
   // Warm the in-memory relationship cache from the caller's cached
   // `following` set before the first frame, so FollowButton can render
   // "Following" instantly on a warm start (CLAUDE.md prime directive).
@@ -252,35 +254,18 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
   );
 
-  // Bridge: OnboardingBloc reacts to sign-in/sign-out, but never talks to
-  // AuthBloc directly (keeps the two features decoupled — see the
-  // `flutter-feature` skill).
-  AppUser? lastUser;
-  authBloc.stream.listen((state) {
-    final user = state.user;
-    if (user == null && lastUser != null) {
-      onboardingBloc.add(const OnboardingUserSignedOut());
-      // Wipe the local cache so the next user on a shared device never sees
-      // a stale profile or relationship (privacy: CLAUDE.md rule 10).
-      unawaited(
-        wipeSessionData(
-          database: database,
-          timelineRepository: timelineRepository,
-          notificationsRepository: notificationsRepository,
-          messagingRepository: messagingRepository,
-        ),
-      );
-      graphRepository.clearCache();
-    } else if (user != null &&
-        state.status == AuthStatus.authenticated &&
-        user.uid != lastUser?.uid) {
-      onboardingBloc.add(OnboardingUserAuthenticated(user));
-    }
-    lastUser = user;
-  });
-  if (authBloc.state.isAuthenticated) {
-    onboardingBloc.add(OnboardingUserAuthenticated(authBloc.state.user!));
-  }
+  // Bridge auth into the session: wipe on sign-out or a change of user, claim
+  // the cache for the new user before onboarding starts (W7-35, L-4).
+  wireAuthSession(
+    authStates: authBloc.stream,
+    onboardingBloc: onboardingBloc,
+    database: database,
+    timelineRepository: timelineRepository,
+    notificationsRepository: notificationsRepository,
+    messagingRepository: messagingRepository,
+    onSignedOut: graphRepository.clearCache,
+    initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
+  );
 
   runApp(
     AppWidget(
@@ -348,6 +333,20 @@ Future<void> _activateAppCheck(AppConfig config) async {
     );
   } catch (e) {
     debugPrint('App Check activation failed; continuing without it: $e');
+  }
+}
+
+/// The uid the auth SDK restored from disk, or null for a signed-out app. On
+/// web the persisted user arrives with the first auth event, so that is awaited
+/// (briefly); a late event is still handled by the sign-in claim.
+Future<String?> _restoredUid(AuthRepository authRepository) async {
+  try {
+    final user = await authRepository.authStateChanges().first.timeout(
+      const Duration(seconds: 5),
+    );
+    return user?.uid;
+  } catch (_) {
+    return authRepository.currentUser?.uid;
   }
 }
 
