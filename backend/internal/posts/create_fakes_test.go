@@ -229,3 +229,8 @@ func googleCtx(ctx context.Context, uid string) context.Context {
 }
 
 var errBoom = errors.New("boom")
+
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (d *fakeDirectory) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}
