@@ -244,7 +244,7 @@ locals {
     { name = "FEATURE_MESSAGING_ALLOWLIST", value = var.feature_messaging_allowlist },
     { name = "FEATURE_MESSAGING_PERCENT", value = tostring(var.feature_messaging_percent) },
     # W7-24: the messaging limits as explicit config (rule 11), each equal to its backend/pkg/platform/config default, as in envs/dev. Inert
-    # while FEATURE_MESSAGING is off (prod's flag stays off; nothing here is applied until the held prod apply, pending.md 1.2).
+    # while FEATURE_MESSAGING is off (prod's flag stays off; nothing here is applied until the held prod apply, credit runbook dated step 1.2).
     { name = "RATE_LIMIT_MESSAGES_SEND_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_MESSAGES_READ_PER_MIN", value = "30" },
     { name = "MESSAGES_SENDS_PER_DAY", value = "300" },

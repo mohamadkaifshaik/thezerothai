@@ -1,7 +1,7 @@
 # 0021. Composer extras: reply audience, content disclosure, scheduled posts
 Status: Accepted (founder, 2026-10-23; includes the five founder decisions recorded in "Founder decisions" below, and the rule-4 bend in item 3)
 Clarified 2026-10-23 (PR #247): pinned the exact CreatePost `requestHash` suffix bytes and order; reconciled the Stage 0 functional line with D3 (disclosure labels are accepted on any post kind). No decision changed.
-Implementation notes 2026-10-26 (pending 2.17, after #291 and #292): "Implementation notes (2026-10-26)" at the end records where the scheduled-posts code as built differs from the text (publish transaction, item log level, Scheduler retries, the 500 rule, the media hold, the exact window cap, smaller details). No decision of this ADR changed: the media hold (note 5) is the founder's decision of 2026-10-26 (pending 2.15) and the exact window cap (note 6) tightens a cap this text calls soft (pending 2.16).
+Implementation notes 2026-10-26 (after #291 and #292): "Implementation notes (2026-10-26)" at the end records where the scheduled-posts code as built differs from the text (publish transaction, item log level, Scheduler retries, the 500 rule, the media hold, the exact window cap, smaller details). No decision of this ADR changed: the media hold (note 5) is the founder's decision of 2026-10-26 and the exact window cap (note 6) tightens a cap this text calls soft.
 Date: 2026-10-23 (revised the same day after `docs/reviews/security-review-adr-0021.md`; see §Security review)
 Deciders: architect (proposal); founder (accepted 2026-10-23). Product defaults below were proposed by the founder's delegate in
 `docs/plans/composer-w15-w6.md` "Answers to the open questions" (2026-10-23).
@@ -940,7 +940,7 @@ they were not re-measured for these notes.
    next tick. Both cases write the `scheduled_sweep` line at WARN with `outcome=error` plus a separate Error Reporting
    entry that carries only the scrubbed error, so Error Reporting also fires on that 204.
 5. **Media hold** (Sweep 1 "Per-user flags are not re-evaluated at publish"; Sweep 3 "Checks that run at schedule time
-   only: ... the sub-feature flags"; pending 2.15, #291). Implemented as built; differs from the text above in one
+   only: ... the sub-feature flags"; #291). Implemented as built; differs from the text above in one
    exception, decided by the founder on 2026-10-26. While the global `FEATURE_MEDIA` kill switch is `off`
    (`flags.Registry.GloballyOff("media")`, asked once per run, 0 reads; `allowlist` and `percent` are rollouts and hold
    nothing, and neither does `DEGRADED_MODE=nomedia`), the sweep HOLDS every image-carrying PENDING item: no publish
@@ -955,9 +955,9 @@ they were not re-measured for these notes.
    their place at the head of the 100-item due window, so about 100 of them (for example 4 aged accounts with 25 each)
    stop other users' due posts from being read until the held ones expire. While the switch is off this also weakens
    §Lateness "Flood": a few accounts, not about 300, can stall the queue. Pending 2.21 tracks adaptive paging; the
-   numbers come from pending 2.15 and `docs/runbooks/posts.md` section 12.
+   numbers come from `docs/runbooks/posts.md` section 12.
 6. **Exact window cap** (D4 "Limits", "SchedulePost order" steps 6 and 7 and its "Known limit (CMP-D3 review m1)",
-   the SchedulePost cost rows, the abuse table, Consequences; pending 2.16, #292). Implemented as built; differs from
+   the SchedulePost cost rows, the abuse table, Consequences; #292). Implemented as built; differs from
    the text above in where the window cap is decided. The cap of `SCHEDULED_PER_AUTHOR_PER_RUN` (3) PENDING items
    within ±4 min is decided INSIDE the schedule transaction and is **exact**: `repo_scheduled.go:
    FirestoreRepo.CreateScheduled` reads `quotas/{uid}` and then runs `countQuery(ctx, windowQuery(...), tx)` (an
@@ -970,7 +970,7 @@ they were not re-measured for these notes.
    the read budget, and the overshoot stays bounded by the exact daily quota and the rate bucket's burst.
    - **Concurrency mode.** Dev and prod Firestore run `OPTIMISTIC` (`concurrency_mode` in
      `infra/terraform/modules/firestore/main.tf`); the emulator is lock-based, so the emulator race tests are not
-     proof for prod. Per pending 2.16, a smoke on the real dev Firestore on 2026-10-26 (ten simultaneous calls per
+     proof for prod. Per the window-cap fix (#292), a smoke on the real dev Firestore on 2026-10-26 (ten simultaneous calls per
      run, with and without an existing `quotas/{uid}` document) stored exactly 3 and rejected 7 every time. That smoke
      called the service and repository directly, not the deployed HTTP path, and did not touch prod.
    - **Duplicates.** A full window that holds this key's own document (a concurrent first call of the same
@@ -1017,7 +1017,7 @@ they were not re-measured for these notes.
      recipient cap (N-1) consults. Without it a sweep-published post, which has no authenticated request behind it,
      would charge a first-day author to the established tier.
    - **Undecodable due documents** are counted as `undecodable` and skipped, like `skipped_bad_path`, and are
-     re-read every run (`repo_scheduled.go: DueScheduled`). Retiring them is pending 2.18.
+     re-read every run (`repo_scheduled.go: DueScheduled`). Retiring them is an open follow-up (`docs/plans/composer-w15-w6.md`, Open items).
    - **The `scheduled_sweep` line** (Sweep 7) also carries `held_media`, `noop`, `write_failed`, `undecodable`,
      `failed_total`, `fs_deletes` and `latency_ms`, and is written at WARN when a page failed (note 4). Further WARN
      lines name an item by `uid_hash` and `scheduled_id`: `scheduled_item_transient`,
@@ -1026,11 +1026,11 @@ they were not re-measured for these notes.
      every `SCHEDULED_*` key at startup and fails the boot outside its range (typo guards, not product rules). The
      ranges: `SCHEDULED_SWEEP_LIMIT` 1 to 1,000, then clamped to 50; `SCHEDULED_SWEEP_MAX_PAGES` 1 to 10, so the
      §Lateness lever "raise `SCHEDULED_SWEEP_MAX_PAGES`" tops out at 500 due reads a run; `SCHEDULED_SWEEP_CONCURRENCY`
-     1 to 4 and `SCHEDULED_MAX_PENDING` 1 to 50 (founder, 2026-10-24, pending 2.2); `SCHEDULED_PER_AUTHOR_PER_RUN`
+     1 to 4 and `SCHEDULED_MAX_PENDING` 1 to 50 (founder, 2026-10-24); `SCHEDULED_PER_AUTHOR_PER_RUN`
      1 to 10; `SCHEDULED_MAX_ATTEMPTS` 1 to 10; `SCHEDULED_AUTHOR_READS_WARN` 1 to 1,000; `SCHEDULED_MAX_LATENESS`
      1 min to 168 h; `SCHEDULED_TERMINAL_TTL` 1 h to 720 h; `SCHEDULED_HORIZON` 1 h to 8,760 h; `SCHEDULED_MIN_LEAD`
      1 min to 24 h and shorter than the horizon. The defaults are those in §Rollout "Config".
-   - **Dev manual run** (D1 "Testing in dev"). Found on dev on 2026-10-26 (pending 1.20, #293; procedure in
+   - **Dev manual run** (D1 "Testing in dev"). Found on dev on 2026-10-26 (#293; procedure in
      `docs/runbooks/posts.md` section 12 "Manual run"), not from the code: the primary
      `gcloud auth print-identity-token --impersonate-service-account` command does not work with the OpenID-only role,
      because it asks for `getAccessToken`, so the IAM Credentials `generateIdToken` fallback is the working path. The

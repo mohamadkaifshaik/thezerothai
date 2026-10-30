@@ -84,7 +84,7 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 		tally.res.Outcome = SweepDegraded
 		return tally.snapshot(), nil
 	}
-	// The media kill switch (pending 2.15), asked once with 0 reads. While FEATURE_MEDIA is off for everyone CreatePost
+	// The media kill switch, asked once with 0 reads. While FEATURE_MEDIA is off for everyone CreatePost
 	// refuses media_ids, so the sweep must not attach images either: items that carry them are held (below). Allowlist and
 	// percent are rollouts, not the kill switch (GloballyOff is false for them), so they hold nothing.
 	holdMedia := s.sweep.Flags.GloballyOff(mediaFlagName)

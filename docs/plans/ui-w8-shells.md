@@ -18,7 +18,7 @@ The founder answered F1–F8 on 2026-10-28. Where an answer differs from the 202
 | F1 | Which shells exist | **All four** (Creator tools, Premium, Advertise, Calls), each with a "Coming soon" message | `kVisibleShells` = all four (unchanged) |
 | F2 | Premium shown before payments exist; prod | **Prices are shown:** "Plus" **₹235/month** and "Premium" **₹850/month**, both **inclusive of GST**. **Prod is accepted** up to `on` (recorded in ADR-0026 and the runbook; `flag-ceiling.json` has no prod block for any flag). **All platforms** (web, Android, iOS): the store-review risk is accepted by the founder | W8-5 shows a price card with no buy button; W8-1 records the prod decision in the runbook; Rollout and Risks below |
 | F3 | Tone | **"Coming soon" is shown** on every page. Still no date, no countdown and no urgency | every hero says "coming soon"; the status pills read "Coming soon"; the copy guard keeps forbidding dates and urgency |
-| F4 | Advertise contact | **`comingsoon@dzeroth.com`**. The mailbox **does not exist yet** (2026-10-28), so `kAdvertisingContactEmail` stays `null` and no "Email us" button ships until the founder confirms the mailbox receives mail (`pending.md` 3.17). Turning it on is then a one-line PR | W8-6 builds and tests both states; ships with the address off |
+| F4 | Advertise contact | **`comingsoon@dzeroth.com`**. The mailbox **does not exist yet** (2026-10-28), so `kAdvertisingContactEmail` stays `null` and no "Email us" button ships until the founder confirms the mailbox receives mail (`docs/plans/ui-w8-shells.md`). Turning it on is then a one-line PR | W8-6 builds and tests both states; ships with the address off |
 | F5 | Wide-screen entry (600 dp and up) | **A "More" item in the side rail** (rail-only, like History). It opens a menu of the visible shells. The account chip menu stays Profile / Settings / Sign out | W8-2 adds the rail item and menu instead of chip menu items |
 | F6 | Legacy chrome (`ui_shell` off) | **(a) New layout only.** No entry in the old layout. Because `ui_shell` has no prod ceiling today, the pages reach prod users only once `ui_shell` is also raised in prod (a separate decision) | entries need `shells` **and** `ui_shell` (unchanged); the prod raise of `shells` waits on `ui_shell` |
 | F7 | Premium as page or pop-up | **A pop-up over the current page (usually the feed), opened only when the user taps Premium.** Never shown automatically (not on launch, resume, feed load, scroll or after any action) | W8-5 is a dialog route; W8-8 adds a structural test that only the entry taps open it |
@@ -60,7 +60,7 @@ People who open the drawer or the rail's "More" menu find the same destinations 
 
 | Concern | Stage 0 (W8) | Seam to protect now | Stage 2/3 target (future ADR) | Trigger (measured, or a recorded founder decision) |
 |---|---|---|---|---|
-| Paid tier (Premium) | coming-soon pop-up with the two planned prices (F2), no purchase path | route `AppRouter.premiumPath`, the `ShellKind.premium` entry; no client code reads an "entitlement" | **Payments ADR:** store billing for digital goods in the apps (Google Play Billing; Apple In-App Purchase after the Apple launch), a web payment provider (not GCP, so a stack exception the ADR must justify), server-side receipt verification and store notifications through Pub/Sub, an entitlements doc owned by `identity`, GST and invoicing, refund and cancellation policy, consumer-protection disclosures, recurring-payment mandate rules for Indian cards, what may be paywalled (never safety or privacy features) | your decision to charge, **plus** a measured need: the Stage 0 bill (`cost-model.md` §5) above INR 3,000/month for 2 consecutive months (about 3,000 DAU), or no funding after the credit expires (`pending.md` 1.14) with more than 1,000 DAU |
+| Paid tier (Premium) | coming-soon pop-up with the two planned prices (F2), no purchase path | route `AppRouter.premiumPath`, the `ShellKind.premium` entry; no client code reads an "entitlement" | **Payments ADR:** store billing for digital goods in the apps (Google Play Billing; Apple In-App Purchase after the Apple launch), a web payment provider (not GCP, so a stack exception the ADR must justify), server-side receipt verification and store notifications through Pub/Sub, an entitlements doc owned by `identity`, GST and invoicing, refund and cancellation policy, consumer-protection disclosures, recurring-payment mandate rules for Indian cards, what may be paywalled (never safety or privacy features) | your decision to charge, **plus** a measured need: the Stage 0 bill (`cost-model.md` §5) above INR 3,000/month for 2 consecutive months (about 3,000 DAU), or no funding after the credit expires (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.14) with more than 1,000 DAU |
 | Creator insights (numbers beyond the profile counts) | four profile numbers from `GetMe` (0 reads) + static rows | `ShellKind.creatorStudio` route; the "Insights" group is one widget, so real rows replace placeholders without touching the page frame | **Insights plan (no ADR if no new collection):** an `InsightsService` summarising the counters already on your own recent posts (bounded reads, instance-cached). **Impressions** need a write per view, which is the `stage-ladder` Counters row (batched or sharded counters, its own ADR) | at least 50 accounts with more than 1,000 followers, or your request; impressions only when the Counters row's ADR exists |
 | Creator monetisation (earnings, subscriptions to creators) | the "Programs" group reads "Coming soon" | same route; no control exists to remove | **Creator payouts ADR** (after Payments): revenue share, a payouts provider, KYC, tax withholding, eligibility rules, fraud and chargebacks | Payments live in prod **and** your decision |
 | Advertising | coming-soon page, `mailto:` off until the mailbox exists (F4) | route `/advertise`; the `timeline` interface stays the only place a feed is merged (an ad slot later goes behind it, never in a handler or widget) | **Ads ADR:** direct-sold promoted posts vs an ad-network SDK, consent and privacy (India's DPDP Act, iOS App Tracking Transparency, Play Data safety), ad labelling, advertiser verification and ad review, payments (needs Payments), brand safety, the Privacy Policy change | sustained DAU above 20,000 for 30 days (the Stage 2 boundary; below it ad revenue does not cover ad review and legal cost), or a signed advertiser budget you want to accept |
@@ -141,7 +141,7 @@ The delta is **below** the 15–30 KB gzip estimate above and far under the 60 K
   - no "free trial", no urgency (no countdown, no "limited", no "early bird"), no testimonial, no feature promise, no date, anywhere;
   - the pop-up opens only on tap (F7): a pop-up shown by itself over the feed is the dark-pattern risk, and W8-8 fails if any code path other than the entry taps opens it;
   - the copy is reviewed by `security-auditor` (W8-9, privacy and claims) and approved by you in the screen PRs (F3).
-  - India's consumer-protection rules on dark patterns (false urgency, subscription traps) are the reason for these rules; legal advice on the final copy rides with the Terms of Service review (`pending.md` 3.9).
+  - India's consumer-protection rules on dark patterns (false urgency, subscription traps) are the reason for these rules; legal advice on the final copy rides with the Terms of Service review (`docs/plans/roadmap.md` section 9, item 3.9).
 - **Degraded mode, service pause:** unaffected (no RPC). The pages stay reachable in `DEGRADED_MODE=readonly`. Under the ADR-0022 pause the whole app shows `ServicePausedView`, as today.
 
 ## How each shell is replaced when its real feature ships (the seam)
@@ -214,7 +214,7 @@ Order:
 - Client: widget tests at 360 / 600 / 1200, light and dark, text scale 1.0 / 1.3 / 2.0, via `test/support/theme_harness.dart`, for every new screen and widget. Pixel goldens stay deferred (B-01).
 - Backend (W8-1): the config test and `check-flag-registry.sh`; `make ci` green.
 - `docs/ui-catalog.md` updated for shared items.
-- This table's Status and `docs/pending.md` row 3.17 updated in the PR.
+- This table's Status updated in the PR.
 
 ## Tickets
 
@@ -357,7 +357,7 @@ Order:
 - **Description.** `/advertise` (not `/ads`: content blockers' URL lists commonly match `/ads` paths, and a hard reload of `/ads` on web could be blocked):
   - `AppBackHeader` "Advertise" (F3).
   - Hero: icon disc (`campaign_outlined`), the title "Advertising is coming soon", and the subtitle "We don't sell ads or promoted posts yet, and there are no ads in your timeline."
-  - **Contact (F4), only if `kAdvertisingContactEmail` is non-null.** The decided address is `comingsoon@dzeroth.com`, but the mailbox does not exist yet (2026-10-28), so the constant ships as `null` with a comment naming the address and `pending.md` 3.17. Once the founder confirms the mailbox receives mail, a one-line PR sets it:
+  - **Contact (F4), only if `kAdvertisingContactEmail` is non-null.** The decided address is `comingsoon@dzeroth.com`, but the mailbox does not exist yet (2026-10-28), so the constant ships as `null` with a comment naming the address and `docs/plans/ui-w8-shells.md`. Once the founder confirms the mailbox receives mail, a one-line PR sets it:
     - a muted line, "Want to talk about advertising?";
     - a 48 dp text button "Email us" that opens `mailto:<address>?subject=Advertising%20enquiry` via `url_launcher` (no body, no account data);
     - if `launchUrl` returns false: a snackbar "Couldn't open your email app" with the address shown as selectable text.
@@ -442,7 +442,7 @@ Order:
 
 ### W8-11 — Dev rollout, prod raise prepared  [owner: production-deployer] [size: S] [depends: W8-1, W8-8, W8-9; prod also W8-10 Accepted and `ui_shell` in prod]  Status: Prepared (commands in `docs/runbooks/shells.md`; the founder runs them after #392 merges)
 - **Description.**
-  - Show the founder a **targeted** dev Terraform plan (`pending.md` 3.10: a full dev apply is unsafe; a targeted apply must also name `-target=module.budget.google_pubsub_topic.billing_alerts`) for `feature_shells*` only.
+  - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe; a targeted apply must also name `-target=module.budget.google_pubsub_topic.billing_alerts`) for `feature_shells*` only.
   - Apply on OK, with the allowlist set to the 3 test uids that already have `ui_shell`.
   - Smoke on dev web at 360, 600 and 1200 dp:
     - the four entries appear for an allowlisted uid (drawer at 360, rail More menu at 600 / 1200) and not for another account;
@@ -450,7 +450,7 @@ Order:
     - `/premium` typed by a non-allowlisted account lands on Home;
     - the browser's network panel shows no API call while on a shell page.
   - **Prod (F2, accepted):** prepare the prod Terraform change for `feature_shells` (allowlist, then `on`) and hand it to the founder. It is applied only with the founder's OK and ships through a `v*` tag, a production-reviewer GO and `promote-prod` (ADR-0019). It is useful only once `ui_shell` is on in prod (F6); the deployer says so in the hand-off.
-- **Acceptance criteria.** The dev smoke passes; the prod change is prepared, not applied; `pending.md` 3.17 updated with the dev state.
+- **Acceptance criteria.** The dev smoke passes; the prod change is prepared, not applied; the dev state recorded in this plan.
 - **Test notes.** —
 - **Observability.** The startup `feature_flags` line of the new dev revision shows `shells` in allowlist mode.
 - **Budget.** 0 reads (one `GetMe` per smoke session, already counted).
@@ -474,7 +474,7 @@ Order:
 | Risk | Mitigation |
 |---|---|
 | Store review rejects "coming soon" screens or shown prices for a subscription not sold through store billing. Apple's App Completeness guideline (2.1) asks that placeholder content be removed; Apple 3.1.1 and Google Play's payments policy require store billing for digital subscriptions; Google Play has a minimum-functionality policy | **risk accepted by the founder for all platforms (2026-10-28)**. No buy button or external link, so nothing steers to outside payment. If a store rejects a build: drop the cited kind from `kVisibleShells` for the store build (web keeps it), or set `shells` off; W8-9 restates the current guideline wording before the prod raise |
-| The Premium pop-up with prices reads as a pre-sale or an upsell (the roadmap rule "no Premium / ads upsell surfaces" is reversed for W8 by the founder, recorded in ADR-0026) and India's consumer-protection rules on dark patterns and price display | tap-only (F7, tested), "Coming soon" on every card, prices incl. GST, no purchase affordance, no urgency, no date; the copy guard test; W8-9 review; your copy sign-off; legal advice with the Terms review (`pending.md` 3.9) |
+| The Premium pop-up with prices reads as a pre-sale or an upsell (the roadmap rule "no Premium / ads upsell surfaces" is reversed for W8 by the founder, recorded in ADR-0026) and India's consumer-protection rules on dark patterns and price display | tap-only (F7, tested), "Coming soon" on every card, prices incl. GST, no purchase affordance, no urgency, no date; the copy guard test; W8-9 review; your copy sign-off; legal advice with the Terms review (`docs/plans/roadmap.md` section 9, item 3.9) |
 | The shown prices go stale or differ from what Payments later charges | one constant `kPremiumPlans`; a change is a one-line reviewed PR; the Payments ADR replaces it with server-provided plan data |
 | `comingsoon@dzeroth.com` gets spam once public | ships off until the mailbox exists; use a dedicated alias with a spam filter, never a personal inbox |
 | Someone adds a waitlist or "notify me" later, collecting personal data with no privacy basis | explicitly out of scope; the copy guard fails on "waitlist" and "notify me"; adding a field is a scope change for you |

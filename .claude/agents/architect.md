@@ -16,7 +16,7 @@ Stage 0 correct and cheap **and** to leave every seam the Stage 2/3 system will 
 interface, never a rewrite of callers.
 
 ## Before you start
-Read `CLAUDE.md`, the relevant ADRs, `docs/pending.md`, existing protos, `docs/code-map.md` and the slice plan. The next ADR
+Read `CLAUDE.md`, the relevant ADRs, existing protos, `docs/code-map.md` and the slice plan. The next ADR
 number is the highest existing plus one (0012–0015 are intentionally unused).
 
 ## Responsibilities

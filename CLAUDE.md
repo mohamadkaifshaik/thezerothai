@@ -19,7 +19,7 @@ that names the cost and the user/revenue milestone that justifies it.
 
 ## Credit mode (ADR-0022, expires 2026-12-24)
 
-A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **2026-12-22** heavy items off, **2026-12-24** services paused (runbook `docs/runbooks/credit-sunset-pause-resume.md`), **2026-12-26** credit gone. Steps and owners live in `docs/pending.md` section 1.
+A GCP credit that expires **2026-12-26** pays for a temporary profile. Dates: **2026-12-22** heavy items off, **2026-12-24** services paused (runbook `docs/runbooks/credit-sunset-pause-resume.md`), **2026-12-26** credit gone. Steps and owners live in `docs/runbooks/credit-sunset-pause-resume.md`, section "Dated steps and owners".
 
 - **Allowed until then:** prod service-level min instances 1; `VISION_MONTHLY_CAP` 20k–40k with `reject` at the cap; per-use overage.
 - **Capped:** gross spend at `credit_spend_cap_inr` (INR 25,000 or lower), watched by a gross-spend budget.
@@ -110,7 +110,6 @@ infra/terraform/       # envs/{dev,prod}, modules/*
 loadtest/              # k6 scripts (run locally against emulators, tiny smoke in cloud)
 scripts/               # dev.sh, cost-vision.sh, mint-app-token.sh; promotion/ = deploy validators (flag registry, ceilings, until-dates)
 testdata/              # fixtures shared by Go and Dart tests (e.g. the post text grammar)
-docs/pending.md        # the founder's single task list (see Status below)
 docs/adr/              # Architecture Decision Records (architect owns)
 docs/plans/            # Feature plans (planner owns); roadmap.md is the product roadmap
 docs/reviews/          # Review, cost and production-readiness reports
@@ -161,7 +160,7 @@ No agent marks work done while `make ci` fails.
 
 ## Working conventions
 
-- **Status lives in three places.** `docs/pending.md` is the founder's single task list: update it in the same PR that changes the state of an item. `docs/plans/roadmap.md` is the product roadmap and `docs/plans/phase1.md` the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant ones before starting work and update ticket status in the PR that merges it.
+- **Status lives in two places.** `docs/plans/roadmap.md` is the product roadmap (open items outside the wave plans are in its section 9) and `docs/plans/phase1.md` the Phase 1 slice overview; each slice has its own plan with per-ticket `Status`. Read the relevant ones before starting work and update ticket status in the PR that merges it.
 - **Branches and PRs:** `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`; one ticket per PR; merge `origin/main` into the branch rather than rewriting history. Never open a PR or push to `main` unless the human asked. See the `pr-workflow` skill.
 - **Working in parallel:** agents work in git worktrees under `.claude/worktrees/` (never in Temp). The assistant is meant to open PRs through its own GitHub App identity, not the founder's, so the code-owner review is always a second identity (`docs/runbooks/ci-enforcement.md`). Do not use bare `git stash` in a shared checkout.
 - **Rollout:** every user-facing feature ships behind a server flag (`FEATURE_<NAME>`: off → allowlist → percent → on). See the `flag-rollout` skill.
@@ -196,5 +195,5 @@ make loadtest SCENARIO=timeline_read   # against emulators by default
 - Logs + an Error Reporting-visible error path exist for any new request path.
 - Runbook entry updated for any new failure mode.
 - `make ci` and `make test-int` pass, including the promotion-script checks when flags, Terraform or workflows change; a new flag is registered with its ceiling.
-- `docs/pending.md` updated if the change touches an item; shared helpers added to `docs/code-map.md` or `docs/ui-catalog.md`.
+- Shared helpers added to `docs/code-map.md` or `docs/ui-catalog.md`.
 - Skills in `.claude/skills/` are the source of procedures (flags, PR workflow, reuse-first, release); read the relevant one instead of guessing.
