@@ -396,8 +396,7 @@ class PostCard extends StatelessWidget {
                       _openProfile(context, userId),
                   hashtagSearch: _searchOn(context),
                   onHashtagTap:
-                      onHashtagTap ??
-                      (tag) => _openHashtag(context, tag),
+                      onHashtagTap ?? (tag) => _openHashtag(context, tag),
                 ),
               if (media.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.sm),

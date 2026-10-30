@@ -426,8 +426,7 @@ class _PeopleBodyState extends State<_PeopleBody> {
     final error = state.error;
     if (state.status == SearchResultsStatus.error && error != null) {
       return [
-        SliverFillRemaining(
-          hasScrollBody: false,
+        SliverToBoxAdapter(
           child: switch (error) {
             FeatureDisabledException() => _unavailable,
             final RateLimitedException e => _RateLimitedView(
@@ -474,4 +473,3 @@ class _PeopleBodyState extends State<_PeopleBody> {
     ];
   }
 }
-

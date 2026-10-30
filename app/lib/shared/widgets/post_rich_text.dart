@@ -25,6 +25,7 @@ class PostRichText extends StatefulWidget {
   final TextStyle? style;
   final void Function(Uri uri) onOpenLink;
   final void Function(String userId, String handle) onOpenMention;
+
   /// Called with the tag body (no `#`, as written) when a hashtag is tapped.
   final void Function(String tag) onHashtagTap;
 

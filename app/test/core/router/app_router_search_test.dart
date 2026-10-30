@@ -126,7 +126,7 @@ void main() {
   testWidgets('without the search flag the caller is sent Home', (
     tester,
   ) async {
-    final path = await openAt(tester, const {'posts'}, '/search?q=%23go');
+    final path = await openAt(tester, const {}, '/search?q=%23go');
 
     expect(path, AppRouter.homePath);
     expect(find.byType(SearchResultsScreen), findsNothing);
@@ -162,4 +162,3 @@ void main() {
     expect(search.calls, ['posts:#go:SEARCH_TAB_TOP']);
   });
 }
-

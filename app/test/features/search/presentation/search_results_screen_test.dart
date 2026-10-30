@@ -10,7 +10,6 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/domain/search_results_tab.dart';
 import 'package:dzeroth/features/search/presentation/search_results_screen.dart';
-import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post_card.dart';
@@ -118,9 +117,14 @@ void main() {
   }
 
   Future<void> tapTab(WidgetTester tester, String label) async {
-    await tester.tap(
-      find.descendant(of: find.byType(AppTabBar), matching: find.text(label)),
+    final tab = find.descendant(
+      of: find.byType(AppTabBar),
+      matching: find.text(label),
     );
+    // The row scrolls sideways when the labels are wide (large text).
+    await tester.ensureVisible(tab);
+    await tester.pumpAndSettle();
+    await tester.tap(tab);
     await tester.pumpAndSettle();
   }
 
@@ -355,16 +359,18 @@ void main() {
     testWidgets('Latest follows next_page_token through short pages', (
       tester,
     ) async {
-      var served = 0;
-      search.postsResult = page([1], token: 't1');
+      search = _PagedSearch([
+        page([1], token: 't1'),
+        page([2], token: 't2'),
+        page([3, 4]),
+      ]);
       await open(tester, tab: SearchResultsTab.latest);
-      // A short page that does not fill the screen asks again by itself.
+      // Short pages that do not fill the screen are followed by themselves,
+      // until the token is empty.
       await tester.pumpAndSettle();
-      expect(search.postsPageTokens.first, isNull);
-      expect(search.postsPageTokens.length, greaterThanOrEqualTo(2));
-      expect(search.postsPageTokens[1], 't1');
-      served = search.calls.length;
-      expect(served, greaterThanOrEqualTo(2));
+
+      expect(search.postsPageTokens, [null, 't1', 't2']);
+      expect(find.byType(PostCard), findsNWidgets(4));
     });
 
     testWidgets('Latest stops when the token is empty', (tester) async {
@@ -386,11 +392,32 @@ void main() {
     testWidgets('Media with an empty page and a token keeps following it', (
       tester,
     ) async {
-      search.postsResult = page([], token: 'm1');
+      search = _PagedSearch([
+        page([], token: 'm1'),
+        page([5]),
+      ]);
       await open(tester, tab: SearchResultsTab.media);
-      await tester.pump();
-      // Never claims "empty" while a token remains.
+      await tester.pumpAndSettle();
+
+      expect(search.postsPageTokens, [null, 'm1']);
       expect(find.textContaining('No results'), findsNothing);
+      expect(find.byType(PostCard), findsOneWidget);
+    });
+
+    testWidgets('a failed next page keeps the rows under a banner and halts', (
+      tester,
+    ) async {
+      search = _PagedSearch([
+        page([1], token: 't1'),
+        null, // the second page fails
+      ]);
+      await open(tester, tab: SearchResultsTab.latest);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PostCard), findsOneWidget);
+      expect(find.text("Couldn't refresh the results."), findsOneWidget);
+      // Automatic paging stopped: one failed try, not a loop.
+      expect(search.postsPageTokens, [null, 't1']);
     });
   });
 
@@ -488,4 +515,26 @@ void main() {
       expect(find.bySemanticsLabel('Search query: #go'), findsOneWidget);
     });
   });
+}
+
+/// Answers `searchPosts` from a queue of pages (a null entry fails that
+/// call), so a test can walk `next_page_token` through short pages.
+class _PagedSearch extends FakeSearchRepository {
+  _PagedSearch(this._pages);
+
+  final List<SearchPostsPage?> _pages;
+
+  @override
+  Future<SearchPostsPage> searchPosts(
+    String query, {
+    required SearchTab tab,
+    String? pageToken,
+    int pageSize = 20,
+  }) async {
+    calls.add('posts:$query:${tab.name}');
+    postsPageTokens.add(pageToken);
+    final next = _pages.isEmpty ? null : _pages.removeAt(0);
+    if (next == null) throw StateError('scripted failure');
+    return next;
+  }
 }

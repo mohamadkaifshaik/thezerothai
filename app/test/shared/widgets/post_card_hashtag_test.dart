@@ -8,7 +8,6 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post_card.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -61,9 +60,8 @@ void main() {
         ),
         GoRoute(
           path: '/search',
-          builder: (context, state) => Scaffold(
-            body: Text('search page ${state.uri.queryParameters['q']}'),
-          ),
+          builder: (context, state) =>
+              Scaffold(body: Text('search page ${state.uri}')),
         ),
       ],
     );
@@ -91,16 +89,12 @@ void main() {
   testWidgets('search on: the tap opens the results for the tag on Top', (
     tester,
   ) async {
-    final router = await pumpCard(tester, flags: const {'search'});
+    await pumpCard(tester, flags: const {'search'});
 
     await tester.tapOnText(find.textRange.ofSubstring('#Launch'));
     await tester.pumpAndSettle();
 
-    expect(find.text('search page #Launch'), findsOneWidget);
-    expect(
-      router.routeInformationProvider.value.uri.toString(),
-      '/search?q=%23Launch',
-    );
+    expect(find.text('search page /search?q=%23Launch'), findsOneWidget);
     expect(find.text('Hashtags are coming soon.'), findsNothing);
   });
 
@@ -109,9 +103,9 @@ void main() {
 
     await tester.tapOnText(find.textRange.ofSubstring('#Launch'));
     await tester.pump();
-
     expect(find.text('Hashtags are coming soon.'), findsOneWidget);
-    expect(router.routeInformationProvider.value.uri.path, '/');
+    expect(find.textContaining('search page'), findsNothing);
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/');
   });
 
   testWidgets('the span is a link "Search #Launch" with search on', (
@@ -148,6 +142,6 @@ void main() {
     await tester.tapOnText(find.textRange.ofSubstring('#Launch'));
     await tester.pumpAndSettle();
 
-    expect(find.text('search page #Launch'), findsOneWidget);
+    expect(find.text('search page /search?q=%23Launch'), findsOneWidget);
   });
 }
