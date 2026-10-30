@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,7 +52,7 @@ func (f *fakeReader) ByHashtag(_ context.Context, tag string, w posts.Window, li
 	}
 	var out []*posts.Post
 	for _, p := range f.byTag[tag] {
-		if w.Before != nil && !(p.CreatedAt.Before(w.Before.CreatedAt) || (p.CreatedAt.Equal(w.Before.CreatedAt) && p.ID < w.Before.ID)) {
+		if w.Before != nil && !p.CreatedAt.Before(w.Before.CreatedAt) && (!p.CreatedAt.Equal(w.Before.CreatedAt) || p.ID >= w.Before.ID) {
 			continue
 		}
 		if len(out) == limit {
@@ -72,11 +73,11 @@ func (f *fakeReader) callCount() int {
 type fakeGraph struct {
 	snap  graph.Snapshot
 	err   error
-	calls int
+	calls atomic.Int64
 }
 
 func (g *fakeGraph) Snapshot(context.Context, string) (graph.Snapshot, error) {
-	g.calls++
+	g.calls.Add(1)
 	return g.snap, g.err
 }
 
@@ -100,11 +101,11 @@ func (f fakeProtected) Current(context.Context) (identity.ProtectedSet, error) {
 
 type fakeViewer struct {
 	set   posts.ViewerSet
-	calls int
+	calls atomic.Int64
 }
 
 func (v *fakeViewer) Viewer(context.Context, string) posts.ViewerSet {
-	v.calls++
+	v.calls.Add(1)
 	return v.set
 }
 
@@ -253,7 +254,7 @@ func TestPosts_Grammar(t *testing.T) {
 		{"tab inside", "go\tlang", "", false, true},
 		{"newline inside", "go\nlang", "", false, true},
 		{"trailing newline is trimmed", "go\n", "go", false, false},
-		{"bidi control", "#go‮", "", false, true},
+		{"bidi control", "#go" + string(rune(0x202e)), "", false, true},
 		{"invalid utf-8", "go\xff", "", false, true},
 		{"at handle", "@alice", "", true, false},
 		{"hash digits only", "#123", "", true, false},
@@ -274,8 +275,8 @@ func TestPosts_Grammar(t *testing.T) {
 				t.Fatalf("unsupported=%v tag=%q, want %v %q", resp.GetUnsupportedQuery(), resp.GetNormalizedTag(), tt.unsupport, tt.wantTag)
 			}
 			if tt.invalid || tt.unsupport {
-				if r.reader.callCount() != 0 || r.graph.calls != 0 {
-					t.Errorf("a rejected query must read nothing: %d queries, %d graph reads", r.reader.callCount(), r.graph.calls)
+				if r.reader.callCount() != 0 || r.graph.calls.Load() != 0 {
+					t.Errorf("a rejected query must read nothing: %d queries, %d graph reads", r.reader.callCount(), r.graph.calls.Load())
 				}
 			}
 		})
@@ -397,8 +398,8 @@ func TestPageToken_Rejections(t *testing.T) {
 			rr.advance(tt.later)
 			_, err := rr.svc.Posts(context.Background(), tt.uid, tt.q, tt.tab, 0, tt.token)
 			wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "page_token")
-			if rr.reader.callCount() != 0 || rr.graph.calls != 0 {
-				t.Fatalf("a bad token must read nothing: %d queries %d graph", rr.reader.callCount(), rr.graph.calls)
+			if rr.reader.callCount() != 0 || rr.graph.calls.Load() != 0 {
+				t.Fatalf("a bad token must read nothing: %d queries %d graph", rr.reader.callCount(), rr.graph.calls.Load())
 			}
 		})
 	}
@@ -625,8 +626,8 @@ func TestViewerFlags(t *testing.T) {
 			r := newRig(map[string][]*posts.Post{"go": newestFirst(2)}, opts...)
 			r.viewer.set = liked
 			resp := doPosts(t, r, "u", "go", latest, 0, "")
-			if r.viewer.calls != tt.wantCalls {
-				t.Fatalf("userLikes reads = %d, want %d", r.viewer.calls, tt.wantCalls)
+			if r.viewer.calls.Load() != int64(tt.wantCalls) {
+				t.Fatalf("userLikes reads = %d, want %d", r.viewer.calls.Load(), tt.wantCalls)
 			}
 			byID := map[string]*postsv1.PostView{}
 			for _, v := range resp.Posts {
@@ -641,8 +642,8 @@ func TestViewerFlags(t *testing.T) {
 		t.Parallel()
 		r := newRig(map[string][]*posts.Post{"go": nil}, withFlag(posts.EngagementFlagName))
 		doPosts(t, r, "u", "go", latest, 0, "")
-		if r.viewer.calls != 0 || r.graph.calls != 0 {
-			t.Fatalf("viewer reads %d graph reads %d, want 0 0", r.viewer.calls, r.graph.calls)
+		if r.viewer.calls.Load() != 0 || r.graph.calls.Load() != 0 {
+			t.Fatalf("viewer reads %d graph reads %d, want 0 0", r.viewer.calls.Load(), r.graph.calls.Load())
 		}
 	})
 }
@@ -858,7 +859,7 @@ func TestPosts_FlagDisabledReadsNothing(t *testing.T) {
 	svc := New(flagMap{}, WithPosts(PostsDeps{Posts: r.reader, Graph: r.graph, CursorKey: testKey}))
 	_, err := svc.Posts(context.Background(), "u", "go", latest, 0, "")
 	wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "")
-	if r.reader.callCount() != 0 || r.graph.calls != 0 {
+	if r.reader.callCount() != 0 || r.graph.calls.Load() != 0 {
 		t.Fatal("a disabled caller must read nothing")
 	}
 }
@@ -898,7 +899,7 @@ func TestPosts_FlagModesWithRealRegistry(t *testing.T) {
 				if errors.As(err, &ae) && ae.Metadata["feature"] != FlagSearch {
 					t.Errorf("%s: feature = %q", uid, ae.Metadata["feature"])
 				}
-				if r.callCount() != 0 || g.calls != 0 {
+				if r.callCount() != 0 || g.calls.Load() != 0 {
 					t.Errorf("%s: a refused caller must read nothing", uid)
 				}
 			}
