@@ -166,6 +166,7 @@ class MediaRef extends $pb.GeneratedMessage {
     $core.int? height,
     $core.String? blurhash,
     $core.String? altText,
+    $core.String? contentType,
   }) {
     final result = MediaRef._();
     if (mediaId != null) result.mediaId = mediaId;
@@ -175,6 +176,7 @@ class MediaRef extends $pb.GeneratedMessage {
     if (height != null) result.height = height;
     if (blurhash != null) result.blurhash = blurhash;
     if (altText != null) result.altText = altText;
+    if (contentType != null) result.contentType = contentType;
     return result;
   }
 
@@ -199,6 +201,7 @@ class MediaRef extends $pb.GeneratedMessage {
     ..aI(5, _omitFieldNames ? '' : 'height')
     ..aOS(6, _omitFieldNames ? '' : 'blurhash')
     ..aOS(7, _omitFieldNames ? '' : 'altText')
+    ..aOS(8, _omitFieldNames ? '' : 'contentType')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -286,6 +289,111 @@ class MediaRef extends $pb.GeneratedMessage {
   $core.bool hasAltText() => $_has(6);
   @$pb.TagNumber(7)
   void clearAltText() => $_clearField(7);
+
+  /// The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+  /// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
+  /// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
+  /// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
+  /// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+  /// that cannot play.
+  @$pb.TagNumber(8)
+  $core.String get contentType => $_getSZ(7);
+  @$pb.TagNumber(8)
+  set contentType($core.String value) => $_setString(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasContentType() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearContentType() => $_clearField(8);
+}
+
+/// One pinned Home tab (ADR-0030 D6, founder decision F5). Home always starts with the fixed "Following" tab, which is
+/// never stored or sent; these are the up to HOME_TABS_MAX_PINNED (5) tabs after it, in the user's order. Stored on
+/// users/{uid}.homeTabs, written only by TimelineService.SetHomeTabs, returned by IdentityService.GetMe home_tabs.
+/// It lives in common so identity does not import timeline (or, through it, posts).
+class HomeTab extends $pb.GeneratedMessage {
+  factory HomeTab({
+    HomeTabKind? kind,
+    $core.String? id,
+    $core.String? title,
+  }) {
+    final result = HomeTab._();
+    if (kind != null) result.kind = kind;
+    if (id != null) result.id = id;
+    if (title != null) result.title = title;
+    return result;
+  }
+
+  HomeTab._();
+
+  factory HomeTab.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      HomeTab()..mergeFromBuffer(data, registry);
+  factory HomeTab.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      HomeTab()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'HomeTab',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.common.v1'),
+      createEmptyInstance: HomeTab.$_createMessage)
+    ..aE<HomeTabKind>(1, _omitFieldNames ? '' : 'kind',
+        enumValues: HomeTabKind.values)
+    ..aOS(2, _omitFieldNames ? '' : 'id')
+    ..aOS(3, _omitFieldNames ? '' : 'title')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  HomeTab clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  HomeTab copyWith(void Function(HomeTab) updates) =>
+      super.copyWith((message) => updates(message as HomeTab)) as HomeTab;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use HomeTab() / HomeTab.new instead')
+  static HomeTab create() => HomeTab._();
+  static $pb.GeneratedMessage $_createMessage() => HomeTab._();
+  @$core.override
+  HomeTab createEmptyInstance() => HomeTab._();
+  @$core.pragma('dart2js:noInline')
+  static HomeTab getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<HomeTab>(HomeTab.$_createMessage);
+  static HomeTab? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  HomeTabKind get kind => $_getN(0);
+  @$pb.TagNumber(1)
+  set kind(HomeTabKind value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasKind() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearKind() => $_clearField(1);
+
+  /// The list id (LIST) or community id (COMMUNITY): a 19-digit Snowflake.
+  @$pb.TagNumber(2)
+  $core.String get id => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set id($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearId() => $_clearField(2);
+
+  /// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
+  /// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
+  /// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
+  /// for that id, and calls GetList once for a tab it has no label for.
+  @$pb.TagNumber(3)
+  $core.String get title => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set title($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTitle() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTitle() => $_clearField(3);
 }
 
 /// Why a request failed, attached to Connect errors as an error detail.

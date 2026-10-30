@@ -18,6 +18,8 @@ import 'dart:typed_data' as $typed_data;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $0;
 
+import '../../common/v1/common.pbjson.dart' as $1;
+
 @$core.Deprecated('Use accountStatusDescriptor instead')
 const AccountStatus$json = {
   '1': 'AccountStatus',
@@ -214,6 +216,14 @@ const GetMeResponse$json = {
       '5': 3,
       '10': 'unreadConversationCount'
     },
+    {
+      '1': 'home_tabs',
+      '3': 8,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.common.v1.HomeTab',
+      '10': 'homeTabs'
+    },
   ],
 };
 
@@ -226,7 +236,8 @@ final $typed_data.Uint8List getMeResponseDescriptor = $convert.base64Decode(
     'aW9uQ291bnQSKQoQZW5hYmxlZF9mZWF0dXJlcxgFIAMoCVIPZW5hYmxlZEZlYXR1cmVzEj8KHH'
     'BlbmRpbmdfZm9sbG93X3JlcXVlc3RfY291bnQYBiABKANSGXBlbmRpbmdGb2xsb3dSZXF1ZXN0'
     'Q291bnQSOgoZdW5yZWFkX2NvbnZlcnNhdGlvbl9jb3VudBgHIAEoA1IXdW5yZWFkQ29udmVyc2'
-    'F0aW9uQ291bnQ=');
+    'F0aW9uQ291bnQSNwoJaG9tZV90YWJzGAggAygLMhouZHplcm90aC5jb21tb24udjEuSG9tZVRh'
+    'YlIIaG9tZVRhYnM=');
 
 @$core.Deprecated('Use getProfileRequestDescriptor instead')
 const GetProfileRequest$json = {
@@ -606,6 +617,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       CheckHandleAvailabilityResponse$json,
   '.dzeroth.identity.v1.GetMeRequest': GetMeRequest$json,
   '.dzeroth.identity.v1.GetMeResponse': GetMeResponse$json,
+  '.dzeroth.common.v1.HomeTab': $1.HomeTab$json,
   '.dzeroth.identity.v1.GetProfileRequest': GetProfileRequest$json,
   '.dzeroth.identity.v1.GetProfileResponse': GetProfileResponse$json,
   '.dzeroth.identity.v1.UpdateProfileRequest': UpdateProfileRequest$json,

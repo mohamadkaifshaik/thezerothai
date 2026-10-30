@@ -15,51 +15,51 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'identity.pb.dart' as $1;
+import 'identity.pb.dart' as $2;
 import 'identity.pbjson.dart';
 
 export 'identity.pb.dart';
 
 abstract class IdentityServiceBase extends $pb.GeneratedService {
-  $async.Future<$1.CreateProfileResponse> createProfile(
-      $pb.ServerContext ctx, $1.CreateProfileRequest request);
-  $async.Future<$1.CheckHandleAvailabilityResponse> checkHandleAvailability(
-      $pb.ServerContext ctx, $1.CheckHandleAvailabilityRequest request);
-  $async.Future<$1.GetMeResponse> getMe(
-      $pb.ServerContext ctx, $1.GetMeRequest request);
-  $async.Future<$1.GetProfileResponse> getProfile(
-      $pb.ServerContext ctx, $1.GetProfileRequest request);
-  $async.Future<$1.UpdateProfileResponse> updateProfile(
-      $pb.ServerContext ctx, $1.UpdateProfileRequest request);
-  $async.Future<$1.ChangeHandleResponse> changeHandle(
-      $pb.ServerContext ctx, $1.ChangeHandleRequest request);
-  $async.Future<$1.DeleteAccountResponse> deleteAccount(
-      $pb.ServerContext ctx, $1.DeleteAccountRequest request);
-  $async.Future<$1.RequestAccountExportResponse> requestAccountExport(
-      $pb.ServerContext ctx, $1.RequestAccountExportRequest request);
-  $async.Future<$1.GetAccountExportResponse> getAccountExport(
-      $pb.ServerContext ctx, $1.GetAccountExportRequest request);
+  $async.Future<$2.CreateProfileResponse> createProfile(
+      $pb.ServerContext ctx, $2.CreateProfileRequest request);
+  $async.Future<$2.CheckHandleAvailabilityResponse> checkHandleAvailability(
+      $pb.ServerContext ctx, $2.CheckHandleAvailabilityRequest request);
+  $async.Future<$2.GetMeResponse> getMe(
+      $pb.ServerContext ctx, $2.GetMeRequest request);
+  $async.Future<$2.GetProfileResponse> getProfile(
+      $pb.ServerContext ctx, $2.GetProfileRequest request);
+  $async.Future<$2.UpdateProfileResponse> updateProfile(
+      $pb.ServerContext ctx, $2.UpdateProfileRequest request);
+  $async.Future<$2.ChangeHandleResponse> changeHandle(
+      $pb.ServerContext ctx, $2.ChangeHandleRequest request);
+  $async.Future<$2.DeleteAccountResponse> deleteAccount(
+      $pb.ServerContext ctx, $2.DeleteAccountRequest request);
+  $async.Future<$2.RequestAccountExportResponse> requestAccountExport(
+      $pb.ServerContext ctx, $2.RequestAccountExportRequest request);
+  $async.Future<$2.GetAccountExportResponse> getAccountExport(
+      $pb.ServerContext ctx, $2.GetAccountExportRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'CreateProfile':
-        return $1.CreateProfileRequest();
+        return $2.CreateProfileRequest();
       case 'CheckHandleAvailability':
-        return $1.CheckHandleAvailabilityRequest();
+        return $2.CheckHandleAvailabilityRequest();
       case 'GetMe':
-        return $1.GetMeRequest();
+        return $2.GetMeRequest();
       case 'GetProfile':
-        return $1.GetProfileRequest();
+        return $2.GetProfileRequest();
       case 'UpdateProfile':
-        return $1.UpdateProfileRequest();
+        return $2.UpdateProfileRequest();
       case 'ChangeHandle':
-        return $1.ChangeHandleRequest();
+        return $2.ChangeHandleRequest();
       case 'DeleteAccount':
-        return $1.DeleteAccountRequest();
+        return $2.DeleteAccountRequest();
       case 'RequestAccountExport':
-        return $1.RequestAccountExportRequest();
+        return $2.RequestAccountExportRequest();
       case 'GetAccountExport':
-        return $1.GetAccountExportRequest();
+        return $2.GetAccountExportRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -69,25 +69,25 @@ abstract class IdentityServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'CreateProfile':
-        return createProfile(ctx, request as $1.CreateProfileRequest);
+        return createProfile(ctx, request as $2.CreateProfileRequest);
       case 'CheckHandleAvailability':
         return checkHandleAvailability(
-            ctx, request as $1.CheckHandleAvailabilityRequest);
+            ctx, request as $2.CheckHandleAvailabilityRequest);
       case 'GetMe':
-        return getMe(ctx, request as $1.GetMeRequest);
+        return getMe(ctx, request as $2.GetMeRequest);
       case 'GetProfile':
-        return getProfile(ctx, request as $1.GetProfileRequest);
+        return getProfile(ctx, request as $2.GetProfileRequest);
       case 'UpdateProfile':
-        return updateProfile(ctx, request as $1.UpdateProfileRequest);
+        return updateProfile(ctx, request as $2.UpdateProfileRequest);
       case 'ChangeHandle':
-        return changeHandle(ctx, request as $1.ChangeHandleRequest);
+        return changeHandle(ctx, request as $2.ChangeHandleRequest);
       case 'DeleteAccount':
-        return deleteAccount(ctx, request as $1.DeleteAccountRequest);
+        return deleteAccount(ctx, request as $2.DeleteAccountRequest);
       case 'RequestAccountExport':
         return requestAccountExport(
-            ctx, request as $1.RequestAccountExportRequest);
+            ctx, request as $2.RequestAccountExportRequest);
       case 'GetAccountExport':
-        return getAccountExport(ctx, request as $1.GetAccountExportRequest);
+        return getAccountExport(ctx, request as $2.GetAccountExportRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

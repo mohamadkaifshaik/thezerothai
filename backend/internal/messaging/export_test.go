@@ -10,14 +10,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
 type fakeExportSource struct {
-	convs  []ExportConv
-	msgs   map[string][]ExportMsg // newest first
-	pages  int
-	failOn string
+	convs      []ExportConv
+	msgs       map[string][]ExportMsg // newest first
+	pages      int
+	failOn     string
+	entries    map[string]EntryDoc
+	entryCalls int
 }
 
 func (f *fakeExportSource) ExportConversations(context.Context, string) ([]ExportConv, error) {
@@ -65,7 +68,7 @@ func ts(sec int64) time.Time { return time.Unix(1_700_000_000+sec, 0).UTC() }
 func exportOf(t *testing.T, src ExportSource, h HandleSource) (string, map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
-	if err := NewExporter(src, h).ExportUser(context.Background(), "uid-me", &buf); err != nil {
+	if err := NewExporter(src, h, &fakeSocial{}).ExportUser(context.Background(), "uid-me", &buf); err != nil {
 		t.Fatal(err)
 	}
 	var v map[string]any
@@ -172,7 +175,7 @@ func TestExport_ErrorsPropagate(t *testing.T) {
 	for _, on := range []string{"convs", "msgs"} {
 		src := &fakeExportSource{failOn: on, convs: []ExportConv{{ID: "c", PeerUID: "p", CreatedAt: ts(1)}}}
 		var buf bytes.Buffer
-		if err := NewExporter(src, &fakeHandles{}).ExportUser(context.Background(), "me", &buf); err == nil {
+		if err := NewExporter(src, &fakeHandles{}, &fakeSocial{}).ExportUser(context.Background(), "me", &buf); err == nil {
 			t.Errorf("a failing %s read must fail the section", on)
 		}
 	}
@@ -197,8 +200,129 @@ func TestExport_WriteErrorsPropagate(t *testing.T) {
 	}
 	for n := 1; n <= 5; n++ { // the opening, two conversations with the separator between, the closing
 		w := &failingWriter{n: n}
-		if err := NewExporter(src, &fakeHandles{}).ExportUser(context.Background(), "me", w); err == nil {
+		if err := NewExporter(src, &fakeHandles{}, &fakeSocial{}).ExportUser(context.Background(), "me", w); err == nil {
 			t.Errorf("failing write %d went unnoticed", n)
 		}
+	}
+}
+
+// GetEntry makes fakeExportSource an ExportSource: the entries are keyed by conversation id, calls counts the reads.
+func (f *fakeExportSource) GetEntry(_ context.Context, _, convID, _ string) (EntryDoc, bool, error) {
+	f.entryCalls++
+	if f.failOn == "entry" {
+		return EntryDoc{}, false, errors.New("entry down")
+	}
+	e, ok := f.entries[convID]
+	return e, ok, nil
+}
+
+func entryOf(peer, handle string) EntryDoc {
+	return EntryDoc{PeerID: peer, Peer: PeerDoc{Handle: handle}}
+}
+
+// W7-30 (security review M-2): a peer who blocked the caller (or whom the caller blocked, or every peer on overflow) is named by
+// the handle frozen on the caller's entry, never the live directory handle, and is never looked up. A missing entry, an entry
+// naming another peer, and an erased peer give no handle. Unblocked peers keep the live handle.
+func TestExport_BlockedPeerUsesFrozenHandle(t *testing.T) {
+	live := map[string]string{"p-by": "renamed-by", "p-blocked": "renamed-blocked", "p-nomatch": "live-nomatch", "p-noentry": "live-noentry", "p-free": "live-free"}
+	cases := []struct {
+		name string
+		snap graph.Snapshot
+		want map[string]string // peer -> handle in the export
+		look []string          // peers the directory may be asked about
+	}{
+		{"none blocked", graph.Snapshot{}, map[string]string{"p-by": "renamed-by", "p-blocked": "renamed-blocked", "p-nomatch": "live-nomatch", "p-noentry": "live-noentry", "p-free": "live-free"}, []string{"p-by", "p-blocked", "p-nomatch", "p-noentry", "p-free"}},
+		{"blocked either way", graph.Snapshot{BlockedBy: map[string]bool{"p-by": true, "p-nomatch": true, "p-noentry": true}, Blocked: map[string]bool{"p-blocked": true}},
+			map[string]string{"p-by": "frozen-by", "p-blocked": "frozen-blocked", "p-nomatch": "", "p-noentry": "", "p-free": "live-free"}, []string{"p-free"}},
+		{"overflow blocks every peer", graph.Snapshot{BlockedByOverflow: true},
+			map[string]string{"p-by": "frozen-by", "p-blocked": "frozen-blocked", "p-nomatch": "", "p-noentry": "", "p-free": "frozen-free"}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			src := &fakeExportSource{
+				convs: []ExportConv{
+					{ID: "c-by", PeerUID: "p-by", State: stateAccepted, CreatedAt: ts(1)},
+					{ID: "c-blocked", PeerUID: "p-blocked", State: stateAccepted, CreatedAt: ts(2)},
+					{ID: "c-nomatch", PeerUID: "p-nomatch", State: stateAccepted, CreatedAt: ts(3)},
+					{ID: "c-noentry", PeerUID: "p-noentry", State: stateAccepted, CreatedAt: ts(4)},
+					{ID: "c-free", PeerUID: "p-free", State: stateAccepted, CreatedAt: ts(5)},
+				},
+				entries: map[string]EntryDoc{
+					"c-by": entryOf("p-by", "frozen-by"), "c-blocked": entryOf("p-blocked", "frozen-blocked"),
+					"c-nomatch": entryOf(DeletedUID, "frozen-nomatch"), "c-free": entryOf("p-free", "frozen-free"),
+				},
+			}
+			h := &fakeHandles{byUID: live}
+			var buf bytes.Buffer
+			social := &fakeSocial{snaps: map[string]graph.Snapshot{"uid-me": tc.snap}}
+			if err := NewExporter(src, h, social).ExportUser(context.Background(), "uid-me", &buf); err != nil {
+				t.Fatal(err)
+			}
+			var v struct {
+				Conversations []struct {
+					PeerHandle string `json:"peerHandle"`
+					CreatedAt  string `json:"createdAt"`
+				} `json:"conversations"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &v); err != nil {
+				t.Fatal(err)
+			}
+			byPeer := map[string]string{}
+			for i, c := range v.Conversations { // newest first: p-free, p-noentry, p-nomatch, p-blocked, p-by
+				byPeer[[]string{"p-free", "p-noentry", "p-nomatch", "p-blocked", "p-by"}[i]] = c.PeerHandle
+			}
+			for peer, want := range tc.want {
+				if byPeer[peer] != want {
+					t.Errorf("%s: handle %q, want %q", peer, byPeer[peer], want)
+				}
+			}
+			asked := map[string]bool{}
+			for _, call := range h.calls {
+				for _, u := range call {
+					asked[u] = true
+				}
+			}
+			allowed := map[string]bool{}
+			for _, u := range tc.look {
+				allowed[u] = true
+			}
+			for u := range asked {
+				if !allowed[u] {
+					t.Errorf("the directory was asked about %s, a blocked peer", u)
+				}
+			}
+			if social.calls != 1 {
+				t.Errorf("graph reads = %d, want 1", social.calls)
+			}
+			wantEntries := len(tc.want) - len(tc.look)
+			if src.entryCalls != wantEntries {
+				t.Errorf("entry reads = %d, want %d (one per blocked conversation)", src.entryCalls, wantEntries)
+			}
+			if strings.Contains(buf.String(), "renamed-") && tc.name != "none blocked" {
+				t.Errorf("a live handle of a blocked peer is in the export: %s", buf.String())
+			}
+		})
+	}
+}
+
+// No peer to decide about: no graph read. A graph or entry error fails the section (fail closed).
+func TestExport_FrozenPeerReadsAndErrors(t *testing.T) {
+	social := &fakeSocial{}
+	var buf bytes.Buffer
+	gone := &fakeExportSource{convs: []ExportConv{{ID: "c", PeerUID: "p", PeerGone: true, CreatedAt: ts(1)}}}
+	if err := NewExporter(gone, &fakeHandles{}, social).ExportUser(context.Background(), "me", &buf); err != nil || social.calls != 0 {
+		t.Errorf("only an erased peer: err %v, graph reads %d, want nil and 0", err, social.calls)
+	}
+	if err := NewExporter(&fakeExportSource{}, &fakeHandles{}, social).ExportUser(context.Background(), "me", &buf); err != nil || social.calls != 0 {
+		t.Errorf("no conversation: err %v, graph reads %d, want nil and 0", err, social.calls)
+	}
+	one := &fakeExportSource{convs: []ExportConv{{ID: "c", PeerUID: "p", CreatedAt: ts(1)}}}
+	if err := NewExporter(one, &fakeHandles{}, &fakeSocial{err: errors.New("graph down")}).ExportUser(context.Background(), "me", &buf); err == nil {
+		t.Error("a graph error must fail the section")
+	}
+	blocked := &fakeSocial{snaps: map[string]graph.Snapshot{"me": {BlockedBy: map[string]bool{"p": true}}}}
+	failing := &fakeExportSource{failOn: "entry", convs: one.convs}
+	if err := NewExporter(failing, &fakeHandles{}, blocked).ExportUser(context.Background(), "me", &buf); err == nil {
+		t.Error("an entry error must fail the section")
 	}
 }

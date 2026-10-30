@@ -368,6 +368,42 @@ final $typed_data.Uint8List listLikedPostsResponseDescriptor = $convert.base64De
     '52MS5Qb3N0Vmlld1IFcG9zdHMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1uZXh0UGFnZVRv'
     'a2Vu');
 
+@$core.Deprecated('Use votePollRequestDescriptor instead')
+const VotePollRequest$json = {
+  '1': 'VotePollRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'post_id', '3': 2, '4': 1, '5': 9, '10': 'postId'},
+    {'1': 'choice_index', '3': 3, '4': 1, '5': 5, '10': 'choiceIndex'},
+  ],
+};
+
+/// Descriptor for `VotePollRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List votePollRequestDescriptor = $convert.base64Decode(
+    'Cg9Wb3RlUG9sbFJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW5jeU'
+    'tleRIXCgdwb3N0X2lkGAIgASgJUgZwb3N0SWQSIQoMY2hvaWNlX2luZGV4GAMgASgFUgtjaG9p'
+    'Y2VJbmRleA==');
+
+@$core.Deprecated('Use votePollResponseDescriptor instead')
+const VotePollResponse$json = {
+  '1': 'VotePollResponse',
+  '2': [
+    {
+      '1': 'post',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PostView',
+      '10': 'post'
+    },
+  ],
+};
+
+/// Descriptor for `VotePollResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List votePollResponseDescriptor = $convert.base64Decode(
+    'ChBWb3RlUG9sbFJlc3BvbnNlEi4KBHBvc3QYASABKAsyGi5kemVyb3RoLnBvc3RzLnYxLlBvc3'
+    'RWaWV3UgRwb3N0');
+
 const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
   '1': 'EngagementService',
   '2': [
@@ -413,6 +449,11 @@ const $core.Map<$core.String, $core.dynamic> EngagementServiceBase$json = {
       '3': '.dzeroth.engagement.v1.ListLikedPostsResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'VotePoll',
+      '2': '.dzeroth.engagement.v1.VotePollRequest',
+      '3': '.dzeroth.engagement.v1.VotePollResponse'
+    },
   ],
 };
 
@@ -442,9 +483,13 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.common.v1.MediaRef': $2.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': $0.EmbeddedPost$json,
   '.google.protobuf.Timestamp': $1.Timestamp$json,
+  '.dzeroth.posts.v1.Poll': $0.Poll$json,
+  '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
   '.dzeroth.engagement.v1.ListLikedPostsRequest': ListLikedPostsRequest$json,
   '.dzeroth.engagement.v1.ListLikedPostsResponse': ListLikedPostsResponse$json,
+  '.dzeroth.engagement.v1.VotePollRequest': VotePollRequest$json,
+  '.dzeroth.engagement.v1.VotePollResponse': VotePollResponse$json,
 };
 
 /// Descriptor for `EngagementService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -464,4 +509,6 @@ final $typed_data.Uint8List engagementServiceDescriptor = $convert.base64Decode(
     'c3RCb29rbWFya3NSZXF1ZXN0GiwuZHplcm90aC5lbmdhZ2VtZW50LnYxLkxpc3RCb29rbWFya3'
     'NSZXNwb25zZSIDkAIBEnIKDkxpc3RMaWtlZFBvc3RzEiwuZHplcm90aC5lbmdhZ2VtZW50LnYx'
     'Lkxpc3RMaWtlZFBvc3RzUmVxdWVzdBotLmR6ZXJvdGguZW5nYWdlbWVudC52MS5MaXN0TGlrZW'
-    'RQb3N0c1Jlc3BvbnNlIgOQAgE=');
+    'RQb3N0c1Jlc3BvbnNlIgOQAgESWwoIVm90ZVBvbGwSJi5kemVyb3RoLmVuZ2FnZW1lbnQudjEu'
+    'Vm90ZVBvbGxSZXF1ZXN0GicuZHplcm90aC5lbmdhZ2VtZW50LnYxLlZvdGVQb2xsUmVzcG9uc2'
+    'U=');

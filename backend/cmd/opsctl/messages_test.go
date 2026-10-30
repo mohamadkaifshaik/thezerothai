@@ -287,6 +287,11 @@ func TestReportsShow_MessageEvidence(t *testing.T) {
 	if strings.Contains(out, "evidence post by") {
 		t.Errorf("a message report printed as a post:\n%s", out)
 	}
+	// W7-36: the child document is gone (its TTL ran): say so, and never print an empty text as if it were the message.
+	f.ops.report.Evidence.TextExpired, f.ops.report.Evidence.Text = true, ""
+	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence expired") || strings.Contains(out, "PRIVATE text") {
+		t.Errorf("expired evidence:\n%s", out)
+	}
 	f.ops.report.Evidence = nil
 	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence none") {
 		t.Errorf("no evidence:\n%s", out)

@@ -42,6 +42,12 @@ variable "ttl_fields" {
       collection = "reports"
       field      = "expireAt"
     }
+    # ADR-0016 note 2026-10-30 (W7-36): the copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
+    # filing + 180 days, shortened to resolvedAt + 90 days when the report is resolved. Collection-group key; the report stays.
+    report_evidence_expire_at = {
+      collection = "evidence"
+      field      = "expireAt"
+    }
     # ADR-0016 D10: the moderation removal log (postRemovals/{postId}); expireAt = createdAt + 32 days
     # (posts.RemovalRetention), set against the 30-day timeline since token. Edited only, not applied.
     post_removals_expire_at = {
@@ -52,6 +58,13 @@ variable "ttl_fields" {
     # set when the item leaves PENDING (+7 days), absent while PENDING so pending items never expire. Collection-group key.
     scheduled_expire_at = {
       collection = "scheduled"
+      field      = "expireAt"
+    }
+    # ADR-0029 D8, D9: a poll vote (pollVotes/{postId}_{uid}); expireAt = the poll's closesAt + 30 days
+    # (POLL_VOTE_TTL_AFTER_CLOSE), so the votes on a deleted poll post expire by TTL. Edited only, not applied: apply
+    # it before FEATURE_POLLS leaves off in a project (otherwise vote docs simply stay).
+    poll_votes_expire_at = {
+      collection = "pollVotes"
       field      = "expireAt"
     }
   }

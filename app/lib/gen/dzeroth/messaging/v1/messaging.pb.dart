@@ -138,6 +138,9 @@ class Conversation extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $0.AuthorSnapshot ensurePeer() => $_ensure(2);
 
+  /// ListConversations: from the caller's entry. A REQUESTS row is REQUEST; an INBOX row is REQUEST for a request the caller sent
+  /// that the peer has not accepted yet (ADR-0027 note W7-25), else ACCEPTED. SendMessage and ListMessages: from the
+  /// conversation (ListMessages through the 60 s instance copy, so up to 60 s behind an accept made on another instance).
   @$pb.TagNumber(4)
   ConversationState get state => $_getN(3);
   @$pb.TagNumber(4)
@@ -1502,8 +1505,9 @@ class MessagingServiceApi {
   /// NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
   /// Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
   /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
-  /// Firestore: reads 3 worst (interceptor, conversation, request entry), planning 2.5; writes 2 (conversation state,
-  /// dmInbox entry); deletes 1 (dmRequests entry).
+  /// Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3
+  /// (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester
+  /// deleted that entry); deletes 1 (dmRequests entry).
   $async.Future<AcceptMessageRequestResponse> acceptMessageRequest(
           $pb.ClientContext? ctx, AcceptMessageRequestRequest request) =>
       _client.invoke<AcceptMessageRequestResponse>(ctx, 'MessagingService',

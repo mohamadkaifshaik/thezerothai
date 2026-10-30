@@ -356,6 +356,12 @@ type CreateInput struct {
 	// enforcement of a stored policy never consults it.
 	ReplyPolicy          int32
 	ReplyAudienceEnabled bool
+	// HasPoll is true when the request carries a poll (CreatePostRequest.poll, ADR-0029 D2); PollsEnabled is the
+	// FEATURE_POLLS decision for the caller, made by server.go (never from the request). HasPoll with PollsEnabled false is
+	// FEATURE_DISABLED (metadata feature=polls), 0 reads, checked after content_disclosure. W6-4 is the gate only: an enabled
+	// caller gets Unimplemented until W6-5 stores the poll, so a poll is never silently dropped.
+	HasPoll      bool
+	PollsEnabled bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST

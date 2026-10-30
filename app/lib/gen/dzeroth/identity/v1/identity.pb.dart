@@ -18,6 +18,7 @@ import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $0;
 
+import '../../common/v1/common.pb.dart' as $1;
 import 'identity.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -637,6 +638,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     $core.Iterable<$core.String>? enabledFeatures,
     $fixnum.Int64? pendingFollowRequestCount,
     $fixnum.Int64? unreadConversationCount,
+    $core.Iterable<$1.HomeTab>? homeTabs,
   }) {
     final result = GetMeResponse._();
     if (profile != null) result.profile = profile;
@@ -649,6 +651,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
       result.pendingFollowRequestCount = pendingFollowRequestCount;
     if (unreadConversationCount != null)
       result.unreadConversationCount = unreadConversationCount;
+    if (homeTabs != null) result.homeTabs.addAll(homeTabs);
     return result;
   }
 
@@ -675,6 +678,8 @@ class GetMeResponse extends $pb.GeneratedMessage {
     ..pPS(5, _omitFieldNames ? '' : 'enabledFeatures')
     ..aInt64(6, _omitFieldNames ? '' : 'pendingFollowRequestCount')
     ..aInt64(7, _omitFieldNames ? '' : 'unreadConversationCount')
+    ..pPM<$1.HomeTab>(8, _omitFieldNames ? '' : 'homeTabs',
+        subBuilder: $1.HomeTab.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -767,6 +772,15 @@ class GetMeResponse extends $pb.GeneratedMessage {
   $core.bool hasUnreadConversationCount() => $_has(6);
   @$pb.TagNumber(7)
   void clearUnreadConversationCount() => $_clearField(7);
+
+  /// The caller's pinned Home tabs in order, after the fixed Following tab (ADR-0030 D6, founder decision F5): at most
+  /// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
+  /// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS) are omitted here but kept in storage, so
+  /// they come back with the flag. A tab may name a list that was deleted or made private since: the client learns it
+  /// from GetListTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
+  /// TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
+  @$pb.TagNumber(8)
+  $pb.PbList<$1.HomeTab> get homeTabs => $_getList(7);
 }
 
 enum GetProfileRequest_Target { userId, handle, notSet }
@@ -1779,6 +1793,7 @@ class IdentityServiceApi {
   /// failed count leaves it 0 and GetMe still answers.
   /// unread_conversation_count (ADR-0027 D10): only when FEATURE_MESSAGING is on for the caller, a count() aggregation
   /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
+  /// home_tabs (ADR-0030 D6): from users/{uid}, already read: 0 reads.
   /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
   /// on, cached 30 s), writes 0.
   $async.Future<GetMeResponse> getMe(

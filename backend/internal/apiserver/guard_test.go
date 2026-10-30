@@ -81,6 +81,10 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.LikesListPerUserPerMinute = 10
 	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
 	cfg.RateLimit.SuggestionsCallsPerDay = 50
+	// ADR-0029 D6 (the config.Load defaults).
+	cfg.RateLimit.PollVotePerUserPerMinute = 30
+	cfg.RateLimit.PollVotesPerDay = 300
+	cfg.RateLimit.PollVotesPerDayNewAccount = 50
 	// ADR-0028 D9 (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20

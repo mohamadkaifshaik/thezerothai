@@ -6,6 +6,7 @@ import (
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	listsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
@@ -72,6 +73,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// reposts by quota.Posts, and every read by the ADR-0010 D5 read budget.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
+	// ADR-0029 D6: VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
+	// DailyCap (POLL_VOTES_PER_DAY, 300). Both run in the interceptor, so a refused vote is also counted. The cap is in memory
+	// (option D): the natural key admits one vote per account per poll, so the writes are bounded by 3 x the open polls the
+	// account can see whatever the cap does after a restart. POLL_VOTES_PER_DAY_NEW_ACCOUNT is applied by the service (W6-7).
+	rlPollVote := ratelimit.NewLimiter(cfg.RateLimit.PollVotePerUserPerMinute, idleBucketTTL)
+	pollVotesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.PollVotesPerDay)
+
 	// ADR-0023 D4: AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
 	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded per day by quota.Bookmarks (200, 50 for new
 	// accounts) and the cap, every call by the ADR-0010 D5 read budget. DEGRADED_MODE=readonly rejects Add and Remove through
@@ -122,6 +130,17 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
 
+	// ADR-0030 D10: the six list mutations (CreateList, UpdateList, DeleteList, AddListMember, RemoveListMember and the timeline module's
+	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance) and ONE per-uid daily call cap
+	// (LIST_MUTATIONS_PER_DAY, limit_name "list_mutation_daily"; a replay or a no-op still stores an idempotency doc). GetList,
+	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
+	// (RATE_LIMIT_LIST_TIMELINE_PER_MIN, 12/min), because tabs switch quickly while Home stays at 6. Every read is also covered
+	// by the ADR-0010 D5 read budget. Creates and adds are bounded per day by quota.ListCreates and quota.ListAdds.
+	rlListsWrite := ratelimit.NewLimiter(cfg.RateLimit.ListsWritePerUserPerMinute, idleBucketTTL)
+	rlListsRead := ratelimit.NewLimiter(cfg.RateLimit.ListsReadPerUserPerMinute, idleBucketTTL)
+	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
+	listMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ListMutationsPerDay)
+
 	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
 	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
 	// and Vision spend by VISION_MONTHLY_CAP.
@@ -141,6 +160,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceRepostPostProcedure:          rlEngagement,
 			engagementv1connect.EngagementServiceUndoRepostProcedure:          rlEngagement,
+			engagementv1connect.EngagementServiceVotePollProcedure:            rlPollVote,
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:         rlBookmarks,
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:      rlBookmarks,
 			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
@@ -167,6 +187,16 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceSendMessageProcedure:           rlMessagesSend,
 			messagingv1connect.MessagingServiceListConversationsProcedure:     rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:          rlMessagesRead,
+			listsv1connect.ListServiceCreateListProcedure:                     rlListsWrite,
+			listsv1connect.ListServiceUpdateListProcedure:                     rlListsWrite,
+			listsv1connect.ListServiceDeleteListProcedure:                     rlListsWrite,
+			listsv1connect.ListServiceAddListMemberProcedure:                  rlListsWrite,
+			listsv1connect.ListServiceRemoveListMemberProcedure:               rlListsWrite,
+			timelinev1connect.TimelineServiceSetHomeTabsProcedure:             rlListsWrite,
+			listsv1connect.ListServiceGetListProcedure:                        rlListsRead,
+			listsv1connect.ListServiceListUserListsProcedure:                  rlListsRead,
+			listsv1connect.ListServiceListListMembersProcedure:                rlListsRead,
+			timelinev1connect.TimelineServiceGetListTimelineProcedure:         rlListTimeline,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceListFollowersProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
@@ -182,6 +212,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceMuteProcedure:     {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 
+			engagementv1connect.EngagementServiceVotePollProcedure: {Name: "poll_votes_daily", Cap: pollVotesDailyCap},
+
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:    {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 
@@ -194,6 +226,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},
 			messagingv1connect.MessagingServiceAcceptMessageRequestProcedure: {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
+
+			listsv1connect.ListServiceCreateListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+			listsv1connect.ListServiceUpdateListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+			listsv1connect.ListServiceDeleteListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+			listsv1connect.ListServiceAddListMemberProcedure:      {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+			listsv1connect.ListServiceRemoveListMemberProcedure:   {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+			timelinev1connect.TimelineServiceSetHomeTabsProcedure: {Name: "list_mutation_daily", Cap: listMutationDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  W7-35 (security L-5): nothing the app stores leaves the device. The local
+  cache (drift database in getApplicationDocumentsDirectory(), i.e. the
+  "root" domain's app_flutter/, plus files, databases and shared preferences)
+  holds message text, so it is excluded from Auto Backup (cloud-backup) and from
+  device-to-device transfer. Android 12+ reads this file; Android 11 and below
+  read android:allowBackup="false". Domains: developer.android.com/identity/data/autobackup
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

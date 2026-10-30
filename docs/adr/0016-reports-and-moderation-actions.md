@@ -392,3 +392,28 @@ and, like every report's document id, it can confirm a guessed reporter uid. Acc
 cannot be undone; a message stays reportable when its sender is no longer ACTIVE, after the reporter's delete-for-me, and
 when the peer is blocked. The privacy policy line (D5) now also covers a copy of one private message kept until 90 days
 after resolution, even after the sender deletes their account (`docs/plans/roadmap.md` section 9, item 3.18).
+
+## Note (2026-10-30): the copied text of a MESSAGE report has a 180-day limit (security L-6, W7-36; founder decision 2026-10-30)
+D5 sets `expireAt` only at resolution, so an untriaged MESSAGE report would hold one private message indefinitely, even after
+the sender's account was erased. The founder chose to limit **the copied text only** and keep the report. Change, for MESSAGE
+reports only:
+- The text moves out of the report into a child document `reports/{id}/evidence/message` `{text, expireAt}`. The report keeps
+  target, reason, note, status, dates, the sender's handle and the message time; `evidence.text` on it is empty. Open reports keep
+  no `expireAt` on the parent; a resolved report keeps today's `resolvedAt + 90 days` on the parent.
+- The child's `expireAt = createdAt + 180 days` (`moderation.MessageEvidenceRetention`). A Firestore TTL policy on the collection
+  group `evidence` (Terraform `ttl_fields.report_evidence_expire_at`) deletes it. A reopen (re-file) rewrites the child with a
+  fresh 180 days. Evidence must never outlive the report, and a TTL-deleted parent does not delete its children, so `Resolve`
+  explicitly lowers the child's `expireAt` to `resolvedAt + 90 days` when that is earlier (a field-level `Update` of a child read in the same transaction;
+  it never lengthens it).
+- Operators: `opsctl reports show` reads the child and prints `evidence expired` when it is gone (`Evidence.TextExpired`).
+  `List` does not read the child.
+- Erasure and export: the child holds no uid and names no reporter, so `PurgeReporter` and `ExportUser` are unchanged and no
+  orphan can remain (the TTL deletes it). T11 gets a `notPersonal` row for the `evidence` subcollection.
+- Index: no composite index; `evidence.text` is exempt from single-field indexing (fieldOverride on the collection group
+  `evidence`, acknowledged in `firebase/field-overrides.ack`). The TTL policy is Terraform, to be applied to dev with a targeted
+  apply and to prod later with the founder's approval; until applied, the 180-day limit is not enforced in that project.
+- Budgets: create or reopen 2 reads, 3 writes (was 2); `Get` 2 reads (was 1); `Resolve` of a MESSAGE report 2 reads, 2 writes
+  when the child is shortened, 1 write otherwise (an already resolved report: 1 read, 0 writes); POST and ACCOUNT reports
+  unchanged. No Scheduler job and no `daily-maintenance` step.
+- Privacy-policy line: a copy of one private message is kept for at most 180 days after the report, and no longer than 90 days
+  after resolution, even after the sender deletes their account; the report record itself (without the text) follows D5.

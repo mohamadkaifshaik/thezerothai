@@ -15,23 +15,31 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'timeline.pb.dart' as $3;
+import 'timeline.pb.dart' as $4;
 import 'timeline.pbjson.dart';
 
 export 'timeline.pb.dart';
 
 abstract class TimelineServiceBase extends $pb.GeneratedService {
-  $async.Future<$3.GetHomeTimelineResponse> getHomeTimeline(
-      $pb.ServerContext ctx, $3.GetHomeTimelineRequest request);
-  $async.Future<$3.GetUserTimelineResponse> getUserTimeline(
-      $pb.ServerContext ctx, $3.GetUserTimelineRequest request);
+  $async.Future<$4.GetHomeTimelineResponse> getHomeTimeline(
+      $pb.ServerContext ctx, $4.GetHomeTimelineRequest request);
+  $async.Future<$4.GetUserTimelineResponse> getUserTimeline(
+      $pb.ServerContext ctx, $4.GetUserTimelineRequest request);
+  $async.Future<$4.GetListTimelineResponse> getListTimeline(
+      $pb.ServerContext ctx, $4.GetListTimelineRequest request);
+  $async.Future<$4.SetHomeTabsResponse> setHomeTabs(
+      $pb.ServerContext ctx, $4.SetHomeTabsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'GetHomeTimeline':
-        return $3.GetHomeTimelineRequest();
+        return $4.GetHomeTimelineRequest();
       case 'GetUserTimeline':
-        return $3.GetUserTimelineRequest();
+        return $4.GetUserTimelineRequest();
+      case 'GetListTimeline':
+        return $4.GetListTimelineRequest();
+      case 'SetHomeTabs':
+        return $4.SetHomeTabsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -41,9 +49,13 @@ abstract class TimelineServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'GetHomeTimeline':
-        return getHomeTimeline(ctx, request as $3.GetHomeTimelineRequest);
+        return getHomeTimeline(ctx, request as $4.GetHomeTimelineRequest);
       case 'GetUserTimeline':
-        return getUserTimeline(ctx, request as $3.GetUserTimelineRequest);
+        return getUserTimeline(ctx, request as $4.GetUserTimelineRequest);
+      case 'GetListTimeline':
+        return getListTimeline(ctx, request as $4.GetListTimelineRequest);
+      case 'SetHomeTabs':
+        return setHomeTabs(ctx, request as $4.SetHomeTabsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

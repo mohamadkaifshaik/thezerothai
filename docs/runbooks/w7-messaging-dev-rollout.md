@@ -207,7 +207,7 @@ lg() { gcloud logging read "resource.type=\"cloud_run_revision\" AND resource.la
   | jq -c '.[] | {t: .timestamp[11:23], rpc: ((.jsonPayload.rpc // .jsonPayload.message // "") | split("/")[-1]), kind: .jsonPayload.kind, state: .jsonPayload.state, refused: .jsonPayload.refused_reason, limit: .jsonPayload.limit_name, results: .jsonPayload.results, reads: .jsonPayload.fs_reads, writes: .jsonPayload.fs_writes, status: .httpRequest.status}' | tr -d '\r'; }
 # e.g. lg 'jsonPayload.kind="send"'
 ```
-Costs are from the plan and `docs/runbooks/messaging.md` section 4: SendMessage at most 5 reads cold and 3 / 4 / 5 writes (accepted / request / new conversation); Accept 3 reads, 2 writes, 1 delete; Delete 3 reads, 1 write, 1 delete; ListMessages poll about 1.4 reads; MarkConversationRead 0 reads (its interceptor read is cached), 1 write.
+Costs are from the plan and `docs/runbooks/messaging.md` section 4: SendMessage at most 5 reads cold and 3 / 4 / 5 writes (accepted / request / new conversation); Accept 4 reads, 3 writes, 1 delete (W7-25a; 2 writes when the requester deleted their entry); Delete 3 reads, 1 write, 1 delete; ListMessages poll about 1.4 reads; MarkConversationRead 0 reads (its interceptor read is cached), 1 write.
 
 | # | Step (in the app) | Success looks like | Verify in Logs Explorer |
 |---|---|---|---|

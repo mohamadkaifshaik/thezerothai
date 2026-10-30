@@ -13,6 +13,11 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/notifications/data/push_opt_in_store.dart';
+import 'package:dzeroth/features/posts/data/drafts_repository.dart';
+
+import '../../../support/fake_drafts_repository.dart';
+
+import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -41,6 +46,7 @@ void main() {
   late _MockAuthBloc authBloc;
   late _MockOnboardingBloc onboardingBloc;
   late FakePushOptInStore optIn;
+  late FakeDraftsRepository drafts;
   late List<Object> reported;
   String? passwordSeen;
 
@@ -55,6 +61,7 @@ void main() {
     authBloc = _MockAuthBloc();
     onboardingBloc = _MockOnboardingBloc();
     reported = [];
+    drafts = FakeDraftsRepository();
     // Two accounts remembered a "Not now"; only the deleted one may go.
     optIn = FakePushOptInStore(
       records: {
@@ -132,6 +139,7 @@ void main() {
           RepositoryProvider<AccountRepository>.value(value: accounts),
           RepositoryProvider<AuthRepository>.value(value: auth),
           RepositoryProvider<PushOptInStore>.value(value: optIn),
+          RepositoryProvider<DraftsRepository>.value(value: drafts),
           RepositoryProvider<UnexpectedErrorReporter>.value(
             value: (error, _) => reported.add(error),
           ),
@@ -211,6 +219,29 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
+  });
+
+  testWidgets('success wipes the deleted uid\'s drafts and only that uid\'s', (
+    tester,
+  ) async {
+    ComposerDraft draft(String id, String uid) => ComposerDraft(
+      id: id,
+      uid: uid,
+      text: 'unsent $id',
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await drafts.upsert(draft('a', 'uid-1'));
+    await drafts.upsert(draft('b', 'uid-2'));
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(drafts.wiped, ['uid-1']);
+    expect(await drafts.watch('uid-1').first, isEmpty);
+    expect((await drafts.watch('uid-2').first).map((d) => d.id), ['b']);
   });
 
   testWidgets('success forgets the deleted uid\'s "Not now" before the final '

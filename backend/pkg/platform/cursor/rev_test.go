@@ -51,6 +51,14 @@ func TestRevToken_Rejects(t *testing.T) {
 	now := time.Date(2026, 10, 29, 10, 0, 0, 0, time.UTC)
 	c := Cursor{CreatedAt: now, DocID: "abc"}
 	good := EncodeRevAt(key, bind, c, 2, now)
+	// A middle character carries six full bits, so the sealed bytes always change; the last characters may not (the
+	// token has a random nonce, so replacing them flaked about once in a thousand runs).
+	mid := len(good) / 2
+	flip := "a"
+	if good[mid] == 'a' {
+		flip = "b"
+	}
+	tampered := good[:mid] + flip + good[mid+1:]
 
 	tests := []struct {
 		name  string
@@ -59,7 +67,7 @@ func TestRevToken_Rejects(t *testing.T) {
 		bind  string
 		at    time.Time
 	}{
-		{"tampered", good[:len(good)-2] + "AA", key, bind, now},
+		{"tampered", tampered, key, bind, now},
 		{"another binding", good, key, "someone-else", now},
 		{"another key", good, []byte("other"), bind, now},
 		{"expired (does not fall back)", good, key, bind, now.Add(2 * time.Hour)},

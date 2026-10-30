@@ -98,7 +98,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
 | Media | `image/jpeg` and `image/webp` only (`media/service.go:131`); `sniffImage` knows those two; the thumbnail is published with the full image's content type (`finalize.go:184`); full ≤ 2 MiB, thumbnail ≤ 256 KiB; SafeSearch by `gs://` URI (`vision.go:60`), 2 units per image. The client re-encodes everything to JPEG (`image_processor.dart`), so a picked GIF loses its animation today | `image/gif` for post media, a thumbnail content type, frame sampling (W6-3, W6-9, W6-10, W6-16) |
-| Local storage | drift `AppDatabase` schema v6; `clearAll` wipes the cache tables on sign-out and keeps `AppSettingEntries`; `SessionEpoch` guards writes | a `ComposerDraftEntries` table, schema v7, outside `clearAll` (F7) (W6-14) |
+| Local storage | drift `AppDatabase` schema v6; `clearAll` wipes the cache tables on sign-out and keeps `AppSettingEntries`; `SessionEpoch` guards writes | a `ComposerDraftEntries` table, schema v9 (v7 and v8 went to W7), outside `clearAll` (F7) (W6-14) |
 | Drafts list | `/scheduled` (CMP-D6) lists scheduled items; X shows one "Drafts" dialog with tabs Unsent posts \| Scheduled (`composer.md` §1h, §6) | the Drafts screen gets both tabs (W6-15) |
 | Scheduler | prod: `daily-maintenance` (live) and `publish-scheduled` (defined, not applied); dev: none. 2 of 3 free jobs are spoken for, and W4's option A would take the third | **none** (F1 A) |
 
@@ -357,7 +357,7 @@ Effect on the quotas (additive):
 | W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
-| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Open |
+| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
@@ -367,7 +367,7 @@ Effect on the quotas (additive):
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
-| W6-14 | Drafts store: drift table (schema v7), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | Open |
+| W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
@@ -468,7 +468,7 @@ Order:
 - **Seam.** The content-type table stays inside `media`; posts never sees a MIME type except through `LoadForPost`'s claim.
 - **Runs alongside W3/W4/W5:** after W3-5's `MEDIA_PURPOSE_BANNER` change, or rebase.
 
-### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: Open
+### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: In review (PR #484)
 - **Description.**
   - Register `FEATURE_POLLS`, `FEATURE_DRAFTS` and `FEATURE_GIF` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`; `drafts` follows `ui_shell`: no RPC guard).
   - Config, added to `config_test.go`'s env list with range checks: `POLL_MAX_CHOICES` 4, `POLL_CHOICE_MAX_CODEPOINTS` 25, `POLL_MIN_DURATION` 5m, `POLL_MAX_DURATION` 168h, `POLL_VOTE_TTL_AFTER_CLOSE` 720h, `RATE_LIMIT_POLL_VOTE_PER_MIN` 30, `POLL_VOTES_PER_DAY` 300, `POLL_VOTES_PER_DAY_NEW_ACCOUNT` 50, `POLL_VIEWER_VOTES_KEPT` 500, `GIF_MAX_FRAMES` 300, `GIF_MAX_EDGE` 1280, `GIF_MAX_FRAME_AREA_SUM` 50,000,000.
@@ -486,6 +486,12 @@ Order:
 - **Budget.** 0 reads on the rejection paths.
 - **Flag.** Adds the three flags (default `off`; dev ceiling allowlist 3).
 - **Seam.** Limits live in config (rule 11), never in code.
+- **Implementation notes (W6-4, as built).**
+  - ADR-0029 supersedes this ticket's numbers: dev ceilings are allowlist **6** like every other flag since #463 (ADR-0029 D12 and the text above say 3); `PostView.viewer_poll_choice = 8`, `ErrorReason` 19 and 20.
+  - FU-1 and FU-2 are in this PR: fieldOverrides `posts.poll` and `userLikes.pollVotes` with the new `field-overrides.ack` hash, the `poll_votes_expire_at` TTL entry (Terraform, not applied), `feature_polls*`, `feature_drafts*` and `feature_gif*` vars, and the three ceilings.
+  - Config values live in `config/composer.go` (`config.Composer`), with hard ceilings the ADR does not state (code points <= 100, max duration <= 30 days, vote TTL 24 h to 90 days, kept votes <= 1,000, GIF frames <= 1,000, edge <= 4,096, area sum <= 200 million); the Terraform side carries the flag vars only (as W4-3), the numbers keep their Go defaults.
+  - `POLL_VOTES_PER_DAY_NEW_ACCOUNT` (50) is loaded and validated but not enforced: the ratelimit interceptor has no account-age signal, so W6-7 must apply it in the service (or an ADR note must drop it).
+  - Skeletons: `VotePoll` answers FEATURE_DISABLED per the D6 step 2 gate and Unimplemented after it; CreatePost with a poll answers FEATURE_DISABLED `feature=polls` when off and Unimplemented when on (W6-5 replaces it), so a poll is never silently dropped.
 - **Runs alongside W3/W4/W5:** logic yes. These shared files conflict textually with W3-4, W4-3 and W5's flag ticket, so merge one at a time: `config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, the Terraform vars.
 
 ### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
@@ -706,9 +712,9 @@ Order:
 - **Seam.** `PollRepository` is the only caller of `VotePoll`; the card is presentational.
 - **Runs alongside W3/W4/W5:** `post_card.dart` also changes in W3 (pinned label) and W4-16 (hashtag tap), so rebase.
 
-### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: Open
+### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: In review
 - **Description.**
-  - A drift table `ComposerDraftEntries` (`draftId`, `uid`, `text`, `pollJson`, `replyPolicy`, `paidPartnership`, `madeWithAi`, `createdAt`, `updatedAt`) in `AppDatabase`, schema **v7** (additive migration).
+  - A drift table `ComposerDraftEntries` (`draftId`, `uid`, `draftText` (not `text`: it would shadow drift's `text()`), `pollJson`, `replyPolicy`, `paidPartnership`, `madeWithAi`, `createdAt`, `updatedAt`) in `AppDatabase`, schema **v9** (additive migration; v7 and v8 were taken by W7 messaging).
   - **Not** in `clearAll` (F7 default); every query is filtered by uid; writes are guarded by `SessionEpoch` (`epoch:`).
   - `DraftsRepository`:
     - `watch(uid)`, newest first;

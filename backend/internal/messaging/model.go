@@ -215,4 +215,9 @@ type EntryDoc struct {
 	// request moved to the inbox. The ListConversations since query orders by it. It stays on the automatic single-field
 	// index; an entry written before it existed has none and never matches a since query.
 	ChangedAt time.Time `firestore:"changedAt,omitempty"`
+	// RequestPending (ADR-0027 note W7-25) is true only on the requester's own dmInbox entry while the conversation is REQUEST
+	// (their first to third message): ListConversations then reads the row as REQUEST in the INBOX. Absent = false. Send sets it
+	// (+0) and clears it on the reply that accepts; Accept and the eraser's MarkGone delete it. Never set on dmRequests. A legacy
+	// entry has none and reads ACCEPTED. It stays on the automatic index (no query uses it).
+	RequestPending bool `firestore:"requestPending,omitempty"`
 }

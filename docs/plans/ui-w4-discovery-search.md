@@ -21,6 +21,7 @@ Branches: `feat/ui-w4-N-<slug>` off `main` (not stacked); one ticket per PR; mer
 - **F4. A plain-word query (not `@name`, not `#tag`).** **It searches people by handle prefix and posts tagged `#word` (an exact tag).** The posts tabs say "Search posts by #hashtag" when the word is not a valid tag body. Full-text search of post text is deferred (Out of scope, with its trigger).
 - **F5. Hashtag tap-through in W4** (W2 plan question 1): **yes.** A tap on `#tag` opens `/search?q=%23tag` on the Top tab, as X does. W2 keeps "Hashtags are coming soon." (`post_card.dart:348`) until W4-16.
 - **F6. Trend rules.** **A tag trends only when at least 3 distinct authors used it in the window (`TRENDS_MIN_AUTHORS`), ranked by distinct authors, then posts. Explore shows the top 10, and the Trending list shows up to 30. An ops denylist (`TRENDS_DENYLIST`, env var) hides a tag at the next deploy, and `FEATURE_TRENDS=off` hides everything at once.**
+  - *Corrected 2026-10-31 (W4-22 M-1):* the shipped code applies the denylist only at the next sweep after the deploy (up to 24 h later), and `TRENDS_DENYLIST` and `TRENDS_MIN_AUTHORS` are not wired into Terraform yet. W4-25 adds `opsctl trends hide` (no deploy; live on every server within 10 min, on every screen within 15 min) and a serve-time denylist; W4-26 counts only established authors (ADR-0028 note 2026-10-31).
 - **F7. Explore content at Stage 0.** **The search pill, one "Trending" tab, the trends list and the who-to-follow card (W3's data).** Not built:
   - the News, Sports and Entertainment tabs (🔒 no external news or trends feed, founder 2026-10-22; editorial categories need curation);
   - the promoted hero (an ad);
@@ -119,16 +120,16 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md` (baseline 232.3 
 | GetTrends (incl. `prefix` suggestions) | 2 (interceptor + `trends/current`) | 0–1 | 0 | ≤ 1 doc read per instance per 10 min ⇒ ≤ 432 reads/day at 3 instances, whatever the DAU |
 | Trend refresh run (system, not a user budget) | 1 state + new posts since the watermark (≤ 2,000 per run, 500 per page, projection query) | — | 1 (`trends/current`); 0 under `DEGRADED_MODE=readonly` or `FEATURE_TRENDS` off (0 reads too) | 1 run/day (F1 B) or 24 (A): same reads, +23 writes/day with A |
 
-**Calls per DAU per day (assumptions, to be replaced by W4-23 measurements):**
+**Calls per DAU per day (assumptions; W4-23 measured the reads per call in `cost-model.md` §15 and corrected the typical column, the requests and the egress, marked "W4-23" below):**
 | Call | Calls/DAU | Typical reads | Reads/DAU |
 |---|---|---|---|
 | SearchPeople typeahead (limit 5; debounce 300 ms, min 2 chars; ~0.5 search sessions × 3) | 1.5 | 4 (prefix entries rarely shared at low DAU) | 6.0 |
 | SearchPeople People tab (limit 20) | 0.3 | 12 | 3.6 |
-| SearchPosts page 1 (0.5 hashtag taps + 0.5 searches; tag entry hit rate 40 %) | 1.0 | 19 | 19.0 |
-| SearchPosts older pages / Media scans | 0.3 | 23 | 6.9 |
-| GetTrends (Explore 1.0 + side column; 5-min client cache) | 2.0 | ~0.05 (shared instance cache) | 0.1 |
+| SearchPosts page 1 (0.5 hashtag taps + 0.5 searches; tag entry hit rate 40 %, an assumption) | 1.0 | 19 (**W4-23: 21.0** = 0.4 x 3 + 0.6 x 33) | 19.0 (**21.0**) |
+| SearchPosts older pages / Media scans | 0.3 | 23 (**W4-23: 24.0**, a quarter Media scans at 31.5) | 6.9 (**7.2**) |
+| GetTrends (Explore 1.0 + side column; 5-min client cache; **W4-23: plus 1.5 from the typeahead, which asks on each debounced `#tag` or word**) | 2.0 (**3.5**) | ~0.05 (shared instance cache; measured 0.03) | 0.1 |
 | Trend refresh (1.0 posts per DAU per day, cost model §1) | system | 1 per post | 1.0 |
-| **Total W4** | **5.1 requests** | | **≈ 36.6 reads, ≈ 0 writes, 0 deletes** |
+| **Total W4** | **5.1 requests (W4-23: 6.6)** | | **≈ 36.6 reads (W4-23: 38.9, +6.3 %), ≈ 0 writes, 0 deletes; egress 6.0 KB per DAU per day, not 41 KB; INR 12.4 / 41.3 / 284 at 300 / 1,000 / 3,000 DAU** |
 
 The who-to-follow card's reads are W3's line (one call per Explore open). The prefix and tag caches are per instance (3 cold caches at most), so the hit rates above are conservative at low DAU.
 
@@ -143,6 +144,12 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 - **Vision units:** 0. **Storage:** `trends/current` < 100 KB. With F2 = yes, about 2 KB of index per user and a one-off backfill of 1 write per user (300 to 3,000 writes, under one day's free 20k).
 - **No new GCP service and no fixed cost.** With F1 = A, the third Scheduler job is free; a later fourth job would be about USD 0.10/month and need an ADR.
 - **Credit window:** nothing here depends on ADR-0022 items.
+- **Security hardening W4-25 to W4-28 (added 2026-10-31):** about INR 1 a month in total, whatever the DAU, and no fixed cost.
+  - W4-25: + ≤ 432 reads a day for the hide-list copy, and +1 read per sweep run.
+  - W4-26: + ≤ 500 reads per sweep run for the author check.
+  - W4-27: +0 at the client's page size.
+  - W4-28: 0 reads and 0 writes; it lowers the GetTrends abuse bound from about INR 680 to 2,190 per account-month to about INR 3 to 10.
+- **Correction (2026-10-31):** the typeahead also calls GetTrends (with `prefix`) on each debounced burst, so the requests line is about 6.6 per DAU, not 5.1. W4-23 measures it (ADR-0028 note 2026-10-31).
 
 ## Flags
 - `FEATURE_SEARCH` (wire name `search`) gates SearchPeople and SearchPosts. The client gates the search field, `/search`, the hashtag tap-through and the Explore destination on it.
@@ -152,7 +159,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 - **Ramp.** Dev allowlist (3 uids) → the founder's MVP launch decision for prod: allowlist → percent 5 → 25 → 100 → `on`, each step a Terraform change plus a tagged revision (ADR-0019). `FEATURE_TRENDS` never ramps ahead of `FEATURE_SEARCH`: the trend rows link to search.
 
 ## Abuse & security surface
-- **New public reads (signed-in only).** All three RPCs need App Check plus an ID token, like every RPC. They are `NO_SIDE_EFFECTS`, so they are allowed under `DEGRADED_MODE=readonly`.
+- **New public reads (signed-in only).** All three RPCs need an ID token, like every RPC. App Check tokens are verified but `APP_CHECK_MODE` is `monitor` in dev and prod (ADR-0006), so App Check does not reject anything until ADR-0006 moves it to `enforce` (corrected 2026-10-31, W4-22 L-3). They are `NO_SIDE_EFFECTS`, so they are allowed under `DEGRADED_MODE=readonly`.
 - **Enumeration (`stage-ladder` scraping vectors: handle prefix, hashtag `array-contains`):**
   - People results are capped at 20 with **no page token**, so walking the handle space costs at least one call per 20 handles.
   - The prefix minimum is 2 characters (1-character prefixes are refused), and the grammar is `@?[a-z0-9_]{2,15}`.
@@ -163,7 +170,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   | `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` | 30 | 90/min |
   | `RATE_LIMIT_SEARCH_POSTS_PER_MIN` | 20 | 60/min |
   | `SEARCH_CALLS_PER_DAY` (one `ratelimit.DailyCap` shared by both RPCs, `limit_name` `search_daily`) | 300 | ≤ 900/day |
-  | GetTrends | the 60/min default bucket | — |
+  | GetTrends | the 60/min default bucket; `TRENDS_CALLS_PER_DAY` 400 (`trends_daily`, W4-28) | 180/min; ≤ 1,200/day after W4-28 |
   | Read budget (ADR-0010 D5) | 2,000 reads/uid/day | binds first: at most 2,368 reads per uid per day across everything |
 
   Worst people rows per account per day: 900 × 20 = 18,000 handles, already public on profiles. Worst post rows: bounded by the read budget.
@@ -178,7 +185,12 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   - Users who block the caller are dropped from People results, matching GetProfile's NOT_FOUND. Suspended and deleting users are dropped too.
   - Users the caller blocks or mutes stay, with the relationship set so `FollowButton` shows "Unblock".
   - Posts follow ADR-0010 D6 (Home column): drop blocked, blocking and muted authors, including a QUOTE's embedded author, and `!Visible()`.
-  - A short page is allowed and reveals nothing new: `next_page_token` follows the query, not the filtered count.
+  - A short page is allowed. *Corrected 2026-10-31 (W4-22 L-1):* as built, varying `page_size` and watching the token reveals how many rows the caller cannot see, and where they sit. W4-27 makes three changes:
+    - fixed query windows: the page-1 entry of 30, then 20 or 50;
+    - filtering before cutting;
+    - a tail token when page 1's entry was not full.
+
+    A tag with fewer than 30 posts then reveals nothing beyond its visible rows. On busier tags, the per-window hidden count, and positions found by sliding windows, remain derivable (accepted as Low, ADR-0028 note 2026-10-31).
   - **`blockedByOverflow` (ADR-0008 D2):** no per-row graph read. The lists precedent fails closed: `timeline.embedAllowed` and `service_bookmarks_list.go:92`. So when the caller's `blockedBy` overflowed:
     - People keeps only accounts the caller follows, plus the caller (a block removes the follow edges);
     - Posts keeps only the caller's posts and posts by followed authors.
@@ -188,8 +200,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
   - Counts are distinct authors per window, so one account at its 100-posts/day quota counts once.
   - A tag needs `TRENDS_MIN_AUTHORS` (3) to appear.
   - Taken-down posts are skipped at sweep time.
-  - Moderation levers: `TRENDS_DENYLIST` and `FEATURE_TRENDS=off`.
-  - Residual: sockpuppet rings of 3 or more accounts (Risks).
+  - Moderation levers: `TRENDS_DENYLIST` and `FEATURE_TRENDS=off`; from W4-25, `opsctl trends hide` (no deploy) and the serve-time filter, with skeleton matching that folds compatibility forms, U+200C/U+200D and `_`.
+  - Residual: sockpuppet rings of 3 or more accounts (Risks). From W4-26, only accounts that are ACTIVE and at least `TRENDS_MIN_ACCOUNT_AGE` (72 h) old count, and prod launches with `TRENDS_MIN_AUTHORS` 5.
 - **Privacy.**
   - Raw query text is never logged: log `query_kind` (handle / hashtag / unsupported), `query_len`, `results`, `fs_reads` and `cache_hit`.
   - Recent searches stay on the device, per uid, and are cleared on sign-out (`SessionEpoch`).
@@ -226,6 +238,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 3. **M4.3 Trends backend:** W4-9, W4-9b (per F1), W4-10.
 4. **M4.4 Client:** W4-13 to W4-19.
 5. **M4.5 Verify and roll:** W4-20 to W4-24. Dev allowlist only; prod waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and the founder's MVP launch decision.
+6. **M4.6 Prod-percent hardening (security review W4-22):** W4-25 to W4-28. They do not gate the dev allowlist or the prod allowlist. They gate prod percent: `search` waits for W4-27, and `trends` waits for W4-25, W4-26 and W4-28 (ADR-0028 note 2026-10-31).
 
 (W4-11 and W4-12 are conditional on F2.)
 
@@ -253,9 +266,13 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
-| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |
-| W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Open |
-| W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged | serialise dev applies with W3's | Open |
+| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
+| W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (#492) |
+| W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Open |
+| W4-25 | Trends fast removal: `trends/hidden` + `opsctl trends hide\|unhide\|list`, serve-time denylist and hidden filter in GetTrends, skeleton matching, `trends_denylist` Terraform variable, runbook 4.3 | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged | yes (search module, `cmd/opsctl`) | Open |
+| W4-26 | Trends counts only established authors (ACTIVE, `TRENDS_MIN_ACCOUNT_AGE` 72 h); `trends_min_authors` Terraform variable (prod 5) | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged; after W4-25 (both edit `trends_refresh.go`) | yes | Open |
+| W4-27 | SearchPosts LATEST: fixed query windows, filter before cutting, token from the last returned row, tail token once the end of the tag is in view | backend-developer (+ tester for the W4-20 case) | S | W4-8 merged | yes | Open |
+| W4-28 | GetTrends daily call cap `trends_daily` (`TRENDS_CALLS_PER_DAY` 400) + guard test | backend-developer | XS | W4-10 merged | `ratelimit_config.go` and `config.go` are shared: merge one at a time | Open |
 
 Order:
 1. W4-1 and W4-2.
@@ -263,6 +280,7 @@ Order:
 3. W4-4 → W4-5 ‖ W4-6 → W4-7 → W4-8 ‖ W4-9 → W4-9b and W4-10.
 4. Client: W4-13 (parser and store at once), then W4-14 ‖ W4-15, W4-16, W4-17, W4-18, W4-19 (when W3 is ready).
 5. W4-20 to W4-24, with W4-22 and W4-23 before any flag leaves `off` in dev.
+6. W4-25 → W4-26 (same file), W4-27 ‖ W4-28 at any time after their dependencies. All four are done before the prod percent step of their flag; none blocks dev.
 
 **Definition of done per ticket:**
 - Backend: Go unit tests plus emulator integration (`make test-int`, `budgettest.Assert` on every RPC).
@@ -721,7 +739,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Open
+### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Done (`docs/reviews/security-w4-search.md`, SECURITY: CLEAR; M-1, M-2, L-1, L-4 ticketed as W4-25 to W4-28, gated before prod percent)
 - **Description.** A threat model for the new public reads:
   - handle enumeration (cap 20, no pagination, 2-character minimum, 30/min × 3 instances, `search_daily` 300 × 3, read budget);
   - hashtag scraping (sealed cursors, page ≤ 50);
@@ -741,11 +759,12 @@ Order:
 - **Seam.** Checks the rate-limit multiplication and the `stage-ladder` scraping vectors.
 - **Parallel with W3:** yes.
 
-### W4-23 — Cost report  [owner: sre-performance] [size: S] [depends: W4-8, W4-10]  Status: Open
+### W4-23 — Cost report  [owner: sre-performance] [size: S] [depends: W4-8, W4-10]  Status: Done (in review)
 - **Description.**
   - Add the W4 rows (+36.6 reads per DAU, about 0 writes, 5.1 requests) to `docs/reviews/cost-model.md` §2-§3, alongside W2's if W2-15 has not landed.
   - Run an emulator load smoke: `make loadtest SCENARIO=search` (typeahead burst, hashtag page 1 with a warm and a cold entry, trends refresh at 2,000 posts).
   - Measure the response sizes behind the 41 KB/DAU/day egress assumption.
+  - Count the typeahead's `GetTrends(prefix)` calls in the requests and vCPU-s lines (about +1.5 calls per DAU on top of the `TrendsCubit`'s 2.0; ≈ 0 reads warm), and add the W4-25 to W4-28 rows from the ADR-0028 note 2026-10-31.
   - Name the triggers: search reads > 15 % of daily Firestore reads for 7 days; the unsupported-query share; and posts/day above the per-run cap (F1 A).
 - **Acceptance criteria.** The model updated with measured reads per call (± 25 % of this plan, or this plan's table corrected); a k6 script added under `loadtest/`.
 - **Test notes.** —
@@ -755,14 +774,19 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W4-20, W4-22, W4-23, ADR merged]  Status: Open
+### W4-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed]  Status: Open
+- **Security conditions (W4-22 verdict "dev allowlist: GO on conditions", 2026-10-31).**
+  1. W4-25 to W4-28 are in this plan before either flag leaves `off` in dev: met when the PR that adds them (`docs/ui-w4-25-28-tickets`) merges. Building them is **not** a dev dependency.
+  2. The dev allowlists of `search` and `trends` hold the dev test accounts only (`docs/runbooks/smoke-accounts.md`), within the ceiling `max_allowlist` 6. No real user's uid goes on them.
+  3. Dev percent stays impossible (`max_percent` 0 in `scripts/promotion/flag-ceiling.json`, founder-gated); nothing here asks to raise it.
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_search*`, `feature_trends*` and the search config env vars.
   - If A4 = fieldOverride: the `trends.items` override deploys with the dev deploy workflow's `firebase deploy --only firestore:indexes` after merge. For prod it waits for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `FEATURE_TRENDS` leaves `off` there.
   - Apply only on OK, allowlist 3 test uids, then smoke: people search, hashtag tap → Top / Latest / Media, Explore with trends.
   - Exercising the refresh in dev needs a direct OIDC call to `/internal/cron/trends-refresh` (no dev Scheduler job). That needs the opt-in `cron_test_invoker` grant recreated by a targeted apply with the founder's OK, and removed after (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.20, ADR-0021 D1).
   - Prod: no change (on hold). With F1 = A, the prod job is a separate plan-then-OK at MVP launch, after confirming 2 jobs exist on the billing account.
-- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed.
+  - The targeted plan includes `trends_denylist` and `trends_min_authors` (dev 3) only if W4-25 or W4-26 merged first; otherwise they come with the next dev plan. Keep dev at 3: with 3 test accounts a higher minimum leaves the trends smoke with nothing that can trend. With W4-26 deployed in dev, the smoke's 3 authors must be test accounts created more than `TRENDS_MIN_ACCOUNT_AGE` (72 h) before the run: check their `createdAt` first, or the empty list is by design.
+- **Acceptance criteria.** The dev smoke passes; the flags are back to their planned state; the grant is removed; the allowlists hold test accounts only.
 - **Test notes.** —
 - **Observability.** Check the `trends_refresh` line and the search request lines in dev logs.
 - **Budget.** A handful of reads in the dev project's free quota.
@@ -770,13 +794,269 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** serialise dev applies with W3's rollout.
 
+### W4-25 — Trends fast removal: hide list, serve-time filter, skeleton matching  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged]  Status: Open
+Source: security review W4-22 M-1 (`docs/reviews/security-w4-search.md`); ADR-0028 note 2026-10-31, part 1. Gate: **before `trends` leaves the allowlist in prod** (prod percent). It does not gate the dev or prod allowlist.
+- **Description.**
+  1. **Skeleton key.** Add `search.TrendKey(s string) string` (new `internal/search/trend_key.go`). Steps, in order:
+     - trim, and drop one leading `#`;
+     - NFKC (`golang.org/x/text/unicode/norm`, already a dependency), then `strings.ToLower`;
+     - delete U+200C, U+200D and `_`;
+     - NFKC again.
+
+     A key that comes out empty (`___`, `#`) never matches anything. NFKC, not NFC, so fullwidth and mathematical letters fold too (`ＳＬＵＲ` and `𝐬𝐥𝐮𝐫` are valid D8 tag letters and fold to `slur`). The key is used only for matching. The stored and displayed tag is unchanged and the sweep still counts tags as stored. `TrendKey` replaces `normaliseTag` in `trends_refresh.go`. Homoglyphs across scripts (UTS #39 confusables) are out of scope: there is no x/text implementation, and each variant costs one `hide`.
+  2. **`trends/hidden`** (search-owned, same `trends` collection): `{schemaVersion: 1, tags: [key] (at most 100 keys, already folded), updatedAt}`. It holds no uid and does not record who hid a tag.
+     - **Written only by `opsctl`**, never by the sweep. A hide therefore cannot race the sweep's whole-document `Set` of `trends/current`, and runbook 4.2 ("delete `trends/current`") keeps working without touching it.
+     - **No index exemption.** The 100-key cap keeps the automatic index of `tags` small, so there is no gate-file change. A raise past 100 needs a `trends.tags` fieldOverride and its ack line (founder-gated).
+  3. **`TrendsStore`** gains four methods; reads and writes go to the context's `budget.Counter`, as today.
+     - `GetServing(ctx) (*TrendsDoc, []string, error)`: one `GetAll` of `trends/current` and `trends/hidden`, 2 reads (a missing document bills 1). A missing hidden document is an empty list.
+     - `GetHidden(ctx) ([]string, error)`: 1 read.
+     - `Hide(ctx, key)` is one transaction. It reads the hidden doc (1 read), then:
+       - if the key is already present, it writes nothing and returns `already`;
+       - if 100 keys are present, it returns `ErrHiddenFull` and writes nothing;
+       - otherwise it calls `tx.Set(ref, {tags: ArrayUnion(key), updatedAt: ServerTimestamp, schemaVersion: 1}, MergeAll)`, 1 write. `Set` with `MergeAll`, because a plain `Update` fails NotFound on the first hide.
+     - `Unhide(ctx, key)` is also a transaction. It reads the doc (1 read):
+       - if the doc is missing or the key is absent, it writes nothing and succeeds;
+       - otherwise it calls `tx.Update` with `ArrayRemove(key)` and `updatedAt`, 1 write.
+  4. **GetTrends (serve time).** `trendsCache` loads through `GetServing` in its one singleflight, with the same 10 min TTL.
+     - It caches the **filtered** list: an item is dropped when `TrendKey(item.Tag)` is in the denylist or the hidden set.
+     - Ranks are positions in the filtered list, 1..n with no gap, so a hidden tag leaves no trace. The proto's "rank in the whole list" now means the served list.
+     - The prefix filter runs on the filtered list.
+     - The denylist comes from `config.Search.TrendsDenylist`, passed to `search.WithTrends` and keyed by `TrendKey`. A deploy that changes it applies at once on the new revision; it no longer waits for the next sweep.
+     - A load error caches nothing and returns the error, as today. An unknown hide list is never served as empty.
+  5. **Sweep.**
+     - After the `fresh` check, `run` calls `GetHidden` (1 read).
+     - `rank` drops any tag whose `TrendKey` is in the denylist or the hidden set.
+     - A failed hidden read fails the run with nothing written, like the protected set (runbook 4.4).
+     - The `fresh`, `flag_off` and `readonly` skips do not read it.
+  6. **`opsctl trends`** (new `cmd/opsctl/trends.go`, a `case "trends"` in `main.go`):
+     - `opsctl trends hide --project P --tag '<tag>'`, `unhide` with the same flags, and `list --project P`. They use `search.NewTrendsRepo`.
+     - Each prints the key, the result and the list size, then a fixed-shape last line: `audit: trends <hide|unhide> project=<p> key=<key> at=<RFC3339> wrote=<bool> size=<n>`.
+     - A tag whose key is empty is a usage error (exit 2, 0 reads).
+     - `ErrHiddenFull` exits 1 with "move permanent entries to `trends_denylist`, then unhide them".
+  7. **Terraform (production-deployer).** Add `trends_denylist` (string, default `""`) to `envs/dev` and `envs/prod` `variables.tf`, and `{ name = "TRENDS_DENYLIST", value = var.trends_denylist }` to each `main.tf` next to `FEATURE_TRENDS`. **Today no Terraform variable sets `TRENDS_DENYLIST`**, although runbook 4.3 tells the operator to add the tag to one. Dev gets it with the next targeted dev plan; prod with the held release (plan-then-OK).
+  8. **Runbook `docs/runbooks/search.md`.**
+     - Rewrite 4.3:
+       - hide now with `opsctl trends hide`: no deploy; every server within 10 min, every screen within 15 min (Explore's 5 min client copy);
+       - hide each variant the key does not fold;
+       - make a permanent entry `trends_denylist` at the next release, then `unhide` it;
+       - everything at once: `FEATURE_TRENDS=off` (a deploy).
+     - In 4.2, say that deleting `trends/current` leaves `trends/hidden` intact.
+     - In section 2, add the new reads and writes.
+  9. **Guard row.** Extend the note of the `trends` row in `lifecycle_collections_guard_test.go`: "tags and counts only (`trends/current`), folded tag keys (`trends/hidden`); no uid; not exported".
+- **Acceptance criteria.**
+  - Given `#slur` in `trends/current` and `opsctl trends hide --tag '#Slur'`, then after one cache TTL (fake clock) GetTrends omits it on every instance, ranks are 1..n with no gap, and `prefix=sl` does not return it. No deploy and no sweep run are needed.
+  - Given the hidden key `slur`, then the tags `sl_ur`, `slu` + U+200D + `r`, `slu` + U+200C + `r`, `ＳＬＵＲ` and `𝐬𝐥𝐮𝐫` are dropped by GetTrends and by the sweep, and `slurp` is not.
+  - Given `TRENDS_DENYLIST` with `café` written in NFD, then a stored NFC `café` in a `trends/current` written before the deploy is not served (serve-time denylist).
+  - Given a sweep that has read `trends/current` and a hide that lands before its `Put`, then the hide survives. Given runbook 4.2's delete of `trends/current`, then `trends/hidden` is unchanged and a later `hide` succeeds.
+  - Hide twice: 1 write, then 0. Hide with 100 keys present: refused with 0 writes. Unhide of an absent key, or with no doc: success with 0 writes.
+  - Given a failing `trends/hidden` read, then GetTrends returns an error and caches nothing, and a sweep writes nothing (the watermark does not move).
+  - `opsctl trends hide --tag '#___'` is a usage error with 0 reads.
+- **Test notes.**
+  - `TrendKey` table test, including NFD input, an empty key, Devanagari with ZWJ and fullwidth letters.
+  - Emulator integration for the store transactions and the race order (read `prev` → hide → `Put`).
+  - `budgettest`: GetTrends 3 cold, 0–1 warm; sweep +1; `fresh` still 1.
+  - `opsctl` output-shape test (the audit line), as `messages_test.go` does.
+- **Observability.**
+  - `trends_refresh` gets `tags_suppressed` (dropped by the denylist or the hide list).
+  - The GetTrends request line gets `suppressed`.
+  - Counts only, never the tag or the key, and no uid.
+  - Error Reporting on a failed hidden read (`cron/trends-refresh` and the GetTrends error path).
+- **Budget.**
+  - GetTrends: 3 cold (interceptor 1, `trends/current` 1, `trends/hidden` 1, in one `GetAll`; was 2), 0–1 warm. At most 2 document reads per instance per 10 min, so ≤ 864 a day at 3 instances (was 432): +432 reads a day at most, ≈ 13,100 a month, ≈ INR 0.44 a month once past the free quota.
+  - Sweep: +1 read per computing run; skips unchanged; writes unchanged.
+  - `opsctl`: hide or unhide 1 read + ≤ 1 write; list 1 read.
+  - Storage < 5 KB. Deletes 0. Fixed cost INR 0.
+  - GetTrends cost in `search.proto` (comment only): see the ADR-0028 note.
+- **Flag.** `FEATURE_TRENDS` as today; `opsctl trends` works whatever the flag, so a tag can be hidden before a ramp.
+- **Seam.**
+  - `search.TrendsStore` and `trendsCache` (Memorystore can still replace the cache by ADR).
+  - `TrendKey` is the one matching function, shared by GetTrends, the sweep and `opsctl`.
+- **Parallel with W3:** yes (search module and `cmd/opsctl` only; Terraform variables one PR at a time).
+
+### W4-26 — Trends count only established authors  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged; after W4-25 (both edit `trends_refresh.go`)]  Status: Open
+Source: security review W4-22 M-2; ADR-0028 note 2026-10-31, part 2. Gate: **before `trends` leaves the allowlist in prod** (prod percent).
+- **Description.** In `Refresher.run`, after the count and before `rank`:
+  1. **Per-author post counts.** `tagCount.authors` becomes `map[string]int64` (uid → posts with the tag), so posts can be recounted per author. It stays in memory and is never persisted.
+  2. **Candidates.**
+     - Candidate tags are those whose key is not denied or hidden (W4-25) and that have at least `TRENDS_MIN_AUTHORS` distinct authors before the check.
+     - Order them as `rank` does: authors, then posts, then tag.
+     - Walk that order and add each tag's authors to the check set until it holds `TRENDS_MAX_AUTHOR_CHECKS` (500) distinct uids. A tag cut off part-way keeps the authors already added.
+     - No candidate tag means 0 extra reads.
+  3. **Check.**
+     - Read the set with `GetProfiles` in batches of ≤ 50 (the `identity.Directory` contract). It is cache-first, but the cache is usually cold in a cron request, so expect about 1 read per author.
+     - The reads are charged to the run's own `budget.Counter`, appear in its `fs_reads` and are never charged to a user.
+     - A narrow interface, `AuthorDirectory{ GetProfiles(ctx, uids) (map[string]identity.Profile, error) }`, is a new `NewRefresher` parameter. `identity.Directory` satisfies it, and `apiserver` passes the identity service. A nil directory leaves every author unverified, so nothing trends (fail closed).
+  4. **Established author.**
+     - Present in the result. `GetProfiles` already omits missing, SUSPENDED and DELETING users, so the ACTIVE check costs 0 extra reads.
+     - `CreatedAt` is non-zero, and `now − CreatedAt ≥ TRENDS_MIN_ACCOUNT_AGE` (72 h).
+  5. **Fail closed, progress kept.** These authors are **unverified** and count as not established, and the run still writes its list and moves its watermark:
+     - authors left out by the cap;
+     - a batch skipped because less than `writeReserve` + 1 s of the deadline is left;
+     - a batch after a `GetProfiles` error, which is reported once to Error Reporting, after which checking stops.
+  6. **Recount and rank.**
+     - Each tag keeps only its established authors.
+     - `posts` becomes the sum of their posts.
+     - Apply `TRENDS_MIN_AUTHORS` again, then the ranking and the top 100 as today.
+  7. **Config** (`config/search.go`), both > 0 or startup fails; add both keys to the `config_test.go` env-key list:
+     - `SearchConfig.TrendsMinAccountAge` (`TRENDS_MIN_ACCOUNT_AGE`, duration, default `72h`);
+     - `SearchConfig.TrendsMaxAuthorChecks` (`TRENDS_MAX_AUTHOR_CHECKS`, default 500).
+  8. **Terraform (production-deployer).**
+     - Add `trends_min_authors` (number, integer ≥ 1) to `envs/dev` (default 3) and `envs/prod` (default **5**), and `{ name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) }` to each `main.tf`.
+     - **No Terraform variable sets `TRENDS_MIN_AUTHORS` today**, so the review's "set 5 in prod tfvars" needs this first.
+     - The prod value is the founder's launch decision (review §4 item 3) and is confirmed in the prod plan-then-OK.
+     - Dev stays 3: the dev smoke has 3 test authors.
+  9. **Runbook `search.md` 4.3:**
+     - only ACTIVE accounts at least 72 h old count;
+     - an empty list after a burst of new sign-ups is by design;
+     - `TRENDS_MIN_ACCOUNT_AGE` is the lever (a deploy);
+     - a ring of aged accounts is the residual.
+- **Acceptance criteria.**
+  - Given 3 authors with `#launch`, one created 1 h before the run, then `#launch` does not trend (2 established < 3).
+  - Given 3 established authors and a fourth new one, then `#launch` trends with authors 3, and posts counts only the established authors' posts.
+  - Given an author SUSPENDED (or deleted) since posting, then that author is not counted.
+  - Given candidate tags with 600 distinct authors and the cap at 500, then exactly the first 500 in candidate order are read (≤ 10 `GetProfiles` calls, `budgettest` ≤ 500 reads) and the other 100 are not counted.
+  - Given `GetProfiles` failing on the third batch, then batches 1–2 count, the rest do not, one Error Reporting entry is written, and the run writes with the watermark moved.
+  - Given less than `writeReserve` + 1 s left (fake clock) before a batch, then the remaining authors are unverified and the run still writes.
+  - Given a profile with a zero `CreatedAt`, then it is not established.
+  - Given no tag reaching `TRENDS_MIN_AUTHORS`, then 0 profile reads.
+- **Test notes.** Unit tests with a fake `AuthorDirectory` and a fake clock; emulator integration with real `users` docs (`createdAt`, `status`); `budgettest` on the run counter.
+- **Observability.** `trends_refresh` gets four counts, with no uid:
+  - `trends_authors_checked`;
+  - `trends_authors_new` (younger than the minimum age);
+  - `trends_authors_inactive` (missing or not ACTIVE);
+  - `trends_authors_unverified` (cap, deadline or error).
+- **Budget.**
+  - Reads: + ≤ min(distinct candidate authors, 500) per computing run, on the system budget.
+    - Stage 0: tens a day.
+    - Worst case: 500 a day, ≈ 15,200 a month, ≈ INR 0.51 a month.
+  - Writes 0.
+  - Time: ≤ 10 `GetAll` calls, about 1 s, inside the step's 10 s.
+  - The skips (`fresh`, `flag_off`, `readonly`) add 0.
+  - Fixed cost INR 0.
+- **Residual (accepted, ADR-0028 note).**
+  - Accounts created more than 72 h before the run (a "sleeper" ring).
+  - A ring of 5 or more aged accounts in prod.
+  - Revisit when a ring tag trends more than once a month (`stage-ladder` trends row).
+- **Flag.** `FEATURE_TRENDS` (the sweep honours only `GloballyOff`, as today).
+- **Seam.** `AuthorDirectory`, a subset of `identity.Directory`. The sweep reads profiles only through identity's interface.
+- **Parallel with W3:** yes.
+
+### W4-27 — SearchPosts LATEST: fixed windows, filter before cutting  [owner: backend-developer; tester adds the W4-20 case] [size: S] [depends: W4-8 merged]  Status: Open
+Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **before `search` leaves the allowlist in prod** (prod percent).
+- **Description.** LATEST only, in `service_posts.go` (`search`, `fetch`).
+  - TOP issues no token.
+  - MEDIA already filters before cutting, with its fixed 30-row scan.
+
+  Let k = `limits.ClampPageSize(page_size)`.
+  1. **Query window W, independent of k** (k only picks a tier):
+     - page 1 with k ≤ 30: the tag entry (the newest 30), **all of it**;
+     - page 1 with k 31–50: `ByHashtag(50)`;
+     - an older page with k ≤ 20: `ByHashtag(Before cursor, 20)`;
+     - an older page with k 21–50: `ByHashtag(Before cursor, 50)`.
+  2. **Window full:** for the entry, `windowFull = len(entry) == 30`; otherwise `len(rows) == W`.
+  3. **Filter first:** `kept = filter(rows)` over the whole window (`!Visible()`, D6, Audience). It uses the graph snapshot already read, so 0 extra reads.
+  4. **Cut:** `page = kept[:min(k, len(kept))]`.
+  5. **Token:** `more = windowFull || len(kept) > k`.
+  6. **Resume position:**
+     - when `len(kept) > k`, the **last returned row**: the rows after it were not shown, and the next page queries them again;
+     - otherwise, the window's last queried row. Every row after the last returned one was hidden, and a full window with every row hidden keeps its token (no stall, no repeat).
+  7. **Tail token (a window that was not full).** A window that comes back not full holds the end of the tag: the entry under 30 rows, or a query under W rows. No older post can appear later, because ids and `createdAt` are time-ordered.
+     - The token is sealed as a **tail token**, with the binding `search|<uid>|<tag>|LATEST_TAIL` instead of `…|LATEST`. The decoder tries LATEST, then LATEST_TAIL, so both are opaque and need no new codec. `cursor.EncodeRevAt` (ADR-0027's precedent) is the alternative if a binding variant is awkward.
+     - Such a page issues a token only when `len(kept) > k` (rule 5 already gives that), and the token is a tail token.
+     - A page reached with a tail token queries the whole remaining tail: `ByHashtag(Before cursor, 50)`, which by construction returns fewer rows than the earlier window held.
+     - It sets `more = len(kept) > k` only; window-full is ignored, because no older row exists.
+     - Its next token is again a tail token, resuming from the last returned row.
+     - If 50 rows ever come back (a late commit inside the settle gap), it falls back to rules 1–6 and issues a normal token.
+     - Every page of such a chain then depends only on the visible rows. Without this rule a tag of about 21 to 29 posts still leaks: page 1 at k = 1, then an older page at k = 20 over a full 20-row window, shows the hidden count.
+
+  **Why not the review's page_size floor of 10.** Querying `max(k, 10)` still lets a caller vary k from 10 to 50 on an older page. The token then tells them the exact number of rows left, and the row counts tell them where the hidden rows are. With fixed windows, each reply depends only on the visible rows of its window and on whether the window was full. The tail token closes small tags completely.
+
+  **No proto change.**
+  - `page_size` keeps "0 ⇒ 20, max 50", and a reply never holds more than k rows.
+  - The proto's cost lines are unchanged: 33 for the first page at ≤ 30, 53 at 50, 23 / 53 for an older page at 20 / 50.
+  - The client sends 20 (`search_repository.dart`), so its cost does not move.
+
+  Update the `search` doc comment (cost per tier) and the D5 meaning of the LATEST token: "the last returned row when the page was cut, else the window's last row; LATEST_TAIL when page 1's entry was not full".
+
+  The `SearchPosts` comment in `search.proto` says "next_page_token follows the query, not the number of rows returned", and that no longer describes the rule. Correcting it is a comment-only edit with no field and no semantic change for clients. The ADR-0028 note 2026-10-31 says who makes it.
+- **Acceptance criteria.**
+  - **Page 1.** Take tag A with V visible and H hidden posts (V + H < 30) and tag B with the same V visible posts and none hidden, for H ∈ {1, 5} and V ∈ {0, 1, 10, 29 − H}. For every k from 1 to 30, LATEST page 1 returns the same number of rows and the same token presence for A and B.
+  - **Whole chain, small tag.** For V + H = 25 (and 29), the same A and B, walk every page to the end at k = 1 and at k = 20, and at k = 1 on page 1 then k = 20 after. The sequence of (row count, token presence) is identical for A and B, and every page after page 1 carries a tail token.
+  - **Older pages, busy tag.**
+    - Two full 20-row windows with the same number of visible rows give the same (row count, token presence) for every k from 1 to 20.
+    - The same holds for 50-row windows and k from 21 to 50.
+  - A full entry whose 30 rows are all hidden returns an empty page 1 with a token, and the next page starts after the entry's 30th row.
+  - With `len(kept) > k`, the next page's first row is `kept[k]`: no gap, no duplicate.
+  - `budgettest`, cold:
+    - page 1 with k ≤ 30 reads 33, and with k 31–50 reads 53;
+    - an older page with k ≤ 20 reads 23, and with k 21–50 reads 53;
+    - a tail page reads 3 + the remaining rows: ≤ 32 after a page-1 entry, ≤ 52 after a 50-row window, minimum 1 query read.
+  - A tampered tail token, or a LATEST token sent as a tail token on another tag or tab, is VALIDATION `page_token` with 0 reads.
+- **Test notes.** The page-1 and older-page equivalence cases also go into W4-20, as the review asks, with the "same number of visible rows" comparison. Use the block, mute, protected and takedown causes for the hidden rows.
+- **Observability.** Unchanged fields. `dropped_*` now counts the whole window, not just the returned rows.
+- **Budget.**
+  - +0 reads at the client's `page_size` 20.
+  - At page sizes the client never sends:
+    - at most +29 reads: an older page at k = 21 reads 53 instead of 24;
+    - +19 for page 1 at k = 31 (53 instead of 34) and for an older page at k = 1 (23 instead of 4).
+  - Tail pages: 3 + the remaining rows. That is ≤ 32 after a page-1 entry and ≤ 52 after a 50-row window, and usually fewer than a normal older page, because only the end of the tag is left.
+  - Charged to the caller's read budget, so it is self-limiting. Writes 0.
+- **Residual (accepted, ADR-0028 note).**
+  - **Closed:** from the first window that comes back not full, every later page depends only on the visible rows. So a tag with fewer than 30 posts (the review's `#janesdiary` case) reveals nothing beyond its visible rows, on any page.
+  - **Accepted, Low:** on a tag with 30 or more posts,
+    - a short page with a token shows how many rows of that window the caller cannot see;
+    - by choosing k on the page before, a caller picks where the next window starts, so sliding windows recover where hidden rows sit;
+    - a hidden post entering the newest 30 shows as a visible one dropping out.
+  - Attribution still needs a second account (ADR-0008 D9).
+- **Flag.** `FEATURE_SEARCH`.
+- **Seam.** `search.Service.Posts(LATEST)`; the token stays opaque and sealed (D5).
+- **Parallel with W3:** yes.
+
+### W4-28 — GetTrends daily call cap  [owner: backend-developer] [size: XS] [depends: W4-10 merged]  Status: Open
+Source: security review W4-22 L-4; ADR-0028 note 2026-10-31, part 4. Gate: **before `trends` leaves the allowlist in prod** (prod percent).
+- **Description.**
+  - **Config.**
+    - Add `RateLimitConfig.TrendsCallsPerDay int64` in `pkg/platform/config/limits.go`, with a doc comment carrying the math below.
+    - Load it in `config.go` from `TRENDS_CALLS_PER_DAY`, default **400**, failing startup when ≤ 0, as `SEARCH_CALLS_PER_DAY` does.
+    - Add the key to the `config_test.go` env-key list.
+  - **Wiring.** In `internal/apiserver/ratelimit_config.go`, add `trendsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.TrendsCallsPerDay)` and a `DailyCaps` entry for `SearchServiceGetTrendsProcedure`: `{Name: "trends_daily", Cap: trendsDailyCap}`. The per-minute bucket stays the 60/min default.
+  - **Guard test** (`internal/apiserver/search_guard_test.go`). Today's check "GetTrends must not be on the search_daily cap" (`:43`) fails on **any** GetTrends entry, so it is rewritten:
+    - GetTrends must have a non-nil entry named `trends_daily`;
+    - its `Cap` must not be the `search_daily` `*DailyCap`.
+
+    Its cases become "trends loses its cap" and "trends joins search_daily" (the same `Cap`, or the name `search_daily`), and both must fail.
+  - **Why 400, not the review's 200.** The client calls GetTrends from two places:
+    - the `TrendsCubit` (5 min client TTL, loaded on demand);
+    - the typeahead (`search_suggestions_cubit.dart` `_tags`): every debounced burst of a `#tag`, or of a plain word of 2 or more characters, calls `GetTrends(prefix)`.
+
+    400 = 300 typeahead bursts (the `search_daily` level) + 100 `TrendsCubit` loads (a 5 min TTL over 8 active hours is 96). With 200, a heavy searcher would see the typeahead's quiet "rate limited" hint before search itself is capped.
+  - **Client:** no change. RATE_LIMITED is already handled (the typeahead hint; the `TrendsCubit` error view).
+  - **Housekeeping (same PR).** The comments in `config/limits.go` (read-budget paragraph) and `pkg/platform/ratelimit/daily_cap.go` say 2,000 − 1 + `ReadBudgetMaxCallReads` = 2,368. With `ReadBudgetMaxCallReads` 269 it is **2,268**; correct both.
+- **Acceptance criteria.**
+  - Given 400 GetTrends calls by one uid on one instance today, then the 401st is RATE_LIMITED with `limit_name` `trends_daily` and 0 reads.
+  - Another uid is not affected, and SearchPeople and SearchPosts keep their own `search_daily` count.
+  - The guard test passes on the shipped wiring and fails in both mutated cases.
+  - A config of 0 fails startup naming `TRENDS_CALLS_PER_DAY`.
+- **Test notes.** Copy the shape of `profile_graph_ratelimit_test.go` (`suggestions_daily`).
+- **Observability.** The standard RATE_LIMITED request line with `limit_name=trends_daily`.
+- **Budget.**
+  - 0 reads, 0 writes.
+  - Abuse bound per account: ≤ 1,200 calls a day at 3 instances, ≈ 36,500 a month. Cost per account-month: requests INR 1.4, vCPU INR 1.7 (20 ms a call) to 8.3 (0.1 s), memory ≤ INR 0.4. That is **≈ INR 3 to 10**, against ≈ INR 680 to 2,190 without the cap.
+- **Flag.** `FEATURE_TRENDS` (unchanged; a flag refusal still costs 0 reads).
+- **Seam.** Limits as config (rule 11). The systemic per-uid request cap over every procedure (review §5, sre-performance) is a separate follow-up and not a W4 gate.
+- **Parallel with W3:** yes; `ratelimit_config.go` and `config.go` are shared files, so merge one at a time.
+
 ## Rollout plan
 - **Dev.** Allowlist (3 uids) for `search`, then `trends`.
 - **Prod.** The founder's MVP launch decision: allowlist → percent 5 → 25 → 100 → `on`. Each step is a Terraform change plus a tagged revision (ADR-0019). Before each step, check the `cost-model.md` headroom and the error rate. `trends` follows `search`, never ahead.
+  - **Security gates (W4-22, 2026-10-31).** The prod allowlist is GO after the held release.
+    - Before `search` leaves the allowlist in prod: W4-27 merged and deployed.
+    - Before `trends` leaves the allowlist in prod: W4-25, W4-26 and W4-28 merged and deployed; `trends_min_authors` 5 in the prod plan (founder); the review's §4 Privacy Policy lines published; `trends` still behind `search`.
+    - Until then `scripts/promotion/flag-ceiling.json` keeps both flags without a prod raise.
 - **Rollback triggers:**
   - error rate on search RPCs above 2 % for 15 min;
   - search reads per DAU above twice the W4-23 model for a day;
-  - an abusive or offensive tag trending (first `TRENDS_DENYLIST`, else `FEATURE_TRENDS=off`).
+  - an abusive or offensive tag trending: first `opsctl trends hide` once W4-25 is deployed (before that, `TRENDS_DENYLIST` plus a deploy and a delete of `trends/current`), else `FEATURE_TRENDS=off`.
 - **Kill switches:**
   - `FEATURE_SEARCH=off`: the RPCs reject and the client hides the field, the Explore destination and the tap-through (back to the snackbar).
   - `FEATURE_TRENDS=off`: the refresh stops (`GloballyOff`) and the trends sections disappear.
@@ -789,7 +1069,7 @@ Order:
 | Users expect full-text search; Stage 0 searches handles and exact hashtags only | the F4 hint; the A7 trigger measures demand (unsupported-query share); the Postgres FTS ADR when it fires |
 | Top is a re-rank of the newest 30, so an older popular post never shows | the "See latest" footer; honest copy; engine target in A7 |
 | Daily trends (F1 B) are up to 24 h stale and empty at low volume | the "Trending today" label, `computed_at`, the empty state; F1 A when posts/day pass the cap or the founder wants hourly |
-| Sockpuppet rings (3 or more accounts) push a tag | distinct-author counting, min 3, denylist, `FEATURE_TRENDS=off`; later weight by account age (needs reads, an ADR) |
+| Sockpuppet rings (3 or more accounts) push a tag | distinct-author counting, min 3, denylist, `FEATURE_TRENDS=off`; W4-26 counts only ACTIVE accounts at least 72 h old (≤ 500 reads a run, ADR-0028 note 2026-10-31) and prod launches with min 5; W4-25 hides a tag with no deploy. Residual: aged rings of 5 or more |
 | Handle enumeration | cap 20, no paging, 2-character minimum, rate × 3 instances, daily cap, read budget; handles are public on profiles anyway |
 | The prefix and tag caches are per instance (3 cold caches) | the 60 s bound is stated; hit rates in the model are conservative |
 | Trends composed into `daily-maintenance` delay or break the deletion backstop | backstop first and unchanged, status code from the backstop only, a trends sub-deadline, skip and resume |
