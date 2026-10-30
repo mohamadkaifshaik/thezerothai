@@ -239,9 +239,9 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Done (#467) |
 | W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
 | W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |
-| W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | Open |
-| W4-9b | *(F1 = B)* compose the trends step into `daily-maintenance` (apiserver wrapper, status code from the backstop only). *(F1 = A instead: the `trends-refresh` Scheduler job in `envs/prod`, owner production-deployer, plan-then-OK)* | backend-developer (B) / production-deployer (A) | S | W4-9, F1 | yes; the wrapper lives in `apiserver`, identity code untouched | Open |
-| W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | Open |
+| W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | In review (PR w4-9) |
+| W4-9b | *(F1 = B)* compose the trends step into `daily-maintenance` (apiserver wrapper, status code from the backstop only). *(F1 = A instead: the `trends-refresh` Scheduler job in `envs/prod`, owner production-deployer, plan-then-OK)* | backend-developer (B) / production-deployer (A) | S | W4-9, F1 | yes; the wrapper lives in `apiserver`, identity code untouched | In review (PR w4-9) |
+| W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | In review (PR w4-9) |
 | W4-11 | *(conditional, F2 = yes)* `nameKeys` written by identity + `opsctl` backfill | backend-developer | M | W4-1 (A8), W4-4 | **conflicts with W3 profile-write changes**: sequence after W3's identity PRs | Open (conditional) |
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
 | W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
@@ -442,7 +442,7 @@ Order:
 - **Seam.** The ranking sits behind `search.Service.Posts(TOP)`, so a later engine replaces it without a client change.
 - **Parallel with W3:** yes.
 
-### W4-9 — Trends refresh  [owner: backend-developer] [size: M] [depends: W4-6]  Status: Open
+### W4-9 — Trends refresh  [owner: backend-developer] [size: M] [depends: W4-6]  Status: In review (PR w4-9)
 - **Description.** `search.TrendsRefresher.Refresh(ctx)` (search owns the `trends` collection):
   1. Read `trends/current`: watermark, the last window's items, `computedAt`.
   2. Page `posts.Reader.CreatedAfter(watermark, 500)` up to `TRENDS_MAX_POSTS_PER_RUN`.
@@ -483,7 +483,7 @@ Order:
 - **Seam.** `search.TrendsRefresher`. The cron host is wiring only, so F1 A and B differ in Terraform and `apiserver.go`, not in the module.
 - **Parallel with W3:** yes.
 
-### W4-9b — Cron host for the refresh (per F1)  [owner: backend-developer if F1 = B; production-deployer if F1 = A] [size: S] [depends: W4-9, founder F1]  Status: Open
+### W4-9b — Cron host for the refresh (per F1)  [owner: backend-developer if F1 = B; production-deployer if F1 = A] [size: S] [depends: W4-9, founder F1]  Status: In review (PR w4-9; F1 = B)
 - **Description.**
   - **F1 = B (default):** `apiserver` mounts `/internal/cron/daily-maintenance` as a wrapper. It calls `lifecycle.CronHandler()` unchanged through a status-capturing response writer, then runs `search.TrendsRefresher.Refresh` with the A5 sub-deadline: `min(10 s, time left before 28 s)`, skipped below 3 s. It writes the backstop's captured status. No change to `identity/lifecycle_jobs.go`, which is W3 territory.
   - **F1 = A:** no wrapper. A `trends-refresh` entry (hourly, path `/internal/cron/trends-refresh`) goes into `envs/prod/main.tf` `jobs`, and the Scheduler count comment becomes 3 of 3. Plan-then-OK by the founder at MVP launch, after confirming that no other Scheduler job exists on the billing account (ADR-0021 founder decision 1).
@@ -500,7 +500,7 @@ Order:
 - **Seam.** The cron host is wiring only; switching B to A later is this ticket alone.
 - **Parallel with W3:** yes.
 
-### W4-10 — GetTrends  [owner: backend-developer] [size: S] [depends: W4-9]  Status: Open
+### W4-10 — GetTrends  [owner: backend-developer] [size: S] [depends: W4-9]  Status: In review (PR w4-9)
 - **Description.**
   - Read `trends/current` through a per-instance cache with a 10 min TTL.
   - Return the top `limit` (0 → 10, max 30), with ranks and `computed_at`.
