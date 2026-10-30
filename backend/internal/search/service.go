@@ -15,11 +15,18 @@ import (
 
 type service struct {
 	flags FlagChecker
+	// pr is the SearchPosts runtime (WithPosts); nil leaves SearchPosts Unimplemented for an enabled caller.
+	pr *postsRuntime
 }
 
-// New builds the Service: the flag gate of each RPC, then (from W4-5) the rules. A nil FlagChecker is off for everyone.
-func New(fc FlagChecker) Service {
-	return &service{flags: fc}
+// New builds the Service: the flag gate of each RPC, then the rules of each RPC whose option is given (WithPosts: W4-7,
+// W4-8). A nil FlagChecker is off for everyone.
+func New(fc FlagChecker, opts ...Option) Service {
+	s := &service{flags: fc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // guard is the flag gate of every method, run before any Firestore access. Disabled is FAILED_PRECONDITION +
@@ -52,13 +59,18 @@ func (s *service) People(ctx context.Context, uid, _ string, _ int32) (*searchv1
 	return nil, errNotImplemented()
 }
 
-// Posts is SearchPosts. Flag: search. Skeleton (W4-3): FEATURE_DISABLED or Unimplemented, 0 reads, 0 writes.
-// Worst case once built (W4-7): 53 reads at page_size 50 (ADR-0028 D3), 0 writes.
-func (s *service) Posts(ctx context.Context, uid, _ string, _ searchv1.SearchTab, _ int32, _ string) (*searchv1.SearchPostsResponse, error) {
+// Posts is SearchPosts. Flag: search, checked before any read. Without WithPosts: Unimplemented, 0 reads.
+// Worst case (interceptor included, writes 0): 33 cold for TOP, LATEST page 1 and MEDIA page 1 (page_size <= 30) and for
+// a MEDIA scan, 53 for LATEST at page_size 50, 23 / 53 for older LATEST pages at 20 / 50, 0 to 3 warm (ADR-0028 D3);
+// the rules are postsRuntime.search.
+func (s *service) Posts(ctx context.Context, uid, query string, tab searchv1.SearchTab, pageSize int32, pageToken string) (*searchv1.SearchPostsResponse, error) {
 	if err := s.guard(ctx, uid, FlagSearch); err != nil {
 		return nil, err
 	}
-	return nil, errNotImplemented()
+	if s.pr == nil {
+		return nil, errNotImplemented()
+	}
+	return s.pr.search(ctx, uid, query, tab, pageSize, pageToken)
 }
 
 // Trends is GetTrends. Flag: trends. Skeleton (W4-3): FEATURE_DISABLED or Unimplemented, 0 reads, 0 writes.

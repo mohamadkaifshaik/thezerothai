@@ -237,8 +237,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Done (#469) |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Done (#467) |
-| W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
-| W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |
+| W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | In review (W4-7/W4-8 PR) |
+| W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | In review (W4-7/W4-8 PR) |
 | W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | Open |
 | W4-9b | *(F1 = B)* compose the trends step into `daily-maintenance` (apiserver wrapper, status code from the backstop only). *(F1 = A instead: the `trends-refresh` Scheduler job in `envs/prod`, owner production-deployer, plan-then-OK)* | backend-developer (B) / production-deployer (A) | S | W4-9, F1 | yes; the wrapper lives in `apiserver`, identity code untouched | Open |
 | W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | Open |
@@ -246,8 +246,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
 | W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
 | W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Done in the PR of branch `feat/ui-w4-14-search-field` (in review) |
-| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | Open |
-| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | Open |
+| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | In review |
+| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | In review |
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | Open |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | Open |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | Open |
@@ -401,7 +401,7 @@ Order:
 - **Seam.** `posts.Reader` (named "later search" in its comment); no second post query outside posts.
 - **Parallel with W3:** yes. It adds to `posts/api.go` and a new repo file; W3's media filter or pin may edit the same interface, so rebase.
 
-### W4-7 — SearchPosts LATEST  [owner: backend-developer] [size: M] [depends: W4-6]  Status: Open
+### W4-7 — SearchPosts LATEST  [owner: backend-developer] [size: M] [depends: W4-6]  Status: In review (branch feat/ui-w4-7-search-posts)
 - **Description.**
   - Validate the tag (D8 extractor).
   - The **tag entry**: the newest 30 posts per tag, `cache.LRU` with 60 s TTL and `CACHE_SEARCH_TAG_ENTRIES`, shared across viewers, filled by one `ByHashtag(limit 30)`.
@@ -425,7 +425,7 @@ Order:
 - **Seam.** `search.Service.Posts(tab)`; reuse `timeline.Compare` order and the existing cursor codec; no second merge.
 - **Parallel with W3:** yes.
 
-### W4-8 — SearchPosts TOP and MEDIA  [owner: backend-developer] [size: S] [depends: W4-7]  Status: Open
+### W4-8 — SearchPosts TOP and MEDIA  [owner: backend-developer] [size: S] [depends: W4-7]  Status: In review (same PR as W4-7)
 - **Description.**
   - **TOP:** rank the filtered tag entry by the A2 score, posts from the last 7 days, ties newest first. One page of at most 20, `next_page_token` always `""`. The client shows a "See latest" footer.
   - **MEDIA:** page 1 = the entry's posts with `media` (their own images; a QUOTE's embedded media does not count unless A3 says otherwise). Then a sealed MEDIA cursor scans 30 older tagged posts per call and returns the media ones (short or empty pages are allowed, and the token continues while the scan has more).
@@ -589,7 +589,7 @@ Order:
 - **Seam.** The suggestions cubit depends on `SearchRepository` and the store only.
 - **Parallel with W3:** yes.
 
-### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: Open
+### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: In review (PR stacked on W4-14)
 - **Description.** `/search?q=<query>&tab=top|latest|people|media`:
   - the search field in the header (`AppBackHeader` variant) and an `AppTabBar` with Top · Latest · People · Media (content-sized);
   - the default tab is Top, or People for an `@` query;
@@ -611,7 +611,7 @@ Order:
 - **Seam.** One `SearchResultsCubit` per tab over `SearchRepository`.
 - **Parallel with W3:** yes.
 
-### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: Open
+### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: In review (PR stacked on W4-14)
 - **Description.**
   - In `PostRichText`, a hashtag span tap opens `/search?q=%23<tag>&tab=top` when `search` is on; otherwise the existing "Hashtags are coming soon." stays (W2 kept it).
   - It applies to posts, quotes' own text and the thread view (every `PostRichText`).

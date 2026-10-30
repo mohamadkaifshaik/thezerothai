@@ -807,7 +807,8 @@ type ListConversationsResponse struct {
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	// Persist with the cached list; send on the next refresh.
 	SinceToken string `protobuf:"bytes,3,opt,name=since_token,json=sinceToken,proto3" json:"since_token,omitempty"`
-	// Pending message requests ("Message requests (N)"): set on the first INBOX page only, else 0.
+	// Pending message requests ("Message requests (N)"): set on every INBOX first page and since refresh; 0 on an older
+	// page and on REQUESTS. Authoritative on an INBOX response, including 0.
 	RequestCount  int64 `protobuf:"varint,4,opt,name=request_count,json=requestCount,proto3" json:"request_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

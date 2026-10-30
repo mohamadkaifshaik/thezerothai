@@ -143,7 +143,7 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
 		}
 	})
-	measure("ListConversations since, nothing new, cold", rpcListConversations, budgettest.Budget{Reads: 3}, func(e *dmChain) {
+	measure("ListConversations since, nothing new, cold", rpcListConversations, budgettest.Budget{Reads: 4}, func(e *dmChain) {
 		r, err := e.listConvs(me, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: firstPage.GetSinceToken()})
 		if err != nil || len(r.GetConversations()) != 0 {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
