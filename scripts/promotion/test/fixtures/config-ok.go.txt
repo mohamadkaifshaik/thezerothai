@@ -25,3 +25,5 @@
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	featureShells, err := flags.LoadSpec("SHELLS", "shells", flags.Off)
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
+	featureSearch, err := flags.LoadSpec("SEARCH", "search", flags.Off)
+	featureTrends, err := flags.LoadSpec("TRENDS", "trends", flags.Off)

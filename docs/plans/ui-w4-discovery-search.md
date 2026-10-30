@@ -233,10 +233,10 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | --- | --- | --- | --- | --- | --- | --- |
 | W4-1 | ADR-0028 "Search, trends and Explore at Stage 0" (0024 to 0027 went to W3, W8 and W7) | architect | M | — | **yes, start now** (new file) | In review (PR #465) |
 | W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | In review (PR #465) |
-| W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | Open |
-| W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | In review (PR #469) |
+| W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | In review (PR #470) |
+| W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Done (#469) |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
-| W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | In review (PR #467) |
+| W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Done (#467) |
 | W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
 | W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |
 | W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | Open |
@@ -246,11 +246,11 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-12 | *(conditional, F2 = yes)* SearchPeople merges name matches | backend-developer | S | W4-5, W4-11 | yes | Open (conditional) |
 | W4-13 | Client data layer: query parser (shared grammar), `SearchRepository`, recent-search store | frontend-developer | S | parser/store: — ; repository: W4-3 | **parser and store: yes, start now** | Parser + store merged (#464); repository half done (this PR: `SearchRepository`, `ConnectSearchRepository`, `FakeSearchRepository`, generated Dart client) |
 | W4-14 | Search field + suggestions overlay | frontend-developer | M | W4-13 | yes | Done in the PR of branch `feat/ui-w4-14-search-field` (in review) |
-| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | Open |
-| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | Open |
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | In review (#472) |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
+| W4-15 | Results screen `/search` with Top / Latest / People / Media | frontend-developer | M | W4-13 | yes | In review |
+| W4-16 | Hashtag tap-through from post bodies | frontend-developer | S | W4-15 | yes; `post_card.dart` may also change in W3 (pinned label) | In review |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |
@@ -317,7 +317,7 @@ Order:
 - **Seam.** `SearchTab` is an enum (a new tab is additive); every cursor is opaque.
 - **Parallel with W3:** yes.
 
-### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: Open
+### W4-3 — Generate, flags, config, module skeleton  [owner: backend-developer] [size: M] [depends: W4-2]  Status: In review (PR #470)
 - **Description.**
   - Register `FEATURE_SEARCH` and `FEATURE_TRENDS` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`).
   - Add the config values to `config_test.go`'s env list: `RATE_LIMIT_SEARCH_PEOPLE_PER_MIN` 30, `RATE_LIMIT_SEARCH_POSTS_PER_MIN` 20, `SEARCH_CALLS_PER_DAY` 300, `CACHE_SEARCH_PREFIX_ENTRIES` 2,000, `CACHE_SEARCH_TAG_ENTRIES` 500, `TRENDS_MIN_AUTHORS` 3, `TRENDS_MAX_POSTS_PER_RUN` 2,000, `TRENDS_DENYLIST` "", `TRENDS_MIN_INTERVAL` 12 h (ADR-0028 D6: a run within it of the last list is skipped as `fresh`).
@@ -332,14 +332,14 @@ Order:
 - **Test notes.** Flag modes off / allowlist / percent / on; the guard test; the config bounds (reject negative or zero).
 - **Observability.** Startup logs the flag modes (existing).
 - **Budget.** 0 reads (rejection paths).
-- **Flag.** Adds `FEATURE_SEARCH` and `FEATURE_TRENDS` (default `off`; dev ceiling allowlist 3).
+- **Flag.** Adds `FEATURE_SEARCH` and `FEATURE_TRENDS` (default `off`; dev ceiling allowlist 6, ADR-0028 D8).
 - **Seam.** `search.Service` Go interface; handlers call only it.
 - **Parallel with W3:** logic yes. These shared files conflict textually with W3's flag ticket, so merge one PR at a time:
   - `config.go`, `apiserver.go`, `ratelimit_config.go`;
   - `flag-ceiling.json`;
   - the Terraform vars.
 
-### W4-4 — Identity handle-prefix reader  [owner: backend-developer] [size: S] [depends: W4-3]  Status: In review (PR #469)
+### W4-4 — Identity handle-prefix reader  [owner: backend-developer] [size: S] [depends: W4-3]  Status: Done (#469)
 - **Description.** `identity.Directory.SearchHandles(ctx, prefix string, limit int) ([]Profile, error)`, a new repo file:
   - `users where handleLower >= p and handleLower < succ(p) orderBy handleLower Limit(limit)`, with limit clamped to 1..20;
   - reads = len(result), minimum 1;
@@ -384,7 +384,7 @@ Order:
 - **Seam.** `search.Service.People`; the cache sits behind a small interface with a stated bound (60 s).
 - **Parallel with W3:** yes.
 
-### W4-6 — Posts reader methods  [owner: backend-developer] [size: S] [depends: W4-3]  Status: In review (PR #467)
+### W4-6 — Posts reader methods  [owner: backend-developer] [size: S] [depends: W4-3]  Status: Done (#467)
 - **Description.** Two methods on `posts.Reader`:
   - `ByHashtag(ctx, tag, window Window, limit)`: `hashtags array-contains tag`, `createdAt DESC, __name__ DESC`, Limit 1..50, existing composite index.
   - `CreatedAfter(ctx, after Position, limit)`: `createdAt ASC, __name__ ASC` from the watermark, Limit ≤ 500, projection of `hashtags`, `authorId`, `moderation`, `createdAt` and `kind` (still 1 read per doc). It runs on the automatic single-field index; confirm on the emulator and in dev that no composite index is needed, otherwise stop and ask (a gate file).
@@ -589,7 +589,7 @@ Order:
 - **Seam.** The suggestions cubit depends on `SearchRepository` and the store only.
 - **Parallel with W3:** yes.
 
-### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: Open
+### W4-15 — Results screen  [owner: frontend-developer] [size: M] [depends: W4-13]  Status: In review (PR stacked on W4-14)
 - **Description.** `/search?q=<query>&tab=top|latest|people|media`:
   - the search field in the header (`AppBackHeader` variant) and an `AppTabBar` with Top · Latest · People · Media (content-sized);
   - the default tab is Top, or People for an `@` query;
@@ -611,7 +611,7 @@ Order:
 - **Seam.** One `SearchResultsCubit` per tab over `SearchRepository`.
 - **Parallel with W3:** yes.
 
-### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: Open
+### W4-16 — Hashtag tap-through  [owner: frontend-developer] [size: S] [depends: W4-15]  Status: In review (PR stacked on W4-14)
 - **Description.**
   - In `PostRichText`, a hashtag span tap opens `/search?q=%23<tag>&tab=top` when `search` is on; otherwise the existing "Hashtags are coming soon." stays (W2 kept it).
   - It applies to posts, quotes' own text and the thread view (every `PostRichText`).

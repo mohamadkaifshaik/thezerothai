@@ -83,6 +83,9 @@ type Config struct {
 	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
 	// quota (ADR-0027 D13). The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
+	// Search holds the cache sizes and trend-refresh values of search and trends (ADR-0028 D9). The search buckets and the
+	// shared daily cap live in RateLimit.
+	Search SearchConfig
 	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts (ADR-0025 D2, D3).
 	Privacy PrivacyConfig
 
@@ -206,6 +209,13 @@ type Config struct {
 	// protection is never behind it: only mode off stops new protections, and is_private=false is always accepted.
 	// FEATURE_PRIVATE_ACCOUNTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeaturePrivateAccounts flags.Spec
+	// FeatureSearch is the ADR-0028 D8 flag (wire name `search`) gating SearchPeople and SearchPosts per caller
+	// (FEATURE_DISABLED feature=search, 0 reads). FEATURE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureSearch flags.Spec
+	// FeatureTrends is the ADR-0028 D8 flag (wire name `trends`) gating GetTrends per caller and the trends refresh step
+	// (which honours only a globally-off flag). FEATURE_TRENDS[_ALLOWLIST|_PERCENT], default off in every environment;
+	// it never ramps ahead of FEATURE_SEARCH.
+	FeatureTrends flags.Spec
 
 	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
@@ -462,6 +472,9 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_BOOKMARKS_PER_MIN", 30, &rl.BookmarksPerUserPerMinute},
 		{"RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", 10, &rl.BookmarksListPerUserPerMinute},
 		// ADR-0024 D10: ListSuggestedUsers 10/min, ListLikedPosts 10/min, GetProfileRelationship 60/min (all per instance).
+		// ADR-0028 D9: SearchPeople 30/min and SearchPosts 20/min (per instance, 90 and 60 with 3). GetTrends uses the default bucket.
+		{"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", 30, &rl.SearchPeoplePerUserPerMinute},
+		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},
@@ -555,6 +568,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
 	}
 	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
+	// ADR-0028 D9: ONE daily call cap shared by SearchPeople and SearchPosts (limit_name "search_daily"); see
+	// RateLimitConfig.SearchCallsPerDay for the default's math. A cap of 0 would lock every user out of search.
+	searchCallsPerDay, err := getInt("SEARCH_CALLS_PER_DAY", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	if searchCallsPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: SEARCH_CALLS_PER_DAY must be > 0 (got %d)", searchCallsPerDay)
+	}
+	rl.SearchCallsPerDay = int64(searchCallsPerDay)
 	// W3-22 L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
 	// for the default's math. A cap of 0 would lock every user out of the RPC.
 	profileUpdatesPerDay, err := getInt("PROFILE_UPDATES_PER_DAY", 100)
@@ -749,6 +772,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	search, err := loadSearch()
+	if err != nil {
+		return Config{}, err
+	}
 	suggestions, err := loadSuggestions()
 	if err != nil {
 		return Config{}, err
@@ -907,6 +934,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureSearch, err := flags.LoadSpec("SEARCH", "search", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureTrends, err := flags.LoadSpec("TRENDS", "trends", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureUIShell, err := flags.LoadSpec("UI_SHELL", "ui_shell", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -973,6 +1008,7 @@ func Load() (Config, error) {
 		Suggestions:               suggestions,
 		Privacy:                   privacy,
 		Messaging:                 messaging,
+		Search:                    search,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
 		CacheTTL:                  cacheTTL,
@@ -1001,6 +1037,8 @@ func Load() (Config, error) {
 		FeatureLikesList:          featureLikesList,
 		FeatureFollowSuggestions:  featureFollowSuggestions,
 		FeaturePrivateAccounts:    featurePrivateAccounts,
+		FeatureSearch:             featureSearch,
+		FeatureTrends:             featureTrends,
 		FeatureUIShell:            featureUIShell,
 		FeatureShells:             featureShells,
 		FeatureRemovedIDs:         featureRemovedIDs,

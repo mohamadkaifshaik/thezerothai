@@ -83,3 +83,10 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # allowlist, at most 3 uids, percent 0.
 # feature_shells           = "allowlist"
 # feature_shells_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+
+# W4 (ADR-0028 D8, W4-3): search and trends. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
+# trends never ramps ahead of search (the trend rows link to search).
+# feature_search           = "allowlist"
+# feature_search_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+# feature_trends           = "allowlist"
+# feature_trends_allowlist = "<uid-1>,<uid-2>,<uid-3>"
