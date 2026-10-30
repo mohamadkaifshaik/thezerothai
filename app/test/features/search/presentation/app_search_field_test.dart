@@ -284,4 +284,24 @@ void main() {
     widths: const [360, 600, 1200],
     textScales: kMatrixTextScalesLarge,
   );
+
+  testWidgets('initialText asks nothing, on mount or on focus; typing asks '
+      'once after the debounce', (tester) async {
+    await pumpWithSearch(
+      tester,
+      const AppSearchField(initialText: 'ann'),
+      repository: repo,
+      store: store,
+    );
+    await tester.pump(debounce * 2);
+    expect(repo.calls, isEmpty);
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump(debounce * 2);
+    expect(repo.calls, isEmpty, reason: 'focusing is not typing');
+
+    await tester.enterText(find.byType(TextField), 'anne');
+    await tester.pump(debounce * 2);
+    expect(repo.calls.where((c) => c.startsWith('people')), ['people:anne']);
+  });
 }
