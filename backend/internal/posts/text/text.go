@@ -353,3 +353,10 @@ func countRune(rs []rune, r rune) int {
 	}
 	return n
 }
+
+// MaxHashtagLen is the most code points a hashtag body may have (ADR-0010 D8).
+const MaxHashtagLen = maxHashtagLen
+
+// IsBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069 (ADR-0010 D9). It is
+// the one definition other packages may use (search query grammar, ADR-0028 D1); LRM/RLM and ZWJ/ZWNJ are not controls.
+func IsBidiControl(r rune) bool { return isBidiControl(r) }

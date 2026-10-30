@@ -6,97 +6,65 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/dzeroth/dzeroth/backend/internal/posts/text"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// The query grammar of ADR-0028 D1, steps 1 to 4 (the people half; the posts half is SearchPosts' own, W4-7). The client
-// parser (app/lib/features/search/domain/search_query.dart) applies the same rules in the same order, and both are checked
-// against testdata/search_query_grammar.json. Nothing here reads Firestore: a rejected or unsupported query costs 0 reads.
-
+// Query kinds for the request line (ADR-0028 D10: the raw query is never logged, only its kind and length).
 const (
-	// maxQueryCodePoints is the longest query body, not counting the sigil (D1 step 3), so a tag tap-through of a
-	// 50-code-point tag (`#` + body) is always searchable.
-	maxQueryCodePoints = 50
-	// minPrefixLen and maxHandleLen bound a people prefix (D1 step 4): handles are 3 to 15 characters, a prefix 2 to 15.
-	minPrefixLen = 2
-	maxHandleLen = 15
+	queryKindHashtag     = "hashtag"
+	queryKindUnsupported = "unsupported"
 )
 
-// normalizedQuery is a query after D1 steps 1 to 3: NFC, trimmed, lower-cased, one leading sigil split off.
-type normalizedQuery struct {
-	// sigil is '@', '#' or 0 (none). Only the first character is a sigil: `##a` has sigil '#' and body `#a`.
-	sigil rune
-	// body is the rest, 1 to maxQueryCodePoints code points, free of control and bidi formatting characters.
-	body string
+// query is a search string after ADR-0028 D1 steps 1 to 3: normalised, with at most one leading sigil split off.
+// It is valid (non-empty body, at most 50 code points, no control or bidi character); what the body means is decided
+// by the RPC (hashtag for SearchPosts, handle prefix for SearchPeople).
+type query struct {
+	sigil rune   // 0, '@' or '#'
+	body  string // the normalised text after the sigil
 }
 
-// normalizeQuery applies D1 steps 1 to 3. ok is false for an invalid query: nothing left after the sigil, more than
-// maxQueryCodePoints code points after it, or a control or bidi formatting character anywhere.
-func normalizeQuery(raw string) (q normalizedQuery, ok bool) {
-	text := strings.ToLower(strings.TrimSpace(norm.NFC.String(raw)))
-	if strings.IndexFunc(text, isForbiddenRune) >= 0 {
-		return normalizedQuery{}, false
+// parseQuery applies D1 steps 1 to 3 in order and returns a VALIDATION error on field "query" (0 reads) when the
+// query is empty after the sigil, longer than 50 code points after it (the sigil does not count), holds invalid
+// UTF-8, a control character (\p{Cc}) or a bidi formatting control (ADR-0010 D9) anywhere. Pure.
+func parseQuery(raw string) (query, error) {
+	if !utf8.ValidString(raw) {
+		return query{}, apierr.Validation("query", "query must be valid UTF-8")
 	}
-	body := text
-	if text != "" && (text[0] == '@' || text[0] == '#') {
-		q.sigil = rune(text[0])
-		body = text[1:]
-	}
-	if body == "" || utf8.RuneCountInString(body) > maxQueryCodePoints {
-		return normalizedQuery{}, false
-	}
-	q.body = body
-	return q, true
-}
-
-// isForbiddenRune is a control character (\p{Cc}) or a bidi formatting control (ADR-0010 D9). It matches the client's
-// list, which also refuses U+061C, U+200E and U+200F (a post allows LRM and RLM; a search box has no use for them).
-// ZWJ and ZWNJ stay: tag bodies may hold them.
-func isForbiddenRune(r rune) bool {
-	return unicode.Is(unicode.Cc, r) || r == 0x061C || r == 0x200E || r == 0x200F ||
-		(r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069)
-}
-
-// peopleResult is how SearchPeople reads a query (D1 step 4); the fixture spells them invalid, too_short, unsupported
-// and prefix.
-type peopleResult int
-
-const (
-	// peopleInvalid: VALIDATION `query`.
-	peopleInvalid peopleResult = iota
-	// peopleTooShort: VALIDATION `query` ("too short"), a handle-class rest of one character; `a` and `@a` alike.
-	peopleTooShort
-	// peopleUnsupported: an empty answer with unsupported_query = true, 0 reads (a `#` sigil, or a rest that is not
-	// [a-z0-9_]{1,15}).
-	peopleUnsupported
-	// peoplePrefix: a handle prefix of 2 to 15 characters; nothing else is searched.
-	peoplePrefix
-)
-
-// parsePeopleQuery classifies raw for SearchPeople and returns the prefix when the result is peoplePrefix.
-func parsePeopleQuery(raw string) (peopleResult, string) {
-	q, ok := normalizeQuery(raw)
-	if !ok {
-		return peopleInvalid, ""
-	}
-	if q.sigil == '#' || len(q.body) > maxHandleLen || !isHandleClass(q.body) {
-		return peopleUnsupported, ""
-	}
-	if len(q.body) < minPrefixLen {
-		return peopleTooShort, ""
-	}
-	return peoplePrefix, q.body
-}
-
-// isHandleClass reports whether s is non-empty and made only of [a-z0-9_] (pkg/platform/handle's alphabet).
-func isHandleClass(s string) bool {
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
-			return false
+	s := strings.ToLower(strings.TrimSpace(norm.NFC.String(raw)))
+	// Step 3: a control or bidi character anywhere after the trim (a leading or trailing tab or newline is trimmed away,
+	// exactly as the client parser does).
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || text.IsBidiControl(r) {
+			return query{}, apierr.Validation("query", "query contains a disallowed control character")
 		}
 	}
-	return true
+	var q query
+	if s != "" && (s[0] == '@' || s[0] == '#') {
+		q.sigil = rune(s[0])
+		s = s[1:]
+	}
+	if s == "" {
+		return query{}, apierr.Validation("query", "query must not be empty")
+	}
+	if utf8.RuneCountInString(s) > text.MaxHashtagLen {
+		return query{}, apierr.Validation("query", "query must be at most 50 characters")
+	}
+	q.body = s
+	return q, nil
+}
+
+// hashtag reports the tag a SearchPosts query searches (D1 step 5): not an '@' query, and the body is exactly one
+// ADR-0010 D8 hashtag, decided by the same extractor posts store tags with. A one-code-point body is a tag. ok is false
+// for the "unsupported query" answer (several words, "#123" with no letter, "#go!", a handle).
+func (q query) hashtag() (tag string, ok bool) {
+	if q.sigil == '@' {
+		return "", false
+	}
+	tags := text.Hashtags("#" + q.body)
+	if len(tags) != 1 || tags[0] != q.body {
+		return "", false
+	}
+	return q.body, true
 }

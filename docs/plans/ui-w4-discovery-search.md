@@ -235,7 +235,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | In review (PR #465) |
 | W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | In review (PR #470) |
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Done (#469) |
-| W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Done (PR in review; fixture `testdata/search_query_grammar.json` added here, the Dart test of it is a W4-13 follow-up) |
+| W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Done (PR in review; fixture `testdata/search_query_grammar.json` added here, `search_query_test.dart` loads it too) |
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Done (#467) |
 | W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
 | W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |

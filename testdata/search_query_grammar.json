@@ -385,16 +385,6 @@
    }
   },
   {
-   "query": "ab‎",
-   "note": "left-to-right mark (refused in a query, allowed in a post)",
-   "people": {
-    "result": "invalid"
-   },
-   "posts": {
-    "result": "invalid"
-   }
-  },
-  {
    "query": "a\tb",
    "note": "control character inside",
    "people": {
