@@ -228,7 +228,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-1 | ADR-0024 (or the next free number) "Search, trends and Explore at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
 | W4-2 | `proto/dzeroth/search/v1/search.proto` (SearchService: SearchPeople, SearchPosts, GetTrends) with per-RPC cost comments | architect | S | W4-1 drafted | **yes, start now** (new file) | Open |
 | W4-3 | `make proto`; `FEATURE_SEARCH` / `FEATURE_TRENDS`, config, rate limits, daily cap, ceiling, Terraform vars; `internal/search` skeleton with flag-guarded handlers | backend-developer | M | W4-2 | logic yes; shared files (`config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, Terraform vars): merge one at a time | Open |
-| W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | In review (PR #PRNUM) |
+| W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | In review (PR #469) |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Open |
 | W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
@@ -333,7 +333,7 @@ Order:
   - `flag-ceiling.json`;
   - the Terraform vars.
 
-### W4-4 — Identity handle-prefix reader  [owner: backend-developer] [size: S] [depends: W4-3]  Status: In review (PR #PRNUM)
+### W4-4 — Identity handle-prefix reader  [owner: backend-developer] [size: S] [depends: W4-3]  Status: In review (PR #469)
 - **Description.** `identity.Directory.SearchHandles(ctx, prefix string, limit int) ([]Profile, error)`, a new repo file:
   - `users where handleLower >= p and handleLower < succ(p) orderBy handleLower Limit(limit)`, with limit clamped to 1..20;
   - reads = len(result), minimum 1;
