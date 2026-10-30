@@ -55,6 +55,9 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 		post.ConversationID = id
 	}
 	post.CreatedAt = time.UnixMilli(1_700_000_000_000 + r.nextID).UTC()
+	if p.Poll != nil {
+		post.Poll = p.Poll.newPoll(post.CreatedAt)
+	}
 	r.docs[id] = &post
 	r.idem[p.IdemKey] = fakeIdem{hash: p.RequestHash, postID: id}
 	r.postsCount++

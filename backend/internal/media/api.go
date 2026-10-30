@@ -44,6 +44,19 @@ const (
 // for the caller on top of FlagName. Defined here because media must not import identity.
 const ProfileExtrasFlagName = "profile_extras"
 
+// Content types (ADR-0005; ADR-0029 D10 adds the GIF). The content-type table lives in this package: posts sees only
+// MediaClaim.
+const (
+	ContentTypeJPEG = "image/jpeg"
+	ContentTypeWebP = "image/webp"
+	// ContentTypeGIF is accepted for POST media only, behind FEATURE_GIF (GifFlagName).
+	ContentTypeGIF = "image/gif"
+)
+
+// GifFlagName is the wire name of FEATURE_GIF (ADR-0029 D12). CreateUpload with image/gif needs it on for the caller on
+// top of FlagName; defined here because media must not import config consumers.
+const GifFlagName = "gif"
+
 // Limits (ADR-0005).
 const (
 	// MaxPerPost is the most images one post carries (and one CreateUpload reserves).
@@ -84,6 +97,8 @@ type Ref struct {
 	Width    int
 	Height   int
 	Blurhash string
+	// ContentType is the full object's type (common.MediaRef.content_type, ADR-0029 D10).
+	ContentType string
 }
 
 // Errors.
@@ -159,6 +174,8 @@ type UploadItem struct {
 	// FullMD5 and ThumbMD5 are base64 MD5s of the files.
 	FullMD5  string
 	ThumbMD5 string
+	// ThumbContentType is the thumbnail's type (ADR-0029 D10): "" means the same as ContentType.
+	ThumbContentType string
 }
 
 // SignedPut is one signed upload URL.
@@ -195,6 +212,9 @@ type Service interface {
 	// quotas), writes 2 + len(items) (idempotency, quotas, one media doc each); replay: 1 read, 0 writes. GCS: 0.
 	// A BANNER (ADR-0024 D1) is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape; same
 	// reads and writes (2 / 3), and the Server additionally needs profile_extras on for the caller (0 reads when off).
+	// A GIF (ADR-0029 D10, W6-9) is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still
+	// thumbnail named by UploadItem.ThumbContentType (JPEG or WebP); the Server needs gif on for the caller (0 reads when
+	// off). Same Firestore cost (2 reads / 3 writes; replay 1 / 0), GCS 0 here, the client's 2 PUTs are 2 Class A.
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
 	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. Firestore: reads
 	// 2*len(items) + 1 (media docs, the Vision counter cached 60 s, +1 per item whose upload is missing, whose
@@ -204,6 +224,9 @@ type Service interface {
 	// time (W3-22 M-3): calls on one instance share a single flight and all get its result; across instances a
 	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
 	// read, before any Vision call.
+	// A GIF (W6-9) adds no Firestore operations and no Class B beyond the attrs and 512-byte head reads of a photo (4 per
+	// GIF, 2 per object); it is screened like a photo until W6-10 (first frame by URI, 2 units, 1 without VISION_SCREEN_THUMB)
+	// and is REJECTED, never READY_UNSCREENED, at the Vision cap. The thumbnail is checked and published with its own type.
 	FinalizeUpload(ctx context.Context, uid string, items []FinalizeItem) ([]Result, error)
 }
 

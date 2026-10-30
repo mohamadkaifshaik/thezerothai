@@ -15,6 +15,7 @@ class ScheduleButton extends StatelessWidget {
     required this.scheduled,
     required this.enabled,
     required this.onPressed,
+    this.tooltip = 'Schedule post',
   });
 
   /// A schedule is set.
@@ -22,10 +23,13 @@ class ScheduleButton extends StatelessWidget {
   final bool enabled;
   final VoidCallback onPressed;
 
+  /// The tooltip; the reason when the button is off for a rule (a poll).
+  final String tooltip;
+
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      tooltip: 'Schedule post',
+      tooltip: tooltip,
       isSelected: scheduled,
       icon: const Icon(Icons.schedule_send_outlined),
       selectedIcon: Icon(

@@ -49,9 +49,8 @@ func publicNames(d *Doc) []string {
 	}
 	add(d.PublicPath)
 	add(d.ThumbPath)
-	ext := extension(d.ContentType)
-	add(publicObject(d.ID, d.NameSuffix, ext))
-	add(publicThumbObject(d.ID, d.NameSuffix, ext))
+	add(publicObject(d.ID, d.NameSuffix, extension(d.ContentType)))
+	add(publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType())))
 	return out
 }
 
@@ -64,8 +63,7 @@ func allPublicNames(d *Doc) []string {
 	if d.NameSuffix == "" {
 		return out
 	}
-	ext := extension(d.ContentType)
-	for _, p := range []string{publicObject(d.ID, "", ext), publicThumbObject(d.ID, "", ext)} {
+	for _, p := range []string{publicObject(d.ID, "", extension(d.ContentType)), publicThumbObject(d.ID, "", extension(d.ThumbType()))} {
 		if !slices.Contains(out, p) {
 			out = append(out, p)
 		}

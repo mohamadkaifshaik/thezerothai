@@ -127,7 +127,7 @@ func mediaRefsToDocs(refs []MediaRef) []mediaDoc {
 	}
 	out := make([]mediaDoc, len(refs))
 	for i, m := range refs {
-		out[i] = mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText}
+		out[i] = mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType}
 	}
 	return out
 }
@@ -138,7 +138,7 @@ func mediaDocsToRefs(docs []mediaDoc) []MediaRef {
 	}
 	out := make([]MediaRef, len(docs))
 	for i, m := range docs {
-		out[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText}
+		out[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType}
 	}
 	return out
 }
@@ -362,6 +362,9 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			claim, err := r.w.Media.LoadForPost(ctx, tx, p.UID, p.MediaIDs)
 			if err != nil {
 				return err
+			}
+			if claim.HasGIF() { // ADR-0029 F10: a GIF is never scheduled
+				return ErrGifNotSchedulable
 			}
 			draft.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
 		}

@@ -232,3 +232,6 @@ change; after that only the ids and the text survive. This is the same rule as s
   and never reaches a client or a log. The data export lists a reporter's own message reports with that `target` (no text).
 - Logs hold enums and counters only (`report_target`, `report_reason`, `outcome`), never ids, handles, notes or text. A message report's line
   adds `conversation_hash` (one-way).
+
+### Reading a poll report (ADR-0029 D8; W6-5)
+A report on a post with a poll shows one extra line, `evidence poll choices: ["Yes" "No"]`: the choice labels as they were when the report was filed (for a repost, the original's, from its frozen embed). Labels only: no counts, no voters. The question is the post text, shown on the usual `evidence post by` line. `takedown-post` hides the post and its poll together (the poll is a field of the same doc, so every reader that drops a hidden post drops the poll with it); nothing separate to remove. Reports filed before W6-5 show no poll line.

@@ -7,6 +7,7 @@ Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | per
 |---|---|---|
 | `FEATURE_MEDIA`, `FEATURE_MEDIA_ALLOWLIST`, `FEATURE_MEDIA_PERCENT` | off | MediaService, CreatePost `media_ids`, UpdateProfile avatar. Off answers FEATURE_DISABLED / MEDIA_NOT_READY. `off` (not allowlist or percent) also holds scheduled posts that carry images PENDING instead of publishing them: `docs/runbooks/posts.md` section 12, "Images held while `FEATURE_MEDIA` is off" |
 | `DEGRADED_MODE=nomedia` | off | CreateUpload and FinalizeUpload answer UNAVAILABLE + DEGRADED_MODE; text posting and attaching READY images continue |
+| `FEATURE_GIF`, `FEATURE_GIF_ALLOWLIST`, `FEATURE_GIF_PERCENT` | off | `CreateUpload` with an `image/gif` item (needs `media` on too; ADR-0029 D10, W6-9) and `CreatePost` with a GIF media doc. Off for the caller answers FEATURE_DISABLED `feature=gif`: at CreateUpload with 0 reads and nothing signed, at CreatePost after the media read (the content type is only known from the claim) with 0 writes. `FinalizeUpload` ignores it, so a GIF uploaded before the flag was lowered still finalizes but can no longer be posted. **Do not leave `off` until W6-10 (frame-sampled screening) is deployed**; see "GIFs" below |
 | `FEATURE_PROFILE_EXTRAS`, `FEATURE_PROFILE_EXTRAS_ALLOWLIST`, `FEATURE_PROFILE_EXTRAS_PERCENT` | off | Gates `CreateUpload(purpose=BANNER)` (needs `media` on too; W3-5): off for the caller answers FEATURE_DISABLED `feature=profile_extras` with 0 reads and nothing signed. AVATAR and POST uploads and every `FinalizeUpload` ignore it, so a banner upload started before the flag was lowered still completes. Also gates the UpdateProfile banner, location, website and pin fields (ADR-0024 D9, W3-6). Details in `docs/runbooks/posts.md` |
 | `PROFILE_MEDIA_RETIRE` | `off` | Which replaced or removed profile images are deleted 24-48 h after the change (ADR-0024 Amendment 1 A4): `off` nothing, `banner` banners only, `all` banners and avatars. Per-project retention config (Terraform `profile_media_retire`), **not** a `FEATURE_` flag. Checked by the publish (UpdateProfile) and by the `profile_media_retired` job handler, so lowering it stops new messages and makes the queued ones ack without action. Order and preconditions: section "Replaced and removed avatars and banners" below |
 | `VISION_MONTHLY_CAP` | 10000 | Most SafeSearch units per calendar month (UTC). 0 = never call Vision |
@@ -100,6 +101,28 @@ rejected banner is `REJECTED` with reason `policy`; at the Vision cap `VISION_EX
 is not enough for a banner: an established account publishes it `READY_UNSCREENED`). Banners share the 20/day `uploads` quota.
 The request log lines carry `purpose` (`POST`, `AVATAR`, `BANNER`; `MIXED` on a finalize that spans purposes) and, on
 FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUpload lines on `purpose=BANNER` and sum `vision_units`.
+
+### GIFs (ADR-0029 D10, D11; W6-9 upload and publish, W6-10 screening)
+- **Shape.** POST purpose only, exactly one item per `CreateUpload` (never mixed with photos), full <= 2 MiB (the same signed
+  range), declared width and height <= `GIF_MAX_EDGE` (1,280), and `thumb_content_type` `image/jpeg` or `image/webp` (a still;
+  <= 256 KiB). The full object is `u/<uid>/<id>.gif`, the thumbnail `u/<uid>/<id>_t.jpg|webp`; public names are `m/<id>-<suffix>.gif`
+  and `m/<id>-<suffix>_t.jpg|webp`. The thumbnail has its own type everywhere: signing, the attrs and magic-byte check, the
+  publish `Content-Type`, and every cleanup name (a lost-race or purge delete of `_t.gif` would silently miss the real object).
+- **Verify.** The full object's magic must be `GIF87a` or `GIF89a` and its stored type `image/gif`; a GIF declared but PNG bytes is
+  `REJECTED` (reason `invalid`), 0 Vision units. The original bytes are published unchanged.
+- **Vision, interim (until W6-10 is deployed).** A GIF is screened like a photo: Vision reads the **first frame only** of the
+  full object by URI, plus the thumbnail (2 units; 1 with `VISION_SCREEN_THUMB=false`). That is **not** the ADR-0029 F11 control,
+  which samples 4 frames. Therefore `FEATURE_GIF` must stay `off` in every project until W6-10 merges and is deployed. After
+  W6-10 a GIF costs 2 units (sheet by bytes + thumbnail by URI) and +1 Class B for reading the object.
+- **At the Vision cap** a GIF is `REJECTED` (reason `capacity`) for every account, whatever `VISION_EXHAUSTED_POLICY` says
+  (ADR-0029 F11 point 4); photos keep their policy. Symptom for users: "Image uploads are temporarily limited" on GIFs only.
+- **Kill switch.** `FEATURE_GIF=off` stops new GIF uploads and new GIF posts (CreatePost re-checks the flag after loading
+  the media doc); existing GIF posts keep rendering. A moderation-bypass report is the rollback trigger (ADR-0029 F11 point 5).
+- **Logs.** Request lines carry `content_type` (`image/jpeg`, `image/webp`, `image/gif`, `MIXED` on a mixed finalize); the value
+  comes from validated input or the stored document, never raw client text. Filter FinalizeUpload on `content_type=image/gif` and
+  sum `vision_units` for GIF spend.
+- **Storage.** GIF objects are about 0.63 MB per DAU-month; the 2-day upload lifecycle and the TTL on `media` docs cover
+  abandoned GIF uploads like photos. SchedulePost refuses GIF media (VALIDATION `media_ids`), so no scheduled draft holds one.
 
 ### Public read semantics (bucket IAM, W3-22 M-2)
 `<proj>-media` is public by exact object URL only. `allUsers` holds `roles/storage.legacyObjectReader`, which is
