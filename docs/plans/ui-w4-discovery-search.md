@@ -237,8 +237,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-4 | `identity` handle-prefix reader (`Directory.SearchHandles`) | backend-developer | S | W4-3 | yes; one method in `identity/api.go` (W3 edits identity too) | Done (#469) |
 | W4-5 | SearchPeople service + prefix cache + filters | backend-developer | M | W4-4 | yes (search module only) | Open |
 | W4-6 | `posts.Reader.ByHashtag` and `posts.Reader.CreatedAfter` | backend-developer | S | W4-3 | yes; `posts/api.go` is shared with W3's media filter / pin | Done (#467) |
-| W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Open |
-| W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Open |
+| W4-7 | SearchPosts LATEST: tag entry cache, sealed cursor, D6 filter, viewer flags | backend-developer | M | W4-6 | yes | Done (#478) |
+| W4-8 | SearchPosts TOP and MEDIA | backend-developer | S | W4-7 | yes | Done (#478) |
 | W4-9 | Trends refresh: `trends/current`, watermark sweep, `/internal/cron/trends-refresh` route, guard row, runbook | backend-developer | M | W4-6 | yes | In review (#481) |
 | W4-9b | *(F1 = B)* compose the trends step into `daily-maintenance` (apiserver wrapper, status code from the backstop only). *(F1 = A instead: the `trends-refresh` Scheduler job in `envs/prod`, owner production-deployer, plan-then-OK)* | backend-developer (B) / production-deployer (A) | S | W4-9, F1 | yes; the wrapper lives in `apiserver`, identity code untouched | In review (#481) |
 | W4-10 | GetTrends RPC + instance cache + `prefix` suggestions | backend-developer | S | W4-9 | yes | In review (#481) |
@@ -401,7 +401,7 @@ Order:
 - **Seam.** `posts.Reader` (named "later search" in its comment); no second post query outside posts.
 - **Parallel with W3:** yes. It adds to `posts/api.go` and a new repo file; W3's media filter or pin may edit the same interface, so rebase.
 
-### W4-7 — SearchPosts LATEST  [owner: backend-developer] [size: M] [depends: W4-6]  Status: Open
+### W4-7 — SearchPosts LATEST  [owner: backend-developer] [size: M] [depends: W4-6]  Status: Done (#478)
 - **Description.**
   - Validate the tag (D8 extractor).
   - The **tag entry**: the newest 30 posts per tag, `cache.LRU` with 60 s TTL and `CACHE_SEARCH_TAG_ENTRIES`, shared across viewers, filled by one `ByHashtag(limit 30)`.
@@ -425,7 +425,7 @@ Order:
 - **Seam.** `search.Service.Posts(tab)`; reuse `timeline.Compare` order and the existing cursor codec; no second merge.
 - **Parallel with W3:** yes.
 
-### W4-8 — SearchPosts TOP and MEDIA  [owner: backend-developer] [size: S] [depends: W4-7]  Status: Open
+### W4-8 — SearchPosts TOP and MEDIA  [owner: backend-developer] [size: S] [depends: W4-7]  Status: Done (#478)
 - **Description.**
   - **TOP:** rank the filtered tag entry by the A2 score, posts from the last 7 days, ties newest first. One page of at most 20, `next_page_token` always `""`. The client shows a "See latest" footer.
   - **MEDIA:** page 1 = the entry's posts with `media` (their own images; a QUOTE's embedded media does not count unless A3 says otherwise). Then a sealed MEDIA cursor scans 30 older tagged posts per call and returns the media ones (short or empty pages are allowed, and the token continues while the scan has more).

@@ -373,8 +373,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	}, timeline.WithProtectedAuthors(protectedAuthors)) // ADR-0025 D4 (W3-30)
 
+	// ADR-0028 D3 (W4-7): SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
+	// block test is the held graph snapshot, 0 reads), exactly as the timelines do.
+	searchAudience := posts.NewSnapshotAudience(protectedAuthors)
+
 	// W3-36 L-5: every module reads a nil loader or audience as "nobody is protected", so a refactor that drops one seam
-	// would fail open. All seven are passed above from these values; refuse to start if any is nil.
+	// would fail open. All eight are passed above from these values; refuse to start if any is nil.
 	if err := requireProtectedSeams([]protectedSeam{
 		{"identity.ProtectedAuthors loader", protectedAuthors},
 		{"graph.Deps.Protected", protectedAuthors},
@@ -383,6 +387,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		{"posts.WithProtectedAuthors", protectedAuthors},
 		{"engagement.Deps.Audience (posts.AudienceOf)", engAudience},
 		{"timeline.WithProtectedAuthors", protectedAuthors},
+		{"search.PostsDeps.Audience (posts.NewSnapshotAudience)", protectedAuthors},
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -566,13 +571,17 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})
 
-	// Search and trends (ADR-0028, W4): the skeleton (W4-3) answers FEATURE_DISABLED per flag (FEATURE_SEARCH gates
-	// SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends) and Unimplemented for a caller the flag lets through,
-	// with 0 Firestore reads; W4-5, W4-7 and W4-9 add the readers.
-	// W4-9, W4-10: GetTrends reads trends/current through a 10 min instance copy; the refresher is the daily step (and
-	// the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
+	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
+	// each FEATURE_DISABLED with 0 Firestore reads. SearchPosts (W4-7, W4-8) reads posts.Reader.ByHashtag and decides every
+	// row through a snapshot-based posts.Audience over the one protected-set loader (ADR-0025). GetTrends (W4-9, W4-10)
+	// reads trends/current through a 10 min instance copy; the refresher is the daily step (and the standalone route). Both
+	// go through search.TrendsStore, the only code that touches the collection. SearchPeople (W4-5) answers Unimplemented
+	// to an enabled caller until it lands.
 	trendsStore := search.NewTrendsRepo(fsClient)
-	searchServer := search.NewServer(search.New(featureFlags, search.WithTrends(trendsStore, nil)))
+	searchServer := search.NewServer(search.New(featureFlags, search.WithPosts(search.PostsDeps{
+		Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
+		CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
+	}), search.WithTrends(trendsStore, nil)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
