@@ -33,6 +33,7 @@ import '../features/moderation/data/moderation_repository.dart';
 import '../features/moderation/domain/reports_feature_flag.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/data/messaging_store.dart';
+import '../features/search/data/search_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/notifications/data/notifications_store.dart';
 import '../features/notifications/data/push_messaging.dart';
@@ -300,6 +301,11 @@ Future<void> bootstrap() async {
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
       bookmarksRepository: bookmarksRepository,
+      searchRepository: ConnectSearchRepository(
+        apiClient: apiClient,
+        rateLimitHold: rateLimitHold,
+        onUnexpectedError: reportUnexpectedError,
+      ),
       likesRepository: likesRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
