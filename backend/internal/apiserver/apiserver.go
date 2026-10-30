@@ -29,6 +29,7 @@ import (
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
+	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -38,6 +39,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -116,7 +118,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 	// ADR-0025 (W3-25b): the private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "toggles_per_day", cfg.Quota.PrivacyTogglesPerDay, "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
@@ -562,6 +564,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	messagingServer := messaging.NewServer(messagingSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
+	})
+
+	// Search and trends (ADR-0028, W4): the skeleton (W4-3) answers FEATURE_DISABLED per flag (FEATURE_SEARCH gates
+	// SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends) and Unimplemented for a caller the flag lets through,
+	// with 0 Firestore reads; W4-5, W4-7 and W4-9 add the readers.
+	searchServer := search.NewServer(search.New(featureFlags))
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return searchv1connect.NewSearchServiceHandler(searchServer, o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

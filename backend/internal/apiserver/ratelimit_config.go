@@ -11,6 +11,7 @@ import (
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
+	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -87,6 +88,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
 	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
 	suggestionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SuggestionsCallsPerDay)
+	// ADR-0028 D9: SearchPeople (30/min) and SearchPosts (20/min) have their own per-user buckets; GetTrends uses the 60/min
+	// default. ONE shared DailyCap over both search RPCs (limit_name "search_daily", SEARCH_CALLS_PER_DAY, default 300).
+	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
+	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
+	searchDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchCallsPerDay)
 	// ADR-0025 D13: RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
 	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap. Both are covered by the
 	// ADR-0010 D5 read budget; responses need no quota (the pending requests bound them).
@@ -156,6 +162,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceRespondToFollowRequestProcedure:        rlFollowRequestsRespond,
 			graphv1connect.GraphServiceGetProfileRelationshipProcedure:        rlProfileRelationship,
 			graphv1connect.GraphServiceListSuggestedUsersProcedure:            rlSuggestions,
+			searchv1connect.SearchServiceSearchPeopleProcedure:                rlSearchPeople,
+			searchv1connect.SearchServiceSearchPostsProcedure:                 rlSearchPosts,
 			messagingv1connect.MessagingServiceSendMessageProcedure:           rlMessagesSend,
 			messagingv1connect.MessagingServiceListConversationsProcedure:     rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:          rlMessagesRead,
@@ -178,6 +186,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 
 			graphv1connect.GraphServiceListSuggestedUsersProcedure: {Name: "suggestions_daily", Cap: suggestionsDailyCap},
+
+			searchv1connect.SearchServiceSearchPeopleProcedure: {Name: "search_daily", Cap: searchDailyCap},
+			searchv1connect.SearchServiceSearchPostsProcedure:  {Name: "search_daily", Cap: searchDailyCap},
 
 			messagingv1connect.MessagingServiceSendMessageProcedure:          {Name: "messages_daily", Cap: messagesDailyCap},
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},

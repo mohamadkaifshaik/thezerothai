@@ -81,6 +81,10 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.LikesListPerUserPerMinute = 10
 	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
 	cfg.RateLimit.SuggestionsCallsPerDay = 50
+	// ADR-0028 D9 (the config.Load defaults).
+	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
+	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
+	cfg.RateLimit.SearchCallsPerDay = 300
 	// ADR-0025 D13 (the config.Load default).
 	cfg.RateLimit.FollowRequestsRespondPerUserPerMinute = 60
 	cfg.RateLimit.GraphListPerMinute = 20 // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
