@@ -429,3 +429,8 @@ func (e *sweepEnv) sweep(ctx context.Context) (SweepResult, *budget.Counter, err
 	res, err := e.svc.Sweep(ctx)
 	return res, c, err
 }
+
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (d *sweepDirectory) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}

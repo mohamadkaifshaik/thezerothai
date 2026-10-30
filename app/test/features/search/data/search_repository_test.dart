@@ -41,23 +41,26 @@ void main() {
     expect(req.limit, 3);
   });
 
-  test('searchPosts: empty token becomes null; tab and token are sent', () async {
-    Object? seen;
-    answer = (_, input) {
-      seen = input;
-      return pb.SearchPostsResponse(normalizedTag: 'go');
-    };
-    final page = await repo.searchPosts(
-      '#Go',
-      tab: pb.SearchTab.SEARCH_TAB_LATEST,
-      pageToken: 'tok',
-    );
-    expect(page.nextPageToken, isNull);
-    expect(page.normalizedTag, 'go');
-    final req = seen! as pb.SearchPostsRequest;
-    expect(req.tab, pb.SearchTab.SEARCH_TAB_LATEST);
-    expect(req.pageToken, 'tok');
-  });
+  test(
+    'searchPosts: empty token becomes null; tab and token are sent',
+    () async {
+      Object? seen;
+      answer = (_, input) {
+        seen = input;
+        return pb.SearchPostsResponse(normalizedTag: 'go');
+      };
+      final page = await repo.searchPosts(
+        '#Go',
+        tab: pb.SearchTab.SEARCH_TAB_LATEST,
+        pageToken: 'tok',
+      );
+      expect(page.nextPageToken, isNull);
+      expect(page.normalizedTag, 'go');
+      final req = seen! as pb.SearchPostsRequest;
+      expect(req.tab, pb.SearchTab.SEARCH_TAB_LATEST);
+      expect(req.pageToken, 'tok');
+    },
+  );
 
   test('getTrends: computedAt is null when unset', () async {
     answer = (_, _) => pb.GetTrendsResponse(
@@ -130,10 +133,8 @@ void main() {
     });
 
     test('other errors pass through as AppException', () async {
-      answer = (_, _) => throw connect.ConnectException(
-        connect.Code.unavailable,
-        'down',
-      );
+      answer = (_, _) =>
+          throw connect.ConnectException(connect.Code.unavailable, 'down');
       await expectLater(repo.searchPeople('ab'), throwsA(isA<AppException>()));
     });
 
