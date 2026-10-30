@@ -93,7 +93,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W6 delta |
 |---|---|---|
-| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button, no poll or GIF button, and no "Save post?" prompt | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
+| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) but are inert until W6-12/W6-16 | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
 | `posts.proto` | Next free field numbers: `CreatePostRequest` 10, `Post` 21, `EmbeddedPost` 10, `PostView` 7. `SchedulePostRequest` has no poll field (ADR-0021 D4) | `poll` fields, `viewer_poll_choice` (W6-2) |
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
@@ -364,7 +364,7 @@ Effect on the quotas (additive):
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
 | W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Open |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
-| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
+| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
@@ -644,7 +644,7 @@ Order:
 - **Seam.** The `Moderator` interface takes either a URI or bytes; the sampler is a pure function, so it can move to a separate job unchanged.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: Open
+### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: In review
 - **Description.** In the composer's bottom bar, next to `_AddPhotoButton`, X's order (`composer.md` §1): photo, **GIF**, **poll**, schedule. Each button shows only when its flag is on (`gif` + `media`; `polls` + `engagement`). Mutual exclusion, mirroring X §1b and F4/F5/F10:
   - a poll disables photo, GIF and Schedule;
   - a schedule disables the poll;
