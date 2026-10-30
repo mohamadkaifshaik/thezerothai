@@ -989,6 +989,60 @@ void main() {
       expect(find.text('@sam wants to message you'), findsOneWidget);
     });
 
+    testWidgets('W7-35 L-9: a stranger\'s link in a received request is plain '
+        'text; the caller\'s own link and an accepted thread keep theirs', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final messages = [
+        msg(1, text: 'verify at https://evil.example/login'),
+        msg(2, fromSelf: true, text: 'mine https://example.com/own'),
+      ];
+      List<TextSpan> tappable(String needle) {
+        final spans = <TextSpan>[];
+        tester
+            .widget<RichText>(
+              find
+                  .descendant(
+                    of: find.byWidgetPredicate(
+                      (w) => w is MessageText && w.text.contains(needle),
+                    ),
+                    matching: find.byType(RichText),
+                  )
+                  .first,
+            )
+            .text
+            .visitChildren((s) {
+              if (s is TextSpan && s.recognizer != null) spans.add(s);
+              return true;
+            });
+        return spans;
+      }
+
+      current = snap(messages, conversation: received());
+      await open(
+        tester,
+        features: const {'messaging', 'graph', 'reports'},
+        composerBuilder: composerStub,
+        bannerBuilder: buildRequestBanner,
+      );
+
+      expect(find.textContaining('https://evil.example/login'), findsOneWidget);
+      expect(tappable('evil.example'), isEmpty);
+      expect(tappable('example.com/own'), hasLength(1));
+      final data = tester
+          .getSemantics(find.bySemanticsLabel(RegExp('Sam Rivera said verify')))
+          .getSemanticsData();
+      // Only "Report message"; no "Open link".
+      expect(data.customSemanticsActionIds, hasLength(1));
+
+      // Accepted: the same stranger's link is live again.
+      current = snap(messages, conversation: threadConv());
+      await open(tester, composerBuilder: composerStub);
+      expect(tappable('evil.example'), hasLength(1));
+      handle.dispose();
+    });
+
     testWidgets('an accepted conversation has no banner and its composer', (
       tester,
     ) async {

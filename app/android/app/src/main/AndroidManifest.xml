@@ -1,8 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Android 13+ runtime permission asked by the in-app push prompt. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- W7-35 (L-5): the cached messages live in the app database; keep them out
+         of Auto Backup and device-to-device transfer (allowBackup for Android 11 and
+         below, dataExtractionRules for 12 and up). -->
     <application
         android:label="Dzeroth"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

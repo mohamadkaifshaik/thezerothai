@@ -72,6 +72,13 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if (in.PaidPartnership || in.MadeWithAI) && !in.DisclosureEnabled {
 		return nil, featureDisabled("content_disclosure")
 	}
+	// polls (ADR-0029 D2) comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED, 0 reads.
+	if in.HasPoll && !in.PollsEnabled {
+		return nil, featureDisabled("polls")
+	}
+	if in.HasPoll { // W6-5 replaces this with the validation and the stored poll
+		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("polls are not implemented yet"))
+	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}

@@ -93,6 +93,13 @@ const (
 	// peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
 	// message this account".
 	ErrorReason_ERROR_REASON_CANNOT_MESSAGE ErrorReason = 18
+	// FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+	// and show its final results; do not retry.
+	ErrorReason_ERROR_REASON_POLL_CLOSED ErrorReason = 19
+	// FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+	// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
+	// that choice: a vote with the same choice is not an error, it returns the current state with results (0 writes).
+	ErrorReason_ERROR_REASON_ALREADY_VOTED ErrorReason = 20
 )
 
 // Enum value maps for ErrorReason.
@@ -117,6 +124,8 @@ var (
 		16: "ERROR_REASON_REPLY_NOT_ALLOWED",
 		17: "ERROR_REASON_PROTECTED_ACCOUNT",
 		18: "ERROR_REASON_CANNOT_MESSAGE",
+		19: "ERROR_REASON_POLL_CLOSED",
+		20: "ERROR_REASON_ALREADY_VOTED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -138,6 +147,8 @@ var (
 		"ERROR_REASON_REPLY_NOT_ALLOWED":      16,
 		"ERROR_REASON_PROTECTED_ACCOUNT":      17,
 		"ERROR_REASON_CANNOT_MESSAGE":         18,
+		"ERROR_REASON_POLL_CLOSED":            19,
+		"ERROR_REASON_ALREADY_VOTED":          20,
 	}
 )
 
@@ -279,8 +290,15 @@ type MediaRef struct {
 	Width    int32  `protobuf:"varint,4,opt,name=width,proto3" json:"width,omitempty"`
 	Height   int32  `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
 	// BlurHash placeholder computed on device, <= 64 chars.
-	Blurhash      string `protobuf:"bytes,6,opt,name=blurhash,proto3" json:"blurhash,omitempty"`
-	AltText       string `protobuf:"bytes,7,opt,name=alt_text,json=altText,proto3" json:"alt_text,omitempty"`
+	Blurhash string `protobuf:"bytes,6,opt,name=blurhash,proto3" json:"blurhash,omitempty"`
+	AltText  string `protobuf:"bytes,7,opt,name=alt_text,json=altText,proto3" json:"alt_text,omitempty"`
+	// The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+	// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
+	// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
+	// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
+	// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+	// that cannot play.
+	ContentType   string `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -360,6 +378,13 @@ func (x *MediaRef) GetBlurhash() string {
 func (x *MediaRef) GetAltText() string {
 	if x != nil {
 		return x.AltText
+	}
+	return ""
+}
+
+func (x *MediaRef) GetContentType() string {
+	if x != nil {
+		return x.ContentType
 	}
 	return ""
 }
@@ -450,7 +475,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"avatar_url\x18\x04 \x01(\tR\tavatarUrl\x12\x1a\n" +
 	"\bverified\x18\x05 \x01(\bR\bverified\x12\x1d\n" +
 	"\n" +
-	"is_private\x18\x06 \x01(\bR\tisPrivate\"\xb9\x01\n" +
+	"is_private\x18\x06 \x01(\bR\tisPrivate\"\xdc\x01\n" +
 	"\bMediaRef\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1b\n" +
@@ -458,7 +483,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x05width\x18\x04 \x01(\x05R\x05width\x12\x16\n" +
 	"\x06height\x18\x05 \x01(\x05R\x06height\x12\x1a\n" +
 	"\bblurhash\x18\x06 \x01(\tR\bblurhash\x12\x19\n" +
-	"\balt_text\x18\a \x01(\tR\aaltText\"\xa2\x02\n" +
+	"\balt_text\x18\a \x01(\tR\aaltText\x12!\n" +
+	"\fcontent_type\x18\b \x01(\tR\vcontentType\"\xa2\x02\n" +
 	"\vErrorDetail\x126\n" +
 	"\x06reason\x18\x01 \x01(\x0e2\x1e.dzeroth.common.v1.ErrorReasonR\x06reason\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12:\n" +
@@ -467,7 +493,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bmetadata\x18\x04 \x03(\v2,.dzeroth.common.v1.ErrorDetail.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\x93\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01*\xd1\x05\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -488,7 +514,9 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1cERROR_REASON_REAUTH_REQUIRED\x10\x0f\x12\"\n" +
 	"\x1eERROR_REASON_REPLY_NOT_ALLOWED\x10\x10\x12\"\n" +
 	"\x1eERROR_REASON_PROTECTED_ACCOUNT\x10\x11\x12\x1f\n" +
-	"\x1bERROR_REASON_CANNOT_MESSAGE\x10\x12BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1bERROR_REASON_CANNOT_MESSAGE\x10\x12\x12\x1c\n" +
+	"\x18ERROR_REASON_POLL_CLOSED\x10\x13\x12\x1e\n" +
+	"\x1aERROR_REASON_ALREADY_VOTED\x10\x14BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

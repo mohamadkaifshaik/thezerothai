@@ -132,6 +132,7 @@
     { "collectionGroup": "posts", "fieldPath": "mentions", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "replyToHandle", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "replyPolicy", "indexes": [] },
+    { "collectionGroup": "posts", "fieldPath": "poll", "indexes": [] },
 
     { "collectionGroup": "users", "fieldPath": "bio", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "displayName", "indexes": [] },
@@ -157,6 +158,7 @@
     { "collectionGroup": "userLikes", "fieldPath": "recent", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "recentReposts", "indexes": [] },
     { "collectionGroup": "userLikes", "fieldPath": "bookmarks", "indexes": [] },
+    { "collectionGroup": "userLikes", "fieldPath": "pollVotes", "indexes": [] },
 
     { "collectionGroup": "media", "fieldPath": "blurhash", "indexes": [] },
 
