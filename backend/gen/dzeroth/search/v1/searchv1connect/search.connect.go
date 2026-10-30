@@ -144,7 +144,9 @@ type SearchServiceClient interface {
 	// bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
 	// hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
 	// Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old.
-	// Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances).
+	// Flag: "trends". Rate limits: the 60/min/uid default bucket per instance (180/min at 3 instances) and TRENDS_CALLS_PER_DAY
+	// 400 calls/uid/IST day per instance (<= 1,200 at 3), its own cap apart from SearchPeople/SearchPosts => RATE_LIMITED,
+	// metadata["limit"] = "trends_daily".
 	// Firestore: reads 2 cold (interceptor 1, trends/current 1), 0-1 warm; at most one doc read per instance per 10 min
 	// (<= 432 a day at 3 instances, whatever the number of callers). Writes 0.
 	GetTrends(context.Context, *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error)
@@ -270,7 +272,9 @@ type SearchServiceHandler interface {
 	// bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
 	// hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
 	// Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old.
-	// Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances).
+	// Flag: "trends". Rate limits: the 60/min/uid default bucket per instance (180/min at 3 instances) and TRENDS_CALLS_PER_DAY
+	// 400 calls/uid/IST day per instance (<= 1,200 at 3), its own cap apart from SearchPeople/SearchPosts => RATE_LIMITED,
+	// metadata["limit"] = "trends_daily".
 	// Firestore: reads 2 cold (interceptor 1, trends/current 1), 0-1 warm; at most one doc read per instance per 10 min
 	// (<= 432 a day at 3 instances, whatever the number of callers). Writes 0.
 	GetTrends(context.Context, *connect.Request[v1.GetTrendsRequest]) (*connect.Response[v1.GetTrendsResponse], error)

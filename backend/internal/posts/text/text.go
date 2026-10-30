@@ -360,3 +360,29 @@ const MaxHashtagLen = maxHashtagLen
 // IsBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069 (ADR-0010 D9). It is
 // the one definition other packages may use (search query grammar, ADR-0028 D1); LRM/RLM and ZWJ/ZWNJ are not controls.
 func IsBidiControl(r rune) bool { return isBidiControl(r) }
+
+// NormalizeLabel applies the ADR-0010 D9 single-line subset to one short label (a poll choice, ADR-0029 D1): UTF-8
+// check, tab to one space, NFC, trim of whitespace and the invisible set, visible content required, and no control
+// character (a newline included) or bidi control. The length limit is the caller's (it counts code points of the
+// result). It returns a plain error, not an *apierr.Error, because the field name belongs to the caller; mentions and
+// hashtags are never parsed.
+func NormalizeLabel(raw string) (string, error) {
+	if !utf8.ValidString(raw) {
+		return "", errLabel("must be valid UTF-8")
+	}
+	s := norm.NFC.String(strings.ReplaceAll(raw, "\t", " "))
+	s = strings.TrimFunc(s, isTrimmable)
+	if !hasVisible(s) {
+		return "", errLabel("must not be empty")
+	}
+	for _, r := range s {
+		if unicode.Is(unicode.Cc, r) || r == 0x2028 || r == 0x2029 || isBidiControl(r) {
+			return "", errLabel("contains a disallowed control character")
+		}
+	}
+	return s, nil
+}
+
+type errLabel string
+
+func (e errLabel) Error() string { return string(e) }

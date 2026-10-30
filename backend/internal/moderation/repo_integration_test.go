@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -116,13 +117,15 @@ func TestRepo_RepostEvidenceOriginalPostID(t *testing.T) {
 	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	r := sampleReport("u-rep", TargetPost, pidN(8), "u-bob", t0)
 	r.Evidence.OriginalPostID = pidN(3)
+	r.Evidence.PollChoices = []string{"Yes", "No"}
 	ctx, c := counted()
 	if _, err := repo.Create(ctx, CreateParams{Report: r, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}
 	budgettest.Assert(t, "Create repost report", c, budgettest.Budget{Reads: 2, Writes: 2})
 	got, err := repo.Get(context.Background(), r.ID)
-	if err != nil || got.Evidence == nil || got.Evidence.OriginalPostID != pidN(3) || got.TargetOwnerID != "u-bob" {
+	if err != nil || got.Evidence == nil || got.Evidence.OriginalPostID != pidN(3) || got.TargetOwnerID != "u-bob" ||
+		!reflect.DeepEqual(got.Evidence.PollChoices, []string{"Yes", "No"}) {
 		t.Fatalf("stored = %+v err=%v", got, err)
 	}
 	if _, err := repo.Resolve(context.Background(), r.ID, ResolutionNoAction, "", t0.Add(time.Hour)); err != nil {

@@ -93,7 +93,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W6 delta |
 |---|---|---|
-| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button, no poll or GIF button, and no "Save post?" prompt | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
+| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) but are inert until W6-12/W6-16 | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
 | `posts.proto` | Next free field numbers: `CreatePostRequest` 10, `Post` 21, `EmbeddedPost` 10, `PostView` 7. `SchedulePostRequest` has no poll field (ADR-0021 D4) | `poll` fields, `viewer_poll_choice` (W6-2) |
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
@@ -358,13 +358,13 @@ Effect on the quotas (additive):
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
-| W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
+| W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Done (#497) |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
-| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Open |
+| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
-| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Open |
+| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
@@ -494,7 +494,7 @@ Order:
   - Skeletons: `VotePoll` answers FEATURE_DISABLED per the D6 step 2 gate and Unimplemented after it; CreatePost with a poll answers FEATURE_DISABLED `feature=polls` when off and Unimplemented when on (W6-5 replaces it), so a poll is never silently dropped.
 - **Runs alongside W3/W4/W5:** logic yes. These shared files conflict textually with W3-4, W4-3 and W5's flag ticket, so merge one at a time: `config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, the Terraform vars.
 
-### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
+### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Done (#497)
 - **Description.**
   - Validate `CreatePostRequest.poll` (F4): 2–`POLL_MAX_CHOICES` choices, each 1–25 code points after D9 normalisation, distinct after NFC + case fold; duration within the min and max.
   - Reject the combinations: with media, reply, quote, or empty text → VALIDATION `field=poll`.
@@ -516,6 +516,14 @@ Order:
 - **Flag.** `FEATURE_POLLS` (per caller).
 - **Seam.** Poll validation in one `posts/poll.go` file, so the client mirror and the server share the rules (shared `testdata` fixture `poll_rules.json`).
 - **Runs alongside W3/W4/W5:** `service_create.go` / `repo_create.go` also change in W3-7 (`hasMedia`), so rebase.
+- **Implementation notes (W6-5, as built).**
+  - `CreateInput.HasPoll` became `CreateInput.Poll *PollInput` (the service validates; W6-4's Unimplemented branch is gone). Limits come from `posts.Deps.Poll` (`PollLimits`, wired from `config.Composer`); the zero value rejects every poll.
+  - The poll's own and combination rules run right after the `idempotency_key` format check and before `reply_policy` and media validation, so a poll with images, a reply, a quote or blank text is always `field=poll`; `field=poll` refusals read and write nothing.
+  - Stored `poll` is `{options, durationMin, closesAt, counts {"0".."n-1"}, total}`, built per transaction attempt in `createAttempt`. `Embedded.Poll` is a frozen `{options, closesAt}` copied by `snapshotOf` (so quotes and reposts of a poll post carry the definition; the existing tombstone writer replaces the whole `embedded` map and so drops it).
+  - Converter: `pollToProto(p, viewer, now)` is hidden by default (votes 0, `results_visible` false, real `total_votes`) and shows counts when closed or `viewer == author`. `ToView` and the new `ToProtoForViewer` (used by the CreatePost response) pass the viewer; plain `ToProto` has none and hides. `closed` uses `time.Now()` (no clock seam yet). The cached `*Post` is never written. **W6-6 adds** the "viewer voted" rule, the `FEATURE_POLLS` globally-off rule, `viewer_poll_choice` (also cleared in `ApplyWithheld`, which today rebuilds `Post` but leaves `PostView.viewer_poll_choice` alone) and a clock.
+  - Moderation: `moderation.Evidence.PollChoices` (labels only; `evidence.pollChoices`, omitempty) for a POST report and, for a REPOST report, the original's frozen labels; `opsctl reports show` prints `evidence poll choices`. Export: the author's posts section gains `poll {choices, closesAt, counts, total}` (ADR-0029 D8).
+  - W6-7 note: `Cache.AdjustCounts` shallow-copies `Post`, so every cached copy shares one `*Poll`; after a committed vote build a NEW `Poll` with fresh `Counts` for the cache, never mutate in place.
+  - W6-7 note: increment a vote with `firestore.FieldPath{"poll","counts",strconv.Itoa(i)}` and `{"poll","total"}`, not a dotted string (the keys are numeric strings).
 
 ### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Open
 - **Description.**
@@ -593,7 +601,7 @@ Order:
 - **Seam.** The `identity.StepEraser` / `ExportSection` adapters.
 - **Runs alongside W3/W4/W5:** the pinned order and the guard test are shared, so one PR at a time.
 
-### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
+### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR #496; flag stays off until W6-10 merges)
 - **Description.**
   - CreateUpload accepts `image/gif` for `MEDIA_PURPOSE_POST` only (AVATAR and BANNER refuse), behind `FEATURE_GIF` (FEATURE_DISABLED `feature=gif`).
   - Items: exactly 1 GIF per CreateUpload and never mixed with other items; full ≤ `MaxFullBytes` (2 MiB); the thumbnail per `thumb_content_type` (JPEG or WebP ≤ 256 KiB).
@@ -644,7 +652,7 @@ Order:
 - **Seam.** The `Moderator` interface takes either a URI or bytes; the sampler is a pure function, so it can move to a separate job unchanged.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: Open
+### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: In review
 - **Description.** In the composer's bottom bar, next to `_AddPhotoButton`, X's order (`composer.md` §1): photo, **GIF**, **poll**, schedule. Each button shows only when its flag is on (`gif` + `media`; `polls` + `engagement`). Mutual exclusion, mirroring X §1b and F4/F5/F10:
   - a poll disables photo, GIF and Schedule;
   - a schedule disables the poll;

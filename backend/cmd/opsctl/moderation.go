@@ -162,6 +162,9 @@ func printReport(out io.Writer, r moderation.Report) {
 		fmt.Fprintln(out, "evidence none")
 	case r.Evidence != nil:
 		fmt.Fprintf(out, "evidence post by @%s at %s: %q\n", r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.Text)
+		if len(r.Evidence.PollChoices) > 0 {
+			fmt.Fprintf(out, "evidence poll choices: %q\n", r.Evidence.PollChoices)
+		}
 		if r.Evidence.OriginalPostID != "" {
 			fmt.Fprintf(out, "evidence is the ORIGINAL post %s (the reported post is a repost; owner above is the reposter)\n", r.Evidence.OriginalPostID)
 		}

@@ -43,21 +43,24 @@ type Doc struct {
 	// UpdateTime is set on reads only.
 	UpdateTime time.Time `firestore:"-"`
 
-	OwnerID         string `firestore:"ownerId"`
-	Purpose         string `firestore:"purpose"`
-	Status          string `firestore:"status"`
-	ContentType     string `firestore:"contentType"`
-	Bytes           int64  `firestore:"bytes"`
-	ThumbBytes      int64  `firestore:"thumbBytes"`
-	Width           int    `firestore:"w"`
-	Height          int    `firestore:"h"`
-	FullMD5         string `firestore:"fullMd5"`
-	ThumbMD5        string `firestore:"thumbMd5"`
-	Blurhash        string `firestore:"blurhash,omitempty"`
-	UploadPath      string `firestore:"uploadPath"`
-	ThumbUploadPath string `firestore:"thumbUploadPath"`
-	PublicPath      string `firestore:"publicPath,omitempty"`
-	ThumbPath       string `firestore:"thumbPath,omitempty"`
+	OwnerID     string `firestore:"ownerId"`
+	Purpose     string `firestore:"purpose"`
+	Status      string `firestore:"status"`
+	ContentType string `firestore:"contentType"`
+	// ThumbContentType is the thumbnail's type (ADR-0029 D10); absent = ContentType (every document before W6, and every
+	// JPEG or WebP upload without thumb_content_type). Read it through ThumbType.
+	ThumbContentType string `firestore:"thumbContentType,omitempty"`
+	Bytes            int64  `firestore:"bytes"`
+	ThumbBytes       int64  `firestore:"thumbBytes"`
+	Width            int    `firestore:"w"`
+	Height           int    `firestore:"h"`
+	FullMD5          string `firestore:"fullMd5"`
+	ThumbMD5         string `firestore:"thumbMd5"`
+	Blurhash         string `firestore:"blurhash,omitempty"`
+	UploadPath       string `firestore:"uploadPath"`
+	ThumbUploadPath  string `firestore:"thumbUploadPath"`
+	PublicPath       string `firestore:"publicPath,omitempty"`
+	ThumbPath        string `firestore:"thumbPath,omitempty"`
 	// NameSuffix is the random part of the public object names (W3-39, ADR-0025 note M-2): 32 lowercase hex characters
 	// chosen at CreateUpload and written with the document. Empty on documents created before W3-39, whose objects keep
 	// the old "m/{id}.{ext}" names (founder B1). Finalize, the converge path, the retire step, the eraser and post_delete
@@ -77,6 +80,14 @@ type Doc struct {
 	// set with it (RetiredAt + RetiredDocTTL): until then the document keeps the image inside the account eraser and the
 	// export.
 	RetiredAt *time.Time `firestore:"retiredAt,omitempty"`
+}
+
+// ThumbType is the content type of the thumbnail objects: ThumbContentType, else ContentType.
+func (d *Doc) ThumbType() string {
+	if d.ThumbContentType != "" {
+		return d.ThumbContentType
+	}
+	return d.ContentType
 }
 
 // Published reports whether the document is publicly served (READY or READY_UNSCREENED).

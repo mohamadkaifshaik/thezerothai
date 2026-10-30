@@ -113,6 +113,9 @@ type Evidence struct {
 	Website     string
 	AvatarURL   string
 	BannerURL   string
+	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
+	// the original's (from its frozen embed). Labels only: no counts, no voters.
+	PollChoices []string
 	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran, W7-36):
 	// Text is then empty because the copy was deleted, not because the message was empty. Never stored.
 	TextExpired bool

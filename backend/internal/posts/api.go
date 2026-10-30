@@ -140,6 +140,8 @@ type Post struct {
 	// is derived from Media at write time and never set by a caller; a legacy doc written before W3 reads false until
 	// `opsctl backfill-has-media` ran. Only the ByAuthorMedia query (the Media tab index) filters on the stored field.
 	HasMedia bool
+	// Poll is the root post's poll (ADR-0029 D1), nil for every other post. Read-only once cached: a writer builds a new one.
+	Poll *Poll
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -181,6 +183,9 @@ type Embedded struct {
 	// ReplyPolicy is the embedded post's effective reply policy, frozen with the snapshot: the viewer hint of a
 	// REPOST row reads it (ADR-0021 D2, review I-6).
 	ReplyPolicy ReplyPolicy
+	// Poll is the frozen poll definition of the copied post (ADR-0029 D5): labels and closing time, no counts. Nil when the
+	// copied post has no poll.
+	Poll *EmbeddedPoll
 }
 
 // MediaRef is one image of a post (common.v1.MediaRef): the URLs are the published public-bucket objects, copied
@@ -194,6 +199,9 @@ type MediaRef struct {
 	Height   int
 	Blurhash string
 	AltText  string
+	// ContentType is the full object's type (common.MediaRef.content_type, ADR-0029 D10), copied from the media claim.
+	// Empty on refs stored before W6 (a still JPEG or WebP).
+	ContentType string
 }
 
 // Position is a (createdAt, postId) point in the createdAt-descending order every post query uses.
@@ -336,6 +344,10 @@ type CreateInput struct {
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
 	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
 	MediaEnabled bool
+	// GifEnabled is FEATURE_GIF for the caller, made by server.go (never from the request). A GIF media doc with it false is
+	// FEATURE_DISABLED (metadata feature=gif); the content type is only known from the claim, so the refusal happens in the
+	// transaction after the media read and writes nothing (ADR-0029 D10).
+	GifEnabled bool
 	// QuotesEnabled is the FEATURE_QUOTES AND FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
 	// A non-empty QuoteOfPostID with it false is FEATURE_DISABLED (metadata feature=quotes).
 	QuotesEnabled bool
@@ -356,11 +368,10 @@ type CreateInput struct {
 	// enforcement of a stored policy never consults it.
 	ReplyPolicy          int32
 	ReplyAudienceEnabled bool
-	// HasPoll is true when the request carries a poll (CreatePostRequest.poll, ADR-0029 D2); PollsEnabled is the
-	// FEATURE_POLLS decision for the caller, made by server.go (never from the request). HasPoll with PollsEnabled false is
-	// FEATURE_DISABLED (metadata feature=polls), 0 reads, checked after content_disclosure. W6-4 is the gate only: an enabled
-	// caller gets Unimplemented until W6-5 stores the poll, so a poll is never silently dropped.
-	HasPoll      bool
+	// Poll is the request's poll (CreatePostRequest.poll, ADR-0029 D1), nil for none; PollsEnabled is the FEATURE_POLLS decision for
+	// the caller, made by server.go (never from the request). A poll with PollsEnabled false is FEATURE_DISABLED (metadata
+	// feature=polls), 0 reads, checked after content_disclosure. The service validates it (poll.go) against PollLimits.
+	Poll         *PollInput
 	PollsEnabled bool
 }
 
@@ -369,10 +380,22 @@ type CreateInput struct {
 // FAILED_PRECONDITION + MEDIA_NOT_READY.
 var ErrMediaNotReady = errors.New("posts: media not ready")
 
+// ErrGifDisabled is returned by Repo.Create when the claim holds a GIF and FEATURE_GIF is off for the caller
+// (CreateParams.GifEnabled false; ADR-0029 D10, the second gate). The service maps it to FEATURE_DISABLED feature=gif.
+var ErrGifDisabled = errors.New("posts: gif is disabled")
+
+// ErrGifNotAlone is returned when a GIF is attached next to another image (VALIDATION media_ids).
+var ErrGifNotAlone = errors.New("posts: a gif must be the only image")
+
+// ErrGifNotSchedulable is returned by Repo.CreateScheduled for a draft that carries a GIF (ADR-0029 F10; VALIDATION media_ids).
+var ErrGifNotSchedulable = errors.New("posts: a gif cannot be scheduled")
+
 // MediaClaim is a validated set of the caller's READY images, loaded inside the CreatePost transaction.
 type MediaClaim interface {
 	// Refs are the published refs in request order (AltText unset: the post owns the alt texts).
 	Refs() []MediaRef
+	// HasGIF reports whether any image is a GIF (ADR-0029 D10). The content-type table stays in media; posts only asks.
+	HasGIF() bool
 	// Attach marks every image as belonging to postID in the same batch that creates the post.
 	Attach(b store.Batch, postID string)
 }

@@ -37,12 +37,17 @@ import (
 //	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
 //
+// Poll (ADR-0029 D1, FEATURE_POLLS): a root post with a poll costs exactly a root post, +0 reads and +0 writes (the poll is a field of
+// the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
+// nothing.
+//
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
 // FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
 // writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
+	logger.SetRequestField(ctx, fieldHasPoll, in.Poll != nil) // also on the refusals: a count of polls attempted, never the labels
 	defer func() {
 		if err != nil {
 			noteRejected(ctx, err)
@@ -73,14 +78,16 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, featureDisabled("content_disclosure")
 	}
 	// polls (ADR-0029 D2) comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED, 0 reads.
-	if in.HasPoll && !in.PollsEnabled {
+	if in.Poll != nil && !in.PollsEnabled {
 		return nil, featureDisabled("polls")
-	}
-	if in.HasPoll { // W6-5 replaces this with the validation and the stored poll
-		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("polls are not implemented yet"))
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
+	}
+	// A poll's own and combination rules come first, so a poll with images or a reply is always field=poll (ADR-0029 D1).
+	pollDraft, err := s.checkPoll(in)
+	if err != nil {
+		return nil, err
 	}
 	policy, err := validateReplyPolicy(in)
 	if err != nil {
@@ -150,10 +157,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI),
+		RequestHash: requestHashWithPoll(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI, pollDraft),
+		Poll:        pollDraft,
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
 		MediaAlts:   in.MediaAltTexts,
+		GifEnabled:  in.GifEnabled,
 		Draft: Post{
 			AuthorID: uid,
 			Author:   snapshot,
@@ -176,6 +185,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		if errors.Is(err, ErrMediaNotReady) {
 			return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 				"one of the images is not ready; upload it again")
+		}
+		if errors.Is(err, ErrGifDisabled) {
+			return nil, featureDisabled("gif")
+		}
+		if errors.Is(err, ErrGifNotAlone) {
+			return nil, apierr.Validation("media_ids", "a GIF must be the only image in a post")
 		}
 		if errors.Is(err, ErrParentGone) {
 			logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)

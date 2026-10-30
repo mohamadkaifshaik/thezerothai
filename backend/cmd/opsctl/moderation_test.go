@@ -320,6 +320,11 @@ func TestReports_ListShowResolve(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "evidence post by @carol") || !strings.Contains(out, "ORIGINAL post 1111111111111111111") {
 		t.Fatalf("repost show: code=%d out=%q", code, out)
 	}
+	rep.Evidence.PollChoices = []string{"Yes", "No"}
+	code, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	if code != 0 || !strings.Contains(out, `evidence poll choices: ["Yes" "No"]`) {
+		t.Fatalf("poll show: code=%d out=%q", code, out)
+	}
 	code, out, _ = f.run("", "reports", "resolve", "--project", "dzeroth-dev", "--id", testReportID, "--resolution", "dismissed")
 	if code != 0 || f.ops.resolved[testReportID] != moderation.ResolutionDismissed || !strings.Contains(out, "RESOLVED") {
 		t.Fatalf("resolve: code=%d out=%q resolved=%v", code, out, f.ops.resolved)

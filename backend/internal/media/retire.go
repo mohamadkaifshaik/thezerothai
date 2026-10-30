@@ -204,7 +204,7 @@ type ImageObject struct {
 	ID string
 	// Suffix is the 32-hex-character random part of a W3-39 name, "" for an older name.
 	Suffix string
-	// Ext is "jpg" or "webp" (what extension() returns).
+	// Ext is "jpg" or "webp" (profile images only; extension() also returns "gif" for post media, which this parser never sees).
 	Ext string
 	// Thumb is true for the "_t" thumbnail object.
 	Thumb bool

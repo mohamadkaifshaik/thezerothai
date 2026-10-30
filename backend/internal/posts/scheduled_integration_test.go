@@ -49,7 +49,7 @@ func (m *itMedia) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 		if owner, _ := s.DataAt("ownerId"); owner != uid {
 			return nil, ErrMediaNotReady
 		}
-		out.refs = append(out.refs, MediaRef{ID: ids[i], URL: "https://cdn.example/m/" + ids[i], ThumbURL: "https://cdn.example/t/" + ids[i], Width: 10, Height: 20})
+		out.refs = append(out.refs, MediaRef{ID: ids[i], URL: "https://cdn.example/m/" + ids[i], ThumbURL: "https://cdn.example/t/" + ids[i], Width: 10, Height: 20, ContentType: itContentType(s)})
 	}
 	return out, nil
 }
@@ -59,7 +59,22 @@ type itClaim struct {
 	m    *itMedia
 }
 
-func (c *itClaim) Refs() []MediaRef           { return c.refs }
+func (c *itClaim) Refs() []MediaRef { return c.refs }
+func (c *itClaim) HasGIF() bool {
+	for _, r := range c.refs {
+		if r.ContentType == "image/gif" {
+			return true
+		}
+	}
+	return false
+}
+
+// itContentType is the media doc's contentType (the real attacher copies it into the ref).
+func itContentType(s *firestore.DocumentSnapshot) string {
+	v, _ := s.DataAt("contentType")
+	ct, _ := v.(string)
+	return ct
+}
 func (c *itClaim) Attach(store.Batch, string) { c.m.attached++ }
 
 type schedEnv struct {
@@ -914,5 +929,25 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	}
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil || len(out.Scheduled) != 0 {
 		t.Errorf("export after erase = %s err=%v", buf.String(), err)
+	}
+}
+
+// TestScheduled_Integration_GIFRefused: a draft naming a GIF is ErrGifNotSchedulable (ADR-0029 F10) after the same
+// <= 4 media reads and with nothing written; the daily schedule count is not charged.
+func TestScheduled_Integration_GIFRefused(t *testing.T) {
+	e := newSchedEnv(t)
+	ctx := context.Background()
+	if _, err := e.client.Collection("media").Doc("g1").Set(ctx, map[string]any{"ownerId": "alice", "contentType": "image/gif"}); err != nil {
+		t.Fatal(err)
+	}
+	p := e.params(t, "alice", 1, schedBase)
+	p.MediaIDs = []string{"g1"}
+	cctx, c := counted()
+	if _, err := e.repo.CreateScheduled(cctx, p); !errors.Is(err, ErrGifNotSchedulable) {
+		t.Fatalf("err = %v, want ErrGifNotSchedulable", err)
+	}
+	budgettest.Assert(t, "CreateScheduled refused for a GIF", c, budgettest.Budget{Reads: 2 + 1, Writes: 0})
+	if e.schedules(t, "alice") != 0 {
+		t.Errorf("schedules = %d, want 0", e.schedules(t, "alice"))
 	}
 }
