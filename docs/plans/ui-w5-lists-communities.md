@@ -332,7 +332,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | --- | --- | --- | --- | --- | --- | --- |
 | W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #485) |
 | W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | In review (PR #485) |
-| W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | In review (PR pending) |
+| W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | In review (PR #495) |
 | W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | Open |
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | Open |
 | W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | Open |
