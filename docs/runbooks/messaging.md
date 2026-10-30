@@ -60,9 +60,9 @@ conversation (the crash matrix `TestAccountLifecycle_MessagingCrashAtEverySideEf
 The `messaging_purge_done` line carries `conversations`, `messages_tombstoned`, `entries_deleted` and `uid_hash` (never a peer uid) when the step finishes.
 
 **Export** (`messages` section, appended after the existing sections): `{"conversations":[...]}` newest conversation first, each with the peer's
-handle **at export time** (empty and `peerDeleted: true` when the peer is gone), the state, the time stamps, and its messages newest first. Own messages carry their
+handle **at export time** (empty and `peerDeleted: true` when the peer is gone; for a peer who blocked the caller, or whom the caller blocked, or every peer when the block list overflowed, the handle frozen on the caller own entry or none, never the live one, W7-30), the state, the time stamps, and its messages newest first. Own messages carry their
 full text; received ones are a time and `"received"` only (the peer's words are the peer's data, F5). No peer uid, conversation id or message id appears. Cost: one read per conversation and per message of
-both sides (the section orders them), about 620 for the reference account, plus at most one directory read per 50 peers.
+both sides (the section orders them), about 620 for the reference account, plus at most one directory read per 50 peers (none for a blocked peer), one caller graph read (cached 60 s) and one entry read per conversation whose peer is blocked either way (W7-30; failure mode: a graph or entry read error fails the section and the export job retries, fail closed).
 
 ## 3. Abuse levers
 Every limit is config (rule 11); each is per instance unless it says exact, so the ceiling is x `max-instances` (3).
