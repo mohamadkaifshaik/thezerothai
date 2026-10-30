@@ -357,7 +357,7 @@ Effect on the quotas (additive):
 | W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
 | W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
-| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Open |
+| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #TBD) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Open |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
@@ -468,7 +468,7 @@ Order:
 - **Seam.** The content-type table stays inside `media`; posts never sees a MIME type except through `LoadForPost`'s claim.
 - **Runs alongside W3/W4/W5:** after W3-5's `MEDIA_PURPOSE_BANNER` change, or rebase.
 
-### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: Open
+### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: In review (PR #TBD)
 - **Description.**
   - Register `FEATURE_POLLS`, `FEATURE_DRAFTS` and `FEATURE_GIF` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`; `drafts` follows `ui_shell`: no RPC guard).
   - Config, added to `config_test.go`'s env list with range checks: `POLL_MAX_CHOICES` 4, `POLL_CHOICE_MAX_CODEPOINTS` 25, `POLL_MIN_DURATION` 5m, `POLL_MAX_DURATION` 168h, `POLL_VOTE_TTL_AFTER_CLOSE` 720h, `RATE_LIMIT_POLL_VOTE_PER_MIN` 30, `POLL_VOTES_PER_DAY` 300, `POLL_VOTES_PER_DAY_NEW_ACCOUNT` 50, `POLL_VIEWER_VOTES_KEPT` 500, `GIF_MAX_FRAMES` 300, `GIF_MAX_EDGE` 1280, `GIF_MAX_FRAME_AREA_SUM` 50,000,000.
@@ -486,6 +486,12 @@ Order:
 - **Budget.** 0 reads on the rejection paths.
 - **Flag.** Adds the three flags (default `off`; dev ceiling allowlist 3).
 - **Seam.** Limits live in config (rule 11), never in code.
+- **Implementation notes (W6-4, as built).**
+  - ADR-0029 supersedes this ticket's numbers: dev ceilings are allowlist **6** like every other flag since #463 (ADR-0029 D12 and the text above say 3); `PostView.viewer_poll_choice = 8`, `ErrorReason` 19 and 20.
+  - FU-1 and FU-2 are in this PR: fieldOverrides `posts.poll` and `userLikes.pollVotes` with the new `field-overrides.ack` hash, the `poll_votes_expire_at` TTL entry (Terraform, not applied), `feature_polls*`, `feature_drafts*` and `feature_gif*` vars, and the three ceilings.
+  - Config values live in `config/composer.go` (`config.Composer`), with hard ceilings the ADR does not state (code points <= 100, max duration <= 30 days, vote TTL 24 h to 90 days, kept votes <= 1,000, GIF frames <= 1,000, edge <= 4,096, area sum <= 200 million); the Terraform side carries the flag vars only (as W4-3), the numbers keep their Go defaults.
+  - `POLL_VOTES_PER_DAY_NEW_ACCOUNT` (50) is loaded and validated but not enforced: the ratelimit interceptor has no account-age signal, so W6-7 must apply it in the service (or an ADR note must drop it).
+  - Skeletons: `VotePoll` answers FEATURE_DISABLED per the D6 step 2 gate and Unimplemented after it; CreatePost with a poll answers FEATURE_DISABLED `feature=polls` when off and Unimplemented when on (W6-5 replaces it), so a poll is never silently dropped.
 - **Runs alongside W3/W4/W5:** logic yes. These shared files conflict textually with W3-4, W4-3 and W5's flag ticket, so merge one at a time: `config.go`, `apiserver.go`, `ratelimit_config.go`, `flag-ceiling.json`, the Terraform vars.
 
 ### W6-5 — CreatePost with a poll  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Open
