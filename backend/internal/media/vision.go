@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sync"
@@ -13,9 +14,9 @@ import (
 // visionTimeout bounds one SafeSearch call (every outbound call has a deadline).
 const visionTimeout = 10 * time.Second
 
-// Vision is the Cloud Vision SafeSearch Moderator. It reads the object through its gs:// URI with the runtime
-// service account's own credentials (roles/storage.objectAdmin on the upload bucket), so image bytes never cross
-// the API. The service is built lazily on the first call, so nothing happens before ListenAndServe.
+// Vision is the Cloud Vision SafeSearch Moderator. SafeSearch reads the object through its gs:// URI with the runtime
+// service account's own credentials (roles/storage.objectAdmin on the upload bucket), so a client's image bytes never
+// cross the API; SafeSearchBytes sends the server-built GIF contact sheet inline. The service is built lazily on the first call, so nothing happens before ListenAndServe.
 type Vision struct {
 	bucket string
 
@@ -50,6 +51,16 @@ func (v *Vision) service(ctx context.Context) (*vision.Service, error) {
 // SafeSearch implements Moderator. An empty or error response is an error (fail closed: nothing is published
 // without an answer).
 func (v *Vision) SafeSearch(ctx context.Context, object string) (SafeSearch, error) {
+	return v.annotate(ctx, &vision.Image{Source: &vision.ImageSource{ImageUri: "gs://" + v.bucket + "/" + object}})
+}
+
+// SafeSearchBytes implements Moderator: the image is sent inline (base64 in the JSON request; a GIF's contact sheet is
+// under 1 MiB, far below Vision's 10 MB request cap).
+func (v *Vision) SafeSearchBytes(ctx context.Context, image []byte) (SafeSearch, error) {
+	return v.annotate(ctx, &vision.Image{Content: base64.StdEncoding.EncodeToString(image)})
+}
+
+func (v *Vision) annotate(ctx context.Context, img *vision.Image) (SafeSearch, error) {
 	ctx, cancel := context.WithTimeout(ctx, visionTimeout)
 	defer cancel()
 	svc, err := v.service(ctx)
@@ -57,7 +68,7 @@ func (v *Vision) SafeSearch(ctx context.Context, object string) (SafeSearch, err
 		return SafeSearch{}, err
 	}
 	req := &vision.BatchAnnotateImagesRequest{Requests: []*vision.AnnotateImageRequest{{
-		Image:    &vision.Image{Source: &vision.ImageSource{ImageUri: "gs://" + v.bucket + "/" + object}},
+		Image:    img,
 		Features: []*vision.Feature{{Type: "SAFE_SEARCH_DETECTION"}},
 	}}}
 	resp, err := svc.Images.Annotate(req).Context(ctx).Do()
@@ -102,6 +113,11 @@ type AllowAll struct{}
 // SafeSearch implements Moderator.
 func (AllowAll) SafeSearch(context.Context, string) (SafeSearch, error) {
 	return SafeSearch{Adult: LikelihoodVeryUnlikely, Violence: LikelihoodVeryUnlikely, Racy: LikelihoodVeryUnlikely}, nil
+}
+
+// SafeSearchBytes implements Moderator.
+func (a AllowAll) SafeSearchBytes(ctx context.Context, _ []byte) (SafeSearch, error) {
+	return a.SafeSearch(ctx, "")
 }
 
 var _ Moderator = AllowAll{}
