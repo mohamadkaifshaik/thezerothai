@@ -66,6 +66,13 @@ const UploadItem$json = {
     {'1': 'height', '3': 5, '4': 1, '5': 5, '10': 'height'},
     {'1': 'full_md5', '3': 6, '4': 1, '5': 9, '10': 'fullMd5'},
     {'1': 'thumb_md5', '3': 7, '4': 1, '5': 9, '10': 'thumbMd5'},
+    {
+      '1': 'thumb_content_type',
+      '3': 8,
+      '4': 1,
+      '5': 9,
+      '10': 'thumbContentType'
+    },
   ],
 };
 
@@ -75,7 +82,8 @@ final $typed_data.Uint8List uploadItemDescriptor = $convert.base64Decode(
     '9zaXplX2J5dGVzGAIgASgDUg1mdWxsU2l6ZUJ5dGVzEigKEHRodW1iX3NpemVfYnl0ZXMYAyAB'
     'KANSDnRodW1iU2l6ZUJ5dGVzEhQKBXdpZHRoGAQgASgFUgV3aWR0aBIWCgZoZWlnaHQYBSABKA'
     'VSBmhlaWdodBIZCghmdWxsX21kNRgGIAEoCVIHZnVsbE1kNRIbCgl0aHVtYl9tZDUYByABKAlS'
-    'CHRodW1iTWQ1');
+    'CHRodW1iTWQ1EiwKEnRodW1iX2NvbnRlbnRfdHlwZRgIIAEoCVIQdGh1bWJDb250ZW50VHlwZQ'
+    '==');
 
 @$core.Deprecated('Use signedUploadDescriptor instead')
 const SignedUpload$json = {

@@ -96,6 +96,10 @@ AppException mapConnectError(Object error) {
       // rollout, and a conversation with an erased participant. Fixed text, so it never reveals which.
       case common.ErrorReason.ERROR_REASON_CANNOT_MESSAGE:
         return const CannotMessageException();
+      // ADR-0029 (W6): VotePoll refusals. Their typed exceptions come with the poll card (W6-13); until then they map
+      // by status code like an unspecified reason.
+      case common.ErrorReason.ERROR_REASON_POLL_CLOSED:
+      case common.ErrorReason.ERROR_REASON_ALREADY_VOTED:
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

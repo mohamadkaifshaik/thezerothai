@@ -77,6 +77,20 @@ type RateLimitConfig struct {
 	SearchPeoplePerUserPerMinute int
 	SearchPostsPerUserPerMinute  int
 
+	// PollVotePerUserPerMinute is the VotePoll bucket (ADR-0029 D6), env RATE_LIMIT_POLL_VOTE_PER_MIN, default 30, per
+	// instance (90 per minute with 3).
+	PollVotePerUserPerMinute int
+
+	// PollVotesPerDay is the in-memory daily cap on VotePoll calls (one counter per uid per instance, ratelimit.DailyCap), env
+	// POLL_VOTES_PER_DAY, default 300, logged as limit_name "poll_votes_daily" (ADR-0029 D6, option D). PollVotesPerDayNewAccount
+	// (env POLL_VOTES_PER_DAY_NEW_ACCOUNT, default 50) is the value for an account inside the new-account window: the
+	// ratelimit interceptor cannot tell account age, so the VotePoll service applies it (W6-7); the interceptor cap uses
+	// PollVotesPerDay. A cap in memory is sound here because the natural key admits ONE vote per account per poll: writes are
+	// bounded by 3 x the open polls the account can see whatever the cap does after a restart. At most 300 x 3 instances = 900
+	// calls (2,700 writes) per account per day.
+	PollVotesPerDay           int64
+	PollVotesPerDayNewAccount int64
+
 	// SearchCallsPerDay is the in-memory daily cap on SearchPeople + SearchPosts calls together (one counter per uid per
 	// instance, ratelimit.DailyCap), env SEARCH_CALLS_PER_DAY, logged as limit_name "search_daily" (ADR-0028 D9).
 	//

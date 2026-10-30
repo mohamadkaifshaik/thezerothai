@@ -4,7 +4,8 @@
 // 	protoc        (unknown)
 // source: dzeroth/media/v1/media.proto
 
-// Media: images only at Stage 0 (ADR-0005). Owner module: backend/internal/media.
+// Media: images only at Stage 0 (ADR-0005; animated GIF for post media behind FEATURE_GIF, ADR-0029). Owner module:
+// backend/internal/media.
 // Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
 // objects are copied to the public-read media bucket (both us-central1).
@@ -147,17 +148,23 @@ func (MediaStatus) EnumDescriptor() ([]byte, []int) {
 
 type UploadItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// image/webp or image/jpeg (client re-encodes everything else on device).
+	// image/webp or image/jpeg (client re-encodes everything else on device); or image/gif for MEDIA_PURPOSE_POST behind
+	// FEATURE_GIF (ADR-0029 D10), uploaded unchanged so it keeps its animation.
 	ContentType    string `protobuf:"bytes,1,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	FullSizeBytes  int64  `protobuf:"varint,2,opt,name=full_size_bytes,json=fullSizeBytes,proto3" json:"full_size_bytes,omitempty"`
 	ThumbSizeBytes int64  `protobuf:"varint,3,opt,name=thumb_size_bytes,json=thumbSizeBytes,proto3" json:"thumb_size_bytes,omitempty"`
 	Width          int32  `protobuf:"varint,4,opt,name=width,proto3" json:"width,omitempty"`
 	Height         int32  `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
 	// Base64 MD5 of each file; bound into the signed URL so GCS rejects altered bytes.
-	FullMd5       string `protobuf:"bytes,6,opt,name=full_md5,json=fullMd5,proto3" json:"full_md5,omitempty"`
-	ThumbMd5      string `protobuf:"bytes,7,opt,name=thumb_md5,json=thumbMd5,proto3" json:"thumb_md5,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	FullMd5  string `protobuf:"bytes,6,opt,name=full_md5,json=fullMd5,proto3" json:"full_md5,omitempty"`
+	ThumbMd5 string `protobuf:"bytes,7,opt,name=thumb_md5,json=thumbMd5,proto3" json:"thumb_md5,omitempty"`
+	// The thumbnail's content type (ADR-0029 D10). Empty => the same as content_type (the behaviour before W6, so an
+	// older client is unchanged). For content_type image/gif it is required and must be "image/jpeg" or "image/webp"
+	// (a still first frame); for image/jpeg and image/webp it must be empty or equal to content_type. Bound into the
+	// thumbnail's signed URL like content_type is for the full image.
+	ThumbContentType string `protobuf:"bytes,8,opt,name=thumb_content_type,json=thumbContentType,proto3" json:"thumb_content_type,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *UploadItem) Reset() {
@@ -235,6 +242,13 @@ func (x *UploadItem) GetFullMd5() string {
 func (x *UploadItem) GetThumbMd5() string {
 	if x != nil {
 		return x.ThumbMd5
+	}
+	return ""
+}
+
+func (x *UploadItem) GetThumbContentType() string {
+	if x != nil {
+		return x.ThumbContentType
 	}
 	return ""
 }
@@ -698,7 +712,7 @@ var File_dzeroth_media_v1_media_proto protoreflect.FileDescriptor
 
 const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/media/v1/media.proto\x12\x10dzeroth.media.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe7\x01\n" +
+	"\x1cdzeroth/media/v1/media.proto\x12\x10dzeroth.media.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\x02\n" +
 	"\n" +
 	"UploadItem\x12!\n" +
 	"\fcontent_type\x18\x01 \x01(\tR\vcontentType\x12&\n" +
@@ -707,7 +721,8 @@ const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\x05width\x18\x04 \x01(\x05R\x05width\x12\x16\n" +
 	"\x06height\x18\x05 \x01(\x05R\x06height\x12\x19\n" +
 	"\bfull_md5\x18\x06 \x01(\tR\afullMd5\x12\x1b\n" +
-	"\tthumb_md5\x18\a \x01(\tR\bthumbMd5\"\xf6\x01\n" +
+	"\tthumb_md5\x18\a \x01(\tR\bthumbMd5\x12,\n" +
+	"\x12thumb_content_type\x18\b \x01(\tR\x10thumbContentType\"\xf6\x01\n" +
 	"\fSignedUpload\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12E\n" +
