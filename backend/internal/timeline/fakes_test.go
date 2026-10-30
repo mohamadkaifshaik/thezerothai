@@ -218,3 +218,12 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	}
 	return out, nil
 }
+
+// ByHashtag and CreatedAfter are search and trends queries (ADR-0028); the timeline never calls them.
+func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
+func (f *fakePosts) CreatedAfter(context.Context, posts.Position, int) ([]*posts.Post, error) {
+	return nil, nil
+}

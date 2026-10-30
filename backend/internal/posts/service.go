@@ -264,6 +264,38 @@ func (s *service) ByAuthorKind(ctx context.Context, authorID string, kind Kind, 
 	return out, nil
 }
 
+// ByHashtag implements Reader (Q-T). Reads: len(result), minimum 1.
+func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
+	if tag == "" || strings.ContainsAny(tag, "# \t\r\n") {
+		return nil, fmt.Errorf("posts: ByHashtag needs a bare tag body")
+	}
+	if err := w.validate(); err != nil {
+		return nil, err
+	}
+	readAt := s.now()
+	out, err := s.repo.ByHashtag(ctx, tag, w, clampLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	s.fill(out, readAt)
+	return out, nil
+}
+
+// CreatedAfter implements Reader (Q-W). Reads: len(result), minimum 1. Results are projected (partial) posts and are
+// deliberately NOT put in the posts cache or the author-recent cache (ADR-0028 D6).
+func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
+	if after.CreatedAt.IsZero() {
+		return nil, fmt.Errorf("posts: CreatedAfter needs a watermark time")
+	}
+	if limit <= 0 {
+		limit = limits.DefaultPageSize
+	}
+	if limit > MaxCreatedAfterLimit {
+		limit = MaxCreatedAfterLimit
+	}
+	return s.repo.CreatedAfter(ctx, after, limit)
+}
+
 // fill puts results of a read that started at readAt in the posts cache (every read path fills it, ADR-0010
 // D15), skipping posts this instance deleted since the read began.
 func (s *service) fill(ps []*Post, readAt time.Time) {

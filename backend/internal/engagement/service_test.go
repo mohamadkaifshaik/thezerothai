@@ -985,3 +985,12 @@ func TestUndoNeverConsultsAudience(t *testing.T) {
 		t.Fatalf("undo called Viewable %d times", e.posts.viewCalls-before)
 	}
 }
+
+// ByHashtag and CreatedAfter are search and trends queries (ADR-0028); engagement never calls them.
+func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
+func (f *fakePosts) CreatedAfter(context.Context, posts.Position, int) ([]*posts.Post, error) {
+	return nil, nil
+}

@@ -40,6 +40,10 @@ type Repo interface {
 	// They need the W3-2 composite indexes READY (the emulator does not enforce indexes).
 	ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error)
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
+	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
+	// Reads: len(result), minimum 1.
+	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
+	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
 	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
 	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
@@ -355,4 +359,42 @@ func (r *FirestoreRepo) ByAuthorMedia(ctx context.Context, authorID string, w Wi
 func (r *FirestoreRepo) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).Where("authorId", "==", authorID).Where("kind", "==", string(kind))
 	return r.run(ctx, q, w, limit)
+}
+
+// ByHashtag implements Repo (Q-T): `hashtags array-contains tag ORDER BY createdAt DESC, __name__ DESC`, served by
+// the existing composite index posts(hashtags CONTAINS, createdAt DESC) (a composite carries __name__ in its last
+// field's direction). A REPOST stores hashtags [] so it never matches.
+func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Where("hashtags", "array-contains", tag)
+	return r.run(ctx, q, w, limit)
+}
+
+// createdAfterFields is the projection of CreatedAfter (ADR-0028 D6). A projected read still bills 1 read per doc.
+var createdAfterFields = []string{"hashtags", "authorId", "moderation", "createdAt", "kind"}
+
+// CreatedAfter implements Repo (Q-W): `createdAt > after ORDER BY createdAt ASC, __name__ ASC` with the projection
+// above, on the automatic single-field indexes (no composite). With an empty after.ID the bound is createdAt only;
+// otherwise it resumes strictly after the (createdAt, id) pair. Reads: len(result), minimum 1.
+func (r *FirestoreRepo) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
+	q := r.client.Collection(postsCollection).Select(createdAfterFields...).
+		OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
+	if after.ID == "" {
+		q = q.Where("createdAt", ">", after.CreatedAt)
+	} else {
+		q = q.StartAfter(after.CreatedAt, r.ref(after.ID))
+	}
+	docs, err := q.Limit(limit).Documents(ctx).GetAll()
+	budget.FromContext(ctx).AddQueryReads(len(docs))
+	if err != nil {
+		return nil, fmt.Errorf("posts: query: %w", err)
+	}
+	out := make([]*Post, 0, len(docs))
+	for _, s := range docs {
+		var d postDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("posts: decode post %s: %w", s.Ref.ID, err)
+		}
+		out = append(out, d.toPost(s.Ref.ID))
+	}
+	return out, nil
 }
