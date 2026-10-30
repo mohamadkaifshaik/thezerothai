@@ -736,6 +736,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           firstOfGroup: item.firstOfGroup,
                           lastOfGroup: item.lastOfGroup,
                           use24Hour: use24Hour,
+                          linksEnabled: messageLinksEnabled(
+                            conversation,
+                            item.message,
+                          ),
                           onOpenLink: _openLink,
                           onReport:
                               reportsEnabled &&

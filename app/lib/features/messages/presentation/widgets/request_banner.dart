@@ -211,3 +211,13 @@ class SentRequestNote extends StatelessWidget {
     );
   }
 }
+
+/// Whether the links of [message] may be tapped (W7-35, L-9): not while the
+/// conversation is still a REQUEST and the message is the peer's. A stranger's
+/// link is the phishing channel, so it shows as plain text until the request is
+/// accepted. The caller's own messages are never held back; with no header yet
+/// the answer is no (nothing is trusted before we know).
+bool messageLinksEnabled(pb.Conversation? conversation, pb.Message message) =>
+    message.fromSelf ||
+    (conversation != null &&
+        conversation.state != ConversationState.CONVERSATION_STATE_REQUEST);
