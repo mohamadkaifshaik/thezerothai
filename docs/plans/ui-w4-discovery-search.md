@@ -119,16 +119,16 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md` (baseline 232.3 
 | GetTrends (incl. `prefix` suggestions) | 2 (interceptor + `trends/current`) | 0–1 | 0 | ≤ 1 doc read per instance per 10 min ⇒ ≤ 432 reads/day at 3 instances, whatever the DAU |
 | Trend refresh run (system, not a user budget) | 1 state + new posts since the watermark (≤ 2,000 per run, 500 per page, projection query) | — | 1 (`trends/current`); 0 under `DEGRADED_MODE=readonly` or `FEATURE_TRENDS` off (0 reads too) | 1 run/day (F1 B) or 24 (A): same reads, +23 writes/day with A |
 
-**Calls per DAU per day (assumptions, to be replaced by W4-23 measurements):**
+**Calls per DAU per day (assumptions; W4-23 measured the reads per call in `cost-model.md` §15 and corrected the typical column, the requests and the egress, marked "W4-23" below):**
 | Call | Calls/DAU | Typical reads | Reads/DAU |
 |---|---|---|---|
 | SearchPeople typeahead (limit 5; debounce 300 ms, min 2 chars; ~0.5 search sessions × 3) | 1.5 | 4 (prefix entries rarely shared at low DAU) | 6.0 |
 | SearchPeople People tab (limit 20) | 0.3 | 12 | 3.6 |
-| SearchPosts page 1 (0.5 hashtag taps + 0.5 searches; tag entry hit rate 40 %) | 1.0 | 19 | 19.0 |
-| SearchPosts older pages / Media scans | 0.3 | 23 | 6.9 |
-| GetTrends (Explore 1.0 + side column; 5-min client cache) | 2.0 | ~0.05 (shared instance cache) | 0.1 |
+| SearchPosts page 1 (0.5 hashtag taps + 0.5 searches; tag entry hit rate 40 %, an assumption) | 1.0 | 19 (**W4-23: 21.0** = 0.4 x 3 + 0.6 x 33) | 19.0 (**21.0**) |
+| SearchPosts older pages / Media scans | 0.3 | 23 (**W4-23: 24.0**, a quarter Media scans at 31.5) | 6.9 (**7.2**) |
+| GetTrends (Explore 1.0 + side column; 5-min client cache; **W4-23: plus 1.5 from the typeahead, which asks on each debounced `#tag` or word**) | 2.0 (**3.5**) | ~0.05 (shared instance cache; measured 0.03) | 0.1 |
 | Trend refresh (1.0 posts per DAU per day, cost model §1) | system | 1 per post | 1.0 |
-| **Total W4** | **5.1 requests** | | **≈ 36.6 reads, ≈ 0 writes, 0 deletes** |
+| **Total W4** | **5.1 requests (W4-23: 6.6)** | | **≈ 36.6 reads (W4-23: 38.9, +6.3 %), ≈ 0 writes, 0 deletes; egress 6.0 KB per DAU per day, not 41 KB; INR 12.4 / 41.3 / 284 at 300 / 1,000 / 3,000 DAU** |
 
 The who-to-follow card's reads are W3's line (one call per Explore open). The prefix and tag caches are per instance (3 cold caches at most), so the hit rates above are conservative at low DAU.
 
@@ -254,7 +254,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Open |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Open |
-| W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Open |
+| W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (in review) |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged | serialise dev applies with W3's | Open |
 
 Order:
@@ -741,7 +741,7 @@ Order:
 - **Seam.** Checks the rate-limit multiplication and the `stage-ladder` scraping vectors.
 - **Parallel with W3:** yes.
 
-### W4-23 — Cost report  [owner: sre-performance] [size: S] [depends: W4-8, W4-10]  Status: Open
+### W4-23 — Cost report  [owner: sre-performance] [size: S] [depends: W4-8, W4-10]  Status: Done (in review)
 - **Description.**
   - Add the W4 rows (+36.6 reads per DAU, about 0 writes, 5.1 requests) to `docs/reviews/cost-model.md` §2-§3, alongside W2's if W2-15 has not landed.
   - Run an emulator load smoke: `make loadtest SCENARIO=search` (typeahead burst, hashtag page 1 with a warm and a cold entry, trends refresh at 2,000 posts).
