@@ -97,13 +97,19 @@ class _AppSearchFieldState extends State<AppSearchField> {
 
   SearchSuggestionsCubit _ensureCubit() {
     final onboarding = context.read<OnboardingBloc>().state;
-    return _cubit ??= SearchSuggestionsCubit(
+    final existing = _cubit;
+    if (existing != null) return existing;
+    final cubit = _cubit = SearchSuggestionsCubit(
       repository: context.read<SearchRepository>(),
       store: context.read<RecentSearchesStore>(),
       uid: onboarding.profile?.userId ?? '',
       trendsEnabled: onboarding.enabledFeatures.contains(kFeatureTrends),
       debounce: widget.debounce,
-    )..textChanged(_text.text);
+    );
+    // Text the screen put in the field (the results page shows its own query)
+    // is not typed: it asks nothing until the user edits it.
+    if (_text.text != widget.initialText) cubit.textChanged(_text.text);
+    return cubit;
   }
 
   void _onFocus() {

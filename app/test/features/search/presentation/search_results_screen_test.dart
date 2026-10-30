@@ -497,11 +497,7 @@ void main() {
         expect(find.text('User 1'), findsOneWidget);
 
         await tapTab(tester, 'Top');
-        expect(
-          search.calls.where((c) => c.startsWith('posts:')),
-          isEmpty,
-          reason: 'no posts call',
-        );
+        expect(search.calls, ['people:123'], reason: 'no posts call');
         expect(find.text(kSearchPostsHintTitle), findsOneWidget);
       },
     );
