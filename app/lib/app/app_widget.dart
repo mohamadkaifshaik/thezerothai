@@ -29,6 +29,8 @@ import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
+import '../features/search/data/recent_searches_store.dart';
+import '../features/search/data/search_repository.dart';
 import '../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../features/moderation/data/moderation_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
@@ -72,6 +74,7 @@ class AppWidget extends StatefulWidget {
     required this.moderationRepository,
     required this.engagementRepository,
     required this.bookmarksRepository,
+    this.searchRepository,
     required this.likesRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
@@ -105,6 +108,9 @@ class AppWidget extends StatefulWidget {
   /// Bookmarks (W2-6, `FEATURE_BOOKMARKS`): the session overlay and
   /// Add / RemoveBookmark.
   final BookmarksRepository bookmarksRepository;
+
+  /// Search (W4-13, `FEATURE_SEARCH`); null in tests that do not search.
+  final SearchRepository? searchRepository;
 
   /// The Likes tab of History (W3-18, `FEATURE_LIKES_LIST`): `ListLikedPosts`
   /// in session memory; sign-out forgets it.
@@ -185,6 +191,10 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
+  // Recent searches (W4-14): this device only, wiped on sign-out.
+  late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
+    widget.database,
+  );
   late final StreamSubscription<OnboardingState> _onboardingSub;
   Set<String>? _lastFeatures;
   int _lastUnread = 0;
@@ -333,12 +343,17 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.timelineRepository),
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
+        RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
         RepositoryProvider.value(value: widget.engagementRepository),
         RepositoryProvider.value(value: widget.bookmarksRepository),
+        if (widget.searchRepository != null)
+          RepositoryProvider<SearchRepository>.value(
+            value: widget.searchRepository!,
+          ),
         RepositoryProvider.value(value: widget.likesRepository),
       ],
       child: MultiBlocProvider(
