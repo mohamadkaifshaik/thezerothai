@@ -986,6 +986,11 @@ func TestUndoNeverConsultsAudience(t *testing.T) {
 	}
 }
 
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (fakeDir) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}
+
 // ByHashtag and CreatedAfter are search and trends queries (ADR-0028); engagement never calls them.
 func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil

@@ -310,3 +310,8 @@ const (
 	postA = "1000000000000000001"
 	postB = "1000000000000000002"
 )
+
+// SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.
+func (d *fakeDirectory) SearchHandles(context.Context, string, int) ([]identity.Profile, error) {
+	return nil, nil
+}
