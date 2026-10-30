@@ -68,6 +68,7 @@ extension type IdentityServiceClient (connect.Transport _transport) {
   /// failed count leaves it 0 and GetMe still answers.
   /// unread_conversation_count (ADR-0027 D10): only when FEATURE_MESSAGING is on for the caller, a count() aggregation
   /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
+  /// home_tabs (ADR-0030 D6): from users/{uid}, already read: 0 reads.
   /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
   /// on, cached 30 s), writes 0.
   Future<dzerothidentityv1identity.GetMeResponse> getMe(

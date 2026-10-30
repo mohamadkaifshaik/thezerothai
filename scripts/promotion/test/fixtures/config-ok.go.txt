@@ -17,6 +17,7 @@
 	featureScheduledPosts, err := flags.LoadSpec("SCHEDULED_POSTS", "scheduled_posts", flags.Off)
 	featureBookmarks, err := flags.LoadSpec("BOOKMARKS", "bookmarks", flags.Off)
 	featureMessaging, err := flags.LoadSpec("MESSAGING", "messaging", flags.Off)
+	featureLists, err := flags.LoadSpec("LISTS", "lists", flags.Off)
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	featureProfileTabs, err := flags.LoadSpec("PROFILE_TABS", "profile_tabs", flags.Off)
 	featureLikesList, err := flags.LoadSpec("LIKES_LIST", "likes_list", flags.Off)

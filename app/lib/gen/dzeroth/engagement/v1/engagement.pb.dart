@@ -1373,6 +1373,154 @@ class ListLikedPostsResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class VotePollRequest extends $pb.GeneratedMessage {
+  factory VotePollRequest({
+    $core.String? idempotencyKey,
+    $core.String? postId,
+    $core.int? choiceIndex,
+  }) {
+    final result = VotePollRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (postId != null) result.postId = postId;
+    if (choiceIndex != null) result.choiceIndex = choiceIndex;
+    return result;
+  }
+
+  VotePollRequest._();
+
+  factory VotePollRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VotePollRequest()..mergeFromBuffer(data, registry);
+  factory VotePollRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VotePollRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VotePollRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: VotePollRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'postId')
+    ..aI(3, _omitFieldNames ? '' : 'choiceIndex')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VotePollRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VotePollRequest copyWith(void Function(VotePollRequest) updates) =>
+      super.copyWith((message) => updates(message as VotePollRequest))
+          as VotePollRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VotePollRequest() / VotePollRequest.new instead')
+  static VotePollRequest create() => VotePollRequest._();
+  static $pb.GeneratedMessage $_createMessage() => VotePollRequest._();
+  @$core.override
+  VotePollRequest createEmptyInstance() => VotePollRequest._();
+  @$core.pragma('dart2js:noInline')
+  static VotePollRequest getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VotePollRequest>(
+          VotePollRequest.$_createMessage);
+  static VotePollRequest? _defaultInstance;
+
+  /// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per (post, choice) intent.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// The post with the poll; a REPOST id votes in its original.
+  @$pb.TagNumber(2)
+  $core.String get postId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set postId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPostId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPostId() => $_clearField(2);
+
+  /// 0-based index into Poll.choices.
+  @$pb.TagNumber(3)
+  $core.int get choiceIndex => $_getIZ(2);
+  @$pb.TagNumber(3)
+  set choiceIndex($core.int value) => $_setSignedInt32(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasChoiceIndex() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearChoiceIndex() => $_clearField(3);
+}
+
+class VotePollResponse extends $pb.GeneratedMessage {
+  factory VotePollResponse({
+    $0.PostView? post,
+  }) {
+    final result = VotePollResponse._();
+    if (post != null) result.post = post;
+    return result;
+  }
+
+  VotePollResponse._();
+
+  factory VotePollResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VotePollResponse()..mergeFromBuffer(data, registry);
+  factory VotePollResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VotePollResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VotePollResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.engagement.v1'),
+      createEmptyInstance: VotePollResponse.$_createMessage)
+    ..aOM<$0.PostView>(1, _omitFieldNames ? '' : 'post',
+        subBuilder: $0.PostView.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VotePollResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VotePollResponse copyWith(void Function(VotePollResponse) updates) =>
+      super.copyWith((message) => updates(message as VotePollResponse))
+          as VotePollResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VotePollResponse() / VotePollResponse.new instead')
+  static VotePollResponse create() => VotePollResponse._();
+  static $pb.GeneratedMessage $_createMessage() => VotePollResponse._();
+  @$core.override
+  VotePollResponse createEmptyInstance() => VotePollResponse._();
+  @$core.pragma('dart2js:noInline')
+  static VotePollResponse getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VotePollResponse>(
+          VotePollResponse.$_createMessage);
+  static VotePollResponse? _defaultInstance;
+
+  /// The poll's post (the original when post_id named a REPOST) as the caller now sees it: results visible, the
+  /// committed counts and viewer_poll_choice set.
+  @$pb.TagNumber(1)
+  $0.PostView get post => $_getN(0);
+  @$pb.TagNumber(1)
+  set post($0.PostView value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  $0.PostView ensurePost() => $_ensure(0);
+}
+
 class EngagementServiceApi {
   final $pb.RpcClient _client;
 
@@ -1517,6 +1665,44 @@ class EngagementServiceApi {
           $pb.ClientContext? ctx, ListLikedPostsRequest request) =>
       _client.invoke<ListLikedPostsResponse>(ctx, 'EngagementService',
           'ListLikedPosts', request, ListLikedPostsResponse());
+
+  /// Vote in a post's poll (ADR-0029 D6, D7). One vote per account per poll, final: it cannot be changed or withdrawn.
+  /// Owns pollVotes/{postId}_{uid} {postId, uid, choice, createdAt, expireAt = closes_at + 30 d, TTL}. Nobody, the
+  /// author included, can list who voted or for what; no notification is sent.
+  /// Order (each refusal writes nothing):
+  /// 1. Interceptors, before any handler read: per-uid bucket RATE_LIMIT_POLL_VOTE_PER_MIN (30/min per instance, at
+  ///    most 90/min with 3 instances) and the daily cap POLL_VOTES_PER_DAY (300; 50 for new accounts; per instance, so
+  ///    at most 900) => RESOURCE_EXHAUSTED + RATE_LIMITED (metadata["limit"] = "poll_votes_daily" for the cap).
+  ///    DEGRADED_MODE=readonly => UNAVAILABLE + DEGRADED_MODE.
+  /// 2. Flags, 0 reads: FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off (a caller outside a
+  ///    "polls" allowlist may vote in an existing poll); else FAILED_PRECONDITION + FEATURE_DISABLED,
+  ///    metadata["feature"] = "engagement" or "polls". FEATURE_POSTS must be on.
+  /// 3. Shape, 0 reads: idempotency_key format, post_id 19 digits, choice_index 0..3, verified email or Google/Apple
+  ///    provider; else VALIDATION (field "idempotency_key" | "post_id" | "choice_index") or EMAIL_NOT_VERIFIED.
+  /// 4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical);
+  ///    a REPOST id votes in its original.
+  /// 5. On that post, by server time: no poll => VALIDATION field "post_id"; the caller is the author => VALIDATION
+  ///    field "post_id"; closed => FAILED_PRECONDITION + POLL_CLOSED; choice_index beyond its choices => VALIDATION
+  ///    field "choice_index".
+  /// 6. One batch, no read in it: Create the vote doc, Increment the post's poll counters (Exists precondition) and
+  ///    ArrayUnion the choice into userLikes/{uid}. A concurrent or repeated vote commits at most once.
+  /// 7. The vote doc already exists: the same choice is a replay (success, the current state, 0 writes); another choice
+  ///    => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
+  ///    choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
+  ///    userLikes.
+  /// 8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
+  ///    the same idempotency_key.
+  /// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+  /// but not stored; pollVotes/{postId}_{uid} is the record.
+  /// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
+  /// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
+  /// planning 3; writes 3 (vote doc, post counters, userLikes) + 1 TTL delete at closes_at + 30 d. Replay or
+  /// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes. Charged to the per-uid
+  /// daily read budget (ADR-0010 D5).
+  $async.Future<VotePollResponse> votePoll(
+          $pb.ClientContext? ctx, VotePollRequest request) =>
+      _client.invoke<VotePollResponse>(
+          ctx, 'EngagementService', 'VotePoll', request, VotePollResponse());
 }
 
 const $core.bool _omitFieldNames =

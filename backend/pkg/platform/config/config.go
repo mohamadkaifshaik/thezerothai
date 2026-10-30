@@ -83,6 +83,9 @@ type Config struct {
 	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
 	// quota (ADR-0027 D13). The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
+	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES (ADR-0030 D10). The list buckets and
+	// the daily mutation cap live in RateLimit; the create and add quotas in Quota.
+	Lists ListsConfig
 	// Search holds the cache sizes and trend-refresh values of search and trends (ADR-0028 D9). The search buckets and the
 	// shared daily cap live in RateLimit.
 	Search SearchConfig
@@ -188,6 +191,10 @@ type Config struct {
 	// up. FEATURE_DISABLED feature=messaging otherwise. FEATURE_MESSAGING[_ALLOWLIST|_PERCENT], default off in every
 	// environment (dev ceiling: allowlist of 3, no prod raise).
 	FeatureMessaging flags.Spec
+	// FeatureLists is the ADR-0030 D9 flag (wire name `lists`) gating every ListService RPC, GetListTimeline and the LIST entries of
+	// SetHomeTabs and GetMe.home_tabs. FEATURE_LISTS[_ALLOWLIST|_PERCENT], default off in every environment (dev ceiling: allowlist,
+	// no prod raise). It also needs FEATURE_POSTS, like Home.
+	FeatureLists flags.Spec
 	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment. W3-4 registers it; W3-5 and W3-6 add the gates.
@@ -483,6 +490,11 @@ func Load() (Config, error) {
 		// ADR-0027 D13: SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
 		{"RATE_LIMIT_MESSAGES_SEND_PER_MIN", 20, &rl.MessagesSendPerUserPerMinute},
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
+		// ADR-0030 D10: the six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
+		// instance, x3 with 3 instances).
+		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},
+		{"RATE_LIMIT_LISTS_READ_PER_MIN", 30, &rl.ListsReadPerUserPerMinute},
+		{"RATE_LIMIT_LIST_TIMELINE_PER_MIN", 12, &rl.ListTimelinePerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -548,6 +560,8 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
+		// ADR-0030 D10: ONE daily cap over the six list mutations (limit_name "list_mutation_daily"); see RateLimitConfig.ListMutationsPerDay.
+		{&rl.ListMutationsPerDay, "LIST_MUTATIONS_PER_DAY", 500},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -753,6 +767,27 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
+	// ADR-0030 D10: 10 CreateList writes and 300 AddListMember writes per IST day, 3 and 50 for accounts younger than the new-account
+	// window (quota.ListCreates, quota.ListAdds). RemoveListMember, UpdateList, DeleteList and SetHomeTabs have no quota.
+	for _, f := range []struct {
+		dst *int
+		key string
+		def int
+	}{
+		{&q.ListCreatesPerDay, "QUOTA_LIST_CREATES_PER_DAY", 10},
+		{&q.NewAccountListCreatesPerDay, "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY", 3},
+		{&q.ListAddsPerDay, "QUOTA_LIST_ADDS_PER_DAY", 300},
+		{&q.NewAccountListAddsPerDay, "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", 50},
+	} {
+		v, err := getInt(f.key, f.def)
+		if err != nil {
+			return Config{}, err
+		}
+		if v <= 0 {
+			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
+		}
+		*f.dst = v
+	}
 	// ADR-0025 D8: 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
 	if q.PrivacyTogglesPerDay, err = getInt("QUOTA_PRIVACY_TOGGLES_PER_DAY", 4); err != nil {
 		return Config{}, err
@@ -765,6 +800,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	messaging, err := loadMessaging()
+	if err != nil {
+		return Config{}, err
+	}
+	lists, err := loadLists()
 	if err != nil {
 		return Config{}, err
 	}
@@ -914,6 +953,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureLists, err := flags.LoadSpec("LISTS", "lists", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1008,6 +1051,7 @@ func Load() (Config, error) {
 		Suggestions:               suggestions,
 		Privacy:                   privacy,
 		Messaging:                 messaging,
+		Lists:                     lists,
 		Search:                    search,
 		HandleChangeCooldown:      handleCooldown,
 		ShutdownTimeout:           shutdownTimeout,
@@ -1032,6 +1076,7 @@ func Load() (Config, error) {
 		FeatureScheduledPosts:     featureScheduledPosts,
 		FeatureBookmarks:          featureBookmarks,
 		FeatureMessaging:          featureMessaging,
+		FeatureLists:              featureLists,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

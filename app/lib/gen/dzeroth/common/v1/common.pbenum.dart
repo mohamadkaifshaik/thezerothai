@@ -14,6 +14,34 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
+/// What a pinned Home tab shows. A new kind is additive: a client that does not know a kind hides that tab.
+class HomeTabKind extends $pb.ProtobufEnum {
+  static const HomeTabKind HOME_TAB_KIND_UNSPECIFIED =
+      HomeTabKind._(0, _omitEnumNames ? '' : 'HOME_TAB_KIND_UNSPECIFIED');
+
+  /// A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
+  static const HomeTabKind HOME_TAB_KIND_LIST =
+      HomeTabKind._(1, _omitEnumNames ? '' : 'HOME_TAB_KIND_LIST');
+
+  /// A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
+  /// SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+  static const HomeTabKind HOME_TAB_KIND_COMMUNITY =
+      HomeTabKind._(2, _omitEnumNames ? '' : 'HOME_TAB_KIND_COMMUNITY');
+
+  static const $core.List<HomeTabKind> values = <HomeTabKind>[
+    HOME_TAB_KIND_UNSPECIFIED,
+    HOME_TAB_KIND_LIST,
+    HOME_TAB_KIND_COMMUNITY,
+  ];
+
+  static final $core.List<HomeTabKind?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static HomeTabKind? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const HomeTabKind._(super.value, super.name);
+}
+
 class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_UNSPECIFIED =
       ErrorReason._(0, _omitEnumNames ? '' : 'ERROR_REASON_UNSPECIFIED');
@@ -108,6 +136,17 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_CANNOT_MESSAGE =
       ErrorReason._(18, _omitEnumNames ? '' : 'ERROR_REASON_CANNOT_MESSAGE');
 
+  /// FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+  /// and show its final results; do not retry.
+  static const ErrorReason ERROR_REASON_POLL_CLOSED =
+      ErrorReason._(19, _omitEnumNames ? '' : 'ERROR_REASON_POLL_CLOSED');
+
+  /// FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+  /// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
+  /// that choice: a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  static const ErrorReason ERROR_REASON_ALREADY_VOTED =
+      ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -128,10 +167,12 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_REPLY_NOT_ALLOWED,
     ERROR_REASON_PROTECTED_ACCOUNT,
     ERROR_REASON_CANNOT_MESSAGE,
+    ERROR_REASON_POLL_CLOSED,
+    ERROR_REASON_ALREADY_VOTED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 18);
+      $pb.ProtobufEnum.$_initByValueList(values, 20);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

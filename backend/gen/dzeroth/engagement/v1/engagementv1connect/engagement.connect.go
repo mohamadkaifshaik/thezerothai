@@ -2,9 +2,10 @@
 //
 // Source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018). Owner module: backend/internal/engagement.
+// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
+// module: backend/internal/engagement.
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
-// users/{uid}/bookmarks/{postId}. The counters (likeCount,
+// users/{uid}/bookmarks/{postId}, and (ADR-0029) pollVotes/{postId}_{uid}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
@@ -76,6 +77,9 @@ const (
 	// EngagementServiceListLikedPostsProcedure is the fully-qualified name of the EngagementService's
 	// ListLikedPosts RPC.
 	EngagementServiceListLikedPostsProcedure = "/dzeroth.engagement.v1.EngagementService/ListLikedPosts"
+	// EngagementServiceVotePollProcedure is the fully-qualified name of the EngagementService's
+	// VotePoll RPC.
+	EngagementServiceVotePollProcedure = "/dzeroth.engagement.v1.EngagementService/VotePoll"
 )
 
 // EngagementServiceClient is a client for the dzeroth.engagement.v1.EngagementService service.
@@ -188,6 +192,41 @@ type EngagementServiceClient interface {
 	// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
 	// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
 	ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error)
+	// Vote in a post's poll (ADR-0029 D6, D7). One vote per account per poll, final: it cannot be changed or withdrawn.
+	// Owns pollVotes/{postId}_{uid} {postId, uid, choice, createdAt, expireAt = closes_at + 30 d, TTL}. Nobody, the
+	// author included, can list who voted or for what; no notification is sent.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors, before any handler read: per-uid bucket RATE_LIMIT_POLL_VOTE_PER_MIN (30/min per instance, at
+	//     most 90/min with 3 instances) and the daily cap POLL_VOTES_PER_DAY (300; 50 for new accounts; per instance, so
+	//     at most 900) => RESOURCE_EXHAUSTED + RATE_LIMITED (metadata["limit"] = "poll_votes_daily" for the cap).
+	//     DEGRADED_MODE=readonly => UNAVAILABLE + DEGRADED_MODE.
+	//  2. Flags, 0 reads: FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off (a caller outside a
+	//     "polls" allowlist may vote in an existing poll); else FAILED_PRECONDITION + FEATURE_DISABLED,
+	//     metadata["feature"] = "engagement" or "polls". FEATURE_POSTS must be on.
+	//  3. Shape, 0 reads: idempotency_key format, post_id 19 digits, choice_index 0..3, verified email or Google/Apple
+	//     provider; else VALIDATION (field "idempotency_key" | "post_id" | "choice_index") or EMAIL_NOT_VERIFIED.
+	//  4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical);
+	//     a REPOST id votes in its original.
+	//  5. On that post, by server time: no poll => VALIDATION field "post_id"; the caller is the author => VALIDATION
+	//     field "post_id"; closed => FAILED_PRECONDITION + POLL_CLOSED; choice_index beyond its choices => VALIDATION
+	//     field "choice_index".
+	//  6. One batch, no read in it: Create the vote doc, Increment the post's poll counters (Exists precondition) and
+	//     ArrayUnion the choice into userLikes/{uid}. A concurrent or repeated vote commits at most once.
+	//  7. The vote doc already exists: the same choice is a replay (success, the current state, 0 writes); another choice
+	//     => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
+	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
+	//     userLikes.
+	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
+	//     the same idempotency_key.
+	//
+	// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+	// but not stored; pollVotes/{postId}_{uid} is the record.
+	// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
+	// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
+	// planning 3; writes 3 (vote doc, post counters, userLikes) + 1 TTL delete at closes_at + 30 d. Replay or
+	// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes. Charged to the per-uid
+	// daily read budget (ADR-0010 D5).
+	VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error)
 }
 
 // NewEngagementServiceClient constructs a client for the dzeroth.engagement.v1.EngagementService
@@ -251,6 +290,12 @@ func NewEngagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		votePoll: connect.NewClient[v1.VotePollRequest, v1.VotePollResponse](
+			httpClient,
+			baseURL+EngagementServiceVotePollProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("VotePoll")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -264,6 +309,7 @@ type engagementServiceClient struct {
 	removeBookmark *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
 	listBookmarks  *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
 	listLikedPosts *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
+	votePoll       *connect.Client[v1.VotePollRequest, v1.VotePollResponse]
 }
 
 // LikePost calls dzeroth.engagement.v1.EngagementService.LikePost.
@@ -304,6 +350,11 @@ func (c *engagementServiceClient) ListBookmarks(ctx context.Context, req *connec
 // ListLikedPosts calls dzeroth.engagement.v1.EngagementService.ListLikedPosts.
 func (c *engagementServiceClient) ListLikedPosts(ctx context.Context, req *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error) {
 	return c.listLikedPosts.CallUnary(ctx, req)
+}
+
+// VotePoll calls dzeroth.engagement.v1.EngagementService.VotePoll.
+func (c *engagementServiceClient) VotePoll(ctx context.Context, req *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error) {
+	return c.votePoll.CallUnary(ctx, req)
 }
 
 // EngagementServiceHandler is an implementation of the dzeroth.engagement.v1.EngagementService
@@ -417,6 +468,41 @@ type EngagementServiceHandler interface {
 	// Firestore: reads 23 cold at page 20 / 53 at page 50 (interceptor 1, userLikes 1, GetMany <= page, caller graph
 	// 1); warm (posts cached) 20 / 50, planning 22; an empty recent[] 2. Writes 0.
 	ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error)
+	// Vote in a post's poll (ADR-0029 D6, D7). One vote per account per poll, final: it cannot be changed or withdrawn.
+	// Owns pollVotes/{postId}_{uid} {postId, uid, choice, createdAt, expireAt = closes_at + 30 d, TTL}. Nobody, the
+	// author included, can list who voted or for what; no notification is sent.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors, before any handler read: per-uid bucket RATE_LIMIT_POLL_VOTE_PER_MIN (30/min per instance, at
+	//     most 90/min with 3 instances) and the daily cap POLL_VOTES_PER_DAY (300; 50 for new accounts; per instance, so
+	//     at most 900) => RESOURCE_EXHAUSTED + RATE_LIMITED (metadata["limit"] = "poll_votes_daily" for the cap).
+	//     DEGRADED_MODE=readonly => UNAVAILABLE + DEGRADED_MODE.
+	//  2. Flags, 0 reads: FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off (a caller outside a
+	//     "polls" allowlist may vote in an existing poll); else FAILED_PRECONDITION + FEATURE_DISABLED,
+	//     metadata["feature"] = "engagement" or "polls". FEATURE_POSTS must be on.
+	//  3. Shape, 0 reads: idempotency_key format, post_id 19 digits, choice_index 0..3, verified email or Google/Apple
+	//     provider; else VALIDATION (field "idempotency_key" | "post_id" | "choice_index") or EMAIL_NOT_VERIFIED.
+	//  4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical);
+	//     a REPOST id votes in its original.
+	//  5. On that post, by server time: no poll => VALIDATION field "post_id"; the caller is the author => VALIDATION
+	//     field "post_id"; closed => FAILED_PRECONDITION + POLL_CLOSED; choice_index beyond its choices => VALIDATION
+	//     field "choice_index".
+	//  6. One batch, no read in it: Create the vote doc, Increment the post's poll counters (Exists precondition) and
+	//     ArrayUnion the choice into userLikes/{uid}. A concurrent or repeated vote commits at most once.
+	//  7. The vote doc already exists: the same choice is a replay (success, the current state, 0 writes); another choice
+	//     => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
+	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
+	//     userLikes.
+	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
+	//     the same idempotency_key.
+	//
+	// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+	// but not stored; pollVotes/{postId}_{uid} is the record.
+	// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
+	// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
+	// planning 3; writes 3 (vote doc, post counters, userLikes) + 1 TTL delete at closes_at + 30 d. Replay or
+	// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes. Charged to the per-uid
+	// daily read budget (ADR-0010 D5).
+	VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error)
 }
 
 // NewEngagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -476,6 +562,12 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	engagementServiceVotePollHandler := connect.NewUnaryHandler(
+		EngagementServiceVotePollProcedure,
+		svc.VotePoll,
+		connect.WithSchema(engagementServiceMethods.ByName("VotePoll")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.engagement.v1.EngagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngagementServiceLikePostProcedure:
@@ -494,6 +586,8 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 			engagementServiceListBookmarksHandler.ServeHTTP(w, r)
 		case EngagementServiceListLikedPostsProcedure:
 			engagementServiceListLikedPostsHandler.ServeHTTP(w, r)
+		case EngagementServiceVotePollProcedure:
+			engagementServiceVotePollHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -533,4 +627,8 @@ func (UnimplementedEngagementServiceHandler) ListBookmarks(context.Context, *con
 
 func (UnimplementedEngagementServiceHandler) ListLikedPosts(context.Context, *connect.Request[v1.ListLikedPostsRequest]) (*connect.Response[v1.ListLikedPostsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.ListLikedPosts is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.VotePoll is not implemented"))
 }

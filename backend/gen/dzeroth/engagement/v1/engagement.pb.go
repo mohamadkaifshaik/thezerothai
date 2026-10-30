@@ -4,9 +4,10 @@
 // 	protoc        (unknown)
 // source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018). Owner module: backend/internal/engagement.
+// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
+// module: backend/internal/engagement.
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
-// users/{uid}/bookmarks/{postId}. The counters (likeCount,
+// users/{uid}/bookmarks/{postId}, and (ADR-0029) pollVotes/{postId}_{uid}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
@@ -1036,6 +1037,115 @@ func (x *ListLikedPostsResponse) GetNextPageToken() string {
 	return ""
 }
 
+type VotePollRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per (post, choice) intent.
+	IdempotencyKey string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	// The post with the poll; a REPOST id votes in its original.
+	PostId string `protobuf:"bytes,2,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
+	// 0-based index into Poll.choices.
+	ChoiceIndex   int32 `protobuf:"varint,3,opt,name=choice_index,json=choiceIndex,proto3" json:"choice_index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VotePollRequest) Reset() {
+	*x = VotePollRequest{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VotePollRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VotePollRequest) ProtoMessage() {}
+
+func (x *VotePollRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VotePollRequest.ProtoReflect.Descriptor instead.
+func (*VotePollRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *VotePollRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *VotePollRequest) GetPostId() string {
+	if x != nil {
+		return x.PostId
+	}
+	return ""
+}
+
+func (x *VotePollRequest) GetChoiceIndex() int32 {
+	if x != nil {
+		return x.ChoiceIndex
+	}
+	return 0
+}
+
+type VotePollResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The poll's post (the original when post_id named a REPOST) as the caller now sees it: results visible, the
+	// committed counts and viewer_poll_choice set.
+	Post          *v1.PostView `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VotePollResponse) Reset() {
+	*x = VotePollResponse{}
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VotePollResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VotePollResponse) ProtoMessage() {}
+
+func (x *VotePollResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_engagement_v1_engagement_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VotePollResponse.ProtoReflect.Descriptor instead.
+func (*VotePollResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *VotePollResponse) GetPost() *v1.PostView {
+	if x != nil {
+		return x.Post
+	}
+	return nil
+}
+
 var File_dzeroth_engagement_v1_engagement_proto protoreflect.FileDescriptor
 
 const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
@@ -1108,7 +1218,13 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"r\n" +
 	"\x16ListLikedPostsResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken2\xd3\x06\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"v\n" +
+	"\x0fVotePollRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
+	"\apost_id\x18\x02 \x01(\tR\x06postId\x12!\n" +
+	"\fchoice_index\x18\x03 \x01(\x05R\vchoiceIndex\"B\n" +
+	"\x10VotePollResponse\x12.\n" +
+	"\x04post\x18\x01 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x04post2\xb0\a\n" +
 	"\x11EngagementService\x12[\n" +
 	"\bLikePost\x12&.dzeroth.engagement.v1.LikePostRequest\x1a'.dzeroth.engagement.v1.LikePostResponse\x12a\n" +
 	"\n" +
@@ -1120,7 +1236,8 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"\vAddBookmark\x12).dzeroth.engagement.v1.AddBookmarkRequest\x1a*.dzeroth.engagement.v1.AddBookmarkResponse\x12m\n" +
 	"\x0eRemoveBookmark\x12,.dzeroth.engagement.v1.RemoveBookmarkRequest\x1a-.dzeroth.engagement.v1.RemoveBookmarkResponse\x12o\n" +
 	"\rListBookmarks\x12+.dzeroth.engagement.v1.ListBookmarksRequest\x1a,.dzeroth.engagement.v1.ListBookmarksResponse\"\x03\x90\x02\x01\x12r\n" +
-	"\x0eListLikedPosts\x12,.dzeroth.engagement.v1.ListLikedPostsRequest\x1a-.dzeroth.engagement.v1.ListLikedPostsResponse\"\x03\x90\x02\x01BKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
+	"\x0eListLikedPosts\x12,.dzeroth.engagement.v1.ListLikedPostsRequest\x1a-.dzeroth.engagement.v1.ListLikedPostsResponse\"\x03\x90\x02\x01\x12[\n" +
+	"\bVotePoll\x12&.dzeroth.engagement.v1.VotePollRequest\x1a'.dzeroth.engagement.v1.VotePollResponseBKZIgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1;engagementv1b\x06proto3"
 
 var (
 	file_dzeroth_engagement_v1_engagement_proto_rawDescOnce sync.Once
@@ -1134,7 +1251,7 @@ func file_dzeroth_engagement_v1_engagement_proto_rawDescGZIP() []byte {
 	return file_dzeroth_engagement_v1_engagement_proto_rawDescData
 }
 
-var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_dzeroth_engagement_v1_engagement_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_dzeroth_engagement_v1_engagement_proto_goTypes = []any{
 	(*PostEngagement)(nil),         // 0: dzeroth.engagement.v1.PostEngagement
 	(*LikePostRequest)(nil),        // 1: dzeroth.engagement.v1.LikePostRequest
@@ -1155,8 +1272,10 @@ var file_dzeroth_engagement_v1_engagement_proto_goTypes = []any{
 	(*ListBookmarksResponse)(nil),  // 16: dzeroth.engagement.v1.ListBookmarksResponse
 	(*ListLikedPostsRequest)(nil),  // 17: dzeroth.engagement.v1.ListLikedPostsRequest
 	(*ListLikedPostsResponse)(nil), // 18: dzeroth.engagement.v1.ListLikedPostsResponse
-	(*v1.PostView)(nil),            // 19: dzeroth.posts.v1.PostView
-	(*timestamppb.Timestamp)(nil),  // 20: google.protobuf.Timestamp
+	(*VotePollRequest)(nil),        // 19: dzeroth.engagement.v1.VotePollRequest
+	(*VotePollResponse)(nil),       // 20: dzeroth.engagement.v1.VotePollResponse
+	(*v1.PostView)(nil),            // 21: dzeroth.posts.v1.PostView
+	(*timestamppb.Timestamp)(nil),  // 22: google.protobuf.Timestamp
 }
 var file_dzeroth_engagement_v1_engagement_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.engagement.v1.LikePostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
@@ -1165,31 +1284,34 @@ var file_dzeroth_engagement_v1_engagement_proto_depIdxs = []int32{
 	0,  // 3: dzeroth.engagement.v1.UndoRepostResponse.engagement:type_name -> dzeroth.engagement.v1.PostEngagement
 	9,  // 4: dzeroth.engagement.v1.AddBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
 	9,  // 5: dzeroth.engagement.v1.RemoveBookmarkResponse.state:type_name -> dzeroth.engagement.v1.BookmarkState
-	19, // 6: dzeroth.engagement.v1.Bookmark.post:type_name -> dzeroth.posts.v1.PostView
-	20, // 7: dzeroth.engagement.v1.Bookmark.bookmarked_at:type_name -> google.protobuf.Timestamp
+	21, // 6: dzeroth.engagement.v1.Bookmark.post:type_name -> dzeroth.posts.v1.PostView
+	22, // 7: dzeroth.engagement.v1.Bookmark.bookmarked_at:type_name -> google.protobuf.Timestamp
 	15, // 8: dzeroth.engagement.v1.ListBookmarksResponse.bookmarks:type_name -> dzeroth.engagement.v1.Bookmark
-	19, // 9: dzeroth.engagement.v1.ListLikedPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
-	1,  // 10: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
-	3,  // 11: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
-	5,  // 12: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
-	7,  // 13: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
-	10, // 14: dzeroth.engagement.v1.EngagementService.AddBookmark:input_type -> dzeroth.engagement.v1.AddBookmarkRequest
-	12, // 15: dzeroth.engagement.v1.EngagementService.RemoveBookmark:input_type -> dzeroth.engagement.v1.RemoveBookmarkRequest
-	14, // 16: dzeroth.engagement.v1.EngagementService.ListBookmarks:input_type -> dzeroth.engagement.v1.ListBookmarksRequest
-	17, // 17: dzeroth.engagement.v1.EngagementService.ListLikedPosts:input_type -> dzeroth.engagement.v1.ListLikedPostsRequest
-	2,  // 18: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
-	4,  // 19: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
-	6,  // 20: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
-	8,  // 21: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
-	11, // 22: dzeroth.engagement.v1.EngagementService.AddBookmark:output_type -> dzeroth.engagement.v1.AddBookmarkResponse
-	13, // 23: dzeroth.engagement.v1.EngagementService.RemoveBookmark:output_type -> dzeroth.engagement.v1.RemoveBookmarkResponse
-	16, // 24: dzeroth.engagement.v1.EngagementService.ListBookmarks:output_type -> dzeroth.engagement.v1.ListBookmarksResponse
-	18, // 25: dzeroth.engagement.v1.EngagementService.ListLikedPosts:output_type -> dzeroth.engagement.v1.ListLikedPostsResponse
-	18, // [18:26] is the sub-list for method output_type
-	10, // [10:18] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	21, // 9: dzeroth.engagement.v1.ListLikedPostsResponse.posts:type_name -> dzeroth.posts.v1.PostView
+	21, // 10: dzeroth.engagement.v1.VotePollResponse.post:type_name -> dzeroth.posts.v1.PostView
+	1,  // 11: dzeroth.engagement.v1.EngagementService.LikePost:input_type -> dzeroth.engagement.v1.LikePostRequest
+	3,  // 12: dzeroth.engagement.v1.EngagementService.UnlikePost:input_type -> dzeroth.engagement.v1.UnlikePostRequest
+	5,  // 13: dzeroth.engagement.v1.EngagementService.RepostPost:input_type -> dzeroth.engagement.v1.RepostPostRequest
+	7,  // 14: dzeroth.engagement.v1.EngagementService.UndoRepost:input_type -> dzeroth.engagement.v1.UndoRepostRequest
+	10, // 15: dzeroth.engagement.v1.EngagementService.AddBookmark:input_type -> dzeroth.engagement.v1.AddBookmarkRequest
+	12, // 16: dzeroth.engagement.v1.EngagementService.RemoveBookmark:input_type -> dzeroth.engagement.v1.RemoveBookmarkRequest
+	14, // 17: dzeroth.engagement.v1.EngagementService.ListBookmarks:input_type -> dzeroth.engagement.v1.ListBookmarksRequest
+	17, // 18: dzeroth.engagement.v1.EngagementService.ListLikedPosts:input_type -> dzeroth.engagement.v1.ListLikedPostsRequest
+	19, // 19: dzeroth.engagement.v1.EngagementService.VotePoll:input_type -> dzeroth.engagement.v1.VotePollRequest
+	2,  // 20: dzeroth.engagement.v1.EngagementService.LikePost:output_type -> dzeroth.engagement.v1.LikePostResponse
+	4,  // 21: dzeroth.engagement.v1.EngagementService.UnlikePost:output_type -> dzeroth.engagement.v1.UnlikePostResponse
+	6,  // 22: dzeroth.engagement.v1.EngagementService.RepostPost:output_type -> dzeroth.engagement.v1.RepostPostResponse
+	8,  // 23: dzeroth.engagement.v1.EngagementService.UndoRepost:output_type -> dzeroth.engagement.v1.UndoRepostResponse
+	11, // 24: dzeroth.engagement.v1.EngagementService.AddBookmark:output_type -> dzeroth.engagement.v1.AddBookmarkResponse
+	13, // 25: dzeroth.engagement.v1.EngagementService.RemoveBookmark:output_type -> dzeroth.engagement.v1.RemoveBookmarkResponse
+	16, // 26: dzeroth.engagement.v1.EngagementService.ListBookmarks:output_type -> dzeroth.engagement.v1.ListBookmarksResponse
+	18, // 27: dzeroth.engagement.v1.EngagementService.ListLikedPosts:output_type -> dzeroth.engagement.v1.ListLikedPostsResponse
+	20, // 28: dzeroth.engagement.v1.EngagementService.VotePoll:output_type -> dzeroth.engagement.v1.VotePollResponse
+	20, // [20:29] is the sub-list for method output_type
+	11, // [11:20] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_engagement_v1_engagement_proto_init() }
@@ -1203,7 +1325,7 @@ func file_dzeroth_engagement_v1_engagement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_engagement_v1_engagement_proto_rawDesc), len(file_dzeroth_engagement_v1_engagement_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

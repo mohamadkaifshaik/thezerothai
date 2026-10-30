@@ -64,3 +64,26 @@ func getDuration(key string, def time.Duration) (time.Duration, error) {
 	}
 	return d, nil
 }
+
+// positiveInt is one env-backed count that must be > 0: a 0 would lock every user out of a feature or disable a cap, so
+// loadPositiveInts fails startup naming the key instead.
+type positiveInt struct {
+	dst *int
+	key string
+	def int
+}
+
+// loadPositiveInts reads every field with getInt and fails on the first unparseable or non-positive value, naming its key.
+func loadPositiveInts(fields []positiveInt) error {
+	for _, f := range fields {
+		v, err := getInt(f.key, f.def)
+		if err != nil {
+			return err
+		}
+		if v <= 0 {
+			return fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
+		}
+		*f.dst = v
+	}
+	return nil
+}
