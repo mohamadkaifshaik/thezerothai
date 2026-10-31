@@ -384,7 +384,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 ### Founder decisions, 2026-10-31
 
-These are worked out in ADR-0029 Amendment 1, which stays Proposed until the founder merges it.
+These are worked out in ADR-0029 Amendment 1, accepted in principle by the founder on 2026-10-31.
 
 - **Decided: the substance behind item 1.**
   - Polls inherit post visibility and block rules (either way). One vote per user, which can be changed until the poll
@@ -398,7 +398,15 @@ These are worked out in ADR-0029 Amendment 1, which stays Proposed until the fou
   > poll closes. Your export lists your current vote in each poll.
 - **The drafts line is unchanged.**
 - **Still open:** approval of both lines.
-- **Items 2, 4 and 5 stay open.**
+- **Second message, 2026-10-31 (ADR-0029 Amendment 1, "Founder decisions on the open items"):**
+  - Item 2 (Art. 9): polls soliciting sensitive personal information are prohibited, initially (W6-43).
+  - Item 4 (L-3 copy): "Individual choices are hidden from other users", never "anonymous" (W6-44); the policy keeps the
+    small-poll caveat.
+  - Item 5 (L-5): drafts expire 30 days after the user's last edit (W6-45).
+  - Item 1: the policy must disclose vote storage, visibility, retention and deletion (W6-46, `app/web/privacy.html`), and
+    vote retention is finalized before release (W6-47, needs W6-29). The drafts line gains the 30-day expiry.
+  - Still open: the founder's approval of the final policy text in W6-46, and the retention period in W6-47.
+- **Items 2, 4 and 5: decided in the second message above.**
   - "May be incomplete" does not answer item 5.
   - Item 4 is more pressing: a change moves one count down and another up, which shows both the old and the new choice
     in a small poll (Amendment 1 A2.9).

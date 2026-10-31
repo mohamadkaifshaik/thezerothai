@@ -1,5 +1,5 @@
 # 0029. Composer extras remainder: polls, drafts on the device, GIFs from the device (W6)
-Status: Accepted (founder, 2026-10-30: F1–F12 as written, including F2 the rule-4 natural-key bend and F11 sampled-frame GIF screening with its residual risk, the API reading the uploaded GIF, and GIFs rejected at the Vision cap); Amendment 1 Proposed (founder decisions 2026-10-31; awaiting founder acceptance of the interpretation and consequences)
+Status: Accepted (founder, 2026-10-30: F1–F12 as written, including F2 the rule-4 natural-key bend and F11 sampled-frame GIF screening with its residual risk, the API reading the uploaded GIF, and GIFs rejected at the Vision cap); Amendment 1 Accepted in principle (founder, 2026-10-31; see the acceptance note in Amendment 1)
 Date: 2026-10-30
 Deciders: architect (proposal); founder (accepts by merging the PR). F2 was decided by the founder on 2026-10-27 (plan
 header) and is restated here as a rule-4 bend; the merge confirms it. **F11 needs the founder's explicit acceptance**
@@ -22,10 +22,18 @@ Related ADRs:
 - ADR-0023: `userLikes.bookmarks`, `ViewerSet.BookmarksOnly`. ADR-0024: D4 `posts.hasMedia`. ADR-0025: protected
   authors, `posts.Audience`, `withheld` rows and PROTECTED embeds (L-2). ADR-0028: the current cost baseline.
 
-## Amendment 1 (2026-10-31, Proposed): poll blocking, vote changes, drafts and the Vision attempt cap
+## Amendment 1 (2026-10-31, Accepted in principle): poll blocking, vote changes, drafts and the Vision attempt cap
 
-**Status: Proposed (founder decisions 2026-10-31; awaiting founder acceptance of the interpretation and consequences).**
-Your merge of this PR accepts A1 to A5. Until then D1 to D13, N1 to N4 and the W6-27 behaviour merged in #535 stand.
+**Status: Accepted in principle (founder, 2026-10-31).** The founder's acceptance, verbatim in substance:
+- Blocking prevents new votes and vote changes, in either direction; votes cast before a block are preserved; votes can be
+  changed until the poll closes (A1, A2, the interpretation below).
+- Vision outages, timeouts and busy responses must not consume attempts (A5; a busy GIF slot takes no claim, A5.3).
+- The busy-GIF defect (A5.1) is fixed and tested in W6-40 (acceptance criterion: a GIF that meets a busy slot any number
+  of times is never REJECTED for attempts, and the busy path writes nothing).
+
+Everything else in A1 to A7 stands as written ("in principle"); W6-42's security review and the implementation PRs may
+refine details, and any change to an accepted point comes back to the founder. D1 to D13 and N1 to N4 stand except where
+A1 to A5 revise them.
 
 **Interpretation, read this first.** "Changes until closure" is read as: **each user holds exactly one vote at a time
 and may change it to another choice until the poll closes.** This **reverses** D6 step 7 ("a different choice is
@@ -621,18 +629,27 @@ No collection approaches 500 writes a second: a change updates an existing vote 
   "results: percents total 100, check and bold on the leader", and "tap on choice 2: exactly one VotePoll, bars with
   the check". They now also expect "Change vote".
 
-### Still open for the founder (not answered by the 2026-10-31 decisions)
-1. **GDPR Art. 9:** may polls ask about politics or religion while EU users can sign up? If yes, L-2 (W6-29) is
-   required before prod, and the policy should name the data.
-2. **The L-3 copy line**, more pressing now (A2.9): accept "Votes are anonymous, but in small polls the author may be
-   able to tell how you voted, and when you change it", or ask for a different rule (for example no changes on polls
-   from protected accounts).
-3. **The L-5 drafts age limit** (for example 90 days since the last edit), or none. "May be incomplete" does not
-   answer it.
-4. **Approval of the section 4 Privacy Policy text** of `docs/reviews/security-w6-composer-extras.md`. Its polls line
-   is revised there for vote changes.
+### Founder decisions on the open items (2026-10-31, second message)
+1. **GDPR Art. 9 → no sensitive-data polls, initially.** Polls must not solicit sensitive personal information (health,
+   religion or belief, political opinion, sex life or orientation, ethnicity, union membership, genetic or biometric
+   data). Enforced as a content rule (Terms/community rules, a composer hint, a report reason and the moderation runbook),
+   not by automated detection at Stage 0. W6-43. Because such polls are prohibited, L-2 (W6-29) is not promoted to an
+   Art. 9 requirement, but W6-29 stays required before release for retention (item 4).
+2. **L-3 copy → "Individual choices are hidden from other users"**, never "anonymous". This is accurate as built: no RPC
+   returns another account's choice (D4; only the voter sees their own, and only the voter's export lists it). Because
+   live totals can still reveal a choice (or a change, A2.9) in a very small poll, the Privacy Policy states that caveat
+   in plain words. W6-44.
+3. **L-5 → drafts expire 30 days after the user's last edit.** Device-local, enforced on the client (purge on open and on
+   app start; a scheduled post is server-side and not a draft). "May be incomplete" still holds. W6-45 (serialise with
+   W6-31 and W6-39, the same drafts table).
+4. **Privacy Policy → disclose vote storage, visibility, retention and deletion; finalize vote retention before
+   release.** As built: the vote doc expires `POLL_VOTE_TTL_AFTER_CLOSE` (default 30 days) after the poll closes, but the
+   per-account copy `userLikes.pollVotes` has no expiry until W6-29. The release is blocked until W6-29 is merged and the
+   founder confirms the period (proposed: 30 days after close for both). The policy text (`app/web/privacy.html`) is
+   W6-46; finalizing retention is W6-47. The section 4 polls line is revised for vote changes ("vote only once" is no
+   longer true).
 
-### What your merge accepts
+### What the founder accepted (2026-10-31, in principle)
 - The interpretation and its reversal of D6 step 7, F4 and D7's argument.
 - `ALREADY_VOTED` kept for a stale `expected_choice` (or choose the unconditional change instead).
 - `TARGET_BLOCKED` for a voter who blocks the author, hidden results until close for one who never voted, and
