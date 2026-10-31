@@ -662,3 +662,87 @@ func TestW617_FlagModes(t *testing.T) {
 		t.Errorf("engagement-off refusal cost reads=%d writes=%d", got.Reads(), got.Writes())
 	}
 }
+
+// A REPOST id acts on its original: the vote doc, the counts and the voter's userLikes entry all name the original; the voter's view of
+// the REPOST row carries viewer_poll_choice, and the embedded poll of that row never carries counts or results.
+func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
+	e := newPollChain(t)
+	a, reposter, voter := e.user(t), e.user(t), e.user(t)
+	pid := e.poll(t, a)
+	rp, err := e.eng.RepostPost(context.Background(), authed(reposter.token, &engagementv1.RepostPostRequest{IdempotencyKey: "w617-rp-key-0000000001", PostId: pid}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repostID := rp.Msg.GetRepostPostId()
+	v, err := e.vote(voter, "w617-rp-vote-key-00001", repostID, 2)
+	if err != nil {
+		t.Fatalf("vote by REPOST id: %v", err)
+	}
+	if v.GetPost().GetPostId() != pid || v.GetViewerPollChoice() != 3 {
+		t.Errorf("response is for post %s choice %d, want the original %s choice 3", v.GetPost().GetPostId(), v.GetViewerPollChoice(), pid)
+	}
+	if _, ok := voteDocFor(t, e, repostID, voter.uid); ok {
+		t.Error("a vote doc is keyed by the REPOST id")
+	}
+	if d, ok := voteDocFor(t, e, pid, voter.uid); !ok || d["choice"] != int64(2) {
+		t.Errorf("vote doc on the original = %v, %v", d, ok)
+	}
+	if total, counts := e.counts(t, pid); total != 1 || counts["2"] != 1 {
+		t.Errorf("original total=%d counts=%v", total, counts)
+	}
+	// The same vote through the original id is a replay (one natural key), a different choice is ALREADY_VOTED.
+	if _, err := e.vote(voter, "w617-rp-vote-key-00001", pid, 2); err != nil {
+		t.Errorf("replay through the original id: %v", err)
+	}
+	_, err = e.vote(voter, "w617-rp-vote-key-00002", repostID, 0)
+	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
+
+	tl, err := e.timeline.GetUserTimeline(context.Background(), authed(voter.token, &timelinev1.GetUserTimelineRequest{UserId: reposter.uid, PageSize: 20}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := 0
+	for _, row := range tl.Msg.GetPosts() {
+		if row.GetPost().GetKind() != postsv1.PostKind_POST_KIND_REPOST {
+			continue
+		}
+		rows++
+		emb := row.GetPost().GetEmbedded().GetPoll()
+		if row.GetViewerPollChoice() != 3 || emb == nil || emb.GetResultsVisible() || emb.GetTotalVotes() != 0 || emb.GetChoices()[2].GetVotes() != 0 {
+			t.Errorf("REPOST row: viewer_poll_choice=%d embedded poll=%v, want 3 and an embed with no counts", row.GetViewerPollChoice(), emb)
+		}
+	}
+	if rows != 1 {
+		t.Errorf("reposter's timeline has %d REPOST rows, want 1", rows)
+	}
+}
+
+// Polls add no Firestore read to the read path: GetPost and the user timeline cost the same reads for a poll post as for a plain post,
+// each on a fresh instance (equal cold caches), for a viewer who voted and one who did not.
+func TestW617_ReadBudgetPollVsPlain(t *testing.T) {
+	setup := newPollChain(t)
+	a, voted, fresh := setup.user(t), setup.user(t), setup.user(t)
+	pollID := setup.poll(t, a)
+	plain, err := setup.posts.CreatePost(context.Background(), authed(a.token, &postsv1.CreatePostRequest{IdempotencyKey: "w617-budget-plain-key-1", Text: "plain"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainID := plain.Msg.GetPost().GetPost().GetPostId()
+	if _, err := setup.vote(voted, "w617-budget-vote-key-01", pollID, 0); err != nil {
+		t.Fatal(err)
+	}
+	const getPost = "/dzeroth.posts.v1.PostService/GetPost"
+	for _, viewer := range []struct {
+		name string
+		u    testUser
+	}{{"voter", voted}, {"non-voter", fresh}} {
+		readsOf := func(id string) int64 {
+			e := newPollChain(t)
+			e.getPost(t, viewer.u, id)
+			return e.lineBudget(t, getPost).Reads()
+		}
+		if p, q := readsOf(pollID), readsOf(plainID); p != q {
+			t.Errorf("GetPost as %s: %d reads for the poll post, %d for the plain post, want equal", viewer.name, p, q)
+		}
+	}
+}
