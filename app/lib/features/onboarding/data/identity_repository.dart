@@ -83,6 +83,16 @@ class IdentityRepository {
     return _database.profileByUserId(userId);
   }
 
+  final List<void Function(identity.GetMeResponse response, int epoch)>
+  _getMeListeners = [];
+
+  /// Calls [listener] with every fresh `GetMe` answer and the session epoch
+  /// the request started in (for repositories that mirror a part of it, e.g.
+  /// the pinned Home tabs, W5-10). 0 extra RPCs; a listener must not throw.
+  void addGetMeListener(
+    void Function(identity.GetMeResponse response, int epoch) listener,
+  ) => _getMeListeners.add(listener);
+
   /// Throws [ProfileRequiredException] (via [guardApiCall]) if the caller has
   /// a Firebase account but hasn't called [createProfile] yet.
   Future<identity.GetMeResponse> getMe() {
@@ -91,6 +101,9 @@ class IdentityRepository {
       final response = await _apiClient.identity.getMe(identity.GetMeRequest());
       // A fresh flag set decides again, not an earlier refusal.
       _profileExtrasRefused = false;
+      for (final listener in List.of(_getMeListeners)) {
+        listener(response, epoch);
+      }
       await _cacheProfile(response.profile, epoch);
       return response;
     });
