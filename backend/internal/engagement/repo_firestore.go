@@ -91,6 +91,8 @@ type userLikesDoc struct {
 	RecentReposts []string `firestore:"recentReposts"`
 	// Bookmarks is the complete bookmark set (ADR-0023 D3). Only repo_bookmarks.go writes it, always field-level.
 	Bookmarks []string `firestore:"bookmarks"`
+	// PollVotes is the viewer's poll choices (ADR-0029 D3), absent on documents written before polls.
+	PollVotes []string `firestore:"pollVotes"`
 }
 
 func docID(postID, uid string) string { return postID + "_" + uid }

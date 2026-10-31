@@ -155,7 +155,7 @@ func TestCreate_PollStored(t *testing.T) {
 		!p.Poll.ClosesAt.Equal(p.CreatedAt.Add(24*time.Hour)) || !reflect.DeepEqual(p.Poll.Counts, []int64{0, 0, 0}) || p.Poll.Total != 0 {
 		t.Fatalf("poll = %+v (createdAt %v)", p.Poll, p.CreatedAt)
 	}
-	v := toProtoAt(p, testUID, p.CreatedAt).GetPoll()
+	v := toProtoAt(p, ViewerSet{}, testUID, p.CreatedAt).GetPoll()
 	if len(v.Choices) != 3 || v.Choices[0].Label != "Yes" || v.Closed || !v.ResultsVisible || !v.ClosesAt.AsTime().Equal(p.Poll.ClosesAt) {
 		t.Fatalf("author view = %v", v)
 	}
