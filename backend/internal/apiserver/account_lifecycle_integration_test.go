@@ -443,9 +443,9 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	// that doc exists (always, in dev and prod; the setup creates it), so writes = 4 exactly (W3-35a D-2).
 	// The messaging step (W7-6, ADR-0027 D8: one conversation cursor query, an empty query bills 1 read) adds 1 read:
 	// reads = 26. The lists step (W5-5, ADR-0030 D8: an empty page per phase, own lists then membership) adds 2 more:
-	// reads = 28.
-	if work["fs_reads"].(float64) > 28 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
-		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 28, writes exactly 4, deletes 9)", work)
+	// reads = 28. The poll_votes step (W6-8, ADR-0029 D8: one votes query, an empty query bills 1 read) adds 1: reads = 29.
+	if work["fs_reads"].(float64) > 29 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
+		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 29, writes exactly 4, deletes 9)", work)
 	}
 	for _, l := range e.jobLines() {
 		if l["uid_hash"] == a.uid || strings.Contains(fmt.Sprint(l), a.uid) {

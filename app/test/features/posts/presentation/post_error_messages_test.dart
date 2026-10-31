@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/posts/domain/composer_attachment_rules.dart';
 import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,23 @@ void main() {
     expect(
       createPostErrorMessage(const NetworkException('x')),
       contains('No connection'),
+    );
+  });
+
+  test('a poll has its own wording', () {
+    expect(
+      createPostErrorMessage(
+        const FeatureDisabledException('x', feature: kFeaturePolls),
+      ),
+      contains("Polls aren't available"),
+    );
+    expect(
+      createPostErrorMessage(const ValidationException('x', field: 'poll')),
+      contains("This poll can't be sent"),
+    );
+    expect(
+      createPostErrorMessage(const ValidationException('x', field: 'text')),
+      contains("This post can't be sent"),
     );
   });
 
