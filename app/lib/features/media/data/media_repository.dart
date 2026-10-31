@@ -8,6 +8,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
+import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/media_feature_flag.dart';
 import '../domain/processed_image.dart';
 
@@ -51,6 +52,7 @@ class MediaRepository {
     required ApiClient apiClient,
     required http.Client httpClient,
     required bool Function() isMediaEnabled,
+    bool Function()? isGifEnabled,
     RateLimitHold? rateLimitHold,
     void Function()? onFeatureDisabled,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
@@ -58,6 +60,7 @@ class MediaRepository {
   }) : _apiClient = apiClient,
        _http = httpClient,
        _isMediaEnabled = isMediaEnabled,
+       _isGifEnabled = isGifEnabled ?? (() => true),
        _hold = rateLimitHold ?? RateLimitHold(),
        _onFeatureDisabled = onFeatureDisabled,
        _onUnexpectedError = onUnexpectedError,
@@ -66,6 +69,10 @@ class MediaRepository {
   final ApiClient _apiClient;
   final http.Client _http;
   final bool Function() _isMediaEnabled;
+
+  /// `gif` in `GetMe.enabled_features` (a GIF upload needs it as well as
+  /// `media`); the default keeps callers that never upload GIFs unchanged.
+  final bool Function() _isGifEnabled;
   final RateLimitHold _hold;
   final void Function()? _onFeatureDisabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
@@ -102,6 +109,14 @@ class MediaRepository {
     required pb.MediaPurpose purpose,
     required List<ProcessedImage> images,
   }) async {
+    // With `gif` off no GIF RPC is sent (the server would answer
+    // FEATURE_DISABLED feature=gif, 0 reads).
+    if (images.any((i) => i.isGif) && !_isGifEnabled()) {
+      throw const FeatureDisabledException(
+        'GIFs are not available.',
+        feature: kFeatureGif,
+      );
+    }
     final response = await _run(
       () => _apiClient.media.createUpload(
         pb.CreateUploadRequest(
@@ -117,6 +132,9 @@ class MediaRepository {
                 height: image.height,
                 fullMd5: image.fullMd5,
                 thumbMd5: image.thumbMd5,
+                // Empty for photos (= the full image's type); `image/jpeg`
+                // for a GIF. The signed thumbnail URL pins it.
+                thumbContentType: image.thumbContentType,
               ),
           ],
         ),

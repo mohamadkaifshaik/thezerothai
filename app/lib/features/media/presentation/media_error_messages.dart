@@ -1,11 +1,13 @@
 import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 
 /// Friendly snackbar text for a failed photo upload (CreateUpload, the PUT
 /// to storage, or FinalizeUpload) while sending a post. Never the raw server
 /// text. Degraded mode says text posts still work (`DEGRADED_MODE=nomedia`
-/// only stops new uploads, plan D8).
-String uploadErrorMessage(AppException error) {
+/// only stops new uploads, plan D8). [gif] words the answers that name the
+/// attachment for a GIF post (W6-16).
+String uploadErrorMessage(AppException error, {bool gif = false}) {
   return switch (error) {
     QuotaExceededException() =>
       "You've reached today's limit for photos. Post without them, or try "
@@ -14,14 +16,24 @@ String uploadErrorMessage(AppException error) {
     DegradedModeException() =>
       'Photo uploads are paused for a little while. You can still post '
           'without photos.',
+    FeatureDisabledException(feature: kFeatureGif) =>
+      "GIFs aren't available right now. Remove the GIF to post.",
     FeatureDisabledException() => "Photos aren't available right now.",
+    NetworkException() when gif =>
+      'No connection. Your GIF was not sent; check your network and try '
+          'again.',
     NetworkException() =>
       'No connection. Your photos were not sent; check your network and '
           'try again.',
     ValidationException(field: 'media', :final message) => message,
+    ValidationException() when gif =>
+      "This GIF can't be uploaded. Remove it and try again.",
     ValidationException() =>
       "These photos can't be uploaded. Remove them and try again.",
-    // Upload step: the server could not find an object we just PUT.
+    // Upload step: the server could not find an object we just PUT, or (a
+    // GIF) it is still being checked after the quiet retries ran out.
+    MediaNotReadyException() when gif =>
+      'Your GIF is still being checked. Try again in a moment.',
     MediaNotReadyException() => "A photo didn't finish uploading. Try again.",
     UploadInterruptedException() => "The upload didn't finish. Try again.",
     EmailNotVerifiedException() => 'Please verify your email address to post.',

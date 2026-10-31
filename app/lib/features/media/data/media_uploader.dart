@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:uuid/uuid.dart';
 
 import '../../../core/network/app_exception.dart';
@@ -90,7 +92,16 @@ class MediaUploader {
     this.expirySlack = const Duration(seconds: 30),
     this.urlTtl = const Duration(minutes: 10),
     void Function(Object error, StackTrace stack)? onUnexpectedError,
+    this.gifBusyDelays = const [
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 8),
+    ],
+    Future<void> Function(Duration)? delay,
+    math.Random? random,
   }) : _repository = repository,
+       _delay = delay ?? Future<void>.delayed,
+       _jitter = random ?? math.Random(),
        _onUnexpectedError = onUnexpectedError,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now;
@@ -103,6 +114,12 @@ class MediaUploader {
   /// repository already reported (CreateUpload, Finalize, PUT 5xx) are not
   /// reported again.
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// Waits before each repeat of a GIF FinalizeUpload that found the
+  /// server's GIF slot busy; its length is the number of repeats.
+  final List<Duration> gifBusyDelays;
+  final Future<void> Function(Duration) _delay;
+  final math.Random _jitter;
 
   /// A reservation closer than this to its expiry is renewed first.
   final Duration expirySlack;
@@ -141,6 +158,36 @@ class MediaUploader {
   void forget(String jobId) {
     _reservations.remove(jobId);
     _final.remove(jobId);
+  }
+
+  /// FinalizeUpload. A GIF is screened by one slot per server instance, so
+  /// while another GIF holds it the call answers a retryable MEDIA_NOT_READY
+  /// with the object safely stored: with [waitForGifSlot] the same call (same
+  /// key; nothing is re-signed or re-PUT) is repeated quietly after
+  /// [gifBusyDelays] (jittered) before the answer is treated as a missing
+  /// object. A photo's MEDIA_NOT_READY is never retried here.
+  Future<List<pb.MediaResult>> _finalize({
+    required String key,
+    required List<FinalizeRequestItem> items,
+    required bool waitForGifSlot,
+  }) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _repository.finalizeUpload(
+          idempotencyKey: key,
+          items: items,
+        );
+      } on MediaNotReadyException {
+        if (!waitForGifSlot || attempt >= gifBusyDelays.length) rethrow;
+        final base = gifBusyDelays[attempt];
+        await _delay(
+          base +
+              Duration(
+                milliseconds: _jitter.nextInt(base.inMilliseconds ~/ 4 + 1),
+              ),
+        );
+      }
+    }
   }
 
   /// Uploads [jobs] and returns one outcome per job, in order.
@@ -277,8 +324,8 @@ class MediaUploader {
       final finalizeIntent = 'f|${ids.join(',')}';
       final List<pb.MediaResult> results;
       try {
-        results = await _repository.finalizeUpload(
-          idempotencyKey: _key(finalizeIntent),
+        results = await _finalize(
+          key: _key(finalizeIntent),
           items: [
             for (final job in toFinalize)
               FinalizeRequestItem(
@@ -286,6 +333,10 @@ class MediaUploader {
                 blurhash: job.image.blurhash,
               ),
           ],
+          // The server's one GIF slot may be busy (MEDIA_NOT_READY, retry):
+          // for a lone GIF that is waited out, not treated as a lost object.
+          waitForGifSlot:
+              toFinalize.length == 1 && toFinalize.single.image.isGif,
         );
       } on MediaNotReadyException catch (error) {
         // The server did not find the object: PUT it again (re-signed).
