@@ -224,10 +224,20 @@ type fakeObject struct {
 	// attrsMD5 overrides the stored MD5 (to model a corrupt upload); nil means md5(data).
 	attrsMD5 []byte
 	size     int64 // 0 means len(data)
+	// gen is the object generation; 0 means 1. A re-PUT of the signed URL is modelled by storing a copy with a higher gen.
+	gen int64
 }
 
 func newFakeObjects() *fakeObjects {
 	return &fakeObjects{upload: map[string]fakeObject{}, public: map[string]string{}}
+}
+
+// genOf is the live generation of a fake object (0 = 1, like a freshly created object).
+func (f fakeObject) genOf() int64 {
+	if f.gen == 0 {
+		return 1
+	}
+	return f.gen
 }
 
 func (o *fakeObjects) UploadAttrs(_ context.Context, object string) (objstore.Attrs, error) {
@@ -249,15 +259,21 @@ func (o *fakeObjects) UploadAttrs(_ context.Context, object string) (objstore.At
 	if f.size != 0 {
 		size = f.size
 	}
-	return objstore.Attrs{Size: size, ContentType: f.contentType, MD5: m}, nil
+	return objstore.Attrs{Size: size, ContentType: f.contentType, MD5: m, Generation: f.genOf()}, nil
 }
 
-func (o *fakeObjects) UploadHead(_ context.Context, object string, n int64) ([]byte, error) {
+func (o *fakeObjects) UploadHead(_ context.Context, object string, n, generation int64) ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	f, ok := o.upload[object]
 	if !ok {
+		if generation != 0 {
+			return nil, objstore.ErrGenerationChanged
+		}
 		return nil, objstore.ErrObjectNotFound
+	}
+	if generation != 0 && f.genOf() != generation {
+		return nil, objstore.ErrGenerationChanged
 	}
 	if int64(len(f.data)) < n {
 		n = int64(len(f.data))
@@ -265,7 +281,7 @@ func (o *fakeObjects) UploadHead(_ context.Context, object string, n int64) ([]b
 	return f.data[:n], nil
 }
 
-func (o *fakeObjects) Publish(_ context.Context, uploadObject, publicObject, contentType string) error {
+func (o *fakeObjects) Publish(_ context.Context, uploadObject string, srcGeneration int64, publicObject, contentType string) error {
 	o.mu.Lock()
 	if hook := o.publishHook; hook != nil && (o.publishOn == "" || o.publishOn == uploadObject) {
 		o.publishHook = nil
@@ -277,8 +293,12 @@ func (o *fakeObjects) Publish(_ context.Context, uploadObject, publicObject, con
 	if o.publishErr != nil {
 		return o.publishErr
 	}
-	if _, ok := o.upload[uploadObject]; !ok {
+	f, ok := o.upload[uploadObject]
+	if !ok {
 		return objstore.ErrObjectNotFound
+	}
+	if srcGeneration != 0 && f.genOf() != srcGeneration {
+		return objstore.ErrGenerationChanged // ifSourceGenerationMatch failed: the bytes are not the ones screened
 	}
 	o.publishes++
 	o.public[publicObject] = contentType
@@ -312,6 +332,7 @@ func (s *fakeSigner) SignPut(_ context.Context, object, contentType, md5b64 stri
 	return "https://upload.test/" + object, map[string]string{
 		"Content-Type": contentType, "Content-MD5": md5b64,
 		"x-goog-content-length-range": fmt.Sprintf("0,%d", maxBytes),
+		objstore.CreateOnlyHeader:     objstore.CreateOnlyValue,
 	}, nil
 }
 

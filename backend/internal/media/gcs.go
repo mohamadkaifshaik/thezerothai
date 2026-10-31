@@ -54,13 +54,13 @@ func (b *Buckets) UploadAttrs(ctx context.Context, object string) (objstore.Attr
 }
 
 // UploadHead implements Objects.
-func (b *Buckets) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
-	return b.Upload.ReadHead(ctx, object, n)
+func (b *Buckets) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
+	return b.Upload.ReadHead(ctx, object, n, generation)
 }
 
 // Publish implements Objects.
-func (b *Buckets) Publish(ctx context.Context, uploadObject, publicObject, contentType string) error {
-	return b.Upload.CopyTo(ctx, uploadObject, b.Public, publicObject, contentType, publicCacheControl)
+func (b *Buckets) Publish(ctx context.Context, uploadObject string, srcGeneration int64, publicObject, contentType string) error {
+	return b.Upload.CopyTo(ctx, uploadObject, srcGeneration, b.Public, publicObject, contentType, publicCacheControl)
 }
 
 // DeleteUpload implements Objects.

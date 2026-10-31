@@ -144,9 +144,13 @@ type Signer interface {
 type Objects interface {
 	// UploadAttrs and UploadHead read an object of the private upload bucket (1 Class B each).
 	UploadAttrs(ctx context.Context, object string) (objstore.Attrs, error)
-	UploadHead(ctx context.Context, object string, n int64) ([]byte, error)
-	// Publish copies an upload object into the public bucket with a long immutable Cache-Control (1 Class A).
-	Publish(ctx context.Context, uploadObject, publicObject, contentType string) error
+	// UploadHead with generation != 0 reads exactly that object generation and answers objstore.ErrGenerationChanged when it is
+	// no longer live (W6-25); 0 reads the live object.
+	UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error)
+	// Publish copies an upload object into the public bucket with a long immutable Cache-Control (1 Class A). The copy is
+	// conditional on the source still being srcGeneration (the generation verify recorded): a replaced object answers
+	// objstore.ErrGenerationChanged and nothing is published (W6-25).
+	Publish(ctx context.Context, uploadObject string, srcGeneration int64, publicObject, contentType string) error
 	// DeleteUpload and DeletePublic remove an object; a missing object is success (free operations).
 	DeleteUpload(ctx context.Context, object string) error
 	DeletePublic(ctx context.Context, object string) error

@@ -464,7 +464,7 @@ type gateObjects struct {
 	panicRun bool
 }
 
-func (g *gateObjects) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (g *gateObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 {
 		if g.panicRun {
 			panic("boom")
@@ -485,7 +485,7 @@ func (g *gateObjects) UploadHead(ctx context.Context, object string, n int64) ([
 			runtime.Gosched()
 		}
 	}
-	return g.fakeObjects.UploadHead(ctx, object, n)
+	return g.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
 func TestGIFScreen_BusySlotAnswersMediaNotReadyWithoutSpend(t *testing.T) {
@@ -618,11 +618,11 @@ type swapObjects struct {
 	swap []byte
 }
 
-func (s *swapObjects) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (s *swapObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 && object == s.name {
 		return s.swap, nil
 	}
-	return s.fakeObjects.UploadHead(ctx, object, n)
+	return s.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
 func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
@@ -640,9 +640,9 @@ func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
 
 type failingRead struct{ *fakeObjects }
 
-func (f failingRead) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (f failingRead) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 {
 		return nil, errors.Join(objstore.ErrObjectNotFound, errors.New("gone"))
 	}
-	return f.fakeObjects.UploadHead(ctx, object, n)
+	return f.fakeObjects.UploadHead(ctx, object, n, generation)
 }

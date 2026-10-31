@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
 // GIF screening glue (ADR-0029 D11, W6-10): the per-instance semaphore, the object read, the deadlines, the panic
@@ -87,7 +88,7 @@ func (s *service) acquireGif(ctx context.Context) (release func(), err error) {
 // gifSheet reads the whole private GIF, pre-scans it, and returns the JPEG contact sheet of its sampled frames. The
 // error is a *gifRefusal (the GIF is rejected, 0 Vision units), errGifBusy (retryable), or an infrastructure error.
 // 1 Class B read. A decoder panic is recovered into a refusal and reported to Error Reporting.
-func (s *service) gifSheet(ctx context.Context, d *Doc) (sheet []byte, st gifStats, err error) {
+func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (sheet []byte, st gifStats, err error) {
 	release, err := s.acquireGif(ctx)
 	if err != nil {
 		return nil, st, err
@@ -101,12 +102,16 @@ func (s *service) gifSheet(ctx context.Context, d *Doc) (sheet []byte, st gifSta
 	}()
 
 	rctx, cancel := context.WithTimeout(ctx, gifReadTimeout)
-	data, err := s.Objects.UploadHead(rctx, d.UploadPath, d.Bytes)
+	data, err := s.Objects.UploadHead(rctx, d.UploadPath, d.Bytes, gens.full) // pinned: the exact generation verify approved
 	cancel()
+	if errors.Is(err, objstore.ErrGenerationChanged) {
+		return nil, st, refuseInvalid("changed_after_verify")
+	}
 	if err != nil {
 		return nil, st, fmt.Errorf("media: read gif: %w", err)
 	}
-	// The bytes sampled must be the bytes verify approved (the signed URL could be reused to overwrite the object).
+	// The bytes sampled must be the bytes verify approved. The read is pinned to the verified generation (and the signed PUT is
+	// create-only), so this MD5 comparison is defence in depth.
 	if sum := md5.Sum(data); int64(len(data)) != d.Bytes || base64.StdEncoding.EncodeToString(sum[:]) != d.FullMD5 { //nolint:gosec // see import
 		return nil, st, refuseInvalid("changed_after_verify")
 	}
@@ -126,8 +131,8 @@ func (s *service) gifSheet(ctx context.Context, d *Doc) (sheet []byte, st gifSta
 
 // screenGIF is screen for a GIF (D11 step 6): the sheet by bytes and the thumbnail by URI, in parallel; the worse
 // verdict wins. It logs one gif_screen line.
-func (s *service) screenGIF(ctx context.Context, d *Doc) (blocked bool, err error) {
-	sheet, st, err := s.gifSheet(ctx, d)
+func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blocked bool, err error) {
+	sheet, st, err := s.gifSheet(ctx, d, gens)
 	units := 0
 	defer func() {
 		var ref *gifRefusal

@@ -189,7 +189,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		return s.screeningElsewhere(ctx, uid, d)
 	}
 	// 1. Verify what the signed URL already enforced (defence in depth) and the magic bytes.
-	reason, err := s.verify(ctx, d)
+	reason, gens, err := s.verify(ctx, d)
 	if errors.Is(err, errUploadMissing) {
 		return s.uploadMissing(ctx, uid, d, false, nil)
 	}
@@ -235,7 +235,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 			"image checks are temporarily unavailable, please try again").WithCause(logger.RedactErr(err, uid))
 	}
 	if ok {
-		blocked, err := s.screen(ctx, d)
+		blocked, err := s.screen(ctx, d, gens)
 		if err != nil {
 			s.vision.release(units)
 			// A GIF the sampler refused (D11) is REJECTED with no Vision spend; a busy slot is the retryable MEDIA_NOT_READY
@@ -282,16 +282,25 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 
 	// 3. Publish: copy into the public bucket, then flip the document, then drop the private copies.
 	pub, pubThumb := publicObject(d.ID, d.NameSuffix, extension(d.ContentType)), publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))
-	if err := s.Objects.Publish(ctx, d.UploadPath, pub, d.ContentType); err != nil {
+	if err := s.Objects.Publish(ctx, d.UploadPath, gens.full, pub, d.ContentType); err != nil {
 		if errors.Is(err, objstore.ErrObjectNotFound) {
 			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
 			return r, spent, rerr
 		}
+		if errors.Is(err, objstore.ErrGenerationChanged) {
+			r, rerr := s.rejectChanged(ctx, d)
+			return r, spent, rerr
+		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish full: %w", err), uid)
 	}
-	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, pubThumb, d.ThumbType()); err != nil {
+	if err := s.Objects.Publish(ctx, d.ThumbUploadPath, gens.thumb, pubThumb, d.ThumbType()); err != nil {
 		if errors.Is(err, objstore.ErrObjectNotFound) {
 			r, _, rerr := s.uploadMissing(ctx, uid, d, true, err)
+			s.dropOrphanedCopies(ctx, d, r, pub)
+			return r, spent, rerr
+		}
+		if errors.Is(err, objstore.ErrGenerationChanged) {
+			r, rerr := s.rejectChanged(ctx, d)
 			s.dropOrphanedCopies(ctx, d, r, pub)
 			return r, spent, rerr
 		}
@@ -313,6 +322,16 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	out := *d
 	out.Status, out.PublicPath, out.ThumbPath, out.Blurhash = string(status), pub, pubThumb, blurhash
 	return s.resultOf(&out), spent, nil
+}
+
+// fieldChangedAfterVerify marks a finalize whose upload object was replaced after verify (W6-25): REJECTED, nothing published.
+const fieldChangedAfterVerify = "changed_after_verify"
+
+// rejectChanged is the REJECTED outcome (reason "invalid") for an upload object that is no longer the generation verify
+// approved and screening saw: the swapped bytes were never screened, so they are never published (W6-25, H-1).
+func (s *service) rejectChanged(ctx context.Context, d *Doc) (Result, error) {
+	logger.SetRequestField(ctx, fieldChangedAfterVerify, true)
+	return s.reject(ctx, d, reasonInvalid)
 }
 
 // screeningElsewhere answers a finalize that found another call holding the screening claim, or lost the race for it
@@ -400,13 +419,16 @@ func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Resu
 	return s.resultOf(d), spent, nil
 }
 
+// verifiedGens are the object generations verify read attributes for (and that the GIF sampler and Publish then pin).
+type verifiedGens struct{ full, thumb int64 }
+
 // verify checks both objects against the declared size, type and MD5 and sniffs their magic bytes. reason is
 // non-empty for a rejection; an error is an infrastructure failure (the client may retry). An object that is not
 // there yet is reported as errUploadMissing (the caller decides: the client has not finished uploading, or a
 // concurrent finalize already published and deleted it).
-func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error) {
+func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verifiedGens, err error) {
 	maxFull, maxThumb := capsFor(Purpose(d.Purpose))
-	for _, o := range []struct {
+	for i, o := range []struct {
 		object, md5, contentType string
 		size                     int64
 		max                      int64
@@ -417,31 +439,37 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 		a, err := s.Objects.UploadAttrs(ctx, o.object)
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", errUploadMissing
+			return "", gens, errUploadMissing
 		case err != nil:
-			return "", fmt.Errorf("media: object attrs: %w", err)
+			return "", gens, fmt.Errorf("media: object attrs: %w", err)
 		}
 		want, derr := base64.StdEncoding.DecodeString(o.md5)
 		switch {
 		case a.Size <= 0 || a.Size > o.max || a.Size != o.size:
-			return reasonInvalid, nil
+			return reasonInvalid, gens, nil
 		case a.ContentType != o.contentType:
-			return reasonInvalid, nil
+			return reasonInvalid, gens, nil
 		case derr != nil || string(a.MD5) != string(want):
-			return reasonInvalid, nil
+			return reasonInvalid, gens, nil
 		}
-		head, err := s.Objects.UploadHead(ctx, o.object, 512)
+		head, err := s.Objects.UploadHead(ctx, o.object, 512, 0) // a sniff only: the pinned read and copy carry the proof
 		switch {
 		case errors.Is(err, objstore.ErrObjectNotFound):
-			return "", errUploadMissing
+			return "", gens, errUploadMissing
 		case err != nil:
-			return "", fmt.Errorf("media: object head: %w", err)
+			return "", gens, fmt.Errorf("media: object head: %w", err)
 		}
 		if sniffImage(head) != o.contentType {
-			return reasonInvalid, nil
+			return reasonInvalid, gens, nil
+		}
+		// This generation is what the size, type and MD5 above describe; Vision, the GIF read and Publish are tied to it.
+		if i == 0 {
+			gens.full = a.Generation
+		} else {
+			gens.thumb = a.Generation
 		}
 	}
-	return "", nil
+	return "", gens, nil
 }
 
 // screensThumb reports whether the thumbnail is screened too: always for a BANNER (ADR-0024 D1: 2 Vision units, the
@@ -454,9 +482,9 @@ func (s *service) screensThumb(d *Doc) bool {
 // screen runs SafeSearch on the full image and, when screensThumb, the thumbnail (the small image is what lists
 // show, and it is uploaded separately). It reports whether either is blocked by the policy. A GIF is screened by its
 // sampled frames instead (screenGIF).
-func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) {
+func (s *service) screen(ctx context.Context, d *Doc, gens verifiedGens) (blocked bool, err error) {
 	if d.ContentType == ContentTypeGIF {
-		return s.screenGIF(ctx, d)
+		return s.screenGIF(ctx, d, gens)
 	}
 	calls := []func(context.Context) (SafeSearch, error){
 		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearch(c, d.UploadPath) },

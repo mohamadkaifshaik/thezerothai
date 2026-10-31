@@ -408,19 +408,19 @@ type readCountObjects struct {
 	reads atomic.Int32
 }
 
-func (s *readCountObjects) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (s *readCountObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 {
 		s.reads.Add(1)
 	}
-	return s.fakeObjects.UploadHead(ctx, object, n)
+	return s.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
-// TestW618_KnownResidual_PublishSwapAfterScreening documents the pre-existing risk handed to W6-20 (security): the signed
-// PUT URL pins no object generation, so a client that overwrites the private object after the sheet was sampled (and
-// before Publish copies it) gets different bytes published than the ones that were screened. The same window exists for
-// the thumbnail, which Vision reads by URI. This test pins today's outcome; it is NOT the desired behaviour. If W6-20 adds a
-// generation precondition to Publish, this test must flip to a rejection.
-func TestW618_KnownResidual_PublishSwapAfterScreening(t *testing.T) {
+// TestW618_PublishSwapAfterScreeningIsRefused was TestW618_KnownResidual_PublishSwapAfterScreening (the W6-20 H-1 residual,
+// closed by W6-25): a client that overwrites the private object after the sheet was sampled and before Publish copies it must
+// not get the swapped bytes published. The signed PUT is create-only and Publish copies only the generation verify read, so
+// the copy is refused and the image is REJECTED (the Vision units were spent: the screening ran). The same pin covers the
+// thumbnail, which Vision reads by URI (create_only_w625_test.go).
+func TestW618_PublishSwapAfterScreeningIsRefused(t *testing.T) {
 	so := &readCountObjects{}
 	e := newEnv(t, envOpts{objects: func(f *fakeObjects) Objects { so.fakeObjects = f; return so }})
 	e.mod.bytesBy = redIsExplicit(t)
@@ -428,17 +428,18 @@ func TestW618_KnownResidual_PublishSwapAfterScreening(t *testing.T) {
 	up := uploadObject(uidA, tg.MediaID, "gif")
 	explicit := colourGIF(pxRed, pxRed, pxRed, pxRed)
 	e.obj.publishHook, e.obj.publishOn = func() {
-		e.obj.mu.Lock()
-		e.obj.upload[up] = fakeObject{data: explicit, contentType: ContentTypeGIF}
-		e.obj.mu.Unlock()
+		e.obj.rePut(up, explicit, ContentTypeGIF)
 	}, up
 
 	r := e.finalizeGIF(t, tg)
 	if so.reads.Load() != 1 {
 		t.Fatalf("full-object reads = %d, want 1", so.reads.Load())
 	}
-	if r.Status != StatusReady {
-		t.Fatalf("result = %+v: Publish now refuses the swapped object, so flip this test and close the W6-20 residual", r)
+	if r.Status != StatusRejected || r.RejectionReason != reasonInvalid {
+		t.Fatalf("result = %+v: the swapped object must be REJECTED, never published", r)
+	}
+	if e.obj.publishes != 0 || len(e.obj.public) != 0 {
+		t.Fatalf("published %d %v: nothing may be copied", e.obj.publishes, e.obj.public)
 	}
 	if got := e.repo.vision[monthKey(testNow)]; got != 2 {
 		t.Fatalf("vision units = %d", got)
