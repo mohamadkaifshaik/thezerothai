@@ -434,7 +434,8 @@ type Trend struct {
 	Tag string `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
 	// Posts that carried the tag in the window (hidden posts, reposts and protected accounts' posts excluded).
 	PostCount int64 `protobuf:"varint,2,opt,name=post_count,json=postCount,proto3" json:"post_count,omitempty"`
-	// 1-based rank in the whole list; with a prefix the ranks keep their gaps.
+	// 1-based rank in the whole served list (denylisted and hidden tags are already removed, so a removal leaves no gap);
+	// with a prefix the ranks keep their gaps.
 	Rank          int32 `protobuf:"varint,3,opt,name=rank,proto3" json:"rank,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
