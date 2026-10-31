@@ -92,13 +92,11 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// lists (ADR-0030 D1, W5-8): the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
-		"lists": {"Header": true, "Reader": true, "ListMembers": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true},
+		"lists": {"Header": true, "Reader": true, "ListMembers": true, "FlagName": true, "ListView": true, "List": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true},
 		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.
 		"identity": {"ProtectedAuthors": true, "ProtectedSet": true, "Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true,
 			// W5-9: the pinned-tab value type and kind, the idempotency sentinel of the store seam.
 			"HomeTab": true, "HomeTabKindList": true, "HomeTabKindCommunity": true, "ErrKeyReused": true, "ErrNotFound": true},
-		// lists (ADR-0030): the Reader seam, its flag gate and the one not-found sentinel; never a repo or a Pins implementation.
-		"lists": {"Reader": true, "Guard": true, "FlagChecker": true, "FlagName": true, "ErrNotFound": true, "ListView": true, "ListMembers": true, "List": true, "Header": true},
 	}
 	sawAny := false
 	for _, f := range files {

@@ -106,10 +106,6 @@ func listsOn() lists.FlagChecker {
 	return flags.NewRegistry(flags.Spec{Name: lists.FlagName, Mode: flags.On})
 }
 
-func listsOff() lists.FlagChecker {
-	return flags.NewRegistry(flags.Spec{Name: lists.FlagName, Mode: flags.Off})
-}
-
 func sendTabs(s *Server, uid, key string, ids ...string) (*timelinev1.SetHomeTabsResponse, error) {
 	req := &timelinev1.SetHomeTabsRequest{IdempotencyKey: key}
 	for _, id := range ids {

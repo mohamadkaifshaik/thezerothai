@@ -246,7 +246,7 @@ type exportHomeTab struct {
 func exportHomeTabs(p Profile) []exportHomeTab {
 	var out []exportHomeTab
 	for _, t := range p.HomeTabs() {
-		out = append(out, exportHomeTab{Kind: t.Kind, ID: t.ID, Title: t.Title})
+		out = append(out, exportHomeTab(t))
 	}
 	return out
 }

@@ -24,7 +24,7 @@ import (
 // W5-9 (ADR-0030 D6) through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
 // and DeleteList's unpin, and the flag modes. Request-line budgets include the account-status interceptor's read.
 
-func listsOn(c *config.Config) {
+func tabsListsOn(c *config.Config) {
 	w320AllW3On(c)
 	c.FeatureLists = flags.Spec{Name: "lists", Mode: flags.On}
 }
@@ -44,7 +44,7 @@ func newTabsHarness(t *testing.T, mutate func(*config.Config)) *tabsHarness {
 func (h *tabsHarness) createList(t *testing.T, u bmUser, name string, private bool) string {
 	t.Helper()
 	r, err := h.lists.CreateList(context.Background(), authed(u.token, &listsv1.CreateListRequest{
-		IdempotencyKey: key("list-" + name), Name: name, IsPrivate: &private,
+		IdempotencyKey: tabsKey("list-" + name), Name: name, IsPrivate: &private,
 	}))
 	if err != nil {
 		t.Fatalf("CreateList %s: %v", name, err)
@@ -53,7 +53,7 @@ func (h *tabsHarness) createList(t *testing.T, u bmUser, name string, private bo
 }
 
 func (h *tabsHarness) setTabs(u bmUser, k string, ids ...string) (*timelinev1.SetHomeTabsResponse, error) {
-	req := &timelinev1.SetHomeTabsRequest{IdempotencyKey: key(k)}
+	req := &timelinev1.SetHomeTabsRequest{IdempotencyKey: tabsKey(k)}
 	for _, id := range ids {
 		req.Tabs = append(req.Tabs, &commonv1.HomeTab{Kind: commonv1.HomeTabKind_HOME_TAB_KIND_LIST, Id: id})
 	}
@@ -73,7 +73,7 @@ func tabPairs(tabs []*commonv1.HomeTab) []string {
 }
 
 func TestW59_HomeTabsLifecycle(t *testing.T) {
-	h := newTabsHarness(t, listsOn)
+	h := newTabsHarness(t, tabsListsOn)
 	me, other := h.user(t), h.user(t)
 	mine := h.createList(t, me, "Mine", true)
 	theirsPublic := h.createList(t, other, "Theirs", false)
@@ -130,7 +130,7 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 
 	// Renaming the pinned list refreshes the stored title; GetMe on the same instance shows it at once.
 	newName := "Renamed"
-	if _, err := h.lists.UpdateList(context.Background(), authed(me.token, &listsv1.UpdateListRequest{IdempotencyKey: key("upd"), ListId: mine, Name: &newName})); err != nil {
+	if _, err := h.lists.UpdateList(context.Background(), authed(me.token, &listsv1.UpdateListRequest{IdempotencyKey: tabsKey("upd"), ListId: mine, Name: &newName})); err != nil {
 		t.Fatalf("UpdateList: %v", err)
 	}
 	if want := []string{theirsPublic + ":", mine + ":Renamed"}; !slices.Equal(tabPairs(h.w326bGetMe(t, me).GetHomeTabs()), want) {
@@ -138,7 +138,7 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 	}
 
 	// Deleting the pinned list unpins it in the same call; the other user's pin of a deleted list would dangle instead.
-	if _, err := h.lists.DeleteList(context.Background(), authed(me.token, &listsv1.DeleteListRequest{IdempotencyKey: key("del"), ListId: mine})); err != nil {
+	if _, err := h.lists.DeleteList(context.Background(), authed(me.token, &listsv1.DeleteListRequest{IdempotencyKey: tabsKey("del"), ListId: mine})); err != nil {
 		t.Fatalf("DeleteList: %v", err)
 	}
 	if want := []string{theirsPublic + ":"}; !slices.Equal(tabPairs(h.w326bGetMe(t, me).GetHomeTabs()), want) {
@@ -157,7 +157,7 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 // A caller outside FEATURE_LISTS: LIST tabs are refused with FEATURE_DISABLED, an empty request is accepted, and a LIST tab stored
 // while the flag was on is kept but not returned by GetMe (it comes back with the flag).
 func TestW59_HomeTabsFlagOff(t *testing.T) {
-	on := newTabsHarness(t, listsOn)
+	on := newTabsHarness(t, tabsListsOn)
 	u := on.user(t)
 	id := on.createList(t, u, "Mine", true)
 	if _, err := on.setTabs(u, "set", id); err != nil {
@@ -183,3 +183,6 @@ func TestW59_HomeTabsFlagOff(t *testing.T) {
 }
 
 var _ = identityv1.GetMeRequest{}
+
+// tabsKey makes a valid idempotency key (16 to 64 characters) from a label; keys are scoped per uid, so reuse across users is fine.
+func tabsKey(label string) string { return "w59-" + label + "-0123456789" }
