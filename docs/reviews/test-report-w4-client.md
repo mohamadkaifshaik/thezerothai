@@ -4,7 +4,7 @@ Tester: tester agent. Branch `test/ui-w4-21-search-client-tests` on `main@e3e28c
 (W4-21; client tickets W4-13 to W4-19). Design: ADR-0028. Backend half: `docs/reviews/test-report-w4.md` (W4-20). No production code was
 changed; the one defect found is reported, with a committed and skipped repro.
 
-**Result: one open defect, D-1 (Low: layout at the largest text size on a 360 dp phone). Everything else passes.**
+**Result: one defect, D-1 (Low: layout at the largest text size on a 360 dp phone), now FIXED. Everything else passes.**
 
 ## 1. What was run
 
@@ -49,15 +49,16 @@ below); the only overflow found is D-1.
 
 ## 4. Defect
 
-**D-1 (Low). The overlay's "Recent" header overflows by 4.9 px on Explore at 360 dp and text scale 2.0.**
+**D-1 (Low, FIXED). The overlay's "Recent" header overflows by 4.9 px on Explore at 360 dp and text scale 2.0.**
 `app/lib/features/search/presentation/widgets/app_search_field.dart:406`, `_recentHeader`: a `Row` of `Expanded(Text('Recent'))` and a
 `TextButton('Clear all')` with a 48 dp minimum. In the Explore header the pill is only 264 dp wide (the drawer avatar button and the margins), so
 at 2.0 "Clear all" keeps its natural width and "Recent" wraps; the row's content is 4.9 px wider than its box. `app_search_field_test` only
 runs the full-width pill, so it never sees it.
 - Repro: `W421_RUN_DEFECTS=1 flutter test test/features/search/presentation/search_flow_test.dart --plain-name D-1` (the test is
-  committed and skipped otherwise).
+  skipped when first reported, now un-skipped).
 - Expected: no overflow (the repo's rule is no overflow at 2.0). Actual: `A RenderFlex overflowed by 4.9 pixels on the right.`
 - Suggested fix for the owner (frontend-developer): `Wrap` the header, or give "Clear all" `Flexible` and an ellipsis, or drop its horizontal padding.
+- **Fixed** (fix/ui-w4-21-recent-header-overflow): `_recentHeader` title is `maxLines: 1` with ellipsis in its `Expanded`; "Clear all" sits in a `Flexible`, single line, 48 dp minimum kept. The D-1 test in `search_flow_test.dart` now runs by default, and `app_search_field_test.dart` has a narrow-pill case at 264 / 360 / 600 dp x light/dark x 1.0 / 2.0.
 
 Observations (no defect): after a search, Back returns to Explore with the typed query still in the Explore field (the pill's controller is
 kept), so `#launch` appears both in the field and in the trend row. The plan does not say which is wanted. A product decision, not a bug.
@@ -71,4 +72,4 @@ kept), so `#launch` appears both in the field and in the trend row. The plan doe
 `integration_test` (needs a device or Chrome driver; none of the W4 widgets needed new platform channels), goldens (W4 has none), the 600-entry
 typeahead burst and the hot-tag load (W4-23, `sre-performance`), anything against dev.
 
-VERDICT: PASS with one open Low defect: D-1 (Recent header overflows 4.9 px at 360 dp x 2.0 on Explore)
+VERDICT: PASS (D-1, the Recent header overflow of 4.9 px at 360 dp x 2.0 on Explore, is fixed)
