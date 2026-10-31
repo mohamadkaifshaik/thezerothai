@@ -85,7 +85,7 @@ Other ticket bullets:
 
 | ID | Severity | Where | Summary |
 |---|---|---|---|
-| D1 | Low | `app/lib/app/app_widget.dart:260` | The poll overlay (`PollCubit.reset()`) is reset only when the auth state becomes `unauthenticated`. The same file's session bridge (`session_wiring.dart:wireAuthSession`) handles a direct A to B switch explicitly, and wipes the cache there, but `PollCubit` keeps A's votes (choice, counts, `knownChoice`). B, opening the same post in the same app run, sees A's choice checked and the results bars (results hidden until the viewer votes, ADR-0029 D4). |
+| D1 | Low, **fixed in #PRNUM** (W6-48) | `app/lib/app/app_widget.dart:260` | The poll overlay (`PollCubit.reset()`) is reset only when the auth state becomes `unauthenticated`. The same file's session bridge (`session_wiring.dart:wireAuthSession`) handles a direct A to B switch explicitly, and wipes the cache there, but `PollCubit` keeps A's votes (choice, counts, `knownChoice`). B, opening the same post in the same app run, sees A's choice checked and the results bars (results hidden until the viewer votes, ADR-0029 D4). |
 
 D1 was checked against the production wiring, not only the widget harness: `wireAuthSession` (`bootstrap.dart:296-303`) on a direct A to B
 calls `graphRepository.clearCache` and dispatches `OnboardingUserSignedOut`, neither of which touches `PollCubit`; `AppWidget._onOnboarding`

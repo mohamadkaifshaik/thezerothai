@@ -107,7 +107,11 @@ void main() {
       isEnabled: () => flags.contains('lists'),
       onUnexpectedError: (_, _) {},
     );
-    final lists = ListsRepository(apiClient: api, gate: gate);
+    final lists = ListsRepository(
+      apiClient: api,
+      gate: gate,
+      epoch: SessionEpoch(),
+    );
     final tabs = HomeTabsRepository(
       apiClient: api,
       gate: gate,

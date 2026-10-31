@@ -390,11 +390,6 @@ void main() {
           reason: "the next account must not see uid-1's choice",
         );
       },
-      // W6-19 D1 (docs/reviews/test-report-w6-client.md): AppWidget resets the
-      // poll overlay only on AuthStatus.unauthenticated (app_widget.dart:260),
-      // so a direct A to B switch keeps the first account's votes. Remove the
-      // skip when fixed.
-      skip: true,
     );
   });
 
@@ -422,6 +417,7 @@ void main() {
       lists = ListsRepository(
         apiClient: api,
         gate: gate,
+        epoch: database.sessionEpoch,
         onListSeen: tabs.noteListInfo,
       );
     });
@@ -468,13 +464,6 @@ void main() {
           reason: "uid-2 must not be handed the name of uid-1's private list",
         );
       },
-      // W5-16 D3 (docs/reviews/test-report-w5-client.md): AppWidget calls
-      // ListsRepository.clearSession only on AuthStatus.unauthenticated
-      // (app_widget.dart:266) and bootstrap.dart passes only
-      // graphRepository.clearCache as wireAuthSession's onSignedOut, so a
-      // direct A to B switch keeps A's headers; ListDetailCubit shows a cached
-      // header at once (list_detail_cubit.dart:28). Remove the skip when fixed.
-      skip: true,
     );
   });
 

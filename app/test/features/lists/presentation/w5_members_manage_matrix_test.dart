@@ -163,7 +163,11 @@ void main() {
         gate: gate,
         epoch: SessionEpoch(),
       );
-      real = ListsRepository(apiClient: api, gate: gate);
+      real = ListsRepository(
+      apiClient: api,
+      gate: gate,
+      epoch: SessionEpoch(),
+    );
       await pumpThemed(
         tester,
         MultiRepositoryProvider(
