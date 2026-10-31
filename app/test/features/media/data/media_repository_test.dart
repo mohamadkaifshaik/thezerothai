@@ -205,6 +205,7 @@ void main() {
         expect(request.bodyBytes, [1, 2, 3]);
         expect(request.headers['Content-MD5'], 'md5-m1');
         expect(request.headers['x-goog-content-length-range'], '0,2097152');
+        expect(request.headers['x-goog-if-generation-match'], '0');
         expect(
           request.headers.keys.map((k) => k.toLowerCase()),
           isNot(contains('authorization')),
@@ -213,6 +214,18 @@ void main() {
           request.headers.keys.map((k) => k.toLowerCase()),
           isNot(contains('x-firebase-appcheck')),
         );
+      },
+    );
+
+    test(
+      'a 412 (create-only: the first PUT already landed) is success',
+      () async {
+        putStatus = 412;
+
+        await repo.putObject(uploadTarget('m1').full, Uint8List(1));
+
+        expect(puts, hasLength(1));
+        expect(reported, isEmpty);
       },
     );
 

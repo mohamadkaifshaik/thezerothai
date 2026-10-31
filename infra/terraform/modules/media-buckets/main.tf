@@ -31,7 +31,7 @@ resource "google_storage_bucket" "upload" {
   cors {
     origin          = var.cors_origins
     method          = ["PUT", "OPTIONS"]
-    response_header = ["Content-Type", "Content-MD5", "x-goog-content-length-range"]
+    response_header = ["Content-Type", "Content-MD5", "x-goog-content-length-range", "x-goog-if-generation-match"]
     max_age_seconds = 3600
   }
 

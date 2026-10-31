@@ -193,6 +193,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 | **Part B subtotal** | **≈ 2.0 requests** | | **≈ 16.0** | **≈ 0.11** |
 | **Total W5** | **≈ 4.3 requests** | | **≈ 38.1 reads** | **≈ 0.62 writes, ≈ 0.02 deletes** |
 
+- **W5-18 correction (2026-10-31, measured in `docs/reviews/cost-model.md` §17).** Part A measures **24.35 reads, 0.79 writes, 0.29 deletes and 2.29 requests per DAU** (this table: 22.1 / 0.51), because the table predates ADR-0030 D7: AddListMember writes 3 (not 2), RemoveListMember 2 (not 1), GetList non-owner worst 5 (not 3), SetHomeTabs worst 19 (not 7; measured 14), and the cold open is 38 (not 30; 46 all-cold, 30 warm). Worst measured: GetListTimeline 106 at 150 members page 50 (hold 269). Against the whole product with W6 the free reads cross at 130 DAU and the free writes at 484.
 - **Quota crossings.** On top of the W2 baseline the product reads 286.8 per DAU, so **the free 50k reads/day run out at about 174 DAU** (was 201). With W3 and W4 also on, it reads 363.5 per DAU and they run out at about 138 DAU. Writes: 34.1 per DAU, so the free 20k/day run out at about 586 DAU (was 597).
 - **Share check for the triggers:** list feeds are 17.4 of 286.8 reads (6.1 %); community feeds are 11.3 (3.9 %). Both are well under the 15 % trigger.
 
@@ -343,10 +344,10 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | In review (#531) |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Done (#527) |
-| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
+| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (#537) |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | In review (PR #539) |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
-| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
+| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | In review (PR: docs/ui-w5-17-lists-security; report `docs/reviews/security-w5-lists.md`, SECURITY: CLEAR, 4 Medium) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Open |
 | W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
@@ -372,6 +373,13 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0028 merged | serialise dev applies | Open |
+| W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Open (gate: before percent) |
+| W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer | yes | Open (gate: before percent) |
+| W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Open (gate: before the prod release containing #526 is promoted) |
+| W5-44 | *(W5-17 M-4)* opsctl `list hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | Open (gate: before percent) |
+| W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | Open (gate: before prod on) |
+| W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public, non-hidden lists naming the uid), if the founder says yes | backend-developer | S | founder answer | lifecycle export files serialise | Open (gate: before prod on) |
+| W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | Open |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).
@@ -699,7 +707,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **As built.** The profile overflow menu (graph on and off variants) gets "Add or remove from Lists" and "View Lists" for another user when `lists` is on (`ProfileHeader.listsEnabled`); the Add row is hidden while the viewer blocks the profile. The sheet is `showAddToListsSheet` over `AddToListsCubit`: 1 `ListUserLists(contains_user_id)` per open, then 1 Add or Remove per toggle, optimistic with rollback and the `listsErrorMessage` reason inline; the idempotency key is reused when the same toggle is retried after a failure and dropped after a success. `/u/:userId/lists` is `UserListsScreen` over `ListsCubit(ownerId:)`, behind the `lists` redirect; the handle travels as `extra` for the header only. Not built: pagination beyond 3 pages of 50 (the owner cap is 20).
 - **Parallel with W3 Part A / W4:** **after W3-13 / W3-14** (`profile_header.dart`).
 
-### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: Open
+### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: In review (#537)
 - **Description.**
   - The Home header's `AppTabBar` becomes content-sized and scrollable: Following first and fixed, then pinned tabs in order, then a trailing "+" (`home.md` §3: tabs content-sized, 4 dp accent bar).
   - Each tab is a lazily created, kept-alive `TimelineFeedView` + `TimelineCubit` (Following = `FeedKey.home`, a list = `FeedKey.list`, a community = `FeedKey.community` once W5-30 lands).
@@ -716,6 +724,21 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Budget.** 0 extra calls at startup (GetMe); 1 list-timeline call per first visit to a tab per session, then refreshes ≥ 60 s apart.
 - **Flag.** `lists` / `communities` per tab, plus `ui_shell`.
 - **Seam.** Tabs are data (a list of `HomeTab` descriptors fed to one scaffold), so a new kind adds no scaffold code.
+- **As built (W5-14).**
+  - Gate: `lists` and `ui_shell` both on. With either off, `HomeScreen` renders the one-tab Following header and makes no Lists call; `/home/pinned` redirects Home.
+  - Worst case per Home open with the flag on:
+
+    | Moment | RPCs |
+    |---|---|
+    | Startup | `GetMe` carries `home_tabs`: 0 extra |
+    | Following | unchanged (cached read, one throttled `GetHomeTimeline`) |
+    | A pinned list with no known name (another user's list, new device) | 1 `GetList` each, once per session; at most 5 |
+    | First visit to a list tab | 1 `GetListTimeline` (none when refreshed < 60 s ago) |
+    | Switching back to a visited tab | 0, or 1 throttled refresh when it is 60 s or more stale; hidden tabs never tick |
+    | Manage pinned open | 1 `ListUserLists` |
+    | Pin, Unpin, one reorder | 1 `SetHomeTabs` each (a burst while one is in flight sends one follow-up) |
+
+  - Not built: the communities rows (arrive with W5-30).
 - **Parallel with W3 Part A / W4:** `home_screen.dart` serialises with W3-19.
 
 ### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: In review (PR #539; report `docs/reviews/test-report-w5-lists.md`)
@@ -749,7 +772,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: Open
+### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: In review (report `docs/reviews/security-w5-lists.md`)
 - **Description.** A threat model for:
   - private-list confidentiality (NOT_FOUND identity, caches keyed safely, the export);
   - id guessing;
@@ -768,7 +791,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Checks the rate-limit multiplication and the `stage-ladder` author-`in` scraping vector.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: Open
+### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: In review (#538)
 - **Description.**
   - Add the Part A rows (+22.1 reads, +0.51 writes, +2.3 requests per DAU) to `docs/reviews/cost-model.md` §2-§5 as a W5 block, additive like W2's.
   - Run an emulator load smoke, `make loadtest SCENARIO=list_timeline`: a cold page, a refresh with 0 and with 5 new, 150 members at page 50, and the author-recent cache shared with Home.

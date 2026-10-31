@@ -172,7 +172,7 @@ func TestSignedPutURL_RealV4Signature(t *testing.T) {
 	}
 	q := u.Query()
 	signed := strings.Split(q.Get("X-Goog-SignedHeaders"), ";")
-	for _, h := range []string{"content-md5", "content-type", "host", "x-goog-content-length-range"} {
+	for _, h := range []string{"content-md5", "content-type", "host", "x-goog-content-length-range", "x-goog-if-generation-match"} {
 		found := false
 		for _, s := range signed {
 			if s == h {
@@ -186,7 +186,7 @@ func TestSignedPutURL_RealV4Signature(t *testing.T) {
 	if exp := q.Get("X-Goog-Expires"); exp != "600" && exp != "599" {
 		t.Errorf("X-Goog-Expires = %q, want 600", exp)
 	}
-	if headers["x-goog-content-length-range"] != "0,2097152" {
+	if headers["x-goog-content-length-range"] != "0,2097152" || headers["x-goog-if-generation-match"] != "0" {
 		t.Errorf("headers = %v", headers)
 	}
 }

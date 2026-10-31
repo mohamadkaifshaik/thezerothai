@@ -85,7 +85,7 @@
 
 ## 2. Findings
 
-### H-1 (High): publish swap after screening (W6-18 R-1); applies to GIFs, thumbnails and photos
+### H-1 (High): publish swap after screening (W6-18 R-1); applies to GIFs, thumbnails and photos — **In review (#536, W6-25); not FIXED until merged**: create-only signed PUT (`x-goog-if-generation-match: 0`), generation pinned on the sniff, the GIF read and `CopyTo`; a swapped object is REJECTED with reason `invalid` and the request log carries `changed_after_verify=true`.
 
 **Where:**
 - `objstore.go:206-238`: the signed PUT binds Content-Type, Content-MD5 and a length range, but no generation precondition. A V4 URL is reusable until it expires (10 min).
@@ -167,6 +167,13 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
 
 **Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
+- **Revised by founder decision 3, 2026-10-31.** ADR-0029 Amendment 1 A5, ticket W6-40, Proposed.
+  - Only attempts that produced a valid assessment count toward the 3.
+  - Unanswered and invalid-answer attempts count toward a separate `MEDIA_MAX_SCREEN_RETRIES` (5) under a claims
+    ceiling of 8.
+  - Units stay counted as in #535.
+  - A per-uid `media_vision_units_daily` cap and a separate FinalizeUpload bucket are added.
+  - Re-review: W6-42.
 
 **Where:**
 - `finalize.go:238-258`: when `screen` returns any error, `s.vision.release(units)` returns **all** reserved units. The doc stays PENDING, the claim is released (`finalize.go:220-224`), and the answer is retryable UNAVAILABLE.
@@ -374,6 +381,42 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 3. **Photo pipeline in prod:** H-1, H-2 and H-3 are pre-existing in photos, avatars and banners. They must be fixed before `FEATURE_MEDIA` leaves `off` in prod, not only before `gif`.
 4. **L-3 copy:** accept the small-poll inference with the copy line, or ask for a different product rule.
 5. **L-5 option (3):** an age limit on drafts, or none.
+
+### Founder decisions, 2026-10-31
+
+These are worked out in ADR-0029 Amendment 1, accepted in principle by the founder on 2026-10-31.
+
+- **Decided: the substance behind item 1.**
+  - Polls inherit post visibility and block rules (either way). One vote per user, which can be changed until the poll
+    closes. The options are locked after the first vote.
+  - Drafts are owner-only, may be incomplete, and get full validation and moderation at publish. Duplicate publication
+    is prevented (W6-39).
+- **The polls line of item 1 is now false**, because "so you can vote only once" no longer holds. Proposed revision:
+  > Polls: your vote is stored with your account, so you hold one vote per poll and can change it until the poll
+  > closes. Nobody else sees who voted for what, but the author sees live totals. In small polls a new vote, or a
+  > change, can reveal how you voted (L-3). Votes are deleted with your account, and from our records 30 days after the
+  > poll closes. Your export lists your current vote in each poll.
+- **The drafts line is unchanged.**
+- **Still open:** approval of both lines.
+- **Second message, 2026-10-31 (ADR-0029 Amendment 1, "Founder decisions on the open items"):**
+  - Item 2 (Art. 9): polls soliciting sensitive personal information are prohibited, initially (W6-43).
+  - Item 4 (L-3 copy): "Individual choices are hidden from other users", never "anonymous" (W6-44); the policy keeps the
+    small-poll caveat.
+  - Item 5 (L-5): drafts expire 30 days after the user's last edit (W6-45).
+  - Item 1: the policy must disclose vote storage, visibility, retention and deletion (W6-46, `app/web/privacy.html`), and
+    vote retention is finalized before release (W6-47, needs W6-29). The drafts line gains the 30-day expiry.
+  - Still open: the founder's approval of the final policy text in W6-46, and the retention period in W6-47.
+- **Items 2, 4 and 5: decided in the second message above.**
+  - "May be incomplete" does not answer item 5.
+  - Item 4 is more pressing: a change moves one count down and another up, which shows both the old and the new choice
+    in a small poll (Amendment 1 A2.9).
+- **Item 3 is unchanged.**
+- **H-3 (section 2):**
+  - Decision 3 revises the W6-27 attempt cap: only attempts with a valid assessment count, outages and errors do not,
+    with a separate bounded retry counter and a per-uid Vision-units cap.
+  - This is Amendment 1 A5, ticket W6-40.
+  - It loosens the #535 fix, so W6-42 re-reviews it before it merges.
+  - The H-3 accounting (every answered call counted) is unchanged.
 
 ## 5. Proposed tickets (the planner assigns final numbers; W6-24 is the highest existing)
 

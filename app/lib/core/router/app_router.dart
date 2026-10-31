@@ -13,6 +13,7 @@ import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
+import '../../features/lists/presentation/manage_pinned_screen.dart';
 import '../../features/lists/presentation/lists_screen.dart';
 import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
@@ -152,6 +153,8 @@ class AppRouter {
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
   static String listMembersPath(String listId) => '${listPath(listId)}/members';
+  // W5-14: Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
+  static const pinnedPath = '/home/pinned';
   // W4-15: the search results, behind the `search` flag; build links with
   // `searchResultsLocation` (domain/search_routes.dart).
   static const searchRoute = '/search';
@@ -344,6 +347,11 @@ class AppRouter {
                 ),
               ),
             ),
+          ),
+          GoRoute(
+            path: pinnedPath,
+            builder: (context, state) =>
+                const AuthGate(child: ManagePinnedScreen()),
           ),
           GoRoute(
             path: listsPath,
@@ -797,10 +805,17 @@ class AppRouter {
   /// `/lists`, `/lists/...` and `/u/:id/lists` (W5-13) redirect Home unless `lists` is on for this
   /// caller (W5-11). The server stays authoritative.
   String? _listsFlagRedirect(String loc) {
+    final features = _onboardingBloc.state.enabledFeatures;
+    // Manage pinned (W5-14) also needs the new shell, the only chrome with
+    // the Home tab bar.
+    if (loc == pinnedPath) {
+      return features.contains(kFeatureLists) &&
+              features.contains(kFeatureUiShell)
+          ? null
+          : homePath;
+    }
     if (!_listsRoutes.hasMatch(loc)) return null;
-    return _onboardingBloc.state.enabledFeatures.contains(kFeatureLists)
-        ? null
-        : homePath;
+    return features.contains(kFeatureLists) ? null : homePath;
   }
 
   /// `/search` redirects Home unless `search` is on for this caller (W4-15).

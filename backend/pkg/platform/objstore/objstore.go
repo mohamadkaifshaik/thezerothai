@@ -25,6 +25,14 @@ import (
 // ErrObjectNotFound is returned by Attrs, ReadHead and CopyTo when the source object does not exist.
 var ErrObjectNotFound = errors.New("objstore: object not found")
 
+// ErrGenerationChanged is returned by ReadHead and CopyTo when a pinned object generation is no longer the live one: the
+// object was replaced (or deleted) after the generation was read. The caller must not trust the bytes (W6-25, H-1).
+var ErrGenerationChanged = errors.New("objstore: object generation changed")
+
+// CreateOnlyHeader is the header the signed PUT URL binds (name and value, lower-case): the write succeeds only if the
+// object does not exist yet, so a second PUT to the same URL is refused with 412 and can never replace screened bytes.
+const CreateOnlyHeader, CreateOnlyValue = "x-goog-if-generation-match", "0"
+
 // opTimeout bounds one Put or Delete (every outbound call has a deadline); a Put also runs under the caller's
 // own deadline, whichever is shorter.
 const opTimeout = 25 * time.Second
@@ -105,6 +113,9 @@ type Attrs struct {
 	ContentType string
 	// MD5 is the raw 16-byte MD5 GCS computed for the stored bytes (not base64).
 	MD5 []byte
+	// Generation is the object generation these attributes describe; generations only increase, so a later read or copy that
+	// pins it proves the object was not rewritten in between.
+	Generation int64
 }
 
 // Attrs returns the object's size, content type and MD5 (1 Class B operation). A missing object is
@@ -123,19 +134,28 @@ func (s *Store) Attrs(ctx context.Context, object string) (Attrs, error) {
 	if err != nil {
 		return Attrs{}, fmt.Errorf("objstore: object attrs: %w", err)
 	}
-	return Attrs{Size: a.Size, ContentType: a.ContentType, MD5: a.MD5}, nil
+	return Attrs{Size: a.Size, ContentType: a.ContentType, MD5: a.MD5, Generation: a.Generation}, nil
 }
 
 // ReadHead returns the first n bytes of the object (a ranged read, 1 Class B operation); a shorter object returns
-// what it has. A missing object is ErrObjectNotFound.
-func (s *Store) ReadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+// what it has. A missing object is ErrObjectNotFound. With generation != 0 the read is pinned to that generation (the
+// bytes are exactly the ones whose attributes were verified) with an ifGenerationMatch precondition: 412 means the object was
+// replaced (ErrGenerationChanged) and 404 means it is gone (ErrObjectNotFound, the same split CopyTo makes).
+func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	obj, err := s.handle(ctx, object)
 	if err != nil {
 		return nil, err
 	}
+	if generation != 0 {
+		obj = obj.If(storage.Conditions{GenerationMatch: generation}) // not Generation(): a 404 must stay "not found", only 412 is "changed"
+	}
 	r, err := obj.NewRangeReader(ctx, 0, n)
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) && gerr.Code == http.StatusPreconditionFailed {
+		return nil, ErrGenerationChanged
+	}
 	if errors.Is(err, storage.ErrObjectNotExist) {
 		return nil, ErrObjectNotFound
 	}
@@ -152,8 +172,10 @@ func (s *Store) ReadHead(ctx context.Context, object string, n int64) ([]byte, e
 
 // CopyTo copies object to dstObject in dst's bucket with the given content type and Cache-Control (1 Class A
 // operation, no egress when both buckets share a location). It replaces an existing destination, so a repeated
-// call is harmless. A missing source is ErrObjectNotFound.
-func (s *Store) CopyTo(ctx context.Context, object string, dst *Store, dstObject, contentType, cacheControl string) error {
+// call is harmless. A missing source is ErrObjectNotFound. With srcGeneration != 0 the copy carries an
+// ifSourceGenerationMatch precondition (no extra call): if the live generation differs, nothing is copied and the answer
+// is ErrGenerationChanged (W6-25, H-1).
+func (s *Store) CopyTo(ctx context.Context, object string, srcGeneration int64, dst *Store, dstObject, contentType, cacheControl string) error {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	src, err := s.handle(ctx, object)
@@ -164,6 +186,9 @@ func (s *Store) CopyTo(ctx context.Context, object string, dst *Store, dstObject
 	if err != nil {
 		return err
 	}
+	if srcGeneration != 0 {
+		src = src.If(storage.Conditions{GenerationMatch: srcGeneration}) // live generation must equal the verified one
+	}
 	c := to.CopierFrom(src)
 	c.ContentType = contentType
 	c.CacheControl = cacheControl
@@ -173,9 +198,12 @@ func (s *Store) CopyTo(ctx context.Context, object string, dst *Store, dstObject
 		// The Storage emulator does not implement objects.rewrite. Against it only (never against GCS, where
 		// bytes must not pass through the API), stream the copy so local development and the integration
 		// tests can finish a FinalizeUpload.
-		err = streamCopy(ctx, src, to, contentType, cacheControl)
+		err = streamCopy(ctx, src, srcGeneration, to, contentType, cacheControl)
 	}
 	if err != nil {
+		if errors.As(err, &gerr) && gerr.Code == http.StatusPreconditionFailed {
+			return ErrGenerationChanged
+		}
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return ErrObjectNotFound
 		}
@@ -184,8 +212,22 @@ func (s *Store) CopyTo(ctx context.Context, object string, dst *Store, dstObject
 	return nil
 }
 
-// streamCopy is the emulator-only copy: read the source, write the destination with the given attributes.
-func streamCopy(ctx context.Context, src, dst *storage.ObjectHandle, contentType, cacheControl string) error {
+// streamCopy is the emulator-only copy: read the source, write the destination with the given attributes. The Storage
+// emulator ignores read generations and ifGenerationMatch on media reads (probed, W6-25), so the Attrs comparison below is
+// a best-effort check and NOT atomic with the read that follows: a rewrite between the two goes unnoticed. That is
+// acceptable only because this path never runs against GCS, where the single rewrite call carries ifSourceGenerationMatch
+// and is the real protection (TestCopyTo_SendsIfSourceGenerationMatch pins it on the wire).
+func streamCopy(ctx context.Context, src *storage.ObjectHandle, srcGeneration int64, dst *storage.ObjectHandle, contentType, cacheControl string) error {
+	if srcGeneration != 0 {
+		a, err := src.Attrs(ctx)
+		if err != nil {
+			return err
+		}
+		if a.Generation != srcGeneration {
+			return ErrGenerationChanged
+		}
+		src = src.Generation(srcGeneration)
+	}
 	r, err := src.NewReader(ctx)
 	if err != nil {
 		return err
@@ -201,7 +243,8 @@ func streamCopy(ctx context.Context, src, dst *storage.ObjectHandle, contentType
 }
 
 // SignedPutURL returns a V4 signed PUT URL valid for ttl, bound to the object path, Content-Type, Content-MD5
-// (base64) and an x-goog-content-length-range of 0..maxBytes, plus the exact headers the client must send. No GCS
+// (base64), an x-goog-content-length-range of 0..maxBytes and x-goog-if-generation-match: 0 (create-only: a second PUT to the
+// same URL gets 412, so the screened bytes cannot be replaced, W6-25), plus the exact headers the client must send. No GCS
 // call is made (signing uses IAM signBlob as the runtime service account). The URL is a bearer credential.
 func (s *Store) SignedPutURL(ctx context.Context, object, contentType, md5b64 string, maxBytes int64, ttl time.Duration, now time.Time) (string, map[string]string, error) {
 	rangeHeader := "0," + strconv.FormatInt(maxBytes, 10)
@@ -211,12 +254,13 @@ func (s *Store) SignedPutURL(ctx context.Context, object, contentType, md5b64 st
 		Expires:     now.Add(ttl),
 		ContentType: contentType,
 		MD5:         md5b64,
-		Headers:     []string{"x-goog-content-length-range:" + rangeHeader},
+		Headers:     []string{"x-goog-content-length-range:" + rangeHeader, CreateOnlyHeader + ":" + CreateOnlyValue},
 	}
 	headers := map[string]string{
 		"Content-Type":                contentType,
 		"Content-MD5":                 md5b64,
 		"x-goog-content-length-range": rangeHeader,
+		CreateOnlyHeader:              CreateOnlyValue,
 	}
 	if s.sign != nil {
 		u, err := s.sign(ctx, s.bucket, object, opts)
