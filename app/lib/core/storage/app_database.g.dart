@@ -4299,6 +4299,52 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _sendKeyMeta = const VerificationMeta(
+    'sendKey',
+  );
+  @override
+  late final GeneratedColumn<String> sendKey = GeneratedColumn<String>(
+    'send_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sendKindMeta = const VerificationMeta(
+    'sendKind',
+  );
+  @override
+  late final GeneratedColumn<String> sendKind = GeneratedColumn<String>(
+    'send_kind',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sendPublishAtMeta = const VerificationMeta(
+    'sendPublishAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> sendPublishAt =
+      GeneratedColumn<DateTime>(
+        'send_publish_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _sendStartedAtMeta = const VerificationMeta(
+    'sendStartedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> sendStartedAt =
+      GeneratedColumn<DateTime>(
+        'send_started_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
   @override
   List<GeneratedColumn> get $columns => [
     draftId,
@@ -4310,6 +4356,10 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
     madeWithAi,
     createdAt,
     updatedAt,
+    sendKey,
+    sendKind,
+    sendPublishAt,
+    sendStartedAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4396,6 +4446,36 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
     } else if (isInserting) {
       context.missing(_updatedAtMeta);
     }
+    if (data.containsKey('send_key')) {
+      context.handle(
+        _sendKeyMeta,
+        sendKey.isAcceptableOrUnknown(data['send_key']!, _sendKeyMeta),
+      );
+    }
+    if (data.containsKey('send_kind')) {
+      context.handle(
+        _sendKindMeta,
+        sendKind.isAcceptableOrUnknown(data['send_kind']!, _sendKindMeta),
+      );
+    }
+    if (data.containsKey('send_publish_at')) {
+      context.handle(
+        _sendPublishAtMeta,
+        sendPublishAt.isAcceptableOrUnknown(
+          data['send_publish_at']!,
+          _sendPublishAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('send_started_at')) {
+      context.handle(
+        _sendStartedAtMeta,
+        sendStartedAt.isAcceptableOrUnknown(
+          data['send_started_at']!,
+          _sendStartedAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -4441,6 +4521,22 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
       )!,
+      sendKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}send_key'],
+      ),
+      sendKind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}send_kind'],
+      ),
+      sendPublishAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}send_publish_at'],
+      ),
+      sendStartedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}send_started_at'],
+      ),
     );
   }
 
@@ -4470,6 +4566,24 @@ class ComposerDraftRow extends DataClass
   final bool madeWithAi;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// The send in flight or lost (W6-39, ADR-0029 Amendment 1 A4): the
+  /// idempotency key claimed for the last send of this draft, null when no
+  /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
+  /// by `clearSend`; never touches [updatedAt] (W6-45). Not personal data and
+  /// never logged.
+  final String? sendKey;
+
+  /// `post` or `schedule`: which RPC [sendKey] belongs to (the two have
+  /// separate key spaces on the server).
+  final String? sendKind;
+
+  /// The publish time of a pending `schedule` send, UTC.
+  final DateTime? sendPublishAt;
+
+  /// When [sendKey] was first minted; the 23 h window runs from here and is
+  /// never refreshed by a reuse.
+  final DateTime? sendStartedAt;
   const ComposerDraftRow({
     required this.draftId,
     required this.uid,
@@ -4480,6 +4594,10 @@ class ComposerDraftRow extends DataClass
     required this.madeWithAi,
     required this.createdAt,
     required this.updatedAt,
+    this.sendKey,
+    this.sendKind,
+    this.sendPublishAt,
+    this.sendStartedAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4493,6 +4611,18 @@ class ComposerDraftRow extends DataClass
     map['made_with_ai'] = Variable<bool>(madeWithAi);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || sendKey != null) {
+      map['send_key'] = Variable<String>(sendKey);
+    }
+    if (!nullToAbsent || sendKind != null) {
+      map['send_kind'] = Variable<String>(sendKind);
+    }
+    if (!nullToAbsent || sendPublishAt != null) {
+      map['send_publish_at'] = Variable<DateTime>(sendPublishAt);
+    }
+    if (!nullToAbsent || sendStartedAt != null) {
+      map['send_started_at'] = Variable<DateTime>(sendStartedAt);
+    }
     return map;
   }
 
@@ -4507,6 +4637,18 @@ class ComposerDraftRow extends DataClass
       madeWithAi: Value(madeWithAi),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
+      sendKey: sendKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sendKey),
+      sendKind: sendKind == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sendKind),
+      sendPublishAt: sendPublishAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sendPublishAt),
+      sendStartedAt: sendStartedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sendStartedAt),
     );
   }
 
@@ -4525,6 +4667,10 @@ class ComposerDraftRow extends DataClass
       madeWithAi: serializer.fromJson<bool>(json['madeWithAi']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      sendKey: serializer.fromJson<String?>(json['sendKey']),
+      sendKind: serializer.fromJson<String?>(json['sendKind']),
+      sendPublishAt: serializer.fromJson<DateTime?>(json['sendPublishAt']),
+      sendStartedAt: serializer.fromJson<DateTime?>(json['sendStartedAt']),
     );
   }
   @override
@@ -4540,6 +4686,10 @@ class ComposerDraftRow extends DataClass
       'madeWithAi': serializer.toJson<bool>(madeWithAi),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'sendKey': serializer.toJson<String?>(sendKey),
+      'sendKind': serializer.toJson<String?>(sendKind),
+      'sendPublishAt': serializer.toJson<DateTime?>(sendPublishAt),
+      'sendStartedAt': serializer.toJson<DateTime?>(sendStartedAt),
     };
   }
 
@@ -4553,6 +4703,10 @@ class ComposerDraftRow extends DataClass
     bool? madeWithAi,
     DateTime? createdAt,
     DateTime? updatedAt,
+    Value<String?> sendKey = const Value.absent(),
+    Value<String?> sendKind = const Value.absent(),
+    Value<DateTime?> sendPublishAt = const Value.absent(),
+    Value<DateTime?> sendStartedAt = const Value.absent(),
   }) => ComposerDraftRow(
     draftId: draftId ?? this.draftId,
     uid: uid ?? this.uid,
@@ -4563,6 +4717,14 @@ class ComposerDraftRow extends DataClass
     madeWithAi: madeWithAi ?? this.madeWithAi,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    sendKey: sendKey.present ? sendKey.value : this.sendKey,
+    sendKind: sendKind.present ? sendKind.value : this.sendKind,
+    sendPublishAt: sendPublishAt.present
+        ? sendPublishAt.value
+        : this.sendPublishAt,
+    sendStartedAt: sendStartedAt.present
+        ? sendStartedAt.value
+        : this.sendStartedAt,
   );
   ComposerDraftRow copyWithCompanion(ComposerDraftEntriesCompanion data) {
     return ComposerDraftRow(
@@ -4581,6 +4743,14 @@ class ComposerDraftRow extends DataClass
           : this.madeWithAi,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      sendKey: data.sendKey.present ? data.sendKey.value : this.sendKey,
+      sendKind: data.sendKind.present ? data.sendKind.value : this.sendKind,
+      sendPublishAt: data.sendPublishAt.present
+          ? data.sendPublishAt.value
+          : this.sendPublishAt,
+      sendStartedAt: data.sendStartedAt.present
+          ? data.sendStartedAt.value
+          : this.sendStartedAt,
     );
   }
 
@@ -4595,7 +4765,11 @@ class ComposerDraftRow extends DataClass
           ..write('paidPartnership: $paidPartnership, ')
           ..write('madeWithAi: $madeWithAi, ')
           ..write('createdAt: $createdAt, ')
-          ..write('updatedAt: $updatedAt')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('sendKey: $sendKey, ')
+          ..write('sendKind: $sendKind, ')
+          ..write('sendPublishAt: $sendPublishAt, ')
+          ..write('sendStartedAt: $sendStartedAt')
           ..write(')'))
         .toString();
   }
@@ -4611,6 +4785,10 @@ class ComposerDraftRow extends DataClass
     madeWithAi,
     createdAt,
     updatedAt,
+    sendKey,
+    sendKind,
+    sendPublishAt,
+    sendStartedAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -4624,7 +4802,11 @@ class ComposerDraftRow extends DataClass
           other.paidPartnership == this.paidPartnership &&
           other.madeWithAi == this.madeWithAi &&
           other.createdAt == this.createdAt &&
-          other.updatedAt == this.updatedAt);
+          other.updatedAt == this.updatedAt &&
+          other.sendKey == this.sendKey &&
+          other.sendKind == this.sendKind &&
+          other.sendPublishAt == this.sendPublishAt &&
+          other.sendStartedAt == this.sendStartedAt);
 }
 
 class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
@@ -4637,6 +4819,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
   final Value<bool> madeWithAi;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
+  final Value<String?> sendKey;
+  final Value<String?> sendKind;
+  final Value<DateTime?> sendPublishAt;
+  final Value<DateTime?> sendStartedAt;
   final Value<int> rowid;
   const ComposerDraftEntriesCompanion({
     this.draftId = const Value.absent(),
@@ -4648,6 +4834,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     this.madeWithAi = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
+    this.sendKey = const Value.absent(),
+    this.sendKind = const Value.absent(),
+    this.sendPublishAt = const Value.absent(),
+    this.sendStartedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ComposerDraftEntriesCompanion.insert({
@@ -4660,6 +4850,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     this.madeWithAi = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
+    this.sendKey = const Value.absent(),
+    this.sendKind = const Value.absent(),
+    this.sendPublishAt = const Value.absent(),
+    this.sendStartedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : draftId = Value(draftId),
        uid = Value(uid),
@@ -4676,6 +4870,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     Expression<bool>? madeWithAi,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
+    Expression<String>? sendKey,
+    Expression<String>? sendKind,
+    Expression<DateTime>? sendPublishAt,
+    Expression<DateTime>? sendStartedAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -4688,6 +4886,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
       if (madeWithAi != null) 'made_with_ai': madeWithAi,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
+      if (sendKey != null) 'send_key': sendKey,
+      if (sendKind != null) 'send_kind': sendKind,
+      if (sendPublishAt != null) 'send_publish_at': sendPublishAt,
+      if (sendStartedAt != null) 'send_started_at': sendStartedAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -4702,6 +4904,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     Value<bool>? madeWithAi,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
+    Value<String?>? sendKey,
+    Value<String?>? sendKind,
+    Value<DateTime?>? sendPublishAt,
+    Value<DateTime?>? sendStartedAt,
     Value<int>? rowid,
   }) {
     return ComposerDraftEntriesCompanion(
@@ -4714,6 +4920,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
       madeWithAi: madeWithAi ?? this.madeWithAi,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      sendKey: sendKey ?? this.sendKey,
+      sendKind: sendKind ?? this.sendKind,
+      sendPublishAt: sendPublishAt ?? this.sendPublishAt,
+      sendStartedAt: sendStartedAt ?? this.sendStartedAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -4748,6 +4958,18 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
+    if (sendKey.present) {
+      map['send_key'] = Variable<String>(sendKey.value);
+    }
+    if (sendKind.present) {
+      map['send_kind'] = Variable<String>(sendKind.value);
+    }
+    if (sendPublishAt.present) {
+      map['send_publish_at'] = Variable<DateTime>(sendPublishAt.value);
+    }
+    if (sendStartedAt.present) {
+      map['send_started_at'] = Variable<DateTime>(sendStartedAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -4766,6 +4988,10 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
           ..write('madeWithAi: $madeWithAi, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
+          ..write('sendKey: $sendKey, ')
+          ..write('sendKind: $sendKind, ')
+          ..write('sendPublishAt: $sendPublishAt, ')
+          ..write('sendStartedAt: $sendStartedAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7342,6 +7568,10 @@ typedef $$ComposerDraftEntriesTableCreateCompanionBuilder =
       Value<bool> madeWithAi,
       required DateTime createdAt,
       required DateTime updatedAt,
+      Value<String?> sendKey,
+      Value<String?> sendKind,
+      Value<DateTime?> sendPublishAt,
+      Value<DateTime?> sendStartedAt,
       Value<int> rowid,
     });
 typedef $$ComposerDraftEntriesTableUpdateCompanionBuilder =
@@ -7355,6 +7585,10 @@ typedef $$ComposerDraftEntriesTableUpdateCompanionBuilder =
       Value<bool> madeWithAi,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
+      Value<String?> sendKey,
+      Value<String?> sendKind,
+      Value<DateTime?> sendPublishAt,
+      Value<DateTime?> sendStartedAt,
       Value<int> rowid,
     });
 
@@ -7409,6 +7643,26 @@ class $$ComposerDraftEntriesTableFilterComposer
 
   ColumnFilters<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sendKey => $composableBuilder(
+    column: $table.sendKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get sendKind => $composableBuilder(
+    column: $table.sendKind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get sendPublishAt => $composableBuilder(
+    column: $table.sendPublishAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get sendStartedAt => $composableBuilder(
+    column: $table.sendStartedAt,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -7466,6 +7720,26 @@ class $$ComposerDraftEntriesTableOrderingComposer
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get sendKey => $composableBuilder(
+    column: $table.sendKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get sendKind => $composableBuilder(
+    column: $table.sendKind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get sendPublishAt => $composableBuilder(
+    column: $table.sendPublishAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get sendStartedAt => $composableBuilder(
+    column: $table.sendStartedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ComposerDraftEntriesTableAnnotationComposer
@@ -7509,6 +7783,22 @@ class $$ComposerDraftEntriesTableAnnotationComposer
 
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get sendKey =>
+      $composableBuilder(column: $table.sendKey, builder: (column) => column);
+
+  GeneratedColumn<String> get sendKind =>
+      $composableBuilder(column: $table.sendKind, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get sendPublishAt => $composableBuilder(
+    column: $table.sendPublishAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get sendStartedAt => $composableBuilder(
+    column: $table.sendStartedAt,
+    builder: (column) => column,
+  );
 }
 
 class $$ComposerDraftEntriesTableTableManager
@@ -7563,6 +7853,10 @@ class $$ComposerDraftEntriesTableTableManager
                 Value<bool> madeWithAi = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
+                Value<String?> sendKey = const Value.absent(),
+                Value<String?> sendKind = const Value.absent(),
+                Value<DateTime?> sendPublishAt = const Value.absent(),
+                Value<DateTime?> sendStartedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ComposerDraftEntriesCompanion(
                 draftId: draftId,
@@ -7574,6 +7868,10 @@ class $$ComposerDraftEntriesTableTableManager
                 madeWithAi: madeWithAi,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                sendKey: sendKey,
+                sendKind: sendKind,
+                sendPublishAt: sendPublishAt,
+                sendStartedAt: sendStartedAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -7587,6 +7885,10 @@ class $$ComposerDraftEntriesTableTableManager
                 Value<bool> madeWithAi = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
+                Value<String?> sendKey = const Value.absent(),
+                Value<String?> sendKind = const Value.absent(),
+                Value<DateTime?> sendPublishAt = const Value.absent(),
+                Value<DateTime?> sendStartedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ComposerDraftEntriesCompanion.insert(
                 draftId: draftId,
@@ -7598,6 +7900,10 @@ class $$ComposerDraftEntriesTableTableManager
                 madeWithAi: madeWithAi,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
+                sendKey: sendKey,
+                sendKind: sendKind,
+                sendPublishAt: sendPublishAt,
+                sendStartedAt: sendStartedAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

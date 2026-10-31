@@ -49,6 +49,7 @@ import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
 import 'widgets/schedule_dialog.dart';
+import 'widgets/send_conflict_dialog.dart';
 
 /// Shown when a picked draft could not be opened.
 const kDraftGoneMessage = 'That draft is no longer available.';
@@ -512,7 +513,42 @@ class _ComposerViewState extends State<_ComposerView> {
     }
   }
 
+  /// A draft send was stopped, or the server knew its key (W6-39): the user
+  /// looks at what was sent, sends again on purpose, or keeps editing.
+  Future<void> _askSendConflict(
+    BuildContext context,
+    SendConflict conflict,
+  ) async {
+    final cubit = context.read<ComposerCubit>();
+    final handle = viewerAuthorSnapshot(
+      context.read<OnboardingBloc>().state.profile,
+    ).handle;
+    final choice = await showSendConflictDialog(context, conflict);
+    if (!context.mounted) return;
+    switch (choice) {
+      case SendConflictChoice.look:
+        // The composer and its draft stay underneath; coming back is a tap.
+        unawaited(
+          context.push(
+            conflict == SendConflict.pendingSchedule
+                ? AppRouter.scheduledPostsPath
+                : AppRouter.profilePath(handle),
+          ),
+        );
+      case SendConflictChoice.sendAnyway:
+        unawaited(cubit.sendAnyway());
+      case null:
+        break;
+    }
+  }
+
   void _onState(BuildContext context, ComposerState state) {
+    final conflict = state.sendConflict;
+    if (conflict != null) {
+      context.read<ComposerCubit>().sendConflictShown();
+      unawaited(_askSendConflict(context, conflict));
+      return;
+    }
     final scheduled = state.scheduledNotice;
     if (scheduled != null) {
       _onScheduled(context, scheduled);
@@ -704,6 +740,7 @@ class _ComposerViewState extends State<_ComposerView> {
       listenWhen: (prev, curr) =>
           prev.status != curr.status ||
           !identical(prev.error, curr.error) ||
+          prev.sendConflict != curr.sendConflict ||
           !identical(prev.scheduledNotice, curr.scheduledNotice),
       listener: _onState,
       builder: (context, state) {
