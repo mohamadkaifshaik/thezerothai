@@ -53,7 +53,7 @@ func repeatInt(n, v int) []int {
 
 // TestW618_ExplicitFrameVerdictMatrix: a harmless first frame never hides an explicit frame that the sampler visits, and
 // the accepted F11 residual (a frame strictly between two samples) is pinned as READY. Eight equal delays sample frames
-// 0, 2, 4, 6; a GIF of up to four frames samples every frame.
+// 0, 2, 5 and 7 (t = 0, T/3, 2T/3 and the always-sampled last frame, W6-28); a GIF of up to four frames samples every frame.
 func TestW618_ExplicitFrameVerdictMatrix(t *testing.T) {
 	eight := func(explicitAt int) []uint8 {
 		s := repeatIdx(8, pxGreen)
@@ -69,17 +69,17 @@ func TestW618_ExplicitFrameVerdictMatrix(t *testing.T) {
 	}{
 		{"explicit first frame", eight(0), repeatInt(8, 10), StatusRejected},
 		{"explicit is the 2nd sample", eight(2), repeatInt(8, 10), StatusRejected},
-		{"explicit is the 3rd sample", eight(4), repeatInt(8, 10), StatusRejected},
-		{"explicit is the 4th sample", eight(6), repeatInt(8, 10), StatusRejected},
+		{"explicit is the 3rd sample", eight(5), repeatInt(8, 10), StatusRejected},
+		{"explicit is the last frame, always sampled (W6-28 M-2)", eight(7), repeatInt(8, 10), StatusRejected},
 		{"RESIDUAL F11: explicit at frame 1, between samples 0 and 2", eight(1), repeatInt(8, 10), StatusReady},
 		{"RESIDUAL F11: explicit at frame 3", eight(3), repeatInt(8, 10), StatusReady},
-		{"RESIDUAL F11: explicit at frame 5", eight(5), repeatInt(8, 10), StatusReady},
-		{"RESIDUAL F11: explicit at the last frame, after the last sample", eight(7), repeatInt(8, 10), StatusReady},
+		{"RESIDUAL F11: explicit at frame 4", eight(4), repeatInt(8, 10), StatusReady},
+		{"RESIDUAL F11: explicit at frame 6", eight(6), repeatInt(8, 10), StatusReady},
 		{"two frames: explicit second", []uint8{pxWhite, pxRed}, []int{10, 10}, StatusRejected},
 		{"three frames: explicit third", []uint8{pxWhite, pxGreen, pxRed}, []int{10, 10, 10}, StatusRejected},
 		{"four frames: explicit fourth", []uint8{pxWhite, pxGreen, pxGreen, pxRed}, []int{10, 10, 10, 10}, StatusRejected},
 		{"one long explicit frame at the end covers the 3T/4 point", append(repeatIdx(5, pxWhite), pxRed), []int{1, 1, 1, 1, 1, 400}, StatusRejected},
-		{"a long harmless first frame covers every point, the short explicit tail is not seen (residual)", append([]uint8{pxWhite}, repeatIdx(5, pxRed)...), []int{400, 1, 1, 1, 1, 1}, StatusReady},
+		{"a long harmless first frame covers every point, but the short explicit last frame is always sampled (W6-28 M-2)", append([]uint8{pxWhite}, repeatIdx(5, pxRed)...), []int{400, 1, 1, 1, 1, 1}, StatusRejected},
 		{"harmless everywhere", repeatIdx(8, pxGreen), repeatInt(8, 10), StatusReady},
 	}
 	for _, tt := range tests {

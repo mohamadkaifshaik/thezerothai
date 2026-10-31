@@ -131,8 +131,8 @@ FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUploa
 - **Verify.** The full object's magic must be `GIF87a` or `GIF89a` and its stored type `image/gif`; a GIF declared but PNG bytes is
   `REJECTED` (reason `invalid`), 0 Vision units. The original bytes are published unchanged.
 - **Vision, frame-sampled (W6-10, ADR-0029 D11, F11).** FinalizeUpload reads the whole private GIF (1 Class B), pre-scans the
-  container without decoding pixels, then decodes one frame at a time and tiles the frames visible at 0, T/4, T/2 and 3T/4 of the
-  display time (up to four) into a 2 x 2 JPEG sheet (up to 1,280 x 960). Vision gets the sheet **by bytes** and the thumbnail **by URI**:
+  container without decoding pixels, then decodes one frame at a time and tiles the frames visible at 0, T/3 and 2T/3 of the
+  display time **plus always the last frame** (W6-28, M-2: a GIF that plays once rests on its last frame; up to four, the 2 x 2 JPEG sheet (up to 1,280 x 960) and the 2 units are unchanged). Decoding to the last frame decodes every frame (worst accepted GIF about 0.4 to 0.8 s of the 2 s deadline; watch `refused_reason=deadline` on `gif_screen`). Vision gets the sheet **by bytes** and the thumbnail **by URI**:
   **always 2 units** (the full object is never sent by URI). This is stricter than D11 point 6, which said 1 unit with
   `VISION_SCREEN_THUMB=false`: the thumbnail is a separate client upload that lists show, so it is always screened, like a banner's.
   Frames between the sample points are not screened (the residual risk the founder accepted in F11 point 2); report-driven review
