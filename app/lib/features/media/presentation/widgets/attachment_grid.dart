@@ -102,6 +102,8 @@ class _AttachmentTileState extends State<AttachmentTile> {
       AttachmentStatus.failed =>
         "$base, upload failed. It retries when you "
             'tap Post.',
+      AttachmentStatus.unchecked =>
+        "$base, couldn't be checked. Use Retry on this tile.",
       AttachmentStatus.rejected => '$base, was not accepted. Remove it.',
       AttachmentStatus.unsupported => "$base, can't be used. Remove it.",
       AttachmentStatus.ready => base,
@@ -126,6 +128,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
     final preview = attachment.previewBytes;
     final problem =
         attachment.status == AttachmentStatus.failed ||
+        attachment.status == AttachmentStatus.unchecked ||
         attachment.status == AttachmentStatus.rejected ||
         attachment.status == AttachmentStatus.unsupported;
     final busy =
@@ -202,7 +205,32 @@ class _AttachmentTileState extends State<AttachmentTile> {
                     end: AppSpacing.xs,
                     child: GifBadge(),
                   ),
-                if (attachment.image != null)
+                if (attachment.status == AttachmentStatus.unchecked)
+                  // ADR-0029 Amendment 1 A5.6: the upload is kept; Retry
+                  // checks the same media id again, with no re-upload.
+                  PositionedDirectional(
+                    bottom: 0,
+                    start: 0,
+                    child: TextButton(
+                      onPressed: enabled
+                          ? () => context.read<AttachmentsCubit>().retryCheck(
+                              attachment.id,
+                            )
+                          : null,
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(
+                          AppSpacing.minTapTarget,
+                          AppSpacing.minTapTarget,
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                        ),
+                        backgroundColor: colors.surface.withValues(alpha: 0.7),
+                      ),
+                      child: const Text('Retry'),
+                    ),
+                  )
+                else if (attachment.image != null)
                   PositionedDirectional(
                     bottom: 0,
                     start: 0,
@@ -264,6 +292,13 @@ class _Status extends StatelessWidget {
         );
       case AttachmentStatus.failed:
         return _problem(context, Icons.refresh, 'Not sent');
+      case AttachmentStatus.unchecked:
+        // The tile's Retry button sits at the bottom, where ALT usually is.
+        return _problem(
+          context,
+          Icons.cloud_off_outlined,
+          "Couldn't check this image",
+        );
       case AttachmentStatus.rejected:
         // The server's reason is written for users (invalid, policy,
         // capacity, "This GIF is too large or too long.").

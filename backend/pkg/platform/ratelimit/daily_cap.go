@@ -174,3 +174,16 @@ func (d *DailyCap) Spent(key string) int64 {
 	defer c.mu.Unlock()
 	return c.count
 }
+
+// Refund returns n units to key's count for today (IST), never below 0. n <= 0 is a no-op. It is the inverse of
+// AllowN/Charge for units that were counted up front but never spent (W6-40: a Vision-units charge taken before a call
+// that was never sent). A refund that crosses IST midnight lands on the new day's counter and is floored at 0, so it can
+// never grant more than one day's allowance.
+func (d *DailyCap) Refund(key string, n int64) {
+	if n <= 0 {
+		return
+	}
+	c := d.lock(key)
+	defer c.mu.Unlock()
+	c.count = max(c.count-n, 0)
+}

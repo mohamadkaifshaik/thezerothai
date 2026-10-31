@@ -576,4 +576,36 @@ void main() {
       expect((mapped as LimitReachedException).quota, 'follow_requests');
     });
   });
+
+  group('image checks unavailable (W6-40, ADR-0029 Amendment 1 A5.6)', () {
+    test(
+      'UNAVAILABLE with a retry_after and no reason keeps the retry_after',
+      () {
+        final mapped = mapConnectError(
+          _withDetail(
+            connect.Code.unavailable,
+            'image checks are temporarily unavailable, please try again',
+            common.ErrorDetail(
+              message: 'image checks are temporarily unavailable',
+              retryAfter: pb_duration.Duration(seconds: Int64(5)),
+            ),
+          ),
+        );
+        expect(mapped, isA<ScreeningUnavailableException>());
+        expect(
+          (mapped as ScreeningUnavailableException).retryAfter,
+          const Duration(seconds: 5),
+        );
+      },
+    );
+
+    test('a plain UNAVAILABLE stays a NetworkException', () {
+      expect(
+        mapConnectError(
+          connect.ConnectException(connect.Code.unavailable, 'upstream'),
+        ),
+        isA<NetworkException>(),
+      );
+    });
+  });
 }

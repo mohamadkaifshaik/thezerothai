@@ -77,6 +77,9 @@ type Doc struct {
 	// ScreenAttempts counts the screening claims this document has taken (W6-27, security H-3): ClaimScreening increments it in
 	// the claim write itself. At MediaMaxScreenAttempts the next FinalizeUpload REJECTS the document without a Vision call.
 	ScreenAttempts int64 `firestore:"screenAttempts,omitempty"`
+	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document (W6-40, ADR-0029
+	// Amendment 1 A5.4). ReleaseScreening increments it in the release write it already makes (+0 writes). Retries = ScreenAttempts - ScreenAssessed.
+	ScreenAssessed int64 `firestore:"screenAssessed,omitempty"`
 	// RetiredAt is set by the profile_media_retired step (ADR-0024 Amendment 1 A4) once the document's replaced or removed
 	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
 	// them a day later). The resolvers refuse a retired document, so a retired image can never be set again. ExpireAt is
@@ -137,8 +140,9 @@ type Repo interface {
 	// UpdateTime the winner must use for Resolve and ReleaseScreening. Writes: 1.
 	ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error)
 	// ReleaseScreening removes the claim ClaimScreening made, conditional on the UpdateTime it returned (ErrConflict
-	// when the document moved on, which is fine: the claim is gone either way). Writes: 1.
-	ReleaseScreening(ctx context.Context, id string, updateTime time.Time) error
+	// when the document moved on, which is fine: the claim is gone either way). When assessed, the same write also increments
+	// screenAssessed (W6-40: the attempt produced a valid assessment and consumed one of MEDIA_MAX_SCREEN_ATTEMPTS). Writes: 1.
+	ReleaseScreening(ctx context.Context, id string, updateTime time.Time, assessed bool) error
 	// Resolve moves a PENDING document to its final state, conditional on its UpdateTime (ErrConflict when
 	// another call changed it first) and clears any screening claim. Writes: 1.
 	Resolve(ctx context.Context, id string, updateTime time.Time, r Resolution) error
@@ -314,8 +318,12 @@ func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTim
 }
 
 // ReleaseScreening implements Repo.
-func (r *FirestoreRepo) ReleaseScreening(ctx context.Context, id string, updateTime time.Time) error {
-	_, err := r.updateAt(ctx, id, []firestore.Update{{Path: "screeningUntil", Value: firestore.Delete}}, updateTime, "release screening")
+func (r *FirestoreRepo) ReleaseScreening(ctx context.Context, id string, updateTime time.Time, assessed bool) error {
+	updates := []firestore.Update{{Path: "screeningUntil", Value: firestore.Delete}}
+	if assessed {
+		updates = append(updates, firestore.Update{Path: "screenAssessed", Value: firestore.Increment(1)})
+	}
+	_, err := r.updateAt(ctx, id, updates, updateTime, "release screening")
 	return err
 }
 

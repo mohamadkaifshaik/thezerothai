@@ -19,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 // Request-log fields. They ride on the mw.Logging line; values are enums, counts and booleans only: never a uid,
@@ -34,10 +35,15 @@ const (
 	fieldRejected          = "media_rejected"
 	fieldVisionUnits       = "vision_units"
 	fieldExhausted         = "vision_cap_exhausted"
-	fieldAttemptsExhausted = "screen_attempts_exhausted"
-	fieldConverged         = "finalize_converged" // a lost finalize race answered with the winner's result
-	fieldBusy              = "finalize_busy"      // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
-	fieldJoined            = "finalize_joined"    // answered with the result of a same-instance call already finalizing this image
+	fieldAttemptsExhausted = "attempts_exhausted"  // "assessed" or "claims" (A5.4 pre-check)
+	fieldConverged         = "finalize_converged"  // a lost finalize race answered with the winner's result
+	fieldBusy              = "finalize_busy"       // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
+	fieldJoined            = "finalize_joined"     // answered with the result of a same-instance call already finalizing this image
+	fieldScreenOutcome     = "screen_outcome"      // ready, rejected_policy, rejected_invalid, assessed (an attempt consumed) or unassessed (a retry consumed)
+	fieldScreenClaims      = "screen_claims"       // the doc's screenAttempts after this call's claim
+	fieldScreenAssessed    = "screen_assessed"     // the doc's screenAssessed after this call
+	fieldUnitsRefused      = "units_daily_refused" // media_vision_units_daily refused the call before the claim (A5.5)
+	fieldGifBusy           = "gif_busy"            // the GIF slot stayed busy for GifQueueWait: no claim, no write (A5.1)
 )
 
 // mediaIDPattern is the media id shape (19-digit zero-padded Snowflake decimal, like post ids).
@@ -54,7 +60,7 @@ const (
 	reasonInvalid  = "This image could not be used. Please choose a different one."
 	reasonPolicy   = "This image can't be used because it may break the community rules."
 	reasonCapacity = "Image uploads are temporarily limited. Please try again later."
-	reasonAttempts = "This image could not be checked. Please upload it again."
+	reasonAttempts = "We couldn't check this image. Remove it and choose another."
 	// reasonGifLarge is the pre-scan refusal and the decode deadline (ADR-0029 D11).
 	reasonGifLarge = "This GIF is too large or too long."
 )
@@ -87,7 +93,16 @@ type Deps struct {
 	GifMaxFrames       int
 	GifMaxFrameAreaSum int64
 	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (W6-27): screening claims per media document before it is REJECTED. 0 means 3.
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (revised by W6-40, ADR-0029 Amendment 1 A5.4): attempts that produced a valid assessment
+	// (screenAssessed) before the document is REJECTED. 0 means 3.
 	MediaMaxScreenAttempts int
+	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES: claimed attempts with no valid assessment. nil means 5; a pointer because 0 is a valid setting.
+	// With the attempts it sets the claims ceiling on screenAttempts.
+	MediaMaxScreenRetries *int
+	// VisionUnitsPerDay and VisionUnitsPerDayNewAccount are MEDIA_VISION_UNITS_PER_DAY and MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT: the per-uid Vision
+	// units a day this instance allows (A5.5). 0 means 60 and 12.
+	VisionUnitsPerDay           int64
+	VisionUnitsPerDayNewAccount int64
 	// GifQueueWait is how long a GIF waits for the per-instance screening slot before MEDIA_NOT_READY (0 = 5 s) and
 	// GifDecodeTimeout the sampler's deadline (0 = 2 s). Overridable for tests.
 	GifQueueWait     time.Duration
@@ -105,6 +120,9 @@ type service struct {
 	flight singleflight.Group
 	// gifSlot is the GIF screening semaphore (capacity 1): at most one GIF is read and sampled at a time on this instance.
 	gifSlot chan struct{}
+	// unitsCap and unitsCapNew are the per-uid Vision-units daily cap (media_vision_units_daily, A5.5), established and new-account tiers; in memory
+	// per instance, reset by a restart.
+	unitsCap, unitsCapNew *ratelimit.DailyCap
 }
 
 // New builds the media service. Missing dependencies are a programming error caught at startup.
@@ -127,7 +145,16 @@ func New(d Deps) (Service, error) {
 	if d.Policy == "" {
 		d.Policy = config.VisionPolicyEstablished
 	}
-	return &service{Deps: d, vision: &visionBudget{repo: d.Repo, cap: d.VisionMonthlyCap, now: d.Now}, gifSlot: make(chan struct{}, 1)}, nil
+	if d.VisionUnitsPerDay <= 0 {
+		d.VisionUnitsPerDay = defaultVisionUnitsPerDay
+	}
+	if d.VisionUnitsPerDayNewAccount <= 0 {
+		d.VisionUnitsPerDayNewAccount = defaultVisionUnitsPerDayNewAccount
+	}
+	return &service{
+		Deps: d, vision: &visionBudget{repo: d.Repo, cap: d.VisionMonthlyCap, now: d.Now}, gifSlot: make(chan struct{}, 1),
+		unitsCap: ratelimit.NewDailyCap(d.VisionUnitsPerDay).WithClock(d.Now), unitsCapNew: ratelimit.NewDailyCap(d.VisionUnitsPerDayNewAccount).WithClock(d.Now),
+	}, nil
 }
 
 // extension maps an accepted content type to the object extension.
