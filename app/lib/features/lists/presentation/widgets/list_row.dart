@@ -13,13 +13,30 @@ String listMemberCountLabel(int count) =>
 /// muted "· N members", and a lock icon when private. A custom row (no
 /// `ListTile`); the whole row is the tap target (>= 48dp). [onEdit] adds a
 /// trailing Edit button for the owner. Reused by W5-13 for "a user's lists"
-/// (without [onEdit]).
+/// (without [onEdit]) and, with [checked] and [checkTrailing], for the
+/// checkbox rows of the Add-to-Lists sheet.
 class ListRow extends StatelessWidget {
-  const ListRow({super.key, required this.list, this.onTap, this.onEdit});
+  const ListRow({
+    super.key,
+    required this.list,
+    this.onTap,
+    this.onEdit,
+    this.checked,
+    this.checkTrailing,
+    this.enabled = true,
+  });
 
   final pb.ListInfo list;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
+
+  /// Non-null makes the row a checkbox (spoken as checked or not) instead of a
+  /// button; [checkTrailing] is the box (or a spinner) at the end of the row.
+  final bool? checked;
+  final Widget? checkTrailing;
+
+  /// False while the row's action is in flight (spoken as disabled).
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +52,9 @@ class ListRow extends StatelessWidget {
       children: [
         Expanded(
           child: Semantics(
-            button: onTap != null,
+            button: checked == null && onTap != null,
+            checked: checked,
+            enabled: enabled,
             label: spoken,
             excludeSemantics: true,
             onTap: onTap,
@@ -81,6 +100,10 @@ class ListRow extends StatelessWidget {
                           size: AppIconSize.md,
                           color: muted,
                         ),
+                      ],
+                      if (checkTrailing != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        checkTrailing!,
                       ],
                     ],
                   ),

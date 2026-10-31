@@ -4,9 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_error_view.dart';
-import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../../../shared/widgets/app_empty_view.dart';
-import '../../../../shared/widgets/app_tile_icon.dart';
 import '../../../../shared/widgets/user_list_skeleton.dart';
 import '../../data/lists_repository.dart';
 import '../bloc/add_to_lists_cubit.dart';
@@ -152,12 +150,15 @@ class AddToListsSheet extends StatelessWidget {
           itemCount: state.lists.length,
           itemBuilder: (context, i) {
             final list = state.lists[i];
-            return _CheckRow(
+            final checked = state.memberOf.contains(list.listId);
+            final busy = state.pending.contains(list.listId);
+            return ListRow(
               key: ValueKey(list.listId),
               list: list,
-              checked: state.memberOf.contains(list.listId),
-              busy: state.pending.contains(list.listId),
-              onToggle: () => cubit.toggle(list.listId),
+              checked: checked,
+              enabled: !busy,
+              onTap: busy ? null : () => cubit.toggle(list.listId),
+              checkTrailing: _RowBox(checked: checked, busy: busy),
             );
           },
         );
@@ -165,102 +166,31 @@ class AddToListsSheet extends StatelessWidget {
   }
 }
 
-/// One list with a checkbox: the whole row toggles (>= 48dp). Spoken as a
-/// checkbox named after the list. A busy row shows a small spinner and ignores
-/// taps until its call answers.
-class _CheckRow extends StatelessWidget {
-  const _CheckRow({
-    super.key,
-    required this.list,
-    required this.checked,
-    required this.busy,
-    required this.onToggle,
-  });
+/// The box at the end of a row: a spinner while that row's call is in flight.
+/// Decorative for the screen reader (the row itself is the checkbox).
+class _RowBox extends StatelessWidget {
+  const _RowBox({required this.checked, required this.busy});
 
-  final pb.ListInfo list;
   final bool checked;
   final bool busy;
-  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final members = listMemberCountLabel(list.memberCount);
-    final spoken = [
-      list.name,
-      members,
-      if (list.isPrivate) 'private',
-    ].join(', ');
-    return Semantics(
-      container: true,
-      checked: checked,
-      enabled: !busy,
-      label: spoken,
-      excludeSemantics: true,
-      onTap: busy ? null : onToggle,
-      child: InkWell(
-        onTap: busy ? null : onToggle,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.sm,
-            ),
-            child: Row(
-              children: [
-                const AppTileIcon(icon: Icons.list_alt_outlined),
-                const SizedBox(width: AppSpacing.smd),
-                Expanded(
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: list.name,
-                          style: theme.textTheme.titleMedium,
-                        ),
-                        TextSpan(
-                          text: ' · $members',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: muted,
-                          ),
-                        ),
-                      ],
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+    return SizedBox(
+      width: AppSpacing.minTapTarget,
+      height: AppSpacing.minTapTarget,
+      child: Center(
+        child: busy
+            ? const SizedBox(
+                width: AppIconSize.md,
+                height: AppIconSize.md,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : ExcludeSemantics(
+                child: IgnorePointer(
+                  child: Checkbox(value: checked, onChanged: (_) {}),
                 ),
-                if (list.isPrivate) ...[
-                  const SizedBox(width: AppSpacing.sm),
-                  Icon(Icons.lock_outline, size: AppIconSize.md, color: muted),
-                ],
-                const SizedBox(width: AppSpacing.sm),
-                SizedBox(
-                  width: AppSpacing.minTapTarget,
-                  height: AppSpacing.minTapTarget,
-                  child: Center(
-                    child: busy
-                        ? const SizedBox(
-                            width: AppIconSize.md,
-                            height: AppIconSize.md,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : ExcludeSemantics(
-                            child: IgnorePointer(
-                              child: Checkbox(
-                                value: checked,
-                                onChanged: (_) {},
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }
