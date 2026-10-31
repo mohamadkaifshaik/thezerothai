@@ -241,6 +241,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com/me"},
 		{Path: "pinnedPostId", Value: "0000000000000000602"},
+		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}}, // ADR-0030 D8 (W5-9)
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)
 	}

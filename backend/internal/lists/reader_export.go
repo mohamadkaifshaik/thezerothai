@@ -17,8 +17,8 @@ func NotFoundError() *apierr.Error { return notFound() }
 func ValidateListID(id string) error { return validateListID(id) }
 
 // MembersInfo renders the header a Reader.Members answer already holds as the wire ListInfo, with no further read.
-// PinnedByViewer is false until W5-9 fills it (see service.pinned). The member count is the one Members computed, net of the
+// PinnedByViewer comes from the viewer's tabs (W5-9, service.pinned). The member count is the one Members computed, net of the
 // members who block the owner, which for the owner is one lower than GetList's stored count only while such a member exists.
 func MembersInfo(m ListMembers) *listsv1.ListInfo {
-	return toListInfo(View{Header: m.Header, Owner: m.Owner})
+	return toListInfo(View{Header: m.Header, Owner: m.Owner, PinnedByViewer: m.PinnedByViewer})
 }

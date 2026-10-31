@@ -147,6 +147,13 @@
     "followersCount": 1,
     "followingCount": 1,
     "handle": "<handle:A>",
+    "homeTabs": [
+      {
+        "id": "0000000000000000603",
+        "kind": "LIST",
+        "title": "Golden list"
+      }
+    ],
     "isPrivate": false,
     "location": "Pune",
     "pinnedPostId": "0000000000000000602",

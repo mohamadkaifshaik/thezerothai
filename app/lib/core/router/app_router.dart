@@ -11,6 +11,8 @@ import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/list_detail_screen.dart';
+import '../../features/lists/presentation/list_members_screen.dart';
 import '../../features/lists/presentation/lists_screen.dart';
 import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
@@ -149,6 +151,7 @@ class AppRouter {
   static const listsPath = '/lists';
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
+  static String listMembersPath(String listId) => '${listPath(listId)}/members';
   // W4-15: the search results, behind the `search` flag; build links with
   // `searchResultsLocation` (domain/search_routes.dart).
   static const searchRoute = '/search';
@@ -345,6 +348,18 @@ class AppRouter {
           GoRoute(
             path: listsPath,
             builder: (context, state) => const AuthGate(child: ListsScreen()),
+          ),
+          GoRoute(
+            path: '/lists/:id',
+            builder: (context, state) => AuthGate(
+              child: ListDetailScreen(listId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: '/lists/:id/members',
+            builder: (context, state) => AuthGate(
+              child: ListMembersScreen(listId: state.pathParameters['id']!),
+            ),
           ),
           if (kVisibleShells.contains(ShellKind.creatorStudio))
             GoRoute(

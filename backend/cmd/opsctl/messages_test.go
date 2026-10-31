@@ -428,3 +428,16 @@ func TestMessagesMigratePlaceholder_Refusals(t *testing.T) {
 		t.Errorf("a failing page must exit 1, got %d", code)
 	}
 }
+
+func TestPostLogHash(t *testing.T) {
+	var out strings.Builder
+	if err := postLogHash("1234567890123456789", "secret", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(out.String()), logger.HashPost("1234567890123456789"); got != want || got == logger.HashUID("1234567890123456789") {
+		t.Errorf("got %q, want the keyed %q", got, want)
+	}
+	if postLogHash("1234567890123456789", "", &out) == nil || postLogHash("not-a-post", "secret", &out) == nil {
+		t.Error("a missing key or a bad id must be refused")
+	}
+}
