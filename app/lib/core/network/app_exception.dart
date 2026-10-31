@@ -97,11 +97,21 @@ final class HandleTakenException extends AppException {
 /// A fixed cap was reached (e.g. following 5,000 accounts) or a cooldown is
 /// running (`ChangeHandle`: [quota] `handle_change`, [retryAfter] = time left).
 final class LimitReachedException extends AppException {
-  const LimitReachedException(super.message, {this.quota, this.retryAfter});
+  const LimitReachedException(
+    super.message, {
+    this.quota,
+    this.retryAfter,
+    this.choiceIndex,
+  });
 
   /// The server's `metadata["quota"]`, when it names the limit.
   final String? quota;
   final Duration? retryAfter;
+
+  /// The caller's stored 0-based poll choice from `metadata["choice"]`
+  /// (`LIMIT_REACHED` with `limit=poll_vote_changes`, ADR-0029 Amendment 1);
+  /// null otherwise.
+  final int? choiceIndex;
 }
 
 /// Referenced media is not READY or not owned by the caller.

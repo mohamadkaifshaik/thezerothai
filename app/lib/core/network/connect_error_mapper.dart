@@ -54,6 +54,7 @@ AppException mapConnectError(Object error) {
           message,
           quota: detail.metadata['quota'] ?? detail.metadata['limit'],
           retryAfter: retryAfter,
+          choiceIndex: int.tryParse(detail.metadata['choice'] ?? ''),
         );
       case common.ErrorReason.ERROR_REASON_MEDIA_NOT_READY:
         return MediaNotReadyException(

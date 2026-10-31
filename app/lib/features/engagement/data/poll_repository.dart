@@ -48,10 +48,16 @@ class PollRepository {
   /// Votes [choiceIndex] (0-based) in the poll of [postId] (the original for a
   /// REPOST row). Returns the original's `PostView` with the committed counts,
   /// `results_visible` true and `viewer_poll_choice` set.
+  ///
+  /// [expectedChoice] (`VotePollRequest.expected_choice`, ADR-0029 Amendment
+  /// 1) is the vote the caller holds, 1-based as `viewer_poll_choice` is; 0
+  /// (default) is a first vote. A server that predates it ignores the field
+  /// and answers ALREADY_VOTED to a change.
   Future<posts_pb.PostView> vote({
     required String postId,
     required int choiceIndex,
     required String idempotencyKey,
+    int expectedChoice = 0,
   }) async {
     if (!canVote) {
       throw const FeatureDisabledException(
@@ -67,6 +73,7 @@ class PollRepository {
               idempotencyKey: idempotencyKey,
               postId: postId,
               choiceIndex: choiceIndex,
+              expectedChoice: expectedChoice > 0 ? expectedChoice : null,
             ),
           );
         } on connect.ConnectException catch (error) {

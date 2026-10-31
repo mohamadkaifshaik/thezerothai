@@ -58,6 +58,29 @@ void main() {
   );
 
   test(
+    'a change sends expected_choice (1-based), a first vote leaves it unset',
+    () async {
+      answer = ok;
+      await repo.vote(
+        postId: postId(1),
+        choiceIndex: 1,
+        idempotencyKey: 'key-change-1234567890',
+        expectedChoice: 1,
+      );
+      await repo.vote(
+        postId: postId(1),
+        choiceIndex: 1,
+        idempotencyKey: 'key-first-12345678901',
+      );
+      final changed = requests[0] as pb.VotePollRequest;
+      final first = requests[1] as pb.VotePollRequest;
+      expect(changed.expectedChoice, 1);
+      expect(first.hasExpectedChoice(), isFalse);
+      expect(first.expectedChoice, 0);
+    },
+  );
+
+  test(
     'vote sends one VotePoll with post, 0-based choice and the key',
     () async {
       answer = ok;

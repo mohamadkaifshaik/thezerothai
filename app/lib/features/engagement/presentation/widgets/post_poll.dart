@@ -84,7 +84,11 @@ class PostPoll extends StatelessWidget {
         ScaffoldMessenger.maybeOf(context)
           ?..hideCurrentSnackBar()
           ..showSnackBar(
-            SnackBar(content: Text(pollErrorMessage(failure.error, action: failure.action))),
+            SnackBar(
+              content: Text(
+                pollErrorMessage(failure.error, action: failure.action),
+              ),
+            ),
           );
         cubit.failureShown();
       },
@@ -97,22 +101,39 @@ class PostPoll extends StatelessWidget {
         // A row that already shows the counts is as new as the overlay.
         final rowHasCounts =
             view.post.poll.resultsVisible && view.viewerPollChoice > 0;
-        final source = fresh != null && !rowHasCounts ? fresh : view;
+        final source = fresh != null && (!rowHasCounts || entry.freshWins)
+            ? fresh
+            : view;
+        final blocked = source.viewerPollVoteBlocked || entry.blocked;
+        final display = PollDisplay.of(
+          poll: source.post.poll,
+          viewerChoice: source.viewerPollChoice,
+          isAuthor: isAuthor,
+          now: reference,
+          canVote: engagementOn && !cubit.votingOff,
+          pendingChoice: entry.pendingChoice,
+          knownChoice: entry.knownChoice,
+          forceClosed: entry.closed,
+          blocked: blocked,
+          changing: entry.changing,
+          changeLimitReached: entry.limitReached,
+        );
+        final handle = view.post.author.handle;
         return PollCard(
-          display: PollDisplay.of(
-            poll: source.post.poll,
-            viewerChoice: source.viewerPollChoice,
-            isAuthor: isAuthor,
-            now: reference,
-            canVote: engagementOn && !cubit.votingOff,
-            pendingChoice: entry.pendingChoice,
-            knownChoice: entry.knownChoice,
-            forceClosed: entry.closed,
-          ),
+          display: display,
           now: reference,
           refreshing: entry.refreshing,
-          onVote: (choice) => unawaited(cubit.vote(targetId, choice)),
+          blockedReason: handle.isEmpty
+              ? kPollBlockedReason
+              : "You blocked @$handle. Unblock to vote.",
+          onVote: (choice) => unawaited(
+            cubit.vote(targetId, choice, from: display.committedChoice),
+          ),
           onSeeFinalResults: () => unawaited(cubit.refresh(targetId)),
+          onChangeVote: display.canChange
+              ? () => cubit.startChange(targetId)
+              : null,
+          onCancelChange: () => cubit.cancelChange(targetId),
         );
       },
     );

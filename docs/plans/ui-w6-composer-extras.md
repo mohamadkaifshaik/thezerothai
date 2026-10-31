@@ -390,7 +390,7 @@ Effect on the quotas (additive):
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Open |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
 | W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Open |
-| W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Open |
+| W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | In review |
 | W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
 | W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | Open |
 | W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | Open |
@@ -1055,7 +1055,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** `StagePollChange`, `PollVoteChanged`, `ViewerSet.WithBlockedAuthors`.
 - **Flag.** `polls` (no new flag).
 
-#### W6-37 — Poll card: change vote, blocked state  [owner: frontend-developer] [size: S] [depends: W6-35 (Dart), W6-36 for the dev check]  Status: Open
+#### W6-37 — Poll card: change vote, blocked state  [owner: frontend-developer] [size: S] [depends: W6-35 (Dart), W6-36 for the dev check]  Status: In review
 - **Description.** Amendment 1 A1.5 and A2.8:
   - "Change vote" in the footer while open, voted, not the author and not blocked;
   - the pills with the current check, and "Cancel";
