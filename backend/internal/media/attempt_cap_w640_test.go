@@ -42,7 +42,7 @@ func TestW640_BusyGIFSlotNeverConsumesAnAttemptAndWritesNothing(t *testing.T) {
 
 	for i := 1; i <= busyCalls; i++ {
 		_, err := e.finalizeErr(t, tg.MediaID)
-		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
+		_ = wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 		if e.repo.claims != 0 || e.repo.releases != 0 || e.repo.resolves != 0 {
 			t.Fatalf("busy call %d: claims %d, releases %d, resolves %d, want 0/0/0 (a busy slot writes nothing)", i, e.repo.claims, e.repo.releases, e.repo.resolves)
 		}
@@ -80,7 +80,7 @@ func TestW640_BusyGIFSlotDoesNotSpendTheUnitsCap(t *testing.T) {
 	svc.gifSlot <- struct{}{}
 	for range 5 {
 		_, err := e.finalizeErr(t, tg.MediaID)
-		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
+		_ = wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 	}
 	<-svc.gifSlot
 	if r, err := e.finalizeErr(t, tg.MediaID); err != nil || r.Status != StatusReady {
@@ -312,7 +312,7 @@ func TestW640_UnitsAreRefundedOnlyWhenNothingWasSent(t *testing.T) {
 		}
 		claims := e.repo.claims
 		_, err := e.finalizeErr(t, tg.MediaID)
-		wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED)
+		_ = wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED)
 		if e.repo.claims != claims {
 			t.Fatal("the refused call must not claim")
 		}
