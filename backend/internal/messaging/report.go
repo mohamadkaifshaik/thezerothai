@@ -56,7 +56,7 @@ func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID stri
 	if !ValidID(convID) || !ValidID(msgID) {
 		return ReportedMessage{}, ErrNotFound // a shaped-wrong id is simply unknown; moderation validates the shape first
 	}
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(convID))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(convID))
 	conv, hit, err := s.conversationHit(ctx, uid, convID)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
 	if err == nil && !conv.hasParticipant(uid) {
@@ -96,5 +96,5 @@ func reportLookupErr(err error, ids ...string) error {
 	if errors.Is(err, ErrNotFound) {
 		return ErrNotFound
 	}
-	return logger.RedactErr(fmt.Errorf("messaging: report lookup: %w", err), ids...)
+	return redactErr(fmt.Errorf("messaging: report lookup: %w", err), ids...)
 }

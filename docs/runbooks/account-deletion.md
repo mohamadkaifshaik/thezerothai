@@ -194,7 +194,7 @@ against a cloud project.
   `users/{uid}` removes, so the `messaging` step (after `follow_requests`, before `identity`; `messaging.Eraser`) works one conversation at a time, one unit of at most
   500 documents per call: in one transaction it adds the uid to the conversation's `gone` (so no send can rewrite the deleted user's entries) and rewrites the peer's entry to
   "Deleted account"; then it tombstones the user's messages (text emptied, state `DELETED_ACCOUNT`; the peer's own messages stay), deletes the user's own entry and, when the
-  peer is gone too, the whole conversation tree. A conversation the peer still holds survives, read-only, with the deleted uid replaced by the fixed placeholder `deleted`
+  peer is gone too, the whole conversation tree. A conversation the peer still holds survives, read-only, with the deleted uid replaced by the fixed placeholder `_deleted` (W7-34; was `deleted`)
   (`participants`, `gone`, `requestFrom` / `requestTo`, the tombstones' `senderId`, the peer entry's `peerId`) as the step's last move, so the residue sweep needs no allowlist entry
   (ADR-0027 D11, `docs/runbooks/messaging.md` section 2). The export carries a `messages` section (own text in full, received messages as time and "received", the peer by
   handle, no uid). Cost for the reference account: about 380 reads, 360 writes, 20 deletes; an account with no conversations pays 1 read. Neither step nor section is flag-gated. A stuck

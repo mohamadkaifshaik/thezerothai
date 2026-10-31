@@ -360,13 +360,13 @@ Effect on the quotas (additive):
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Done (#497) |
 | W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Done |
-| W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
-| W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
+| W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | In review |
+| W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | In review |
 | W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
-| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | In review |
-| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
+| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Done (#513) |
+| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Done (#510) |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
@@ -558,7 +558,7 @@ Order:
   - Guard: `TestPollConverterGuard_Repo` (posts package) names the producers (GetPost and GetThread, timelines, SearchPosts, ListBookmarks, ListLikedPosts, CreatePost via `ToProtoForViewer`) and fails on a `PostView`/`Poll` literal outside the converter or a plain `ToProto` call. W6-7 adds the `VotePoll` response to it.
   - Not done here (W6-7): the `userLikes.pollVotes` write and its trim to `POLL_VIEWER_VOTES_KEPT`, the cache update after a vote, and the VotePoll response view. The read side does not trim.
 
-### W6-7 — `VotePoll`  [owner: backend-developer] [size: M] [depends: W6-6]  Status: Open  (ships in one PR with W6-8)
+### W6-7 — `VotePoll`  [owner: backend-developer] [size: M] [depends: W6-6]  Status: In review (this PR; ships with W6-8)
 - **Description.** `engagement.Service.VotePoll`, step by step:
   1. Flags: `engagement` on for the caller (as Like) and `polls` not globally off; else FEATURE_DISABLED (`feature=engagement` or `polls`) with 0 reads.
   2. `idempotency_key` format, verified identity, `choice_index` in 0..3; VALIDATION with 0 reads.
@@ -587,7 +587,7 @@ Order:
 - **Seam.** `engagement.Service.VotePoll` → `posts.EngagementWriter.StagePollVote` (the one counter helper; sharding replaces its body, not its callers).
 - **Runs alongside W3/W4/W5:** yes (the engagement module); `engagement_wiring.go` is shared, so rebase.
 
-### W6-8 — `pollVotes` lifecycle and runbook  [owner: backend-developer] [size: S] [depends: W6-7, in the same PR]  Status: Open
+### W6-8 — `pollVotes` lifecycle and runbook  [owner: backend-developer] [size: S] [depends: W6-7, in the same PR]  Status: In review (same PR as W6-7)
 - **Description.**
   - Eraser step `poll_votes` (engagement): `pollVotes where uid == X`, pages ≤ 500, 1 read and 1 delete per doc. Registered `BeforeIdentity` after `engagement`, with the pinned order in `lifecycle_wiring_test.go` updated. Counts are left as they are (F6).
   - Export section `poll_votes`: `postId`, `choice`, `createdAt` per doc.
@@ -607,6 +607,15 @@ Order:
 - **Flag.** None: lifecycle never sits behind a flag (ADR-0011).
 - **Seam.** The `identity.StepEraser` / `ExportSection` adapters.
 - **Runs alongside W3/W4/W5:** the pinned order and the guard test are shared, so one PR at a time.
+
+- **Implementation notes (W6-7 and W6-8, as built).**
+  - Budgets follow ADR-0029 Cost impact, not the older ticket numbers (6 / 7 / 3): new vote 8 worst (interceptor 1, post 1, author 1, graph 1, +2 REPOST id, +1 overflow, `userLikes` 1 for the response flags), replay or ALREADY_VOTED 9, refusal at step 5 at most 7, 3 writes in one batch. Measured in the chain test (request line, interceptor read not counted): new vote 3 reads / 3 writes, replay 1 / 0, closed 3 / 0.
+  - `engagement.Polls` seam (`NewServer` detects it on the Module); `PollRepo` is separate from `Repo` (`FirestoreRepo.Vote` is `store.CommitWithRetry`: AlreadyExists = `VoteExists`, a missing post = `VotePostGone`, exhausted retries wrap `store.ErrContended` = UNAVAILABLE + `retry_after`, `contention=true`, WARN `poll_vote_contention`).
+  - New `posts.Engagement.PollVoted` / `Cache.AdjustPoll` / `Post.Voted`: copy on write with a new `Poll`. A replay does not bump the cache, so its counts can lag by the cache TTL (60 s) on another instance.
+  - `POLL_VOTES_PER_DAY_NEW_ACCOUNT` is enforced in the service by comparing the interceptor's own `poll_votes_daily` counter (`Deps.PollVoteCap`, `DailySpent`) with the new-account limit; same RATE_LIMITED shape. Per instance, like the cap.
+  - Order notes for the client (W6-13): a closed poll answers POLL_CLOSED even for a replay (D6 step 5 precedes the batch); a failed `userLikes` read degrades the response flags, never the vote.
+  - W6-8: the `poll_votes` step and section are appended after `messaging` (step names are persisted, so nothing is inserted mid-sequence); the pinned lists in `lifecycle_wiring_test.go` and `registeredLifecycle` and the T11 row are updated. Eraser and export page by document id (`uid ==`), no composite index.
+  - Tests: unit (`service_polls_test.go`, `purge_polls_test.go`, `server_polls_test.go`, `posts/poll_vote_test.go`), emulator repo (`repo_polls_integration_test.go`), chain (`engagement_polls_chain_integration_test.go`). Not run: `-race` (no cgo), the full `make ci` and `make test-int`, a lifecycle chain test of an account with real votes (repo-level erase/export with 120 and 1,100 seeded votes instead), prod OPTIMISTIC concurrency (W6-22).
 
 ### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR #496; flag stays off until W6-10 merges)
 - **Description.**

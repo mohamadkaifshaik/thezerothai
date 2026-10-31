@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -63,7 +62,7 @@ func (r *FirestoreRepo) NextConversation(ctx context.Context, uid, after string)
 	docs, err := q.Select().Limit(1).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return "", false, logger.RedactErr(fmt.Errorf("messaging: list conversations to erase: %w", err), uid, after)
+		return "", false, redactErr(fmt.Errorf("messaging: list conversations to erase: %w", err), uid, after)
 	}
 	if len(docs) == 0 {
 		return "", false, nil
@@ -138,7 +137,7 @@ func (r *FirestoreRepo) MarkGone(ctx context.Context, uid, convID string) (goneR
 		})
 	store.NoteTxnAttempts(ctx, "messaging_txn_contention", attempts)
 	if err != nil {
-		return goneResult{}, logger.RedactErr(fmt.Errorf("messaging: mark conversation gone: %w", err), uid, convID)
+		return goneResult{}, redactErr(fmt.Errorf("messaging: mark conversation gone: %w", err), uid, convID)
 	}
 	return out, nil
 }
@@ -160,7 +159,7 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 	docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return "", 0, false, logger.RedactErr(fmt.Errorf("messaging: list messages to tombstone: %w", err), uid, convID, after)
+		return "", 0, false, redactErr(fmt.Errorf("messaging: list messages to tombstone: %w", err), uid, convID, after)
 	}
 	if len(docs) == 0 {
 		return after, 0, false, nil
@@ -181,7 +180,7 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 	}
 	if tombstoned > 0 {
 		if cerr := b.Commit(ctx); cerr != nil {
-			return "", 0, false, logger.RedactErr(fmt.Errorf("messaging: tombstone messages: %w", cerr), uid, convID)
+			return "", 0, false, redactErr(fmt.Errorf("messaging: tombstone messages: %w", cerr), uid, convID)
 		}
 	}
 	return docs[len(docs)-1].Ref.ID, tombstoned, len(docs) == lifecyclePage, nil
@@ -246,7 +245,7 @@ func (r *FirestoreRepo) RewriteConversation(ctx context.Context, uid, convID str
 		})
 	store.NoteTxnAttempts(ctx, "messaging_txn_contention", attempts)
 	if err != nil {
-		return logger.RedactErr(fmt.Errorf("messaging: rewrite conversation: %w", err), uid, convID)
+		return redactErr(fmt.Errorf("messaging: rewrite conversation: %w", err), uid, convID)
 	}
 	return nil
 }
@@ -257,7 +256,7 @@ func (r *FirestoreRepo) DeleteEntry(ctx context.Context, uid, convID, folder str
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	b.Delete(r.entryRef(uid, convID, folder))
 	if err := b.Commit(ctx); err != nil {
-		return logger.RedactErr(fmt.Errorf("messaging: delete entry: %w", err), uid, convID)
+		return redactErr(fmt.Errorf("messaging: delete entry: %w", err), uid, convID)
 	}
 	return nil
 }
@@ -269,7 +268,7 @@ func (r *FirestoreRepo) DeleteTreePage(ctx context.Context, convID string) (dele
 	docs, err := r.convRef(convID).Collection(messagesCollection).Select().Limit(lifecyclePage).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return 0, false, logger.RedactErr(fmt.Errorf("messaging: list messages to delete: %w", err), convID)
+		return 0, false, redactErr(fmt.Errorf("messaging: list messages to delete: %w", err), convID)
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	for _, d := range docs {
@@ -277,7 +276,7 @@ func (r *FirestoreRepo) DeleteTreePage(ctx context.Context, convID string) (dele
 	}
 	if len(docs) > 0 {
 		if cerr := b.Commit(ctx); cerr != nil {
-			return 0, false, logger.RedactErr(fmt.Errorf("messaging: delete messages: %w", cerr), convID)
+			return 0, false, redactErr(fmt.Errorf("messaging: delete messages: %w", cerr), convID)
 		}
 	}
 	if len(docs) == lifecyclePage {
@@ -286,7 +285,7 @@ func (r *FirestoreRepo) DeleteTreePage(ctx context.Context, convID string) (dele
 	cb := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	cb.Delete(r.convRef(convID))
 	if cerr := cb.Commit(ctx); cerr != nil {
-		return len(docs), false, logger.RedactErr(fmt.Errorf("messaging: delete conversation: %w", cerr), convID)
+		return len(docs), false, redactErr(fmt.Errorf("messaging: delete conversation: %w", cerr), convID)
 	}
 	return len(docs), true, nil
 }
@@ -324,12 +323,12 @@ func (r *FirestoreRepo) ExportConversations(ctx context.Context, uid string) ([]
 		docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
 		budget.FromContext(ctx).AddQueryReads(len(docs))
 		if err != nil {
-			return nil, logger.RedactErr(fmt.Errorf("messaging: export conversations: %w", err), uid, after)
+			return nil, redactErr(fmt.Errorf("messaging: export conversations: %w", err), uid, after)
 		}
 		for _, d := range docs {
 			var c ConvDoc
 			if derr := d.DataTo(&c); derr != nil {
-				return nil, logger.RedactErr(fmt.Errorf("messaging: decode conversation %s: %w", d.Ref.ID, derr), uid, d.Ref.ID)
+				return nil, redactErr(fmt.Errorf("messaging: decode conversation %s: %w", d.Ref.ID, derr), uid, d.Ref.ID)
 			}
 			peer := peerOf(c.Participants, uid)
 			out = append(out, ExportConv{
@@ -356,13 +355,13 @@ func (r *FirestoreRepo) ExportMessages(ctx context.Context, uid, convID string, 
 	docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("messaging: export messages: %w", err), uid, convID)
+		return nil, redactErr(fmt.Errorf("messaging: export messages: %w", err), uid, convID)
 	}
 	out := make([]ExportMsg, 0, len(docs))
 	for _, d := range docs {
 		var m MsgDoc
 		if derr := d.DataTo(&m); derr != nil {
-			return nil, logger.RedactErr(fmt.Errorf("messaging: decode message %s: %w", d.Ref.ID, derr), uid, convID, d.Ref.ID)
+			return nil, redactErr(fmt.Errorf("messaging: decode message %s: %w", d.Ref.ID, derr), uid, convID, d.Ref.ID)
 		}
 		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC()})
 	}
