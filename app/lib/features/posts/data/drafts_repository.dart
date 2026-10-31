@@ -312,7 +312,9 @@ class DraftsRepository {
     final table = _database.composerDraftEntries;
     return (_database.update(table)..where(
           (t) =>
-              t.uid.equals(uid) & t.draftId.equals(draftId) & t.sendKey.equals(key),
+              t.uid.equals(uid) &
+              t.draftId.equals(draftId) &
+              t.sendKey.equals(key),
         ))
         .write(
           const ComposerDraftEntriesCompanion(

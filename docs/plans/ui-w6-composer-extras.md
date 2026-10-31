@@ -392,7 +392,7 @@ Effect on the quotas (additive):
 | W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Open |
 | W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Open |
 | W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
-| W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | Open |
+| W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | In review (fix/ui-w6-39-drafts-send-key) |
 | W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | Open |
 | W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters | tester | M | W6-36, W6-37, W6-40 | yes | Open |
 | W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Open |
@@ -1094,7 +1094,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   - A short report in `docs/reviews/`.
 - **Cost.** 0.
 
-#### W6-39 — Drafts: persist the send key  [owner: frontend-developer] [size: M] [depends: W6-38]  Status: Open
+#### W6-39 — Drafts: persist the send key  [owner: frontend-developer] [size: M] [depends: W6-38]  Status: In review
 - **Description.** Amendment 1 A4, "The fix":
   - drift schema v10 adds `sendKey`, `sendKind`, `sendPublishAt` and `sendStartedAt` (nullable), with the migration
     test;
@@ -1110,6 +1110,15 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Cost.**
   - Server 0.
   - A resumed send is a CreatePost replay (14 cold / 1 warm reads, 0 writes) or a SchedulePost replay.
+- **As built (W6-39).**
+  - `DraftsRepository.claimSend` / `clearSend`; `SendKind`, `SendClaim`, `SendBlock`; `ComposerState.sendConflict`
+    (`SendConflict`); `showSendConflictDialog`.
+  - The three W6-38 corrections are implemented: the row is gone, the claim refuses (G5); `MEDIA_NOT_READY` keeps the
+    key; another kind while a key is pending refuses, then "send anyway" mints a new key (G6).
+  - A key is cleared only when it was freshly minted for this send and the answer is VALIDATION, FEATURE_DISABLED or
+    EMAIL_NOT_VERIFIED (on a reused key even these may follow a send that landed).
+  - Residuals: web tabs without a SharedWorker (G4), a draft emptied by the user drops its pending key, the
+    `kMaxDrafts` eviction can drop a row that holds one. See `docs/reviews/test-report-w6-drafts-dup.md`.
 - **Seam.** `DraftsRepository`, the only reader and writer.
 - **Flag.** `drafts`.
 

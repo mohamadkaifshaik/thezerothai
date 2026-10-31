@@ -606,18 +606,22 @@ class ComposerCubit extends Cubit<ComposerState> {
   ({String key, bool reused})? _claimed;
   bool _forceNewKey = false;
 
-  /// What [_claim] answered: a stored key, no key (not draft-backed: the
-  /// in-memory keys apply) or a refusal (the state was emitted).
+  /// Whether this send keeps its key on the draft row. An image-only post has
+  /// no row to keep one on (in-memory keys). Checked before any await so a
+  /// composer without drafts still adds its optimistic row in the same turn.
+  bool get _claims => _drafts != null && !_draftDone && !currentDraft.isEmpty;
+
+  static const _noClaim = (key: null, reused: false, refused: false);
+
+  /// Claims the stored key of this send, or refuses it (the state was
+  /// emitted). Only called when [_claims].
   Future<({String? key, bool reused, bool refused})> _claim(
     SendKind kind, {
     required bool force,
     DateTime? publishAt,
   }) async {
-    const none = (key: null, reused: false, refused: false);
-    final repo = _drafts;
+    final repo = _drafts!;
     final draft = currentDraft;
-    // An image-only post has no row to keep a key on: in-memory keys.
-    if (repo == null || _draftDone || draft.isEmpty) return none;
     try {
       final claim = await repo.claimSend(
         draft: draft,
@@ -650,7 +654,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     } catch (_, stack) {
       // Storage failed: send under an in-memory key rather than not at all.
       _reportDraftStorage(stack);
-      return none;
+      return _noClaim;
     }
   }
 
@@ -1013,7 +1017,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     );
     // A draft-backed send claims its stored key before anything leaves (and
     // before any upload, so a refusal costs no Vision units).
-    final claim = await _claim(SendKind.post, force: force);
+    final claim = _claims
+        ? await _claim(SendKind.post, force: force)
+        : _noClaim;
     if (claim.refused) return;
 
     // On-device previews for the optimistic row (taken before upload).
@@ -1129,11 +1135,9 @@ class ComposerCubit extends Cubit<ComposerState> {
         clearSendConflict: true,
       ),
     );
-    final claim = await _claim(
-      SendKind.schedule,
-      force: force,
-      publishAt: publishAt,
-    );
+    final claim = _claims
+        ? await _claim(SendKind.schedule, force: force, publishAt: publishAt)
+        : _noClaim;
     if (claim.refused) return;
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
     if (uploaded == null) return _releaseClaim();

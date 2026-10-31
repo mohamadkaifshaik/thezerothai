@@ -48,6 +48,10 @@ String createPostErrorMessage(AppException error) {
       "This post can't be sent. Check the text and try again.",
     MediaNotReadyException() =>
       'One of your photos is no longer available. Remove it and try again.',
+    // A draft send shows the dialog instead (SendConflict.earlierVersionSent);
+    // this is the fallback for any other caller.
+    IdempotencyKeyReusedException() =>
+      'An earlier version of this post was sent. Check your profile first.',
     _ => "Couldn't send your post. Please try again.",
   };
 }
