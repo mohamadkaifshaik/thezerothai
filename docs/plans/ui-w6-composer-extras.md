@@ -368,9 +368,9 @@ Effect on the quotas (additive):
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Done (#513) |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Done (#510) |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
-| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
-| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (this PR; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
+| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
+| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | In review (PR: test/ui-w6-18-gif-tests; defect D-1 filed, see docs/reviews/test-report-w6-gif.md) |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |
@@ -761,7 +761,7 @@ Order:
 - **Seam.** `DraftsRepository` is the only reader and writer, so synced drafts (the stage-ladder row) replace its implementation and change no widget.
 - **Runs alongside W3/W4/W5:** **start now.** The `app_database.dart` schema bump conflicts with any other wave adding a table, so one PR at a time.
 
-### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: Open
+### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: In review
 - **Description.**
   - A composer header "Drafts" text button on the right (X §1).
   - Autosave while composing a new root post.
@@ -784,8 +784,10 @@ Order:
 - **Flag.** `drafts` (+ the existing scheduled gates).
 - **Seam.** The screen depends only on `DraftsRepository` and the existing scheduled repository.
 - **Runs alongside W3/W4/W5:** `app_router.dart` and `composer_screen.dart`, one PR at a time.
+- **Built (PR #525).** `ComposerCubit` takes an optional `DraftsRepository` + uid + `initialDraft` (root post only; a quote or a reply has none), autosaves from `onChange`, and decides the leave with `leaveAction` (`none` / `savePrompt` / `discardMedia`); `saveDraft`, `discardDraft` and `loadSavedDraft` serve the prompt and the list. Post and Schedule success delete the row (a schedule starts a new draft id). The header gets an optional secondary action on `AppFormHeader` (the "Drafts" button; saves first when there are changes). `/drafts?tab=scheduled` is the Scheduled tab; `/scheduled` redirects to it while `drafts` is on (the old screen stays with it off); `/drafts` needs `posts` + `drafts`. The composer pushes `/drafts` with `extra: true` (pick mode): a chosen draft pops its id and loads into the same composer; opened standalone, a tap pushes `/compose?draft=<id>`. The Scheduled list body is `ScheduledPostsBody`, shared by both screens. A malformed or unknown draft id never becomes the id of a new draft.
+- **Notes for later tickets.** Drafts keep text, poll, audience and the two disclosure labels; photos and a GIF are never kept (the prompt says so). The table key is `draftId` alone; the UI never adopts an id from a URL, and every query filters by uid (W6-20: the one shared-key risk is a caller who knows another account's 16-hex id AND bypasses the UI). A poll or audience whose flag is off is not loaded into the composer (the next autosave then drops it from the row).
 
-### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: Open
+### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
 - **Description.**
   - `GifSource` interface; `DeviceGifSource` over the platform picker (`.gif` only; web file input `accept="image/gif"`).
   - On-device checks before upload (≤ 2 MiB, ≤ 1,280 px edge, ≤ 300 frames; refuse with a clear message rather than re-encode).
@@ -804,6 +806,13 @@ Order:
 - **Flag.** `gif` + `media`.
 - **Seam.** `GifSource` (device today; the provider picker of W6-24 plugs in without touching the composer).
 - **Runs alongside W3/W4/W5:** `attachments_cubit.dart`, `image_picker_service.dart` and `image_processor.dart` (W3's banner editor uses the processor), so rebase.
+- **Delivered (2026-10-31).**
+  - `GifSource` / `DeviceGifSource` (`image_picker.pickImage` with no resize or quality arguments), `GifPreparer` (separate from `ImageProcessor`, which keeps its interface), `AttachmentKind.gif`, `AttachmentsCubit.pickGif`, `ProcessedImage.thumbContentType`, `GifBadge`, the GIF tile in `PostMedia`.
+  - **Deviations.**
+    - The picker cannot filter to `.gif` (no `file_selector` dependency was added): a non-GIF is refused after picking with "That file isn't a GIF." The web file input is therefore `image/*`, not `image/gif`.
+    - W6-11's rule did not block Schedule on a GIF; it now does, and a schedule disables the GIF button, both with "GIFs can't be scheduled" (SchedulePost refuses GIF media).
+    - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
+    - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
 ### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: In review (this PR; see the report)
 - **Description.** Emulator integration and unit:
