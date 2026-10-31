@@ -66,8 +66,10 @@ type Deps struct {
 	IDs       IDSource
 	Pins      Pins
 	// Graph is the owner's social context (cache-first, 60 s): the block and follow checks of AddMember and the lazy drop (W5-6).
-	Graph  graph.Reader
-	Limits Limits
+	Graph graph.Reader
+	// CursorKey seals the page tokens of ListUserLists and ListListMembers (cfg.CursorHMACKey).
+	CursorKey []byte
+	Limits    Limits
 	// Now is the clock for the new-account window; nil means time.Now.
 	Now func() time.Time
 }

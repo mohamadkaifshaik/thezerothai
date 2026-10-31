@@ -28,6 +28,8 @@ enum ComposerBlock {
 
   String get gifTooltip => switch (this) {
     hasPoll => "Polls can't have a GIF",
+    scheduled => "GIFs can't be scheduled",
+    hasGif => 'One GIF per post',
     hasPhotos => "A GIF can't be added to photos",
     _ => 'Add a GIF',
   };
@@ -40,6 +42,7 @@ enum ComposerBlock {
 
   String get scheduleTooltip => switch (this) {
     hasPoll => "Polls can't be scheduled",
+    hasGif => "GIFs can't be scheduled",
     _ => 'Schedule post',
   };
 }
@@ -85,8 +88,10 @@ class ComposerAttachmentRules {
   /// The GIF button exists at all.
   bool get showGif => flagGif && mediaOn;
 
-  /// A poll disables photos, GIF and Schedule; a schedule disables the poll;
-  /// a GIF disables photos and the poll; photos disable the GIF and the poll.
+  /// A poll disables photos, GIF and Schedule; a schedule disables the poll
+  /// and the GIF (SchedulePost refuses GIF media, VALIDATION `media_ids`); a
+  /// GIF disables photos, the poll and Schedule; photos disable the GIF and
+  /// the poll.
   ComposerBlock get poll {
     if (scheduled) return ComposerBlock.scheduled;
     if (hasGif) return ComposerBlock.hasGif;
@@ -97,6 +102,8 @@ class ComposerAttachmentRules {
   ComposerBlock get gif {
     if (hasPoll) return ComposerBlock.hasPoll;
     if (hasPhotos) return ComposerBlock.hasPhotos;
+    if (hasGif) return ComposerBlock.hasGif; // one GIF per post
+    if (scheduled) return ComposerBlock.scheduled;
     return ComposerBlock.none;
   }
 
@@ -106,6 +113,9 @@ class ComposerAttachmentRules {
     return ComposerBlock.none;
   }
 
-  ComposerBlock get schedule =>
-      hasPoll ? ComposerBlock.hasPoll : ComposerBlock.none;
+  ComposerBlock get schedule {
+    if (hasPoll) return ComposerBlock.hasPoll;
+    if (hasGif) return ComposerBlock.hasGif;
+    return ComposerBlock.none;
+  }
 }

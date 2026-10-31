@@ -7,6 +7,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/domain/engagement_feature_flag.dart';
+import 'package:dzeroth/features/media/data/gif_source.dart';
 import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
@@ -61,6 +62,7 @@ void main() {
   late _MockPostsRepository repo;
   late MockMediaRepository media;
   late FakeImagePicker picker;
+  late FakeGifSource gifSource;
   late PendingPostsCubit pending;
 
   const all = {
@@ -76,6 +78,7 @@ void main() {
     repo = _MockPostsRepository();
     media = MockMediaRepository();
     picker = FakeImagePicker();
+    gifSource = FakeGifSource();
     pending = PendingPostsCubit();
     when(() => repo.subFeatureEnabled(any())).thenReturn(true);
   });
@@ -131,6 +134,8 @@ void main() {
           RepositoryProvider<MediaRepository>.value(value: media),
           RepositoryProvider<ImagePickerService>.value(value: picker),
           RepositoryProvider<ImageProcessor>.value(value: FakeImageProcessor()),
+          RepositoryProvider<GifSource>.value(value: gifSource),
+          RepositoryProvider<GifPreparer>.value(value: FakeGifPreparer()),
           RepositoryProvider<UnexpectedErrorReporter>.value(
             value: (error, stack) {},
           ),
@@ -221,9 +226,66 @@ void main() {
       await tester.pumpAndSettle();
       expect(tooltip(tester, poll()), "Polls can't be scheduled");
       expect(enabled(tester, poll()), isFalse);
-      // The GIF and photos are still available with a schedule.
-      expect(tooltip(tester, gif()), 'Add a GIF');
+      // A GIF cannot be scheduled either (SchedulePost refuses it); photos
+      // still can.
+      expect(tooltip(tester, gif()), "GIFs can't be scheduled");
+      expect(enabled(tester, gif()), isFalse);
       expect(find.byTooltip('Add photos'), findsOneWidget);
+    });
+
+    testWidgets('a GIF disables photos, the poll and Schedule with reasons', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(enabled(tester, gif()), isTrue, reason: 'nothing attached yet');
+      gifSource.next = imageBytes('a');
+      await tester.tap(inner(gif()));
+      await tester.pumpAndSettle();
+
+      expect(gifSource.calls, 1);
+      expect(find.byTooltip('Remove GIF'), findsOneWidget);
+      expect(find.text('GIF'), findsWidgets);
+      expect(tooltip(tester, poll()), "Polls can't have a GIF");
+      expect(enabled(tester, poll()), isFalse);
+      expect(find.byTooltip("A GIF can't be added to photos"), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.image_outlined),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(find.byTooltip("GIFs can't be scheduled"), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.schedule_send_outlined),
+            )
+            .onPressed,
+        isNull,
+      );
+      // The GIF button itself stays off: one GIF per post.
+      expect(tooltip(tester, gif()), 'One GIF per post');
+      expect(enabled(tester, gif()), isFalse);
+
+      // Removing it puts everything back.
+      await tester.tap(find.byTooltip('Remove GIF'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester, gif()), isTrue);
+      // The Poll button has no handler until W6-12, so it is off either way;
+      // what changes is its reason.
+      expect(tooltip(tester, poll()), 'Add poll');
+    });
+
+    testWidgets('a refused GIF says why and attaches nothing', (tester) async {
+      await open(tester);
+      gifSource.next = badBytes; // FakeGifPreparer refuses a leading 0
+      await tester.tap(inner(gif()));
+      await tester.pumpAndSettle();
+      expect(find.text('GIFs can be up to 2 MB.'), findsOneWidget);
+      expect(find.byTooltip('Remove GIF'), findsNothing);
+      expect(enabled(tester, gif()), isTrue);
     });
 
     testWidgets('photos disable the GIF and the poll with their reasons', (
@@ -284,8 +346,8 @@ void main() {
       await open(tester);
       expect(enabled(tester, poll()), isTrue);
       expect(tooltip(tester, poll()), 'Add poll');
-      // The GIF picker is W6-16: its button has no handler yet.
-      expect(enabled(tester, gif()), isFalse);
+      // W6-16: the GIF button opens the picker.
+      expect(enabled(tester, gif()), isTrue);
     });
 
     testWidgets('Poll opens the builder and the button shows it is open', (

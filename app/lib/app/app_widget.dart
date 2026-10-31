@@ -19,6 +19,8 @@ import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
+import '../features/lists/data/home_tabs_repository.dart';
+import '../features/lists/data/lists_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import '../features/engagement/presentation/bloc/engagement_cubit.dart';
@@ -26,6 +28,7 @@ import '../features/engagement/presentation/bloc/poll_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/graph/data/suggestions_repository.dart';
 import '../features/graph/presentation/bloc/suggestions_cubit.dart';
+import '../features/media/data/gif_source.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
@@ -73,6 +76,8 @@ class AppWidget extends StatefulWidget {
     required this.mediaRepository,
     this.imagePicker,
     this.imageProcessor = const IsolateImageProcessor(),
+    this.gifSource,
+    this.gifPreparer = const IsolateGifPreparer(),
     required this.notificationsRepository,
     required this.messagingRepository,
     required this.moderationRepository,
@@ -81,6 +86,8 @@ class AppWidget extends StatefulWidget {
     this.searchRepository,
     this.pollRepository,
     required this.likesRepository,
+    this.listsRepository,
+    this.homeTabsRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
@@ -125,6 +132,12 @@ class AppWidget extends StatefulWidget {
   /// in session memory; sign-out forgets it.
   final LikesRepository likesRepository;
 
+  /// Lists (ADR-0030, W5-10): the only `ListService` caller and the pinned
+  /// Home tabs (`GetMe.home_tabs`, `SetHomeTabs`). Null in tests that do not
+  /// need them; screens arrive with W5-11 to W5-14.
+  final ListsRepository? listsRepository;
+  final HomeTabsRepository? homeTabsRepository;
+
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
   final PushCubit pushCubit;
@@ -147,6 +160,11 @@ class AppWidget extends StatefulWidget {
   /// Defaults to the platform picker.
   final ImagePickerService? imagePicker;
   final ImageProcessor imageProcessor;
+
+  /// Where the composer's GIF comes from (W6-16); defaults to the device
+  /// gallery. [gifPreparer] checks it and makes its still thumbnail.
+  final GifSource? gifSource;
+  final GifPreparer gifPreparer;
 
   @override
   State<AppWidget> createState() => _AppWidgetState();
@@ -216,6 +234,7 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
+  late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
   // Recent searches (W4-14): this device only, wiped on sign-out.
   late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
     widget.database,
@@ -243,6 +262,7 @@ class _AppWidgetState extends State<AppWidget> {
         _suggestions.reset();
         _trends?.reset();
         widget.likesRepository.clearSession();
+        widget.homeTabsRepository?.clearSession();
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
         _lastFeatures = null;
@@ -390,6 +410,8 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
+        RepositoryProvider<GifSource>.value(value: _gifSource),
+        RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),
@@ -400,6 +422,10 @@ class _AppWidgetState extends State<AppWidget> {
             value: widget.searchRepository!,
           ),
         RepositoryProvider.value(value: widget.likesRepository),
+        if (widget.listsRepository != null)
+          RepositoryProvider.value(value: widget.listsRepository!),
+        if (widget.homeTabsRepository != null)
+          RepositoryProvider.value(value: widget.homeTabsRepository!),
       ],
       child: MultiBlocProvider(
         providers: [
