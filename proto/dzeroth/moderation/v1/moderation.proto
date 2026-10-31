@@ -17,7 +17,7 @@ service ModerationService {
   // defines (missing, deleted, taken-down, blocked-author or non-ACTIVE-author => NOT_FOUND, one message for every
   // cause). target_type ACCOUNT: target_id is a user id; visible exactly as GetProfile defines (missing, non-ACTIVE
   // or blocked-the-caller => NOT_FOUND).
-  // Reporting your own post or account => INVALID_ARGUMENT + VALIDATION field "target_id".
+  // Reporting your own post, account, message or list => INVALID_ARGUMENT + VALIDATION field "target_id".
   // note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
   // The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
   // delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
@@ -29,7 +29,8 @@ service ModerationService {
   // the same target again is a success with already_reported=true, 0 writes and no quota charge, regardless of
   // idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
   // Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
-  // target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. Writes 2 (report
+  // target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target (plan W5-44) reads the
+  // list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. Writes 2 (report
   // create, quotas); replay 0. No async work. Nothing here loops over documents.
   rpc ReportContent(ReportContentRequest) returns (ReportContentResponse);
 }
@@ -43,6 +44,13 @@ enum ReportTargetType {
   // "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
   // conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
   REPORT_TARGET_TYPE_MESSAGE = 3;
+  // A list (ADR-0030, plan W5-44). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+  // reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
+  // list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
+  // time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
+  // off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
+  // owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+  REPORT_TARGET_TYPE_LIST = 4;
 }
 
 // Reasons shown in the client sheet. Values are never renumbered or reused (buf breaking).

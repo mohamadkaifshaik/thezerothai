@@ -370,7 +370,9 @@ func TestAddMember_Integration_Quota(t *testing.T) {
 		id := e.seedLists(t, "owner", 1, nil)[0]
 		e.seedQuota(t, "owner", 50)
 		_, err := e.add(context.Background(), 1, id, "u2")
-		wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+		if ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED); ae.Metadata["quota"] != "list_adds" {
+			t.Errorf("new-account tier metadata = %v, want quota=list_adds", ae.Metadata) // W5-15: the wire name, not the field name listAdds
+		}
 		e.seedQuota(t, "owner", 49)
 		if _, err := e.add(context.Background(), 2, id, "u2"); err != nil {
 			t.Fatalf("the 50th add of a new account: %v", err)

@@ -110,6 +110,9 @@ type evidenceDoc struct {
 	Website     string `firestore:"website,omitempty"`
 	AvatarURL   string `firestore:"avatarUrl,omitempty"`
 	BannerURL   string `firestore:"bannerUrl,omitempty"`
+	// LIST reports only (plan W5-44); additive and omitempty. Inside the index-exempt evidence map.
+	ListName        string `firestore:"listName,omitempty"`
+	ListDescription string `firestore:"listDescription,omitempty"`
 	// ADR-0029 D8: the reported post's poll labels; additive, omitempty.
 	PollChoices []string `firestore:"pollChoices,omitempty"`
 }
@@ -143,7 +146,7 @@ func toDoc(r Report) reportDoc {
 		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
 			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
 			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL,
-			PollChoices: r.Evidence.PollChoices}
+			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription}
 		if r.TargetType == TargetMessage {
 			d.Evidence.Text = "" // the text lives in the child document (W7-36)
 		}
@@ -162,7 +165,7 @@ func (d reportDoc) toReport(id string) Report {
 			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC(),
 			OriginalPostID: d.Evidence.OriginalPostID, DisplayName: d.Evidence.DisplayName, Bio: d.Evidence.Bio,
 			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL,
-			PollChoices: d.Evidence.PollChoices}
+			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()
