@@ -552,11 +552,15 @@ Numbers marked **corrected** replace the figure in the section named.
   the 2 s decode deadline on a Cloud Run vCPU and be REJECTED as too large.
   - The runbook signal is many `gif_screen` lines with `refused_reason=deadline` (`docs/runbooks/media.md`, "GIFs").
   - Whether to lower the default is a config decision (rule 11), listed for the founder below.
-- **Cancellation during sampling (found while writing this note).** The sampler treats any end of its context as the
-  decode deadline. A client that hangs up while its GIF is being sampled therefore gets a permanent REJECTED ("too
-  large or too long") and the objects are deleted, instead of a retryable answer.
-  - The handler's 20 s deadline cannot normally reach the sampling phase (at most 5 s wait + 5 s read come first).
-  - Fix: tell the parent context's end apart from the 2 s deadline. A small fix for W6-18 or W6-20.
+- **Cancellation during sampling: a misleading log, not a lost GIF (checked while writing this note).** The sampler
+  treats any end of its context as the decode deadline.
+  - Nothing is lost when a client hangs up mid-sampling, or the 20 s handler deadline fires there. `reject` resolves
+    the document on the same request context, so that write fails. The objects are deleted only after a successful
+    resolve, and the deferred release frees the claim on a detached context. The document stays PENDING and the retry
+    screens it again.
+  - The only effect is that the request's `gif_screen` line says `refused_reason=deadline` although nothing was
+    rejected. When reading the near-cap signal below, count only lines whose request did end REJECTED.
+  - Fix, optional: tell the parent context's end apart from the 2 s deadline in the sampler (W6-18).
 
 ### N2. Polls as built (W6-5 #497, W6-6 #504, W6-7 #515)
 
