@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:fixnum/fixnum.dart';
@@ -22,6 +23,8 @@ import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
+import '../../../lists/data/lists_repository.dart';
+import '../../../lists/presentation/widgets/add_to_lists_sheet.dart';
 import '../../../moderation/presentation/report_sheet.dart';
 import '../../../../shared/widgets/protected_badge.dart';
 import 'block_confirmation_dialog.dart';
@@ -49,10 +52,15 @@ class ProfileHeader extends StatelessWidget {
     this.followedBy = false,
     this.onOpenWebsite,
     this.onMessage,
+    this.listsEnabled = false,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// Adds "Add or remove from Lists" and "View Lists" to the overflow menu of
+  /// another user's profile (W5-13). Only given when `lists` is on.
+  final bool listsEnabled;
 
   /// Shows the round "Message" (envelope) button left of Follow on another
   /// user's profile and calls this when it is tapped (W7-17). Only given when
@@ -109,6 +117,7 @@ class ProfileHeader extends StatelessWidget {
         nameKey: nameKey,
         onOpenWebsite: onOpenWebsite,
         onMessage: isOwnProfile ? null : onMessage,
+        listsEnabled: listsEnabled && !isOwnProfile,
       );
     }
     return BlocProvider(
@@ -139,6 +148,7 @@ class ProfileHeader extends StatelessWidget {
           followedBy: followedBy,
           onOpenWebsite: onOpenWebsite,
           onMessage: onMessage,
+          listsEnabled: listsEnabled,
         ),
       ),
     );
@@ -156,8 +166,10 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.followedBy = false,
     this.onOpenWebsite,
     this.onMessage,
+    this.listsEnabled = false,
   });
 
+  final bool listsEnabled;
   final VoidCallback? onMessage;
   final Key? nameKey;
   final identity.Profile profile;
@@ -390,7 +402,11 @@ class _ProfileHeaderBody extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _OverflowMenu(profile: profile, canReport: canReport),
+          _OverflowMenu(
+            profile: profile,
+            canReport: canReport,
+            listsEnabled: listsEnabled,
+          ),
           const SizedBox(width: AppSpacing.xs),
           if (onMessage != null) ...[
             MessageButton(handle: profile.handle, onPressed: onMessage!),
@@ -401,17 +417,26 @@ class _ProfileHeaderBody extends StatelessWidget {
       );
     }
     if (showActions) {
-      return _OverflowMenu(profile: profile, canReport: canReport);
+      return _OverflowMenu(
+        profile: profile,
+        canReport: canReport,
+        listsEnabled: listsEnabled,
+      );
     }
     // Graph off: no Follow, no block data; the Message button (when given)
     // sits after the Report menu.
     final message = onMessage;
-    if (canReport || message != null) {
+    if (canReport || listsEnabled || message != null) {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (canReport) _ReportOnlyMenu(profile: profile),
-          if (canReport && message != null)
+          if (canReport || listsEnabled)
+            _ReportOnlyMenu(
+              profile: profile,
+              canReport: canReport,
+              listsEnabled: listsEnabled,
+            ),
+          if ((canReport || listsEnabled) && message != null)
             const SizedBox(width: AppSpacing.xs),
           if (message != null)
             MessageButton(handle: profile.handle, onPressed: message),
@@ -707,11 +732,66 @@ Future<ReportOutcome> _reportAccount(
   );
 }
 
-/// "Report" alone, for a profile with the graph flag off (no Block/Mute).
+/// The Lists rows of the overflow menu (W5-13): Add/remove and View.
+const _addToListsValue = 'lists_add';
+const _viewListsValue = 'lists_view';
+
+List<PopupMenuEntry<String>> _listsMenuItems({required bool canAdd}) => [
+  if (canAdd)
+    const PopupMenuItem(
+      value: _addToListsValue,
+      child: Text('Add or remove from Lists'),
+    ),
+  const PopupMenuItem(value: _viewListsValue, child: Text('View Lists')),
+];
+
+/// Runs a Lists menu row; false when [value] is not one of them.
+bool _handleListsValue(
+  BuildContext context,
+  String value,
+  identity.Profile profile,
+) {
+  switch (value) {
+    case _addToListsValue:
+      unawaited(_addToLists(context, profile));
+      return true;
+    case _viewListsValue:
+      unawaited(
+        context.push(
+          AppRouter.userListsPath(profile.userId),
+          extra: profile.handle,
+        ),
+      );
+      return true;
+  }
+  return false;
+}
+
+Future<void> _addToLists(BuildContext context, identity.Profile profile) async {
+  final router = GoRouter.of(context);
+  final result = await showAddToListsSheet(
+    context,
+    repository: context.read<ListsRepository>(),
+    userId: profile.userId,
+    handle: profile.handle,
+  );
+  if (result == AddToListsResult.createList) {
+    unawaited(router.push(AppRouter.listsPath));
+  }
+}
+
+/// "Report" and the Lists rows, for a profile with the graph flag off (no
+/// Block/Mute).
 class _ReportOnlyMenu extends StatelessWidget {
-  const _ReportOnlyMenu({required this.profile});
+  const _ReportOnlyMenu({
+    required this.profile,
+    required this.canReport,
+    required this.listsEnabled,
+  });
 
   final identity.Profile profile;
+  final bool canReport;
+  final bool listsEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -725,12 +805,19 @@ class _ReportOnlyMenu extends StatelessWidget {
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
         padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
-        onSelected: (_) => _reportAccount(context, profile, offerBlock: false),
+        onSelected: (value) {
+          if (listsEnabled && _handleListsValue(context, value, profile)) {
+            return;
+          }
+          unawaited(_reportAccount(context, profile, offerBlock: false));
+        },
         itemBuilder: (context) => [
-          PopupMenuItem(
-            value: 'report',
-            child: Text('Report @${profile.handle}'),
-          ),
+          if (listsEnabled) ..._listsMenuItems(canAdd: true),
+          if (canReport)
+            PopupMenuItem(
+              value: 'report',
+              child: Text('Report @${profile.handle}'),
+            ),
         ],
       ),
     );
@@ -738,10 +825,15 @@ class _ReportOnlyMenu extends StatelessWidget {
 }
 
 class _OverflowMenu extends StatelessWidget {
-  const _OverflowMenu({required this.profile, required this.canReport});
+  const _OverflowMenu({
+    required this.profile,
+    required this.canReport,
+    required this.listsEnabled,
+  });
 
   final identity.Profile profile;
   final bool canReport;
+  final bool listsEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -760,6 +852,9 @@ class _OverflowMenu extends StatelessWidget {
             ),
             padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
             onSelected: (value) async {
+              if (listsEnabled && _handleListsValue(context, value, profile)) {
+                return;
+              }
               switch (value) {
                 case 'mute':
                   await cubit.mute();
@@ -794,6 +889,8 @@ class _OverflowMenu extends StatelessWidget {
                 value: relationship.blocking ? 'unblock' : 'block',
                 child: Text(relationship.blocking ? 'Unblock' : 'Block'),
               ),
+              if (listsEnabled)
+                ..._listsMenuItems(canAdd: !relationship.blocking),
               if (canReport)
                 PopupMenuItem(
                   value: 'report',
