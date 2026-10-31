@@ -341,7 +341,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Done (#517) |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
-| W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Open |
+| W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Done (PR pending) |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Open |
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
@@ -662,7 +662,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** `ListsCubit` over `ListsRepository`; a shared `AppTileIcon` (default tile) goes in `app/lib/shared/widgets` and is reused by W5-31.
 - **Parallel with W3 Part A / W4:** shell nav files serialise with W4-17.
 
-### W5-12 — List detail  [owner: frontend-developer] [size: M] [depends: W5-10]  Status: Open
+### W5-12 — List detail  [owner: frontend-developer] [size: M] [depends: W5-10]  Status: Done (PR pending)
 - **Description.** `/lists/:id`:
   - a header with the name, description, owner row, "N members" (→ `/lists/:id/members`), Pin / Unpin to Home and, for the owner, Edit;
   - the list timeline as `TimelineFeedView` over a `TimelineCubit(FeedKey.list(id))` (pill, gaps, prefetch, `removed_ids`);

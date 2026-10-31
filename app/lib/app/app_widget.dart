@@ -254,6 +254,7 @@ class _AppWidgetState extends State<AppWidget> {
         _trends?.reset();
         widget.likesRepository.clearSession();
         widget.homeTabsRepository?.clearSession();
+        widget.listsRepository?.clearSession();
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
         _lastFeatures = null;

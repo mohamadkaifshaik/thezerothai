@@ -9,11 +9,20 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
+import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
+import 'package:dzeroth/features/lists/domain/home_tab_entry.dart';
+import 'package:dzeroth/features/lists/presentation/list_detail_screen.dart';
+import 'package:dzeroth/features/lists/presentation/list_members_screen.dart';
+import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
+import 'package:dzeroth/features/timeline/domain/feed_key.dart';
+import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/lists/presentation/lists_screen.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +35,12 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 class _MockLists extends Mock implements ListsRepository {}
+
+class _MockTimeline extends Mock implements TimelineRepository {}
+
+class _MockPosts extends Mock implements PostsRepository {}
+
+class _MockTabs extends Mock implements HomeTabsRepository {}
 
 class _MockEngagementRepository extends Mock implements EngagementRepository {}
 
@@ -45,6 +60,8 @@ void main() {
     emailVerified: true,
     isPasswordProvider: true,
   );
+
+  setUpAll(() => registerFallbackValue(HomeTabKind.list));
 
   Future<(String, _MockLists)> openAt(
     WidgetTester tester,
@@ -80,6 +97,34 @@ void main() {
         enabledFeatures: flags,
       ),
     );
+    final timeline = _MockTimeline();
+    final posts = _MockPosts();
+    final tabs = _MockTabs();
+    final feed = FeedKey.list('77');
+    when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
+    when(() => timeline.sinceRefresh(feed)).thenReturn(null);
+    when(() => timeline.sinceRefreshAttempt(feed)).thenReturn(null);
+    when(() => timeline.rateLimitedFor()).thenReturn(null);
+    when(() => timeline.cached(feed))
+        .thenAnswer((_) async => const TimelineSnapshot());
+    when(() => timeline.refresh(feed))
+        .thenAnswer((_) async => const TimelineSnapshot());
+    when(() => lists.header(any())).thenReturn(null);
+    when(() => lists.headerChanges).thenAnswer((_) => const Stream.empty());
+    when(() => lists.getList(any()))
+        .thenAnswer((_) async => pb.ListInfo(listId: '77', name: 'Friends'));
+    when(
+      () => lists.listMembers(
+        listId: any(named: 'listId'),
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+        maxEmptyPages: any(named: 'maxEmptyPages'),
+      ),
+    ).thenAnswer((_) async => const ListMembersPage(users: []));
+    when(() => tabs.changes).thenAnswer((_) => const Stream.empty());
+    when(() => tabs.isPinned(any(), any())).thenReturn(false);
+    when(() => tabs.isFull).thenReturn(false);
+    when(() => tabs.writeUnavailable).thenReturn(false);
     final engagement = EngagementCubit(repository: _MockEngagementRepository());
     addTearDown(engagement.close);
     final appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
@@ -91,6 +136,9 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<ListsRepository>.value(value: lists),
+          RepositoryProvider<TimelineRepository>.value(value: timeline),
+          RepositoryProvider<PostsRepository>.value(value: posts),
+          RepositoryProvider<HomeTabsRepository>.value(value: tabs),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
         child: MultiBlocProvider(
@@ -113,6 +161,7 @@ void main() {
   test('the paths', () {
     expect(AppRouter.listsPath, '/lists');
     expect(AppRouter.listPath('12'), '/lists/12');
+    expect(AppRouter.listMembersPath('12'), '/lists/12/members');
   });
 
   testWidgets('lists off: /lists and /lists/1 redirect Home, no RPC', (
@@ -137,5 +186,16 @@ void main() {
     final (path, _) = await openAt(tester, const {'lists'}, '/lists');
     expect(path, '/lists');
     expect(find.byType(ListsScreen), findsOneWidget);
+  });
+
+  testWidgets('lists on: /lists/77 shows the detail and /lists/77/members '
+      'the members', (tester) async {
+    var (path, _) = await openAt(tester, const {'lists'}, '/lists/77');
+    expect(path, '/lists/77');
+    expect(find.byType(ListDetailScreen), findsOneWidget);
+
+    (path, _) = await openAt(tester, const {'lists'}, '/lists/77/members');
+    expect(path, '/lists/77/members');
+    expect(find.byType(ListMembersScreen), findsOneWidget);
   });
 }
