@@ -19,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/pageresume"
 )
 
 var _ LikesList = (*Module)(nil)
@@ -36,16 +37,9 @@ func likesBinding(uid string) string { return listBinding("likes", uid) }
 const likesTokenVersion = "v1"
 
 // likesAnchor is the cursor of ListLikedPosts (ADR-0024 D6): where the next page starts, remembered three ways so that
-// an unlike, a re-like or a trim between two pages neither skips nor repeats a row.
-type likesAnchor struct {
-	// Next is the first id not yet scanned (the entry just older than Last).
-	Next string
-	// Last is the last id the previous page scanned, kept or dropped.
-	Last string
-	// NextIndex is Next's position counted from the newest end (0 = newest) when the token was issued: the last
-	// fallback, used only when both anchors are gone.
-	NextIndex int
-}
+// an unlike, a re-like or a trim between two pages neither skips nor repeats a row. The rule itself lives in
+// pkg/platform/pageresume, shared with the list-member pages (ADR-0030).
+type likesAnchor = pageresume.Anchor
 
 // encodeLikesToken seals a for uid into an opaque token. The payload rides in cursor.Cursor.DocID ("v1:next:last:index");
 // CreatedAt is the issue time and is not read back.
@@ -75,36 +69,9 @@ func (s *service) decodeLikesToken(uid, token string) (*likesAnchor, error) {
 	return &likesAnchor{Next: parts[1], Last: parts[2], NextIndex: idx}, nil
 }
 
-// likesResume is the resume rule of ADR-0024 D6: the position, counted from the newest end of recent (0 = newest), where
-// the next page starts. recent is newest last, as stored. A position at or past len(recent) means the list has ended.
-//
-//  1. Next, when it is still in recent and sits OLDER than Last (or Last is gone): resume at it.
-//  2. Else Last, when it is still in recent: resume at the entry just older than it.
-//  3. Else the recorded offset from the newest end.
-//
-// Why: a trim only removes the oldest entries, so the anchors never move relative to each other; an unlike of Next is
-// rule 2 landing exactly where Next stood; a re-like of Next moves it above Last (newer), which rule 1 refuses, so it is
-// not shown twice. Two changes at the boundary in one window can skip or repeat the rows changed there, no more.
-func likesResume(recent []string, a likesAnchor) int {
-	n := len(recent)
-	pos := func(id string) int { // position from the newest end, -1 when absent
-		for i := n - 1; i >= 0; i-- {
-			if recent[i] == id {
-				return n - 1 - i
-			}
-		}
-		return -1
-	}
-	pn, pl := pos(a.Next), pos(a.Last)
-	switch {
-	case pn >= 0 && (pl < 0 || pn > pl):
-		return pn
-	case pl >= 0:
-		return pl + 1
-	default:
-		return a.NextIndex
-	}
-}
+// likesResume is the resume rule of ADR-0024 D6 (pageresume.Index): the position, counted from the newest end of recent
+// (0 = newest), where the next page starts. recent is newest last, as stored.
+func likesResume(recent []string, a likesAnchor) int { return pageresume.Index(recent, a) }
 
 // listLikedPosts implements LikesList.ListLikedPosts. Reads, in this order and each only when needed: userLikes through
 // the instance cache (1 cold; an empty array stops here), GetMany (the misses of the instance post cache), the caller's

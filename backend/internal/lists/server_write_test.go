@@ -7,6 +7,7 @@ import (
 	"connectrpc.com/connect"
 
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -21,6 +22,10 @@ type recordingService struct {
 	delKey                   string
 	delList                  string
 	memKey, memList, memUser string
+	getList                  string
+	userLists                UserListsInput
+	pageSize                 int32
+	pageToken                string
 }
 
 func (s *recordingService) view() View {
@@ -154,6 +159,18 @@ func TestServer_WritesAreGatedBeforeTheService(t *testing.T) {
 			_, err := s.RemoveListMember(ctx, connect.NewRequest(&listsv1.RemoveListMemberRequest{IdempotencyKey: testKey, ListId: testListID, UserId: "u2"}))
 			return err
 		},
+		"GetList": func(s *Server, ctx context.Context) error {
+			_, err := s.GetList(ctx, connect.NewRequest(&listsv1.GetListRequest{ListId: testListID}))
+			return err
+		},
+		"ListUserLists": func(s *Server, ctx context.Context) error {
+			_, err := s.ListUserLists(ctx, connect.NewRequest(&listsv1.ListUserListsRequest{}))
+			return err
+		},
+		"ListListMembers": func(s *Server, ctx context.Context) error {
+			_, err := s.ListListMembers(ctx, connect.NewRequest(&listsv1.ListListMembersRequest{ListId: testListID}))
+			return err
+		},
 	}
 	for rpc, call := range rpcs {
 		for _, m := range modes {
@@ -173,5 +190,62 @@ func TestServer_WritesAreGatedBeforeTheService(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func (s *recordingService) GetList(_ context.Context, uid, listID string) (View, error) {
+	s.calls++
+	s.gotUID, s.getList = uid, listID
+	return s.view(), nil
+}
+
+func (s *recordingService) ListUserLists(_ context.Context, uid string, in UserListsInput) (UserLists, error) {
+	s.calls++
+	s.gotUID, s.userLists = uid, in
+	return UserLists{Lists: []View{s.view()}, ContainingIDs: []string{testListID}, NextPageToken: "next"}, nil
+}
+
+func (s *recordingService) ListListMembers(_ context.Context, uid, listID string, pageSize int32, token string) (MembersPage, error) {
+	s.calls++
+	s.gotUID, s.getList, s.pageSize, s.pageToken = uid, listID, pageSize, token
+	return MembersPage{Items: []graph.ListItem{{
+		User:         identity.Profile{UserID: "m1", Handle: "m1", DisplayName: "Em One", AvatarThumbURL: "https://img/m.jpg", IsPrivate: true},
+		Relationship: graph.Relationship{UserID: "m1", FollowState: graph.FollowStateFollowing},
+	}}, NextPageToken: "next"}, nil
+}
+
+// With the flag on, the three read handlers pass the request fields through and render the page.
+func TestServer_ReadsCallTheService(t *testing.T) {
+	t.Parallel()
+	svc := &recordingService{}
+	s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), svc)
+	ctx := callerCtx("viewer-1")
+
+	gr, err := s.GetList(ctx, connect.NewRequest(&listsv1.GetListRequest{ListId: testListID}))
+	if err != nil || svc.getList != testListID || svc.gotUID != "viewer-1" || gr.Msg.GetList().GetListId() != testListID {
+		t.Fatalf("GetList = %v, %v (list %q uid %q)", gr, err, svc.getList, svc.gotUID)
+	}
+
+	ur, err := s.ListUserLists(ctx, connect.NewRequest(&listsv1.ListUserListsRequest{OwnerId: "owner-1", ContainsUserId: "u2", PageSize: 7, PageToken: "t"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.userLists; got.OwnerID != "owner-1" || got.ContainsUserID != "u2" || got.PageSize != 7 || got.PageToken != "t" {
+		t.Errorf("input = %+v", got)
+	}
+	if len(ur.Msg.GetLists()) != 1 || ur.Msg.GetContainingListIds()[0] != testListID || ur.Msg.GetNextPageToken() != "next" {
+		t.Errorf("response = %v", ur.Msg)
+	}
+
+	mr, err := s.ListListMembers(ctx, connect.NewRequest(&listsv1.ListListMembersRequest{ListId: testListID, PageSize: 9, PageToken: "p"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.getList != testListID || svc.pageSize != 9 || svc.pageToken != "p" {
+		t.Errorf("members input = %q %d %q", svc.getList, svc.pageSize, svc.pageToken)
+	}
+	u := mr.Msg.GetUsers()
+	if len(u) != 1 || u[0].GetUser().GetUserId() != "m1" || !u[0].GetUser().GetIsPrivate() || u[0].GetRelationship().GetUserId() != "m1" || mr.Msg.GetNextPageToken() != "next" {
+		t.Errorf("members response = %v", mr.Msg)
 	}
 }
