@@ -4,7 +4,7 @@ package search
 
 // W4-9 and W4-10 against the Firestore emulator: the real trends/current repo, the real posts.Reader.CreatedAfter, the
 // refresher end to end, GetTrends through the instance copy, and the budget assertions (ADR-0028 Cost impact):
-// refresh = 1 + new posts reads and 1 write; GetTrends = 1 read cold (the interceptor's is outside the service), 0 warm.
+// refresh = 2 + new posts reads (document, hide list) and 1 write; GetTrends = 2 reads cold (the interceptor read is outside the service), 0 warm.
 
 import (
 	"context"
@@ -78,15 +78,15 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	if err != nil || len(got.Trends) != 0 || got.ComputedAt != nil {
 		t.Fatalf("before the first run: %v %v", got, err)
 	}
-	budgettest.Assert(t, "GetTrends missing doc", cnt, budgettest.Budget{Reads: 1})
+	budgettest.Assert(t, "GetTrends missing doc", cnt, budgettest.Budget{Reads: 2})
 
-	// The run: 1 read (document) + 11 posts, 1 write.
+	// The run: 1 read (document) + 1 (hide list) + 11 posts, 1 write.
 	res, err := r.Run(context.Background())
 	if err != nil || res.Skipped != "" || res.PostsScanned != newPosts-1 {
 		t.Fatalf("res %+v err %v", res, err)
 	}
-	if res.FsReads != 1+newPosts-1 || res.FsWrites != 1 {
-		t.Fatalf("run cost %d reads, %d writes, want %d and 1 (1 + new posts, 1 write)", res.FsReads, res.FsWrites, newPosts)
+	if res.FsReads != 2+newPosts-1 || res.FsWrites != 1 {
+		t.Fatalf("run cost %d reads, %d writes, want %d and 1 (2 + new posts, 1 write)", res.FsReads, res.FsWrites, newPosts+1)
 	}
 	doc, err := store.Get(context.Background())
 	if err != nil || doc == nil {
@@ -116,7 +116,7 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	if err != nil || len(got.Trends) != 1 || got.Trends[0].Tag != "launch" || got.Trends[0].PostCount != 3 || got.ComputedAt == nil {
 		t.Fatalf("GetTrends: %v %v", got, err)
 	}
-	budgettest.Assert(t, "GetTrends cold", cnt, budgettest.Budget{Reads: 1})
+	budgettest.Assert(t, "GetTrends cold", cnt, budgettest.Budget{Reads: 2})
 	ctx, cnt = budget.WithCounter(context.Background())
 	if _, err := fresh.Trends(ctx, "u", 0, ""); err != nil {
 		t.Fatal(err)

@@ -67,7 +67,7 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	for rpc, call := range calls {
 		for _, m := range modes {
 			t.Run(rpc+"/"+m.name, func(t *testing.T) {
-				s := NewServer(flags.NewRegistry(m.spec))
+				s := NewServer(flags.NewRegistry(m.spec), nil)
 				ctx := authn.WithClaims(context.Background(), authn.Claims{UID: m.uid})
 				err := call(s, ctx)
 				if m.wantOff {
@@ -80,7 +80,7 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 			})
 		}
 		t.Run(rpc+"/no uid", func(t *testing.T) {
-			s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}))
+			s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), nil)
 			err := call(s, context.Background())
 			var ce *connect.Error
 			if !errors.As(err, &ce) || ce.Code() != connect.CodeUnauthenticated {

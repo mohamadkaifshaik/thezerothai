@@ -892,6 +892,12 @@ variable "feature_trends_percent" {
   }
 }
 
+variable "trends_denylist" {
+  description = "TRENDS_DENYLIST (ADR-0028 note 2026-10-31, W4-25): comma-separated hashtag bodies (no leading #) that never trend. GetTrends drops them at serve time (live on the new revision within the 10 min instance copy) and the sweep drops them too. Entries are matched after NFKC, lower-casing and removing U+200C, U+200D and underscores, so one entry covers its variants. Not a secret. Default empty. To remove a tag at once without a deploy use `opsctl trends hide` (docs/runbooks/search.md 4.3)."
+  type        = string
+  default     = ""
+}
+
 variable "feature_polls" {
   description = "FEATURE_POLLS rollout mode for polls (ADR-0029 D12; gates creating a poll per caller; voting needs engagement per caller and polls not globally off; never ramps ahead of engagement; leaves off only once 100 percent of traffic is on a revision that stores and enforces polls, ADR-0021 L-1): off | allowlist | percent | on. Default off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, no prod raise."
   type        = string

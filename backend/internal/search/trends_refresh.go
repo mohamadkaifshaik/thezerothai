@@ -71,7 +71,7 @@ type Refresher struct {
 	protected identity.ProtectedAuthors
 	flags     FlagChecker
 	cfg       RefresherConfig
-	deny      map[string]struct{}
+	deny      map[string]struct{} // TrendKey set of TRENDS_DENYLIST
 }
 
 var _ TrendsRefresher = (*Refresher)(nil)
@@ -94,19 +94,7 @@ func NewRefresher(store TrendsStore, scan PostScanner, protected identity.Protec
 	if cfg.MinInterval <= 0 {
 		cfg.MinInterval = 12 * time.Hour
 	}
-	deny := make(map[string]struct{}, len(cfg.Denylist))
-	for _, t := range cfg.Denylist {
-		if t = normaliseTag(t); t != "" {
-			deny[t] = struct{}{}
-		}
-	}
-	return &Refresher{store: store, scan: scan, protected: protected, flags: fc, cfg: cfg, deny: deny}
-}
-
-// normaliseTag is the denylist form of a tag: trimmed, lower-case, one leading '#' removed (a post's stored hashtag is
-// already lower-case NFC).
-func normaliseTag(s string) string {
-	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(s)), "#")
+	return &Refresher{store: store, scan: scan, protected: protected, flags: fc, cfg: cfg, deny: trendKeySet(cfg.Denylist)}
 }
 
 // RunResult is what one run did, for the log line and the tests.
@@ -128,10 +116,10 @@ type RunResult struct {
 // Refresh recomputes trends/current from the posts created since the last run (ADR-0028 D6).
 //
 // Firestore, worst case: flag globally off or DEGRADED_MODE=readonly 0 reads, 0 writes; a run inside TRENDS_MIN_INTERVAL
-// of the last list 1 read (the document), 0 writes; otherwise 1 + new posts (<= 1 + TRENDS_MAX_POSTS_PER_RUN = 2,001:
-// one read per projected post, an empty page bills 1) and 1 write. The protected set comes through the identity loader on
-// its detached counter and is never charged here. Refresh owns its budget counter and writes the one trends_refresh (or
-// trends_skipped) line. The error is non-nil only when nothing was written because the document read, the first page or
+// of the last list 1 read (the document), 0 writes; otherwise 2 + new posts (the document, the hide list, then one read per
+// projected post, an empty page bills 1: <= 2 + TRENDS_MAX_POSTS_PER_RUN = 2,002) and 1 write. The protected set comes
+// through the identity loader on its detached counter and is never charged here. Refresh owns its budget counter and writes the one trends_refresh (or
+// trends_skipped) line. The error is non-nil only when nothing was written because the document read, the hide list, the first page or
 // the protected set failed; a later-page failure writes the partial list as a backlog and is reported, not returned.
 func (r *Refresher) Refresh(ctx context.Context) error {
 	_, err := r.Run(ctx)
@@ -188,6 +176,13 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 		// window (ADR-0028 D6 step 2).
 		return RunResult{Skipped: SkipFresh}, nil
 	}
+	// The hide list (ADR-0028 note 2026-10-31 part 1) is read once the run is going to write, before any post is read: a
+	// failed read fails the run with nothing written, as an unavailable protected set does, and is never read as empty.
+	hidden, err := r.store.Hidden(ctx)
+	if err != nil {
+		return RunResult{}, fmt.Errorf("search: trends hide list: %w", err)
+	}
+	hide := trendKeySet(hidden)
 
 	var res RunResult
 	wm := Watermark{At: now.Add(-firstWindow)}
@@ -264,7 +259,7 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 		// Nothing new: hold the watermark a moment behind now, never before the old one.
 		wm = Watermark{At: laterOf(wm.At, now.Add(-emptySettle))}
 	}
-	items := r.rank(tags)
+	items := r.rank(tags, hide)
 	res.TagsCounted = len(tags)
 	res.TagsKept = len(items)
 	doc := &TrendsDoc{
@@ -289,12 +284,23 @@ type tagCount struct {
 	authors map[string]struct{}
 }
 
-// rank applies the denylist and the distinct-author minimum, orders by authors, then posts, then tag, and keeps the top
+// matchesKey is true when the tag's TrendKey is in one of the sets (the denylist, the hide list).
+func matchesKey(tag string, sets ...map[string]struct{}) bool {
+	k := TrendKey(tag)
+	for _, s := range sets {
+		if _, ok := s[k]; ok && k != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// rank applies the denylist, the hide list and the distinct-author minimum, orders by authors, then posts, then tag, and keeps the top
 // maxTrendItems (ADR-0028 D6 step 6).
-func (r *Refresher) rank(tags map[string]*tagCount) []TrendItem {
+func (r *Refresher) rank(tags map[string]*tagCount, hide map[string]struct{}) []TrendItem {
 	items := make([]TrendItem, 0, len(tags))
 	for tag, c := range tags {
-		if _, denied := r.deny[tag]; denied || len(c.authors) < r.cfg.MinAuthors {
+		if len(c.authors) < r.cfg.MinAuthors || matchesKey(tag, r.deny, hide) {
 			continue
 		}
 		items = append(items, TrendItem{Tag: tag, Posts: c.posts, Authors: int64(len(c.authors))})

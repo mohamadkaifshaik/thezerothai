@@ -20,6 +20,7 @@ import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
+import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
 import '../features/engagement/domain/likes_list_feature_flag.dart';
@@ -198,6 +199,14 @@ Future<void> bootstrap() async {
     gate: engagementGate,
     store: timelineStore,
   );
+  // Polls (ADR-0029): VotePoll rides the `engagement` gate (read only: its
+  // FEATURE_DISABLED memory is the repository's own, so a refused poll vote
+  // never switches off likes).
+  final pollRepository = PollRepository(
+    apiClient: apiClient,
+    gate: engagementGate,
+    readPost: postsRepository.getPost,
+  );
   // Bookmarks (ADR-0023): AddBookmark is gated by the `bookmarks` flag (0
   // RPCs while off); the overlay lives in session memory and ends with the
   // shared SessionEpoch (sign-out).
@@ -285,6 +294,7 @@ Future<void> bootstrap() async {
       messagingRepository: messagingRepository,
       moderationRepository: moderationRepository,
       engagementRepository: engagementRepository,
+      pollRepository: pollRepository,
       bookmarksRepository: bookmarksRepository,
       searchRepository: ConnectSearchRepository(
         apiClient: apiClient,

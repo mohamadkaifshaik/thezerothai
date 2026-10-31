@@ -5,7 +5,7 @@
 // source: dzeroth/search/v1/search.proto
 
 // Search, hashtag results and trends at Stage 0 (ADR-0028, W4). Owner module: backend/internal/search.
-// Collection owned: trends/current (tags and counts only, no uid). People come from identity
+// Collection owned: trends (trends/current: tags and counts; trends/hidden: the operator hide list; no uid). People come from identity
 // (Directory.SearchHandles over users.handleLower) and posts from posts.Reader.ByHashtag; search never queries another
 // module's collection directly. There is no search engine at Stage 0: people are found by handle prefix and posts by
 // one exact hashtag. Words in post text and display names are not searchable (ADR-0028 F2, F4; the Stage ladder names
@@ -434,7 +434,8 @@ type Trend struct {
 	Tag string `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
 	// Posts that carried the tag in the window (hidden posts, reposts and protected accounts' posts excluded).
 	PostCount int64 `protobuf:"varint,2,opt,name=post_count,json=postCount,proto3" json:"post_count,omitempty"`
-	// 1-based rank in the whole list; with a prefix the ranks keep their gaps.
+	// 1-based rank in the whole served list (denylisted and hidden tags are already removed, so a removal leaves no gap);
+	// with a prefix the ranks keep their gaps.
 	Rank          int32 `protobuf:"varint,3,opt,name=rank,proto3" json:"rank,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

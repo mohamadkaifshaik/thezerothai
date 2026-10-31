@@ -5,6 +5,10 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
+import '../../../engagement/domain/engagement_entry.dart';
+import '../../../engagement/presentation/bloc/engagement_cubit.dart';
+import '../../../engagement/presentation/bloc/engagement_state.dart';
 import '../../../posts/data/posts_repository.dart';
 import '../../data/timeline_repository.dart';
 import '../../data/timeline_store.dart';
@@ -43,6 +47,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     required PostsRepository posts,
     this.viewerUserId,
     this.onPostDeleted,
+    EngagementCubit? engagement,
     Uuid? uuid,
   }) : _feed = feed,
        _timeline = timeline,
@@ -53,6 +58,7 @@ class TimelineCubit extends Cubit<TimelineState> {
       _removed.add(postId);
       _emitVisible();
     });
+    _engagementSub = engagement?.stream.listen(_onEngagement);
   }
 
   final FeedKey _feed;
@@ -70,6 +76,7 @@ class TimelineCubit extends Cubit<TimelineState> {
   final void Function(pb.PostView post)? onPostDeleted;
 
   late final StreamSubscription<String> _removedSub;
+  StreamSubscription<EngagementState>? _engagementSub;
 
   TimelineSnapshot _snapshot = const TimelineSnapshot();
   final Set<String> _known = {};
@@ -272,6 +279,29 @@ class TimelineCubit extends Cubit<TimelineState> {
     if (removedView != null) onPostDeleted?.call(removedView);
   }
 
+  /// W3-41c: the viewer's own REPOST row leaves the list (and the cache) once
+  /// the engagement overlay has settled with the original not reposted: the
+  /// undo was confirmed. Only the local half of [deletePost]; no RPC. A failed
+  /// undo rolls the overlay back to `reposted`, so the row stays. Same test as
+  /// the repost button's (`matches`: the row still says what it said when the
+  /// caller acted), so a refreshed row of a later repost is left alone.
+  void _onEngagement(EngagementState engagement) {
+    final me = viewerUserId;
+    if (isClosed || me == null || engagement.entries.isEmpty) return;
+    for (final e in _snapshot.entries) {
+      final view = e.postView;
+      if (view == null || view.post.kind != PostKind.POST_KIND_REPOST) continue;
+      final id = view.post.postId;
+      if (view.post.author.userId != me || _removed.contains(id)) continue;
+      final entry = engagement.entries[engagementTargetId(view.post)];
+      if (entry == null || entry.busy || entry.reposted) continue;
+      if (!entry.matches(view)) continue;
+      _removed.add(id);
+      _emitVisible();
+      unawaited(_posts.forgetPostLocally(id));
+    }
+  }
+
   // -- internals -----------------------------------------------------------
 
   Iterable<String> _postIds(TimelineSnapshot s) => [
@@ -385,6 +415,7 @@ class TimelineCubit extends Cubit<TimelineState> {
   @override
   Future<void> close() async {
     await _removedSub.cancel();
+    await _engagementSub?.cancel();
     return super.close();
   }
 }

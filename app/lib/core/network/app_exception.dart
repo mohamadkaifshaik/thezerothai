@@ -183,6 +183,29 @@ final class CannotMessageException extends AppException {
   static const userMessage = "You can't message this account.";
 }
 
+/// The poll has closed (ADR-0029 D6 step 5, FAILED_PRECONDITION +
+/// POLL_CLOSED). The caller refreshes the post and shows the final results.
+final class PollClosedException extends AppException {
+  const PollClosedException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = 'This poll has ended.';
+}
+
+/// The caller already voted in this poll with another choice (ADR-0029 D6 step
+/// 7, FAILED_PRECONDITION + ALREADY_VOTED). A vote is final; the server's
+/// choice is the caller's own, never anyone else's.
+final class AlreadyVotedException extends AppException {
+  const AlreadyVotedException({this.choiceIndex}) : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = 'You already voted in this poll.';
+
+  /// The stored 0-based choice from `metadata["choice"]`; null when missing
+  /// or not a number (the client then refreshes the post to learn it).
+  final int? choiceIndex;
+}
+
 /// The resource does not exist (or is hidden from the caller, e.g. blocked).
 final class NotFoundException extends AppException {
   const NotFoundException(super.message);

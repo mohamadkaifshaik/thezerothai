@@ -250,10 +250,16 @@ func ExceededError(kind Kind, now time.Time) *apierr.Error {
 }
 
 // metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where the ADR names
-// a snake_case wire value (ADR-0025 D8: privacy_toggles). Existing kinds keep their field name.
+// a snake_case wire value (ADR-0025 D8: privacy_toggles; ADR-0030 D10 and lists.proto: list_creates, list_adds). Existing kinds keep
+// their field name.
 func metaName(kind Kind) string {
-	if kind == PrivacyToggles {
+	switch kind {
+	case PrivacyToggles:
 		return "privacy_toggles"
+	case ListCreates:
+		return "list_creates"
+	case ListAdds:
+		return "list_adds"
 	}
 	return string(kind)
 }

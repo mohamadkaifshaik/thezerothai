@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -225,14 +226,18 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
+	listsRepo := lists.NewFirestoreRepo(nil, nil, nil)
+	if err := registerListsLifecycle(l, listsRepo); err != nil {
+		t.Fatal(err)
+	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "poll_votes", "identity", "auth_delete", "users_doc"}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "poll_votes"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
@@ -247,6 +252,9 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	}
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err == nil {
 		t.Error("registering the messaging step twice was accepted")
+	}
+	if err := registerListsLifecycle(l, listsRepo); err == nil {
+		t.Error("registering the lists step twice was accepted")
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err == nil {
 		t.Error("registering the poll_votes step twice was accepted")
@@ -401,4 +409,44 @@ type nopSocial struct{}
 
 func (nopSocial) Snapshot(context.Context, string) (graph.Snapshot, error) {
 	return graph.Snapshot{}, nil
+}
+
+type fakeListsPurger struct{ gotUID string }
+
+func (f *fakeListsPurger) PurgeOwnedPage(_ context.Context, uid string) (int, error) {
+	f.gotUID = uid
+	return 3, nil
+}
+
+func (f *fakeListsPurger) RemoveMemberPage(context.Context, string) (lists.MemberPage, error) {
+	return lists.MemberPage{}, nil
+}
+
+type fakeListsSource struct{}
+
+func (fakeListsSource) ExportPage(context.Context, string, string, int) ([]lists.ExportedList, error) {
+	return nil, nil
+}
+
+// TestListsAdapters: the step is named `lists` (the name is persisted in deletionJob.step), decodes and re-encodes its own
+// checkpoint type, and the section is named `lists` and streams what lists.Exporter writes.
+func TestListsAdapters(t *testing.T) {
+	p := &fakeListsPurger{}
+	step := listsEraserStep(lists.NewEraser(p))
+	next, done, err := step.Run(context.Background(), "u1", nil)
+	if step.Name() != "lists" || err != nil || done || string(next) != `{"phase":"member","deleted":3}` || p.gotUID != "u1" {
+		t.Errorf("step %q: next %s done %v err %v; purger saw %q", step.Name(), next, done, err, p.gotUID)
+	}
+	next, done, err = step.Run(context.Background(), "u1", []byte(`{"phase":"member","deleted":3}`))
+	if err != nil || !done || string(next) != `{"phase":"member","deleted":3}` {
+		t.Errorf("member phase: next %s done %v err %v", next, done, err)
+	}
+	if _, _, err := step.Run(context.Background(), "u1", []byte(`{not json`)); err == nil {
+		t.Error("a corrupt checkpoint was accepted")
+	}
+	var buf bytes.Buffer
+	sec := listsSection{lists.NewExporter(fakeListsSource{})}
+	if sec.Name() != "lists" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != "{\"lists\":[]}\n" {
+		t.Errorf("section %q = %q", sec.Name(), buf.String())
+	}
 }
