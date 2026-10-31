@@ -409,6 +409,17 @@ func TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers(t *testing.T) {
 	if _, err := posts.NewFirestoreRepo(setup.fs).Takedown(context.Background(), ids[40], time.Now()); err != nil {
 		t.Fatal(err)
 	}
+	// 55 removals by other authors, newer than the token: a cold cache loads only the newest 50, so its coverage starts after the
+	// token and the refresh must be answered by the per-feed window query (ADR-0016 amendment (b)), the 107-read worst case.
+	for i := 0; i < 55; i++ {
+		id := fmt.Sprintf("%019d", rand.Int64N(9_000_000_000_000_000_000)+1)
+		now := time.Now().UTC()
+		if _, err := setup.fs.Collection("postRemovals").Doc(id).Set(context.Background(), map[string]any{
+			"state": "REMOVED", "authorId": "zz" + memberNames(1)[0], "createdAt": now.Add(time.Duration(i) * time.Millisecond), "expireAt": now.Add(32 * 24 * time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fresh := newLTChain(t, withLog) // a cold removal-log cache: the token is older than what it covers
 	ref, err := fresh.listTimeline(viewer, list, 50, first.GetSinceToken(), "")
 	if err != nil {
