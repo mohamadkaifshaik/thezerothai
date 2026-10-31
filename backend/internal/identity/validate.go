@@ -52,15 +52,52 @@ func trimProfileText(s string) string { return strings.TrimFunc(s, isProfileSpac
 // line breaks (LF, VT, FF, CR, NEL) are Cc and are caught by unicode.IsControl.
 func isLineSeparator(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp) }
 
-// singleLineIssue reports a rune that must never appear in a one-line field (display name, location): any control
-// character (Cc, a newline included), a line or paragraph separator, or a bidi formatting control.
+// singleLineIssue reports a rune that must never appear in a one-line field (display name, location, list name):
+//   - any control character (Cc, a newline included), a line or paragraph separator, or a bidi formatting control;
+//   - any other format character (Cf: U+200B, U+200E, U+200F, U+061C, U+2060-2064, an interior U+FEFF, soft hyphen,
+//     tag characters U+E0000-E007F, ...), except ZWNJ/ZWJ (U+200C, U+200D) between two non-format, non-space runes, which
+//     emoji sequences and Persian/Indic shaping need (a variation selector is a mark, not Cf, and is allowed);
+//   - a filler that renders as nothing: U+115F, U+1160, U+3164, U+FFA0;
+//   - a non-empty text with no visible rune (W5-17 L-2): spaces, marks, joiners, Khmer inherent vowels U+17B4/U+17B5 and
+//     U+2800 alone render blank. "" stays acceptable here (a length rule elsewhere decides whether it may be empty).
+//
+// Applied only to a value being written; nothing validates a stored value on read (W5-45).
 func singleLineIssue(s string) bool {
-	for _, r := range s {
-		if unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r) {
+	rs := []rune(s)
+	visible := false
+	for i, r := range rs {
+		switch {
+		case unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r) || isFiller(r):
 			return true
+		case r == 0x200C || r == 0x200D:
+			if i == 0 || i == len(rs)-1 || !isJoinerNeighbour(rs[i-1]) || !isJoinerNeighbour(rs[i+1]) {
+				return true
+			}
+		case unicode.Is(unicode.Cf, r):
+			return true
+		case isVisibleRune(r):
+			visible = true
 		}
 	}
-	return false
+	return s != "" && !visible
+}
+
+// isFiller reports the Hangul and halfwidth fillers, which render as nothing but are letters (Lo) to Unicode.
+func isFiller(r rune) bool { return r == 0x115F || r == 0x1160 || r == 0x3164 || r == 0xFFA0 }
+
+// isJoinerNeighbour reports a rune a ZWJ or ZWNJ may sit next to: not white space, not a format character (so never another
+// joiner) and not a filler.
+func isJoinerNeighbour(r rune) bool {
+	return !isProfileSpace(r) && !unicode.Is(unicode.Cf, r) && !unicode.IsControl(r) && !isFiller(r)
+}
+
+// isVisibleRune reports a rune that draws something on its own: a letter, number, punctuation or symbol (emoji are symbols),
+// except the blank-looking U+17B4, U+17B5 and U+2800. Marks, spaces and joiners do not count.
+func isVisibleRune(r rune) bool {
+	if r == 0x17B4 || r == 0x17B5 || r == 0x2800 {
+		return false
+	}
+	return unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)
 }
 
 // normalizeDisplayName applies NFC normalization (proto: "1-50 chars after NFC normalization") and
@@ -70,7 +107,8 @@ func normalizeDisplayName(s string) string {
 }
 
 // displayNameIssue reports whether s is not an acceptable display name: invalid UTF-8; fewer than 1 or more than 50
-// code points after trim and NFC; or a control character, line separator or bidi formatting control (a display name
+// code points after trim and NFC; or anything singleLineIssue refuses (control, line separator, bidi control, invisible format
+// character or filler, or no visible rune; W5-45). A display name
 // is one line; an RLO would reorder the header and every post row's author snapshot, W3-22 L-2c).
 func displayNameIssue(s string) bool {
 	if !utf8.ValidString(s) {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -18,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
@@ -70,6 +72,7 @@ func newMembersEnv(t *testing.T, created time.Time) *membersEnv {
 	for _, u := range []string{"u1", "u2", "u3", "u4"} {
 		profiles[u] = active(u, false)
 	}
+	base.repo.SetTxProfiles(txProfilesFromMap{profiles: profiles})
 	svc := New(Deps{
 		Repo: base.repo, Directory: chargingDirectory{profiles: profiles}, IDs: base.node, Graph: graphFromRepo{graph.NewFirestoreRepo(base.client)},
 		Limits: Limits{
@@ -144,21 +147,21 @@ func wantCode(t *testing.T, err error, code connect.Code, reason commonv1.ErrorR
 	return ae
 }
 
-// AddListMember: 5 service reads (graph, target profile, idempotency, list, quotas) and 3 writes; the stored document keeps
+// AddListMember: 6 service reads (graph, target profile, idempotency, list, target users fresh in the txn, quotas) and 3 writes; the stored document keeps
 // the order and stays reachable by the eraser's array-contains query.
 func TestAddMember_Integration_Budget(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, []string{"u1"})[0]
 	var view View
-	c := measured(t, "AddListMember", budgettest.Budget{Reads: 5, Writes: 3}, func(ctx context.Context) {
+	c := measured(t, "AddListMember", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatal(err)
 		}
 		view = v
 	})
-	if c.Reads() != 5 || c.Writes() != 3 || c.Deletes() != 0 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want exactly 5/3/0", c.Reads(), c.Writes(), c.Deletes())
+	if c.Reads() != 6 || c.Writes() != 3 || c.Deletes() != 0 {
+		t.Errorf("reads/writes/deletes = %d/%d/%d, want exactly 6/3/0", c.Reads(), c.Writes(), c.Deletes())
 	}
 	if view.Header.MemberCount != 2 || view.Header.ID != id {
 		t.Errorf("header = %+v", view.Header)
@@ -202,7 +205,7 @@ func TestAddMember_Integration_AlreadyMember(t *testing.T) {
 	}
 }
 
-// A replay answers the stored outcome with 0 writes and 3 reads (graph, profile, idempotency), spends no quota, even after the
+// A replay answers with 0 writes and 4 reads (graph, profile, idempotency, the list for its current header, W5-45 / L-3), spends no quota, even after the
 // member was removed in between (a late retry never re-adds) and even after the target started blocking the owner.
 func TestAddMember_Integration_Replay(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
@@ -215,13 +218,15 @@ func TestAddMember_Integration_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.seedGraph(t, "owner", nil, nil, []string{"u2"}, false) // u2 now blocks the owner
-	c := measured(t, "AddListMember replay", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+	c := measured(t, "AddListMember replay", budgettest.Budget{Reads: 4}, func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatalf("replay err = %v, want the stored outcome", err)
 		}
-		if v.Header != first.Header {
-			t.Errorf("replay header = %+v, want %+v", v.Header, first.Header)
+		want := first.Header
+		want.MemberCount = 0 // the replay answers the list as it is now: u2 was removed in between
+		if v.Header != want {
+			t.Errorf("replay header = %+v, want %+v", v.Header, want)
 		}
 	})
 	if c.Writes() != 0 {
@@ -269,7 +274,7 @@ func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 func TestAddMember_Integration_Cap(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, append(manyMembers(149), "u1"))[0]
-	c := measured(t, "AddListMember at the cap", budgettest.Budget{Reads: 4}, func(ctx context.Context) {
+	c := measured(t, "AddListMember at the cap", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
 		_, err := e.add(ctx, 1, id, "u2")
 		ae := wantCode(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 		if ae.Metadata["limit"] != "list_members" {
@@ -288,7 +293,7 @@ func TestAddMember_Integration_Cap(t *testing.T) {
 	}
 	// The 150th member fits.
 	id2 := e.seedLists(t, "owner", 1, manyMembers(149))[0]
-	c = measured(t, "AddListMember 150th", budgettest.Budget{Reads: 5, Writes: 3}, func(ctx context.Context) {
+	c = measured(t, "AddListMember 150th", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
 		if _, err := e.add(ctx, 3, id2, "u2"); err != nil {
 			t.Fatal(err)
 		}
@@ -346,7 +351,7 @@ func TestAddMember_Integration_Quota(t *testing.T) {
 		if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
 			t.Fatalf("the 300th add: %v", err)
 		}
-		c := measured(t, "AddListMember over quota", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+		c := measured(t, "AddListMember over quota", budgettest.Budget{Reads: 6}, func(ctx context.Context) {
 			_, err := e.add(ctx, 2, id, "u3")
 			ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 			if ae.Metadata["quota"] != "list_adds" {
@@ -441,13 +446,13 @@ func TestAddMember_Integration_OverflowBudget(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, nil)[0]
 	e.seedGraph(t, "owner", nil, nil, nil, true)
-	c := measured(t, "AddListMember overflow", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
+	c := measured(t, "AddListMember overflow", budgettest.Budget{Reads: 7, Writes: 3}, func(ctx context.Context) {
 		if _, err := e.add(ctx, 1, id, "u2"); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 6 {
-		t.Errorf("reads = %d, want 6 (5 + the target's graph)", c.Reads())
+	if c.Reads() != 7 {
+		t.Errorf("reads = %d, want 7 (6 + the target's graph)", c.Reads())
 	}
 }
 
@@ -483,7 +488,7 @@ func TestMembers_Integration_LazyDrop(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedGraph(t, "owner", nil, nil, []string{"b", "d"}, false)
 	id := e.seedLists(t, "owner", 1, []string{"a", "b", "c", "d"})[0]
-	c := measured(t, "AddListMember with drop", budgettest.Budget{Reads: 5, Writes: 3}, func(ctx context.Context) {
+	c := measured(t, "AddListMember with drop", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatal(err)
@@ -549,7 +554,7 @@ func TestRemoveMember_Integration(t *testing.T) {
 		t.Errorf("a no-op remove wrote %d, want 1 (the idempotency document)", c.Writes())
 	}
 
-	c = measured(t, "RemoveListMember replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	c = measured(t, "RemoveListMember replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
 		if _, err := e.svc.RemoveMember(ctx, "owner", key(1), id, "u1"); err != nil {
 			t.Fatal(err)
 		}
@@ -614,4 +619,81 @@ func TestRemoveMember_Integration(t *testing.T) {
 	if _, ok := e.doc(t, id); ok {
 		t.Error("AddMember recreated a deleted list")
 	}
+}
+
+// txProfilesFromMap is identity.TxProfiles over the harness's profile map (the real users documents are not seeded): it
+// charges the one read ProfileInTx costs and answers the map's status, so a test can make the fresh read disagree with the
+// cache-first directory (W5-45 / L-4).
+type txProfilesFromMap struct{ profiles map[string]identity.Profile }
+
+func (t txProfilesFromMap) ProfileInTx(ctx context.Context, _ *firestore.Transaction, uid string) (identity.Profile, error) {
+	budget.FromContext(ctx).AddReads(1)
+	p, ok := t.profiles[uid]
+	if !ok {
+		return identity.Profile{}, identity.ErrNotFound
+	}
+	return p, nil
+}
+
+// L-4 (W5-45): the cache-first directory still says u2 is ACTIVE (a 60 s old entry), but users/{u2} read fresh inside the
+// transaction says DELETING: the add is the same NOT_FOUND as a missing user, nothing is written, no quota is spent. The fresh
+// read is the +1 of a real add and is also charged on the refusal (5 reads: graph, directory, idempotency, list, fresh status).
+func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
+	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
+	id := e.seedLists(t, "owner", 1, nil)[0]
+	fresh := map[string]identity.Profile{"u2": active("u2", false)}
+	p := fresh["u2"]
+	p.Status = identity.AccountStatusDeleting
+	fresh["u2"] = p
+	e.repo.SetTxProfiles(txProfilesFromMap{profiles: fresh})
+
+	c := measured(t, "AddListMember deleting target", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+		_, err := e.add(ctx, 1, id, "u2")
+		wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+	})
+	if c.Writes() != 0 {
+		t.Errorf("a refusal wrote %d", c.Writes())
+	}
+	if got := e.members(t, id); len(got) != 0 {
+		t.Errorf("members = %v, want none", got)
+	}
+	if n := e.quotaCount(t, "owner", "listAdds"); n != 0 {
+		t.Errorf("a refused add spent quota: %d", n)
+	}
+	// A user the fresh read does not find at all is the same answer.
+	_, err := e.add(context.Background(), 2, id, "u3")
+	wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+}
+
+// L-3 (W5-45): the idempotency record of every list mutation holds the list id and nothing else, and a replay after the list
+// was deleted is NOT_FOUND instead of the old name.
+func TestListMutations_Integration_IdempotencyHoldsIDOnly(t *testing.T) {
+	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
+	v, err := create(t, e.listsEnv, "owner", 1, "Secret plans", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := v.Header.ID
+	if _, err := e.add(context.Background(), 2, id, "u1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []struct {
+		rpc string
+		n   int
+	}{{rpcCreateList, 1}, {rpcAddListMember, 2}} {
+		snap, err := e.client.Collection("idempotency").Doc(idempotency.Key("owner", k.rpc, key(k.n))).Get(context.Background())
+		if err != nil {
+			t.Fatalf("%s: %v", k.rpc, err)
+		}
+		raw, _ := snap.DataAt("result")
+		res, _ := raw.(map[string]any)
+		if len(res) != 1 || res["id"] != id {
+			t.Errorf("%s record result = %v, want only the id", k.rpc, res)
+		}
+	}
+	if err := e.svc.DeleteList(context.Background(), "owner", key(3), id); err != nil {
+		t.Fatal(err)
+	}
+	_, err = create(t, e.listsEnv, "owner", 1, "Secret plans", nil)
+	wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }

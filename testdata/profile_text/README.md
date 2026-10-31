@@ -15,6 +15,7 @@ same PR, and review changes like proto changes.
 | `website.json` | `Profile.website` | 30 accept, 80 reject |
 | `display_name.json` | `Profile.display_name` | 9 accept, 16 reject |
 | `bio.json` | `Profile.bio` | 11 accept, 13 reject |
+| `single_line_text.json` | the shared one-line rules (display name, location, list name and description); Go only, Dart follow-up W5-48 | 9 accept, 25 reject |
 
 ## Schema
 
