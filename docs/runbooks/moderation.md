@@ -238,3 +238,20 @@ change; after that only the ids and the text survive. This is the same rule as s
 
 ### Reading a poll report (ADR-0029 D8; W6-5)
 A report on a post with a poll shows one extra line, `evidence poll choices: ["Yes" "No"]`: the choice labels as they were when the report was filed (for a repost, the original's, from its frozen embed). Labels only: no counts, no voters. The question is the post text, shown on the usual `evidence post by` line. `takedown-post` hides the post and its poll together (the poll is a field of the same doc, so every reader that drops a hidden post drops the poll with it); nothing separate to remove. Reports filed before W6-5 show no poll line.
+
+## 6. Polls that ask for sensitive personal information (W6-43, ADR-0029 Amendment 1)
+Founder rule (2026-10-31, GDPR Art. 9): polls must not ask people for sensitive personal information (health, religion or
+beliefs, political opinions, sex life or sexual orientation, ethnicity, union membership, genetic or biometric data). It is a
+content rule published at `/rules.html` and in Settings, "Community rules"; there is **no automated detection** at Stage 0.
+- **How it reaches you.** A reporter picks "Something else" (`REPORT_REASON_OTHER`) on the post; the sheet explains this case
+  and the optional note usually names it. There is no dedicated reason (a proto enum addition, proposed to the architect).
+- **Handle it.** `reports list`, then `reports show --id R` and read the post (poll question and choices) in the app or with
+  the target id. Judge the poll against the rule above, not against the votes.
+  - Breaks the rule: `takedown-post --post POSTID --report R` (section 2). The poll disappears with the post, votes and
+    all; the report resolves TAKEDOWN. Within the 48 hour SLA; there is no need for the illegal-content fast path unless it
+    also doxxes someone.
+  - Does not break it (for example a poll about a public policy, not about the voter's own beliefs or health):
+    `reports resolve --id R --resolution NO_ACTION`.
+  - Repeat poster: escalate with `suspend-user` per section 2; the votes already cast stay in the poll data until the post is
+    removed or the account is deleted (`docs/runbooks/account-deletion.md`).
+- **Do not** copy answers or voter lists into replies; reporter identity stays private (section 1).
