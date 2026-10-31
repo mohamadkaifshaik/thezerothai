@@ -109,7 +109,8 @@ func toListInfo(v View) *listsv1.ListInfo {
 			Verified: p.Verified, IsPrivate: p.IsPrivate,
 		},
 		Name: v.Header.Name, Description: v.Header.Description, IsPrivate: v.Header.IsPrivate,
-		MemberCount: int32(v.Header.MemberCount), PinnedByViewer: v.PinnedByViewer,
+		MemberCount:    int32(v.Header.MemberCount), //nolint:gosec // bounded by LIST_MAX_MEMBERS (150)
+		PinnedByViewer: v.PinnedByViewer,
 	}
 }
 

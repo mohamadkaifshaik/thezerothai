@@ -152,11 +152,11 @@ func TestCreateList_Validation(t *testing.T) {
 		{"empty name", CreateInput{Key: testKey, Name: ""}, "name"},
 		{"blank name", CreateInput{Key: testKey, Name: "  \t "}, "name"},
 		{"name of 26 code points", CreateInput{Key: testKey, Name: strings.Repeat("a", 26)}, "name"},
-		{"name with a bidi override", CreateInput{Key: testKey, Name: "Cri‮ket"}, "name"},
+		{"name with a bidi override", CreateInput{Key: testKey, Name: "Cri" + rlo + "ket"}, "name"},
 		{"name with a newline", CreateInput{Key: testKey, Name: "Cri\nket"}, "name"},
 		{"description of 101 code points", CreateInput{Key: testKey, Name: "Cricket", Description: strings.Repeat("d", 101)}, "description"},
 		{"description with a newline", CreateInput{Key: testKey, Name: "Cricket", Description: "a\nb"}, "description"},
-		{"description with a bidi isolate", CreateInput{Key: testKey, Name: "Cricket", Description: "a⁦b"}, "description"},
+		{"description with a bidi isolate", CreateInput{Key: testKey, Name: "Cricket", Description: "a" + lri + "b"}, "description"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -216,7 +216,8 @@ func TestRequestHashes(t *testing.T) {
 	if createHash("a", "b", nil) == createHash("a", "b", ptr(true)) || createHash("a", "b", ptr(true)) == createHash("a", "b", ptr(false)) {
 		t.Error("createHash must distinguish is_private unset, true and false")
 	}
-	if createHash("a", "b", nil) != createHash("a", "b", nil) {
+	first, second := createHash("a", "b", nil), createHash("a", "b", nil)
+	if first != second {
 		t.Error("createHash must be deterministic")
 	}
 	if createHash("a|description=b", "", nil) == createHash("a", "b", nil) {
@@ -339,7 +340,7 @@ func TestUpdateList(t *testing.T) {
 			{"list id not 19 digits", UpdateInput{Key: testKey, ListID: "42"}, "list_id"},
 			{"list id with letters", UpdateInput{Key: testKey, ListID: "00000000000000000ab"}, "list_id"},
 			{"name cleared", UpdateInput{Key: testKey, ListID: testListID, Name: ptr("")}, "name"},
-			{"name with bidi", UpdateInput{Key: testKey, ListID: testListID, Name: ptr("a‮b")}, "name"},
+			{"name with bidi", UpdateInput{Key: testKey, ListID: testListID, Name: ptr("a" + rlo + "b")}, "name"},
 			{"description too long", UpdateInput{Key: testKey, ListID: testListID, Description: ptr(strings.Repeat("d", 101))}, "description"},
 		}
 		for _, tt := range tests {
@@ -546,3 +547,9 @@ func TestIsNew(t *testing.T) {
 		})
 	}
 }
+
+// Bidi formatting characters built from code points, so no invisible character sits in the source.
+var (
+	rlo = string(rune(0x202e)) // right-to-left override
+	lri = string(rune(0x2066)) // left-to-right isolate
+)

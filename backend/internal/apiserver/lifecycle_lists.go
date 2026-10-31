@@ -18,18 +18,13 @@ func listsEraserStep(e *lists.Eraser) identity.StepEraser {
 	return eraserStep[lists.Checkpoint]{name: "lists", purge: e.PurgeUser}
 }
 
-// listsExporter is the one method of lists.Exporter the export section needs.
-type listsExporter interface {
-	ExportUser(ctx context.Context, uid string, w io.Writer) error
-}
-
-// listsSection is the export's `lists` section: lists.Exporter streams one JSON value to w.
-type listsSection struct{ x listsExporter }
+// listsSection is the export's `lists` section: the embedded lists.Exporter streams one JSON value to w.
+type listsSection struct{ *lists.Exporter }
 
 func (listsSection) Name() string { return "lists" }
 
 func (s listsSection) WriteSection(ctx context.Context, uid string, w io.Writer) error {
-	return s.x.ExportUser(ctx, uid, w)
+	return s.ExportUser(ctx, uid, w)
 }
 
 // registerListsLifecycle registers the lists step and export section on l. Call it after registerMessagingLifecycle

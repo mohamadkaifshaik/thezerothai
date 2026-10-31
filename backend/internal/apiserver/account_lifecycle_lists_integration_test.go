@@ -68,7 +68,9 @@ func (e *lifecycleEnv) requireListsErased(t *testing.T, uid, friend string, s se
 		got, _ := snap.DataAt("memberIds")
 		members := toStrings(got)
 		slices.Sort(members)
-		if !slices.Equal(members, []string{friend, "someone-else"}) {
+		want := []string{friend, "someone-else"}
+		slices.Sort(want)
+		if !slices.Equal(members, want) {
 			t.Errorf("list %s members = %v, want [%s someone-else] (the deleted uid removed, the rest kept)", id, members, friend)
 		}
 		if o, _ := snap.DataAt("ownerId"); o != friend {
