@@ -167,6 +167,13 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
 
 **Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
+- **Revised by founder decision 3, 2026-10-31.** ADR-0029 Amendment 1 A5, ticket W6-40, Proposed.
+  - Only attempts that produced a valid assessment count toward the 3.
+  - Unanswered and invalid-answer attempts count toward a separate `MEDIA_MAX_SCREEN_RETRIES` (5) under a claims
+    ceiling of 8.
+  - Units stay counted as in #535.
+  - A per-uid `media_vision_units_daily` cap and a separate FinalizeUpload bucket are added.
+  - Re-review: W6-42.
 
 **Where:**
 - `finalize.go:238-258`: when `screen` returns any error, `s.vision.release(units)` returns **all** reserved units. The doc stays PENDING, the claim is released (`finalize.go:220-224`), and the answer is retryable UNAVAILABLE.
@@ -374,6 +381,34 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 3. **Photo pipeline in prod:** H-1, H-2 and H-3 are pre-existing in photos, avatars and banners. They must be fixed before `FEATURE_MEDIA` leaves `off` in prod, not only before `gif`.
 4. **L-3 copy:** accept the small-poll inference with the copy line, or ask for a different product rule.
 5. **L-5 option (3):** an age limit on drafts, or none.
+
+### Founder decisions, 2026-10-31
+
+These are worked out in ADR-0029 Amendment 1, which stays Proposed until the founder merges it.
+
+- **Decided: the substance behind item 1.**
+  - Polls inherit post visibility and block rules (either way). One vote per user, which can be changed until the poll
+    closes. The options are locked after the first vote.
+  - Drafts are owner-only, may be incomplete, and get full validation and moderation at publish. Duplicate publication
+    is prevented (W6-39).
+- **The polls line of item 1 is now false**, because "so you can vote only once" no longer holds. Proposed revision:
+  > Polls: your vote is stored with your account, so you hold one vote per poll and can change it until the poll
+  > closes. Nobody else sees who voted for what, but the author sees live totals. In small polls a new vote, or a
+  > change, can reveal how you voted (L-3). Votes are deleted with your account, and from our records 30 days after the
+  > poll closes. Your export lists your current vote in each poll.
+- **The drafts line is unchanged.**
+- **Still open:** approval of both lines.
+- **Items 2, 4 and 5 stay open.**
+  - "May be incomplete" does not answer item 5.
+  - Item 4 is more pressing: a change moves one count down and another up, which shows both the old and the new choice
+    in a small poll (Amendment 1 A2.9).
+- **Item 3 is unchanged.**
+- **H-3 (section 2):**
+  - Decision 3 revises the W6-27 attempt cap: only attempts with a valid assessment count, outages and errors do not,
+    with a separate bounded retry counter and a per-uid Vision-units cap.
+  - This is Amendment 1 A5, ticket W6-40.
+  - It loosens the #535 fix, so W6-42 re-reviews it before it merges.
+  - The H-3 accounting (every answered call counted) is unchanged.
 
 ## 5. Proposed tickets (the planner assigns final numbers; W6-24 is the highest existing)
 

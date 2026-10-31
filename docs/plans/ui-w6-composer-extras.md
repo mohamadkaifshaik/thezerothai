@@ -378,9 +378,9 @@ Effect on the quotas (additive):
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
 | W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open |
 | W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
-| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | In review |
+| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | Done (#536) |
 | W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | Open |
-| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | In review (PR #535): `screenAttempts` on the claim write, `VisionAnsweredError` counted units, INVALID_ARGUMENT REJECTED, `MEDIA_MAX_SCREEN_ATTEMPTS` (default 3) |
+| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Done (#535; revised by Amendment 1 A5, W6-40): `screenAttempts` on the claim write, `VisionAnsweredError` counted units, INVALID_ARGUMENT REJECTED, `MEDIA_MAX_SCREEN_ATTEMPTS` (default 3) |
 | W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | Open |
 | W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | Open |
 | W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
@@ -388,6 +388,14 @@ Effect on the quotas (additive):
 | W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
 | W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Open |
+| W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
+| W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Open |
+| W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Open |
+| W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
+| W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | Open |
+| W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | Open |
+| W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters | tester | M | W6-36, W6-37, W6-40 | yes | Open |
+| W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Open |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
@@ -396,6 +404,11 @@ Order:
 4. W6-5 → W6-6 → W6-7 + W6-8 (one PR) ‖ W6-9 → W6-10.
 5. Client: W6-11 → W6-12, W6-13; W6-14 → W6-15; W6-16.
 6. W6-17 to W6-22, with W6-20 and W6-21 before any flag leaves `off` in dev.
+7. ADR-0029 Amendment 1 (once merged):
+   - W6-35, then W6-36, then W6-37;
+   - W6-38, then W6-39;
+   - W6-40 together with W6-42;
+   - W6-41 after W6-36, W6-37 and W6-40.
 
 **Definition of done per ticket:**
 - Backend: Go unit tests plus emulator integration (`make test-int`, `budgettest.Assert` on every RPC); coverage on `internal/` ≥ 70 %.
@@ -962,7 +975,7 @@ Order:
 - **Seam.** `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-25 to W6-31 — W6-20 security follow-ups  Status: Open (W6-25 In review)
+### W6-25 to W6-31 — W6-20 security follow-ups  Status: Open (W6-25 Done #536; W6-27 Done #535, revised by W6-40)
 Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
 - **W6-25 (H-1), W6-26 (H-2), W6-27 (H-3):** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves off in prod. Until then `gif` and `media` stay on team and test accounts only.
 - **W6-28 (M-2):** before `gif` leaves the dev allowlist (with #521, M-1).
@@ -970,6 +983,181 @@ Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md
 - **W6-30 (L-4):** before `gif` leaves off in prod.
 - **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
 - Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
+
+### W6-35 to W6-42 — ADR-0029 Amendment 1 (founder decisions 2026-10-31)  Status: Open (Amendment 1 Proposed)
+Design, numbers and the founder's open items are in ADR-0029 Amendment 1 (A1 to A7). Numbering: W6-32 to W6-34 went to
+the W6-25 review follow-ups (#536), so this batch starts at W6-35.
+
+**Gates:**
+- W6-36, W6-37 and W6-41 before `polls` leaves the dev allowlist, and with W6-29 before `polls` leaves `off` in prod.
+- W6-38 and W6-39 before `drafts` goes past the dev allowlist.
+- W6-40, with W6-42's review, before `gif` or `media` leaves the dev allowlist.
+- The 100 % rule (L-1) for `polls`: no widening until 100 % of traffic is on a revision with W6-36.
+- **No new flag.**
+  - Changes ride `polls`; their kill switch is `POLL_VOTE_CHANGES_MAX=0`.
+  - The media revision rides `media` and `gif`.
+  - No ceiling changes.
+
+#### W6-35 — Poll and media contract, additive  [owner: architect (contract), backend-developer (generate)] [size: XS] [depends: Amendment 1 merged]  Status: Open
+- **Description.** The A6 table:
+  - `PostView.viewer_poll_vote_blocked = 9`;
+  - `VotePollRequest.expected_choice = 4`;
+  - comment changes on `ERROR_REASON_TARGET_BLOCKED`, `ERROR_REASON_ALREADY_VOTED`, `ERROR_REASON_LIMIT_REACHED`,
+    `VotePollRequest.idempotency_key`, `rpc VotePoll` and FinalizeUpload;
+  - `make proto` (Go and Dart).
+- **Acceptance criteria.** `buf lint` and `buf breaking` clean; no field reused or renumbered; no new `ErrorReason`;
+  `make ci` green.
+- **Cost.** 0.
+- **Seam.** The wire fields only; behaviour is W6-36.
+
+#### W6-36 — VotePoll: block either way and vote changes (one PR)  [owner: backend-developer] [size: M] [depends: W6-35]  Status: Open
+- **Description.**
+  - **A1:**
+    - step 5e `snap.Blocked[target.AuthorID]` → `TARGET_BLOCKED`, after the closed and range checks, replays included;
+    - `ViewerSet.WithBlockedAuthors` set by GetPost, GetThread and GetUserTimeline, read only by `ToViewAt`;
+    - `ApplyWithheld` clears the field; the D4 guard test covers it.
+  - **A2:**
+    - the `expected_choice` table, with a read first when `e != 0`;
+    - the change batch: the vote doc with a `LastUpdateTime` precondition, `StagePollChange`, and the two `userLikes`
+      writes, or the transaction fallback;
+    - the re-read on a precondition failure, and the close re-check per attempt;
+    - `POLL_VOTE_CHANGES_MAX` in ComposerConfig with its range and ceiling test;
+    - `changes` and `changedAt` on the vote doc, `changedAt` in the `poll_votes` export section and its golden;
+    - `posts.Engagement.PollVoteChanged`, and the engagement cache replacing the entry (I-V3);
+    - the new `poll_vote` outcomes (never a choice).
+  - **Prove first** that two writes to one document in one batch commit on the emulator. Otherwise build the fallback
+    and note which in the PR.
+- **Acceptance criteria.**
+  - Invariants I-V1 to I-V3 hold under the 60 × 3 race in both arms.
+  - Author-blocks-voter stays byte-identical NOT_FOUND. Voter-blocks-author is `TARGET_BLOCKED`, 0 writes, and the
+    post stays visible.
+  - A change writes 4 (or 3 + 1 read), reads ≤ 9 (`budgettest.Assert`), and leaves `total` unchanged.
+  - `LIMIT_REACHED` at the cap, with `limit` and `choice` set.
+  - `ALREADY_VOTED` only for a stale `e`.
+  - After close, everything is `POLL_CLOSED`.
+  - The eraser and export use the current choice.
+  - **Tests flipped, never deleted** (Amendment 1 "Tests to flip"):
+    - `TestW617_NotFoundBytesIdentical` (the voter-blocked-author part);
+    - the `ALREADY_VOTED` assertions of `TestW617_RepostIDVotesInTheOriginal`;
+    - `TestW617_ConcurrencyManyVotersRacingThemselves`;
+    - `TestVotePoll_ReplayAndAlreadyVoted` and `TestVotePoll_ConcurrentSameVoter`.
+- **Cost.**
+  - Per change: 9 / 4 reads and 4 writes.
+  - Per DAU a day: +0.12 reads and +0.12 writes.
+  - INR ≈ 0.04 / 0.5 / 1.4 a month at 300 / 1,000 / 3,000 DAU.
+  - Block rule and signal: +0.
+- **Seam.** `StagePollChange`, `PollVoteChanged`, `ViewerSet.WithBlockedAuthors`.
+- **Flag.** `polls` (no new flag).
+
+#### W6-37 — Poll card: change vote, blocked state  [owner: frontend-developer] [size: S] [depends: W6-35 (Dart), W6-36 for the dev check]  Status: Open
+- **Description.** Amendment 1 A1.5 and A2.8:
+  - "Change vote" in the footer while open, voted, not the author and not blocked;
+  - the pills with the current check, and "Cancel";
+  - the optimistic −1/+1;
+  - a fresh key per tap and `expected_choice`;
+  - a new tap drops the older tap's retries;
+  - the disabled state with "You blocked @handle. Unblock to vote.";
+  - the answers: `ALREADY_VOTED` (render, one GetPost), `LIMIT_REACHED` (hide the control), `TARGET_BLOCKED`,
+    `POLL_CLOSED`, UNAVAILABLE.
+  - The existing `ALREADY_VOTED` replay stays for a first vote, for old revisions.
+- **Acceptance criteria.**
+  - Widget tests at 360 / 600 / 1200, light and dark, text scale 2.0.
+  - The client tests named in Amendment 1 are flipped: `poll_cubit_test`, `poll_repository_test`,
+    `poll_display_test`, `poll_card_test`, `post_card_poll_test` and `w6_poll_flow_test`.
+  - Semantics label "Change your vote".
+- **Cost.** One `VotePoll` per change tap (W6-36's row); 0 extra GetPost except after `ALREADY_VOTED` or `POLL_CLOSED`.
+- **Seam.** `PollCubit`, `PollRepository`.
+- **Flag.** `polls`, with `engagement` in `enabled_features`.
+
+#### W6-38 — Drafts duplicate-publication verification  [owner: tester] [size: S] [depends: —]  Status: Open
+- **Description.** Client tests over `ComposerCubit` and `DraftsRepository`, with a fake repository that commits and
+  then drops the answer:
+  - S1 double tap;
+  - S2 the retry after a lost response, same content, same key;
+  - S3 the row deleted only after success;
+  - S4 the same images refused a second time;
+  - G1 a kill after the request left, then the draft reopened;
+  - G2 a kill after success, before the local delete;
+  - G3 an edit after a lost response;
+  - G4 two composers on one draft.
+  - Each case runs for Post and for Schedule, and with a photo or GIF attached.
+- **Acceptance criteria.**
+  - S1 to S4 pass.
+  - G1 to G4 are written as tests of the fixed behaviour, pending (skipped with the W6-39 reference) until W6-39 lands.
+    They then pass unchanged.
+  - A short report in `docs/reviews/`.
+- **Cost.** 0.
+
+#### W6-39 — Drafts: persist the send key  [owner: frontend-developer] [size: M] [depends: W6-38]  Status: Open
+- **Description.** Amendment 1 A4, "The fix":
+  - drift schema v10 adds `sendKey`, `sendKind`, `sendPublishAt` and `sendStartedAt` (nullable), with the migration
+    test;
+  - claim or reuse the key in one local transaction before the RPC;
+  - clear it only on a definitive answer (the list in A4);
+  - on reopen, or after an ambiguous failure, the next send uses the stored key;
+  - `IDEMPOTENCY_KEY_REUSED` → "An earlier version of this post was sent", with "View profile" and "Post this version
+    too";
+  - the 23 h bound for `post`, and the other-kind warning.
+  - Nothing is logged; the key is not personal data, but it is never sent anywhere except the RPC.
+- **Acceptance criteria.** W6-38's G1 to G4 pass; the S cases still pass; widget tests for the three new messages;
+  serialised with W6-31's schema change.
+- **Cost.**
+  - Server 0.
+  - A resumed send is a CreatePost replay (14 cold / 1 warm reads, 0 writes) or a SchedulePost replay.
+- **Seam.** `DraftsRepository`, the only reader and writer.
+- **Flag.** `drafts`.
+
+#### W6-40 — Media: the attempt cap revision  [owner: backend-developer + frontend-developer] [size: M] [depends: Amendment 1 merged, W6-25 (#536); W6-42 before merge]  Status: Open
+- **Description.** Amendment 1 A5:
+  - `screenAssessed` written in the release write;
+  - the pre-check against `MEDIA_MAX_SCREEN_ATTEMPTS` and `MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES`;
+  - a blocking verdict is terminal even if the other call failed;
+  - the GIF slot is taken before the claim;
+  - the `media_vision_units_daily` `DailyCap` (`MEDIA_VISION_UNITS_PER_DAY` 60, `_NEW_ACCOUNT` 12), checked and
+    charged before the claim, with the refund rules;
+  - `RATE_LIMIT_MEDIA_FINALIZE_PER_MIN` (10), split from CreateUpload's bucket;
+  - `retry_after` on the screening UNAVAILABLE;
+  - the new request-line fields;
+  - config with ranges and ceiling tests, and the Terraform defaults for dev and prod (not applied).
+  - **Client:** the attachment tile's retry, with the same media id: up to 3 automatic retries, then a manual Retry,
+    plus the units-cap and `attempts` messages.
+- **Acceptance criteria.**
+  - Units accounting unchanged from #535.
+  - `TestW627_AttemptCapStopsTheLoop` still passes (a partial answer is an assessed attempt).
+  - New tests:
+    - both calls unanswered: 0 attempts, stopped at 8 claims;
+    - billed-invalid answers: units counted, retries consumed;
+    - a busy slot: 0 writes;
+    - a refusal by the units cap: no claim.
+  - `budgettest` shows +0 writes per attempt.
+  - The runbook `docs/runbooks/media.md` gets the new signals.
+  - W6-42's verdict has no open High.
+- **Cost.**
+  - Honest path 0; a busy slot −2 writes.
+  - Abuse bound INR ≈ 780 per account-month, against ≈ 520 under #535; `VISION_MONTHLY_CAP` unchanged.
+- **Seam.** The `visionUnits` limiter interface; `Moderator` unchanged.
+- **Flag.** `media` and `gif` (no new flag).
+
+#### W6-41 — Tests for Amendment 1  [owner: tester] [size: M] [depends: W6-36, W6-37, W6-40]  Status: Open
+- **Description.**
+  - Emulator and unit tests for the A1 matrix (each block direction × cast, change, replay, closed; REPOST id; the
+    signal on every producer).
+  - The A2 `expected_choice` table, the change cap, the race in two arms, the budgets, the export and eraser.
+  - The A5 outcome table and counters, the units cap per instance, and the H-3 loop shapes.
+  - Client flows for W6-37.
+- **Acceptance criteria.** Every Amendment 1 acceptance criterion has a named test; `make test-int` green; coverage
+  ≥ 70 %; no test deleted.
+- **Cost.** 0 (emulators). The real `OPTIMISTIC` contention of a change race goes in W6-22's dev smoke.
+
+#### W6-42 — Security review of Amendment 1  [owner: security-auditor] [size: S] [depends: W6-36 and W6-40 PRs open]  Status: Open
+- **Description.**
+  - **W6-36:** `TARGET_BLOCKED` reveals only the caller's own block; NOT_FOUND byte identity; `expected_choice`
+    tells nothing about other voters; logs never carry a choice; the L-3 widening.
+  - **W6-40:** the H-3 bound with the new counters (per doc 16 units, per account 180 a day effective); refunds never
+    hide a billed call; the bucket split.
+- **Acceptance criteria.** A dated section in `docs/reviews/security-w6-composer-extras.md` with no open Critical or
+  High; W6-40 merges only after it.
+- **Cost.** 0.
 
 ## Rollout plan
 - **Dev:** allowlist (3 uids) for `drafts` first (client only, no server risk), then `polls`, then `gif`, each after its security and cost tickets.
@@ -985,6 +1173,8 @@ Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md
   - a GIF moderation bypass reported.
 - **Kill switches:**
   - `FEATURE_POLLS=off`: no new polls, voting refused, results revealed.
+  - `POLL_VOTE_CHANGES_MAX=0` (config, ADR-0029 Amendment 1): vote changes are refused and votes are final again; polls
+    keep working.
   - `FEATURE_GIF=off`: no new GIF uploads or posts.
   - `FEATURE_DRAFTS=off`: drafts UI hidden, local rows kept.
   - `DEGRADED_MODE=nomedia`: all uploads stop.
