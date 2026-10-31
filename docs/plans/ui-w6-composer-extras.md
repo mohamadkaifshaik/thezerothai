@@ -370,7 +370,7 @@ Effect on the quotas (additive):
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
-| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (report `docs/reviews/test-report-w6-polls.md`: 12 tests added, VERDICT FAIL on three stale #515 lifecycle expectations D-1 to D-3, no production defect) |
+| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (this PR; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | In review (PR: test/ui-w6-18-gif-tests; defect D-1 filed, see docs/reviews/test-report-w6-gif.md) |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |

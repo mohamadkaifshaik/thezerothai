@@ -169,8 +169,8 @@ The cost of the step is +1 read per account deletion and +1 per export (the empt
   "visibility as GetPost"). `TestW617_NotFoundBytesIdentical` pins this. If the founder wants a blocker unable to vote, that is an architect
   decision and a change in `posts.Viewable`, not a VotePoll fix.
 - **O-2. A cached poll can lag the store by up to the post-cache TTL (60 s) across instances.** In the 60-voter run the two busy instances showed
-  the author totals of 25 and 35 against 60 stored (50 and 10 in another run), each self-consistent (choices sum to the total, never above the
-  store). A cold instance showed the exact tally. This is the documented behaviour ("a replay does not bump the cache", and a vote on another
+  the author totals of 25 and 35 against 60 stored (50 and 10, then 30 and 30, in other runs), each self-consistent (choices sum to the total, not
+  observed above the store; a double count within one instance, a cold read that already holds a vote followed by that vote's own cache bump, is not excluded by this test, and would be bounded by the same TTL as likes). A cold instance showed the exact tally. This is the documented behaviour ("a replay does not bump the cache", and a vote on another
   instance never does), costs nothing in reads, and the counts are hidden from voters-to-be anyway; it matters only for an author watching a hot
   poll across instances and for the voter's own response, which shows the cached counts plus their vote.
 - **O-3. The redaction byte-identity is about the choices, not the whole poll.** `total_votes` is the real total by design (F3), so a poll with
