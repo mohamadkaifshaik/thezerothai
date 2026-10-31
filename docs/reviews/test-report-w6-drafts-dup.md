@@ -2,7 +2,7 @@
 
 Ticket: W6-38 (ADR-0029 Amendment 1, A4, PR #544). Status: **In review** (this PR). The W6-38 plan row lives in #544; it
 is not on main yet, so no plan row is edited here.
-Fixed by: W6-39 in #PR (persist the send key on the draft row). W6-38 itself changed no production code.
+Fixed by: W6-39 in #560 (persist the send key on the draft row). W6-38 itself changed no production code.
 
 Tests: `app/test/features/posts/presentation/bloc/composer_drafts_dup_publish_test.dart`
 Fake server: `app/test/support/fake_posts_server.dart`
@@ -41,12 +41,12 @@ Run before W6-39: `flutter test --no-pub <file>` = 24 pass, 25 skipped (after W6
 | S2 retry after a lost response, same key | 5 | **confirmed safe**, also with media: one `createUpload` and one `finalizeUpload` over both sends | n/a | held |
 | S3 row removed only after success | 5 x 2 | **confirmed**: row present in flight and after a failure, gone after success (post and schedule) | n/a | held |
 | S4 media attached once | post+photo, post+GIF, schedule+photo | **confirmed for CreatePost** (edited send refused `MEDIA_NOT_READY`). **Only partly true for SchedulePost**: media is not claimed at schedule time, two items can be accepted, only the first can publish (`publishDue`) | see G3 | held |
-| G1 kill after the request left, reopen | 5 | **confirmed** (reproduced) | High: text duplicate posts or publishes. With media, the duplicate is text-only (F8), so it is a visible second post | fixed in #PR: the claim reuses the stored key, the server replays |
-| G2 kill after success, before local delete | 5 | **confirmed** (reproduced) | Low to Medium: small window, same effect as G1 | fixed in #PR: replay returns the existing post, then the row goes |
-| G3 edit after a lost response | post+none, schedule+none, schedule+photo | **confirmed** (reproduced). **Refuted for post+photo and post+GIF**: the server refuses the attached media, no duplicate (that is S4) | Medium (post), Low (schedule+photo: the second item fails at publish and shows as FAILED) | fixed in #PR: the edit is sent under the stored key; a changed body gets IDEMPOTENCY_KEY_REUSED and a dialog |
-| G4 two composers, one draft | 5 | **confirmed** (reproduced) | Medium (web tabs) | fixed in #PR where tabs share one database; residual on browsers without SharedWorker (below) |
-| **G5 (new)** stale composer posts a draft another composer already sent | 5 | **new, confirmed** (reproduced) | Medium | fixed in #PR: the claim refuses a row that is gone |
-| **G6 (new)** other kind after a lost response (schedule then Post now, or Post then Schedule) | 2 (no media) | **new, confirmed** (reproduced); the architect lists it only as a warning in the fix | Medium | fixed in #PR: refuse and ask; "send anyway" is the user's explicit choice |
+| G1 kill after the request left, reopen | 5 | **confirmed** (reproduced) | High: text duplicate posts or publishes. With media, the duplicate is text-only (F8), so it is a visible second post | fixed in #560: the claim reuses the stored key, the server replays |
+| G2 kill after success, before local delete | 5 | **confirmed** (reproduced) | Low to Medium: small window, same effect as G1 | fixed in #560: replay returns the existing post, then the row goes |
+| G3 edit after a lost response | post+none, schedule+none, schedule+photo | **confirmed** (reproduced). **Refuted for post+photo and post+GIF**: the server refuses the attached media, no duplicate (that is S4) | Medium (post), Low (schedule+photo: the second item fails at publish and shows as FAILED) | fixed in #560: the edit is sent under the stored key; a changed body gets IDEMPOTENCY_KEY_REUSED and a dialog |
+| G4 two composers, one draft | 5 | **confirmed** (reproduced) | Medium (web tabs) | fixed in #560 where tabs share one database; residual on browsers without SharedWorker (below) |
+| **G5 (new)** stale composer posts a draft another composer already sent | 5 | **new, confirmed** (reproduced) | Medium | fixed in #560: the claim refuses a row that is gone |
+| **G6 (new)** other kind after a lost response (schedule then Post now, or Post then Schedule) | 2 (no media) | **new, confirmed** (reproduced); the architect lists it only as a warning in the fix | Medium | fixed in #560: refuse and ask; "send anyway" is the user's explicit choice |
 
 ## New findings and corrections to the analysis
 
