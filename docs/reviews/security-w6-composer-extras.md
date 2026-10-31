@@ -130,7 +130,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 **Proposed ticket:** W6-25, backend-developer, plus frontend-developer for the 412 handling, S. **Gate:** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves `off` in prod.
 
-### H-2 (High): an animated WebP is accepted as a still image (photo, avatar, banner, and the GIF thumbnail) — In review (#PR)
+### H-2 (High): an animated WebP is accepted as a still image (photo, avatar, banner, and the GIF thumbnail) — In review (#541)
 
 **Where:**
 - `media/service.go:443-453`: `sniffImage` returns `image/webp` for any `RIFF....WEBP` header. It does not look at the VP8X animation flag or at ANIM/ANMF chunks.
