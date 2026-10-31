@@ -71,6 +71,8 @@ Rate limits are mapped for all ten new procedures (ratelimit_config.go:193-202, 
 **Fix:** for another owner, read all `LISTS_MAX_PER_USER` (≤ 20, ≤ the 50 page maximum) in one query, filter, and return every public list with `next_page_token = ""`, ignoring `page_size`. Alternatively, page over the filtered set so the token is set only when more public lists remain. Add a test: owner with [private, public], `page_size 1`, expect [public] and no token.
 
 ### M-2 (Medium, founder question): a protected account's public lists are visible to viewers it has not approved
+**Status: In review (#556, W5-42). Founder 2026-10-31: hide protected accounts' lists from unapproved viewers.** Implemented as proposed: NOT_FOUND on single lists, PROTECTED_ACCOUNT on ListUserLists, 0 reads; I-3 recorded in ADR-0030 D3 (note 2026-10-31).
+
 **Where:**
 - `resolve` (service_read.go:96-119) never checks `owner.IsPrivate`. It has already read both the owner's profile (:105-113) and the viewer's graph (`Following`), so a check costs 0 reads.
 - `otherOwner` (:314-341) has the same gap for ListUserLists.
@@ -130,6 +132,8 @@ Rate limits are mapped for all ten new procedures (ratelimit_config.go:193-202, 
 **Scope:** the same account only. `clearAll` wipes `timelineItemEntries` on sign-out, and `claimCacheFor` wipes on an account switch (`app_database.dart` around :518-560). The rows are public posts the user already saw. Accept.
 
 ### L-7 (Low, privacy, founder question): the export leaves out the user's memberships in other people's public lists
+**Status: In review (#556, W5-46). Founder 2026-10-31: export the user's own membership records, redacting private-list details and other members.** `lists_member_of`: public rows (list id, owner handle, name) plus `redactedCount`; see ADR-0030 D8 (note 2026-10-31). The 'Private lists must stay out' line above is met by redaction.
+
 **Where:** purge.go:155-157 and ADR-0030 D8 export only the user's own lists.
 **Scenario:** under GDPR Art. 15 and DPDP Act s.11 a user may be entitled to "lists I am on", and X's archive includes lists-member. Private lists must stay out (F4).
 **Fix:** a `lists_member_of` export section of public, non-hidden lists naming the uid (list id, owner handle, name), using the eraser's `memberIds array-contains` query (≤ 1 read per list). It is a founder decision.
@@ -137,7 +141,7 @@ Rate limits are mapped for all ten new procedures (ratelimit_config.go:193-202, 
 ### Informational
 - **I-1:** the dev ceiling for `LISTS` is `max_allowlist: 6` (flag-ceiling.json:28), while the plan and ADR D9 say 3. The file is founder-gated; align one or the other.
 - **I-2 (cost, for W5-18):** PR #537's `HomeTabsCubit` calls GetList once per unnamed tab per session (another user's lists carry `title ""`): up to 5 calls, about 25 reads cold, per Home open on a new session.
-- **I-3:** `resolve` and `otherOwner` refuse when the owner blocks the viewer, not when the viewer blocks the owner. A viewer can still read public lists of someone they blocked; member posts from blocked accounts are dropped. This is a product choice consistent with viewing a blocked profile; record it in ADR-0030 D3.
+- **I-3:** `resolve` and `otherOwner` refuse when the owner blocks the viewer, not when the viewer blocks the owner. A viewer can still read public lists of someone they blocked; member posts from blocked accounts are dropped. This is a product choice consistent with viewing a blocked profile; record it in ADR-0030 D3. Recorded in the ADR-0030 note of 2026-10-31 (W5-42, #556).
 - **I-4:** the request bound in 1.2 is generic (rejected requests are billed); there is no list-specific action.
 
 ## 3. Explicit verdicts on the threats handed over
@@ -171,11 +175,11 @@ Rate limits are mapped for all ten new procedures (ratelimit_config.go:193-202, 
 | ID | Ticket row text | Owner | Size | Depends | Gate |
 |---|---|---|---|---|---|
 | W5-41 | M-1: ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the lists.proto:114-115 comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | before percent |
-| W5-42 | M-2: protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer | before percent |
+| W5-42 | M-2: protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes) | before percent; in review (#556) |
 | W5-43 | M-3: SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | before the prod release containing #526 is promoted |
 | W5-44 | M-4: opsctl `list hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook §7 | backend-developer | S | W5-4 | before percent |
 | W5-45 | L-1 negative cache, L-2 visible-rune rule (shared with display names), L-3 id-only idempotency result or T11 note, L-4 fresh target status on add | backend-developer | S | W5-6, W5-7 | before prod on |
-| W5-46 | L-7 export section, if the founder says yes | backend-developer | S | founder answer | before prod on |
+| W5-46 | L-7 export section `lists_member_of` (redacted, founder 2026-10-31) | backend-developer | S | founder answer (yes) | before prod on; in review (#556) |
 
 ## 6. Verdict per stage
 

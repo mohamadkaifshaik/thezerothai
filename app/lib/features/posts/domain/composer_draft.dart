@@ -7,6 +7,14 @@ import 'reply_audience.dart';
 /// Never hardcode `'drafts'` anywhere else.
 const kFeatureDrafts = 'drafts';
 
+/// How long a draft lives after the user last edited it (founder decision
+/// 2026-10-31, ADR-0029 Amendment 1, security finding L-5). Device-local: the
+/// client deletes older drafts on app start and when Drafts opens, and never
+/// shows or loads one that is older, even before the purge has run. A
+/// scheduled post is server-side, not a draft, and is not affected. Applies
+/// whatever the `drafts` flag says.
+const kDraftExpiry = Duration(days: 30);
+
 /// Most drafts one account keeps on a device (ADR-0029, W6-14); the 51st
 /// removes the oldest.
 const kMaxDrafts = 50;

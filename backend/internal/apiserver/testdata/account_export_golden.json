@@ -71,7 +71,17 @@
         "name": "list 604",
         "updatedAt": "<time>"
       }
-    ]
+    ],
+    "lists_member_of": {
+      "public": [
+        {
+          "listId": "0000000000000000606",
+          "name": "list 606",
+          "ownerHandle": "<handle:f>"
+        }
+      ],
+      "redactedCount": 2
+    }
   },
   "media": {
     "media": []
@@ -120,6 +130,7 @@
     "userId": "<uid:A>"
   },
   "poll_votes": {
+    "current_choices": [],
     "poll_votes": []
   },
   "posts": {

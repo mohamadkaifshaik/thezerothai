@@ -386,3 +386,35 @@ func NormalizeLabel(raw string) (string, error) {
 type errLabel string
 
 func (e errLabel) Error() string { return string(e) }
+
+// IsFoldIgnorable reports a code point that draws nothing and must not make two short labels (poll choices, ADR-0029 D1,
+// security L-6) look different: the soft hyphen, combining grapheme joiner, Arabic letter mark, Hangul fillers, Khmer
+// inherent vowels, Mongolian free variation selectors and vowel separator, the zero-width and directional marks
+// U+200B-U+200F, the invisible operators U+2060-U+206F, U+3164, the variation selectors, U+FEFF, U+FFA0 and the musical
+// and shorthand format controls. This is the Default_Ignorable_Code_Point set, spelled out so Go and Dart agree whatever
+// Unicode version each ships, MINUS the tag characters U+E0020-U+E007F (a subdivision flag such as England's would otherwise
+// equal the plain black flag). It is for comparison keys only: it never trims or changes stored text.
+func IsFoldIgnorable(r rune) bool {
+	switch {
+	case r == 0x00AD, r == 0x034F, r == 0x061C, r == 0x115F, r == 0x1160, r == 0x17B4, r == 0x17B5, r == 0x3164, r == 0xFEFF, r == 0xFFA0:
+		return true
+	case r >= 0x180B && r <= 0x180F, r >= 0x200B && r <= 0x200F, r >= 0x202A && r <= 0x202E, r >= 0x2060 && r <= 0x206F:
+		return true
+	case r >= 0xFE00 && r <= 0xFE0F, r >= 0x1BCA0 && r <= 0x1BCA3, r >= 0x1D173 && r <= 0x1D17A, r >= 0xE0100 && r <= 0xE01EF:
+		return true
+	}
+	return false
+}
+
+// StripFoldIgnorable returns s without its IsFoldIgnorable code points (s itself when it has none).
+func StripFoldIgnorable(s string) string {
+	if strings.IndexFunc(s, IsFoldIgnorable) < 0 {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if IsFoldIgnorable(r) {
+			return -1
+		}
+		return r
+	}, s)
+}

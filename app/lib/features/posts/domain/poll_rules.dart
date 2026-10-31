@@ -37,10 +37,36 @@ const _foldSpecial = <String, String>{
   '\uFB06': 'st',
 };
 
+/// Code points that draw nothing (the server's `text.IsFoldIgnorable`:
+/// Default_Ignorable_Code_Point minus the tag characters), dropped before
+/// comparing so "Yes" and "Ye​s" are one choice (security L-6).
+bool _isFoldIgnorable(int r) =>
+    r == 0x00AD ||
+    r == 0x034F ||
+    r == 0x061C ||
+    r == 0x115F ||
+    r == 0x1160 ||
+    r == 0x17B4 ||
+    r == 0x17B5 ||
+    r == 0x3164 ||
+    r == 0xFEFF ||
+    r == 0xFFA0 ||
+    (r >= 0x180B && r <= 0x180F) ||
+    (r >= 0x200B && r <= 0x200F) ||
+    (r >= 0x202A && r <= 0x202E) ||
+    (r >= 0x2060 && r <= 0x206F) ||
+    (r >= 0xFE00 && r <= 0xFE0F) ||
+    (r >= 0x1BCA0 && r <= 0x1BCA3) ||
+    (r >= 0x1D173 && r <= 0x1D17A) ||
+    (r >= 0xE0100 && r <= 0xE01EF);
+
 /// The comparison key of the distinctness rule: NFC of the case-folded NFC
-/// label (the server's `foldKey`).
+/// label, default-ignorable code points dropped first (the server's `foldKey`).
 String pollFoldKey(String label) {
-  var s = unorm.nfc(label).toLowerCase();
+  final kept = String.fromCharCodes(
+    label.runes.where((r) => !_isFoldIgnorable(r)),
+  );
+  var s = unorm.nfc(kept).toLowerCase();
   _foldSpecial.forEach((from, to) => s = s.replaceAll(from, to));
   return unorm.nfc(s);
 }

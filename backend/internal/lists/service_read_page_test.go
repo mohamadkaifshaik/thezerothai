@@ -387,3 +387,55 @@ func TestListListMembers_ShortPageKeepsToken(t *testing.T) {
 		t.Fatalf("second = %v, %v", itemUIDs(p.Items), err)
 	}
 }
+
+// TestListUserLists_OtherOwnerNeverPaged (W5-41, security M-1): another owner's lists come back whole with no token whatever
+// page_size is, so a private list can neither be counted nor located; the owner's own listing still pages.
+func TestListUserLists_OtherOwnerNeverPaged(t *testing.T) {
+	t.Parallel()
+	priv, pub := listN(1, testUID), listN(2, testUID)
+	priv.IsPrivate = true
+	var mix []List
+	var wantPub []string
+	for i := 1; i <= 20; i++ {
+		l := listN(i, testUID)
+		l.IsPrivate, l.Hidden = i%3 == 0, i%5 == 0
+		if !l.IsPrivate && !l.Hidden {
+			wantPub = append(wantPub, l.ID)
+		}
+		mix = append(mix, l)
+	}
+	tests := []struct {
+		name string
+		ls   []List
+		size int32
+		want []string
+	}{
+		{"[private, public], page_size 1", []List{priv, pub}, 1, []string{pub.ID}},
+		{"[public, private], page_size 1", []List{pub, priv}, 1, []string{pub.ID}},
+		{"20 mixed, page_size 1", mix, 1, wantPub},
+		{"20 mixed, page_size 7", mix, 7, wantPub},
+		{"20 mixed, page_size 50", mix, 50, wantPub},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newReadEnv(nil, nil, tt.ls...)
+			got, err := e.svc.ListUserLists(context.Background(), viewerUID, UserListsInput{OwnerID: testUID, PageSize: tt.size})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(listIDs(got.Lists), tt.want) || got.NextPageToken != "" {
+				t.Errorf("lists %v token %q, want %v and no token", listIDs(got.Lists), got.NextPageToken, tt.want)
+			}
+			if len(e.repo.queries) != 1 || e.repo.queries[0].limit != 20 {
+				t.Errorf("queries = %+v, want one query of LISTS_MAX_PER_USER", e.repo.queries)
+			}
+		})
+	}
+	// the owner's own listing keeps its paging (and its look-ahead query)
+	e := newReadEnv(nil, nil, priv, pub)
+	own, err := e.svc.ListUserLists(context.Background(), testUID, UserListsInput{PageSize: 1})
+	if err != nil || len(own.Lists) != 1 || own.NextPageToken == "" || e.repo.queries[0].limit != 2 {
+		t.Errorf("own page 1: %v, token %q, %v", listIDs(own.Lists), own.NextPageToken, err)
+	}
+}

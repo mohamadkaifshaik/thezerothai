@@ -1,5 +1,12 @@
 package config
 
+import "fmt"
+
+// MaxListMembersCeiling is the hard ceiling of LIST_MAX_MEMBERS (W5-47, W5-18 cost review L-1). Above 500 the ADR-0030 trigger
+// for a members-collection change is already broken (the memberIds array is the whole list document, read on every list
+// read), and above about 4,890 a list timeline would pass the 269-read hold. Raising it needs an ADR.
+const MaxListMembersCeiling = 500
+
 // ListsConfig holds the list values that are neither a rate limit nor a daily quota (ADR-0030 D10). The list buckets and the
 // daily mutation cap are RateLimitConfig fields; the create and add quotas are QuotaConfig fields. Every value is > 0: a 0
 // would lock every user out of the feature or disable a cap, so startup fails instead.
@@ -18,7 +25,7 @@ type ListsConfig struct {
 }
 
 // loadLists reads and validates the LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES keys;
-// a value <= 0 fails startup naming the key.
+// a value <= 0 fails startup naming the key, and LIST_MAX_MEMBERS above MaxListMembersCeiling (500) does too.
 func loadLists() (ListsConfig, error) {
 	var c ListsConfig
 	err := loadPositiveInts([]positiveInt{
@@ -27,5 +34,8 @@ func loadLists() (ListsConfig, error) {
 		{&c.HomeTabsMaxPinned, "HOME_TABS_MAX_PINNED", 5},
 		{&c.CacheEntries, "CACHE_LISTS_ENTRIES", 2000},
 	})
+	if err == nil && c.MaxMembers > MaxListMembersCeiling {
+		err = fmt.Errorf("config: LIST_MAX_MEMBERS must be 1..%d (got %d)", MaxListMembersCeiling, c.MaxMembers)
+	}
 	return c, err
 }

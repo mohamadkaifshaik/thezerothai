@@ -252,6 +252,7 @@ Future<void> bootstrap() async {
   final listsRepository = ListsRepository(
     apiClient: apiClient,
     gate: listsGate,
+    epoch: database.sessionEpoch,
     onListSeen: homeTabsRepository.noteListInfo,
   );
   // The list timeline (W5-12) goes through the same `lists` gate and feeds every
@@ -302,7 +303,6 @@ Future<void> bootstrap() async {
     timelineRepository: timelineRepository,
     notificationsRepository: notificationsRepository,
     messagingRepository: messagingRepository,
-    onSignedOut: graphRepository.clearCache,
     initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
   );
 

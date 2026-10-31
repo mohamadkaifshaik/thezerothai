@@ -43,7 +43,7 @@ void main() {
         ran++;
       }
       expect(ran, cases.length);
-      expect(ran, 27);
+      expect(ran, 31);
     });
   });
 

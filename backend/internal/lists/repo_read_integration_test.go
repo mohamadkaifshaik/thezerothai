@@ -205,6 +205,15 @@ func TestListUserLists_Integration_Budget(t *testing.T) {
 		exact(t, fmt.Sprintf("ListUserLists other, page %d", size), c, 23)
 	}
 
+	// page_size 1 for another owner: same single 20-doc query, all 9 public lists, no token (W5-41)
+	c1 := budgetCall(func(ctx context.Context) {
+		got, err := e.svcFor("viewer").ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "owner", PageSize: 1})
+		if err != nil || len(got.Lists) != 9 || got.NextPageToken != "" {
+			t.Fatalf("other page 1: %d lists, token %q, %v", len(got.Lists), got.NextPageToken, err)
+		}
+	})
+	exact(t, "ListUserLists other, page 1", c1, 23)
+
 	// an owner with no lists: the empty query bills 1 (ADR 5 with the interceptor)
 	other := e.svcFor("viewer")
 	e.profiles["empty"] = active("empty", false)

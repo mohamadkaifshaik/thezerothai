@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
@@ -65,6 +66,8 @@ type FirestoreRepo struct {
 	quotas *quota.Store
 	idem   *idempotency.Store
 	now    func() time.Time
+	// txProfiles reads the target's users document inside the AddMember transaction (W5-45 / L-4). SetTxProfiles wires it.
+	txProfiles identity.TxProfiles
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -74,6 +77,10 @@ var _ Repo = (*FirestoreRepo)(nil)
 func NewFirestoreRepo(client *firestore.Client, quotas *quota.Store, idem *idempotency.Store) *FirestoreRepo {
 	return &FirestoreRepo{client: client, quotas: quotas, idem: idem, now: time.Now}
 }
+
+// SetTxProfiles wires the fresh, uncached status read AddMember makes of a target who is not already a member (graph
+// precedent, ADR-0025 D6). apiserver and the integration tests call it; without it a real add fails closed.
+func (r *FirestoreRepo) SetTxProfiles(p identity.TxProfiles) { r.txProfiles = p }
 
 func (r *FirestoreRepo) col() *firestore.CollectionRef { return r.client.Collection(listsCollection) }
 
@@ -98,17 +105,24 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 	return attempts, err
 }
 
-// headerResult is the Result map of an idempotency record: the header as strings.
-func headerResult(h Header) map[string]string {
-	return map[string]string{
-		"id": h.ID, "name": h.Name, "description": h.Description,
-		"private": strconv.FormatBool(h.IsPrivate), "members": strconv.Itoa(h.MemberCount),
-	}
-}
+// headerResult is the Result map of an idempotency record: the list id only (W5-45, security review L-3). A record outlives the
+// list by up to about 48 h (24 h TTL plus deletion lag), so it must not keep the name, description or private flag of a list
+// the owner deleted or an account erasure removed. A replay re-reads the list (replayHeader).
+func headerResult(h Header) map[string]string { return map[string]string{"id": h.ID} }
 
-func resultHeader(m map[string]string) Header {
-	n, _ := strconv.Atoi(m["members"])
-	return Header{ID: m["id"], Name: m["name"], Description: m["description"], IsPrivate: m["private"] == "true", MemberCount: n}
+// replayHeader answers a replay of Create, Update, AddMember or RemoveMember from the list as it is now: 1 fresh read in tx
+// (the list, owner-checked). A list deleted since, or a record without an id, is ErrNotFound. Records written before W5-45
+// carry the full header; only their id is used.
+func (r *FirestoreRepo) replayHeader(ctx context.Context, tx *firestore.Transaction, uid string, rec idempotency.Record) (Header, error) {
+	id := rec.Result["id"]
+	if id == "" {
+		return Header{}, ErrNotFound
+	}
+	d, err := r.getOwned(ctx, tx, uid, id)
+	if err != nil {
+		return Header{}, err
+	}
+	return d.list(id).header(), nil
 }
 
 // putIdem appends the TTL'd idempotency document of rpc, holding the answer, to b (same atomic unit as the effect).
@@ -166,7 +180,11 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		rec, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
 		if found || err != nil {
 			if err == nil {
-				res = CreateResult{Outcome: Replayed, Header: resultHeader(rec.Result)}
+				h, herr := r.replayHeader(ctx, tx, p.UID, rec)
+				if herr != nil {
+					return herr
+				}
+				res = CreateResult{Outcome: Replayed, Header: h}
 			}
 			return err
 		}
@@ -238,7 +256,11 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		rec, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
 		if found || err != nil {
 			if err == nil {
-				res = UpdateResult{Outcome: Replayed, Header: resultHeader(rec.Result)}
+				h, herr := r.replayHeader(ctx, tx, p.UID, rec)
+				if herr != nil {
+					return herr
+				}
+				res = UpdateResult{Outcome: Replayed, Header: h}
 			}
 			return err
 		}
