@@ -253,8 +253,9 @@ index or Terraform file changes in this PR. A6 lists the contract changes for W6
   cached counts with this change applied.
 
 **A2.8 Client UX (W6-37).**
-- **What X offers.** X's poll cards, as far as our captures go, show no way to change a vote. This control is ours,
-  drawn in the card's existing visual language.
+- **What X offers.** Our X research (`docs/x_research/07_functionality_inventory.md`, git-ignored) records polls as
+  "one vote/user, expiry", and names no change control. So this control is ours, drawn in the card's existing visual
+  language.
 - **After a vote,** the footer reads "N votes · 2 days left · Change vote". "Change vote" is an accent text button.
   - It is shown when the poll is open, the viewer voted, is not the author, and `viewer_poll_vote_blocked` is false.
   - It is hidden on embeds, which have no buttons.
