@@ -167,7 +167,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
 
 **Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
-- **Revised by W6-40 (PR TBD), re-review W6-42.** Founder decision 3, 2026-10-31; ADR-0029 Amendment 1 A5; built as proposed (differences are listed in the PR).
+- **Revised by W6-40 (#554), re-review W6-42.** Founder decision 3, 2026-10-31; ADR-0029 Amendment 1 A5; built as proposed (differences are listed in the PR).
   - Only attempts that produced a valid assessment count toward the 3.
   - Unanswered and invalid-answer attempts count toward a separate `MEDIA_MAX_SCREEN_RETRIES` (5) under a claims
     ceiling of 8.

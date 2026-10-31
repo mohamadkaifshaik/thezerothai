@@ -393,7 +393,7 @@ Effect on the quotas (additive):
 | W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Open |
 | W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
 | W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | Open |
-| W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | In review (PR TBD, W6-42 before merge) |
+| W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | In review (#554, W6-42 before merge) |
 | W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters | tester | M | W6-36, W6-37, W6-40 | yes | Open |
 | W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Open |
 | W6-43 | *(founder 2026-10-31, Art. 9)* No polls soliciting sensitive personal information: a Terms / community-rules line, a short composer hint under the poll builder, a report reason (or the existing "other" reason with a sensitive-data note) and a moderation runbook entry; no automated detection at Stage 0 | architect (rule text) + frontend-developer + backend-developer | S | Amendment 1 merged | yes | Open (gate: before release) |
@@ -1112,7 +1112,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** `DraftsRepository`, the only reader and writer.
 - **Flag.** `drafts`.
 
-#### W6-40 — Media: the attempt cap revision  [owner: backend-developer + frontend-developer] [size: M] [depends: Amendment 1 merged, W6-25 (#536); W6-42 before merge]  Status: In review (PR TBD; W6-42 before merge)
+#### W6-40 — Media: the attempt cap revision  [owner: backend-developer + frontend-developer] [size: M] [depends: Amendment 1 merged, W6-25 (#536); W6-42 before merge]  Status: In review (#554; W6-42 before merge)
 - **Description.** Amendment 1 A5:
   - `screenAssessed` written in the release write;
   - the pre-check against `MEDIA_MAX_SCREEN_ATTEMPTS` and `MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES`;
