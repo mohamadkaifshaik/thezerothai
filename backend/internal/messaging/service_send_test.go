@@ -497,7 +497,7 @@ func TestSend_RequestLineFields(t *testing.T) {
 			if _, err := r.svc.Send(ctx, alice, toUser(key1, bob, "a secret sentence")); err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]any{fieldKind: kindSend, fieldState: tt.state, fieldSilent: true, fieldReplay: false, fieldConvHash: logger.HashUID(convID)}
+			want := map[string]any{fieldKind: kindSend, fieldState: tt.state, fieldSilent: true, fieldReplay: false, fieldConvHash: logger.HashConversation(convID)}
 			for k, v := range want {
 				if got, _ := info.Get(k); got != v {
 					t.Errorf("%s = %v, want %v", k, got, v)

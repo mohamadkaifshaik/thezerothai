@@ -171,7 +171,7 @@ func TestAccept_MovesTheRequest(t *testing.T) {
 	if len(rg.events.got) != 0 {
 		t.Errorf("events = %v, accept emits nothing", rg.events.got)
 	}
-	for k, want := range map[string]any{fieldKind: kindAccept, fieldState: stateLabelAccept, fieldReplay: false, fieldConvHash: logger.HashUID(aliceBobConv)} {
+	for k, want := range map[string]any{fieldKind: kindAccept, fieldState: stateLabelAccept, fieldReplay: false, fieldConvHash: logger.HashConversation(aliceBobConv)} {
 		if v, _ := info.Get(k); v != want {
 			t.Errorf("request field %s = %v, want %v", k, v, want)
 		}

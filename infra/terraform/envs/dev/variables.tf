@@ -892,6 +892,16 @@ variable "feature_trends_percent" {
   }
 }
 
+variable "trends_min_authors" {
+  description = "TRENDS_MIN_AUTHORS (ADR-0028 note 2026-10-31, W4-26): the fewest distinct established authors (ACTIVE, account at least TRENDS_MIN_ACCOUNT_AGE, 72 h, old) a hashtag needs to trend. Read at the daily sweep. Dev stays 3: the dev smoke has 3 test authors, which must be older than 72 h."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.trends_min_authors >= 1 && floor(var.trends_min_authors) == var.trends_min_authors
+    error_message = "trends_min_authors must be an integer >= 1."
+  }
+}
 variable "trends_denylist" {
   description = "TRENDS_DENYLIST (ADR-0028 note 2026-10-31, W4-25): comma-separated hashtag bodies (no leading #) that never trend. GetTrends drops them at serve time (live on the new revision within the 10 min instance copy) and the sweep drops them too. Entries are matched after NFKC, lower-casing and removing U+200C, U+200D and underscores, so one entry covers its variants. Not a secret. Default empty. To remove a tag at once without a deploy use `opsctl trends hide` (docs/runbooks/search.md 4.3)."
   type        = string

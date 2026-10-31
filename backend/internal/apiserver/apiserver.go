@@ -52,6 +52,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/httpcors"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpublish"
@@ -570,6 +571,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
+	// W7-34 (L-7): conversation_hash in logs and error lines is an HMAC keyed by an HKDF derivation of CURSOR_HMAC_KEY (no new
+	// secret), so a log holder cannot confirm a guessed uid pair against the plain hash. `opsctl messages loghash` reproduces it.
+	if len(cfg.CursorHMACKey) == 0 {
+		log.Warn("cursor key empty: conversation_hash uses a per-process random key")
+	} else if err := logger.SetConversationKey(cfg.CursorHMACKey); err != nil {
+		return nil, nil, fmt.Errorf("apiserver: conversation hash key: %w", err)
+	}
 	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; ListConversations (W7-7)
 	// is not globally off; the other three RPCs check the flag and answer Unimplemented until W7-8 and W7-9. Badge evicts identity's cached
 	// unread_conversation_count (W7-11); the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).
@@ -621,8 +629,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		search.WithTrends(trendsStore, nil),
 		// The denylist also applies at serve time (ADR-0028 note 2026-10-31), so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
-	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
+	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
+		MinAccountAge: cfg.Search.TrendsMinAccountAge, MaxAuthorChecks: cfg.Search.TrendsMaxAuthorChecks,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
 	})
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

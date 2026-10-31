@@ -56,7 +56,7 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 	if s.d.Repo == nil {
 		return nil, errors.New("messaging: accept is not configured")
 	}
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(id))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
 	res, err := s.d.Repo.Accept(ctx, AcceptParams{
 		UID: uid, ConvID: id, Now: s.d.Now(),
 		PeerAllowed: func(peer string) bool { return s.flags != nil && s.flags.Enabled(peer, FlagName) },
@@ -111,7 +111,7 @@ func (s *service) Delete(ctx context.Context, uid string, req *messagingv1.Delet
 	if s.d.Repo == nil {
 		return nil, errors.New("messaging: delete is not configured")
 	}
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(id))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
 	res, err := s.d.Repo.Delete(ctx, DeleteParams{UID: uid, ConvID: id, Now: s.d.Now(), KeyDigest: keyDigest(uid, opDelete, req.GetIdempotencyKey())})
 	if err != nil {
 		return nil, s.lifecycleErr(ctx, uid, id, "delete", err)
