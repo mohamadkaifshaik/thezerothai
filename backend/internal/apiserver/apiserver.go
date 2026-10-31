@@ -368,7 +368,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// W3-29b: both lists decide protected authors' rows through the one posts.Audience (ADR-0025 D4).
 		Audience: engAudience,
 		// VotePoll (ADR-0029 D6, W6-7): the vote batch, the vote doc TTL, the lazy userLikes trim and the new-account cap are config.
-		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept,
+		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
 		PollVoteCap: pollVoteCap, NewAccountPollVotesPerDay: cfg.RateLimit.PollVotesPerDayNewAccount,
 	})
 	if err != nil {

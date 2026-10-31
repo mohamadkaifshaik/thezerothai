@@ -2,6 +2,8 @@
 // = {postId, uid, choice, createdAt, expireAt} (the natural-key vote record, TTL on expireAt) and the `pollVotes` array of
 // userLikes/{uid} (the viewer's choices, "<postId>:<index>", newest last).
 //
+// A change (ADR-0029 Amendment 1 A2.3) is ONE more blind batch (ChangeVote) under a LastUpdateTime precondition on the vote doc.
+//
 // The vote is ONE batch with no read: Create of the vote doc, the posts counter Update (posts.EngagementWriter.StagePollVote, an
 // implicit Exists precondition) and a field-level Set with MergeAll of userLikes.pollVotes. Every userLikes write is field-level
 // (the ADR-0021 I-3 class of bug: a whole-document Set would empty the other lists).
@@ -32,6 +34,10 @@ type pollVoteDoc struct {
 	Choice    int       `firestore:"choice"`
 	CreatedAt time.Time `firestore:"createdAt"`
 	ExpireAt  time.Time `firestore:"expireAt"`
+	// Changes counts the vote changes (absent = 0) and ChangedAt is the time of the last one (absent = never changed): ADR-0029 Amendment 1
+	// A2.6. Written by ChangeVote only (Increment(1) and the clock); small scalars on the automatic indexes. No earlier choice is kept.
+	Changes   int       `firestore:"changes,omitempty"`
+	ChangedAt time.Time `firestore:"changedAt,omitempty"`
 }
 
 func (r *FirestoreRepo) pollVoteRef(postID, uid string) *firestore.DocumentRef {
@@ -71,20 +77,57 @@ func (r *FirestoreRepo) Vote(ctx context.Context, p VoteParams) (VoteOutcome, er
 }
 
 // GetVote implements PollRepo: 1 read of pollVotes/{postId}_{uid}.
-func (r *FirestoreRepo) GetVote(ctx context.Context, uid, postID string) (int, bool, error) {
+func (r *FirestoreRepo) GetVote(ctx context.Context, uid, postID string) (VoteState, bool, error) {
 	snap, err := r.pollVoteRef(postID, uid).Get(ctx)
 	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
-			return 0, false, nil
+			return VoteState{}, false, nil
 		}
-		return 0, false, fmt.Errorf("engagement: get poll vote: %w", err)
+		return VoteState{}, false, fmt.Errorf("engagement: get poll vote: %w", err)
 	}
 	var d pollVoteDoc
 	if err := snap.DataTo(&d); err != nil {
-		return 0, false, fmt.Errorf("engagement: decode poll vote: %w", err)
+		return VoteState{}, false, fmt.Errorf("engagement: decode poll vote: %w", err)
 	}
-	return d.Choice, true, nil
+	return VoteState{Choice: d.Choice, Changes: d.Changes, UpdateTime: snap.UpdateTime}, true, nil
+}
+
+// ChangeVote implements PollRepo: ONE batch, 0 reads, 4 writes (ADR-0029 Amendment 1 A2.3). The hot post document is written by Increment,
+// never read. Only the vote doc (LastUpdateTime = the version the caller read) and the post (the Exists precondition of the counter Update)
+// carry preconditions; userLikes is two field-level merges (ArrayRemove of the old entry, ArrayUnion of the new one: one write cannot carry two
+// transforms on one field), so a missing userLikes doc never fails the commit and "the vote doc did not move" still means "the post is gone".
+// Two writes to one document in one commit are accepted by the emulator (TestRepoChangeVote_*).
+func (r *FirestoreRepo) ChangeVote(ctx context.Context, p ChangeParams) (ChangeOutcome, error) {
+	if r.w.Writer == nil {
+		return ChangeStale, errors.New("engagement: repo has no post writer configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, txTimeout)
+	defer cancel()
+	now := r.now().UTC()
+	res, err := store.CommitWithRetry(ctx, r.newBatch, r.retryConfig(), func(b store.Batch) {
+		b.Update(r.pollVoteRef(p.PostID, p.UID), []firestore.Update{
+			{Path: "choice", Value: p.To},
+			{Path: "changes", Value: firestore.Increment(1)},
+			{Path: "changedAt", Value: now},
+		}, firestore.LastUpdateTime(p.Version))
+		r.w.Writer.StagePollChange(b, p.PostID, p.From, p.To)
+		b.Set(r.userLikesRef(p.UID), map[string]any{
+			"pollVotes": firestore.ArrayRemove(pollEntry(p.PostID, p.From)), "updatedAt": now,
+		}, firestore.MergeAll)
+		b.Set(r.userLikesRef(p.UID), map[string]any{
+			"pollVotes": firestore.ArrayUnion(pollEntry(p.PostID, p.To)), "updatedAt": now,
+		}, firestore.MergeAll)
+	})
+	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
+	switch {
+	case err == nil && res.Committed:
+		return ChangeWritten, nil
+	case err == nil:
+		return ChangeStale, nil // NotFound or FailedPrecondition: the vote doc moved or the post is gone
+	default:
+		return ChangeStale, err
+	}
 }
 
 // TrimPollVotes implements PollRepo: one field-level write, no read.

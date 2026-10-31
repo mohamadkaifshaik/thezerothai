@@ -84,9 +84,11 @@ type Deps struct {
 	// (POLL_VOTE_TTL_AFTER_CLOSE), PollViewerVotesKept the lazy trim size of userLikes.pollVotes (POLL_VIEWER_VOTES_KEPT, 0 = never
 	// trim). PollVoteCap is the interceptor's poll_votes_daily counter and NewAccountPollVotesPerDay the lower limit it is compared
 	// with for an account inside NewAccountWindow (POLL_VOTES_PER_DAY_NEW_ACCOUNT, 0 or a nil cap = not enforced here).
-	PollRepo                  PollRepo
-	PollVoteTTLAfterClose     time.Duration
-	PollViewerVotesKept       int
+	PollRepo              PollRepo
+	PollVoteTTLAfterClose time.Duration
+	PollViewerVotesKept   int
+	// PollVoteChangesMax is POLL_VOTE_CHANGES_MAX: the most vote changes one voter may make in one poll (ADR-0029 Amendment 1 A2.4). 0 = votes final.
+	PollVoteChangesMax        int
 	PollVoteCap               DailySpent
 	NewAccountPollVotesPerDay int64
 

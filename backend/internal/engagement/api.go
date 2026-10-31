@@ -309,12 +309,16 @@ type LikesPage struct {
 // Service, as LikesList), a later split into its own service changes no caller. It reads posts only through
 // posts.Engagement.Viewable and posts.EngagementWriter.StagePollVote.
 type Polls interface {
-	// VotePoll records uid's one, final vote in the poll of postID (a REPOST id: its original). Reads cold: the visibility check
+	// VotePoll records uid's one vote in the poll of postID (a REPOST id: its original), or changes it until the poll closes (ADR-0029 Amendment 1
+	// A2). expectedChoice is VotePollRequest.expected_choice: 0 = "I hold no vote", 1..4 = the choice the caller believes it holds, as index + 1;
+	// a different choice is a change only when it names the stored vote (the A2.2 table), else ALREADY_VOTED. The voter blocking the author is
+	// TARGET_BLOCKED (A1), after the closed and range checks. A change reads the vote doc first (+1, 9 worst, 4 typical) and writes 4 in one batch
+	// (vote doc, post counters, userLikes x2); a replay, ALREADY_VOTED, LIMIT_REACHED and every refusal write 0. First-vote numbers below. Reads cold: the visibility check
 	// 3 (post, author users, caller graph; +2 for a REPOST id, +1 on blockedBy overflow; 0 warm) + userLikes 1 for the response's
 	// viewer flags = 4, 5 with the interceptor's own read (the ADR-0029 "8" counts the REPOST and overflow worst case); a replay
 	// or ALREADY_VOTED reads the vote doc too (+1). Writes 3 in one batch (vote doc, the post's poll.counts.<i> and poll.total in
 	// one Update, userLikes.pollVotes) + 1 TTL delete later; a replay, ALREADY_VOTED and every refusal write 0.
-	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex int32) (PollVote, error)
+	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex, expectedChoice int32) (PollVote, error)
 }
 
 // PollVote is what the handler renders for VotePoll: the poll's post (the original when the request named a REPOST) with the
@@ -343,6 +347,31 @@ const (
 	VotePostGone
 )
 
+// ChangeOutcome says what PollRepo.ChangeVote did.
+type ChangeOutcome int
+
+const (
+	// ChangeWritten means the batch committed: vote doc, counters and both userLikes writes.
+	ChangeWritten ChangeOutcome = iota
+	// ChangeStale means a precondition failed (the vote doc moved since it was read, or the post is gone): nothing was written. The service
+	// re-reads the vote doc to tell the two apart.
+	ChangeStale
+)
+
+// VoteState is the vote doc as GetVote reads it: the stored 0-based choice, how many times it was changed, and the document's UpdateTime (the
+// version a change is made against).
+type VoteState struct {
+	Choice, Changes int
+	UpdateTime      time.Time
+}
+
+// ChangeParams is one vote change batch: From is the stored choice read at Version (VoteState.UpdateTime), To the new one (both 0-based).
+type ChangeParams struct {
+	UID, PostID string
+	From, To    int
+	Version     time.Time
+}
+
 // VoteParams is one vote batch.
 type VoteParams struct {
 	UID, PostID string
@@ -357,7 +386,12 @@ type PollRepo interface {
 	// error wrapping store.ErrContended.
 	Vote(ctx context.Context, p VoteParams) (VoteOutcome, error)
 	// GetVote reads pollVotes/{postId}_{uid} (1 read). found is false for a missing document.
-	GetVote(ctx context.Context, uid, postID string) (choice int, found bool, err error)
+	GetVote(ctx context.Context, uid, postID string) (state VoteState, found bool, err error)
+	// ChangeVote commits one vote change as a blind batch (0 reads, 4 writes), ADR-0029 Amendment 1 A2.3: the vote doc is updated under a
+	// LastUpdateTime precondition equal to p.Version, the post counters move by StagePollChange, and userLikes.pollVotes loses the entry of From
+	// and gains the entry of To (two writes to one document in one commit). A failed precondition is ChangeStale; exhausted contention is an
+	// error wrapping store.ErrContended.
+	ChangeVote(ctx context.Context, p ChangeParams) (ChangeOutcome, error)
 	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, 1 write, no read).
 	TrimPollVotes(ctx context.Context, uid string, drop []string) error
 }
