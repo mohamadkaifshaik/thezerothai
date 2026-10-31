@@ -45,6 +45,8 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/posts/presentation/composer_screen.dart';
+import '../../features/posts/presentation/drafts_screen.dart';
+import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
@@ -132,6 +134,12 @@ class AppRouter {
   // View), and a second page of the same ShellRoute under the composer breaks
   // the Navigator (duplicate page key).
   static const scheduledPostsPath = '/scheduled';
+  // W6-15: Drafts (Unsent posts | Scheduled), behind `posts` + `drafts`.
+  // Root-level and full-screen like /compose and /scheduled. `/scheduled`
+  // redirects to its Scheduled tab while `drafts` is on. Push it from the
+  // composer with `extra: true` (pick mode): choosing a draft pops its id.
+  static const draftsPath = '/drafts';
+  static const scheduledTabPath = '/drafts?tab=scheduled';
   // W2-7: the Bookmarks list, titled "History" since W3-18 (`?tab=likes` opens
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
@@ -158,6 +166,11 @@ class AppRouter {
   static const advertisePath = '/advertise';
   static const callsPath = '/calls';
   static String profilePath(String handle) => '/profile/$handle';
+
+  /// The composer opened on the saved draft [draftId] (W6-15):
+  /// `/compose?draft=<id>`.
+  static String composeDraftPath(String draftId) =>
+      '$composePath?draft=${Uri.encodeQueryComponent(draftId)}';
 
   /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
   /// quoted post's `EmbeddedPost` as `extra` for the preview.
@@ -209,10 +222,14 @@ class AppRouter {
         path: composePath,
         builder: (context, state) {
           final quote = state.uri.queryParameters['quote'] ?? '';
+          final draft = state.uri.queryParameters['draft'] ?? '';
           return AuthGate(
             child: ComposerScreen(
               // Only a well-formed post id (19 digits) starts a quote.
               quoteOfPostId: _postIdPattern.hasMatch(quote) ? quote : '',
+              // Only a well-formed draft id (16 lower-case hex) opens a draft;
+              // an unknown one starts a new post (it never adopts the id).
+              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
               quotePreview: state.extra is pb.EmbeddedPost
                   ? state.extra as pb.EmbeddedPost
                   : null,
@@ -225,6 +242,15 @@ class AppRouter {
         path: scheduledPostsPath,
         builder: (context, state) =>
             const AuthGate(child: ScheduledPostsScreen()),
+      ),
+      GoRoute(
+        path: draftsPath,
+        builder: (context, state) => AuthGate(
+          child: DraftsScreen(
+            scheduledTab: state.uri.queryParameters['tab'] == 'scheduled',
+            pickMode: state.extra == true,
+          ),
+        ),
       ),
       GoRoute(
         path: accountDeletedPath,
@@ -594,6 +620,7 @@ class AppRouter {
             _accountFlagRedirect(loc) ??
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
+            _draftsFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
             _listsFlagRedirect(loc) ??
             _searchFlagRedirect(loc) ??
@@ -613,6 +640,7 @@ class AppRouter {
   }
 
   static final _postIdPattern = RegExp(r'^\d{19}$');
+  static final _draftIdPattern = RegExp(r'^[0-9a-f]{16}$');
   static final _graphOnlyRoutes = RegExp(r'^/settings/(?:blocked|muted)$');
   static final _accountOnlyRoutes = RegExp(
     r'^/settings/(?:export|delete-account)$',
@@ -721,9 +749,20 @@ class AppRouter {
   /// own "not available" state.
   String? _scheduledFlagRedirect(String loc) {
     if (loc != scheduledPostsPath) return null;
-    return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
+    final features = _onboardingBloc.state.enabledFeatures;
+    if (!features.contains(kFeaturePosts)) return settingsPath;
+    // W6-15: with `drafts` on the list is the Drafts screen's Scheduled tab;
+    // with it off the old screen stays, so every link keeps working.
+    return features.contains(kFeatureDrafts) ? scheduledTabPath : null;
+  }
+
+  /// `/drafts` redirects Home unless `posts` and `drafts` are on (W6-15).
+  String? _draftsFlagRedirect(String loc) {
+    if (loc != draftsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    return features.contains(kFeaturePosts) && features.contains(kFeatureDrafts)
         ? null
-        : settingsPath;
+        : homePath;
   }
 
   /// `/bookmarks` redirects Home unless `posts` is on for this caller (W2-7).

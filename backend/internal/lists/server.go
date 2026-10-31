@@ -10,6 +10,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
@@ -19,8 +20,8 @@ const rpcDeadline = 8 * time.Second
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
 // rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS, ADR-0030 D9) before anything
 // else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
-// gate CreateList, UpdateList, DeleteList (W5-4) and AddListMember, RemoveListMember (W5-6) call the Service; the other three are
-// still the generated Unimplemented answer until W5-7 (reads) replaces them.
+// gate every RPC calls the Service (W5-4 list writes, W5-6 member writes, W5-7 reads); a Server built without one answers
+// Unimplemented.
 type Server struct {
 	listsv1connect.UnimplementedListServiceHandler
 	flags FlagChecker
@@ -114,20 +115,39 @@ func toListInfo(v View) *listsv1.ListInfo {
 	}
 }
 
-// GetList is gated by FEATURE_LISTS; the read is W5-7.
+// GetList is gated by FEATURE_LISTS; a list the caller may not see is the one NOT_FOUND (ADR-0030 D3).
 func (s *Server) GetList(ctx context.Context, req *connect.Request[listsv1.GetListRequest]) (*connect.Response[listsv1.GetListResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "GetList")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.GetList(ctx, req)
+	defer cancel()
+	v, err := s.svc.GetList(ctx, uid, req.Msg.GetListId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.GetListResponse{List: toListInfo(v)}), nil
 }
 
-// ListUserLists is gated by FEATURE_LISTS; the read is W5-7.
+// ListUserLists is gated by FEATURE_LISTS; an owner_id of "" is the caller.
 func (s *Server) ListUserLists(ctx context.Context, req *connect.Request[listsv1.ListUserListsRequest]) (*connect.Response[listsv1.ListUserListsResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "ListUserLists")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.ListUserLists(ctx, req)
+	defer cancel()
+	m := req.Msg
+	page, err := s.svc.ListUserLists(ctx, uid, UserListsInput{
+		OwnerID: m.GetOwnerId(), ContainsUserID: m.GetContainsUserId(), PageSize: m.GetPageSize(), PageToken: m.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &listsv1.ListUserListsResponse{ContainingListIds: page.ContainingIDs, NextPageToken: page.NextPageToken}
+	for _, v := range page.Lists {
+		out.Lists = append(out.Lists, toListInfo(v))
+	}
+	return connect.NewResponse(out), nil
 }
 
 // memberWrite is the shared body of the two member handlers: gate, deadline, the service call, the ListInfo of the answer.
@@ -172,10 +192,17 @@ func (s *Server) RemoveListMember(ctx context.Context, req *connect.Request[list
 	return connect.NewResponse(&listsv1.RemoveListMemberResponse{List: info}), nil
 }
 
-// ListListMembers is gated by FEATURE_LISTS; the read is W5-7.
+// ListListMembers is gated by FEATURE_LISTS; rows are newest added first, with the caller's relationship to each.
 func (s *Server) ListListMembers(ctx context.Context, req *connect.Request[listsv1.ListListMembersRequest]) (*connect.Response[listsv1.ListListMembersResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "ListListMembers")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.ListListMembers(ctx, req)
+	defer cancel()
+	m := req.Msg
+	page, err := s.svc.ListListMembers(ctx, uid, m.GetListId(), m.GetPageSize(), m.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.ListListMembersResponse{Users: graph.ListItemsToProto(page.Items), NextPageToken: page.NextPageToken}), nil
 }

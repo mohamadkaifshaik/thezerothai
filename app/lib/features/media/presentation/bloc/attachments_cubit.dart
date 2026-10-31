@@ -4,11 +4,16 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
+import '../../data/gif_source.dart';
 import '../../data/image_picker_service.dart';
 import '../../data/media_uploader.dart';
 import '../../domain/image_processor.dart';
 import '../../domain/media_feature_flag.dart';
 import '../../domain/processed_image.dart';
+
+/// What an attachment is. A post has up to [kMaxPostImages] photos, or one
+/// GIF, never both (ADR-0029 F5; the rule lives in `ComposerAttachmentRules`).
+enum AttachmentKind { photo, gif }
 
 enum AttachmentStatus {
   /// Being resized/compressed on the device.
@@ -37,6 +42,7 @@ enum AttachmentStatus {
 class Attachment {
   const Attachment({
     required this.id,
+    this.kind = AttachmentKind.photo,
     this.status = AttachmentStatus.processing,
     this.image,
     this.progress = 0,
@@ -46,8 +52,11 @@ class Attachment {
   });
 
   final String id;
+  final AttachmentKind kind;
   final AttachmentStatus status;
   final ProcessedImage? image;
+
+  bool get isGif => kind == AttachmentKind.gif;
 
   /// 0..1 while [AttachmentStatus.uploading].
   final double progress;
@@ -68,6 +77,7 @@ class Attachment {
     String? rejectionReason,
   }) => Attachment(
     id: id,
+    kind: kind,
     status: status ?? this.status,
     image: image ?? this.image,
     progress: progress ?? this.progress,
@@ -79,9 +89,17 @@ class Attachment {
 
 @immutable
 class AttachmentsState {
-  const AttachmentsState({this.items = const [], this.pickFailed = false});
+  const AttachmentsState({
+    this.items = const [],
+    this.pickFailed = false,
+    this.refusal,
+  });
 
   final List<Attachment> items;
+
+  /// Why the last GIF was refused before any upload ("GIFs can be up to
+  /// 2 MB."); the screen tells the user once ([AttachmentsCubit.refusalShown]).
+  final String? refusal;
 
   /// The picker or its permission failed; the screen tells the user once
   /// ([AttachmentsCubit.pickFailureShown]).
@@ -89,7 +107,9 @@ class AttachmentsState {
 
   bool get isEmpty => items.isEmpty;
   int get count => items.length;
-  bool get isFull => items.length >= kMaxPostImages;
+  bool get hasGif => items.any((a) => a.isGif);
+  int get photoCount => items.where((a) => !a.isGif).length;
+  bool get isFull => photoCount >= kMaxPostImages;
 
   /// True while any image is being processed or uploaded (Post waits).
   bool get isBusy => items.any(
@@ -134,22 +154,28 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     required ImagePickerService picker,
     required ImageProcessor processor,
     required MediaUploader uploader,
+    GifSource? gifSource,
+    GifPreparer? gifPreparer,
     Uuid? uuid,
   }) : _picker = picker,
        _processor = processor,
        _uploader = uploader,
+       _gifSource = gifSource ?? DeviceGifSource(),
+       _gifPreparer = gifPreparer ?? const IsolateGifPreparer(),
        _uuid = uuid ?? const Uuid(),
        super(const AttachmentsState());
 
   final ImagePickerService _picker;
   final ImageProcessor _processor;
   final MediaUploader _uploader;
+  final GifSource _gifSource;
+  final GifPreparer _gifPreparer;
   final Uuid _uuid;
 
   /// Opens the picker for the remaining slots and processes each choice.
   Future<void> pick() async {
-    if (_picking) return;
-    final room = kMaxPostImages - state.count;
+    if (_picking || state.hasGif) return;
+    final room = kMaxPostImages - state.photoCount;
     if (room <= 0) return;
     _picking = true;
     try {
@@ -174,6 +200,53 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// cannot both claim the same free slots.
   bool _picking = false;
 
+  /// Opens the picker for one GIF, checks it on the device (size, edge,
+  /// frames: refused with a message, never re-encoded) and attaches it. Does
+  /// nothing while anything is attached (the toolbar already says why).
+  Future<void> pickGif() async {
+    if (_picking || !state.isEmpty) return;
+    _picking = true;
+    try {
+      final Uint8List? bytes;
+      try {
+        bytes = await _gifSource.pick();
+      } catch (_) {
+        if (!isClosed) emit(const AttachmentsState(pickFailed: true));
+        return;
+      }
+      if (isClosed || bytes == null) return;
+      final id = _uuid.v4();
+      emit(
+        AttachmentsState(
+          items: [Attachment(id: id, kind: AttachmentKind.gif)],
+        ),
+      );
+      try {
+        final gif = await _gifPreparer.prepare(bytes);
+        _update(
+          id,
+          (a) => a.copyWith(status: AttachmentStatus.ready, image: gif),
+        );
+      } on GifRefusedException catch (refused) {
+        // Nothing is kept: the user picks another file.
+        if (!isClosed) emit(AttachmentsState(refusal: refused.message));
+      } catch (_) {
+        if (!isClosed) {
+          emit(AttachmentsState(refusal: GifRefusedException.notGif.message));
+        }
+      }
+    } finally {
+      _picking = false;
+    }
+  }
+
+  /// The screen showed the GIF refusal.
+  void refusalShown() {
+    if (state.refusal != null && !isClosed) {
+      emit(AttachmentsState(items: state.items));
+    }
+  }
+
   /// The screen showed the picker failure.
   void pickFailureShown() {
     if (state.pickFailed && !isClosed) {
@@ -183,7 +256,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// Adds already-read image bytes (the picker result; also used by tests).
   Future<void> addImages(List<Uint8List> files) async {
-    final room = kMaxPostImages - state.count;
+    final room = kMaxPostImages - state.photoCount;
     final accepted = files.take(room).toList();
     final ids = [for (final _ in accepted) _uuid.v4()];
     emit(
@@ -329,9 +402,12 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       }
     }
     if (rejection != null) {
+      final gif = state.hasGif;
       throw ValidationException(
         rejection.isEmpty
-            ? "One of your photos can't be used. Remove it and try again."
+            ? (gif
+                  ? "This GIF can't be used. Remove it and try again."
+                  : "One of your photos can't be used. Remove it and try again.")
             : rejection,
         field: 'media',
       );

@@ -60,11 +60,13 @@ void main() {
       expect(r.schedule, ComposerBlock.none);
     });
 
-    test('a schedule disables the poll only', () {
+    test('a schedule disables the poll and the GIF, not photos', () {
       final r = _rules(scheduled: true);
       expect(r.poll, ComposerBlock.scheduled);
       expect(r.poll.pollTooltip, "Polls can't be scheduled");
-      expect(r.gif, ComposerBlock.none);
+      // SchedulePost refuses GIF media (VALIDATION media_ids, ADR-0029 D10).
+      expect(r.gif, ComposerBlock.scheduled);
+      expect(r.gif.gifTooltip, "GIFs can't be scheduled");
       expect(r.photo, ComposerBlock.none);
     });
 
@@ -76,11 +78,22 @@ void main() {
       expect(r.schedule.scheduleTooltip, "Polls can't be scheduled");
     });
 
-    test('a GIF disables photos and the poll', () {
+    test('a GIF disables photos, the poll and Schedule', () {
       final r = _rules(hasGif: true);
       expect(r.photo, ComposerBlock.hasGif);
       expect(r.poll, ComposerBlock.hasGif);
-      expect(r.schedule, ComposerBlock.none);
+      expect(r.gif, ComposerBlock.hasGif);
+      expect(r.gif.gifTooltip, 'One GIF per post');
+      expect(r.schedule, ComposerBlock.hasGif);
+      expect(r.schedule.scheduleTooltip, "GIFs can't be scheduled");
+    });
+
+    test('a poll still wins the Schedule reason over a GIF', () {
+      // Never both in practice; the order is fixed so a stale input is stable.
+      expect(
+        _rules(hasPoll: true, hasGif: true).schedule,
+        ComposerBlock.hasPoll,
+      );
     });
 
     test('photos disable the GIF and the poll', () {
