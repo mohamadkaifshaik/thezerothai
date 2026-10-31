@@ -1,6 +1,6 @@
 # Test report: W5 Part A client (Lists and Home tabs) — W5-16
 
-Date: 2026-10-31 · Tester: `tester` · Branch `test/ui-w5-16-lists-client-tests` (from `origin/main` 99d5b9e0, which has W5-10 to W5-14) ·
+Date: 2026-10-31 (PR #551) · Tester: `tester` · Branch `test/ui-w5-16-lists-client-tests` (from `origin/main` 99d5b9e0, which has W5-10 to W5-14) ·
 Plan: `docs/plans/ui-w5-lists-communities.md` W5-16 · ADR-0030.
 
 Scope: Lists screen and editor (W5-11), list detail, list timeline and members (W5-12), Add to Lists and `/u/:id/lists` (W5-13), Home tab bar

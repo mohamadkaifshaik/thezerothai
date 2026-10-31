@@ -754,7 +754,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-16 — Part A client tests  [owner: tester] [size: S] [depends: W5-11 to W5-14]  Status: Open
+### W5-16 — Part A client tests  [owner: tester] [size: S] [depends: W5-11 to W5-14]  Status: In review (PR #551)
 - **Description.** The responsive matrix and flows: Lists → create → detail → pin → Home tab → reorder → unpin; flag combinations (`lists` × `ui_shell`); sign-out clears state; text scale 2.0 overflow checks.
 - **Acceptance criteria.** Every new widget is covered at 360 / 600 / 1200, light and dark; no overflow at 2.0.
 - **Test notes.** —
