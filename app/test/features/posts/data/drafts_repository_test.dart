@@ -226,6 +226,105 @@ void main() {
     });
   });
 
+  // W6-45 (L-5): drafts expire 30 days after the user's last edit. The clock
+  // is injected and built from the real one, never a fixed date.
+  group('expiry (30 days after the last user edit)', () {
+    late DateTime t;
+    late DraftsRepository timed;
+
+    DateTime ago(Duration d) => t.subtract(d);
+
+    setUp(() {
+      t = kBase;
+      timed = DraftsRepository(db, now: () => t);
+    });
+
+    Future<List<String>> ids(String uid) async => [
+      for (final d in await timed.watch(uid).first) d.id,
+    ];
+
+    test('29d23h is kept, 30d and more is removed', () async {
+      t = ago(const Duration(days: 29, hours: 23));
+      await timed.upsert(draft('keep'));
+      t = ago(const Duration(days: 30));
+      await timed.upsert(draft('edge'));
+      t = ago(const Duration(days: 31));
+      await timed.upsert(draft('old'));
+      t = kBase;
+      // Never shown or opened, even before the purge ran.
+      expect(await ids('u1'), ['keep']);
+      expect(await timed.read('u1', 'edge'), isNull);
+      expect(await timed.read('u1', 'old'), isNull);
+      expect(await timed.read('u1', 'keep'), isNotNull);
+      // The purge removes the rows themselves.
+      expect(await timed.purgeExpired('u1'), 2);
+      expect(await db.select(db.composerDraftEntries).get(), hasLength(1));
+    });
+
+    test('an autosave without changes does not extend the life', () async {
+      t = ago(const Duration(days: 29));
+      final d = draft('a');
+      await timed.upsert(d);
+      t = kBase;
+      await timed.upsert(d);
+      final fast = DraftsRepository(
+        db,
+        autosaveDelay: const Duration(milliseconds: 5),
+        now: () => t,
+      );
+      fast.autosave(d);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final row = (await timed.read('u1', 'a'))!;
+      expect(
+        row.updatedAt.isAtSameMomentAs(ago(const Duration(days: 29))),
+        isTrue,
+      );
+      // 2 days later it is past 30 days from the one real edit.
+      t = kBase.add(const Duration(days: 2));
+      expect(await timed.read('u1', 'a'), isNull);
+    });
+
+    test('an edit extends the life', () async {
+      t = ago(const Duration(days: 29));
+      await timed.upsert(draft('a'));
+      t = kBase;
+      await timed.upsert(draft('a', text: 'hello, edited'));
+      t = kBase.add(const Duration(days: 29));
+      expect(await ids('u1'), ['a']);
+      // A poll, audience or label change counts as an edit too.
+      t = kBase;
+      await timed.upsert(
+        draft(
+          'a',
+          text: 'hello, edited',
+          poll: const DraftPoll(choices: ['x', 'y'], durationMinutes: 60),
+        ),
+      );
+      final row = (await timed.read('u1', 'a'))!;
+      expect(row.updatedAt.isAtSameMomentAs(kBase), isTrue);
+    });
+
+    test('purges only the given uid', () async {
+      t = ago(const Duration(days: 40));
+      await timed.upsert(draft('mine'));
+      await timed.upsert(draft('theirs', uid: 'u2'));
+      t = kBase;
+      expect(await timed.purgeExpired('u1'), 1);
+      expect(await db.select(db.composerDraftEntries).get(), hasLength(1));
+      // u2's row is still stored (only hidden by the read filter).
+      expect((await db.select(db.composerDraftEntries).get()).single.uid, 'u2');
+    });
+
+    test('there is no flag in the store: the purge always runs', () async {
+      // `drafts` off hides the UI and autosave but keeps rows usable (W6-31);
+      // the expiry is a retention rule and applies regardless.
+      t = ago(const Duration(days: 45));
+      await timed.upsert(draft('a'));
+      t = kBase;
+      expect(await timed.purgeExpired('u1'), 1);
+    });
+  });
+
   test('newId is 16 hex characters and varies', () {
     final a = DraftsRepository.newId();
     expect(a, matches(RegExp(r'^[0-9a-f]{16}$')));

@@ -213,6 +213,11 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 
+	// ADR-0030 D8 (W5-15): the `lists` section carries the account's OWN list with its member ids; a list that another user
+	// owns and A is only a member of belongs to its owner and is absent. Fixed ids keep the golden stable.
+	e.seedList(t, "0000000000000000604", a.uid, []string{f.uid, g.uid})
+	e.seedList(t, "0000000000000000605", f.uid, []string{a.uid, g.uid})
+
 	// ADR-0027 F5 (W7-6): an accepted conversation with f and a request from g in the `messages` section. A's own messages
 	// are exported in full; f's and g's only as a time and "received"; neither uid appears.
 	e.seedConversation(t, a.uid, f.uid, "ACCEPTED", "", "", dmMsg{a.uid, "hello f, from A"}, dmMsg{f.uid, "SECRET-RECEIVED-REPLY from f"}, dmMsg{a.uid, "second message from A"})

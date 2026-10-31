@@ -47,6 +47,8 @@ type Deps struct {
 	Directory identity.Directory
 	// Messages resolves a MESSAGE target (ADR-0027 D12, W7-12); nil makes a message report an internal error.
 	Messages MessageLookup
+	// Lists resolves a LIST target (plan W5-44); nil makes a list report an internal error.
+	Lists ListLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
@@ -99,9 +101,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		return ReportResult{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
 	switch in.TargetType {
-	case TargetPost, TargetAccount, TargetMessage:
+	case TargetPost, TargetAccount, TargetMessage, TargetList:
 	default:
-		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT or MESSAGE")
+		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT, MESSAGE or LIST")
 	}
 	if in.Reason == "" {
 		return ReportResult{}, apierr.Validation("reason", "choose a reason")
@@ -121,6 +123,10 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	case TargetMessage:
 		if _, _, ok := ParseMessageTarget(in.TargetID); !ok {
 			return ReportResult{}, apierr.Validation("target_id", "target_id must be a conversation id and a message id joined by a colon")
+		}
+	case TargetList:
+		if !postIDPattern.MatchString(in.TargetID) { // a list id is a Snowflake, the same 19 digits as a post id
+			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit list id")
 		}
 	}
 	note, err := normalizeNote(in.Note)
@@ -205,6 +211,16 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// the conversation. The text is private content (ADR-0016 note 2026-10-28); it is never logged.
 		rep.TargetOwnerID = m.SenderUID
 		rep.Evidence = &Evidence{Text: m.Text, AuthorHandle: m.SenderHandle, PostCreatedAt: m.CreatedAt}
+	case TargetList:
+		l, err := s.reportedList(ctx, uid, in.TargetID)
+		if err != nil {
+			return ReportResult{}, err
+		}
+		// The list as the reporter saw it, so the owner cannot rename or empty it before triage. Name and description are public
+		// text once the list is public (never a private list: the lookup refuses those), so they live in the report document
+		// like an ACCOUNT report's profile and follow its retention. No member id is copied.
+		rep.TargetOwnerID = l.OwnerUID
+		rep.Evidence = &Evidence{AuthorHandle: l.OwnerHandle, ListName: l.Name, ListDescription: l.Description, PostCreatedAt: l.CreatedAt}
 	}
 
 	limit := s.d.ReportsPerDay
@@ -330,4 +346,23 @@ func embeddedPollChoices(p *posts.EmbeddedPoll) []string {
 		return nil
 	}
 	return append([]string(nil), p.Options...)
+}
+
+// reportedList asks the ListLookup for the list of a LIST target (already shape-checked). Every "unreportable" cause is the
+// one NOT_FOUND built here (a private list the caller cannot see answers like a missing one); the caller's own list is the
+// VALIDATION target_id. Anything else is an internal error whose ids are redacted.
+func (s *service) reportedList(ctx context.Context, uid, listID string) (ReportedList, error) {
+	if s.d.Lists == nil {
+		return ReportedList{}, errors.New("moderation: list reports are not wired")
+	}
+	l, err := s.d.Lists.ReportableList(ctx, uid, listID)
+	switch {
+	case errors.Is(err, ErrOwnList):
+		return ReportedList{}, apierr.Validation("target_id", "you cannot report your own list")
+	case errors.Is(err, ErrListNotFound):
+		return ReportedList{}, listNotFound()
+	case err != nil:
+		return ReportedList{}, logger.RedactErr(fmt.Errorf("moderation: load list: %w", err), listID, uid)
+	}
+	return l, nil
 }

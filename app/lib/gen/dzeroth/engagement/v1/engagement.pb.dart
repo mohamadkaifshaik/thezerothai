@@ -1378,11 +1378,13 @@ class VotePollRequest extends $pb.GeneratedMessage {
     $core.String? idempotencyKey,
     $core.String? postId,
     $core.int? choiceIndex,
+    $core.int? expectedChoice,
   }) {
     final result = VotePollRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
     if (postId != null) result.postId = postId;
     if (choiceIndex != null) result.choiceIndex = choiceIndex;
+    if (expectedChoice != null) result.expectedChoice = expectedChoice;
     return result;
   }
 
@@ -1403,6 +1405,7 @@ class VotePollRequest extends $pb.GeneratedMessage {
     ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
     ..aOS(2, _omitFieldNames ? '' : 'postId')
     ..aI(3, _omitFieldNames ? '' : 'choiceIndex')
+    ..aI(4, _omitFieldNames ? '' : 'expectedChoice')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1427,7 +1430,8 @@ class VotePollRequest extends $pb.GeneratedMessage {
           VotePollRequest.$_createMessage);
   static VotePollRequest? _defaultInstance;
 
-  /// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per (post, choice) intent.
+  /// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per tap (ADR-0029 Amendment 1 A2.2): reuse it
+  /// only to retry that tap, and use a new key for every new tap.
   @$pb.TagNumber(1)
   $core.String get idempotencyKey => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -1456,6 +1460,19 @@ class VotePollRequest extends $pb.GeneratedMessage {
   $core.bool hasChoiceIndex() => $_has(2);
   @$pb.TagNumber(3)
   void clearChoiceIndex() => $_clearField(3);
+
+  /// Compare-and-set for a vote change (ADR-0029 Amendment 1 A2.2). 0 = "I hold no vote, as far as I know"; 1-4 = the
+  /// caller's current vote as choice index + 1, i.e. the viewer_poll_choice the client is rendering. A change to another
+  /// choice applies only when this equals the stored vote; otherwise ALREADY_VOTED. Older clients send 0 and keep the
+  /// behaviour before the amendment.
+  @$pb.TagNumber(4)
+  $core.int get expectedChoice => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set expectedChoice($core.int value) => $_setSignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasExpectedChoice() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearExpectedChoice() => $_clearField(4);
 }
 
 class VotePollResponse extends $pb.GeneratedMessage {
@@ -1690,6 +1707,21 @@ class EngagementServiceApi {
   ///    => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
   ///    choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
   ///    userLikes.
+  /// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives with W6-36): a vote is changeable until
+  /// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
+  /// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
+  /// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
+  /// block, still answers the byte-identical NOT_FOUND of step 4; a mute is not a block. Steps 6 and 7 become, with the
+  /// stored vote cs and change count n, the requested choice_index c and e = expected_choice:
+  ///    no vote doc => a new vote (step 6), any e;
+  ///    cs == c => replay, the current view, 0 writes, any e;
+  ///    cs != c and e == cs+1 and n < POLL_VOTE_CHANGES_MAX => a change, 4 writes;
+  ///    cs != c and e == cs+1 and n >= POLL_VOTE_CHANGES_MAX => FAILED_PRECONDITION + LIMIT_REACHED with
+  ///      metadata["limit"] = "poll_vote_changes" and metadata["choice"] = cs (0-based), 0 writes;
+  ///    cs != c and e != cs+1 (0 from an older client, or a stale value) => FAILED_PRECONDITION + ALREADY_VOTED with
+  ///      metadata["choice"] = cs, 0 writes.
+  /// After closes_at every call answers POLL_CLOSED, changes and replays included. Until W6-36 lands the server ignores
+  /// expected_choice and keeps a vote final, as steps 6 and 7 below say.
   /// 8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
   ///    the same idempotency_key.
   /// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated

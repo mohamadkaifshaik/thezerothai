@@ -46,7 +46,8 @@ type access struct {
 	ownerSnap  graph.Snapshot
 }
 
-// loadList reads the list through the instance cache (60 s staleness bound, ADR-0030 D11); a miss is one point read. The cache
+// loadList reads the list through the instance cache (60 s staleness bound, ADR-0030 D11); a miss is one point read, and a
+// missing document is remembered for 60 s too (negative cache, W5-45 / L-1: 0 reads on a repeat). The cache
 // holds private and hidden lists too (Create and the member writes put them), so a hit says nothing about who may see the
 // list: resolve decides. ErrNotFound for a malformed id and for a missing doc.
 func (s *service) loadList(ctx context.Context, id string) (List, error) {
@@ -57,9 +58,16 @@ func (s *service) loadList(ctx context.Context, id string) (List, error) {
 		logger.SetRequestField(ctx, fieldCacheHit, true)
 		return l, nil
 	}
+	if s.cache.isMissing(id) {
+		logger.SetRequestField(ctx, fieldCacheHit, true)
+		return List{}, ErrNotFound
+	}
 	logger.SetRequestField(ctx, fieldCacheHit, false)
 	l, err := s.d.Repo.Get(ctx, id)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.cache.putMissing(id)
+		}
 		return List{}, err
 	}
 	s.cache.put(l)

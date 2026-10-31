@@ -1089,8 +1089,15 @@ type PostView struct {
 	// userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
 	// 0 on a withheld row.
 	ViewerPollChoice int32 `protobuf:"varint,8,opt,name=viewer_poll_choice,json=viewerPollChoice,proto3" json:"viewer_poll_choice,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author
+	// (ADR-0029 Amendment 1 A1.5): VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
+	// disabled ("You blocked @handle. Unblock to vote."). Negative polarity on purpose: false on every other row, on every
+	// producer that does not set it and on older revisions, which is the behaviour before the amendment; the server stays
+	// the authority. Set only where a post by a blocked author is shown directly (GetPost, GetThread, GetUserTimeline of
+	// that author); never on a REPOST row (an embedded poll has no buttons). False on a withheld row.
+	ViewerPollVoteBlocked bool `protobuf:"varint,9,opt,name=viewer_poll_vote_blocked,json=viewerPollVoteBlocked,proto3" json:"viewer_poll_vote_blocked,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *PostView) Reset() {
@@ -1177,6 +1184,13 @@ func (x *PostView) GetViewerPollChoice() int32 {
 		return x.ViewerPollChoice
 	}
 	return 0
+}
+
+func (x *PostView) GetViewerPollVoteBlocked() bool {
+	if x != nil {
+		return x.ViewerPollVoteBlocked
+	}
+	return false
 }
 
 type CreatePostRequest struct {
@@ -2226,7 +2240,7 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x10paid_partnership\x18\x13 \x01(\bR\x0fpaidPartnership\x12 \n" +
 	"\fmade_with_ai\x18\x14 \x01(\bR\n" +
 	"madeWithAi\x12*\n" +
-	"\x04poll\x18\x15 \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\"\xb5\x03\n" +
+	"\x04poll\x18\x15 \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\"\xee\x03\n" +
 	"\bPostView\x12*\n" +
 	"\x04post\x18\x01 \x01(\v2\x16.dzeroth.posts.v1.PostR\x04post\x12&\n" +
 	"\x0fliked_by_viewer\x18\x02 \x01(\bR\rlikedByViewer\x12,\n" +
@@ -2235,7 +2249,8 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x12embed_viewer_state\x18\x05 \x01(\x0e2\".dzeroth.posts.v1.EmbedViewerStateR\x10embedViewerState\x120\n" +
 	"\x14bookmarked_by_viewer\x18\x06 \x01(\bR\x12bookmarkedByViewer\x12\x1a\n" +
 	"\bwithheld\x18\a \x01(\bR\bwithheld\x12,\n" +
-	"\x12viewer_poll_choice\x18\b \x01(\x05R\x10viewerPollChoice\"\xa7\x03\n" +
+	"\x12viewer_poll_choice\x18\b \x01(\x05R\x10viewerPollChoice\x127\n" +
+	"\x18viewer_poll_vote_blocked\x18\t \x01(\bR\x15viewerPollVoteBlocked\"\xa7\x03\n" +
 	"\x11CreatePostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +

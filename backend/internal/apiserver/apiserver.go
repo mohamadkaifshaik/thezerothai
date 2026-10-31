@@ -389,6 +389,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// because the timeline's SetHomeTabs reads lists through lists.Reader (the service) and writes tabs through the adapter
 	// (timeline.HomeTabsStore); the same adapter is lists.Pins, so DeleteList unpins and UpdateList retitles. Routes are mounted below.
 	listsRepo := lists.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
+	listsRepo.SetTxProfiles(identityRepo) // W5-45 / L-4: the target's status is read fresh inside the AddListMember transaction
 	homeTabs := identity.NewHomeTabs(identityRepo, idempotency.New(fsClient), identityCache)
 	listsSvc := lists.New(lists.Deps{
 		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode, Graph: graphSvc, CursorKey: cfg.CursorHMACKey,
@@ -487,8 +488,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
+	// Plan W5-44: a LIST report reaches the list only through lists.ListReporter (the lists service, built above).
+	listReporter, ok := listsSvc.(lists.ListReporter)
+	if !ok {
+		return nil, nil, errors.New("lists service does not implement ListReporter")
+	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter},
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,

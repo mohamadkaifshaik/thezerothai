@@ -14,7 +14,7 @@ import (
 )
 
 // Frame-sampled GIF screening (ADR-0029 D11, F11 a, plan W6-10). Cloud Vision looks at the first frame of an animated
-// GIF only, so FinalizeUpload builds a contact sheet of up to four sampled frames and sends it by bytes.
+// GIF only, so FinalizeUpload builds a contact sheet of up to four sampled frames (t = 0, T/3, 2T/3 and always the last frame) and sends it by bytes.
 //
 // The code here is pure (bytes in, JPEG out, no I/O, no globals) so it can move to a separate job unchanged. It has
 // two stages. scanGIF walks the container without decoding a pixel and refuses anything above the limits. sampleGIF
@@ -176,9 +176,11 @@ func skipSubBlocks(data []byte, pos int) (int, error) {
 	}
 }
 
-// sampleIndices picks the frames to screen: the frame visible at t = 0, T/4, T/2 and 3T/4 of the display time T (the
-// sum of the delays, a delay under 2 cs counted as 10 cs = 100 ms, as browsers and the Flutter codec play it), sorted
-// and without repeats. A GIF with up to four frames samples each frame once.
+// sampleIndices picks the frames to screen: the frame visible at t = 0, T/3 and 2T/3 of the display time T (the sum of
+// the delays, a delay under 2 cs counted as 10 cs = 100 ms, as browsers and the Flutter codec play it) and ALWAYS the
+// last frame (W6-28, security M-2): a GIF with no loop block or a finite loop count plays once and then rests on its
+// last frame, so that frame is on screen indefinitely however short its own delay. Sorted, without repeats, so at most
+// gifSamples (4) indices and the 2 x 2 sheet is unchanged. A GIF with up to four frames samples each frame once.
 func sampleIndices(frames []gifFrame) []int {
 	n := len(frames)
 	if n <= gifSamples {
@@ -200,8 +202,8 @@ func sampleIndices(frames []gifFrame) []int {
 	}
 	var out []int
 	idx, start := 0, int64(0)
-	for k := int64(0); k < gifSamples; k++ {
-		t := total * k / gifSamples
+	for k := int64(0); k < gifSamples-1; k++ {
+		t := total * k / (gifSamples - 1)
 		for idx < n-1 && start+delay(frames[idx]) <= t {
 			start += delay(frames[idx])
 			idx++
@@ -209,6 +211,9 @@ func sampleIndices(frames []gifFrame) []int {
 		if len(out) == 0 || out[len(out)-1] != idx {
 			out = append(out, idx)
 		}
+	}
+	if out[len(out)-1] != n-1 {
+		out = append(out, n-1)
 	}
 	return out
 }

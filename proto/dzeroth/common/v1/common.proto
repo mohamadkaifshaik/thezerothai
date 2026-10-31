@@ -125,7 +125,9 @@ enum ErrorReason {
   ERROR_REASON_EMAIL_NOT_VERIFIED = 7;
   // ALREADY_EXISTS: handle is taken.
   ERROR_REASON_HANDLE_TAKEN = 8;
-  // FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts).
+  // FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts). Also VotePoll when the caller has
+  // already changed this vote POLL_VOTE_CHANGES_MAX times (ADR-0029 Amendment 1 A2): metadata["limit"] =
+  // "poll_vote_changes" and metadata["choice"] = the stored choice as a 0-based index.
   ERROR_REASON_LIMIT_REACHED = 9;
   // FAILED_PRECONDITION: referenced media is not READY or not owned by the caller.
   ERROR_REASON_MEDIA_NOT_READY = 10;
@@ -134,6 +136,8 @@ enum ErrorReason {
   // PERMISSION_DENIED: the account is suspended or pending deletion.
   ERROR_REASON_ACCOUNT_RESTRICTED = 12;
   // FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
+  // Also EngagementService.VotePoll when the caller blocks the poll's author (ADR-0029 Amendment 1 A1): refused for a
+  // cast, a change and a replay; the vote already cast is kept and counted.
   ERROR_REASON_TARGET_BLOCKED = 13;
   // FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
   // feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
@@ -160,8 +164,10 @@ enum ErrorReason {
   // FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
   // and show its final results; do not retry.
   ERROR_REASON_POLL_CLOSED = 19;
-  // FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+  // FAILED_PRECONDITION: the caller already voted in this poll with another choice and the request did not name that vote
+  // in expected_choice (ADR-0029 D6, F4; Amendment 1 A2.2). Since Amendment 1 a vote is changeable until the poll closes,
+  // so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
   // metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
-  // that choice: a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  // that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
   ERROR_REASON_ALREADY_VOTED = 20;
 }

@@ -167,6 +167,41 @@ void main() {
       expect(find.text('Section 7').hitTestable(), findsOneWidget);
     });
 
+    testWidgets('a fixed trailing widget stays at the right edge', (
+      tester,
+    ) async {
+      await pumpThemed(
+        tester,
+        AppTabBar(
+          tabs: [for (var i = 0; i < 8; i++) AppTab(label: 'Section $i')],
+          selectedIndex: 0,
+          onChanged: (_) {},
+          fixedTrailing: const SizedBox(
+            key: ValueKey('fixed'),
+            width: 48,
+            height: 48,
+          ),
+        ),
+        size: const Size(320, 800),
+      );
+
+      expectNoOverflow(tester);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('fixed'))).right,
+        closeTo(320, 1),
+      );
+      // The tabs still scroll behind it.
+      await tester.dragUntilVisible(
+        find.text('Section 7'),
+        find.byType(Scrollable),
+        const Offset(-200, 0),
+      );
+      expect(
+        tester.getRect(find.byKey(const ValueKey('fixed'))).right,
+        closeTo(320, 1),
+      );
+    });
+
     testWidgets('shows the trailing widget after the last tab', (tester) async {
       await pumpThemed(
         tester,

@@ -163,7 +163,7 @@ func TestCreateList_Integration_Budget(t *testing.T) {
 	}
 }
 
-// A replay returns the stored header with 1 read (2 with the interceptor) and 0 writes, and creates no second list. The same
+// A replay returns the list's current header with 2 reads (the idempotency record, then the list; 3 with the interceptor, W5-45 / L-3) and 0 writes, and creates no second list. The same
 // key with another body is IDEMPOTENCY_KEY_REUSED with 0 writes.
 func TestCreateList_Integration_Replay(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
@@ -172,15 +172,15 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var replay View
-	c := measured(t, "CreateList replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	c := measured(t, "CreateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
 		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		replay = v
 	})
-	if c.Writes() != 0 || c.Reads() != 1 {
-		t.Errorf("replay reads/writes = %d/%d, want 1/0", c.Reads(), c.Writes())
+	if c.Writes() != 0 || c.Reads() != 2 {
+		t.Errorf("replay reads/writes = %d/%d, want 2/0", c.Reads(), c.Writes())
 	}
 	if replay.Header != first.Header {
 		t.Errorf("replay header = %+v, want %+v", replay.Header, first.Header)
@@ -202,7 +202,12 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 }
 
-// Two requests with the same key racing: one list, both succeed with the same id, one quota unit.
+// Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
+// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list or a second
+// quota charge. W5-15: this used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
+// takes 2 to 3.4 s on the emulator (the SDK's own backoff on the losers), so a slower runner pushed a loser over the
+// timeout and failed the test with a correct product answer. Now: at least one succeeds, every success is the same list,
+// a busy racer's retry with the same key replays that list, and there is exactly one list and one quota charge.
 func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	const n = 4
@@ -217,12 +222,29 @@ func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	winner := ""
 	for i := range n {
 		if errs[i] != nil {
-			t.Fatalf("request %d: %v", i, errs[i])
+			wantAPI(t, errs[i], connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil) // a lost race: retryable, nothing written
+			continue
 		}
-		if views[i].Header.ID != views[0].Header.ID {
-			t.Errorf("request %d got list %s, want %s", i, views[i].Header.ID, views[0].Header.ID)
+		if winner == "" {
+			winner = views[i].Header.ID
+		}
+		if views[i].Header.ID != winner {
+			t.Errorf("request %d got list %s, want %s", i, views[i].Header.ID, winner)
+		}
+	}
+	if winner == "" {
+		t.Fatalf("no racer succeeded: %v", errs)
+	}
+	for i := range n {
+		if errs[i] == nil {
+			continue
+		}
+		again, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(7), Name: "Racing"})
+		if err != nil || again.Header.ID != winner {
+			t.Errorf("retry of busy request %d: id=%s err=%v, want the replayed list %s", i, again.Header.ID, err, winner)
 		}
 	}
 	docs, err := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll()
@@ -333,14 +355,14 @@ func TestUpdateList_Integration(t *testing.T) {
 		t.Errorf("unchanged update wrote %d, want 1 (the idempotency document)", c.Writes())
 	}
 
-	// Replay: stored header, 1 read, 0 writes, even though the list changed since.
+	// Replay: the list as it is now (W5-45 / L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(3), ListID: id, Name: ptr("Third")}); err != nil {
 		t.Fatal(err)
 	}
-	c = measured(t, "UpdateList replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	c = measured(t, "UpdateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
 		rv, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
-		if err != nil || rv.Header.Name != "New name" {
-			t.Errorf("replay = %+v, %v, want the stored outcome", rv.Header, err)
+		if err != nil || rv.Header.Name != "Third" {
+			t.Errorf("replay = %+v, %v, want the current header", rv.Header, err)
 		}
 	})
 	if c.Writes() != 0 {

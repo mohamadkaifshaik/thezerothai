@@ -470,7 +470,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		case derr != nil || string(a.MD5) != string(want):
 			return reasonInvalid, gens, nil
 		}
-		head, err := s.Objects.UploadHead(ctx, o.object, 512, a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (free, same call)
+		head, err := s.Objects.UploadHead(ctx, o.object, headBytesFor(o.contentType), a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (same one call; a WebP reads 32 KiB, W6-26)
 		switch {
 		case errors.Is(err, objstore.ErrGenerationChanged):
 			return reasonInvalid, gens, nil // replaced between the attributes and the sniff
@@ -480,6 +480,10 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 			return "", gens, fmt.Errorf("media: object head: %w", err)
 		}
 		if sniffImage(head) != o.contentType {
+			return reasonInvalid, gens, nil
+		}
+		if o.contentType == ContentTypeWebP && !webpIsStill(head) {
+			// Animated, or not provably a still (W6-26, security H-2): refused here, before any Vision unit is reserved.
 			return reasonInvalid, gens, nil
 		}
 		// This generation is what the size, type and MD5 above describe; Vision, the GIF read and Publish are tied to it.

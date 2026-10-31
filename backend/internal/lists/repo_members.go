@@ -2,11 +2,13 @@ package lists
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -41,10 +43,11 @@ func (r *FirestoreRepo) writeMembers(b store.Batch, id string, d *listDoc, membe
 }
 
 // AddMember implements Repo: one transaction (ADR-0030 D4, D7). Reads, fresh and in this order: idempotency/{hash} (a replay
-// returns here: 1 read), the list (2; a foreign or missing list is ErrNotFound before anything about the target is said),
+// returns here after a 2nd read of the list for its current header, W5-45 / L-3), the list (2; a foreign or missing list is ErrNotFound before anything about the target is said),
 // then the service's Refusal, then quotas/{uid} (3) only when a member is really added. Already a member: the idempotency
 // document only (1 write), no quota. The cap is checked on the list after the lazy drop of members who block the owner (F4), so
-// the drop can make room; at the cap nothing is written. Otherwise 3 writes: the list (memberIds, updatedAt), the quota record,
+// the drop can make room; at the cap nothing is written. A real add (not yet a member, not yourself) first reads users/{target}
+// fresh in the transaction (+1 read, W5-45 / L-4; missing or not ACTIVE = ErrNotFound). Otherwise 3 writes: the list (memberIds, updatedAt), the quota record,
 // the idempotency document.
 func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error) {
 	if err := r.ready(); err != nil {
@@ -56,7 +59,11 @@ func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (Membe
 		rec, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
 		if found || err != nil {
 			if err == nil {
-				res = MemberResult{Outcome: Replayed, Header: resultHeader(rec.Result)}
+				h, herr := r.replayHeader(ctx, tx, p.UID, rec)
+				if herr != nil {
+					return herr
+				}
+				res = MemberResult{Outcome: Replayed, Header: h}
 			}
 			return err
 		}
@@ -76,6 +83,9 @@ func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (Membe
 			}
 			res = MemberResult{Outcome: Unchanged, Header: l.header(), List: &l}
 			return nil
+		}
+		if err := r.targetActiveInTx(ctx, tx, p); err != nil {
+			return err
 		}
 		kept := dropBlocking(d.MemberIDs, p.BlockedBy, "")
 		if len(kept) >= p.MaxMembers {
@@ -102,6 +112,30 @@ func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (Membe
 	return res, err
 }
 
+// targetActiveInTx is the fresh half of the target check (W5-45 / L-4): users/{target} read through tx (1 read, never the 60 s
+// directory cache), so an account that entered DELETING (or was suspended) a moment ago can not be added after the lists
+// eraser's member phase has run. Missing and not ACTIVE are ErrNotFound, the one answer for every cause (no oracle). Adding
+// yourself is not checked: the caller is ACTIVE (the account-status interceptor). Reads only on a real add.
+func (r *FirestoreRepo) targetActiveInTx(ctx context.Context, tx *firestore.Transaction, p AddMemberParams) error {
+	if p.TargetID == p.UID {
+		return nil
+	}
+	if r.txProfiles == nil {
+		return errors.New("lists: transaction profile reader is not wired")
+	}
+	prof, err := r.txProfiles.ProfileInTx(ctx, tx, p.TargetID)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("lists: target status: %w", err)
+	}
+	if prof.Status != identity.AccountStatusActive {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RemoveMember implements Repo: one transaction. Reads, fresh: idempotency (a replay returns: 1 read), the list (2; a foreign
 // or missing list is ErrNotFound). Not a member: the idempotency document only (1 write), the list untouched. A member:
 // BlockedBy is loaded (cache-first, 1 read cold) and the same write drops members who block the owner (F4): 2 writes (list,
@@ -116,7 +150,11 @@ func (r *FirestoreRepo) RemoveMember(ctx context.Context, p RemoveMemberParams) 
 		rec, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash)
 		if found || err != nil {
 			if err == nil {
-				res = MemberResult{Outcome: Replayed, Header: resultHeader(rec.Result)}
+				h, herr := r.replayHeader(ctx, tx, p.UID, rec)
+				if herr != nil {
+					return herr
+				}
+				res = MemberResult{Outcome: Replayed, Header: h}
 			}
 			return err
 		}
