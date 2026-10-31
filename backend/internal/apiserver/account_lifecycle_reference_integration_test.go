@@ -48,8 +48,8 @@ const (
 	// for the empty page) = 707, + 2 for the P5 engagement section (ADR-0018 D7: the likes and reposts queries, one
 	// read each when empty) = 709, + 1 for the ADR-0021 scheduled section (one read per page of users/{uid}/scheduled
 	// documents, minimum 1 for the empty page) = 710, + 1 for the ADR-0023 bookmarks section (one read per page of
-	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (W3-32: the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (W7-6: the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (W5-5: one read per page of own lists, minimum 1 for the empty page) = 715, + 1 for the ADR-0029 D8 poll_votes section (W6-8: one read per page of the account's votes, minimum 1 for the empty page) = 716 (+ the lease claim and status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1 + 2 + 1 + 1 + 1
+	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (W3-32: the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (W7-6: the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (W5-5: one read per page of own lists, minimum 1 for the empty page) = 715, + 1 for the ADR-0029 D8 poll_votes section (W6-8: one read per page of the account's votes, minimum 1 for the empty page) = 716, + 1 for the poll_votes section current_choices (W6-29: the userLikes read, billed even when the document is missing) = 717 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1 + 2 + 1 + 1 + 1 + 1 /* W6-29: poll_votes current_choices reads userLikes */
 	refExportWrites = 2
 )
 

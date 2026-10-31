@@ -9,6 +9,7 @@ package apiserver //nolint:dupl // mirrors lifecycle_bookmarks.go: the same step
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -30,10 +31,10 @@ func pollVoteEraserStep(e *engagement.PollVoteEraser) identity.StepEraser {
 
 // registerPollVoteLifecycle registers the poll_votes step and export section on l. Call it after registerMessagingLifecycle
 // (Lifecycle always runs the identity step last).
-func registerPollVoteLifecycle(l *identity.Lifecycle, repo *engagement.FirestoreRepo) error {
+func registerPollVoteLifecycle(l *identity.Lifecycle, repo *engagement.FirestoreRepo, voteTTL time.Duration) error {
 	err := l.RegisterEraser(identity.BeforeIdentity, pollVoteEraserStep(engagement.NewPollVoteEraser(repo)))
 	if err == nil {
-		err = l.RegisterExportSection(pollVoteSection{engagement.NewPollVoteExporter(repo)})
+		err = l.RegisterExportSection(pollVoteSection{engagement.NewPollVoteExporter(repo).WithChoices(repo.LoadUserLikes, voteTTL, nil)})
 	}
 	return err
 }
