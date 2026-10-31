@@ -281,11 +281,11 @@ policy.
 budget and stays under `ReadBudgetMaxCallReads` 269):
 | RPC | Reads worst (cold) | Reads typical | Writes | Deletes | Notes |
 |---|---|---|---|---|---|
-| CreateList | 4 (interceptor, idempotency, quotas, `count()`) | 3 | 3 (list, idempotency, quotas) | 1 TTL later | replay 2 / 0 writes; cap or quota 0 writes |
-| UpdateList | 3 (+1 users when pinned, title refresh) | 2 | 2 (1 when unchanged; +1 when pinned and renamed) | 1 TTL | owner only |
+| CreateList | 4 (interceptor, idempotency, quotas, `count()`) | 3 | 3 (list, idempotency, quotas) | 1 TTL later | replay 3 (interceptor, idempotency, the list; was 2 before W5-45) / 0 writes; cap or quota 0 writes |
+| UpdateList | 3 (+1 users when pinned, title refresh) | 2 | 2 (1 when unchanged; +1 when pinned and renamed) | 1 TTL | owner only; replay 3 (+1 list read, W5-45), 0 writes |
 | DeleteList | 3 (+1 users when pinned) | 3 | 1 (+1 when pinned) | 1 (list) + 1 TTL | non-owner or missing: success, 1 write |
-| AddListMember | 6 (interceptor, caller graph, target profile, idempotency, list, quotas; +1 target graph on overflow) | 4 | 3 (list, quotas, idempotency); already a member 1 | 1 TTL | refused 0 writes |
-| RemoveListMember | 3 | 2 | 2; not a member 1 | 1 TTL | no quota |
+| AddListMember | 7 (interceptor, caller graph, target profile, idempotency, list, target `users` fresh in the txn, quotas; +1 target graph on overflow) | 5 | 3 (list, quotas, idempotency); already a member 1 | 1 TTL | refused 0 writes; replay 5 (+1 list read), a real add refused by cap, quota or a non-ACTIVE target has paid the fresh read (W5-45) |
+| RemoveListMember | 3 | 2 | 2; not a member 1 | 1 TTL | no quota; replay 3 (+1 list read, W5-45) |
 | GetList | 5 non-owner (interceptor, list, caller graph, owner profile, owner graph); 2 owner | 0–1 | 0 | 0 | |
 | ListUserLists | 24 another owner (interceptor, caller graph, owner profile, owner graph, ≤ 20 lists); 21 own | 4 | 0 | 0 | `contains` from `memberIds`, 0 reads |
 | ListListMembers, page 20 / 50 | 25 / 55 | 2 + misses | 0 | 0 | sealed 24 h token; `likesResume` over `memberIds` |
@@ -347,6 +347,26 @@ priced at the margin, so a quota the product already exhausts bills Part A in fu
 - **Credit window (ADR-0022):** nothing here uses a credit-mode item; the lines above are the same with or without it.
 - **Trigger that justifies it:** none (no fixed cost). The scale-up triggers are in the Stage ladder.
 
+
+**Implementation note 2026-10-31 (W5-45, W5-47; the W5-17 Low findings and the W5-18 `LIST_MAX_MEMBERS` bound).**
+- **L-1 negative cache.** `loadList` remembers a missing list id for 60 s in a second LRU of the same size (`docCache.miss`),
+  so a repeat probe of a guessed id costs 0 reads and answers as fast as a cached private list. Create, Update and the
+  member writes `put` the list, which clears the entry, so the owner sees a new list at once on the instance that took the
+  write; on another instance the bound is the 60 s TTL, and it needs a probe of an id before it is minted (server
+  Snowflakes, not guessable). Delete evicts. Staleness bound 60 s, as D11.
+- **L-2 visible rune.** `identity.singleLineIssue` (display name, location, list name and description) refuses Cf other
+  than ZWJ/ZWNJ between two non-space, non-format runes, the fillers U+115F/1160/3164/FFA0, and a non-empty text with no
+  letter, number, punctuation or symbol. Applied to a value being written only; an unrelated profile edit never
+  revalidates a stored name. Vectors: `testdata/profile_text/single_line_text.json` (Go only; Dart follow-up W5-49).
+- **L-3 id-only idempotency result.** The record of CreateList, UpdateList, AddListMember and RemoveListMember holds the list
+  id only. A replay reads the list (owner-checked) for its current header: **+1 read on a replay, 0 on a first call**, and a
+  replay after the list was deleted is NOT_FOUND. DeleteList's record (`deleted` flag) was never personal. Records written
+  before this change carry the old header fields; only their `id` is read.
+- **L-4 fresh target status.** AddListMember reads `users/{target}` through the transaction (`identity.TxProfiles`, wired by
+  `SetTxProfiles`) on a real add, after the already-a-member check and before the cap and quota: **+1 read on a real add**
+  (worst 7 with the interceptor, was 6); missing or not ACTIVE is the same NOT_FOUND. Replays, no-ops, self-adds and
+  Refusal answers do not pay it.
+- **W5-47.** `LIST_MAX_MEMBERS` above `config.MaxListMembersCeiling` (500) fails startup; the default stays 150.
 ## Stage ladder
 | Concern | Stage 0 (this ADR) | Seam to protect now | Stage 2/3 target (ADR) | Trigger (measured, 7 days sustained) |
 |---|---|---|---|---|

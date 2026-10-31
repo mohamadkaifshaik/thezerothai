@@ -82,6 +82,24 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 			})
 		}
 	}
+	// W5-47: LIST_MAX_MEMBERS is bounded above (500 is accepted, 501 fails startup naming the key).
+	t.Run("LIST_MAX_MEMBERS at the ceiling", func(t *testing.T) {
+		clearEnv(t)
+		t.Setenv("LIST_MAX_MEMBERS", "500")
+		cfg, err := Load()
+		if err != nil || cfg.Lists.MaxMembers != 500 {
+			t.Errorf("Load() = %d, %v, want 500, nil", cfg.Lists.MaxMembers, err)
+		}
+	})
+	for _, val := range []string{"501", "4890", "100000"} {
+		t.Run("LIST_MAX_MEMBERS="+val, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("LIST_MAX_MEMBERS", val)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "LIST_MAX_MEMBERS") || !strings.Contains(err.Error(), "500") {
+				t.Errorf("Load() error = %v, want one naming LIST_MAX_MEMBERS and 500", err)
+			}
+		})
+	}
 	for _, tt := range []struct{ key, val string }{{"FEATURE_LISTS", "bogus"}, {"FEATURE_LISTS_PERCENT", "101"}} {
 		t.Run(tt.key+"="+tt.val, func(t *testing.T) {
 			clearEnv(t)

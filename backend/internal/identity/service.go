@@ -182,7 +182,7 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 		return Profile{}, apierr.Validation("handle", "handle must be 3-15 characters: letters, numbers, underscore, and not reserved").WithMeta("reason", reason)
 	}
 	if displayNameIssue(displayName) {
-		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters")
+		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters and contain a visible character")
 	}
 
 	handleLower := strings.ToLower(handle)
@@ -474,7 +474,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 	}
 	if params.DisplayName != nil && displayNameIssue(*params.DisplayName) {
-		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters")
+		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters and contain a visible character")
 	}
 	if params.Bio != nil && bioIssue(*params.Bio) {
 		return Profile{}, apierr.Validation("bio", "bio must be at most 160 characters")
@@ -492,7 +492,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if params.Location != nil {
 		location = normalizeLocation(*params.Location)
 		if locationIssue(location) {
-			return Profile{}, apierr.Validation("location", "location must be at most 30 characters on one line")
+			return Profile{}, apierr.Validation("location", "location must be at most 30 characters on one line, without invisible characters")
 		}
 	}
 	if params.Website != nil {

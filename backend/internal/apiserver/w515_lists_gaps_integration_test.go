@@ -404,7 +404,7 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_adds" {
 		t.Fatalf("301st add: %v", d)
 	}
-	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 6, Writes: 0})
+	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 7, Writes: 0}) // W5-45 L-4: +1 fresh target status
 }
 
 // DEGRADED_MODE=readonly (W5-4 acceptance, the interceptor derives "mutating" from each RPC's idempotency level): the five list
