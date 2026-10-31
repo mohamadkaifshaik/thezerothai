@@ -844,6 +844,7 @@ class PostView extends $pb.GeneratedMessage {
     $core.bool? bookmarkedByViewer,
     $core.bool? withheld,
     $core.int? viewerPollChoice,
+    $core.bool? viewerPollVoteBlocked,
   }) {
     final result = PostView._();
     if (post != null) result.post = post;
@@ -856,6 +857,8 @@ class PostView extends $pb.GeneratedMessage {
       result.bookmarkedByViewer = bookmarkedByViewer;
     if (withheld != null) result.withheld = withheld;
     if (viewerPollChoice != null) result.viewerPollChoice = viewerPollChoice;
+    if (viewerPollVoteBlocked != null)
+      result.viewerPollVoteBlocked = viewerPollVoteBlocked;
     return result;
   }
 
@@ -884,6 +887,7 @@ class PostView extends $pb.GeneratedMessage {
     ..aOB(6, _omitFieldNames ? '' : 'bookmarkedByViewer')
     ..aOB(7, _omitFieldNames ? '' : 'withheld')
     ..aI(8, _omitFieldNames ? '' : 'viewerPollChoice')
+    ..aOB(9, _omitFieldNames ? '' : 'viewerPollVoteBlocked')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1003,6 +1007,21 @@ class PostView extends $pb.GeneratedMessage {
   $core.bool hasViewerPollChoice() => $_has(7);
   @$pb.TagNumber(8)
   void clearViewerPollChoice() => $_clearField(8);
+
+  /// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author
+  /// (ADR-0029 Amendment 1 A1.5): VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
+  /// disabled ("You blocked @handle. Unblock to vote."). Negative polarity on purpose: false on every other row, on every
+  /// producer that does not set it and on older revisions, which is the behaviour before the amendment; the server stays
+  /// the authority. Set only where a post by a blocked author is shown directly (GetPost, GetThread, GetUserTimeline of
+  /// that author); never on a REPOST row (an embedded poll has no buttons). False on a withheld row.
+  @$pb.TagNumber(9)
+  $core.bool get viewerPollVoteBlocked => $_getBF(8);
+  @$pb.TagNumber(9)
+  set viewerPollVoteBlocked($core.bool value) => $_setBool(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasViewerPollVoteBlocked() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearViewerPollVoteBlocked() => $_clearField(9);
 }
 
 class CreatePostRequest extends $pb.GeneratedMessage {
