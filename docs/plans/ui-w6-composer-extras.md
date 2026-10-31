@@ -373,11 +373,18 @@ Effect on the quotas (additive):
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | In review (PR: test/ui-w6-18-gif-tests; defect D-1 filed, see docs/reviews/test-report-w6-gif.md) |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
-| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |
+| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | In review: `docs/reviews/security-w6-composer-extras.md`, BLOCKED (H-1 to H-3) for `gif` and `media` beyond the dev allowlist; `polls` and `drafts` GO for the dev allowlist |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
 | W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open |
 | W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
+| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | Open |
+| W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | Open |
+| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Open |
+| W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | Open |
+| W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | Open |
+| W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
+| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
@@ -870,7 +877,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: Open
+### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: In review (report `docs/reviews/security-w6-composer-extras.md`; the acceptance criterion "no open Critical or High" is not met yet: SECURITY: BLOCKED — H-1, H-2, H-3, which hold `gif` and `media` at the dev allowlist; follow-ups proposed there, not yet in this plan)
 - **Description.** A threat model for:
   - vote integrity (natural key, concurrency, sybils, rate × 3 instances, the daily cap);
   - the result oracle (redaction, refusal order, bytes of hidden counts);
@@ -950,6 +957,15 @@ Order:
 - **Flag.** `gif_search` + `gif` + `media`.
 - **Seam.** `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
+
+### W6-25 to W6-31 — W6-20 security follow-ups  Status: Open
+Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
+- **W6-25 (H-1), W6-26 (H-2), W6-27 (H-3):** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves off in prod. Until then `gif` and `media` stay on team and test accounts only.
+- **W6-28 (M-2):** before `gif` leaves the dev allowlist (with #521, M-1).
+- **W6-29 (L-2, L-6):** before `polls` leaves off in prod.
+- **W6-30 (L-4):** before `gif` leaves off in prod.
+- **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
+- Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
 
 ## Rollout plan
 - **Dev:** allowlist (3 uids) for `drafts` first (client only, no server risk), then `polls`, then `gif`, each after its security and cost tickets.
