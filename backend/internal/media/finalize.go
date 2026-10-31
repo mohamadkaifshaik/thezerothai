@@ -135,6 +135,11 @@ func validateFinalize(items []FinalizeItem) error {
 // that died holding the claim blocks a client retry for at most this long. A run that outlives it is not unsafe: a
 // second call may claim and screen again, and the first one's Resolve then loses its UpdateTime precondition and
 // converges on the second's result (the pre-fix behaviour, now the rare case).
+//
+// A GIF (W6-10) takes longer: the claim is taken before the 5 s wait for the instance's GIF slot, then a 5 s object read,
+// a 2 s sampling deadline, the Vision calls (10 s each, in parallel) and the two copies, so its bounded worst case is
+// about 22 s plus the ordinary calls, still under this TTL and under the 30 s Cloud Run request timeout. A GIF that
+// runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
 const screeningClaimTTL = 30 * time.Second
 
 // claimReleaseTimeout bounds the best-effort release of a claim after a failed attempt. It runs on a context cut off
@@ -233,6 +238,16 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		blocked, err := s.screen(ctx, d)
 		if err != nil {
 			s.vision.release(units)
+			// A GIF the sampler refused (D11) is REJECTED with no Vision spend; a busy slot is the retryable MEDIA_NOT_READY
+			// (the deferred releaseClaim frees the claim).
+			var refusal *gifRefusal
+			switch {
+			case errors.As(err, &refusal):
+				r, rerr := s.reject(ctx, d, refusal.reason)
+				return r, 0, rerr
+			case errors.Is(err, errGifBusy):
+				return Result{}, 0, mediaNotReady(d.ID, gifMessageBusy)
+			}
 			// Vision fetches the private object, so a concurrent finalize that already published and deleted it
 			// surfaces here as a screening failure although the image is READY: converge on its result.
 			if r, ok := s.resolvedElsewhere(ctx, d); ok {
@@ -369,8 +384,7 @@ func (s *service) uploadMissing(ctx context.Context, uid string, d *Doc, afterVe
 	if afterVerify {
 		return Result{}, 0, logger.RedactErr(fmt.Errorf("media: publish: source missing after verify: %w", cause), uid)
 	}
-	return Result{}, 0, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
-		"the upload is not complete yet").WithMeta("media_id", d.ID)
+	return Result{}, 0, mediaNotReady(d.ID, "the upload is not complete yet")
 }
 
 // reload returns the document another concurrent FinalizeUpload resolved first (1 read).
@@ -431,32 +445,41 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, err error)
 }
 
 // screensThumb reports whether the thumbnail is screened too: always for a BANNER (ADR-0024 D1: 2 Vision units, the
-// thumb is a separate upload), otherwise per VISION_SCREEN_THUMB.
+// thumb is a separate upload) and for a GIF (ADR-0029 D11, W6-10: sheet by bytes + thumbnail = 2 units; the thumbnail is
+// a client-made still that lists show, and nothing ties it to the GIF's frames), otherwise per VISION_SCREEN_THUMB.
 func (s *service) screensThumb(d *Doc) bool {
-	return s.ScreenThumb || d.Purpose == string(PurposeBanner)
+	return s.ScreenThumb || d.Purpose == string(PurposeBanner) || d.ContentType == ContentTypeGIF
 }
 
-// W6-10 seam: for a GIF this is where the frame-sampled sheet replaces the full-object URI screen (ADR-0029 D11).
-// Until W6-10 merges a GIF is screened like a photo (Vision reads the first frame), which is why FEATURE_GIF must not
-// leave off before it (docs/runbooks/media.md).
-// screen runs SafeSearch on the full image and, when ScreenThumb, the thumbnail (the small image is what lists
-// show, and it is uploaded separately). It reports whether either is blocked by the policy.
+// screen runs SafeSearch on the full image and, when screensThumb, the thumbnail (the small image is what lists
+// show, and it is uploaded separately). It reports whether either is blocked by the policy. A GIF is screened by its
+// sampled frames instead (screenGIF).
 func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) {
-	objects := []string{d.UploadPath}
-	if s.screensThumb(d) {
-		objects = append(objects, d.ThumbUploadPath)
+	if d.ContentType == ContentTypeGIF {
+		return s.screenGIF(ctx, d)
 	}
+	calls := []func(context.Context) (SafeSearch, error){
+		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearch(c, d.UploadPath) },
+	}
+	if s.screensThumb(d) {
+		calls = append(calls, func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearch(c, d.ThumbUploadPath) })
+	}
+	return s.screenAll(ctx, d, calls)
+}
+
+// screenAll runs the Vision calls in parallel (a bounded 1 or 2) and reports whether any verdict is blocked by the policy.
+func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Context) (SafeSearch, error)) (blocked bool, err error) {
 	type out struct {
 		ss  SafeSearch
 		err error
 	}
-	outs := make([]out, len(objects))
+	outs := make([]out, len(calls))
 	var wg sync.WaitGroup
-	for i, o := range objects {
+	for i, call := range calls {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			outs[i].ss, outs[i].err = s.Moderator.SafeSearch(ctx, o)
+			outs[i].ss, outs[i].err = call(ctx)
 		}()
 	}
 	wg.Wait()

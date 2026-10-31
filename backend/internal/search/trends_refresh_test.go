@@ -89,13 +89,14 @@ type harness struct {
 	store *fakeTrendsStore
 	scan  *fakeScanner
 	prot  *trendsFakeProtected
+	dir   *fakeAuthors
 	logs  *bytes.Buffer
 	r     *Refresher
 }
 
 func newHarness(t *testing.T, on bool, mutate func(*RefresherConfig)) *harness {
 	t.Helper()
-	h := &harness{clk: &fakeClock{t: trendsT0}, store: &fakeTrendsStore{}, scan: &fakeScanner{}, prot: &trendsFakeProtected{set: map[string]bool{}}, logs: &bytes.Buffer{}}
+	h := &harness{clk: &fakeClock{t: trendsT0}, store: &fakeTrendsStore{}, scan: &fakeScanner{}, prot: &trendsFakeProtected{set: map[string]bool{}}, dir: newFakeAuthors(), logs: &bytes.Buffer{}}
 	mode := flags.Off
 	if on {
 		mode = flags.On
@@ -106,7 +107,7 @@ func newHarness(t *testing.T, on bool, mutate func(*RefresherConfig)) *harness {
 	if mutate != nil {
 		mutate(&cfg)
 	}
-	h.r = NewRefresher(h.store, h.scan, h.prot, reg, cfg)
+	h.r = NewRefresher(h.store, h.scan, h.prot, h.dir, reg, cfg)
 	return h
 }
 
@@ -480,7 +481,7 @@ func TestRefresh_Failures(t *testing.T) {
 	})
 }
 
-// TestRefresh_Budget: 1 read for the document + the posts read + 1 write, via the log line's own counter fields.
+// TestRefresh_Budget: 1 read for the document + 1 for the hide list + the posts read + 1 per candidate author (4) + 1 write, via the log line's own counter fields.
 func TestRefresh_Budget(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true, nil)
@@ -491,7 +492,7 @@ func TestRefresh_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := lastLine(h.logs.String(), "trends_refresh")
-	for _, want := range []string{`"fs_reads":38`, `"fs_writes":1`, `"trends_posts_scanned":37`, `"tags_kept":1`, `"backlog":false`} {
+	for _, want := range []string{`"fs_reads":43`, `"fs_writes":1`, `"trends_posts_scanned":37`, `"authors_checked":4`, `"tags_kept":1`, `"backlog":false`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("trends_refresh line lacks %s: %s", want, line)
 		}
@@ -520,4 +521,239 @@ func lastLine(logs, msg string) string {
 		}
 	}
 	return last
+}
+
+// fakeAuthors is the AuthorDirectory: every uid is an ACTIVE account created 100 days before trendsT0 unless overridden. It
+// bills one read per id asked for, like a cold identity cache, and records every batch.
+type fakeAuthors struct {
+	created map[string]time.Time // uid → createdAt (a zero value in the map is a zero createdAt)
+	absent  map[string]bool      // missing, SUSPENDED or DELETING: omitted from the result
+	batches [][]string
+	// errOn, when > 0, fails the call with that 1-based number.
+	errOn int
+	// slow advances clk by this much per call.
+	slow time.Duration
+	clk  *fakeClock
+}
+
+func newFakeAuthors() *fakeAuthors {
+	return &fakeAuthors{created: map[string]time.Time{}, absent: map[string]bool{}}
+}
+
+func (f *fakeAuthors) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	f.batches = append(f.batches, append([]string(nil), uids...))
+	budget.FromContext(ctx).AddReads(int64(len(uids)))
+	if f.slow > 0 {
+		f.clk.advance(f.slow)
+	}
+	if f.errOn > 0 && len(f.batches) == f.errOn {
+		return nil, errors.New("unavailable")
+	}
+	out := map[string]identity.Profile{}
+	for _, u := range uids {
+		if f.absent[u] {
+			continue
+		}
+		at, ok := f.created[u]
+		if !ok {
+			at = trendsT0.Add(-100 * 24 * time.Hour)
+		}
+		out[u] = identity.Profile{UserID: u, CreatedAt: at, Status: identity.AccountStatusActive}
+	}
+	return out, nil
+}
+
+func (f *fakeAuthors) asked() (n int) {
+	for _, b := range f.batches {
+		n += len(b)
+	}
+	return n
+}
+
+// launchPosts is three authors a, b, c posting #launch once each.
+func launchPosts() []*posts.Post {
+	return []*posts.Post{post(1, "a", ago(5*time.Hour), "launch"), post(2, "b", ago(4*time.Hour), "launch"), post(3, "c", ago(3*time.Hour), "launch")}
+}
+
+func TestRefresh_EstablishedAuthors(t *testing.T) {
+	t.Parallel()
+	t.Run("one of three authors created 1 h ago: 2 established < 3, no trend", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.scan.posts = launchPosts()
+		h.dir.created["c"] = ago(time.Hour)
+		if _, err := h.run(t); err != nil || len(h.items()) != 0 {
+			t.Fatalf("items %+v err %v", h.items(), err)
+		}
+	})
+	t.Run("3 established and a fourth new one: authors 3, posts count only the established", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.scan.posts = append(launchPosts(), post(4, "d", ago(2*time.Hour), "launch"), post(5, "d", ago(time.Hour), "launch"), post(6, "a", ago(30*time.Minute), "launch"))
+		h.dir.created["d"] = ago(time.Hour)
+		if _, err := h.run(t); err != nil {
+			t.Fatal(err)
+		}
+		if got := h.items(); len(got) != 1 || got[0] != (TrendItem{Tag: "launch", Posts: 4, Authors: 3}) {
+			t.Fatalf("items = %+v, want launch with 4 posts of 3 authors", got)
+		}
+	})
+	t.Run("exactly 72 h old counts, 1 s younger does not, a zero createdAt does not", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.scan.posts = launchPosts()
+		h.dir.created["a"] = trendsT0.Add(-72 * time.Hour)
+		h.dir.created["b"] = trendsT0.Add(-72*time.Hour + time.Second)
+		h.dir.created["c"] = time.Time{}
+		if _, err := h.run(t); err != nil || len(h.items()) != 0 {
+			t.Fatalf("items %+v err %v, want none (only a is established)", h.items(), err)
+		}
+		h2 := newHarness(t, true, func(c *RefresherConfig) { c.MinAccountAge = 24 * time.Hour })
+		h2.scan.posts = launchPosts()
+		h2.dir.created["b"] = trendsT0.Add(-24 * time.Hour)
+		if _, err := h2.run(t); err != nil || len(h2.items()) != 1 {
+			t.Fatalf("items %+v err %v, want launch with a 24 h minimum", h2.items(), err)
+		}
+	})
+	t.Run("a suspended, deleting or deleted author is not counted", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.scan.posts = launchPosts()
+		h.dir.absent["b"] = true
+		if _, err := h.run(t); err != nil || len(h.items()) != 0 {
+			t.Fatalf("items %+v err %v", h.items(), err)
+		}
+	})
+	t.Run("a nil directory fails closed: nothing trends, the run still writes", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.r.dir = nil
+		h.scan.posts = launchPosts()
+		res, err := h.run(t)
+		if err != nil || len(h.items()) != 0 || h.store.puts != 1 || res.AuthorsUnverified != 3 || h.store.doc.Watermark.ID != post(3, "", time.Time{}).ID {
+			t.Fatalf("res %+v err %v items %+v puts %d", res, err, h.items(), h.store.puts)
+		}
+	})
+	t.Run("denylisted, hidden and under-minimum tags cost no author reads", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, func(c *RefresherConfig) { c.Denylist = []string{"bad"} })
+		h.store.hidden = []string{"hid"}
+		for i, tag := range []string{"bad", "hid"} {
+			for j, a := range []string{"a", "b", "c"} {
+				h.scan.posts = append(h.scan.posts, post(i*10+j+1, a, ago(5*time.Hour).Add(time.Duration(i*10+j)*time.Second), tag))
+			}
+		}
+		h.scan.posts = append(h.scan.posts, post(50, "x", ago(4*time.Hour), "few"), post(51, "y", ago(4*time.Hour), "few"))
+		res, err := h.run(t)
+		if err != nil || len(h.dir.batches) != 0 || res.FsReads != int64(2+len(h.scan.posts)) {
+			t.Fatalf("batches %d reads %d err %v, want no author reads", len(h.dir.batches), res.FsReads, err)
+		}
+	})
+	t.Run("an empty window reads no profiles", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		if res, err := h.run(t); err != nil || len(h.dir.batches) != 0 || res.FsReads != 3 { // document, hide list, the empty page
+			t.Fatalf("res %+v batches %d err %v", res, len(h.dir.batches), err)
+		}
+	})
+	t.Run("a repeated author is read once", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		h.scan.posts = append(launchPosts(), post(4, "a", ago(time.Hour), "other"), post(5, "b", ago(time.Hour), "other"), post(6, "c", ago(time.Hour), "other"))
+		if _, err := h.run(t); err != nil || h.dir.asked() != 3 {
+			t.Fatalf("asked %d err %v, want 3", h.dir.asked(), err)
+		}
+	})
+}
+
+// 600 distinct authors in candidate tags with the cap at 500: exactly the first 500 in candidate order are read in 10
+// batches, the other 100 are not counted.
+func TestRefresh_AuthorCheckCap(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, true, nil)
+	n := 0
+	add := func(author, tag string) {
+		n++
+		h.scan.posts = append(h.scan.posts, post(n, author, ago(10*time.Hour).Add(time.Duration(n)*time.Second), tag))
+	}
+	// #wide has 400 authors (u000..u399) and ranks first; #mid has 200 (u400..u599) and is cut after its first 100 uids.
+	for i := 0; i < 400; i++ {
+		add(fmt.Sprintf("u%03d", i), "wide")
+	}
+	for i := 400; i < 600; i++ {
+		add(fmt.Sprintf("u%03d", i), "mid")
+	}
+	res, err := h.run(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(h.dir.batches) != 10 || h.dir.asked() != 500 || res.AuthorsChecked != 500 || res.AuthorsUnverified != 100 {
+		t.Fatalf("batches %d asked %d checked %d unverified %d, want 10/500/500/100", len(h.dir.batches), h.dir.asked(), res.AuthorsChecked, res.AuthorsUnverified)
+	}
+	for _, b := range h.dir.batches {
+		if len(b) > 50 {
+			t.Fatalf("batch of %d", len(b))
+		}
+	}
+	// The document, the hide list, 600 posts, 500 profiles.
+	if res.FsReads != 2+600+500 {
+		t.Errorf("reads = %d, want 1,102", res.FsReads)
+	}
+	got := h.items()
+	if len(got) != 2 || got[0] != (TrendItem{Tag: "wide", Posts: 400, Authors: 400}) || got[1] != (TrendItem{Tag: "mid", Posts: 100, Authors: 100}) {
+		t.Fatalf("items = %+v, want wide 400 and mid cut to its first 100 authors", got)
+	}
+	if h.store.puts != 1 {
+		t.Errorf("puts = %d", h.store.puts)
+	}
+}
+
+func TestRefresh_AuthorCheckFailures(t *testing.T) {
+	t.Parallel()
+	manyAuthors := func(h *harness) {
+		for i := 0; i < 150; i++ { // 150 authors on one tag: 3 batches
+			h.scan.posts = append(h.scan.posts, post(i+1, fmt.Sprintf("u%03d", i), ago(10*time.Hour).Add(time.Duration(i)*time.Second), "wide"))
+		}
+	}
+	t.Run("GetProfiles fails on the third batch: batches 1-2 count, the rest do not, the error is reported, the run writes", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		manyAuthors(h)
+		h.dir.errOn = 3
+		res, err := h.run(t)
+		if err != nil || res.AuthorCheckErr == nil || h.store.puts != 1 {
+			t.Fatalf("res %+v err %v puts %d", res, err, h.store.puts)
+		}
+		if got := h.items(); len(got) != 1 || got[0].Authors != 100 || got[0].Posts != 100 {
+			t.Fatalf("items = %+v, want 100 authors", got)
+		}
+		if res.AuthorsChecked != 100 || res.AuthorsUnverified != 50 || len(h.dir.batches) != 3 {
+			t.Errorf("checked %d unverified %d batches %d", res.AuthorsChecked, res.AuthorsUnverified, len(h.dir.batches))
+		}
+		if h.store.doc.Watermark.ID != h.scan.posts[149].ID {
+			t.Errorf("watermark %+v, want moved to the last post read", h.store.doc.Watermark)
+		}
+		if !strings.Contains(h.logs.String(), "author check") {
+			t.Errorf("no Error Reporting entry: %s", h.logs)
+		}
+		if strings.Contains(h.logs.String(), "u001") {
+			t.Errorf("log leaks a uid: %s", h.logs)
+		}
+	})
+	t.Run("less than writeReserve + 1 s left before a batch: the remaining authors are unverified and the run writes", func(t *testing.T) {
+		t.Parallel()
+		h := newHarness(t, true, nil)
+		manyAuthors(h)
+		h.dir.clk, h.dir.slow = h.clk, 4*time.Second // each batch takes 4 s of the fake clock
+		// 7.5 s left at the start: batch 1 starts (7.5 >= 3), batch 2 starts (3.5 >= 3), batch 3 does not (-0.5 < 3).
+		ctx, cancel := context.WithDeadline(context.Background(), trendsT0.Add(7500*time.Millisecond))
+		defer cancel()
+		res, err := h.r.Run(ctx)
+		if err != nil || h.store.puts != 1 {
+			t.Fatalf("res %+v err %v puts %d", res, err, h.store.puts)
+		}
+		if len(h.dir.batches) != 2 || res.AuthorsChecked != 100 || res.AuthorsUnverified != 50 || res.AuthorCheckErr != nil {
+			t.Fatalf("batches %d checked %d unverified %d", len(h.dir.batches), res.AuthorsChecked, res.AuthorsUnverified)
+		}
+	})
 }

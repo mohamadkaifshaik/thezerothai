@@ -41,6 +41,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -274,7 +275,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo)), messagingEraserStep(messaging.NewFirestoreRepo(e.fs, nil), nil)} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo)), messagingEraserStep(messaging.NewFirestoreRepo(e.fs, nil), nil), listsEraserStep(lists.NewEraser(lists.NewFirestoreRepo(e.fs, nil, nil)))} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}

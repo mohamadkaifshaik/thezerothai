@@ -16,7 +16,8 @@ import (
 )
 
 // fakeTrendsStore is an in-memory TrendsStore that counts like the Firestore one: Get bills 1 read (a missing document
-// too), Put 1 write.
+// too), Load 2 (and counts as a get), Hidden 1, Put 1 write; Hide and Unhide follow the real rules (1 read, 1 write only when
+// the list changes, refused at 100 keys).
 type fakeTrendsStore struct {
 	mu     sync.Mutex
 	doc    *TrendsDoc
@@ -24,6 +25,12 @@ type fakeTrendsStore struct {
 	putErr error
 	gets   int
 	puts   int
+
+	// hidden is trends/hidden (folded keys); hiddenErr fails Hidden and Load; hideWrites counts Hide and Unhide writes.
+	hidden     []string
+	hiddenErr  error
+	hiddenGets int
+	hideWrites int
 }
 
 func (f *fakeTrendsStore) Get(ctx context.Context) (*TrendsDoc, error) {
@@ -211,7 +218,7 @@ func repeat(s string, n int) string {
 	return out
 }
 
-// TestTrends_CacheTTLAndBudget: cold = the document read (1, plus the interceptor's 1 outside this layer = 2), warm = 0,
+// TestTrends_CacheTTLAndBudget: cold = the load (2 reads: trends/current and trends/hidden, plus the interceptor's 1 outside this layer = 3), warm = 0,
 // and the copy expires after exactly 10 minutes by the injected clock.
 func TestTrends_CacheTTLAndBudget(t *testing.T) {
 	t.Parallel()
@@ -225,8 +232,8 @@ func TestTrends_CacheTTLAndBudget(t *testing.T) {
 		}
 		return c.Reads()
 	}
-	if r := call(); r != 1 {
-		t.Fatalf("cold reads = %d, want 1 (the document; the interceptor's read is counted outside the service)", r)
+	if r := call(); r != 2 {
+		t.Fatalf("cold reads = %d, want 2 (trends/current and trends/hidden; the interceptor's read is counted outside the service)", r)
 	}
 	for range 3 {
 		if r := call(); r != 0 {
@@ -244,8 +251,8 @@ func TestTrends_CacheTTLAndBudget(t *testing.T) {
 		t.Fatalf("inside the TTL the old list must be served, got %v", tags(got))
 	}
 	clk.advance(time.Second)
-	if r := call(); r != 1 {
-		t.Fatalf("after the TTL: reads = %d, want 1", r)
+	if r := call(); r != 2 {
+		t.Fatalf("after the TTL: reads = %d, want 2", r)
 	}
 	got, _ = svc.Trends(context.Background(), "u1", 0, "")
 	if tags(got)[0] != "new" {

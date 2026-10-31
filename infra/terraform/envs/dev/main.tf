@@ -205,6 +205,10 @@ locals {
     { name = "FEATURE_TRENDS", value = var.feature_trends },
     { name = "FEATURE_TRENDS_ALLOWLIST", value = var.feature_trends_allowlist },
     { name = "FEATURE_TRENDS_PERCENT", value = tostring(var.feature_trends_percent) },
+    // ADR-0028 note 2026-10-31 (W4-25, review M-1): tags that never trend, applied at serve time and by the sweep. Operators hide a tag
+    // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
+    { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
+    { name = "TRENDS_DENYLIST", value = var.trends_denylist },
     // ADR-0029 D12 (W6-4): polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
     { name = "FEATURE_POLLS_ALLOWLIST", value = var.feature_polls_allowlist },

@@ -76,19 +76,24 @@ abstract final class SearchService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)
-  /// distinct accounts used it in the window; tags are ranked by distinct accounts, then posts, then tag. Hidden posts,
-  /// reposts and posts by protected accounts are not counted; an operator denylist and the trends flag remove tags.
+  /// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+  /// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
+  /// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
+  /// established accounts, then their posts, then tag. Hidden posts,
+  /// reposts and posts by protected accounts are not counted; tags on the operator denylist (TRENDS_DENYLIST) or the
+  /// operator hide list (opsctl trends hide) and the trends flag remove tags. Tags are matched by a folded key (NFKC,
+  /// lower-case, U+200C, U+200D and '_' removed), so a spelling variant of a removed tag goes with it.
   /// The list is computed by a scheduled sweep (daily at Stage 0: "Trending today"); computed_at says when.
   /// limit 0 => 10, max 30 (clamped). prefix (optional; one leading '#' ignored; at most 50 code points after it; a control or
   /// bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
   /// hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
-  /// Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old.
+  /// Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old. A tag
+  /// hidden by an operator leaves every server within 10 min (the client copy lives 5 more).
   /// Flag: "trends". Rate limits: the 60/min/uid default bucket per instance (180/min at 3 instances) and TRENDS_CALLS_PER_DAY
   /// 400 calls/uid/IST day per instance (<= 1,200 at 3), its own cap apart from SearchPeople/SearchPosts => RATE_LIMITED,
   /// metadata["limit"] = "trends_daily".
-  /// Firestore: reads 2 cold (interceptor 1, trends/current 1), 0-1 warm; at most one doc read per instance per 10 min
-  /// (<= 432 a day at 3 instances, whatever the number of callers). Writes 0.
+  /// Firestore: reads 3 cold (interceptor 1, trends/current and trends/hidden 2 in one GetAll), 0-1 warm; at most one
+  /// load (2 reads) per instance per 10 min (<= 864 a day at 3 instances, whatever the number of callers). Writes 0.
   static const getTrends = connect.Spec(
     '/$name/GetTrends',
     connect.StreamType.unary,

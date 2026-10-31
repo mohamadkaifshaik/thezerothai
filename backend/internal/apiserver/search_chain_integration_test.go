@@ -329,7 +329,7 @@ func TestSearchChain_FlagModes(t *testing.T) {
 // --- Budgets through the chain (W4-5, W4-7, W4-8, W4-10) ----------------------------------------------------------------
 
 // The documented whole-request figures: SearchPeople 7 (limit 5) / 22 (limit 20), 0-2 warm; SearchPosts 33 first page of
-// TOP / LATEST / MEDIA, 23 older LATEST page at 20, 33 MEDIA scan, 0-3 warm; GetTrends 2 cold, 0-1 warm. Writes 0.
+// TOP / LATEST / MEDIA, 23 older LATEST page at 20, 33 MEDIA scan, 0-3 warm; GetTrends 3 cold (the list and the hide list), 0-1 warm. Writes 0.
 func TestSearchChain_BudgetTable(t *testing.T) {
 	setup := newSearchChain(t, func(c *config.Config) {
 		c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On} // the userLikes read of the documented 33
@@ -424,18 +424,35 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		e.assertReads(t, "SearchPosts MEDIA scan call cold", po, 33)
 	})
 
-	t.Run("GetTrends cold 2, warm at most 1, prefix at no extra read", func(t *testing.T) {
+	t.Run("GetTrends cold 3, warm at most 1, prefix at no extra read", func(t *testing.T) {
 		e := cold()
 		r, err := e.trends(caller, 0, "")
 		if err != nil || len(r.GetTrends()) != 3 || r.GetComputedAt() == nil {
 			t.Fatalf("trends = %v, err %v", r.GetTrends(), err)
 		}
-		e.assertReads(t, "GetTrends cold", tr, 2)
+		e.assertReads(t, "GetTrends cold", tr, 3)
 		r, err = e.trends(caller, 0, "#LAM")
 		if err != nil || len(r.GetTrends()) != 1 || r.GetTrends()[0].GetTag() != "lamp" {
 			t.Fatalf("prefix lam = %v, err %v (the tags are launch, lamp, go)", r.GetTrends(), err)
 		}
 		e.assertReads(t, "GetTrends prefix warm", tr, 1)
+	})
+
+	// W4-25: a denylisted tag (TRENDS_DENYLIST) and a tag on trends/hidden both leave the served list at once, and the rest is
+	// ranked 1..n. Last, because the hide list persists in the project.
+	t.Run("GetTrends drops a denylisted and a hidden tag and renumbers the ranks", func(t *testing.T) {
+		if _, err := search.NewTrendsRepo(setup.fs).Hide(context.Background(), "#LAUNCH"); err != nil {
+			t.Fatal(err)
+		}
+		e := newSearchChain(t, func(c *config.Config) {
+			c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
+			c.Search.TrendsDenylist = []string{"go"}
+		})
+		r, err := e.trends(caller, 0, "")
+		if err != nil || len(r.GetTrends()) != 1 || r.GetTrends()[0].GetTag() != "lamp" || r.GetTrends()[0].GetRank() != 1 {
+			t.Fatalf("trends = %v, err %v, want only lamp at rank 1", r.GetTrends(), err)
+		}
+		e.assertReads(t, "GetTrends cold with the hide list", tr, 3)
 	})
 }
 
@@ -779,6 +796,9 @@ func refreshCfg(c *config.Config) {
 	c.Search.TrendsMaxPostsPerRun = 100_000 // the emulator project is shared with other tests' posts
 	c.Search.TrendsMinInterval = time.Hour
 	c.Search.TrendsDenylist = []string{"banned"}
+	// W4-26: the chain test accounts are seconds old, so the 72 h established-author rule would leave nothing to trend.
+	// The age rule itself is covered by the search package tests (trends_authors*_test.go).
+	c.Search.TrendsMinAccountAge = time.Nanosecond
 }
 
 func TestSearchChain_TrendsRefreshEndToEnd(t *testing.T) {

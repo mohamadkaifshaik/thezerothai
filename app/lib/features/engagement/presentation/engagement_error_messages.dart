@@ -2,6 +2,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/bookmarks_feature_flag.dart';
 import 'bloc/engagement_state.dart';
+import 'bloc/poll_state.dart';
 
 /// Friendly, typed messages for a failed like / unlike / repost / undo
 /// repost / bookmark / remove bookmark, shown in a snackbar (never the raw
@@ -57,6 +58,33 @@ String engagementErrorMessage(
           : reposting
           ? "Couldn't update your repost. Please try again."
           : "Couldn't update your like. Please try again.",
+  };
+}
+
+/// Friendly, typed messages for a failed vote or a failed "See final results"
+/// read (W6-13, ADR-0029). Fixed text, never the server's; ALREADY_VOTED and
+/// POLL_CLOSED are normally resolved by a refresh and only reach here as a
+/// snackbar when that refresh failed too.
+String pollErrorMessage(
+  AppException error, {
+  PollAction action = PollAction.vote,
+}) {
+  return switch (error) {
+    FeatureDisabledException() => "Voting isn't available right now.",
+    PollClosedException() => PollClosedException.userMessage,
+    AlreadyVotedException() => AlreadyVotedException.userMessage,
+    final RateLimitedException e => rateLimitedMessage(e),
+    QuotaExceededException() =>
+      "You've reached today's limit for votes. It resets tomorrow.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now, so voting is paused. '
+          'Please try again shortly.',
+    NotFoundException() => "This post isn't available any more.",
+    NetworkException() => 'No connection. Check your network and try again.',
+    _ =>
+      action == PollAction.refresh
+          ? "Couldn't load the results. Please try again."
+          : "Couldn't register your vote. Please try again.",
   };
 }
 

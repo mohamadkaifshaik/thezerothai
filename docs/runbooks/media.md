@@ -7,7 +7,7 @@ Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | per
 |---|---|---|
 | `FEATURE_MEDIA`, `FEATURE_MEDIA_ALLOWLIST`, `FEATURE_MEDIA_PERCENT` | off | MediaService, CreatePost `media_ids`, UpdateProfile avatar. Off answers FEATURE_DISABLED / MEDIA_NOT_READY. `off` (not allowlist or percent) also holds scheduled posts that carry images PENDING instead of publishing them: `docs/runbooks/posts.md` section 12, "Images held while `FEATURE_MEDIA` is off" |
 | `DEGRADED_MODE=nomedia` | off | CreateUpload and FinalizeUpload answer UNAVAILABLE + DEGRADED_MODE; text posting and attaching READY images continue |
-| `FEATURE_GIF`, `FEATURE_GIF_ALLOWLIST`, `FEATURE_GIF_PERCENT` | off | `CreateUpload` with an `image/gif` item (needs `media` on too; ADR-0029 D10, W6-9) and `CreatePost` with a GIF media doc. Off for the caller answers FEATURE_DISABLED `feature=gif`: at CreateUpload with 0 reads and nothing signed, at CreatePost after the media read (the content type is only known from the claim) with 0 writes. `FinalizeUpload` ignores it, so a GIF uploaded before the flag was lowered still finalizes but can no longer be posted. **Do not leave `off` until W6-10 (frame-sampled screening) is deployed**; see "GIFs" below |
+| `FEATURE_GIF`, `FEATURE_GIF_ALLOWLIST`, `FEATURE_GIF_PERCENT` | off | `CreateUpload` with an `image/gif` item (needs `media` on too; ADR-0029 D10, W6-9) and `CreatePost` with a GIF media doc. Off for the caller answers FEATURE_DISABLED `feature=gif`: at CreateUpload with 0 reads and nothing signed, at CreatePost after the media read (the content type is only known from the claim) with 0 writes. `FinalizeUpload` ignores it, so a GIF uploaded before the flag was lowered still finalizes but can no longer be posted. **Do not leave `off` until 100 % of traffic is on a revision with W6-10 (frame-sampled screening)**; see "GIFs" below |
 | `FEATURE_PROFILE_EXTRAS`, `FEATURE_PROFILE_EXTRAS_ALLOWLIST`, `FEATURE_PROFILE_EXTRAS_PERCENT` | off | Gates `CreateUpload(purpose=BANNER)` (needs `media` on too; W3-5): off for the caller answers FEATURE_DISABLED `feature=profile_extras` with 0 reads and nothing signed. AVATAR and POST uploads and every `FinalizeUpload` ignore it, so a banner upload started before the flag was lowered still completes. Also gates the UpdateProfile banner, location, website and pin fields (ADR-0024 D9, W3-6). Details in `docs/runbooks/posts.md` |
 | `PROFILE_MEDIA_RETIRE` | `off` | Which replaced or removed profile images are deleted 24-48 h after the change (ADR-0024 Amendment 1 A4): `off` nothing, `banner` banners only, `all` banners and avatars. Per-project retention config (Terraform `profile_media_retire`), **not** a `FEATURE_` flag. Checked by the publish (UpdateProfile) and by the `profile_media_retired` job handler, so lowering it stops new messages and makes the queued ones ack without action. Order and preconditions: section "Replaced and removed avatars and banners" below |
 | `VISION_MONTHLY_CAP` | 10000 | Most SafeSearch units per calendar month (UTC). 0 = never call Vision |
@@ -110,10 +110,39 @@ FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUploa
   publish `Content-Type`, and every cleanup name (a lost-race or purge delete of `_t.gif` would silently miss the real object).
 - **Verify.** The full object's magic must be `GIF87a` or `GIF89a` and its stored type `image/gif`; a GIF declared but PNG bytes is
   `REJECTED` (reason `invalid`), 0 Vision units. The original bytes are published unchanged.
-- **Vision, interim (until W6-10 is deployed).** A GIF is screened like a photo: Vision reads the **first frame only** of the
-  full object by URI, plus the thumbnail (2 units; 1 with `VISION_SCREEN_THUMB=false`). That is **not** the ADR-0029 F11 control,
-  which samples 4 frames. Therefore `FEATURE_GIF` must stay `off` in every project until W6-10 merges and is deployed. After
-  W6-10 a GIF costs 2 units (sheet by bytes + thumbnail by URI) and +1 Class B for reading the object.
+- **Vision, frame-sampled (W6-10, ADR-0029 D11, F11).** FinalizeUpload reads the whole private GIF (1 Class B), pre-scans the
+  container without decoding pixels, then decodes one frame at a time and tiles the frames visible at 0, T/4, T/2 and 3T/4 of the
+  display time (up to four) into a 2 x 2 JPEG sheet (up to 1,280 x 960). Vision gets the sheet **by bytes** and the thumbnail **by URI**:
+  **always 2 units** (the full object is never sent by URI). This is stricter than D11 point 6, which said 1 unit with
+  `VISION_SCREEN_THUMB=false`: the thumbnail is a separate client upload that lists show, so it is always screened, like a banner's.
+  Frames between the sample points are not screened (the residual risk the founder accepted in F11 point 2); report-driven review
+  (ADR-0016) is the backstop.
+- **When `FEATURE_GIF` may leave `off`.** Only when **100 % of traffic in that project is on a revision that contains W6-10**. During
+  a split an older revision still screens only the first frame, so the flag stays `off` through the whole rollout of the revision (the
+  ADR-0029 D12 "100 % rule" applies on top). Dev: after the deploy-dev run of the merge commit serves 100 %. Prod: after the `v*`
+  release that contains it is at 100 % and the `production-reviewer` GO covers it.
+- **Guards (per instance).** `GIF_MAX_FRAMES` (300), `GIF_MAX_EDGE` (1,280, checked against the real logical screen, not the declared
+  size), `GIF_MAX_FRAME_AREA_SUM` (50,000,000 pixels), a frame outside the logical screen, a missing trailer or any unparseable block ->
+  `REJECTED` ("This GIF is too large or too long." for the limits, the generic invalid text for malformed data), 0 Vision units, objects
+  deleted. A semaphore of 1 per instance covers read + scan + decode + sheet (about 26 MiB live at the limits); a second GIF waits at
+  most 5 s, then answers the retryable `MEDIA_NOT_READY` with no Vision spend and its screening claim released. The sampler has a 2 s
+  deadline (a GIF that cannot be sampled in time is `REJECTED` as too large); a decoder panic is recovered, reported to Error Reporting
+  (`rpc=media/gif_screen`) and the GIF is `REJECTED` (invalid).
+- **Symptoms and what to do.**
+  - Many "too large or too long" rejections: read the `gif_screen` lines (`refused_reason`: `frames`, `edge`, `area`, `frame_outside`,
+    `deadline`). Mostly `deadline` on ordinary GIFs means the instance CPU is too slow for the limits: lower `GIF_MAX_FRAME_AREA_SUM`
+    (config, no code change); do not raise the deadline.
+  - Users see "the upload is not complete yet" on GIFs while nobody else is uploading: the slot is contended (one GIF at a time per
+    instance, 5 s wait). The client retries. Persistent contention at Stage 0 means the allowlist is larger than planned.
+  - A report of an explicit GIF that got through: set `FEATURE_GIF=off`, then take the post down with `opsctl` (ADR-0016). This is the
+    F11 rollback trigger.
+  - Error Reporting entry `media/gif_screen` with a panic type: a malformed GIF crashed the decoder and was rejected. Keep the bytes
+    (private upload bucket, 2-day lifecycle) as a fuzz seed.
+- **Budget (one GIF finalize).** Firestore unchanged (claim and resolve writes, the cached Vision counter); GCS Class B +1 (the full
+  read; attrs and the 512-byte head stay 2 per object), Class A unchanged (2 copies); Vision 2 units; egress <= 2 MiB us-central1 ->
+  asia-south1 (inside the free GCS egress); CPU typically < 0.2 s, worst case at the area cap about 0.7 s on a laptop-class core.
+- **Logs.** One `gif_screen` line per screened GIF: `frames`, `sampled`, `units` (2, or 0 when refused or Vision failed), `decode_ms`,
+  `refused_reason` (enum; never content).
 - **At the Vision cap** a GIF is `REJECTED` (reason `capacity`) for every account, whatever `VISION_EXHAUSTED_POLICY` says
   (ADR-0029 F11 point 4); photos keep their policy. Symptom for users: "Image uploads are temporarily limited" on GIFs only.
 - **Kill switch.** `FEATURE_GIF=off` stops new GIF uploads and new GIF posts (CreatePost re-checks the flag after loading

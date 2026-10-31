@@ -277,6 +277,13 @@ class PostsRepository {
         pb.DeletePostRequest(idempotencyKey: idempotencyKey, postId: postId),
       ),
     );
+    await forgetPostLocally(postId);
+  }
+
+  /// Drops [postId] from every cached feed and tells the open feeds, with no
+  /// RPC. Used when the post is already gone on the server (delete confirmed,
+  /// or the caller's REPOST was undone: W3-41c).
+  Future<void> forgetPostLocally(String postId) async {
     await _store.removePost(postId);
     _removed.add(postId);
   }

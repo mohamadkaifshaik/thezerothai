@@ -20,8 +20,9 @@ func TestLoad_SearchDefaults(t *testing.T) {
 		t.Errorf("search limits = %d/%d/%d/%d, want 30/20/300/400", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute, rl.SearchCallsPerDay, rl.TrendsCallsPerDay)
 	}
 	s := cfg.Search
-	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 3 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 12*time.Hour || len(s.TrendsDenylist) != 0 {
-		t.Errorf("search config = %+v, want 2000/500/3/2000/12h/none", s)
+	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 3 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 12*time.Hour ||
+		s.TrendsMinAccountAge != 72*time.Hour || s.TrendsMaxAuthorChecks != 500 || len(s.TrendsDenylist) != 0 {
+		t.Errorf("search config = %+v, want 2000/500/3/2000/12h/72h/500/none", s)
 	}
 	for _, f := range []struct {
 		spec flags.Spec
@@ -50,6 +51,8 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 		t.Setenv("TRENDS_MIN_AUTHORS", "4")
 		t.Setenv("TRENDS_MAX_POSTS_PER_RUN", "12")
 		t.Setenv("TRENDS_MIN_INTERVAL", "50m")
+		t.Setenv("TRENDS_MIN_ACCOUNT_AGE", "96h")
+		t.Setenv("TRENDS_MAX_AUTHOR_CHECKS", "77")
 		t.Setenv("TRENDS_DENYLIST", " #Spam, ,bad ")
 		t.Setenv("FEATURE_SEARCH", "allowlist")
 		t.Setenv("FEATURE_SEARCH_ALLOWLIST", "uid-a,uid-b")
@@ -63,7 +66,8 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 			t.Errorf("rate limit override = %d/%d/%d", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute, rl.SearchCallsPerDay)
 		}
 		s := cfg.Search
-		if s.PrefixCacheEntries != 10 || s.TagCacheEntries != 11 || s.TrendsMinAuthors != 4 || s.TrendsMaxPostsPerRun != 12 || s.TrendsMinInterval != 50*time.Minute {
+		if s.PrefixCacheEntries != 10 || s.TagCacheEntries != 11 || s.TrendsMinAuthors != 4 || s.TrendsMaxPostsPerRun != 12 || s.TrendsMinInterval != 50*time.Minute ||
+			s.TrendsMinAccountAge != 96*time.Hour || s.TrendsMaxAuthorChecks != 77 {
 			t.Errorf("search override = %+v", s)
 		}
 		if want := []string{"spam", "bad"}; !reflect.DeepEqual(s.TrendsDenylist, want) {
@@ -83,7 +87,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 
 	for _, key := range []string{
 		"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", "RATE_LIMIT_SEARCH_POSTS_PER_MIN", "SEARCH_CALLS_PER_DAY", "TRENDS_CALLS_PER_DAY", "CACHE_SEARCH_PREFIX_ENTRIES",
-		"CACHE_SEARCH_TAG_ENTRIES", "TRENDS_MIN_AUTHORS", "TRENDS_MAX_POSTS_PER_RUN",
+		"CACHE_SEARCH_TAG_ENTRIES", "TRENDS_MIN_AUTHORS", "TRENDS_MAX_POSTS_PER_RUN", "TRENDS_MAX_AUTHOR_CHECKS",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {
 			t.Run(key+"="+val, func(t *testing.T) {
@@ -95,14 +99,16 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 			})
 		}
 	}
-	for _, val := range []string{"0", "-1h", "soon"} {
-		t.Run("TRENDS_MIN_INTERVAL="+val, func(t *testing.T) {
-			clearEnv(t)
-			t.Setenv("TRENDS_MIN_INTERVAL", val)
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "TRENDS_MIN_INTERVAL") {
-				t.Errorf("Load() error = %v, want one naming TRENDS_MIN_INTERVAL", err)
-			}
-		})
+	for _, key := range []string{"TRENDS_MIN_INTERVAL", "TRENDS_MIN_ACCOUNT_AGE"} {
+		for _, val := range []string{"0", "-1h", "soon"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				clearEnv(t)
+				t.Setenv(key, val)
+				if _, err := Load(); err == nil || !strings.Contains(err.Error(), key) {
+					t.Errorf("Load() error = %v, want one naming %s", err, key)
+				}
+			})
+		}
 	}
 	for _, tt := range []struct{ key, val string }{
 		{"FEATURE_SEARCH", "bogus"}, {"FEATURE_SEARCH_PERCENT", "101"},

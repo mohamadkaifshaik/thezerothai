@@ -1,13 +1,13 @@
 // Package lists is the Lists module (ADR-0030): curated sets of up to LIST_MAX_MEMBERS accounts that a user can read as a
-// timeline and pin as a custom Home tab. It will own the lists/{listId} collection and dzeroth.lists.v1.ListService. Other
-// modules reach it through the interfaces in this file only (ADR-0030 D1): lists.Reader for reads, lists.Pins for the
-// pinned-tab clean-up, both added by the tickets that need them.
+// timeline and pin as a custom Home tab. It owns the lists/{listId} collection and dzeroth.lists.v1.ListService. Other modules
+// reach it through the interfaces only (ADR-0030 D1): Service for the handlers, Pins for the owner's pinned-tab clean-up (W5-9
+// implements it in identity), and lists.Reader for the timeline (W5-7).
 //
-// W5-3 ships the skeleton only: the flag name and its gate (FEATURE_LISTS, D9). It names no collection constant on purpose:
-// the T11 guard (internal/apiserver/lifecycle_collections_guard_test.go) fails the build for a collection constant without
-// an erasure row, so the constant, the eraser step and the guard row arrive together in W5-4 + W5-5. Later tickets add the
-// write path (W5-4), the lifecycle (W5-5), members (W5-6), reads and lists.Reader (W5-7); GetListTimeline lives in the
-// timeline module (W5-8) and SetHomeTabs in identity and timeline (W5-9).
+// What exists: the flag gate (W5-3, FEATURE_LISTS, D9); the write path CreateList, UpdateList and DeleteList (W5-4: model.go, service.go,
+// repo_firestore.go, cache.go); the member writes AddListMember and RemoveListMember (W5-6: service_members.go, repo_members.go); and the lifecycle (W5-5: purge.go, the `lists` eraser step and export section, registered in
+// apiserver/lifecycle_lists.go). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go) fails the build for a
+// collection constant without an erasure row, which is why W5-4 and W5-5 ship in one PR. Still to come: reads and
+// lists.Reader (W5-7); GetListTimeline lives in the timeline module (W5-8) and SetHomeTabs in identity and timeline (W5-9).
 package lists
 
 import (
