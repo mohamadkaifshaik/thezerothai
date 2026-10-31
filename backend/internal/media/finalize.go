@@ -188,6 +188,13 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	if d.ScreeningUntil != nil && d.ScreeningUntil.After(s.Now()) {
 		return s.screeningElsewhere(ctx, uid, d)
 	}
+	// 0b. Attempt cap (W6-27, security H-3): every claim below counts one attempt on the document. A document that used them
+	// all is REJECTED here, before verify, the claim and any Vision call, so a looped FinalizeUpload cannot bill forever.
+	if d.ScreenAttempts >= int64(s.maxScreenAttempts()) {
+		logger.SetRequestField(ctx, fieldAttemptsExhausted, true)
+		r, err := s.reject(ctx, d, reasonAttempts)
+		return r, 0, err
+	}
 	// 1. Verify what the signed URL already enforced (defence in depth) and the magic bytes.
 	reason, err := s.verify(ctx, d)
 	if errors.Is(err, errUploadMissing) {
@@ -216,6 +223,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	claimed := *d
 	claimed.UpdateTime, claimed.ScreeningUntil = claimedAt, &until
+	claimed.ScreenAttempts++
 	d = &claimed
 	defer func() {
 		if err != nil {
@@ -235,28 +243,34 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 			"image checks are temporarily unavailable, please try again").WithCause(logger.RedactErr(err, uid))
 	}
 	if ok {
-		blocked, err := s.screen(ctx, d)
+		blocked, answered, err := s.screen(ctx, d)
+		// Count what Vision answered, success or per-image error, and release only the units of calls that never got a
+		// response (W6-27, security H-3): Google bills an answered call, so releasing it would hide the spend from the cap.
+		spent = answered
 		if err != nil {
-			s.vision.release(units)
+			s.vision.release(units - answered)
 			// A GIF the sampler refused (D11) is REJECTED with no Vision spend; a busy slot is the retryable MEDIA_NOT_READY
 			// (the deferred releaseClaim frees the claim).
 			var refusal *gifRefusal
 			switch {
 			case errors.As(err, &refusal):
 				r, rerr := s.reject(ctx, d, refusal.reason)
-				return r, 0, rerr
+				return r, spent, rerr
 			case errors.Is(err, errGifBusy):
-				return Result{}, 0, mediaNotReady(d.ID, gifMessageBusy)
+				return Result{}, spent, mediaNotReady(d.ID, gifMessageBusy)
+			case isInvalidImage(err):
+				// Vision cannot decode the image: no retry can fix it, so it is terminal (the same answer as a bad magic number).
+				r, rerr := s.reject(ctx, d, reasonInvalid)
+				return r, spent, rerr
 			}
 			// Vision fetches the private object, so a concurrent finalize that already published and deleted it
 			// surfaces here as a screening failure although the image is READY: converge on its result.
 			if r, ok := s.resolvedElsewhere(ctx, d); ok {
-				return r, 0, nil
+				return r, spent, nil
 			}
-			return Result{}, 0, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
+			return Result{}, spent, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED,
 				"image checks are temporarily unavailable, please try again").WithCause(logger.RedactErr(err, uid))
 		}
-		spent = units
 		if blocked {
 			r, err := s.reject(ctx, d, reasonPolicy)
 			return r, spent, err
@@ -454,7 +468,7 @@ func (s *service) screensThumb(d *Doc) bool {
 // screen runs SafeSearch on the full image and, when screensThumb, the thumbnail (the small image is what lists
 // show, and it is uploaded separately). It reports whether either is blocked by the policy. A GIF is screened by its
 // sampled frames instead (screenGIF).
-func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) {
+func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, answered int64, err error) {
 	if d.ContentType == ContentTypeGIF {
 		return s.screenGIF(ctx, d)
 	}
@@ -467,8 +481,25 @@ func (s *service) screen(ctx context.Context, d *Doc) (blocked bool, err error) 
 	return s.screenAll(ctx, d, calls)
 }
 
+// isInvalidImage reports whether err is Vision's per-image INVALID_ARGUMENT.
+func isInvalidImage(err error) bool {
+	var ans *VisionAnsweredError
+	return errors.As(err, &ans) && ans.Invalid()
+}
+
+// maxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (default 3).
+func (s *service) maxScreenAttempts() int {
+	if s.MediaMaxScreenAttempts > 0 {
+		return s.MediaMaxScreenAttempts
+	}
+	return 3
+}
+
 // screenAll runs the Vision calls in parallel (a bounded 1 or 2) and reports whether any verdict is blocked by the policy.
-func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Context) (SafeSearch, error)) (blocked bool, err error) {
+// answered is the number of calls Vision answered, with a verdict or with a per-image error (VisionAnsweredError): Google
+// bills each of them, so the caller counts them even when err is non-nil (W6-27, security H-3). err is the first failure,
+// preferring an answered INVALID_ARGUMENT, so a broken image is not mistaken for a retryable outage.
+func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Context) (SafeSearch, error)) (blocked bool, answered int64, err error) {
 	type out struct {
 		ss  SafeSearch
 		err error
@@ -484,14 +515,26 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 	}
 	wg.Wait()
 	for _, o := range outs {
-		if o.err != nil {
-			return false, o.err
-		}
-		if blockedBySafeSearch(o.ss, Purpose(d.Purpose)) {
-			blocked = true
+		var ans *VisionAnsweredError
+		switch {
+		case o.err == nil:
+			answered++
+			if blockedBySafeSearch(o.ss, Purpose(d.Purpose)) {
+				blocked = true
+			}
+		case errors.As(o.err, &ans):
+			answered++
+			if err == nil || ans.Invalid() {
+				err = o.err
+			}
+		case err == nil:
+			err = o.err
 		}
 	}
-	return blocked, nil
+	if err != nil {
+		return false, answered, err
+	}
+	return blocked, answered, nil
 }
 
 // blockedBySafeSearch is ADR-0005's policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars and
