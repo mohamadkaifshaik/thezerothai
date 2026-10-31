@@ -22,6 +22,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
+import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -613,6 +614,255 @@ void main() {
       await openManage(tester);
 
       expect(find.textContaining('Nothing pinned yet'), findsOneWidget);
+    });
+  });
+
+  group('W5-16 gaps: pinned list states and write failures', () {
+    Future<void> openManage(
+      WidgetTester tester, {
+      Size size = const Size(400, 900),
+      Brightness brightness = Brightness.light,
+      double scale = 1,
+    }) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = size;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        app(() => const ManagePinnedScreen(), b: brightness, scale: scale),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('cold start: cached rows show first, then NOT_FOUND removes '
+        'them and offers Unpin (security L-6 accepted: the cache is shown '
+        'until the server answers)', (tester) async {
+      final answer = Completer<TimelineSnapshot>();
+      when(() => timeline.refresh(friends)).thenAnswer((_) => answer.future);
+      await openHome(tester);
+      await tester.tap(find.text('Friends'));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('post 11'), findsOneWidget, reason: 'cache first');
+      expect(find.text('This List is unavailable'), findsNothing);
+
+      answer.completeError(const NotFoundException('gone'));
+      await tester.pumpAndSettle();
+      expect(find.text('post 11'), findsNothing, reason: 'nothing stays');
+      expect(find.text('post 10'), findsNothing);
+      expect(find.text('This List is unavailable'), findsOneWidget);
+      expect(find.text('Unpin from Home'), findsOneWidget);
+      // The other pinned tab is untouched.
+      await tester.ensureVisible(find.text('Mutuals'));
+      await tester.tap(find.text('Mutuals'));
+      await tester.pumpAndSettle();
+      expect(find.text('post 21'), findsOneWidget);
+    });
+
+    testWidgets('offline cold start keeps the cached rows (the failure is not '
+        'NOT_FOUND)', (tester) async {
+      when(() => timeline.refresh(friends))
+          .thenThrow(const NetworkException('offline'));
+      await openHome(tester);
+      await tester.tap(find.text('Friends'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('post 11'), findsOneWidget);
+      expect(find.text('This List is unavailable'), findsNothing);
+    });
+
+    testWidgets('a failed Unpin keeps the tab and the view, says why, and '
+        'the retry reuses the idempotency key', (tester) async {
+      when(() => timeline.refresh(friends))
+          .thenThrow(const NotFoundException('gone'));
+      when(() => timeline.cached(friends))
+          .thenAnswer((_) async => snapshotOf([]));
+      answer = (_) => connect.ConnectException(connect.Code.unavailable, 'x');
+      await openHome(tester);
+      await tester.tap(find.text('Friends'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Unpin from Home'));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(1));
+      expect(find.byType(SnackBar), findsOneWidget);
+      // The optimistic unpin moved the selection to Following and the
+      // rollback did not move it back (Info, documented in the W5 report);
+      // the tab is back in the bar and a visit shows the state again.
+      expect(find.text('This List is unavailable'), findsNothing);
+      expect(find.text('post 3'), findsOneWidget);
+      expect([for (final t in tabs.tabs) t.id], ['L1', 'L2']);
+
+      await tester.pump(const Duration(seconds: 5));
+      answer = (r) => tl.SetHomeTabsResponse(tabs: r.tabs);
+      await tester.tap(find.text('Friends'));
+      await tester.pumpAndSettle();
+      expect(find.text('Unpin from Home'), findsOneWidget);
+      await tester.tap(find.text('Unpin from Home'));
+      await tester.pumpAndSettle();
+      expect(sent, hasLength(2));
+      expect(
+        sent[1].idempotencyKey,
+        sent[0].idempotencyKey,
+        reason: 'the same wish is retried with the same key',
+      );
+    });
+
+    testWidgets('Manage pinned: a failed reorder puts the order back and says '
+        'why', (tester) async {
+      answer = (_) => connect.ConnectException(connect.Code.unavailable, 'x');
+      await openManage(tester);
+
+      await tester.drag(
+        find.byIcon(Icons.drag_handle).first,
+        const Offset(0, 120),
+      );
+      await tester.pumpAndSettle();
+
+      expect(sent, hasLength(1));
+      expect(find.byType(SnackBar), findsOneWidget);
+      final friendsY = tester.getTopLeft(find.text('Friends')).dy;
+      final mutualsY = tester.getTopLeft(find.text('Mutuals')).dy;
+      expect(friendsY, lessThan(mutualsY), reason: 'Friends first again');
+      expect([for (final t in tabs.tabs) t.id], ['L1', 'L2']);
+    });
+
+    testWidgets('Manage pinned: a failed Unpin keeps the row', (tester) async {
+      answer = (_) => connect.ConnectException(connect.Code.unavailable, 'x');
+      await openManage(tester);
+
+      await tester.tap(find.byTooltip('Unpin Friends'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.byTooltip('Unpin Friends'), findsOneWidget);
+      expect(find.byTooltip('Pin Friends to Home'), findsNothing);
+    });
+
+    testWidgets('Manage pinned: a retry of a failed Pin reuses the key', (
+      tester,
+    ) async {
+      tabs.clearSession();
+      tabs.adoptFromMe([_wire('L1', 'Friends')], epoch: epoch.value);
+      answer = (_) => connect.ConnectException(connect.Code.unavailable, 'x');
+      await openManage(tester);
+
+      await tester.tap(find.byTooltip('Pin Mutuals to Home'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.tap(find.byTooltip('Pin Mutuals to Home'));
+      await tester.pumpAndSettle();
+
+      expect(sent, hasLength(2));
+      expect(sent[1].idempotencyKey, sent[0].idempotencyKey);
+    });
+
+    testWidgets('Manage pinned: first row has only Move down, last only Move '
+        'up', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await openManage(tester);
+
+      List<String?> actionsOf(String label) {
+        final node = tester.getSemantics(
+          find.byWidgetPredicate(
+            (w) =>
+                w is Semantics &&
+                w.properties.label == label &&
+                w.properties.customSemanticsActions != null,
+          ),
+        );
+        final ids =
+            node.getSemanticsData().customSemanticsActionIds ?? const [];
+        return [
+          for (final id in ids) CustomSemanticsAction.getAction(id)!.label,
+        ];
+      }
+
+      expect(actionsOf('Friends'), ['Move down']);
+      expect(actionsOf('Mutuals'), ['Move up']);
+      semantics.dispose();
+    });
+
+    forEachThemeAndWidth(
+      'five long, emoji and RTL titles fit on Home and in Manage pinned',
+      (tester, env) async {
+        const names = [
+          'A very long list name 25 chr',
+          'Reading \u{1F4DA}\u{1F4DA}\u{1F4DA}\u{1F4DA}',
+          'רשימה ארוכה מאוד',
+          'A​B​C​D​E​F',
+          'W',
+        ];
+        tabs.clearSession();
+        tabs.adoptFromMe([
+          for (var i = 0; i < 5; i++) _wire('P$i', names[i]),
+        ], epoch: epoch.value);
+        ownLists = [for (var i = 0; i < 5; i++) _info('P$i', names[i])];
+        for (var i = 0; i < 5; i++) {
+          final f = FeedKey.list('P$i');
+          when(() => timeline.sinceRefresh(f)).thenReturn(null);
+          when(() => timeline.sinceRefreshAttempt(f))
+              .thenReturn(const Duration(seconds: 5));
+          when(() => timeline.cached(f))
+              .thenAnswer((_) async => snapshotOf([]));
+          when(() => timeline.refresh(f))
+              .thenAnswer((_) async => snapshotOf([]));
+        }
+
+        await openHome(
+          tester,
+          size: env.size,
+          brightness: env.brightness,
+          scale: env.textScale,
+        );
+        expect(tester.takeException(), isNull);
+        final plus = find.byTooltip('Manage pinned timelines');
+        expect(plus, findsOneWidget);
+        expect(tester.getRect(plus).right, lessThanOrEqualTo(env.size.width));
+        expect(tester.getSize(plus).width, greaterThanOrEqualTo(48));
+
+        await tester.pumpWidget(const SizedBox());
+        await openManage(
+          tester,
+          size: env.size,
+          brightness: env.brightness,
+          scale: env.textScale,
+        );
+        expect(tester.takeException(), isNull);
+        expect(find.byTooltip('Unpin W', skipOffstage: false), findsOneWidget);
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
+
+    testWidgets('keyboard focus: after an arrow key switches tab the new tab '
+        'bar does not hold focus (W5-14 documented regression); Tab brings '
+        'it back', (tester) async {
+      await openHome(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(FocusManager.instance.primaryFocus, isNotNull);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(find.text('post 11'), findsOneWidget);
+
+      // The newly shown tab is a different bar with its own focus nodes: the
+      // focused node of the hidden bar is not inside the visible tab's bar.
+      final focused = FocusManager.instance.primaryFocus;
+      final inVisibleBar =
+          focused?.context != null &&
+          find
+              .descendant(
+                of: find.byType(AppTabBar).hitTestable(),
+                matching: find.byWidget(focused!.context!.widget),
+              )
+              .evaluate()
+              .isNotEmpty;
+      expect(inVisibleBar, isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(FocusManager.instance.primaryFocus, isNotNull);
     });
   });
 }
