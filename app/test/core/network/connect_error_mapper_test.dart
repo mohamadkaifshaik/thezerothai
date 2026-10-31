@@ -485,6 +485,58 @@ void main() {
     expect(mapped.message, "You can't message this account.");
   });
 
+  group('VotePoll refusals (ADR-0029 D6, W6-13)', () {
+    test('POLL_CLOSED maps to PollClosedException with fixed text', () {
+      final mapped = mapConnectError(
+        _withDetail(
+          connect.Code.failedPrecondition,
+          'server text',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_POLL_CLOSED,
+            message: 'closed',
+          ),
+        ),
+      );
+      expect(mapped, isA<PollClosedException>());
+      expect(mapped.message, 'This poll has ended.');
+    });
+
+    test('ALREADY_VOTED carries the stored 0-based choice', () {
+      final mapped = mapConnectError(
+        _withDetail(
+          connect.Code.failedPrecondition,
+          'server text',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_ALREADY_VOTED,
+            message: 'voted',
+            metadata: {'choice': '3'}.entries,
+          ),
+        ),
+      );
+      expect(mapped, isA<AlreadyVotedException>());
+      expect((mapped as AlreadyVotedException).choiceIndex, 3);
+    });
+
+    test('ALREADY_VOTED with a missing or odd choice keeps it null', () {
+      for (final metadata in [
+        <String, String>{},
+        {'choice': 'two'},
+      ]) {
+        final mapped = mapConnectError(
+          _withDetail(
+            connect.Code.failedPrecondition,
+            'server text',
+            common.ErrorDetail(
+              reason: common.ErrorReason.ERROR_REASON_ALREADY_VOTED,
+              metadata: metadata.entries,
+            ),
+          ),
+        );
+        expect((mapped as AlreadyVotedException).choiceIndex, isNull);
+      }
+    });
+  });
+
   group('ERROR_REASON_PROTECTED_ACCOUNT (ADR-0025 D14)', () {
     test('maps to ProtectedAccountException, whatever the code', () {
       for (final code in [

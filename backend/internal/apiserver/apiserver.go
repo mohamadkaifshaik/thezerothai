@@ -594,15 +594,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Lists (ADR-0030, W5-3): all seven routes are mounted so the interceptor chain covers them.
-	// Lists (ADR-0030): the write path (W5-4, CreateList, UpdateList, DeleteList) behind FEATURE_LISTS; the other four RPCs answer
-	// FEATURE_DISABLED (0 reads) or Unimplemented until W5-6 and W5-7. Pins stays nil until identity implements it (W5-9): a
+	// Lists (ADR-0030): the write path (W5-4 CreateList, UpdateList, DeleteList; W5-6 AddListMember, RemoveListMember) behind
+	// FEATURE_LISTS; the other three RPCs answer FEATURE_DISABLED (0 reads) or Unimplemented until W5-7. Pins stays nil until identity implements it (W5-9): a
 	// pinned tab of a deleted list is dropped lazily by GetMe then.
 	listsSvc := lists.New(lists.Deps{
-		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode,
+		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode, Graph: graphSvc,
 		Limits: lists.Limits{
 			MaxPerUser:    cfg.Lists.MaxPerUser,
 			CreatesPerDay: int64(cfg.Quota.ListCreatesPerDay), NewAccountCreatesPerDay: int64(cfg.Quota.NewAccountListCreatesPerDay),
 			NewAccountWindow: cfg.Quota.NewAccountWindow, CacheEntries: cfg.Lists.CacheEntries,
+			MaxMembers: cfg.Lists.MaxMembers, AddsPerDay: int64(cfg.Quota.ListAddsPerDay), NewAccountAddsPerDay: int64(cfg.Quota.NewAccountListAddsPerDay),
 		},
 	})
 	listsServer := lists.NewServer(featureFlags, listsSvc)
@@ -623,7 +624,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
-		search.WithTrends(trendsStore, nil)))
+		search.WithTrends(trendsStore, nil),
+		// The denylist also applies at serve time (ADR-0028 note 2026-10-31), so a deploy takes effect within the 10 min copy.
+		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,

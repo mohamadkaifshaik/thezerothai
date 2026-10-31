@@ -66,8 +66,8 @@ type UpdateInput struct {
 	IsPrivate   *bool
 }
 
-// Service is the write path of ListService that the handlers call (ADR-0030 D1, seam: handlers call only this). Later
-// tickets add the member writes (W5-6) and the reads (W5-7) next to it.
+// Service is the write path of ListService that the handlers call (ADR-0030 D1, seam: handlers call only this). W5-7 adds the
+// reads next to it.
 type Service interface {
 	// CreateList creates a list owned by uid. Firestore: reads 4 cold (interceptor, idempotency, quotas, count()) / 3
 	// warm; writes 3 (list, idempotency, quotas); replay reads 2, writes 0; at the cap or the quota 0 writes.
@@ -80,6 +80,17 @@ type Service interface {
 	// Firestore: reads 3 (interceptor, idempotency, list), +1 when pinned (Pins); writes 1 (idempotency) + 1 when
 	// pinned; deletes 1 (the list, Exists precondition); replay reads 2, writes 0.
 	DeleteList(ctx context.Context, uid, key, listID string) error
+	// AddMember adds userID to one of uid's lists (ADR-0030 D4); any other caller or list is the one NOT_FOUND. The target checks
+	// (ACTIVE, block either way, protected and not followed) run before the transaction from cache-first reads and are applied
+	// only after the idempotency lookup misses, so a replay answers with the stored outcome. Firestore: reads 5 cold (caller graph,
+	// target profile, idempotency, list, quotas; +1 target graph when the caller's blockedBy overflowed) / 3 warm, plus the
+	// interceptor's 1; writes 3 (list, quotas, idempotency), 1 when already a member; replay reads <= 3, writes 0; refused 0 writes.
+	AddMember(ctx context.Context, uid, key, listID, userID string) (View, error)
+	// RemoveMember removes userID from one of uid's lists; any other caller or list is the one NOT_FOUND. Not a member is
+	// success with the idempotency document only. Firestore: reads idempotency + list (2) + the caller graph (cache-first, 1 cold)
+	// only when a member is actually removed, plus the interceptor's 1; writes 2 (list, idempotency), 1 when not a member;
+	// replay reads 1, writes 0. No quota.
+	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
 }
 
 // Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs (ADR-0030 D1, D6). Identity
@@ -169,4 +180,43 @@ type Repo interface {
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	Update(ctx context.Context, p UpdateParams) (UpdateResult, error)
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
+	AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error)
+	RemoveMember(ctx context.Context, p RemoveMemberParams) (MemberResult, error)
+}
+
+// ErrMemberLimit and ErrProtected are the repository's refusals of AddMember (mapped to LIMIT_REACHED "list_members" and
+// PROTECTED_ACCOUNT by the service). ErrNotFound doubles as the refusal for a target that is missing, not ACTIVE or in a block
+// relationship with the owner: one answer for every cause, so the call is no block oracle (ADR-0008 D9).
+var (
+	ErrMemberLimit = errors.New("lists: member limit reached")
+	ErrProtected   = errors.New("lists: protected account not followed")
+)
+
+// AddMemberParams is one AddListMember write. Refusal is the service's verdict on the target (nil, ErrNotFound or
+// ErrProtected), computed before the transaction and applied after the idempotency lookup and the ownership check, so a replay
+// still answers and a foreign list is NOT_FOUND whatever the target is. BlockedBy is the owner's blockedBy set (read-only) for
+// the lazy drop of members who block the owner (F4).
+type AddMemberParams struct {
+	UID, ListID, TargetID, IdemKey, RequestHash string
+	Refusal                                     error
+	MaxMembers                                  int
+	QuotaLimit                                  int64
+	BlockedBy                                   map[string]bool
+}
+
+// RemoveMemberParams is one RemoveListMember write. BlockedBy loads the owner's blockedBy set for the lazy drop; the repository
+// calls it only when it is going to write the list (a no-op remove and a replay never load it). A nil func or a nil set drops
+// nobody.
+type RemoveMemberParams struct {
+	UID, ListID, TargetID, IdemKey, RequestHash string
+	BlockedBy                                   func(ctx context.Context) map[string]bool
+}
+
+// MemberResult is what Repo.AddMember and Repo.RemoveMember answer. List is the stored list after the call (nil on a replay);
+// Dropped counts members removed by the lazy drop in the same write.
+type MemberResult struct {
+	Outcome Outcome
+	Header  Header
+	List    *List
+	Dropped int
 }

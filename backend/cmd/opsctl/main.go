@@ -26,6 +26,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
@@ -82,6 +83,8 @@ type backends struct {
 	actorSweeper notifications.ActorSweeper
 	// sleep replaces the real wait of suspend-user's settle pass in tests (nil = real timer).
 	sleep func(ctx context.Context, d time.Duration) error
+	// trends serves `trends hide|unhide|list` (ADR-0028 note 2026-10-31, W4-25): search's store of trends/hidden.
+	trends search.TrendsStore
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -151,6 +154,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		backfiller:    postsRepo,
 		accounts:      identityRepo,
 		profiles:      identityRepo,
+		trends:        search.NewTrendsRepo(client),
 		retire:        retire,
 		retireMode:    retireMode,
 		retireErr:     retireErr,
@@ -172,7 +176,7 @@ const usage = `usage:
                           (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md.
                           A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
-` + modUsage
+` + modUsage + trendsUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -202,7 +206,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages":
+		"messages", "trends":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -211,11 +215,15 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	// the message to take down) are the first positional arguments. They come off before the flags are parsed, so --project
 	// and --dry-run may follow them.
 	sub, msgTarget := "", ""
-	if (cmd == "reports" || cmd == "messages") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if (cmd == "reports" || cmd == "messages" || cmd == "trends") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
 	}
 	if cmd == "messages" && (sub == "takedown" || sub == "loghash") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		msgTarget, rest = rest[0], rest[1:]
+	}
+	var trendTag string
+	if cmd == "trends" && (sub == "hide" || sub == "unhide") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		trendTag, rest = rest[0], rest[1:]
 	}
 	if cmd == "messages" && sub != "takedown" && sub != "loghash" && sub != "migrate-placeholder" { // before the flags: a stray positional would otherwise be reported instead
 		fmt.Fprintf(errOut, "messages needs a sub-command: takedown, loghash or migrate-placeholder\n%s", usage)
@@ -263,6 +271,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintf(errOut, "reports needs a sub-command: list, show or resolve\n%s", usage)
 		return 2
 	}
+	if cmd == "trends" {
+		if err := parseTrendsArgs(sub, trendTag); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
+	}
 	var msgConvID, msgID string
 	if cmd == "messages" {
 		var err error
@@ -292,7 +306,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages" && cmd != "trends"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -330,6 +344,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		} else {
 			err = takedownMessage(ctx, b, *project, msgConvID, msgID, ma, out, now)
 		}
+	case "trends":
+		err = trendsCommand(ctx, b, *project, sub, trendTag, out, now)
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":
