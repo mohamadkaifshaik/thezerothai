@@ -21,6 +21,7 @@ class ListRow extends StatelessWidget {
     required this.list,
     this.onTap,
     this.onEdit,
+    this.trailing,
     this.checked,
     this.checkTrailing,
     this.enabled = true,
@@ -29,6 +30,10 @@ class ListRow extends StatelessWidget {
   final pb.ListInfo list;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
+
+  /// A widget after the row instead of the Edit button (the Pin button of
+  /// Manage pinned, W5-14). Ignored when [onEdit] is given.
+  final Widget? trailing;
 
   /// Non-null makes the row a checkbox (spoken as checked or not) instead of a
   /// button; [checkTrailing] is the box (or a spinner) at the end of the row.
@@ -117,7 +122,9 @@ class ListRow extends StatelessWidget {
             tooltip: 'Edit ${list.name}',
             icon: const Icon(Icons.edit_outlined),
             onPressed: onEdit,
-          ),
+          )
+        else
+          ?trailing,
       ],
     );
   }
