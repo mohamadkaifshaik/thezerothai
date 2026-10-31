@@ -78,11 +78,11 @@ func TestSignedPutURL_BindsTypeMD5AndSize(t *testing.T) {
 	if gotOpts.ContentType != "image/webp" || gotOpts.MD5 != "1B2M2Y8AsgTpgAmY7PhCfg==" {
 		t.Errorf("type/md5 not bound: %+v", gotOpts)
 	}
-	if len(gotOpts.Headers) != 1 || gotOpts.Headers[0] != "x-goog-content-length-range:0,2097152" {
+	if len(gotOpts.Headers) != 2 || gotOpts.Headers[0] != "x-goog-content-length-range:0,2097152" || gotOpts.Headers[1] != "x-goog-if-generation-match:0" {
 		t.Errorf("signed headers = %v", gotOpts.Headers)
 	}
 	want := map[string]string{
-		"Content-Type": "image/webp", "Content-MD5": "1B2M2Y8AsgTpgAmY7PhCfg==", "x-goog-content-length-range": "0,2097152",
+		"Content-Type": "image/webp", "Content-MD5": "1B2M2Y8AsgTpgAmY7PhCfg==", "x-goog-content-length-range": "0,2097152", "x-goog-if-generation-match": "0",
 	}
 	if len(headers) != len(want) {
 		t.Fatalf("headers = %v", headers)

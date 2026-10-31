@@ -30,10 +30,13 @@ CreateUpload succeeds in the logs, no FinalizeUpload follows, and the browser co
 `storage.googleapis.com/<bucket>-media-upload/...` PUT (mobile apps are unaffected: no CORS). Cause: a header the signed PUT
 sends is not in the upload bucket's CORS `responseHeader` list. Cloud Storage matches exact names only; `x-goog-*` does not
 expand. Check with `gcloud storage buckets describe gs://<project>-media-upload --format='json(cors_config)'`; the list must
-hold `Content-Type`, `Content-MD5` and `x-goog-content-length-range`, and the request origin must be in `origin`. Fix in
+hold `Content-Type`, `Content-MD5`, `x-goog-content-length-range` and `x-goog-if-generation-match` (W6-25; apply the Terraform CORS change before or with the API deploy, or web uploads fail the preflight), and the request origin must be in `origin`. Fix in
 `infra/terraform/modules/media-buckets/main.tf` (plan, then apply). `objstore_cors_test.go` fails CI if the two drift.
 
-### FinalizeUpload returns UNAVAILABLE ("image checks are temporarily unavailable")
+### Upload replaced after verify (W6-25, H-1)
+The signed PUT is create-only (`x-goog-if-generation-match: 0`): a second PUT to the same URL gets 412 (the client treats 412 on its own retry as stored). The generation verify read is pinned on the GIF read and on the publish copy; if the object was replaced anyway, the call answers REJECTED (reason `invalid`) and the request log carries `changed_after_verify=true`; nothing is published. A burst of these is an attack signal (look for repeated PUTs), not a bug. Cost: 0 extra GCS calls (the generation comes from the existing attrs read; the copy precondition is a parameter).
+
+$1 ("image checks are temporarily unavailable")
 Vision (or its credentials) failed. Nothing was published and the image is still PENDING, so the client may retry.
 Check the Vision API is enabled in the project and the runtime service account can read the upload bucket. If it persists
 for hours, set `VISION_MONTHLY_CAP=0` only if you accept unscreened publishing for established accounts (D7).

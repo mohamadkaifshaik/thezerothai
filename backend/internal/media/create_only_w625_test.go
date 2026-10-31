@@ -72,7 +72,7 @@ type replaceBeforeRead struct {
 
 func (r *replaceBeforeRead) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 && object == r.name && r.done.CompareAndSwap(false, true) {
-		r.fakeObjects.rePut(object, r.data, ContentTypeGIF)
+		r.rePut(object, r.data, ContentTypeGIF)
 	}
 	return r.fakeObjects.UploadHead(ctx, object, n, generation)
 }

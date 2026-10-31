@@ -121,15 +121,15 @@ func TestMediaOps_Integration(t *testing.T) {
 		t.Fatalf("Attrs of a missing object: %v", err)
 	}
 
-	head, err := up.ReadHead(ctx, "u/x/1.jpg", 512)
+	head, err := up.ReadHead(ctx, "u/x/1.jpg", 512, 0)
 	if err != nil || len(head) != 512 || head[0] != 0xff || head[1] != 0xd8 {
 		t.Fatalf("ReadHead = %d bytes, %v", len(head), err)
 	}
-	if _, err := up.ReadHead(ctx, "u/x/missing.jpg", 512); !errors.Is(err, ErrObjectNotFound) {
+	if _, err := up.ReadHead(ctx, "u/x/missing.jpg", 512, 0); !errors.Is(err, ErrObjectNotFound) {
 		t.Fatalf("ReadHead of a missing object: %v", err)
 	}
 
-	if err := up.CopyTo(ctx, "u/x/1.jpg", pub, "m/1.jpg", "image/jpeg", "public, max-age=31536000, immutable"); err != nil {
+	if err := up.CopyTo(ctx, "u/x/1.jpg", 0, pub, "m/1.jpg", "image/jpeg", "public, max-age=31536000, immutable"); err != nil {
 		t.Fatalf("CopyTo: %v", err)
 	}
 	pa, err := pub.Attrs(ctx, "m/1.jpg")
@@ -140,10 +140,52 @@ func TestMediaOps_Integration(t *testing.T) {
 		t.Fatal("published bytes differ from the upload")
 	}
 	// A repeated copy replaces the destination harmlessly; a missing source is ErrObjectNotFound.
-	if err := up.CopyTo(ctx, "u/x/1.jpg", pub, "m/1.jpg", "image/jpeg", "public"); err != nil {
+	if err := up.CopyTo(ctx, "u/x/1.jpg", 0, pub, "m/1.jpg", "image/jpeg", "public"); err != nil {
 		t.Fatalf("second CopyTo: %v", err)
 	}
-	if err := up.CopyTo(ctx, "u/x/missing.jpg", pub, "m/2.jpg", "image/jpeg", "public"); !errors.Is(err, ErrObjectNotFound) {
+	if err := up.CopyTo(ctx, "u/x/missing.jpg", 0, pub, "m/2.jpg", "image/jpeg", "public"); !errors.Is(err, ErrObjectNotFound) {
 		t.Fatalf("CopyTo of a missing source: %v", err)
+	}
+}
+
+// TestGenerationPin_Integration proves the W6-25 pin: a read or copy of the generation Attrs reported succeeds, and after the
+// object is overwritten both answer ErrGenerationChanged and publish nothing.
+func TestGenerationPin_Integration(t *testing.T) {
+	if os.Getenv("STORAGE_EMULATOR_HOST") == "" {
+		t.Skip("STORAGE_EMULATOR_HOST not set; run via the emulator suite")
+	}
+	ctx := context.Background()
+	suffix := rand.Int63()
+	up, err := New(fmt.Sprintf("demo-upload-%d", suffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := New(fmt.Sprintf("demo-public-%d", suffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	put := func(body string) {
+		t.Helper()
+		if err := up.Put(ctx, "u/x/g.jpg", "image/jpeg", func(w io.Writer) error { _, err := io.WriteString(w, body); return err }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("first-bytes")
+	a, err := up.Attrs(ctx, "u/x/g.jpg")
+	if err != nil || a.Generation == 0 {
+		t.Fatalf("Attrs = %+v, %v", a, err)
+	}
+	if _, err := up.ReadHead(ctx, "u/x/g.jpg", 512, a.Generation); err != nil {
+		t.Fatalf("pinned ReadHead: %v", err)
+	}
+	put("swapped-bytes")
+	if _, err := up.ReadHead(ctx, "u/x/g.jpg", 512, a.Generation); !errors.Is(err, ErrGenerationChanged) {
+		t.Fatalf("pinned ReadHead after swap: %v", err)
+	}
+	if err := up.CopyTo(ctx, "u/x/g.jpg", a.Generation, pub, "m/g.jpg", "image/jpeg", "public"); !errors.Is(err, ErrGenerationChanged) {
+		t.Fatalf("pinned CopyTo after swap: %v", err)
+	}
+	if _, err := pub.Attrs(ctx, "m/g.jpg"); !errors.Is(err, ErrObjectNotFound) {
+		t.Fatalf("a refused copy published: %v", err)
 	}
 }

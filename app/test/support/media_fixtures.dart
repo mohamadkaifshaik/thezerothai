@@ -41,6 +41,7 @@ pb.UploadTarget uploadTarget(String mediaId, {DateTime? expiresAt}) {
       'Content-Type': 'image/jpeg',
       'Content-MD5': 'md5-$mediaId$path',
       'x-goog-content-length-range': '0,2097152',
+      'x-goog-if-generation-match': '0',
     }.entries,
     expiresAt: expires,
   );

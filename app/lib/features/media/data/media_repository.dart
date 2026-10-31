@@ -150,7 +150,8 @@ class MediaRepository {
   }
 
   /// PUTs [bytes] to [target] with exactly the headers the server signed.
-  /// Network trouble is a [NetworkException]; a 4xx from storage (expired or
+  /// Network trouble is a [NetworkException]; a 412 means the object is already stored (create-only URL, the first PUT
+  /// landed) and is success; another 4xx from storage (expired or
   /// altered upload) is a [StorageRefusedException]; a 5xx is an
   /// [UnknownApiException] (transient).
   Future<void> putObject(pb.SignedUpload target, Uint8List bytes) async {
@@ -167,6 +168,10 @@ class MediaRepository {
     } on Exception {
       throw const NetworkException('The upload could not reach the server.');
     }
+    // 412: the signed URL is create-only (x-goog-if-generation-match: 0), so a
+    // retry after a PUT that landed but whose answer was lost finds the object
+    // already stored. The server re-verifies the stored bytes at finalize.
+    if (status == 412) return;
     if (status >= 400 && status < 500) {
       // 403 is the normal "URL expired" answer; anything else 4xx is odd.
       if (status != 403) {
