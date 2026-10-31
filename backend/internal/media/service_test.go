@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -39,6 +40,13 @@ type envOpts struct {
 	perDay      int64
 	newPerDay   int64
 	dirErr      error
+	// W6-10 GIF screen: wrap the object store, override the guard values (0 = defaults).
+	objects      func(*fakeObjects) Objects
+	gifWait      time.Duration
+	gifDecode    time.Duration
+	gifMaxFrames int
+	gifMaxArea   int64
+	log          *slog.Logger // nil = the default logger
 }
 
 func newEnv(t *testing.T, o envOpts) *env {
@@ -56,8 +64,13 @@ func newEnv(t *testing.T, o envOpts) *env {
 		o.accountAge = 30 * 24 * time.Hour
 	}
 	e := &env{repo: newFakeRepo(), obj: newFakeObjects(), mod: &fakeModerator{by: map[string]SafeSearch{}}, sign: &fakeSigner{}}
+	var objs Objects = e.obj
+	if o.objects != nil {
+		objs = o.objects(e.obj)
+	}
 	svc, err := New(Deps{
-		Repo: e.repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
+		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
+		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea,
 		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,

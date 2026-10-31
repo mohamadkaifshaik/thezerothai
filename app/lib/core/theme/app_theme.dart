@@ -42,6 +42,10 @@ abstract final class AppOpacity {
   /// Tint of a highlighted (for example unread) row: a hint, never the only
   /// signal.
   static const double rowTint = 0.08;
+
+  /// Fill of the leading result bar of a poll (accent over the surface); the
+  /// other bars use the border colour. Text over it keeps AA in both themes.
+  static const double pollLeadingBar = 0.35;
 }
 
 /// Page-level layout widths (dp) of the desktop/web shell.

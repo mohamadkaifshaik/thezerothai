@@ -1,0 +1,3 @@
+{"lists":[{"listId":"0000000000000000001","name":"Cricket","description":"Test and ODI","isPrivate":true,"memberIds":["u-a","u-b"],"createdAt":"2026-10-30T09:00:00Z","updatedAt":"2026-10-30T10:00:00Z"}
+,{"listId":"0000000000000000002","name":"Empty","description":"","isPrivate":false,"memberIds":[],"createdAt":"2026-10-30T09:00:00Z","updatedAt":"2026-10-30T09:00:00Z"}
+]}

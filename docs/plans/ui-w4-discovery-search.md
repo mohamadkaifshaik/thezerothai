@@ -264,12 +264,12 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | In review (#472) |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
-| W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | In review (#500; D-1 Low fixed in #501) |
-| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow fixed) |
+| W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Done (#500; D-1 Low fixed in #501) |
+| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow fixed in #509) |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (#492) |
-| W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Open |
-| W4-25 | Trends fast removal: `trends/hidden` + `opsctl trends hide\|unhide\|list`, serve-time denylist and hidden filter in GetTrends, skeleton matching, `trends_denylist` Terraform variable, runbook 4.3 | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged | yes (search module, `cmd/opsctl`) | Open |
+| W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Done in dev 2026-10-31 (allowlist 6 test accounts; smoke passed; grant removed) |
+| W4-25 | Trends fast removal: `trends/hidden` + `opsctl trends hide\|unhide\|list`, serve-time denylist and hidden filter in GetTrends, skeleton matching, `trends_denylist` Terraform variable, runbook 4.3 | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged | yes (search module, `cmd/opsctl`) | Done (#508: `trends/hidden`, `opsctl trends` hide, unhide, list, serve-time denylist and hide filter with renumbered ranks, `search.TrendKey`, `trends_denylist` Terraform variable in `envs/dev` and `envs/prod` (not applied), runbook 4.3, proto comments) |
 | W4-26 | Trends counts only established authors (ACTIVE, `TRENDS_MIN_ACCOUNT_AGE` 72 h); `trends_min_authors` Terraform variable (prod 5) | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged; after W4-25 (both edit `trends_refresh.go`) | yes | Open |
 | W4-27 | SearchPosts LATEST: fixed query windows, filter before cutting, token from the last returned row, tail token once the end of the tag is in view | backend-developer (+ tester for the W4-20 case) | S | W4-8 merged | yes | Open |
 | W4-28 | GetTrends daily call cap `trends_daily` (`TRENDS_CALLS_PER_DAY` 400) + guard test | backend-developer | XS | W4-10 merged | `ratelimit_config.go` and `config.go` are shared: merge one at a time | Open |
@@ -704,7 +704,7 @@ Order:
 - **Seam.** W3's suggestion repository is the only data source.
 - **Parallel with W3:** **depends on W3.**
 
-### W4-20 — Backend tests  [owner: tester] [size: M] [depends: W4-5, W4-8, W4-10]  Status: In review (14 chain tests added; D-1 Low reported in docs/reviews/test-report-w4.md)
+### W4-20 — Backend tests  [owner: tester] [size: M] [depends: W4-5, W4-8, W4-10]  Status: Done (#500: 14 chain tests; D-1 Low fixed in #501)
 - **Description.** Integration tests on emulators:
   - flag modes off / allowlist / percent / on for `search` and `trends`, with the refresh kill switch (`off` only);
   - the grammar table (valid, too short, too long, control and bidi characters, `#` with a digits-only body), each rejection at 0 reads;
@@ -774,7 +774,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed]  Status: Open
+### W4-24 — Dev rollout  [owner: production-deployer] [size: S] [depends: W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed]  Status: Done in dev 2026-10-31 (see "Dev rollout result" below)
 - **Security conditions (W4-22 verdict "dev allowlist: GO on conditions", 2026-10-31).**
   1. W4-25 to W4-28 are in this plan before either flag leaves `off` in dev: met when the PR that adds them (`docs/ui-w4-25-28-tickets`) merges. Building them is **not** a dev dependency.
   2. The dev allowlists of `search` and `trends` hold the dev test accounts only (`docs/runbooks/smoke-accounts.md`), within the ceiling `max_allowlist` 6. No real user's uid goes on them.
@@ -793,6 +793,12 @@ Order:
 - **Flag.** Dev: `feature_search` and `feature_trends` set to allowlist (3 uids); prod stays `off`.
 - **Seam.** —
 - **Parallel with W3:** serialise dev applies with W3's rollout.
+- **Dev rollout result (2026-10-31).**
+  - Targeted dev plan on the `api` service only: 0 to add, 1 to change, 0 to destroy, same image. `FEATURE_SEARCH` and `FEATURE_TRENDS` = allowlist with the 6 dev test accounts (ceiling 6), percent 0; the other new flags of W5/W6 config arrived `off`. The Terraform revision `api-00404-cnz` was routed 100% (fallback `api-00845-fuy`, same image, flags absent).
+  - Smoke as test accounts 1 to 3 (API): GetMe lists `search` and `trends`; SearchPeople by prefix (3 rows) and by exact handle (1 row); a bidi query is VALIDATION; a fresh tag posted by the 3 accounts shows 3 rows on TOP and LATEST, 0 on MEDIA (no media), no token. Request lines carry `query_kind` / `query_len` / counts only, and the raw tag appears in no log line.
+  - Trends: the `cron_test_invoker` grant was added by a targeted apply (1 day expiry, founder OK), one OIDC call to `/internal/cron/trends-refresh` answered 204 (`trends_refresh`: 4 posts scanned, 1 tag kept, 5 reads, 1 write), GetTrends then showed the tag at rank 1 with 3 posts for all 3 accounts (after the 10-minute instance copy of the earlier empty list expired), and the `#w424` prefix filter found it. The grant was removed by a targeted destroy the same hour.
+  - The ID token was minted with the IAM Credentials `generateIdToken` call, not `gcloud auth print-identity-token --impersonate-service-account` (that needs `getAccessToken`, which the grant deliberately lacks). The first mint right after the grant can fail while IAM propagates.
+  - Prod: unchanged (held release).
 
 ### W4-25 — Trends fast removal: hide list, serve-time filter, skeleton matching  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged]  Status: Open
 Source: security review W4-22 M-1 (`docs/reviews/security-w4-search.md`); ADR-0028 note 2026-10-31, part 1. Gate: **before `trends` leaves the allowlist in prod** (prod percent). It does not gate the dev or prod allowlist.

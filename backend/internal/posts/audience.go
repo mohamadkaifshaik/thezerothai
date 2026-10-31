@@ -279,7 +279,7 @@ func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 
 // ApplyWithheld turns v into the owner's placeholder row (ADR-0025 note W3-36 L-2): the post keeps only its id, kind
 // and author snapshot, and every other field of the view is cleared (text, media, labels, hashtags, mentions, counts,
-// reply fields, visibility, embed, timestamp, embed state, reply permission). The viewer's liked, reposted and
+// reply fields, visibility, embed, timestamp, embed state, reply permission, poll choice). The viewer's liked, reposted and
 // bookmarked flags are left to the caller, which knows which list the row is in. The only place this strip happens.
 func ApplyWithheld(v *postsv1.PostView) {
 	if v.GetPost() == nil {
@@ -287,6 +287,7 @@ func ApplyWithheld(v *postsv1.PostView) {
 	}
 	v.Post = &postsv1.Post{PostId: v.Post.PostId, Kind: v.Post.Kind, Author: v.Post.Author}
 	v.EmbedViewerState = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+	v.ViewerPollChoice = 0 // the placeholder carries no poll, so no choice either (ADR-0029 D4)
 	v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_UNSPECIFIED
 	v.Withheld = true
 }

@@ -343,3 +343,27 @@ func TestRepo_RepostDocStoresHasMediaFalse(t *testing.T) {
 		t.Fatalf("test setup: the original's image should be in the embed, got %v", emb)
 	}
 }
+
+// W6-6 (ADR-0029 D3): LoadUserLikes returns pollVotes from the same single read; a document written before polls has none.
+func TestRepo_LoadUserLikesReturnsPollVotes(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	if _, err := e.client.Collection("userLikes").Doc("u1").Set(ctx, map[string]any{
+		"recent": []string{"1"}, "pollVotes": []string{"1700000000000000001:2", "1700000000000000002:0"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.client.Collection("userLikes").Doc("u2").Set(ctx, map[string]any{"recent": []string{"1"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		uid  string
+		want int
+	}{{"u1", 2}, {"u2", 0}, {"nobody", 0}} {
+		cctx, c := budget.WithCounter(ctx)
+		ul, err := e.repo.LoadUserLikes(cctx, tt.uid)
+		if err != nil || len(ul.PollVotes) != tt.want || c.Reads() != 1 || c.Writes() != 0 {
+			t.Fatalf("%s: votes=%v err=%v reads=%d writes=%d, want %d votes in 1 read", tt.uid, ul.PollVotes, err, c.Reads(), c.Writes(), tt.want)
+		}
+	}
+}

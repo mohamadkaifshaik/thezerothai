@@ -359,14 +359,14 @@ Effect on the quotas (additive):
 | W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
 | W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Done (#497) |
-| W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Open |
+| W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Done |
 | W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Open |
 | W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Open |
 | W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
-| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
+| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
@@ -525,7 +525,7 @@ Order:
   - W6-7 note: `Cache.AdjustCounts` shallow-copies `Post`, so every cached copy shares one `*Poll`; after a committed vote build a NEW `Poll` with fresh `Counts` for the cache, never mutate in place.
   - W6-7 note: increment a vote with `firestore.FieldPath{"poll","counts",strconv.Itoa(i)}` and `{"poll","total"}`, not a dotted string (the keys are numeric strings).
 
-### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Open
+### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Done
 - **Description.**
   - engagement: `LoadUserLikes` also returns `pollVotes`.
   - posts: `ViewerSet` gains `pollChoice map[string]int` and `PollChoice(p)`, keyed by `viewerID`.
@@ -550,6 +550,13 @@ Order:
 - **Flag.** `FEATURE_POLLS` (the GloballyOff rule above); `engagement` for hydration.
 - **Seam.** `posts.ViewerSet` and the converter are the only places that know the rule; timeline, engagement and search call them.
 - **Runs alongside W3/W4/W5:** `posts/api.go` is read by W4 (`HydrateViewer`); W3-10's ListLikedPosts must use the converter (stated in the guard test).
+- **Implementation notes (W6-6, as built).**
+  - `ViewerSet` gained `pollChoice map[string]int` and `pollsOff`; `WithPollVotes(entries)` parses `"<postId>:<index>"` (malformed or out-of-range entries skipped), `WithPollsGloballyOff()` marks the set, `PollChoice(p)` resolves a REPOST row to the original. `BookmarksOnly()` drops the choices and keeps the polls-off mark. `engagement.UserLikes.PollVotes` and `likesState.pollVotes` ride on the same `LoadUserLikes` read (+0 reads); the like, repost and bookmark cache updates keep them.
+  - `HydrateViewer` sets the polls-off mark from `GloballyOffChecker` before its early returns, so a viewer with `engagement` off still sees results while `FEATURE_POLLS` is off for everyone (no flag read costs a Firestore op). A `FlagChecker` without `GloballyOff` never marks it.
+  - Converter: `pollToProto(p, vs, viewer, now)`; `ToViewAt(p, vs, viewer, now)` is the clock seam (`ToView` calls it with `time.Now()`); `PostView.viewer_poll_choice` = index + 1, set from the ViewerSet for a REPOST row too; `ApplyWithheld` clears it. A PROTECTED embed already loses `embedded.poll` through `ApplyEmbedState`.
+  - Surfaces: one rule table per producer (voted, not voted, author, closed, engagement off, polls globally off) through the real `flags.Registry`: GetPost and GetThread (`posts/poll_view_test.go`), home and user timelines (`timeline/poll_viewer_test.go`), ListBookmarks and ListLikedPosts (`engagement/poll_lists_test.go`). SearchPosts shares `HydrateViewer` + `ToView` and is covered by the guard only. All production `FlagChecker`s are the `*flags.Registry`, so the globally-off mark reaches every producer.
+  - Guard: `TestPollConverterGuard_Repo` (posts package) names the producers (GetPost and GetThread, timelines, SearchPosts, ListBookmarks, ListLikedPosts, CreatePost via `ToProtoForViewer`) and fails on a `PostView`/`Poll` literal outside the converter or a plain `ToProto` call. W6-7 adds the `VotePoll` response to it.
+  - Not done here (W6-7): the `userLikes.pollVotes` write and its trim to `POLL_VIEWER_VOTES_KEPT`, the cache update after a vote, and the VotePoll response view. The read side does not trim.
 
 ### W6-7 — `VotePoll`  [owner: backend-developer] [size: M] [depends: W6-6]  Status: Open  (ships in one PR with W6-8)
 - **Description.** `engagement.Service.VotePoll`, step by step:
@@ -627,7 +634,7 @@ Order:
 - **Seam.** The content-type table in `media`; posts sees only `MediaClaim`.
 - **Runs alongside W3/W4/W5:** `media/service.go` and `finalize.go` change in W3-5 (banner), so do this after it or rebase.
 
-### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: Open
+### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: In review (this PR; `FEATURE_GIF` stays off until 100 % of traffic is on a revision with it)
 - **Description.** For a GIF in FinalizeUpload (F11 a):
   1. Read the object from the private upload bucket (≤ 2 MiB).
   2. Parse the header and frame descriptors and **refuse before decoding** above `GIF_MAX_FRAMES`, `GIF_MAX_EDGE` or `GIF_MAX_FRAME_AREA_SUM`.
@@ -692,7 +699,7 @@ Order:
 - **Seam.** `PollDraft` is the single model used by the builder, drafts (W6-14) and CreatePost.
 - **Runs alongside W3/W4/W5:** `composer_cubit.dart`, one PR at a time.
 
-### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: Open
+### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: In review
 - **Description.** `PollView` in `PostCard`, the thread view and the post detail:
   - **Open and not voted:** outlined choice buttons and "N votes · 2 days left".
   - **Voted, author or closed:** result bars with percentages (rounded so they total 100), the leading choice bold, a check on the viewer's choice, and "N votes · Final results" when closed.

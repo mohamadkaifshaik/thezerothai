@@ -4,6 +4,7 @@ import '../../core/theme/app_theme.dart';
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../format/relative_time.dart';
 import 'app_avatar.dart';
+import 'poll_card.dart';
 import 'post_media.dart';
 import 'protected_post_box.dart';
 import 'unavailable_post_box.dart';
@@ -136,6 +137,12 @@ class EmbeddedPostCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               PostMedia(media: embedded.media),
             ],
+            // W6-13: the frozen poll definition, compact and read-only; the
+            // whole card opens the original for live results.
+            if (embedded.hasPoll()) ...[
+              const SizedBox(height: AppSpacing.xs),
+              PollEmbedSummary(poll: embedded.poll, now: reference),
+            ],
           ],
         ),
       ),
@@ -150,6 +157,10 @@ class EmbeddedPostCard extends StatelessWidget {
         if (spoken.isNotEmpty) spoken,
         if (embedded.text.isNotEmpty) embedded.text,
         if (embedded.media.isNotEmpty) 'with ${embedded.media.length} photos',
+        if (embedded.hasPoll())
+          PollEmbedSummary.summary(embedded.poll, reference),
+        if (embedded.hasPoll())
+          PollEmbedSummary.summary(embedded.poll, reference),
       ].join(', '),
       excludeSemantics: true,
       onTap: onTap,
