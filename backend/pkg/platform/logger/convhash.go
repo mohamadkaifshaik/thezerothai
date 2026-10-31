@@ -21,7 +21,7 @@ const convHashInfo = "dzeroth log conversation_hash v1"
 var convHashKey atomic.Pointer[[]byte]
 
 // SetConversationKey derives the conversation-hash key from secret (CURSOR_HMAC_KEY: HKDF-SHA256, empty salt, info
-// convHashInfo, 32 bytes) and installs it. Call it once at startup, before serving. An empty secret is ignored, so a
+// convHashInfo, 32 bytes) and installs it. Call it once at startup, before serving. An empty secret is refused, so a
 // caller that has no key never silently installs a weak one.
 func SetConversationKey(secret []byte) error {
 	if len(secret) == 0 {
