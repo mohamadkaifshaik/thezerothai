@@ -26,6 +26,7 @@ import '../features/engagement/presentation/bloc/poll_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/graph/data/suggestions_repository.dart';
 import '../features/graph/presentation/bloc/suggestions_cubit.dart';
+import '../features/media/data/gif_source.dart';
 import '../features/media/data/image_picker_service.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
@@ -73,6 +74,8 @@ class AppWidget extends StatefulWidget {
     required this.mediaRepository,
     this.imagePicker,
     this.imageProcessor = const IsolateImageProcessor(),
+    this.gifSource,
+    this.gifPreparer = const IsolateGifPreparer(),
     required this.notificationsRepository,
     required this.messagingRepository,
     required this.moderationRepository,
@@ -148,6 +151,11 @@ class AppWidget extends StatefulWidget {
   final ImagePickerService? imagePicker;
   final ImageProcessor imageProcessor;
 
+  /// Where the composer's GIF comes from (W6-16); defaults to the device
+  /// gallery. [gifPreparer] checks it and makes its still thumbnail.
+  final GifSource? gifSource;
+  final GifPreparer gifPreparer;
+
   @override
   State<AppWidget> createState() => _AppWidgetState();
 }
@@ -216,6 +224,7 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
+  late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
   // Recent searches (W4-14): this device only, wiped on sign-out.
   late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
     widget.database,
@@ -390,6 +399,8 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
         RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
+        RepositoryProvider<GifSource>.value(value: _gifSource),
+        RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
         RepositoryProvider.value(value: widget.notificationsRepository),
         RepositoryProvider.value(value: widget.messagingRepository),
         RepositoryProvider.value(value: widget.moderationRepository),

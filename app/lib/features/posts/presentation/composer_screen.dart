@@ -19,6 +19,7 @@ import '../../../shared/widgets/character_counter.dart';
 import '../../../shared/widgets/embedded_post_card.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
+import '../../media/data/gif_source.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
@@ -117,6 +118,13 @@ class ComposerScreen extends StatelessWidget {
                 repository: context.read<MediaRepository>(),
                 onUnexpectedError: context.read<UnexpectedErrorReporter>(),
               ),
+              // Only a composer that offers GIFs needs the GIF pieces.
+              gifSource: featureEnabledSnapshot(context, kFeatureGif)
+                  ? context.read<GifSource>()
+                  : null,
+              gifPreparer: featureEnabledSnapshot(context, kFeatureGif)
+                  ? context.read<GifPreparer>()
+                  : null,
             ),
           ),
         BlocProvider<ComposerCubit>(
@@ -143,14 +151,23 @@ class ComposerScreen extends StatelessWidget {
       ],
       child: mediaEnabled
           ? BlocListener<AttachmentsCubit, AttachmentsState>(
-              listenWhen: (prev, curr) => curr.pickFailed && !prev.pickFailed,
-              listener: (context, _) {
+              listenWhen: (prev, curr) =>
+                  (curr.pickFailed && !prev.pickFailed) ||
+                  (curr.refusal != null && prev.refusal == null),
+              listener: (context, state) {
+                final cubit = context.read<AttachmentsCubit>();
                 ScaffoldMessenger.of(context)
                   ..hideCurrentSnackBar()
                   ..showSnackBar(
-                    const SnackBar(content: Text(kPickFailedMessage)),
+                    SnackBar(
+                      content: Text(state.refusal ?? kPickFailedMessage),
+                    ),
                   );
-                context.read<AttachmentsCubit>().pickFailureShown();
+                if (state.refusal != null) {
+                  cubit.refusalShown();
+                } else {
+                  cubit.pickFailureShown();
+                }
               },
               child: _ComposerView(
                 mediaEnabled: mediaEnabled,
@@ -323,7 +340,12 @@ class _ComposerViewState extends State<_ComposerView> {
           SnackBar(
             content: Text(
               state.uploadFailed
-                  ? uploadErrorMessage(error)
+                  ? uploadErrorMessage(
+                      error,
+                      gif:
+                          widget.mediaEnabled &&
+                          context.read<AttachmentsCubit>().state.hasGif,
+                    )
                   : state.isScheduling || _refusedScheduling(error)
                   ? scheduleErrorMessage(error)
                   : context.read<ComposerCubit>().quoteOfPostId.isNotEmpty
@@ -341,11 +363,17 @@ class _ComposerViewState extends State<_ComposerView> {
   Future<void> _requestClose(BuildContext context, ComposerState state) async {
     if (state.isSubmitting) return;
     if (state.hasAttachments) {
+      final gif =
+          widget.mediaEnabled && context.read<AttachmentsCubit>().state.hasGif;
       final discard = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Discard this post?'),
-          content: const Text('Your photos will not be saved.'),
+          content: Text(
+            gif
+                ? 'Your GIF will not be saved.'
+                : 'Your photos will not be saved.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -383,16 +411,26 @@ class _ComposerViewState extends State<_ComposerView> {
         // A time is only shown (and "Schedule" only written) while the
         // composer can still schedule: never a line the button cannot honour.
         final scheduling = state.isScheduling && cubit.canSchedule;
+        // A GIF is held by the AttachmentsCubit like photos; the composer
+        // state only knows "something is attached", so split it here.
+        final (hasGif, attachBusy) = widget.mediaEnabled
+            ? context.select<AttachmentsCubit, (bool, bool)>(
+                (c) => (c.state.hasGif, c.state.isBusy),
+              )
+            : (false, false);
         // One rule decides which toolbar buttons are on (W6-11). The poll
-        // and GIF attachments arrive with W6-12 / W6-16, so none is attached
-        // yet; the rule already reads the schedule and the photos.
+        // attachment arrives with W6-12.
         final rules = ComposerAttachmentRules(
           flagPolls: featureEnabledSnapshot(context, kFeaturePolls),
           engagementOn: featureEnabledSnapshot(context, kFeatureEngagement),
-          flagGif: featureEnabledSnapshot(context, kFeatureGif),
+          // A FEATURE_DISABLED `gif` answer is remembered by the posts gate.
+          flagGif:
+              featureEnabledSnapshot(context, kFeatureGif) &&
+              context.read<PostsRepository>().subFeatureEnabled(kFeatureGif),
           mediaOn: widget.mediaEnabled,
           isQuote: isQuote,
-          hasPhotos: state.hasAttachments,
+          hasPhotos: state.hasAttachments && !hasGif,
+          hasGif: hasGif,
           scheduled: scheduling,
         );
         // Back (system gesture, browser) is blocked while the post is being
@@ -536,7 +574,10 @@ class _ComposerViewState extends State<_ComposerView> {
                               if (rules.showGif)
                                 ComposerGifButton(
                                   block: rules.gif,
-                                  enabled: !state.isSubmitting,
+                                  enabled: !state.isSubmitting && !attachBusy,
+                                  onPressed: () => context
+                                      .read<AttachmentsCubit>()
+                                      .pickGif(),
                                 ),
                               if (rules.showPoll)
                                 ComposerPollButton(

@@ -2,9 +2,16 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
+import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 import '../domain/schedule_rules.dart';
+
+/// VALIDATION `media_ids`: a GIF came with other media, or with a schedule
+/// (ADR-0029 D10). The composer never builds either; this is the answer if a
+/// stale screen does.
+const kMediaCombinationMessage =
+    "A GIF can't go with photos or a schedule. Remove one and try again.";
 
 /// Friendly, typed messages for a failed CreatePost (shown in a snackbar;
 /// never the raw server text). [EmailNotVerifiedException] is normally
@@ -22,10 +29,14 @@ String createPostErrorMessage(AppException error) {
     FeatureDisabledException(feature: 'media') =>
       "Photos can't be added to posts right now. Remove them and post "
           'again, or try later.',
+    FeatureDisabledException(feature: kFeatureGif) =>
+      "GIFs can't be added to posts right now. Remove the GIF and post "
+          'again, or try later.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>
       'No connection. Your post was not sent; check your network and try '
           'again.',
+    ValidationException(field: 'media_ids') => kMediaCombinationMessage,
     ValidationException() =>
       "This post can't be sent. Check the text and try again.",
     MediaNotReadyException() =>
@@ -109,6 +120,10 @@ String scheduleErrorMessage(AppException error) {
     ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
     FeatureDisabledException(feature: kPostsSubFeatureMedia) =>
       createPostErrorMessage(error),
+    FeatureDisabledException(feature: kFeatureGif) => createPostErrorMessage(
+      error,
+    ),
+    ValidationException(field: 'media_ids') => kMediaCombinationMessage,
     // The audience is dropped by the composer ("Everyone"), so say so.
     FeatureDisabledException(feature: kFeatureReplyAudience) =>
       "Choosing who can reply isn't available right now. Your post will be "
