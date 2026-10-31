@@ -1,6 +1,7 @@
-// service_polls.go is VotePoll (ADR-0029 D6, ticket W6-7): one final vote per account per poll. The natural key
-// pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of CLAUDE.md rule 4 as ADR-0018's
-// likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success, a different choice is ALREADY_VOTED.
+// service_polls.go is VotePoll (ADR-0029 D6, ticket W6-7; Amendment 1 A1 and A2, ticket W6-36): one vote per account per poll, changeable until
+// the poll closes. The natural key pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of CLAUDE.md rule 4
+// as ADR-0018's likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success. A different choice is a change only
+// when expected_choice names the stored vote (the compare-and-set of A2.2), else ALREADY_VOTED. The voter blocking the author is TARGET_BLOCKED (A1).
 package engagement
 
 import (
@@ -26,21 +27,31 @@ import (
 
 // Request-line outcomes and fields of poll_vote (ADR-0029 Observability). Never the choice.
 const (
-	outcomeVoted     = "voted"
-	outcomeAlready   = "already_voted"
-	outcomeClosed    = "closed"
-	outcomeAuthor    = "author"
-	fieldContention  = "contention"
-	fieldPostHash    = "post_hash"
-	pollVotesDayName = "poll_votes_daily"
+	outcomeVoted       = "voted"
+	outcomeChanged     = "changed"
+	outcomeChangeLimit = "change_limit"
+	outcomeStale       = "stale_expected" // the ALREADY_VOTED row of the A2.2 table (was "already_voted")
+	outcomeVoterBlocks = "voter_blocks_author"
+	outcomeClosed      = "closed"
+	outcomeAuthor      = "author"
+	fieldContention    = "contention"
+	fieldPostHash      = "post_hash"
+	pollVotesDayName   = "poll_votes_daily"
 )
 
-// pollMetaChoice is the metadata key ALREADY_VOTED carries: the caller's own stored 0-based choice.
+// pollMetaChoice is the metadata key ALREADY_VOTED and LIMIT_REACHED carry: the caller's own stored 0-based choice.
 const pollMetaChoice = "choice"
 
+// pollChangesLimitName is the LIMIT_REACHED metadata["limit"] value of the per-poll change cap (POLL_VOTE_CHANGES_MAX).
+const pollChangesLimitName = "poll_vote_changes"
+
+// pollWriteAttempts bounds one VotePoll's decide-and-write rounds (A2.3 step 3): a round is lost only to a concurrent writer of the same vote
+// doc, and the fourth loss is the contention answer.
+const pollWriteAttempts = 4
+
 // VotePoll implements Polls.
-func (m *Module) VotePoll(ctx context.Context, uid, key, postID string, choiceIndex int32) (PollVote, error) {
-	return m.s.votePoll(ctx, uid, key, postID, choiceIndex)
+func (m *Module) VotePoll(ctx context.Context, uid, key, postID string, choiceIndex, expectedChoice int32) (PollVote, error) {
+	return m.s.votePoll(ctx, uid, key, postID, choiceIndex, expectedChoice)
 }
 
 var _ Polls = (*Module)(nil)
@@ -49,7 +60,7 @@ var _ Polls = (*Module)(nil)
 func pollBusyErr() error { return bookmarkBusyErr() }
 
 // votePoll implements Polls.VotePoll in the order of ADR-0029 D6; every refusal writes nothing.
-func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceIndex int32) (_ PollVote, err error) {
+func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceIndex, expectedChoice int32) (_ PollVote, err error) {
 	logger.SetRequestField(ctx, fieldOp, "poll_vote")
 	outcome := ""
 	defer func() {
@@ -66,11 +77,15 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	if err := validate(key, postID); err != nil {
 		return PollVote{}, err
 	}
-	// post_hash: HashUID (plain SHA-256, first 8 bytes), the logger's convention for object ids that are not guessable from other ids
-	// (message_hash does the same). A post id is public, so no key; it lets an operator count votes and contention per poll.
+	// post_hash: the keyed HashPost (security review W6-20 L-1): a post id is public, so a plain hash could be reversed by hashing
+	// known ids and would rebuild a voter list per poll. It still lets an operator count votes and contention per poll.
 	logger.SetRequestField(ctx, fieldPostHash, logger.HashPost(postID))
 	if choiceIndex < 0 || choiceIndex >= posts.MaxPollChoices {
 		return PollVote{}, apierr.Validation("choice_index", "choice_index must be between 0 and 3")
+	}
+	// expected_choice (A2.2) is 0 or the 1-based choice the caller holds; shape only, 0 reads. A value beyond the poll's options never matches.
+	if expectedChoice < 0 || expectedChoice > posts.MaxPollChoices {
+		return PollVote{}, apierr.Validation("expected_choice", "expected_choice must be between 0 and 4")
 	}
 	choice := int(choiceIndex)
 	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "voting"); err != nil {
@@ -107,47 +122,118 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	case choice >= len(target.Poll.Options):
 		return PollVote{}, apierr.Validation("choice_index", "choice_index is not a choice of this poll")
 	}
-	repo := s.d.PollRepo
-	if repo == nil {
+	// Step 5e (A1): the voter blocks the author. After the closed and range checks, so a blocked voter on a closed poll refreshes to the final
+	// results; after Viewable, so an author who blocks the voter has already answered the one NOT_FOUND. 0 reads: the snapshot is the one
+	// Viewable just cached. A replay is refused too (A1.1).
+	blocked, berr := s.voterBlocksAuthor(ctx, uid, target.AuthorID)
+	if berr != nil {
+		return PollVote{}, berr
+	}
+	if blocked {
+		outcome = outcomeVoterBlocks
+		return PollVote{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED, "you blocked this author, unblock to vote")
+	}
+	if s.d.PollRepo == nil {
 		return PollVote{}, errors.New("engagement: no poll repo configured")
 	}
-	// Step 6: one batch. It runs on a context that survives the caller leaving (the vote may commit anyway, and the cache and
-	// the response below must agree with it); the repo bounds it with txTimeout.
-	res, verr := repo.Vote(context.WithoutCancel(ctx), VoteParams{
-		UID: uid, PostID: target.ID, Choice: choice, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose), ClosesAt: target.Poll.ClosesAt,
-	})
-	if verr != nil {
-		return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, verr)
+	return s.decideAndWrite(ctx, uid, target, choice, int(expectedChoice), &outcome)
+}
+
+// voterBlocksAuthor reports whether uid blocks authorID, from the caller's own graph snapshot (blocked[], cached 60 s: +0 reads after Viewable).
+// It fails closed: no graph wired, or a snapshot error, is an error and never "not blocked".
+func (s *service) voterBlocksAuthor(ctx context.Context, uid, authorID string) (bool, error) {
+	if s.d.Graph == nil {
+		return false, errors.New("engagement: no graph reader configured for VotePoll")
 	}
-	post := target
-	switch res {
-	case VotePostGone:
-		return PollVote{}, notFound() // deleted between the visibility read and the commit: 0 writes
-	case VoteWritten:
-		logger.SetRequestField(ctx, fieldOutcome, outcomeVoted)
-		if fresh := s.d.Posts.PollVoted(target.ID, choice); fresh != nil {
-			post = fresh // the cached copy, composed with any concurrent vote on this instance
-		} else {
-			post = target.Voted(choice)
+	snap, err := s.d.Graph.Snapshot(ctx, uid)
+	if err != nil {
+		return false, logger.RedactErr(fmt.Errorf("engagement: poll vote: caller graph: %w", err), uid, authorID)
+	}
+	return snap.Blocked[authorID], nil
+}
+
+// decideAndWrite is steps 6 and 7 of D6 with the A2.2 decision table: up to pollWriteAttempts rounds, each either a blind create (no vote doc known
+// to exist) or a decision against the vote doc as just read (replay, change, LIMIT_REACHED, ALREADY_VOTED). A round repeats only when a concurrent
+// writer moved the vote doc under it. The batches run on a context that survives the caller leaving (the write may commit anyway, and the cache
+// and the response must agree with it); the repo bounds each with txTimeout. outcome is the request-line outcome of a refusal.
+func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.Post, choice, expected int, outcome *string) (PollVote, error) {
+	repo := s.d.PollRepo
+	wctx := context.WithoutCancel(ctx)
+	// e == 0 tries today's blind create first and reads the vote doc only on AlreadyExists; e != 0 reads it first (A2.3 step 1).
+	needRead := expected != 0
+	var prev time.Time // the UpdateTime of the vote doc a change just failed against
+	for attempt := 0; attempt < pollWriteAttempts; attempt++ {
+		if attempt > 0 && target.Poll.Closed(s.now()) { // A2.3 step 4: a retried round never commits after close
+			*outcome = outcomeClosed
+			return PollVote{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED, "this poll is closed")
 		}
-	case VoteExists:
-		// Step 7: read the vote doc (+1). The same choice is a replay (0 writes, the current view); another is ALREADY_VOTED.
-		stored, found, gerr := repo.GetVote(ctx, uid, target.ID)
+		if !needRead {
+			res, verr := repo.Vote(wctx, VoteParams{
+				UID: uid, PostID: target.ID, Choice: choice, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose), ClosesAt: target.Poll.ClosesAt,
+			})
+			if verr != nil {
+				return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, verr)
+			}
+			switch res {
+			case VotePostGone:
+				return PollVote{}, notFound() // deleted between the visibility read and the commit: 0 writes
+			case VoteWritten:
+				logger.SetRequestField(ctx, fieldOutcome, outcomeVoted)
+				post := target.Voted(choice)
+				if fresh := s.d.Posts.PollVoted(target.ID, choice); fresh != nil {
+					post = fresh // the cached copy, composed with any concurrent vote on this instance
+				}
+				return s.pollVoteView(ctx, uid, post, choice, true), nil
+			}
+			needRead = true // VoteExists: read the vote doc (D6 step 7)
+			continue
+		}
+		cur, found, gerr := repo.GetVote(ctx, uid, target.ID)
 		if gerr != nil {
 			return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, gerr)
 		}
 		if !found {
-			// The doc existed a moment ago and is gone now (a TTL cannot run before closesAt): ask the client to retry.
-			return PollVote{}, pollBusyErr()
+			if !prev.IsZero() {
+				return PollVote{}, notFound() // a change lost its precondition and the vote doc is gone: a deleted post (a TTL cannot run before closesAt)
+			}
+			if expected == 0 {
+				return PollVote{}, pollBusyErr() // the doc existed a moment ago and is gone now: ask the client to retry
+			}
+			needRead = false // no vote yet: the blind create of a new vote, whatever expected_choice says (A2.2 row 1)
+			continue
 		}
-		if stored != choice {
-			outcome = outcomeAlready
+		switch {
+		case cur.Choice == choice: // a replay: the current view, 0 writes
+			logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
+			return s.pollVoteView(ctx, uid, target, choice, false), nil
+		case expected != cur.Choice+1: // a stale or absent expected_choice: today's answer, 0 writes
+			*outcome = outcomeStale
 			return PollVote{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED,
-				"you already voted in this poll").WithMeta(pollMetaChoice, strconv.Itoa(stored))
+				"you already voted in this poll").WithMeta(pollMetaChoice, strconv.Itoa(cur.Choice))
+		case cur.Changes >= s.d.PollVoteChangesMax:
+			*outcome = outcomeChangeLimit
+			return PollVote{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
+				"you can't change your vote again").WithMeta("limit", pollChangesLimitName).WithMeta(pollMetaChoice, strconv.Itoa(cur.Choice))
 		}
-		logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
+		if !prev.IsZero() && cur.UpdateTime.Equal(prev) {
+			return PollVote{}, notFound() // the precondition failed and the vote doc did not move: the post is gone
+		}
+		res, cerr := repo.ChangeVote(wctx, ChangeParams{UID: uid, PostID: target.ID, From: cur.Choice, To: choice, Version: cur.UpdateTime, ClosesAt: target.Poll.ClosesAt, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose)})
+		if cerr != nil {
+			return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, cerr)
+		}
+		if res == ChangeStale {
+			prev = cur.UpdateTime // read again next round: moved = decide again, unmoved = the post is gone
+			continue
+		}
+		logger.SetRequestField(ctx, fieldOutcome, outcomeChanged)
+		post := target.VoteChanged(cur.Choice, choice)
+		if fresh := s.d.Posts.PollVoteChanged(target.ID, cur.Choice, choice); fresh != nil {
+			post = fresh // the cached copy, composed with any concurrent vote or change on this instance
+		}
+		return s.pollVoteView(ctx, uid, post, choice, false), nil
 	}
-	return s.pollVoteView(ctx, uid, post, choice, res == VoteWritten), nil
+	return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, store.ErrContended) // four lost rounds: a hot vote doc, the contention signal
 }
 
 // pollVoteView builds the response of a committed or replayed vote: the viewer's like, repost and bookmark flags from the
@@ -233,15 +319,19 @@ func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error)
 	return logger.RedactErr(fmt.Errorf("engagement: poll vote: %w", err), uid, postID)
 }
 
-// withPollVote appends entry unless the list already holds a vote for postID.
+// withPollVote returns list with entry as the post's one vote: any earlier entry for postID is dropped and entry goes last (ADR-0029 I-V3: one
+// entry per post, replaced on a change, the order Firestore's ArrayRemove + ArrayUnion leaves). The vote doc is the truth, so a replay corrects a
+// stale entry too. pollEntry builds the entry; this prefix match is its only reader here (W6-29 changes the entry format in both).
 func withPollVote(list []string, postID, entry string) []string {
 	prefix := postID + ":"
+	out := make([]string, 0, len(list)+1)
 	for _, e := range list {
 		if len(e) > len(prefix) && e[:len(prefix)] == prefix {
-			return list
+			continue
 		}
+		out = append(out, e)
 	}
-	return append(list, entry)
+	return append(out, entry)
 }
 
 // pruneExpiredPollVotes drops the expired userLikes.pollVotes entries (closesAt + POLL_VOTE_TTL_AFTER_CLOSE, poll_retention.go) from

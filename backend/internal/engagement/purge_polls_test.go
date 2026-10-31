@@ -123,3 +123,28 @@ func TestPollVoteExporter_ExportUser(t *testing.T) {
 		})
 	}
 }
+
+// The export row gains changedAt only for a vote that was changed (ADR-0029 Amendment 1 A2.6); the current choice is exported, never an earlier one.
+func TestPollVoteExporter_ChangedAt(t *testing.T) {
+	at := time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC)
+	src := &fakePollVoteSource{rows: []ExportedPollVote{
+		{PostID: "p1", Choice: 2, CreatedAt: at.Add(-time.Hour), ChangedAt: &at, id: "p1_u1"},
+		{PostID: "p2", Choice: 0, CreatedAt: at.Add(-time.Hour), id: "p2_u1"},
+	}}
+	var buf bytes.Buffer
+	if err := NewPollVoteExporter(src).ExportUser(context.Background(), "u1", &buf); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Votes []map[string]any `json:"poll_votes"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Votes) != 2 || len(doc.Votes[0]) != 4 || doc.Votes[0]["changedAt"] != "2026-10-02T03:04:05Z" || doc.Votes[0]["choice"] != float64(2) {
+		t.Fatalf("changed row = %v, want postId, choice 2, createdAt and changedAt", doc.Votes[0])
+	}
+	if len(doc.Votes[1]) != 3 || doc.Votes[1]["changedAt"] != nil {
+		t.Fatalf("unchanged row = %v, want no changedAt", doc.Votes[1])
+	}
+}

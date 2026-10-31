@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ func TestLoad_ComposerDefaults(t *testing.T) {
 	}
 	want := ComposerConfig{
 		PollMaxChoices: 4, PollChoiceMaxCodepoints: 25, PollMinDuration: 5 * time.Minute, PollMaxDuration: 168 * time.Hour,
-		PollVoteTTLAfterClose: 720 * time.Hour, PollViewerVotesKept: 500, GifMaxFrames: 300, GifMaxEdge: 1280, GifMaxFrameAreaSum: 50_000_000, MediaMaxScreenAttempts: 3, MediaMaxScreenRetries: 5, MediaVisionUnitsPerDay: 60, MediaVisionUnitsPerDayNewAccount: 12,
+		PollVoteTTLAfterClose: 720 * time.Hour, PollViewerVotesKept: 500, GifMaxFrames: 300, GifMaxEdge: 1280, GifMaxFrameAreaSum: 50_000_000, MediaMaxScreenAttempts: 3, MediaMaxScreenRetries: 5, MediaVisionUnitsPerDay: 60, MediaVisionUnitsPerDayNewAccount: 12, PollVoteChangesMax: 5,
 	}
 	if cfg.Composer != want {
 		t.Errorf("Composer = %+v, want %+v", cfg.Composer, want)
@@ -116,7 +117,7 @@ func TestLoad_ComposerOverrides(t *testing.T) {
 		"POLL_MAX_CHOICES": "3", "POLL_CHOICE_MAX_CODEPOINTS": "30", "POLL_MIN_DURATION": "10m", "POLL_MAX_DURATION": "48h",
 		"POLL_VOTE_TTL_AFTER_CLOSE": "48h", "POLL_VIEWER_VOTES_KEPT": "200", "RATE_LIMIT_POLL_VOTE_PER_MIN": "7",
 		"POLL_VOTES_PER_DAY": "100", "POLL_VOTES_PER_DAY_NEW_ACCOUNT": "100", "GIF_MAX_FRAMES": "100", "GIF_MAX_EDGE": "640",
-		"GIF_MAX_FRAME_AREA_SUM": "1000000", "MEDIA_MAX_SCREEN_ATTEMPTS": "5", "MEDIA_MAX_SCREEN_RETRIES": "0", "MEDIA_VISION_UNITS_PER_DAY": "100", "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT": "20", "RATE_LIMIT_MEDIA_FINALIZE_PER_MIN": "4",
+		"GIF_MAX_FRAME_AREA_SUM": "1000000", "MEDIA_MAX_SCREEN_ATTEMPTS": "5", "MEDIA_MAX_SCREEN_RETRIES": "0", "MEDIA_VISION_UNITS_PER_DAY": "100", "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT": "20", "RATE_LIMIT_MEDIA_FINALIZE_PER_MIN": "4", "POLL_VOTE_CHANGES_MAX": "0",
 	} {
 		t.Setenv(k, v)
 	}
@@ -126,7 +127,7 @@ func TestLoad_ComposerOverrides(t *testing.T) {
 	}
 	want := ComposerConfig{
 		PollMaxChoices: 3, PollChoiceMaxCodepoints: 30, PollMinDuration: 10 * time.Minute, PollMaxDuration: 48 * time.Hour,
-		PollVoteTTLAfterClose: 48 * time.Hour, PollViewerVotesKept: 200, GifMaxFrames: 100, GifMaxEdge: 640, GifMaxFrameAreaSum: 1_000_000, MediaMaxScreenAttempts: 5, MediaMaxScreenRetries: 0, MediaVisionUnitsPerDay: 100, MediaVisionUnitsPerDayNewAccount: 20,
+		PollVoteTTLAfterClose: 48 * time.Hour, PollViewerVotesKept: 200, GifMaxFrames: 100, GifMaxEdge: 640, GifMaxFrameAreaSum: 1_000_000, MediaMaxScreenAttempts: 5, MediaMaxScreenRetries: 0, MediaVisionUnitsPerDay: 100, MediaVisionUnitsPerDayNewAccount: 20, PollVoteChangesMax: 0,
 	}
 	if cfg.Composer != want {
 		t.Errorf("Composer = %+v, want %+v", cfg.Composer, want)
@@ -155,6 +156,7 @@ func TestLoad_ComposerBounds(t *testing.T) {
 		{"MEDIA_MAX_SCREEN_ATTEMPTS", "0"}, {"MEDIA_MAX_SCREEN_ATTEMPTS", "11"},
 		{"MEDIA_MAX_SCREEN_RETRIES", "-1"}, {"MEDIA_MAX_SCREEN_RETRIES", "11"}, {"MEDIA_VISION_UNITS_PER_DAY", "1"}, {"MEDIA_VISION_UNITS_PER_DAY", "201"},
 		{"MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", "1"}, {"MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", "61"}, {"RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", "0"},
+		{"POLL_VOTE_CHANGES_MAX", "-1"}, {"POLL_VOTE_CHANGES_MAX", "21"}, {"POLL_VOTE_CHANGES_MAX", "x"},
 	}
 	for _, tt := range bad {
 		t.Run(tt.key+"="+tt.val, func(t *testing.T) {
@@ -180,4 +182,21 @@ func TestLoad_ComposerBounds(t *testing.T) {
 			t.Errorf("Load() error = %v, want one naming POLL_VOTES_PER_DAY_NEW_ACCOUNT", err)
 		}
 	})
+}
+
+// TestLoad_PollVoteChangesMaxRange: 0 (votes final again) and 20 (the ceiling) load; the loop's 1-minimum does not apply to this key.
+func TestLoad_PollVoteChangesMaxRange(t *testing.T) {
+	for _, v := range []string{"0", "1", "20"} {
+		t.Run(v, func(t *testing.T) {
+			clearEnv(t)
+			t.Setenv("POLL_VOTE_CHANGES_MAX", v)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got := strconv.Itoa(cfg.Composer.PollVoteChangesMax); got != v {
+				t.Errorf("PollVoteChangesMax = %s, want %s", got, v)
+			}
+		})
+	}
 }

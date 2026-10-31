@@ -101,6 +101,7 @@ func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post
 	v := &postsv1.PostView{Post: toProtoAt(p, vs, viewer, now), LikedByViewer: liked, RepostedByViewer: reposted,
 		BookmarkedByViewer:    vs.Bookmarked(p),
 		ViewerReplyPermission: replyPermissionFor(p, viewer)}
+	v.ViewerPollVoteBlocked = vs.PollVoteBlocked(p, viewer, now)
 	if i, voted := vs.PollChoice(p); voted {
 		v.ViewerPollChoice = int32(i) + 1 //nolint:gosec // i is 0..3 (WithPollVotes drops anything else); index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
 	}

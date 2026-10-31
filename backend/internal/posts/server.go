@@ -164,7 +164,11 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if err != nil {
 		return nil, err
 	}
-	v := ToView(post, s.viewerSet(ctx, uid), uid)
+	vs := s.viewerSet(ctx, uid)
+	if h, ok := s.svc.(PollBlockHinter); ok {
+		vs = vs.WithBlockedAuthors(h.PollBlockedAuthors(ctx, uid, post)) // a poll by an author the viewer blocks: viewer_poll_vote_blocked, 0 reads
+	}
+	v := ToView(post, vs, uid)
 	if h, ok := s.svc.(ReplyHinter); ok {
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
 	}
@@ -236,6 +240,12 @@ type EmbedHinter interface {
 	EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState
 }
 
+// PollBlockHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the viewer's blocked set for a post with
+// a live poll by another author, for PostView.viewer_poll_vote_blocked (ADR-0029 Amendment 1 A1.5). 0 reads on the snapshot GetPost cached.
+type PollBlockHinter interface {
+	PollBlockedAuthors(ctx context.Context, viewer string, p *Post) map[string]bool
+}
+
 // VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
 // visibility (VISIBILITY_FOLLOWERS, ADR-0025 D2). 0 reads for the caller.
 type VisibilityHinter interface {
@@ -261,7 +271,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	if err != nil {
 		return nil, err
 	}
-	vs := s.viewerSet(ctx, uid)
+	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row
 		v := ToView(p, vs, uid)
 		v.ViewerReplyPermission = t.ReplyPermission

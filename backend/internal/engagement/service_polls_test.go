@@ -14,6 +14,8 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -35,6 +37,16 @@ type fakePollRepo struct {
 	trims   [][]string
 	trimErr error
 	last    VoteParams
+
+	// Vote changes (ADR-0029 Amendment 1): per-document change counts and versions (the model of UpdateTime), the recorded batches, an injected
+	// error, and a hook that lets a concurrent writer land between a read and the next write.
+	changes      map[string]int
+	ver          map[string]int64
+	changeWrites int // committed change batches
+	changeCalls  int
+	lastChange   ChangeParams
+	changeErr    error
+	afterGet     func(uid, postID string)
 }
 
 func (f *fakePollRepo) Vote(_ context.Context, p VoteParams) (VoteOutcome, error) {
@@ -55,16 +67,66 @@ func (f *fakePollRepo) Vote(_ context.Context, p VoteParams) (VoteOutcome, error
 		f.votes = map[string]int{}
 	}
 	f.votes[k] = p.Choice
+	f.bump(k)
 	f.writes++
 	return VoteWritten, nil
 }
 
-func (f *fakePollRepo) GetVote(_ context.Context, uid, postID string) (int, bool, error) {
+func (f *fakePollRepo) GetVote(_ context.Context, uid, postID string) (VoteState, bool, error) {
+	f.mu.Lock()
+	f.gets++
+	k := docID(postID, uid)
+	c, ok := f.votes[k]
+	st := VoteState{Choice: c, Changes: f.changes[k], UpdateTime: f.versionTime(k)}
+	hook := f.afterGet
+	f.mu.Unlock()
+	if hook != nil && ok {
+		hook(uid, postID) // a concurrent writer lands between this read and the caller's next write
+	}
+	return st, ok, nil
+}
+
+// versionTime models Firestore's UpdateTime: it moves on every committed write of the vote doc.
+func (f *fakePollRepo) versionTime(k string) time.Time { return time.Unix(1_000+f.ver[k], 0) }
+
+// setVote is a concurrent writer's change of the vote doc (another device): the stored choice, the change count and the version move.
+func (f *fakePollRepo) setVote(uid, postID string, choice int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.gets++
-	c, ok := f.votes[docID(postID, uid)]
-	return c, ok, nil
+	k := docID(postID, uid)
+	f.votes[k] = choice
+	f.bump(k)
+	f.changes[k]++
+}
+
+func (f *fakePollRepo) bump(k string) {
+	if f.ver == nil {
+		f.ver = map[string]int64{}
+	}
+	if f.changes == nil {
+		f.changes = map[string]int{}
+	}
+	f.ver[k]++
+}
+
+// ChangeVote is a compare-and-set on the version: a stale Version, or a deleted post, is ChangeStale with nothing written.
+func (f *fakePollRepo) ChangeVote(_ context.Context, p ChangeParams) (ChangeOutcome, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastChange = p
+	f.changeCalls++
+	if f.changeErr != nil {
+		return ChangeStale, f.changeErr
+	}
+	k := docID(p.PostID, p.UID)
+	if f.gone || !f.versionTime(k).Equal(p.Version) {
+		return ChangeStale, nil
+	}
+	f.votes[k] = p.To
+	f.bump(k)
+	f.changes[k]++
+	f.changeWrites++
+	return ChangeWritten, nil
 }
 
 func (f *fakePollRepo) TrimPollVotes(_ context.Context, _ string, drop []string) error {
@@ -74,10 +136,36 @@ func (f *fakePollRepo) TrimPollVotes(_ context.Context, _ string, drop []string)
 	return f.trimErr
 }
 
+// pollGraph is the graph.Reader of the poll tests: the blocked set per uid (the voter's own outgoing blocks), safe for concurrent votes. VotePoll
+// fails closed without a Graph, so every poll env wires one.
+type pollGraph struct {
+	mu      sync.Mutex
+	blocked map[string][]string // uid -> the uids it blocks
+	calls   int
+	err     error
+}
+
+func (g *pollGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.calls++
+	return snapOf(g.blocked[uid], nil, nil), g.err
+}
+
+func (g *pollGraph) block(uid string, others ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.blocked == nil {
+		g.blocked = map[string][]string{}
+	}
+	g.blocked[uid] = append(g.blocked[uid], others...)
+}
+
 // pollEnv is an env whose module has a PollRepo and a poll post (pidA, authored by "author", 3 choices, counts 5/2/0).
 type pollEnv struct {
 	*env
 	pr      *fakePollRepo
+	graph   *pollGraph
 	now     time.Time
 	closes  time.Time
 	created time.Time
@@ -87,7 +175,7 @@ type pollEnvOpt func(*Deps, *pollEnv)
 
 func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 	t.Helper()
-	pe := &pollEnv{env: &env{repo: &fakeRepo{}, events: &fakeEvents{}}, pr: &fakePollRepo{}}
+	pe := &pollEnv{env: &env{repo: &fakeRepo{}, events: &fakeEvents{}}, pr: &fakePollRepo{}, graph: &pollGraph{}}
 	pe.now = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	pe.closes = pe.now.Add(24 * time.Hour)
 	pe.created = pe.now.Add(-72 * time.Hour)
@@ -98,8 +186,9 @@ func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 	}, hidden: map[string]bool{}}
 	d := Deps{
 		Repo: pe.repo, Posts: pe.posts, Reader: pe.posts, Events: pe.events, NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute,
-		AllowAnonymous: true, PollRepo: pe.pr, PollVoteTTLAfterClose: 30 * 24 * time.Hour, PollViewerVotesKept: 10,
+		AllowAnonymous: true, PollRepo: pe.pr, PollVoteTTLAfterClose: 30 * 24 * time.Hour, PollViewerVotesKept: 10, PollVoteChangesMax: 5,
 		NewAccountPollVotesPerDay: 50, Now: func() time.Time { return pe.now },
+		Graph: pe.graph,
 	}
 	for _, o := range opts {
 		o(&d, pe)
@@ -123,7 +212,7 @@ func ctxFor(uid string) context.Context {
 func TestVotePoll_FirstVote(t *testing.T) {
 	e := newPollEnv(t)
 	e.repo.loaded = UserLikes{Recent: []string{pidA}, Bookmarks: []string{pidA}}
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +251,7 @@ func TestVotePoll_FirstVote(t *testing.T) {
 
 func TestVotePoll_NoUserLikesDocYet(t *testing.T) {
 	e := newPollEnv(t) // loaded is the zero UserLikes: LoadUserLikes of a missing doc
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,11 +265,11 @@ func TestVotePoll_NoUserLikesDocYet(t *testing.T) {
 
 func TestVotePoll_ReplayAndAlreadyVoted(t *testing.T) {
 	e := newPollEnv(t)
-	if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2); err != nil {
+	if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2, 0); err != nil {
 		t.Fatal(err)
 	}
 	// The same call again: 0 writes, the vote doc read once, the same view.
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +280,7 @@ func TestVotePoll_ReplayAndAlreadyVoted(t *testing.T) {
 		t.Fatalf("a replay must show the results and the choice, got %d,%v", i, ok)
 	}
 	// A different choice: ALREADY_VOTED with the caller's own stored choice, 0 writes.
-	_, err = e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0)
+	_, err = e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
 	ae := requireCode(t, err, connect.CodeFailedPrecondition)
 	if ae.Reason != commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED || ae.Metadata["choice"] != "2" {
 		t.Fatalf("reason=%v metadata=%v, want ALREADY_VOTED choice=2", ae.Reason, ae.Metadata)
@@ -206,7 +295,7 @@ func TestVotePoll_ReplayAfterTrim(t *testing.T) {
 	e := newPollEnv(t)
 	e.pr.votes = map[string]int{docID(pidA, "viewer"): 1}
 	e.repo.loaded = UserLikes{} // no pollVotes entry: trimmed
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +337,7 @@ func TestVotePoll_Refusals(t *testing.T) {
 			if tt.prep != nil {
 				tt.prep(e)
 			}
-			_, err := e.m.VotePoll(e.ctx, "viewer", tt.key, tt.post, tt.choice)
+			_, err := e.m.VotePoll(e.ctx, "viewer", tt.key, tt.post, tt.choice, 0)
 			ae := requireCode(t, err, tt.code)
 			want := tt.reason
 			if tt.code == connect.CodeInvalidArgument {
@@ -279,7 +368,7 @@ func TestVotePoll_Refusals(t *testing.T) {
 // A refusal on a vote never says which choice the caller tried, and a hidden poll answers exactly as a missing post.
 func TestVotePoll_ValidationDoesNotEchoTheChoice(t *testing.T) {
 	e := newPollEnv(t)
-	_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 777)
+	_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 777, 0)
 	ae := requireCode(t, err, connect.CodeInvalidArgument)
 	if want := "choice_index must be between 0 and 3"; ae.Message != want {
 		t.Fatalf("message = %q, want %q", ae.Message, want)
@@ -288,7 +377,7 @@ func TestVotePoll_ValidationDoesNotEchoTheChoice(t *testing.T) {
 
 func TestVotePoll_RepostIDVotesInTheOriginal(t *testing.T) {
 	e := newPollEnv(t)
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidRep, 0)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidRep, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +397,7 @@ func TestVotePoll_Contention(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := newPollEnv(t)
 			e.pr.voteErr = err
-			_, got := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0)
+			_, got := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
 			ae := requireCode(t, got, connect.CodeUnavailable)
 			if ae.RetryAfter <= 0 {
 				t.Errorf("retry_after = %v, want a hint", ae.RetryAfter)
@@ -321,7 +410,7 @@ func TestVotePoll_Contention(t *testing.T) {
 	t.Run("another storage error is internal and redacted", func(t *testing.T) {
 		e := newPollEnv(t)
 		e.pr.voteErr = errors.New("boom users/viewer posts/" + pidA)
-		_, got := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0)
+		_, got := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
 		if connect.CodeOf(got) == connect.CodeUnavailable || got == nil {
 			t.Fatalf("err = %v, want an internal error", got)
 		}
@@ -359,7 +448,7 @@ func TestVotePoll_NewAccountDailyCap(t *testing.T) {
 					d.PollVoteCap = dc
 				}
 			})
-			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0)
+			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
 			if !tt.refused {
 				if err != nil {
 					t.Fatalf("err = %v, want a vote", err)
@@ -389,7 +478,7 @@ func TestVotePoll_LazyTrim(t *testing.T) {
 	t.Run("over kept + slack", func(t *testing.T) {
 		e := newPollEnv(t) // kept = 10, slack 100
 		e.repo.loaded = UserLikes{PollVotes: old(120)}
-		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0); err != nil {
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.pr.trims) != 1 || len(e.pr.trims[0]) != 111 { // 121 entries after the vote, keep the newest 10
@@ -403,7 +492,7 @@ func TestVotePoll_LazyTrim(t *testing.T) {
 	t.Run("within the slack", func(t *testing.T) {
 		e := newPollEnv(t)
 		e.repo.loaded = UserLikes{PollVotes: old(105)}
-		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0); err != nil {
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.pr.trims) != 0 {
@@ -414,7 +503,7 @@ func TestVotePoll_LazyTrim(t *testing.T) {
 		e := newPollEnv(t)
 		e.pr.trimErr = errors.New("unavailable")
 		e.repo.loaded = UserLikes{PollVotes: old(120)}
-		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0); err != nil {
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -422,7 +511,7 @@ func TestVotePoll_LazyTrim(t *testing.T) {
 		e := newPollEnv(t)
 		e.pr.votes = map[string]int{docID(pidA, "viewer"): 0}
 		e.repo.loaded = UserLikes{PollVotes: old(200)}
-		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0); err != nil {
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.pr.trims) != 0 {
@@ -441,7 +530,7 @@ func TestVotePoll_ConcurrentVoters(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			uid := "voter" + strconv.Itoa(i)
-			if _, err := e.m.VotePoll(ctxFor(uid), uid, keyOK, pidA, int32(i%3)); err != nil {
+			if _, err := e.m.VotePoll(ctxFor(uid), uid, keyOK, pidA, int32(i%3), 0); err != nil {
 				errs <- err
 			}
 		}()
@@ -481,7 +570,7 @@ func TestVotePoll_ConcurrentSameVoter(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			c := int32(i % 3)
-			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, c)
+			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, c, 0)
 			outs[i] = outcome{c, err}
 		}()
 	}
@@ -511,7 +600,7 @@ func TestVotePoll_ConcurrentSameVoter(t *testing.T) {
 func TestPollVoteView_HintAndFlagsDegrade(t *testing.T) {
 	e := newPollEnv(t)
 	e.repo.loadErr = errors.New("firestore unavailable")
-	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1)
+	res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1, 0)
 	if err != nil {
 		t.Fatalf("a committed vote failed because the userLikes read did: %v", err)
 	}
@@ -534,7 +623,7 @@ func TestVotePoll_PostHashOnRequestLineAndContentionWarn(t *testing.T) {
 		e := newPollEnv(t)
 		var fields *logger.RequestInfo
 		e.ctx, fields = logger.WithRequestInfo(e.ctx)
-		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2); err != nil {
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2, 0); err != nil {
 			t.Fatal(err)
 		}
 		assertPostHash(t, fields, want)
@@ -545,7 +634,7 @@ func TestVotePoll_PostHashOnRequestLineAndContentionWarn(t *testing.T) {
 		e.pr.voteErr = errors.Join(store.ErrContended, errors.New("aborted"))
 		var fields *logger.RequestInfo
 		e.ctx, fields = logger.WithRequestInfo(e.ctx)
-		_, _ = e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2)
+		_, _ = e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2, 0)
 		assertPostHash(t, fields, want)
 		out := buf.String()
 		if !strings.Contains(out, `"post_hash":"`+want+`"`) || !strings.Contains(out, "poll_vote_contention") {
