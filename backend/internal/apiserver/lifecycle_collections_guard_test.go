@@ -24,6 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
@@ -124,6 +125,12 @@ var lifecycleCollections = []collectionRow{
 	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
+	// ADR-0030 D8 (W5-4 + W5-5): lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
+	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other
+	// list that names it (memberIds array-contains, ArrayRemove, LastUpdateTime precondition), so the sweep finds no ownerId or memberIds
+	// residue and needs no allowlist entry. The `lists` section exports the user's own lists with member ids; lists the user is a member
+	// of belong to their owners and are not exported. quotas.listCreates and listAdds are covered by the `quotas` row.
+	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// ADR-0028 D6 (W4-9): trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), so there is no uid to erase and nothing to export.
@@ -320,6 +327,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerListsLifecycle(l, lists.NewFirestoreRepo(nil, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -389,6 +399,30 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "messages")), "\n"); !strings.Contains(p, `export section "messages" is not registered`) {
 		t.Errorf("dropping the messages section went unnoticed: %q", p)
 	}
+	// W5-5: the lists row is only green while the lists step and the lists section are registered, and the guard names the collection
+	// when the row is removed.
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "lists"), sections), "\n"); !strings.Contains(p, `step "lists" is not registered`) {
+		t.Errorf("dropping the lists step went unnoticed: %q", p)
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "lists")), "\n"); !strings.Contains(p, `export section "lists" is not registered`) {
+		t.Errorf("dropping the lists section went unnoticed: %q", p)
+	}
+	t.Run("without the lists row", func(t *testing.T) {
+		rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == "lists" })
+		if len(rows) != len(lifecycleCollections)-1 {
+			t.Fatal("the table has no lists row to remove")
+		}
+		if p := strings.Join(coverageProblems(real, rows, steps, sections), "\n"); !strings.Contains(p, `collection "lists"`) || !strings.Contains(p, "has no row in lifecycleCollections") {
+			t.Errorf("removing the lists row went unnoticed: %q", p)
+		}
+		found := false
+		for _, r := range real {
+			found = found || r.Name == "lists"
+		}
+		if !found {
+			t.Error("the scan did not find the lists collection in internal/lists")
+		}
+	})
 	// ... and the guard fails, naming the collection, when any one of the four rows is removed.
 	for _, name := range []string{"conversations", "messages", "dmInbox", "dmRequests"} {
 		t.Run("without the "+name+" row", func(t *testing.T) {

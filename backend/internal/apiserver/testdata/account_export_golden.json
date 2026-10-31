@@ -57,6 +57,9 @@
     ],
     "userId": "<uid:A>"
   },
+  "lists": {
+    "lists": []
+  },
   "media": {
     "media": []
   },

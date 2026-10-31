@@ -2,26 +2,34 @@ package lists
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// Server is the W5-3 skeleton of the ListService handler. It mounts every route so the interceptor chain (App Check, ID token,
-// account status, rate limits, read budget) covers them from the first revision that links the generated code, and runs the
-// flag gate (FEATURE_LISTS, ADR-0030 D9) before anything else: a caller outside the flag gets FAILED_PRECONDITION
-// FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the gate each method is still the generated Unimplemented
-// answer; W5-4 (write path), W5-6 (members) and W5-7 (reads) replace the methods one by one with the real service.
+// rpcDeadline bounds one list call (<= 10 s, go-service skill); the transaction itself has 5 s.
+const rpcDeadline = 8 * time.Second
+
+// Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
+// rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS, ADR-0030 D9) before anything
+// else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
+// gate CreateList, UpdateList and DeleteList call the Service (W5-4); the other four are still the generated Unimplemented
+// answer until W5-6 (members) and W5-7 (reads) replace them.
 type Server struct {
 	listsv1connect.UnimplementedListServiceHandler
 	flags FlagChecker
+	svc   Service
 }
 
-// NewServer builds the skeleton handler. Use with listsv1connect.NewListServiceHandler.
-func NewServer(fc FlagChecker) *Server { return &Server{flags: fc} }
+// NewServer builds the handler. svc may be nil (a wiring without the write path): the gated write RPCs then answer
+// Unimplemented. Use with listsv1connect.NewListServiceHandler.
+func NewServer(fc FlagChecker, svc Service) *Server { return &Server{flags: fc, svc: svc} }
 
 var _ listsv1connect.ListServiceHandler = (*Server)(nil)
 
@@ -35,28 +43,75 @@ func (s *Server) gate(ctx context.Context) error {
 	return Guard(ctx, s.flags, uid)
 }
 
-// CreateList is gated by FEATURE_LISTS; the write path is W5-4.
+// entry is the shared front of the write handlers: the flag gate (0 reads), the wiring check and the RPC deadline.
+func (s *Server) entry(ctx context.Context, rpc string) (context.Context, context.CancelFunc, string, error) {
+	if err := s.gate(ctx); err != nil {
+		return nil, nil, "", err
+	}
+	if s.svc == nil {
+		return nil, nil, "", connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
+	}
+	uid, _ := authn.UIDFromContext(ctx) // gate proved it is set
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	return ctx, cancel, uid, nil
+}
+
+// CreateList is gated by FEATURE_LISTS and creates a private list unless is_private is sent as false (F3).
 func (s *Server) CreateList(ctx context.Context, req *connect.Request[listsv1.CreateListRequest]) (*connect.Response[listsv1.CreateListResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "CreateList")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.CreateList(ctx, req)
+	defer cancel()
+	m := req.Msg
+	v, err := s.svc.CreateList(ctx, uid, CreateInput{Key: m.GetIdempotencyKey(), Name: m.GetName(), Description: m.GetDescription(), IsPrivate: m.IsPrivate})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.CreateListResponse{List: toListInfo(v)}), nil
 }
 
-// UpdateList is gated by FEATURE_LISTS; the write path is W5-4.
+// UpdateList is gated by FEATURE_LISTS; only the fields that are set change.
 func (s *Server) UpdateList(ctx context.Context, req *connect.Request[listsv1.UpdateListRequest]) (*connect.Response[listsv1.UpdateListResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "UpdateList")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.UpdateList(ctx, req)
+	defer cancel()
+	m := req.Msg
+	v, err := s.svc.UpdateList(ctx, uid, UpdateInput{Key: m.GetIdempotencyKey(), ListID: m.GetListId(), Name: m.Name, Description: m.Description, IsPrivate: m.IsPrivate})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.UpdateListResponse{List: toListInfo(v)}), nil
 }
 
-// DeleteList is gated by FEATURE_LISTS; the write path is W5-4.
+// DeleteList is gated by FEATURE_LISTS; a list that is not the caller's, or is gone, is success with no effect.
 func (s *Server) DeleteList(ctx context.Context, req *connect.Request[listsv1.DeleteListRequest]) (*connect.Response[listsv1.DeleteListResponse], error) {
-	if err := s.gate(ctx); err != nil {
+	ctx, cancel, uid, err := s.entry(ctx, "DeleteList")
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.DeleteList(ctx, req)
+	defer cancel()
+	if err := s.svc.DeleteList(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetListId()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.DeleteListResponse{}), nil
+}
+
+// toListInfo renders a View. The owner row is the live profile (the AuthorSnapshot thumbnail and lock badge, as graph's rows).
+func toListInfo(v View) *listsv1.ListInfo {
+	p := v.Owner
+	return &listsv1.ListInfo{
+		ListId: v.Header.ID,
+		Owner: &commonv1.AuthorSnapshot{
+			UserId: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, AvatarUrl: p.AvatarThumbURL,
+			Verified: p.Verified, IsPrivate: p.IsPrivate,
+		},
+		Name: v.Header.Name, Description: v.Header.Description, IsPrivate: v.Header.IsPrivate,
+		MemberCount:    int32(v.Header.MemberCount), //nolint:gosec // bounded by LIST_MAX_MEMBERS (150)
+		PinnedByViewer: v.PinnedByViewer,
+	}
 }
 
 // GetList is gated by FEATURE_LISTS; the read is W5-7.

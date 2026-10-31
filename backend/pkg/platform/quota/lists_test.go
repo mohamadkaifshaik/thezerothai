@@ -3,6 +3,7 @@ package quota
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 
@@ -69,5 +70,27 @@ func TestListKinds(t *testing.T) {
 	r.increment(ListAdds, 3)
 	if r.ListCreates != 2 || r.ListAdds != 3 || r.DMNew != 0 || r.Bookmarks != 0 {
 		t.Errorf("increment = %+v", r)
+	}
+}
+
+// TestListKinds_QuotaMetadataName: QUOTA_EXCEEDED carries the snake_case wire names lists.proto documents (list_creates,
+// list_adds), not the Firestore field names (listCreates, listAdds); an older kind keeps its field name (W5-4).
+func TestListKinds_QuotaMetadataName(t *testing.T) {
+	tests := []struct {
+		kind Kind
+		want string
+	}{
+		{ListCreates, "list_creates"},
+		{ListAdds, "list_adds"},
+		{PrivacyToggles, "privacy_toggles"},
+		{Bookmarks, "bookmarks"},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.kind), func(t *testing.T) {
+			err := ExceededError(tt.kind, time.Now())
+			if got := err.Metadata["quota"]; got != tt.want {
+				t.Errorf("meta quota = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
