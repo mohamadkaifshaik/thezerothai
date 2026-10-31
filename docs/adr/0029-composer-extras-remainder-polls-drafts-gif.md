@@ -478,3 +478,181 @@ moderation bypass is reported; or the founder answers an F differently.
 - **production-deployer:** W6-22: a targeted dev plan (flags, config, TTL), the fieldOverrides deploy, allowlist 3,
   the smoke (vote race on real `OPTIMISTIC` dev Firestore, as #292; a few known-bad GIF fixtures). Prod: nothing until
   the held release (ADR-0019), and FU-1 and the TTL must be live before `polls` leaves `off` there.
+
+## As-built notes, 2026-11-01: GIF screening (W6-10) and polls (W6-5, W6-6, W6-7)
+
+These notes record where the merged or merging code differs from the text above. They are notes only: the decision text
+stays as the record, F1 to F12 are unchanged, and no status changes. Sources:
+- W6-10: PR #505, merged.
+- W6-5 and W6-6: PRs #497 and #504, merged.
+- W6-7 + W6-8: PR #515 (`feat/ui-w6-7-vote-poll`, head `b682cf34`), open when written. Its part of these notes holds
+  once it merges.
+
+Numbers marked **corrected** replace the figure in the section named.
+
+### N1. GIF screening as built (W6-10, #505)
+
+**Vision units: always 2 (deviates from D11 point 6).**
+- A GIF costs 2 units, the sheet by bytes plus the thumbnail by URI, even with `VISION_SCREEN_THUMB=false`. D11 point 6
+  said 1 unit (sheet only) in that case. **Corrected.**
+- Reason: the thumbnail is a separate client upload. Lists show it, and nothing ties it to the GIF's frames, so it is
+  always screened, as a BANNER's is (`screensThumb`).
+- No cost table moves: dev and prod Terraform both set `VISION_SCREEN_THUMB=true`, and the Cost impact already counts
+  2 units per GIF (the 1.22 units per DAU-month line).
+
+**Guards as built (D11 points 1 to 3).**
+- **Re-check after the read.** After reading the whole object (1 Class B), the API compares its length and MD5 with
+  what verify approved. A mismatch is REJECTED (`changed_after_verify`), so the bytes sampled are the bytes verified.
+  This is not in D11 point 1.
+- **One GIF slot per instance.** A capacity-1 semaphore is held from the object read until the sheet is encoded.
+  - A second GIF on the same instance waits up to **5 s**, then gets the retryable `MEDIA_NOT_READY` ("this GIF is
+    being checked"). Its screening claim is released and the reserved units are returned, so nothing is spent.
+  - Effective limit: one GIF screened at a time per instance, so 3 at once service-wide at max-instances 3.
+- **Decode deadline: 2 s.** A GIF that cannot be sampled in time is REJECTED as "too large or too long"
+  (`refused_reason=deadline`), with 0 units.
+- **Memory, corrected.** D11 point 3 allowed `gif.DecodeAll` after the pre-scan, at "≤ 50 MB peak". As built, frames
+  are decoded **one at a time** (each cut out as a one-frame GIF), never with `DecodeAll`.
+  - Live working set at the limits: about **26 MiB**, whatever the frame count: the file 2 MiB, two 1,280 × 1,280 RGBA
+    canvases 12.5 MiB, one decoded frame ≤ 1.6 MiB, four tiles 4.7 MiB, the sheet 4.7 MiB and its JPEG < 0.5 MiB.
+  - Allocation churn per worst-case GIF: about 51 MiB `TotalAlloc`.
+  - A request past the slot holds under 2 MiB while Vision runs.
+  - A refused bomb never allocates beyond the frame list; the pre-scan test asserts under 20 MB.
+- **Panics.** A decoder panic is recovered: the GIF is REJECTED (invalid) and Error Reporting gets `media/gif_screen`.
+
+**FinalizeUpload CPU per GIF, corrected.**
+- The Per RPC row's "≤ 0.5 s CPU" becomes: typically under 0.2 s; at the area cap (about 22 sampled 1,280 × 1,280
+  frames) 0.65 s steady and 1.25 s measured once under load.
+- These figures were measured on a laptop core, not on a Cloud Run vCPU.
+- Cost effect: the vCPU line barely moves. Even at 1.25 s for every GIF it is +0.46 vCPU-s per DAU-month on the
+  176.2 of the free-quota table, under 0.3 %. No INR row changes.
+
+**Request deadline, corrected.**
+- #505 put the worst case at about 22 s "under the 30 s Cloud Run request timeout": 5 s slot wait, 5 s object read, 2 s
+  decode and 10 s for the two parallel Vision calls, plus the attrs, heads and copies.
+- The binding limit is the media handler's own **`finalizeDeadline` of 20 s** (`internal/media/server.go`), not the
+  30 s Cloud Run timeout. So the worst case cannot finish.
+- What happens past 20 s, usually during the Vision calls:
+  - the request fails retryable (UNAVAILABLE, or DEADLINE_EXCEEDED);
+  - the deferred release frees the screening claim;
+  - the Vision counter returns the 2 reserved units, even if Vision already billed the call. The counter can therefore
+    run up to 2 units per such event under the real spend.
+- The 30 s `screeningClaimTTL` is not reached.
+- Typical finalizes (no slot wait, a read under 1 s, Vision in 1 to 2 s) are far inside 20 s. Raising the deadline or
+  shortening the slot wait is listed for the founder below.
+
+**Residual risks the developer named (not closed by #505).**
+- **Publish swap (for W6-20).** The signed PUT pins no object generation (`if-generation-match`), and `Publish` copies
+  whatever object exists at copy time.
+  - The MD5 re-check closes a swap between verify and the read.
+  - It does not close a swap after screening. GIF comment and application blocks make identical-prefix MD5 collision
+    pairs cheap, so a client still holding a valid signed URL (10 min) could re-PUT an explicit twin after screening.
+  - Fix: record the generation at verify and pass it as the precondition of the copy. This is pre-existing for photos;
+    GIFs make it easier. It is a W6-20 security item, not a decision of this ADR.
+- **Near-cap GIFs and the 2 s deadline.** A legitimate GIF near `GIF_MAX_FRAME_AREA_SUM` (50,000,000 pixels) may miss
+  the 2 s decode deadline on a Cloud Run vCPU and be REJECTED as too large.
+  - The runbook signal is many `gif_screen` lines with `refused_reason=deadline` (`docs/runbooks/media.md`, "GIFs").
+  - Whether to lower the default is a config decision (rule 11), listed for the founder below.
+- **Cancellation during sampling (found while writing this note).** The sampler treats any end of its context as the
+  decode deadline. A client that hangs up while its GIF is being sampled therefore gets a permanent REJECTED ("too
+  large or too long") and the objects are deleted, instead of a retryable answer.
+  - The handler's 20 s deadline cannot normally reach the sampling phase (at most 5 s wait + 5 s read come first).
+  - Fix: tell the parent context's end apart from the 2 s deadline. A small fix for W6-18 or W6-20.
+
+### N2. Polls as built (W6-5 #497, W6-6 #504, W6-7 #515)
+
+**Stored shape (D1, D5): as written.**
+- `posts/{id}.poll` = `{options: [string], durationMin: int, closesAt: timestamp, counts: {"0".."n-1": int}, total: int}`.
+  It is absent on posts without a poll and built per transaction attempt from that attempt's Snowflake `createdAt`.
+- A vote increments `firestore.FieldPath{"poll", "counts", "<i>"}` and `{"poll", "total"}`, not a dotted string,
+  because the map keys are numeric strings.
+- `embedded.poll` = `{options, closesAt}` (the frozen definition), copied by `snapshotOf`.
+- One addition: the existing quote-tombstone writer replaces the whole `embedded` map, so a tombstoned quote loses
+  `embedded.poll` along with the rest of the embed.
+- The POST report evidence carries `pollChoices` (labels only). The author's export posts section carries
+  `poll {choices, closesAt, counts, total}`.
+
+**Wire values (D4, D13): as written.** Easy to get wrong in a client:
+- `viewer_poll_choice` = index **+ 1** (0 = not voted). `ALREADY_VOTED` carries `metadata["choice"]` as the **0-based**
+  index, and the follow-up `VotePoll` replay sends that 0-based index.
+- When results are hidden, every `PollChoice.votes` is sent as **0** with `results_visible = false`, and `total_votes`
+  is the real total. The bytes are therefore the same whatever the hidden counts.
+- `results_visible = closed || polls globally off || viewer voted || viewer is the author`. `closed` uses server time
+  through the `ToViewAt` clock seam.
+- `EmbeddedPost.poll` always has counts 0, `total_votes` 0 and `results_visible` false.
+
+**VotePoll order (D6), as built in #515.**
+- **Flag gate.** It also requires `FEATURE_POSTS` first (the posts guard), then `engagement` on for the caller, then
+  `polls` not globally off. Still 0 reads.
+- **New-account cap moved.** D6 step 1 put both daily caps in the ratelimit interceptor. The interceptor has no
+  account-age signal, so `POLL_VOTES_PER_DAY_NEW_ACCOUNT` (50) is enforced **in the service**.
+  - Where: after the shape check and the verified-email gate (`authn.RequireVerifiedEmail`), before the target read.
+  - How: it compares the interceptor's own `poll_votes_daily` counter (`DailyCap.Spent`, the same instance, wired in
+    `apiserver.build`) with the lower limit.
+  - Read cost: +0. The caller's profile comes cache-first from the identity cache that the account-status interceptor
+    filled for this request.
+  - The refusal is byte-shaped like the interceptor's own (RESOURCE_EXHAUSTED, RATE_LIMITED, `limit=poll_votes_daily`,
+    `retry_after` to IST midnight), so a client cannot tell which cap refused.
+  - Semantics: the counter is **per instance and in memory**. It resets when an instance restarts, and the effective
+    limit is 50 × max-instances, so ≤ 150 a day for a new account and ≤ 900 for others at 3 instances.
+  - The interceptor counts every call before the handler runs, so replays and refusals count towards both caps.
+  - This is the Option D argument unchanged: the natural key still allows one vote per account per poll.
+- **The vote batch** is `store.CommitWithRetry` with at most 4 attempts, on a context that survives the caller leaving
+  and is bounded by the repo's transaction timeout.
+  - Exhausted contention, or that timeout, is UNAVAILABLE with `retry_after` and `contention=true`.
+  - A precondition failure (the post was deleted) is NOT_FOUND with 0 writes.
+  - AlreadyExists followed by a vote doc that is already gone is UNAVAILABLE (retry).
+- **The response's viewer flags.** If the `userLikes` read fails, the response is built without the like, repost and
+  bookmark flags (logged `engagement_poll_vote_viewer_degraded`). A committed vote never fails for that reason.
+  `viewer_poll_choice` and `results_visible` come from this call's vote, as D6 step 8 says.
+- **When a replay meets a closed poll.** After `closesAt`, even a replay of the caller's own vote answers
+  `POLL_CLOSED`, because the closed check (step 5) runs before the batch.
+
+**Trim of `userLikes.pollVotes` (D3), corrected.**
+- D3 says the list is "trimmed lazily ... on a later read". As built, the read side never trims.
+- After a **committed** vote, if the cached list holds more than `POLL_VIEWER_VOTES_KEPT` + 100 (600) entries, one
+  field-level `ArrayRemove` drops the oldest down to 500. This is the `TrimLikes` pattern: best effort, 0 reads.
+- So VotePoll writes are **3, plus 1 trim write about once per 100 votes** for an account past 600 entries. At the
+  modelled 0.3 votes per DAU per day this is effectively 0, and no cost row moves.
+
+**Eraser step position (D8), corrected.**
+- D8 says `poll_votes` runs "`BeforeIdentity`, after `engagement`". As built, it is **appended after `messaging`**,
+  before `identity`.
+- Reason: step names are persisted in `deletionJob.step`, so a step is never inserted mid-sequence (ADR-0011 Q1).
+- It still runs after `engagement`, which has already deleted `userLikes`.
+- A deletion job already past that position when the step deployed skips it. That job's vote docs expire by TTL within
+  `closesAt` + 30 d, so at most 37 days. Prod polls are off, so this case has no prod data today.
+
+**Budgets: the ceilings stand.** These are the request-line `fs_reads` / `fs_writes` that #515's chain test asserts.
+`budgettest.Assert` checks "at most", so the tests prove the ceilings, not the measured values.
+
+| Case | Reads ceiling (asserted) | Reads measured (developer's run, partly warm caches) | Writes |
+|---|---|---|---|
+| New vote | 8 | 3 | 3 (asserted exactly) |
+| Replay, ALREADY_VOTED | 9 | 1 | 0 |
+| Refused at step 5 (closed, author, no poll, choice range) | 7 | 3 | 0 |
+| Refused by a flag | 1 | 0 | 0 |
+
+- The developer's figures are right against the code. The 8-read ceiling is: the interceptor 1, the post 1, the
+  author's `users` 1, the caller's graph 1, +2 for a REPOST id, +1 on `blockedBy` overflow, and `userLikes` 1 for the
+  response. The new-account cap adds 0 (above).
+- "Replay 1 read" is a warm measurement (only the vote doc is read). It is not a budget: the worst case is 9, as in the
+  Cost impact table.
+- The planning column (3 / 4 / 2) is unchanged until W6-21 measures it.
+- The plan ticket's older "6 worst new, 7 replay" predates this ADR and is superseded by the Cost impact table.
+
+### N3. Not edited here
+- The `media-pipeline` skill still says "GIF: static first frame at Stage 0". FU-5 (a `.claude/` change the founder
+  approves) is still owed and should describe N1.
+- `docs/reviews/cost-model.md` (FU-6, W6-21) belongs to sre-performance. N1 and N2 add no cost row, and the CPU
+  correction is under 0.3 % of the vCPU line.
+
+### N4. For the founder (open; not decided by these notes)
+- `GIF_MAX_FRAME_AREA_SUM`: keep 50,000,000 or lower it, so near-cap GIFs are not REJECTED by the 2 s decode deadline
+  on a Cloud Run vCPU. Measure `refused_reason=deadline` in the W6-22 dev smoke first.
+- The GIF worst case (about 22 s) against FinalizeUpload's 20 s `finalizeDeadline`. Options:
+  - raise the deadline for a GIF finalize (it must stay under the 30 s Cloud Run timeout and the 30 s screening claim);
+  - shorten `GifQueueWait` from 5 s;
+  - accept a rare retryable failure, with the Vision counter running up to 2 units under the real spend each time.
+- FU-5: the `media-pipeline` skill edit.
+
+**Cost impact of these notes.** Fixed cost INR 0. No INR row of the Cost impact section changes.

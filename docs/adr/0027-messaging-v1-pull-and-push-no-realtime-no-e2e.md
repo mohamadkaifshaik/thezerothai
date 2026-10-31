@@ -731,3 +731,77 @@ order by; `rev` is the per-thread invalidation a listener or SSE transport would
 - The Cost impact row "SendMessage, accepted conversation | 5 | 2.5" now reads 5 / 3.5.
 
 **Stage ladder.** `graph.TxReader` takes a `*firestore.Transaction`, as `identity.TxProfiles` does. That ties the send's block check to graph and messaging living in the same Firestore database. If an ADR moves either of them out of `(default)` (Stage 2: Cloud SQL, or a split service), replace this read with an optimistic version check: a `rev` on `graph/{uid}`, read before the transaction and re-checked at commit. That is the revisit trigger. Plan ticket W7-33 is gated before prod percent or `on`.
+
+## As-built note (W7-34), 2026-11-01: the erasure placeholder is `_deleted`, and `conversation_hash` is keyed (security review L-2, L-7)
+
+Records the code of PR #511 (`feat/ui-w7-34-placeholder-log-hash`, W7-34 content at `2eb52665`, head `59afab28` after a merge of main; the note holds once it merges). The
+decision text above, D8 and D11 included, stays as the record. This note supersedes the wording below wherever it
+differs. No status changes, no proto change, no new secret.
+
+**1. The placeholder is `_deleted`, not `deleted` (L-2).**
+- `messaging.DeletedUID` is `"_deleted"`. The eraser writes it wherever a deleted user's uid would otherwise survive in
+  the peer's copy:
+  - the conversation's `participants`, `gone`, `requestFrom` and `requestTo`;
+  - the `senderId` of the user's tombstoned messages;
+  - the peer entry's `peerId`.
+- It starts with `_`, which `ids.ValidUID` refuses (ADR-0008 A3), so no account can ever hold the value. The old
+  `deleted` had a valid uid shape and could in principle have been claimed.
+- Readers compare the constant, so none of them changed. The rule is unchanged: the placeholder means "Deleted
+  account" and resolves to no profile.
+- Wording this supersedes:
+  - **D8** step 3 and the W7-27 note's rule (a) (`peer == DeletedUID`) name no value; read them as `_deleted`.
+  - **The Idempotency note (2026-10-29), "Erasure" bullet**, says the uid-keyed maps are dropped "not ... renamed to
+    `deleted`". Read `_deleted`. The rule itself (drop `clearedAt.{uid}` and `clearedKey.{uid}`, never rename the key)
+    is unchanged.
+  - The `firestore-data-model` skill's eraser cost row is updated in #511.
+- **Dev-only migration:** `opsctl messages migrate-placeholder --project dzeroth-dev [--dry-run]` converts what the old
+  eraser left in dev. It refuses a `-prod` project; messaging was never on in prod.
+  - It finds work by `participants array-contains "deleted"` (the automatic array index; no collection-group query).
+  - It rewrites, field-level only and each write with a `LastUpdateTime` precondition, in the eraser's order: the
+    messages with `senderId == "deleted"`, the surviving entry's `peerId`, then the conversation's `participants`,
+    `gone`, `requestFrom` and `requestTo`. That is three more fields than the W7-34 ticket named.
+  - `rev`, `updatedAt` and `changedAt` do not move, so no cached device reloads.
+  - It is idempotent and resumable. A rerun with nothing left costs 1 read and 0 writes.
+  - Cost: 1 read per conversation found, per matching message and per entry probe (+1 for a conversation with no
+    matching message); at most 1 write per matching document.
+  - A conversation the old code left half-erased (`gone` marked, `participants` not yet rewritten) does not match the
+    query. Finish that account's deletion first.
+  - Procedure: `docs/runbooks/messaging.md` section 5c.
+
+**2. `conversation_hash` is a keyed HMAC, not the plain SHA-256 (L-7).**
+- A conversation id is a digest of the two uids (D1), so it is guessable from a uid pair. A plain SHA-256 of it in a log
+  line would confirm a guess.
+- `conversation_hash` = the first 16 hex characters of `HMAC-SHA256(k, conversationId)`, where
+  `k = HKDF-SHA256(CURSOR_HMAC_KEY, salt empty, info "dzeroth log conversation_hash v1", 32 bytes)`
+  (`logger.HashConversation`). The key is installed once in `apiserver.build`.
+- The derivation means no new Secret Manager version, and the key is unrelated to the cursor module's own key (a
+  different info label).
+- **Where it applies:** the request line, the `messaging_*_contention` warnings, and every 32-hex conversation,
+  message or cursor id that an error line redacts (the module's `redactErr`, built on `logger.RedactErrKeyed`).
+  `messagesErr` also redacts the peer uid now.
+- **What does not change:** `uid_hash` stays the plain first 16 hex of SHA-256 of the uid. The `message_hash` that
+  `opsctl messages takedown` prints stays plain.
+- **No key:** with `CURSOR_HMAC_KEY` empty, the API logs a warning and uses a random per-process key. The hash is then
+  stable inside one process only, and never falls back to the plain hash.
+- **Operators:** `opsctl messages loghash <convId>` prints the keyed hash.
+  - It reads `CURSOR_HMAC_KEY` from the environment, needs no `--project` and opens no Firestore client.
+  - It refuses with exit 2 when the key is missing; it never uses the local development key.
+  - Dev and prod have different `cursor-hmac-key` secrets, so use the key of the project whose logs you read.
+  - A rotation of `cursor-hmac-key` changes the hash of the same conversation. Older lines match only the secret
+    version that was live when they were written.
+  - `opsctl messages takedown` prints the keyed hash in its `audit:` line when `CURSOR_HMAC_KEY` is set in the shell,
+    otherwise `conversation_hash=unavailable(set-CURSOR_HMAC_KEY)`.
+- Wording this supersedes:
+  - **D11** "Logging" lists `conversation_hash` as a field without defining it. The definition is the one above.
+  - Any operator method based on `logger.HashUID(convId)` or `sha256sum` of a conversation id no longer matches.
+    #511 replaces the two that existed: `docs/runbooks/messaging.md` (the NOT_FOUND row and the new section 5c) and
+    `docs/runbooks/w7-messaging-dev-rollout.md` sections 6 and 7 (`hconv` instead of `h16` for the conversation).
+
+**No operator example in this ADR needed an inline fix.** Its body has no command, query or table that computes the
+placeholder or a hash. The only literal `deleted` is the Idempotency note's prose, superseded above.
+
+**Cost impact.** Fixed cost INR 0. Hot paths +0 reads, +0 writes; one HMAC per logged id. The migration is a one-off
+in dev (see above).
+
+**Stage ladder.** Unchanged. The keyed hash is still a log pseudonym only, never a lookup key, so a split messaging
+service needs only the same `CURSOR_HMAC_KEY` (or its own key and its own `loghash`).
