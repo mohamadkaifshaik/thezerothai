@@ -18,6 +18,7 @@ import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/lists/presentation/lists_screen.dart';
+import 'package:dzeroth/features/lists/presentation/manage_pinned_screen.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -125,6 +126,8 @@ void main() {
     when(() => tabs.isPinned(any(), any())).thenReturn(false);
     when(() => tabs.isFull).thenReturn(false);
     when(() => tabs.writeUnavailable).thenReturn(false);
+    when(() => tabs.tabs).thenReturn(const []);
+    when(() => tabs.saving).thenReturn(false);
     final engagement = EngagementCubit(repository: _MockEngagementRepository());
     addTearDown(engagement.close);
     final appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
@@ -198,4 +201,27 @@ void main() {
     expect(path, '/lists/77/members');
     expect(find.byType(ListMembersScreen), findsOneWidget);
   });
+
+  testWidgets(
+    'Manage pinned (/home/pinned) needs lists and ui_shell, else Home',
+    (tester) async {
+      expect(AppRouter.pinnedPath, '/home/pinned');
+      for (final flags in [
+        const <String>{},
+        const {'lists'},
+        const {'ui_shell'},
+      ]) {
+        final (path, _) = await openAt(tester, flags, AppRouter.pinnedPath);
+        expect(path, AppRouter.homePath, reason: '$flags');
+        expect(find.byType(ManagePinnedScreen), findsNothing);
+      }
+
+      final (path, _) = await openAt(tester, const {
+        'lists',
+        'ui_shell',
+      }, AppRouter.pinnedPath);
+      expect(path, AppRouter.pinnedPath);
+      expect(find.byType(ManagePinnedScreen), findsOneWidget);
+    },
+  );
 }

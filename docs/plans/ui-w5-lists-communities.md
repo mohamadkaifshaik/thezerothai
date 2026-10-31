@@ -343,7 +343,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | In review (#527) |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Open |
-| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
+| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (PR pending) |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
@@ -698,7 +698,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Through `ListsRepository` only.
 - **Parallel with W3 Part A / W4:** **after W3-13 / W3-14** (`profile_header.dart`).
 
-### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: Open
+### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: In review (PR pending)
 - **Description.**
   - The Home header's `AppTabBar` becomes content-sized and scrollable: Following first and fixed, then pinned tabs in order, then a trailing "+" (`home.md` §3: tabs content-sized, 4 dp accent bar).
   - Each tab is a lazily created, kept-alive `TimelineFeedView` + `TimelineCubit` (Following = `FeedKey.home`, a list = `FeedKey.list`, a community = `FeedKey.community` once W5-30 lands).
@@ -715,6 +715,21 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Budget.** 0 extra calls at startup (GetMe); 1 list-timeline call per first visit to a tab per session, then refreshes ≥ 60 s apart.
 - **Flag.** `lists` / `communities` per tab, plus `ui_shell`.
 - **Seam.** Tabs are data (a list of `HomeTab` descriptors fed to one scaffold), so a new kind adds no scaffold code.
+- **As built (W5-14).**
+  - Gate: `lists` and `ui_shell` both on. With either off, `HomeScreen` renders the one-tab Following header and makes no Lists call; `/home/pinned` redirects Home.
+  - Worst case per Home open with the flag on:
+
+    | Moment | RPCs |
+    |---|---|
+    | Startup | `GetMe` carries `home_tabs`: 0 extra |
+    | Following | unchanged (cached read, one throttled `GetHomeTimeline`) |
+    | A pinned list with no known name (another user's list, new device) | 1 `GetList` each, once per session; at most 5 |
+    | First visit to a list tab | 1 `GetListTimeline` (none when refreshed < 60 s ago) |
+    | Switching back to a visited tab | 0, or 1 throttled refresh when it is 60 s or more stale; hidden tabs never tick |
+    | Manage pinned open | 1 `ListUserLists` |
+    | Pin, Unpin, one reorder | 1 `SetHomeTabs` each (a burst while one is in flight sends one follow-up) |
+
+  - Not built: the communities rows (arrive with W5-30).
 - **Parallel with W3 Part A / W4:** `home_screen.dart` serialises with W3-19.
 
 ### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: Open

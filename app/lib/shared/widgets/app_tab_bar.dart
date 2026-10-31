@@ -36,6 +36,7 @@ class AppTabBar extends StatelessWidget {
     required this.onChanged,
     this.equalWidth = false,
     this.trailing,
+    this.fixedTrailing,
     this.semanticLabel,
   }) : assert(tabs.length > 0, 'a tab bar needs at least one tab');
 
@@ -49,12 +50,31 @@ class AppTabBar extends StatelessWidget {
   /// A widget after the last tab (the "manage tabs" button of Home).
   final Widget? trailing;
 
+  /// A widget after the tabs that stays visible at the end of the row while
+  /// the tabs scroll (Home's "+" for Manage pinned, W5-14). Content-sized
+  /// layout only.
+  final Widget? fixedTrailing;
+
   /// Spoken name of the whole group.
   final String? semanticLabel;
 
   void _move(int delta) {
     final next = (selectedIndex + delta).clamp(0, tabs.length - 1);
     if (next != selectedIndex) onChanged(next);
+  }
+
+  Widget _scrolling(List<Widget> items) {
+    final scroller = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(children: [...items, ?trailing]),
+    );
+    if (fixedTrailing == null) return scroller;
+    return Row(
+      children: [
+        Expanded(child: scroller),
+        fixedTrailing!,
+      ],
+    );
   }
 
   @override
@@ -78,10 +98,7 @@ class AppTabBar extends StatelessWidget {
               ?trailing,
             ],
           )
-        : SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: [...items, ?trailing]),
-          );
+        : _scrolling(items);
     return Semantics(
       container: true,
       explicitChildNodes: true,

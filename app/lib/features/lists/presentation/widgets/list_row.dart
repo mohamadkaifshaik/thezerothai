@@ -15,11 +15,21 @@ String listMemberCountLabel(int count) =>
 /// trailing Edit button for the owner. Reused by W5-13 for "a user's lists"
 /// (without [onEdit]).
 class ListRow extends StatelessWidget {
-  const ListRow({super.key, required this.list, this.onTap, this.onEdit});
+  const ListRow({
+    super.key,
+    required this.list,
+    this.onTap,
+    this.onEdit,
+    this.trailing,
+  });
 
   final pb.ListInfo list;
   final VoidCallback? onTap;
   final VoidCallback? onEdit;
+
+  /// A widget after the row instead of the Edit button (the Pin button of
+  /// Manage pinned, W5-14). Ignored when [onEdit] is given.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +104,9 @@ class ListRow extends StatelessWidget {
             tooltip: 'Edit ${list.name}',
             icon: const Icon(Icons.edit_outlined),
             onPressed: onEdit,
-          ),
+          )
+        else
+          ?trailing,
       ],
     );
   }
