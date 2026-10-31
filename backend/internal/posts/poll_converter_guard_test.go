@@ -10,7 +10,7 @@ package posts
 //	ListBookmarks              engagement/server_bookmarks.go (ToView) with service_bookmarks_list.go (HydrateViewer)
 //	ListLikedPosts (W3-10)     engagement/server_likes_list.go (ToView) with service_likes_list.go (HydrateViewer)
 //	CreatePost                 posts/server.go             ToProtoForViewer: the caller is the author, so the author rule applies
-//	VotePoll (W6-7)            not built yet; it must call ToView with the voter's set and is added to the table below by W6-7
+//	VotePoll (W6-7)            engagement/server_polls.go   ToView with the voter's set (service_polls.go builds it: the choice comes from the vote just made)
 //
 // Plain ToProto has no viewer and hides every count even from the author, so no production code may call it.
 
@@ -33,6 +33,7 @@ var pollProducerCalls = map[string][]string{
 	"search/service_posts.go":              {"ToView", "HydrateViewer"},
 	"engagement/server_bookmarks.go":       {"ToView"},
 	"engagement/service_bookmarks_list.go": {"HydrateViewer"},
+	"engagement/server_polls.go":           {"ToView"},
 	"engagement/server_likes_list.go":      {"ToView"},
 	"engagement/service_likes_list.go":     {"HydrateViewer"},
 }

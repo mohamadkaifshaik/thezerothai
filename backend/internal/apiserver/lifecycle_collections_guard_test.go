@@ -112,6 +112,11 @@ var lifecycleCollections = []collectionRow{
 	// documents hold only the owner's data (no other user's uid), so no residue allowlist entry exists, and a post's
 	// deletion fans nothing out to its bookmarkers (the owner's list hides and prunes the row).
 	{Name: "bookmarks", Sub: true, Disposition: erasedByStep, Step: "bookmarks", Section: "bookmarks", Owner: "engagement", Cite: "ADR-0023 D6, D8"},
+	// ADR-0029 D8 (W6-8): pollVotes/{postId}_{uid} is a top-level collection of {postId, uid, choice, createdAt, expireAt}. The
+	// `poll_votes` step (engagement.PollVoteEraser, BeforeIdentity, appended after messaging) deletes every vote the user cast
+	// (`uid ==`, pages of 500); the export section lists post id, choice and time. Counts on the posts stay as anonymous totals (F6),
+	// and a vote on a deleted poll post names only its voter and expires by TTL. userLikes.pollVotes goes with the userLikes row.
+	{Name: "pollVotes", Disposition: erasedByStep, Step: "poll_votes", Section: "poll_votes", Owner: "engagement", Cite: "ADR-0029 D8"},
 	// ADR-0027 D8 (W7-5 + W7-6): direct messages. `conversations/{convId}` (root; participants hold both uids) with its
 	// `messages` subcollection and the per-user `dmInbox` and `dmRequests` entries, none of which deleting users/{uid}
 	// removes. The `messaging` step (messaging.Eraser, BeforeIdentity after follow_requests) marks the conversation gone,
@@ -318,6 +323,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
