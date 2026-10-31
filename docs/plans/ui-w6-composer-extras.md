@@ -403,7 +403,7 @@ Effect on the quotas (additive):
 | W6-47 | *(founder 2026-10-31)* Finalize vote retention before release: W6-29 merged (TTL on `userLikes.pollVotes`), founder confirms the period (proposed 30 days after close for the vote doc and the per-account copy), policy and runbook state it | architect + founder | XS | W6-29 | yes | Open (gate: before release) |
 | W6-49 | *(W6-42 L-1, L-3, #554)* media: refund to the per-uid cap only a `*googleapi.Error` 429 or >= 500 and pre-send errors; give the Vision calls the remaining finalize time (or shorten `GifQueueWait`) and fix the `finalize.go` "about 17 s" comment | backend-developer | XS | W6-40 | after W6-40 | Open |
 | W6-50 | *(W6-42 L-4, #554)* media: align the zero-`createdAt` tier between the upload quota and the units cap | backend-developer | XS | W6-40 | after W6-40 | Open |
-| W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | Open |
+| W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | In review (#562) |
 | W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | In review (#553) |
 
 Order:
