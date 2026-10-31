@@ -45,7 +45,6 @@ class _MockPosts extends Mock implements PostsRepository {}
 
 class _MockEngagement extends Mock implements EngagementRepository {}
 
-const _votePath = '/dzeroth.engagement.v1.EngagementService/VotePoll';
 
 /// W6-19: the poll card inside real feed rows (`FeedPostRow` -> `PostCard` ->
 /// `PostPoll` -> `PollCubit` -> `PollRepository` -> transport), the error
@@ -57,7 +56,6 @@ void main() {
   late Object Function() answer;
   late PollCubit cubit;
   late PollRepository repo;
-  var reads = 0;
 
   setUpAll(() {
     registerFallbackValue(const OnboardingUserSignedOut());
@@ -67,7 +65,6 @@ void main() {
   });
 
   setUp(() {
-    reads = 0;
     votes = [];
     answer = () => throw StateError('unscripted');
     transport = FakeTransport((procedure, input) async {
@@ -80,7 +77,6 @@ void main() {
       apiClient: ApiClient.withTransport(transport),
       gate: ServiceFeatureGate(isEnabled: () => true),
       readPost: (_) async {
-        reads++;
         return pollPostView(
           1,
           poll: pollOf(votes: [2, 1, 0], total: 3, visible: true, closed: true),

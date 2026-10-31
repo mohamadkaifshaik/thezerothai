@@ -4,7 +4,6 @@ import 'package:dzeroth/features/media/data/media_uploader.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
 import '../../../support/media_fixtures.dart';
 

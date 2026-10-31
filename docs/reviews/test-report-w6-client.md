@@ -45,7 +45,8 @@ Inventory of new W6 widgets and where each cell lives:
 | `SavePostDialog` (no note, photos note, GIF note) | yes | `w6_matrix_gaps_test.dart`, `w6_composer_matrix_test.dart` (new; had none) |
 | Composer header with Drafts | yes | `composer_drafts_screen_test.dart:500` (dev) |
 | `DraftsScreen` (Unsent, Edit mode, empty, Scheduled tab) | yes | `drafts_screen_test.dart:386` (dev) |
-| GIF attachment tile (ready, rejected) | yes (rejected at x2.0; ready at x1) | `attachment_grid_gif_test.dart:100` (dev) |
+| GIF attachment tile (rejected) | yes (x2.0) | `attachment_grid_gif_test.dart:100` (dev) |
+| GIF attachment tile (ready) | yes, the tile with its Remove control and the toolbar | `w6_composer_matrix_test.dart` "GIF attached with a long emoji text fits" (new, full matrix) |
 | GIF attached in the composer with long emoji text | yes | `w6_composer_matrix_test.dart` (new) |
 | Rejected photo tile | yes | `w6_gif_and_tile_test.dart` (new) |
 | GIF `PostMedia` / `GifBadge` | yes | `post_media_gif_test.dart:182` (dev) |
@@ -84,7 +85,12 @@ Other ticket bullets:
 
 | ID | Severity | Where | Summary |
 |---|---|---|---|
-| D1 | Low | `app/lib/app/app_widget.dart:258-260` | The poll overlay (`PollCubit.reset()`) is reset only when the auth state becomes `unauthenticated`. The same file's session bridge (`session_wiring.dart:wireAuthSession`) handles a direct A to B switch explicitly, and wipes the cache there, but `PollCubit` keeps A's votes (choice, counts, `knownChoice`). B, opening the same post in the same app run, sees A's choice checked and the results bars (results hidden until the viewer votes, ADR-0029 D4). |
+| D1 | Low | `app/lib/app/app_widget.dart:260` | The poll overlay (`PollCubit.reset()`) is reset only when the auth state becomes `unauthenticated`. The same file's session bridge (`session_wiring.dart:wireAuthSession`) handles a direct A to B switch explicitly, and wipes the cache there, but `PollCubit` keeps A's votes (choice, counts, `knownChoice`). B, opening the same post in the same app run, sees A's choice checked and the results bars (results hidden until the viewer votes, ADR-0029 D4). |
+
+D1 was checked against the production wiring, not only the widget harness: `wireAuthSession` (`bootstrap.dart:296-303`) on a direct A to B
+calls `graphRepository.clearCache` and dispatches `OnboardingUserSignedOut`, neither of which touches `PollCubit`; `AppWidget._onOnboarding`
+(`app_widget.dart:322-335`) calls `PollCubit.flagsChanged()` only when the flag set changed, and `flagsChanged()` resets the repository's
+"voting off" memory, not the entries. So no production path clears the overlay on A to B.
 
 D1 repro and test: `app/test/app/app_widget_test.dart`, group "poll votes belong to the account (W6-19)", test "a direct
 switch to another account forgets them too" (committed with `skip: true` so the suite stays green; remove the skip when
@@ -97,7 +103,7 @@ Suggested fix owner: `frontend-developer` (reset on `user?.uid != previous uid`,
 ## Observations (not defects)
 
 - `/compose?draft=<id>` loads a saved draft when `drafts` is on and `posts` is off, while `/drafts` requires both
-  (`app_router.dart:748`). The composer route has no `posts` gate at all; the server stays authoritative. Info.
+  (`app_router.dart:748-750`). The composer route has no `posts` gate at all; the server stays authoritative. Info.
 - A tap on a read-only poll choice (voting off, author, closed) opens the post, because the row's `InkWell` receives it. Fine
   and now tested (no vote is sent).
 - `IsolateGifPreparer.prepare` is not `async`, so size and signature refusals throw synchronously rather than returning a
@@ -120,6 +126,6 @@ Suggested fix owner: `frontend-developer` (reset on `user?.uid != previous uid`,
 
 ## Verification commands (final tree)
 
-`flutter analyze --no-pub` and `flutter test --no-pub` from `app/`; results are in the PR description.
+RESULTS_PLACEHOLDER
 
-VERDICT: PASS — 1 low defect (D1), filed to frontend-developer; the new test for it is committed skipped.
+VERDICT: FAIL — D1 (low): the poll vote overlay survives a direct account switch (`app_widget.dart:260`), skipped repro in `app/test/app/app_widget_test.dart`

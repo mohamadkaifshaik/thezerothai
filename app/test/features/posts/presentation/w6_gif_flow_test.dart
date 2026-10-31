@@ -1,7 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
-import 'package:dzeroth/features/posts/domain/composer_attachment_rules.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/composer_extras_buttons.dart';
 import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
