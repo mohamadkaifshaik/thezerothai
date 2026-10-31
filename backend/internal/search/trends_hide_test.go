@@ -20,8 +20,8 @@ func TestTrendKey(t *testing.T) {
 		{"plain", "slur", "slur"},
 		{"leading hash and case", " #SLUR ", "slur"},
 		{"two hashes are dropped (before and after NFKC)", "##slur", "slur"},
-		{"zero width joiner", "sl‍ur", "slur"},
-		{"zero width non-joiner", "s‌l‌ur", "slur"},
+		{"zero width joiner", "sl\u200dur", "slur"},
+		{"zero width non-joiner", "s\u200cl\u200cur", "slur"},
 		{"underscore", "s_l_u_r", "slur"},
 		{"decomposed input equals the composed tag", "café", "café"},
 		{"composed input", "café", "café"},
@@ -29,11 +29,11 @@ func TestTrendKey(t *testing.T) {
 		{"fullwidth hash", "＃slur", "slur"},
 		{"mathematical bold letters", "\U0001d42c\U0001d425\U0001d42e\U0001d42b", "slur"},
 		{"ligature folds to letters", "ﬁnd", "find"},
-		{"all of them together", "#Ｓ_L‍‌ur", "slur"},
+		{"all of them together", "#\uff33_L\u200d\u200cur", "slur"},
 		{"devanagari is kept", "भारत", "भारत"},
 		{"empty", "", ""},
 		{"only a hash", "#", ""},
-		{"only folded characters", "_‍‌_", ""},
+		{"only folded characters", "_\u200d\u200c_", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestTrendKey(t *testing.T) {
 
 func TestHideKey(t *testing.T) {
 	t.Parallel()
-	if _, err := HideKey("_‍"); !errors.Is(err, ErrEmptyTrendKey) {
+	if _, err := HideKey("_\u200d"); !errors.Is(err, ErrEmptyTrendKey) {
 		t.Errorf("empty key: %v", err)
 	}
 	if _, err := HideKey(repeat("a", 51)); !errors.Is(err, ErrTrendKeyTooLong) {
@@ -84,11 +84,11 @@ func TestRefresh_HideListAndSkeletonDenylist(t *testing.T) {
 		want   []string
 	}{
 		{"a hidden key is dropped", []string{"bad", "ok"}, nil, []string{"bad"}, []string{"ok"}},
-		{"the hide list is folded: a joiner variant in the posts is dropped", []string{"b‍ad", "ok"}, nil, []string{"bad"}, []string{"ok"}},
+		{"the hide list is folded: a joiner variant in the posts is dropped", []string{"b\u200dad", "ok"}, nil, []string{"bad"}, []string{"ok"}},
 		{"an underscore variant is dropped", []string{"b_a_d", "ok"}, nil, []string{"bad"}, []string{"ok"}},
 		{"a fullwidth variant is dropped", []string{"ｂａｄ", "ok"}, nil, []string{"bad"}, []string{"ok"}},
 		{"a denylist entry typed decomposed matches the stored composed tag", []string{"café", "ok"}, []string{"café"}, nil, []string{"ok"}},
-		{"a denylist entry with a joiner matches the plain tag", []string{"bad", "ok"}, []string{"b‍ad"}, nil, []string{"ok"}},
+		{"a denylist entry with a joiner matches the plain tag", []string{"bad", "ok"}, []string{"b\u200dad"}, nil, []string{"ok"}},
 		{"the denylist and the hide list both apply", []string{"bad", "worse", "ok"}, []string{"bad"}, []string{"worse"}, []string{"ok"}},
 		{"nothing hidden keeps everything", []string{"x", "y"}, nil, nil, []string{"x", "y"}},
 	}
@@ -172,7 +172,7 @@ func TestTrends_HiddenAndDenylistedAreDroppedAndRanksRenumbered(t *testing.T) {
 		{"a denylisted tag leaves no gap", []string{"#GO"}, nil, "", []string{"launch", "lakers", "lang", "भारत"}, []int32{1, 2, 3, 4}},
 		{"both", []string{"go"}, []string{"launch"}, "", []string{"lakers", "lang", "भारत"}, []int32{1, 2, 3}},
 		{"a prefix keeps gaps of the served list", nil, []string{"lakers"}, "la", []string{"launch", "lang"}, []int32{1, 3}},
-		{"a hide list entry written in another fold still matches", nil, []string{"L_a‍kers"}, "", []string{"launch", "go", "lang", "भारत"}, []int32{1, 2, 3, 4}},
+		{"a hide list entry written in another fold still matches", nil, []string{"L_a\u200dkers"}, "", []string{"launch", "go", "lang", "भारत"}, []int32{1, 2, 3, 4}},
 		{"everything hidden", nil, []string{"launch", "lakers", "go", "lang", "भारत"}, "", nil, nil},
 	}
 	for _, tc := range tests {
@@ -200,7 +200,7 @@ func TestTrends_HiddenAndDenylistedAreDroppedAndRanksRenumbered(t *testing.T) {
 func TestTrends_SkeletonMatchesStoredVariants(t *testing.T) {
 	t.Parallel()
 	doc := &TrendsDoc{ComputedAt: trendsT0, Items: []TrendItem{
-		{Tag: "sl‍ur", Posts: 9, Authors: 5}, {Tag: "s_lur", Posts: 8, Authors: 5}, {Tag: "ok", Posts: 7, Authors: 4},
+		{Tag: "sl\u200dur", Posts: 9, Authors: 5}, {Tag: "s_lur", Posts: 8, Authors: 5}, {Tag: "ok", Posts: 7, Authors: 4},
 	}}
 	svc := hideSvc(t, &fakeTrendsStore{doc: doc, hidden: []string{"slur"}}, &fakeClock{t: trendsT0}, nil)
 	got, err := svc.Trends(context.Background(), "u1", 0, "")

@@ -35,7 +35,7 @@ func TestTrends_Integration_HideList(t *testing.T) {
 	}
 
 	// The first hide creates the document; a variant of the same key is a repeat (0 writes).
-	op("hide first", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "#Sl_u‍r") },
+	op("hide first", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "#Sl_u\u200dr") },
 		HideResult{Key: "slur", Changed: true, Count: 1}, budgettest.Budget{Reads: 1, Writes: 1})
 	op("hide repeat", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "SLUR") },
 		HideResult{Key: "slur", Count: 1}, budgettest.Budget{Reads: 1})
@@ -110,7 +110,7 @@ func TestTrends_Integration_HideList(t *testing.T) {
 
 	// Rejected input costs nothing.
 	ctx, cnt = budget.WithCounter(bg)
-	if _, err := store.Hide(ctx, "_‍"); !errors.Is(err, ErrEmptyTrendKey) {
+	if _, err := store.Hide(ctx, "_\u200d"); !errors.Is(err, ErrEmptyTrendKey) {
 		t.Fatalf("empty key: %v", err)
 	}
 	budgettest.Assert(t, "rejected", cnt, budgettest.Budget{})
