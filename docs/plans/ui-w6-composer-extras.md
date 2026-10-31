@@ -366,7 +366,7 @@ Effect on the quotas (additive):
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
-| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Open |
+| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
@@ -699,7 +699,7 @@ Order:
 - **Seam.** `PollDraft` is the single model used by the builder, drafts (W6-14) and CreatePost.
 - **Runs alongside W3/W4/W5:** `composer_cubit.dart`, one PR at a time.
 
-### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: Open
+### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: In review
 - **Description.** `PollView` in `PostCard`, the thread view and the post detail:
   - **Open and not voted:** outlined choice buttons and "N votes · 2 days left".
   - **Voted, author or closed:** result bars with percentages (rounded so they total 100), the leading choice bold, a check on the viewer's choice, and "N votes · Final results" when closed.

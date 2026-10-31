@@ -13,6 +13,7 @@ import '../../core/theme/app_theme.dart';
 import '../../features/engagement/domain/engagement_entry.dart';
 import '../../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../../features/engagement/presentation/widgets/post_engagement_bar.dart';
+import '../../features/engagement/presentation/widgets/post_poll.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../features/graph/presentation/graph_error_messages.dart';
@@ -36,6 +37,7 @@ import 'app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
+import 'poll_card.dart';
 import 'post_pin_control.dart';
 import 'protected_badge.dart';
 import 'protected_post_box.dart';
@@ -405,6 +407,28 @@ class PostCard extends StatelessWidget {
                 const SizedBox(height: AppSpacing.sm),
                 PostMedia(media: media, useFullImage: showFullImages),
               ],
+              // W6-13: a poll on this post (live card) or on the original of a
+              // repost (the frozen definition: read-only, opens the original).
+              if (isRepost && embedded!.hasPoll())
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: PollEmbedSummary(
+                    poll: embedded.poll,
+                    now: reference,
+                    showOptions: true,
+                    onOpen: () => _openPost(context, embedded.postId),
+                  ),
+                )
+              else if (!isRepost && _post.hasPoll())
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.sm),
+                  child: PostPoll(
+                    view: view,
+                    targetId: _post.postId,
+                    isAuthor: _isOwn,
+                    now: reference,
+                  ),
+                ),
               if (!isRepost &&
                   _post.kind == PostKind.POST_KIND_QUOTE &&
                   embedded != null &&
