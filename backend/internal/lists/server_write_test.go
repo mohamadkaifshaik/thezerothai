@@ -14,12 +14,13 @@ import (
 
 // recordingService answers canned views and records what the handler passed it.
 type recordingService struct {
-	calls   int
-	gotUID  string
-	create  CreateInput
-	update  UpdateInput
-	delKey  string
-	delList string
+	calls                    int
+	gotUID                   string
+	create                   CreateInput
+	update                   UpdateInput
+	delKey                   string
+	delList                  string
+	memKey, memList, memUser string
 }
 
 func (s *recordingService) view() View {
@@ -39,6 +40,18 @@ func (s *recordingService) CreateList(_ context.Context, uid string, in CreateIn
 func (s *recordingService) UpdateList(_ context.Context, uid string, in UpdateInput) (View, error) {
 	s.calls++
 	s.gotUID, s.update = uid, in
+	return s.view(), nil
+}
+
+func (s *recordingService) AddMember(_ context.Context, uid, key, listID, userID string) (View, error) {
+	s.calls++
+	s.gotUID, s.memKey, s.memList, s.memUser = uid, key, listID, userID
+	return s.view(), nil
+}
+
+func (s *recordingService) RemoveMember(_ context.Context, uid, key, listID, userID string) (View, error) {
+	s.calls++
+	s.gotUID, s.memKey, s.memList, s.memUser = uid, key, listID, userID
 	return s.view(), nil
 }
 
@@ -131,6 +144,14 @@ func TestServer_WritesAreGatedBeforeTheService(t *testing.T) {
 		},
 		"DeleteList": func(s *Server, ctx context.Context) error {
 			_, err := s.DeleteList(ctx, connect.NewRequest(&listsv1.DeleteListRequest{IdempotencyKey: testKey, ListId: testListID}))
+			return err
+		},
+		"AddListMember": func(s *Server, ctx context.Context) error {
+			_, err := s.AddListMember(ctx, connect.NewRequest(&listsv1.AddListMemberRequest{IdempotencyKey: testKey, ListId: testListID, UserId: "u2"}))
+			return err
+		},
+		"RemoveListMember": func(s *Server, ctx context.Context) error {
+			_, err := s.RemoveListMember(ctx, connect.NewRequest(&listsv1.RemoveListMemberRequest{IdempotencyKey: testKey, ListId: testListID, UserId: "u2"}))
 			return err
 		},
 	}

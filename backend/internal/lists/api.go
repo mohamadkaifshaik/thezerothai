@@ -4,9 +4,9 @@
 // implements it in identity), and lists.Reader for the timeline (W5-7).
 //
 // What exists: the flag gate (W5-3, FEATURE_LISTS, D9); the write path CreateList, UpdateList and DeleteList (W5-4: model.go, service.go,
-// repo_firestore.go, cache.go); and the lifecycle (W5-5: purge.go, the `lists` eraser step and export section, registered in
+// repo_firestore.go, cache.go); the member writes AddListMember and RemoveListMember (W5-6: service_members.go, repo_members.go); and the lifecycle (W5-5: purge.go, the `lists` eraser step and export section, registered in
 // apiserver/lifecycle_lists.go). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go) fails the build for a
-// collection constant without an erasure row, which is why W5-4 and W5-5 ship in one PR. Still to come: members (W5-6), reads and
+// collection constant without an erasure row, which is why W5-4 and W5-5 ship in one PR. Still to come: reads and
 // lists.Reader (W5-7); GetListTimeline lives in the timeline module (W5-8) and SetHomeTabs in identity and timeline (W5-9).
 package lists
 

@@ -19,8 +19,8 @@ const rpcDeadline = 8 * time.Second
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
 // rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS, ADR-0030 D9) before anything
 // else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
-// gate CreateList, UpdateList and DeleteList call the Service (W5-4); the other four are still the generated Unimplemented
-// answer until W5-6 (members) and W5-7 (reads) replace them.
+// gate CreateList, UpdateList, DeleteList (W5-4) and AddListMember, RemoveListMember (W5-6) call the Service; the other three are
+// still the generated Unimplemented answer until W5-7 (reads) replaces them.
 type Server struct {
 	listsv1connect.UnimplementedListServiceHandler
 	flags FlagChecker
@@ -130,20 +130,46 @@ func (s *Server) ListUserLists(ctx context.Context, req *connect.Request[listsv1
 	return s.UnimplementedListServiceHandler.ListUserLists(ctx, req)
 }
 
-// AddListMember is gated by FEATURE_LISTS; the member write is W5-6.
-func (s *Server) AddListMember(ctx context.Context, req *connect.Request[listsv1.AddListMemberRequest]) (*connect.Response[listsv1.AddListMemberResponse], error) {
-	if err := s.gate(ctx); err != nil {
+// memberWrite is the shared body of the two member handlers: gate, deadline, the service call, the ListInfo of the answer.
+func (s *Server) memberWrite(ctx context.Context, rpc string, call func(ctx context.Context, uid string) (View, error)) (*listsv1.ListInfo, error) {
+	ctx, cancel, uid, err := s.entry(ctx, rpc)
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.AddListMember(ctx, req)
+	defer cancel()
+	v, err := call(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return toListInfo(v), nil
 }
 
-// RemoveListMember is gated by FEATURE_LISTS; the member write is W5-6.
-func (s *Server) RemoveListMember(ctx context.Context, req *connect.Request[listsv1.RemoveListMemberRequest]) (*connect.Response[listsv1.RemoveListMemberResponse], error) {
-	if err := s.gate(ctx); err != nil {
+// AddListMember is gated by FEATURE_LISTS; owner only (W5-6).
+//
+//nolint:dupl // mirrors RemoveListMember over distinct generated proto types
+func (s *Server) AddListMember(ctx context.Context, req *connect.Request[listsv1.AddListMemberRequest]) (*connect.Response[listsv1.AddListMemberResponse], error) {
+	m := req.Msg
+	info, err := s.memberWrite(ctx, "AddListMember", func(ctx context.Context, uid string) (View, error) {
+		return s.svc.AddMember(ctx, uid, m.GetIdempotencyKey(), m.GetListId(), m.GetUserId())
+	})
+	if err != nil {
 		return nil, err
 	}
-	return s.UnimplementedListServiceHandler.RemoveListMember(ctx, req)
+	return connect.NewResponse(&listsv1.AddListMemberResponse{List: info}), nil
+}
+
+// RemoveListMember is gated by FEATURE_LISTS; owner only (W5-6).
+//
+//nolint:dupl // mirrors AddListMember over distinct generated proto types
+func (s *Server) RemoveListMember(ctx context.Context, req *connect.Request[listsv1.RemoveListMemberRequest]) (*connect.Response[listsv1.RemoveListMemberResponse], error) {
+	m := req.Msg
+	info, err := s.memberWrite(ctx, "RemoveListMember", func(ctx context.Context, uid string) (View, error) {
+		return s.svc.RemoveMember(ctx, uid, m.GetIdempotencyKey(), m.GetListId(), m.GetUserId())
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&listsv1.RemoveListMemberResponse{List: info}), nil
 }
 
 // ListListMembers is gated by FEATURE_LISTS; the read is W5-7.

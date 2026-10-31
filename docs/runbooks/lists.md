@@ -22,7 +22,7 @@ flag-gated:** the account eraser step and the export section.
 entries per instance, 60 s TTL.
 
 ## 3. Reading the request line
-One line per RPC: `list_op` (`create`, `update`, `delete`), `outcome` (`done`, `replay`, `noop`, `rejected:*`, `contention`), `fs_reads`,
+One line per RPC: `list_op` (`create`, `update`, `delete`, `add`, `remove`), `dropped` (members removed by the lazy drop in the same write), `outcome` (`done`, `replay`, `noop`, `rejected:*`, `contention`), `fs_reads`,
 `fs_writes`, `txn_attempts`. Never a list id, name or description. A `lists_contention` WARN means a transaction kept losing the lock race
 (a double tap on one list; a list has one writer, so this is not a hot document); the client gets a retryable UNAVAILABLE. Lower
 `RATE_LIMIT_LISTS_WRITE_PER_MIN` if it persists. `lists_retitle_failed` / `lists_unpin_failed` WARNs (W5-9 onward) mean the pinned-tab
@@ -48,9 +48,8 @@ job backstop (`docs/runbooks/account-deletion.md`) keeps retrying. Other users' 
 design. Export section `lists`: the user's own lists with member ids; lists the user is only a member of belong to their owners and are not
 exported. Reads: one per own list (minimum 1).
 
-## 6. Rule F4 (members are never told)
-No notification when someone is added to a list. Members who block the list owner are dropped at read time and removed from storage by the
-owner's next write to the list (W5-6, W5-7). A private list reveals nothing to its members.
+## 6. Rule F4 (members are never told) and member writes (W5-6)
+No notification when someone is added. AddListMember / RemoveListMember drop, in the same write, members found in the owner's `blockedBy` (log field `dropped`); a no-op add or remove writes only the idempotency doc and drops nothing. Failure modes: `LIMIT_REACHED limit=list_members` (150, checked after the lazy drop, so a drop can make room); `PROTECTED_ACCOUNT` (target is protected and the owner does not follow it); a block either way, a missing or non-ACTIVE target, and a foreign list are all the same NOT_FOUND `list not found` (no oracle: debug by checking the target in the console, never by the message); `QUOTA_EXCEEDED quota=list_adds` (300/day, 50 new accounts; only real adds are charged). A `lists_lazy_drop_skipped` WARN means the owner's graph read failed during a remove: the removal succeeded, the drop waits for the next write. The block and protected checks read the owner's graph and the target profile from caches (60 s stale), so a block placed within the last minute may not be seen.
 
 ## 7. Hiding an abusive public list
 Not built yet: `opsctl list hide` / `restore` and the `hidden` flag handling arrive with W5-29. Until then the only lever is the flag.
