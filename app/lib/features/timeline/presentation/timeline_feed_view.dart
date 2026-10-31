@@ -60,7 +60,14 @@ class TimelineFeedView extends StatefulWidget {
     this.pinControl,
     this.hideEmptyState = false,
     this.unavailableView,
+    this.active = true,
   });
+
+  /// Whether this feed is the one on screen. A feed kept alive behind another
+  /// (the Home tabs, W5-14) passes false: its 30 s tick and resume refresh
+  /// stand still, and becoming active again asks once for the throttled
+  /// refresh (no RPC when it was refreshed less than 60 s ago).
+  final bool active;
 
   /// What a feed the server calls NOT_FOUND shows (a private or deleted List,
   /// `TimelineState.unavailable`). Null = a plain "unavailable" empty view.
@@ -155,8 +162,17 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     _ticker = Timer.periodic(kFeedTickInterval, (_) => _tick());
   }
 
+  @override
+  void didUpdateWidget(TimelineFeedView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.active && widget.active) {
+      // Not during the build: the refresh emits at once.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tick());
+    }
+  }
+
   void _tick() {
-    if (!mounted) return;
+    if (!mounted || !widget.active) return;
     // Relative times have minute granularity, so rebuild the feed only when a
     // minute boundary was crossed, not on every 30 s tick.
     final now = DateTime.now();
