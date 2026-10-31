@@ -528,7 +528,7 @@ func TestVotePoll_PostHashOnRequestLineAndContentionWarn(t *testing.T) {
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
-	want := logger.HashUID(pidA)
+	want := logger.HashPost(pidA)
 
 	t.Run("voted", func(t *testing.T) {
 		e := newPollEnv(t)
