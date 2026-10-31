@@ -105,7 +105,8 @@ func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (shee
 	data, err := s.Objects.UploadHead(rctx, d.UploadPath, d.Bytes, gens.full) // pinned: the exact generation verify approved
 	cancel()
 	if errors.Is(err, objstore.ErrGenerationChanged) {
-		return nil, st, refuseInvalid("changed_after_verify")
+		logger.SetRequestField(ctx, fieldChangedAfterVerify, true)
+		return nil, st, refuseInvalid(fieldChangedAfterVerify)
 	}
 	if err != nil {
 		return nil, st, fmt.Errorf("media: read gif: %w", err)
@@ -113,7 +114,8 @@ func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (shee
 	// The bytes sampled must be the bytes verify approved. The read is pinned to the verified generation (and the signed PUT is
 	// create-only), so this MD5 comparison is defence in depth.
 	if sum := md5.Sum(data); int64(len(data)) != d.Bytes || base64.StdEncoding.EncodeToString(sum[:]) != d.FullMD5 { //nolint:gosec // see import
-		return nil, st, refuseInvalid("changed_after_verify")
+		logger.SetRequestField(ctx, fieldChangedAfterVerify, true)
+		return nil, st, refuseInvalid(fieldChangedAfterVerify)
 	}
 	sc, err := scanGIF(data, s.gifLimits())
 	if err != nil {

@@ -268,10 +268,7 @@ func (o *fakeObjects) UploadHead(_ context.Context, object string, n, generation
 	defer o.mu.Unlock()
 	f, ok := o.upload[object]
 	if !ok {
-		if generation != 0 {
-			return nil, objstore.ErrGenerationChanged
-		}
-		return nil, objstore.ErrObjectNotFound
+		return nil, objstore.ErrObjectNotFound // like the real store: a pinned read of a missing object is a 404, not "changed"
 	}
 	if generation != 0 && f.genOf() != generation {
 		return nil, objstore.ErrGenerationChanged

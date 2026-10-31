@@ -139,7 +139,8 @@ func (s *Store) Attrs(ctx context.Context, object string) (Attrs, error) {
 
 // ReadHead returns the first n bytes of the object (a ranged read, 1 Class B operation); a shorter object returns
 // what it has. A missing object is ErrObjectNotFound. With generation != 0 the read is pinned to that generation (the
-// bytes are exactly the ones whose attributes were verified); if it is no longer live the answer is ErrGenerationChanged.
+// bytes are exactly the ones whose attributes were verified) with an ifGenerationMatch precondition: 412 means the object was
+// replaced (ErrGenerationChanged) and 404 means it is gone (ErrObjectNotFound, the same split CopyTo makes).
 func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
@@ -148,13 +149,14 @@ func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64
 		return nil, err
 	}
 	if generation != 0 {
-		obj = obj.Generation(generation)
+		obj = obj.If(storage.Conditions{GenerationMatch: generation}) // not Generation(): a 404 must stay "not found", only 412 is "changed"
 	}
 	r, err := obj.NewRangeReader(ctx, 0, n)
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) && gerr.Code == http.StatusPreconditionFailed {
+		return nil, ErrGenerationChanged
+	}
 	if errors.Is(err, storage.ErrObjectNotExist) {
-		if generation != 0 {
-			return nil, ErrGenerationChanged
-		}
 		return nil, ErrObjectNotFound
 	}
 	if err != nil {
@@ -210,7 +212,11 @@ func (s *Store) CopyTo(ctx context.Context, object string, srcGeneration int64, 
 	return nil
 }
 
-// streamCopy is the emulator-only copy: read the source, write the destination with the given attributes.
+// streamCopy is the emulator-only copy: read the source, write the destination with the given attributes. The Storage
+// emulator ignores read generations and ifGenerationMatch on media reads (probed, W6-25), so the Attrs comparison below is
+// a best-effort check and NOT atomic with the read that follows: a rewrite between the two goes unnoticed. That is
+// acceptable only because this path never runs against GCS, where the single rewrite call carries ifSourceGenerationMatch
+// and is the real protection (TestCopyTo_SendsIfSourceGenerationMatch pins it on the wire).
 func streamCopy(ctx context.Context, src *storage.ObjectHandle, srcGeneration int64, dst *storage.ObjectHandle, contentType, cacheControl string) error {
 	if srcGeneration != 0 {
 		a, err := src.Attrs(ctx)

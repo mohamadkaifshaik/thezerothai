@@ -148,8 +148,8 @@ func TestMediaOps_Integration(t *testing.T) {
 	}
 }
 
-// TestGenerationPin_Integration proves the W6-25 pin: a read or copy of the generation Attrs reported succeeds, and after the
-// object is overwritten both answer ErrGenerationChanged and publish nothing.
+// TestGenerationPin_Integration proves the W6-25 pin against the emulator: a read or copy of the generation Attrs reported succeeds, and after the
+// object is overwritten the copy answers ErrGenerationChanged and publishes nothing (the emulator cannot prove the read pin).
 func TestGenerationPin_Integration(t *testing.T) {
 	if os.Getenv("STORAGE_EMULATOR_HOST") == "" {
 		t.Skip("STORAGE_EMULATOR_HOST not set; run via the emulator suite")
@@ -179,9 +179,9 @@ func TestGenerationPin_Integration(t *testing.T) {
 		t.Fatalf("pinned ReadHead: %v", err)
 	}
 	put("swapped-bytes")
-	if _, err := up.ReadHead(ctx, "u/x/g.jpg", 512, a.Generation); !errors.Is(err, ErrGenerationChanged) {
-		t.Fatalf("pinned ReadHead after swap: %v", err)
-	}
+	// No ReadHead-after-swap assertion here: the Storage emulator ignores ?generation= and ifGenerationMatch on media reads
+	// (probed), so it would serve the new bytes. The read precondition is asserted on the wire instead
+	// (TestReadHead_PinnedReadCarriesTheGenerationPrecondition, objstore_wire_test.go).
 	if err := up.CopyTo(ctx, "u/x/g.jpg", a.Generation, pub, "m/g.jpg", "image/jpeg", "public"); !errors.Is(err, ErrGenerationChanged) {
 		t.Fatalf("pinned CopyTo after swap: %v", err)
 	}

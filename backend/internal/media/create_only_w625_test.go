@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -31,18 +32,33 @@ func TestW625_SignedPutHeadersAreCreateOnly(t *testing.T) {
 
 func TestW625_PublishRefusesAReplacedObject(t *testing.T) {
 	tests := []struct {
-		name   string
-		swap   func(tg UploadTarget) string // which private object the attacker overwrites
-		public int                          // public objects left behind (0: a copied full image is dropped again)
+		name    string
+		purpose Purpose
+		thumb   bool // which private object the attacker overwrites
+		public  int  // public objects left behind (0: a copied full image is dropped again)
 	}{
-		{"full photo", func(tg UploadTarget) string { return uploadObject(uidA, tg.MediaID, "jpg") }, 0},
-		{"thumbnail", func(tg UploadTarget) string { return uploadThumbObject(uidA, tg.MediaID, "jpg") }, 0},
+		{"full photo", PurposePost, false, 0},
+		{"thumbnail", PurposePost, true, 0},
+		{"avatar full", PurposeAvatar, false, 0},
+		{"avatar thumbnail", PurposeAvatar, true, 0},
+		{"banner full", PurposeBanner, false, 0},
+		{"banner thumbnail", PurposeBanner, true, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t, envOpts{})
-			tg := e.upload(t, uidA, PurposePost, "sw")
-			up := tc.swap(tg)
+			ext := "jpg"
+			var tg UploadTarget
+			if tc.purpose == PurposeBanner {
+				ext = "webp"
+				tg = e.bannerUpload(t, uidA, "sw")
+			} else {
+				tg = e.upload(t, uidA, tc.purpose, "sw")
+			}
+			up := uploadObject(uidA, tg.MediaID, ext)
+			if tc.thumb {
+				up = uploadThumbObject(uidA, tg.MediaID, ext)
+			}
 			e.obj.publishHook, e.obj.publishOn = func() { e.obj.rePut(up, jpegBytes("EVIL"), "image/jpeg") }, up
 
 			res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
@@ -77,10 +93,13 @@ func (r *replaceBeforeRead) UploadHead(ctx context.Context, object string, n, ge
 	return r.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
+// The attacker re-PUTs the SAME bytes as a new generation. The MD5 re-check cannot see that, so only the generation pin on the
+// sampler read can: without it the GIF would be sampled and Vision units spent for an object verify never approved.
 func TestW625_GIFReadIsPinnedToTheVerifiedGeneration(t *testing.T) {
-	r := &replaceBeforeRead{data: colourGIF(pxRed, pxRed)}
+	original := colourGIF(pxWhite, pxGreen)
+	r := &replaceBeforeRead{data: original}
 	e := newEnv(t, envOpts{objects: func(f *fakeObjects) Objects { r.fakeObjects = f; return r }})
-	tg := e.createGIFWith(t, uidA, "a", colourGIF(pxWhite, pxGreen))
+	tg := e.createGIFWith(t, uidA, "a", original)
 	r.name = uploadObject(uidA, tg.MediaID, "gif")
 	if res := e.finalizeGIF(t, tg); res.Status != StatusRejected || res.RejectionReason != reasonInvalid {
 		t.Fatalf("result = %+v", res)
@@ -102,7 +121,47 @@ func TestW625_VerifyRecordsTheGenerationItRead(t *testing.T) {
 	if gens.full != 2 || gens.thumb != 1 {
 		t.Fatalf("generations = %+v, want full 2 thumb 1", gens)
 	}
-	if err := e.obj.Publish(context.Background(), d.UploadPath, 1, "p/x.jpg", "image/jpeg"); err != objstore.ErrGenerationChanged {
+	if err := e.obj.Publish(context.Background(), d.UploadPath, 1, "p/x.jpg", "image/jpeg"); !errors.Is(err, objstore.ErrGenerationChanged) {
 		t.Fatalf("a stale generation must be refused, got %v", err)
+	}
+}
+
+// noGenObjects reports attributes without a generation (what a store that dropped the field would do); the plain fake turns
+// 0 into 1, which would hide the missing pin.
+type noGenObjects struct{ *fakeObjects }
+
+func (n noGenObjects) UploadAttrs(ctx context.Context, object string) (objstore.Attrs, error) {
+	a, err := n.fakeObjects.UploadAttrs(ctx, object)
+	a.Generation = 0
+	return a, err
+}
+
+// W6-25 M-4: no generation means no pin, so verify fails closed (an internal error, the client retries) and nothing is published.
+func TestW625_VerifyFailsClosedWithoutAGeneration(t *testing.T) {
+	e := newEnv(t, envOpts{objects: func(f *fakeObjects) Objects { return noGenObjects{f} }})
+	tg := e.upload(t, uidA, PurposePost, "ng")
+	d := e.repo.docs[tg.MediaID]
+	if _, _, err := e.svc.(*service).verify(context.Background(), d); err == nil {
+		t.Fatal("verify accepted attributes without a generation")
+	}
+	if _, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}}); err == nil {
+		t.Fatal("FinalizeUpload succeeded without a generation")
+	}
+	if e.obj.publishes != 0 || len(e.obj.public) != 0 {
+		t.Fatalf("published without a pin: %d, %v", e.obj.publishes, e.obj.public)
+	}
+	if d := e.repo.docs[tg.MediaID]; d.Status != string(StatusPending) {
+		t.Fatalf("doc = %+v, want it left PENDING for a retry", d)
+	}
+}
+
+// The real Buckets refuse an unpinned publish too, whatever the caller passes.
+func TestW625_BucketsPublishRefusesAZeroGeneration(t *testing.T) {
+	b, err := NewBuckets("up", "pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Publish(context.Background(), "u/x", 0, "p/x", "image/jpeg"); err == nil {
+		t.Fatal("Publish with generation 0 was attempted")
 	}
 }

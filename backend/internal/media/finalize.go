@@ -457,6 +457,10 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		case err != nil:
 			return "", gens, fmt.Errorf("media: object attrs: %w", err)
 		}
+		if a.Generation <= 0 {
+			// Fail closed (W6-25, M-4): without a generation there is nothing to pin the read and the copy to, so nothing is published.
+			return "", gens, errors.New("media: object attributes carry no generation")
+		}
 		want, derr := base64.StdEncoding.DecodeString(o.md5)
 		switch {
 		case a.Size <= 0 || a.Size > o.max || a.Size != o.size:
@@ -466,8 +470,10 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		case derr != nil || string(a.MD5) != string(want):
 			return reasonInvalid, gens, nil
 		}
-		head, err := s.Objects.UploadHead(ctx, o.object, 512, 0) // a sniff only: the pinned read and copy carry the proof
+		head, err := s.Objects.UploadHead(ctx, o.object, 512, a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (free, same call)
 		switch {
+		case errors.Is(err, objstore.ErrGenerationChanged):
+			return reasonInvalid, gens, nil // replaced between the attributes and the sniff
 		case errors.Is(err, objstore.ErrObjectNotFound):
 			return "", gens, errUploadMissing
 		case err != nil:

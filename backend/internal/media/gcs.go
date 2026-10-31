@@ -60,6 +60,9 @@ func (b *Buckets) UploadHead(ctx context.Context, object string, n, generation i
 
 // Publish implements Objects.
 func (b *Buckets) Publish(ctx context.Context, uploadObject string, srcGeneration int64, publicObject, contentType string) error {
+	if srcGeneration <= 0 {
+		return errors.New("media: publish needs the verified source generation") // fail closed (W6-25, M-4): an unpinned copy could publish swapped bytes
+	}
 	return b.Upload.CopyTo(ctx, uploadObject, srcGeneration, b.Public, publicObject, contentType, publicCacheControl)
 }
 
