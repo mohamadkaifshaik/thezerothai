@@ -25,7 +25,7 @@ The server still never trusts the client: it enforces size caps via the signed U
 
 ## Limits (enforced server-side)
 Images ≤ 4 per post; full ≤ 2 MB, thumb ≤ 256 KB after client compression; jpeg/png/webp/heic input accepted on device.
-GIF: static first frame at Stage 0. **Video: not at Stage 0** (ADR needed; first step would be ≤ 30 s MP4 compressed on device, served progressively).
+GIF (ADR-0029 D11, F11): accepted as post media only, at most 2 MiB, 1,280 px a side and 300 frames, uploaded unchanged with a still JPEG/WebP thumbnail. FinalizeUpload pre-scans it without decoding pixels (frame count, screen size, summed frame area), then decodes the frames visible at t = 0, T/4, T/2 and 3T/4 of the playback time (a delay under 2 cs counts as 10 cs, as browsers play it) into one 2 x 2 contact sheet, and screens the sheet by bytes plus the thumbnail: always 2 Vision units, REJECTED for every account at the Vision cap. One GIF decode per instance at a time (5 s wait, then retryable MEDIA_NOT_READY), 2 s decode deadline. Residual (accepted): an explicit frame shown only between samples. Not schedulable; `FEATURE_GIF` gates it. **Video: not at Stage 0** (ADR needed; first step would be ≤ 30 s MP4 compressed on device, served progressively).
 
 ## Bucket (Terraform)
 Two buckets, both in `us-central1` (free storage is US-only and is shared across buckets), Standard class, uniform access, no versioning:
