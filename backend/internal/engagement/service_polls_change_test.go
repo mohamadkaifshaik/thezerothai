@@ -42,7 +42,7 @@ func TestVotePoll_BlockMatrix(t *testing.T) {
 		e.graph.block(voterKey, "author")
 		for _, expected := range []int32{0, 1, 3} {
 			_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 1, expected)
-			requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
+			_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
 		}
 		if e.pr.writes != 0 || e.pr.gets != 0 || e.pr.changeCalls != 0 || len(e.posts.pollVotes) != 0 || e.repo.loads != 0 {
 			t.Fatalf("a TARGET_BLOCKED touched storage: writes=%d gets=%d changes=%d cache=%v loads=%d", e.pr.writes, e.pr.gets, e.pr.changeCalls, e.posts.pollVotes, e.repo.loads)
@@ -86,7 +86,7 @@ func TestVotePoll_BlockMatrix(t *testing.T) {
 					tt.prep(e)
 				}
 				_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, tt.post, tt.choice, 0)
-				requireReason(t, err, tt.code, tt.reason)
+				_ = requireReason(t, err, tt.code, tt.reason)
 			})
 		}
 	})
@@ -131,7 +131,7 @@ func TestVotePoll_BlockMatrix(t *testing.T) {
 		e2 := newPollEnv(t)
 		e2.graph.block(voterKey, "author")
 		_, err := e2.m.VotePoll(e2.ctx, voterKey, keyOK, pidRep, 0, 0)
-		requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
+		_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
 	})
 	t.Run("the check reads no extra document: one cached snapshot, no vote read", func(t *testing.T) {
 		e := newPollEnv(t)
@@ -294,7 +294,7 @@ func TestVotePoll_ChangeCap(t *testing.T) {
 		}
 	}
 	_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 3)
-	requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if _, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 2, 3); err != nil { // the held vote is still a replay at the cap
 		t.Fatalf("replay at the cap: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestVotePoll_ChangeCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = off.m.VotePoll(off.ctx, voterKey, keyOK, pidA, 1, 1)
-	requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if off.pr.changeCalls != 0 {
 		t.Error("POLL_VOTE_CHANGES_MAX=0 must refuse before any write")
 	}
@@ -320,7 +320,7 @@ func TestVotePoll_ChangeAfterClose(t *testing.T) {
 	e.now = e.closes // exactly at closesAt
 	for _, args := range [][2]int32{{1, 1}, {0, 1}, {0, 0}} {
 		_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, args[0], args[1])
-		requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
+		_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
 	}
 	if e.pr.changeCalls != 0 || e.pr.writes != 0 {
 		t.Errorf("writes after close: creates=%d changes=%d", e.pr.writes, e.pr.changeCalls)
@@ -334,7 +334,7 @@ func TestVotePoll_ChangeAfterClose(t *testing.T) {
 		late.now = late.closes.Add(time.Second)
 	}
 	_, err := late.m.VotePoll(late.ctx, voterKey, keyOK, pidA, 1, 1)
-	requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
+	_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
 	if late.pr.changeWrites != 0 {
 		t.Error("a change committed after close")
 	}
@@ -416,7 +416,7 @@ func TestVotePoll_ChangeRaces(t *testing.T) {
 		var fields *logger.RequestInfo
 		e.ctx, fields = logger.WithRequestInfo(e.ctx)
 		_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 1, 1)
-		requireCode(t, err, connect.CodeUnavailable)
+		_ = requireCode(t, err, connect.CodeUnavailable)
 		if got, _ := fields.Get(fieldContention); got != true {
 			t.Errorf("contention field = %v, want true", got)
 		}
@@ -542,7 +542,7 @@ func TestVotePoll_ReplayAndAlreadyVoted_ChangeArm(t *testing.T) {
 		t.Fatalf("e=0: metadata %v", ae.Metadata)
 	}
 	_, err = e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 1) // stale: the stored vote is choice 2, not 0
-	requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
+	_ = requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
 	res, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 3) // names the stored vote
 	if err != nil {
 		t.Fatal(err)

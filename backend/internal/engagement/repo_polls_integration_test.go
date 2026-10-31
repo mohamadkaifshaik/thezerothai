@@ -293,7 +293,6 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 		t.Errorf("expireAt = %v, want %v unchanged by a change", got, exp)
 	}
 
-	// The same Version again is stale: the vote doc moved. Nothing is written.
 	ctx, c = budget.WithCounter(context.Background())
 	out, err = e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime})
 	if err != nil || out != ChangeStale {
@@ -327,7 +326,7 @@ func TestRepoChangeVote_PostGoneAndMissingUserLikes(t *testing.T) {
 	if _, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.client.Doc("userLikes/"+uid).Delete(context.Background()); err != nil { // an erased or never-written userLikes doc
+	if _, err := e.client.Doc("userLikes/" + uid).Delete(context.Background()); err != nil { // an erased or never-written userLikes doc
 		t.Fatal(err)
 	}
 	st, _, _ := e.repo.GetVote(context.Background(), uid, pid)
