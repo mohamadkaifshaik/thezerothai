@@ -344,7 +344,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | In review (#527) |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Open |
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
-| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
+| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | In review (PR #PRNUM) |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
@@ -717,7 +717,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Tabs are data (a list of `HomeTab` descriptors fed to one scaffold), so a new kind adds no scaffold code.
 - **Parallel with W3 Part A / W4:** `home_screen.dart` serialises with W3-19.
 
-### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: Open
+### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: In review (PR #PRNUM; report `docs/reviews/test-report-w5-lists.md`)
 - **Description.** Emulator integration:
   - flag modes for `lists`;
   - the authz matrix (owner / other / private / hidden / blocked both ways / overflow);
