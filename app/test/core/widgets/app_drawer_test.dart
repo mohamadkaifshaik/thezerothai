@@ -123,6 +123,10 @@ void main() {
               builder: (context, state) => const Text('bookmarks page'),
             ),
             GoRoute(
+              path: 'lists',
+              builder: (context, state) => const Text('lists page'),
+            ),
+            GoRoute(
               path: 'settings',
               builder: (context, state) => const Text('settings page'),
             ),
@@ -454,6 +458,35 @@ void main() {
 
         expect(find.byType(AppDrawer), findsNothing);
         expect(find.text('bookmarks page'), findsOneWidget);
+      });
+    });
+
+    group('Lists row (W5-11)', () {
+      testWidgets('needs the lists flag: absent otherwise', (tester) async {
+        for (final flags in <Set<String>>[
+          const {},
+          const {'posts', 'bookmarks'},
+        ]) {
+          await pump(tester, profile: _alice, flags: flags);
+          await openDrawer(tester);
+          expect(find.text('Lists'), findsNothing, reason: '$flags');
+        }
+      });
+
+      testWidgets('with lists: sits before Settings, closes the drawer and '
+          'opens /lists', (tester) async {
+        await pump(tester, profile: _alice, flags: {'lists'});
+        await openDrawer(tester);
+
+        expect(
+          tester.getTopLeft(find.text('Lists')).dy,
+          lessThan(tester.getTopLeft(find.text('Settings')).dy),
+        );
+        await tester.tap(find.text('Lists'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppDrawer), findsNothing);
+        expect(find.text('lists page'), findsOneWidget);
       });
     });
 

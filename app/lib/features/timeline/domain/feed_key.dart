@@ -29,10 +29,17 @@ enum UserFeedTab {
 /// or tabs: every tab has its own cached rows, tokens and refresh clock.
 @immutable
 class FeedKey {
-  const FeedKey._(this.value, {this.userId, this.tab});
+  const FeedKey._(this.value, {this.userId, this.tab, this.listId});
 
   /// The caller's home timeline (followees + self).
   const FeedKey.home() : this._('home');
+
+  /// The timeline of list [listId] (ADR-0030, `GetListTimeline`). The drift
+  /// `feed_key` is `list:<id>`, and the server binds its tokens to the same
+  /// feed, so a list never shares rows, tokens or a refresh clock with Home or
+  /// a profile. Not user-scoped: [userId] and [tab] stay null.
+  factory FeedKey.list(String listId) =>
+      FeedKey._('list:$listId', listId: listId);
 
   /// [tab] of [userId]'s timeline. Without [tab], [includeReplies] picks the
   /// Posts (false) or Replies (true) tab, so every caller written before the
@@ -56,13 +63,19 @@ class FeedKey {
 
   final String value;
 
-  /// Null for the home feed.
+  /// Null for the home feed and a list feed.
   final String? userId;
 
   /// Which tab of [userId]'s timeline; null for the home feed.
   final UserFeedTab? tab;
 
-  bool get isHome => userId == null;
+  /// The list of a [FeedKey.list]; null for every other feed.
+  final String? listId;
+
+  bool get isHome => value == 'home';
+
+  /// Whether this is a list timeline (`list:<id>`).
+  bool get isList => listId != null;
 
   /// True only for the Replies tab (what `include_replies` meant).
   bool get includeReplies => tab == UserFeedTab.replies;
