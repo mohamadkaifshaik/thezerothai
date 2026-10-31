@@ -1,9 +1,11 @@
 package engagement
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -515,5 +518,54 @@ func TestPollVoteView_HintAndFlagsDegrade(t *testing.T) {
 	v := posts.ToViewAt(res.Post, res.Viewer, "viewer", e.now)
 	if v.GetViewerPollChoice() != 2 || !v.GetPost().GetPoll().GetResultsVisible() || v.GetLikedByViewer() {
 		t.Fatalf("degraded view = choice %d visible %v liked %v", v.GetViewerPollChoice(), v.GetPost().GetPoll().GetResultsVisible(), v.GetLikedByViewer())
+	}
+}
+
+// post_hash (the pseudonymous post, logger.HashUID like message_hash) is on the request line and on the contention WARN, so a hot
+// poll can be counted from logs; the raw post id and the choice never appear.
+func TestVotePoll_PostHashOnRequestLineAndContentionWarn(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	want := logger.HashUID(pidA)
+
+	t.Run("voted", func(t *testing.T) {
+		e := newPollEnv(t)
+		var fields *logger.RequestInfo
+		e.ctx, fields = logger.WithRequestInfo(e.ctx)
+		if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2); err != nil {
+			t.Fatal(err)
+		}
+		assertPostHash(t, fields, want)
+	})
+	t.Run("contention", func(t *testing.T) {
+		buf.Reset()
+		e := newPollEnv(t)
+		e.pr.voteErr = errors.Join(store.ErrContended, errors.New("aborted"))
+		var fields *logger.RequestInfo
+		e.ctx, fields = logger.WithRequestInfo(e.ctx)
+		_, _ = e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 2)
+		assertPostHash(t, fields, want)
+		out := buf.String()
+		if !strings.Contains(out, `"post_hash":"`+want+`"`) || !strings.Contains(out, "poll_vote_contention") {
+			t.Errorf("WARN lacks post_hash: %s", out)
+		}
+		if strings.Contains(out, pidA) {
+			t.Errorf("WARN leaks the raw post id: %s", out)
+		}
+	})
+}
+
+func assertPostHash(t *testing.T, fields *logger.RequestInfo, want string) {
+	t.Helper()
+	if got, _ := fields.Get(fieldPostHash); got != want {
+		t.Errorf("post_hash = %v, want %q", got, want)
+	}
+	for _, a := range fields.Fields() {
+		v := a.Value.String()
+		if a.Key != fieldPostHash && (strings.Contains(v, pidA) || a.Key == "choice" || a.Key == "choice_index") {
+			t.Errorf("field %s=%q leaks the post id or choice", a.Key, v)
+		}
 	}
 }

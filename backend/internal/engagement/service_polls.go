@@ -30,6 +30,7 @@ const (
 	outcomeClosed    = "closed"
 	outcomeAuthor    = "author"
 	fieldContention  = "contention"
+	fieldPostHash    = "post_hash"
 	pollVotesDayName = "poll_votes_daily"
 )
 
@@ -67,6 +68,9 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	if err := validate(key, postID); err != nil {
 		return PollVote{}, err
 	}
+	// post_hash: HashUID (plain SHA-256, first 8 bytes), the logger's convention for object ids that are not guessable from other ids
+	// (message_hash does the same). A post id is public, so no key; it lets an operator count votes and contention per poll.
+	logger.SetRequestField(ctx, fieldPostHash, logger.HashUID(postID))
 	if choiceIndex < 0 || choiceIndex >= posts.MaxPollChoices {
 		return PollVote{}, apierr.Validation("choice_index", "choice_index must be between 0 and 3")
 	}
@@ -221,7 +225,7 @@ func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error)
 	case errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded:
 		logger.SetRequestField(ctx, fieldContention, true)
 		logger.SetRequestField(ctx, fieldOutcome, outcomeContention)
-		slog.WarnContext(ctx, "poll_vote_contention", "uid_hash", logger.HashUID(uid))
+		slog.WarnContext(ctx, "poll_vote_contention", "uid_hash", logger.HashUID(uid), "post_hash", logger.HashUID(postID))
 		return pollBusyErr()
 	}
 	return logger.RedactErr(fmt.Errorf("engagement: poll vote: %w", err), uid, postID)
