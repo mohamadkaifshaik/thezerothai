@@ -372,7 +372,7 @@ Effect on the quotas (additive):
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | In review (PR: test/ui-w6-18-gif-tests; defect D-1 filed, see docs/reviews/test-report-w6-gif.md) |
-| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
+| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | In review (this PR; report `docs/reviews/test-report-w6-client.md`) |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
@@ -853,7 +853,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: Open
+### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: In review (this PR; report docs/reviews/test-report-w6-client.md)
 - **Description.** The cross-feature matrix:
   - composer exclusions (poll × photo × GIF × schedule × reply / quote);
   - poll builder → post → card states;
