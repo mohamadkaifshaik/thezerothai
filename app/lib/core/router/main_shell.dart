@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
@@ -53,6 +54,7 @@ class MainShell extends StatelessWidget {
     required bool notifications,
     required bool messages,
     required bool bookmarks,
+    required bool lists,
     required bool settings,
     void Function(BuildContext anchor)? onMore,
   }) => [
@@ -102,6 +104,17 @@ class MainShell extends StatelessWidget {
           railOnly: true,
         ),
       ),
+    // Rail only, like History: below 600dp the drawer carries the entry.
+    if (lists)
+      const _Destination(
+        _Tab.lists,
+        AppNavDestination(
+          icon: Icons.list_alt_outlined,
+          selectedIcon: Icons.list_alt,
+          label: 'Lists',
+          railOnly: true,
+        ),
+      ),
     const _Destination(
       _Tab.profile,
       AppNavDestination(
@@ -148,6 +161,7 @@ class MainShell extends StatelessWidget {
       return _Tab.messages;
     }
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
+    if (location.startsWith(AppRouter.listsPath)) return _Tab.lists;
     // The shell pages belong to the rail's More item. (Premium is a dialog on
     // the root navigator: the page under it keeps its own tab.)
     if (location == AppRouter.creatorStudioPath ||
@@ -205,6 +219,7 @@ class MainShell extends StatelessWidget {
       notifications: notificationsEnabled,
       messages: messagesEnabled,
       bookmarks: bookmarksEntry,
+      lists: newShell && isFeatureEnabled(context, kFeatureLists),
       settings: !newShell,
       onMore: shellEntries.isEmpty
           ? null
@@ -310,6 +325,8 @@ class MainShell extends StatelessWidget {
             context.go(AppRouter.notificationsPath);
           case _Tab.messages:
             context.go(AppRouter.messagesPath);
+          case _Tab.lists:
+            context.go(AppRouter.listsPath);
           case _Tab.bookmarks:
             context.go(AppRouter.bookmarksPath);
           case _Tab.settings:
@@ -374,6 +391,7 @@ enum _Tab {
   notifications,
   messages,
   bookmarks,
+  lists,
   profile,
   settings,
   more,

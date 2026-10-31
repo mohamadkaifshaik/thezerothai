@@ -67,3 +67,20 @@ func TestRedactErrKeyed(t *testing.T) {
 		t.Error("nil in, nil out")
 	}
 }
+
+func TestHashPost(t *testing.T) {
+	if err := SetConversationKey([]byte("k-one")); err != nil {
+		t.Fatal(err)
+	}
+	id := "1234567890123456789"
+	h := HashPost(id)
+	if len(h) != 16 || h == HashUID(id) || h == HashConversation(id) || HashPost("") != "" {
+		t.Errorf("HashPost = %q: want 16 hex, not the plain or conversation hash", h)
+	}
+	if err := SetConversationKey([]byte("k-two")); err != nil {
+		t.Fatal(err)
+	}
+	if HashPost(id) == h {
+		t.Error("hash does not depend on the key")
+	}
+}

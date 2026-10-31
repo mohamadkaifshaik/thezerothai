@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
@@ -66,8 +67,8 @@ type UpdateInput struct {
 	IsPrivate   *bool
 }
 
-// Service is the write path of ListService that the handlers call (ADR-0030 D1, seam: handlers call only this). W5-7 adds the
-// reads next to it.
+// Service is everything the ListService handlers call (ADR-0030 D1, seam: handlers call only this): the write path (W5-4, W5-6)
+// and the reads (W5-7). *service also implements Reader, the seam other modules use.
 type Service interface {
 	// CreateList creates a list owned by uid. Firestore: reads 4 cold (interceptor, idempotency, quotas, count()) / 3
 	// warm; writes 3 (list, idempotency, quotas); replay reads 2, writes 0; at the cap or the quota 0 writes.
@@ -91,6 +92,17 @@ type Service interface {
 	// only when a member is actually removed, plus the interceptor's 1; writes 2 (list, idempotency), 1 when not a member;
 	// replay reads 1, writes 0. No quota.
 	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
+	// GetList returns one list as viewer may see it (ADR-0030 D3); any other case is the one NOT_FOUND. pinned_by_viewer is false until
+	// W5-9 supplies the pin check. Firestore: reads 5 cold for a non-owner (interceptor, list, caller graph, owner profile, owner
+	// graph), 2 for the owner; 0-1 warm; writes 0.
+	GetList(ctx context.Context, viewer, listID string) (View, error)
+	// ListUserLists returns an owner's lists, oldest first: all of the caller's own, only public non-hidden ones of anyone else.
+	// Firestore: another owner 24 cold at 20 lists (interceptor, caller graph, owner profile, owner graph, <= 20 docs), the
+	// caller's own 21; writes 0.
+	ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error)
+	// ListListMembers returns a page of the list's members, newest added first. Firestore: 25 cold at page 20 / 55 at page 50
+	// for a non-owner (interceptor, list, caller graph, owner profile, owner graph, page profiles), 23 / 53 for the owner; writes 0.
+	ListListMembers(ctx context.Context, viewer, listID string, pageSize int32, pageToken string) (MembersPage, error)
 }
 
 // Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs (ADR-0030 D1, D6). Identity
@@ -182,6 +194,12 @@ type Repo interface {
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
 	AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error)
 	RemoveMember(ctx context.Context, p RemoveMemberParams) (MemberResult, error)
+	// Get reads lists/{id} outside any transaction (1 read, charged even when missing): ErrNotFound when it does not exist. It does
+	// not decide who may see the list; the service applies ADR-0030 D3.
+	Get(ctx context.Context, id string) (List, error)
+	// ListByOwner reads ownerId == owner ordered by list id, after the id `after` ("" = from the start), at most limit docs
+	// (reads = docs returned, minimum 1). Private and hidden lists are returned; filtering is the service's.
+	ListByOwner(ctx context.Context, owner, after string, limit int) ([]List, error)
 }
 
 // ErrMemberLimit and ErrProtected are the repository's refusals of AddMember (mapped to LIMIT_REACHED "list_members" and
@@ -219,4 +237,57 @@ type MemberResult struct {
 	Header  Header
 	List    *List
 	Dropped int
+}
+
+// ListView is what lists.Reader.Get answers: the same shape as View (header, owner row). PinnedByViewer is always false from
+// the Reader (only the GetList handler path fills it; see service.pinned).
+type ListView = View
+
+// ListMembers is what lists.Reader.Members answers: the header, the owner's live profile and the member uids after the
+// owner-level drop (members who block the owner are gone for every viewer). Per-viewer drops (members the viewer blocks or
+// mutes, who block the viewer, protected and not approved) are the caller's job, as on Home. MemberIDs is in add order
+// (oldest first), a fresh slice the caller may keep.
+type ListMembers struct {
+	Header    Header
+	Owner     identity.Profile
+	MemberIDs []string
+	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (W5-9; cache-first, 0 reads when the interceptor loaded the viewer).
+	PinnedByViewer bool
+}
+
+// Reader is the only way another module reads a list (ADR-0030 D1; timeline uses it, W5-8). Every method applies the D3
+// visibility rules for viewer and answers ErrNotFound (one sentinel, every cause) when viewer may not see the list.
+// *service implements it; apiserver passes `listsSvc.(lists.Reader)`.
+type Reader interface {
+	// Get returns the list as viewer may see it. Firestore: the list doc (cache-first, 60 s; 1 read cold); a non-owner
+	// viewer also reads the caller's graph, the owner's profile and the owner's graph (each cache-first).
+	Get(ctx context.Context, viewer, listID string) (ListView, error)
+	// Members returns the member uids viewer may build a feed from, after the owner-level drop. Same reads as Get plus the
+	// owner viewer's own graph (cache-first, 1 cold).
+	Members(ctx context.Context, viewer, listID string) (ListMembers, error)
+	// OwnedBy returns uid's own lists (private ones included), oldest first, at most LISTS_MAX_PER_USER. Firestore: one
+	// query, reads = lists returned (minimum 1), uncached.
+	OwnedBy(ctx context.Context, uid string) ([]List, error)
+}
+
+// UserListsInput is a ListUserLists request after the transport layer. OwnerID "" means the caller.
+type UserListsInput struct {
+	OwnerID, ContainsUserID string
+	PageSize                int32
+	PageToken               string
+}
+
+// UserLists is one page of an owner's lists: the views oldest first, the ids among them whose members include
+// ContainsUserID (own lists only), and the opaque next token ("" = no more).
+type UserLists struct {
+	Lists         []View
+	ContainingIDs []string
+	NextPageToken string
+}
+
+// MembersPage is one page of ListListMembers: the rows newest added first, each with the viewer's relationship, and the
+// opaque next token ("" = no more; a page may be short while it is set).
+type MembersPage struct {
+	Items         []graph.ListItem
+	NextPageToken string
 }

@@ -9,6 +9,7 @@ import '../../features/auth/presentation/bloc/auth_event.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
+import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
@@ -26,7 +27,7 @@ import '../theme/app_theme.dart';
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
 /// the profile header. Bookmarks (W2-7) sits between Profile and Settings
-/// with the `bookmarks` and `posts` flags on; later waves add Lists here,
+/// with the `bookmarks` and `posts` flags on; Lists (W5-11) follows it with `lists` on;
 /// behind its flag. With `shells` and `ui_shell` on, the shell rows (Creator
 /// tools, Premium, Advertise, Calls) follow under a divider, before Settings.
 class AppDrawer extends StatelessWidget {
@@ -87,6 +88,15 @@ class AppDrawer extends StatelessWidget {
                 label: 'History',
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
+              ),
+            // W5-11: needs `lists` (the drawer only exists with `ui_shell`).
+            if (isFeatureEnabled(context, kFeatureLists))
+              _DrawerRow(
+                key: const ValueKey('drawer-lists'),
+                icon: Icons.list_alt_outlined,
+                label: 'Lists',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.listsPath)),
               ),
             // The read-only shells (W8-2): after every feature row, before
             // Settings, under a hairline. Needs `shells` and `ui_shell`.

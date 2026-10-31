@@ -71,7 +71,7 @@ func keys(m map[string]bool) []string {
 // never a repo or a collection). Test files are included so a test cannot smuggle in a repo either.
 func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 	const internalPrefix = "github.com/dzeroth/dzeroth/backend/internal/"
-	allowed := map[string]bool{"posts": true, "graph": true, "identity": true}
+	allowed := map[string]bool{"posts": true, "graph": true, "identity": true, "lists": true}
 
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) == 0 {
@@ -91,8 +91,12 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
+		// lists (ADR-0030 D1, W5-8): the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
+		"lists": {"Header": true, "Reader": true, "ListMembers": true, "FlagName": true, "ListView": true, "List": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true},
 		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.
-		"identity": {"ProtectedAuthors": true, "ProtectedSet": true, "Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true},
+		"identity": {"ProtectedAuthors": true, "ProtectedSet": true, "Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true,
+			// W5-9: the pinned-tab value type and kind, the idempotency sentinel of the store seam.
+			"HomeTab": true, "HomeTabKindList": true, "HomeTabKindCommunity": true, "ErrKeyReused": true, "ErrNotFound": true},
 	}
 	sawAny := false
 	for _, f := range files {
@@ -114,7 +118,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			sawAny = true
 			pkg := strings.SplitN(rest, "/", 2)[0]
 			if !allowed[pkg] || strings.Contains(rest, "/") {
-				t.Errorf("%s imports %s: timeline may import only the posts, graph and identity packages", f, path)
+				t.Errorf("%s imports %s: timeline may import only the posts, graph, identity and lists packages", f, path)
 				continue
 			}
 			name := pkg

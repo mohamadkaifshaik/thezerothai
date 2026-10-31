@@ -10,6 +10,10 @@ import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
+import '../../domain/composer_attachment_rules.dart';
+import '../../data/drafts_repository.dart';
+import '../../domain/composer_draft.dart';
+import '../../domain/poll_rules.dart';
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import '../../domain/reply_audience.dart';
@@ -17,6 +21,31 @@ import '../../domain/schedule_rules.dart';
 import 'pending_posts_cubit.dart';
 
 enum ComposerStatus { editing, submitting, posted }
+
+/// The answer of [ComposerCubit.loadSavedDraft].
+enum DraftLoadResult {
+  loaded,
+
+  /// Missing, another account's, or unreadable.
+  gone,
+
+  /// The draft has a poll and photos or a GIF are attached.
+  blockedByMedia,
+}
+
+/// What leaving the composer needs (W6-15).
+enum LeaveAction {
+  /// Nothing is lost: leave.
+  none,
+
+  /// "Save post?" (Save, Discard, keep editing): unsent content that is not
+  /// yet saved as it stands.
+  savePrompt,
+
+  /// Only media is attached (or unsent posts are off): the old "Discard this
+  /// post?" question, because media is never kept.
+  discardMedia,
+}
 
 @immutable
 class ComposerState {
@@ -32,6 +61,9 @@ class ComposerState {
     this.replyPolicyNotApplied = false,
     this.scheduledAt,
     this.scheduledNotice,
+    this.poll,
+    this.pollDurationClamped = false,
+    this.pollNotAdded = false,
   });
 
   final PostDraft draft;
@@ -77,10 +109,31 @@ class ComposerState {
   /// [ComposerCubit.scheduledNoticeShown].
   final pb.ScheduledPost? scheduledNotice;
 
+  /// The poll being built (ADR-0029, W6-12), as typed: choice rows may be
+  /// empty while editing. Null: no poll. It is mapped to the generated
+  /// `PollDraft` only by the repository; drafts (W6-14) keep the same model.
+  final DraftPoll? poll;
+
+  /// The length the user asked for was under the 5 minute minimum and was
+  /// raised to it: the builder says so until the next length change.
+  final bool pollDurationClamped;
+
+  /// Set with [ComposerStatus.posted] when a poll was sent but the post the
+  /// server echoed has none (ADR-0029 L-1): the screen warns once and offers
+  /// to delete the post.
+  final bool pollNotAdded;
+
+  bool get hasPoll => poll != null;
   bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
   bool get canSubmit {
     if (status != ComposerStatus.editing) return false;
+    // A poll needs its question (the post text) and every rule to hold; it
+    // never travels with photos.
+    final poll = this.poll;
+    if (poll != null) {
+      return !hasAttachments && draft.canPost && analyzePoll(poll).valid;
+    }
     if (hasAttachments) {
       return attachmentsReady &&
           (draft.canPost || draft.problem == PostDraftProblem.empty);
@@ -99,6 +152,10 @@ class ComposerState {
     ReplyAudience? replyAudience,
     bool? replyPolicyNotApplied,
     DateTime? scheduledAt,
+    DraftPoll? poll,
+    bool? pollDurationClamped,
+    bool? pollNotAdded,
+    bool clearPoll = false,
     bool clearError = false,
     bool clearCreated = false,
     bool clearScheduledAt = false,
@@ -115,6 +172,11 @@ class ComposerState {
     replyPolicyNotApplied: replyPolicyNotApplied ?? this.replyPolicyNotApplied,
     scheduledAt: clearScheduledAt ? null : (scheduledAt ?? this.scheduledAt),
     scheduledNotice: clearScheduledNotice ? null : scheduledNotice,
+    poll: clearPoll ? null : (poll ?? this.poll),
+    pollDurationClamped: clearPoll
+        ? false
+        : (pollDurationClamped ?? this.pollDurationClamped),
+    pollNotAdded: pollNotAdded ?? this.pollNotAdded,
   );
 }
 
@@ -148,9 +210,16 @@ class ComposerCubit extends Cubit<ComposerState> {
     AttachmentsCubit? attachments,
     this.replyAudienceEnabled = false,
     this.scheduleEnabled = false,
+    this.pollsFlag = false,
+    this.engagementOn = false,
+    this.gifFlag = false,
+    this.mediaOn = false,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
     DateTime Function()? clock,
+    DraftsRepository? drafts,
+    String uid = '',
+    ComposerDraft? initialDraft,
   }) : replyToPostId = '',
        _repository = postsRepository,
        _pending = pending,
@@ -159,7 +228,19 @@ class ComposerCubit extends Cubit<ComposerState> {
        _onUnexpectedError = onUnexpectedError,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
-       super(ComposerState(draft: analyzePostDraft(''))) {
+       // Unsent posts are for a new root post only: never a quote, and a
+       // reply has its own constructor.
+       _drafts = quoteOfPostId.isEmpty && uid.isNotEmpty ? drafts : null,
+       _draftUid = uid,
+       _base = _baseDraft(uid, initialDraft, clock ?? DateTime.now),
+       super(
+         _initialState(
+           initialDraft,
+           pollsOffered: pollsFlag && engagementOn,
+           audienceEnabled: replyAudienceEnabled,
+         ),
+       ) {
+    _baseline = _base;
     _watchAttachments();
   }
 
@@ -181,7 +262,237 @@ class ComposerCubit extends Cubit<ComposerState> {
        _clock = clock ?? DateTime.now,
        replyAudienceEnabled = false,
        scheduleEnabled = false,
-       super(ComposerState(draft: analyzePostDraft('')));
+       pollsFlag = false,
+       engagementOn = false,
+       gifFlag = false,
+       mediaOn = false,
+       _drafts = null,
+       _draftUid = '',
+       _base = _baseDraft('', null, clock ?? DateTime.now),
+       super(ComposerState(draft: analyzePostDraft(''))) {
+    _baseline = _base;
+  }
+
+  static ComposerDraft _baseDraft(
+    String uid,
+    ComposerDraft? initial,
+    DateTime Function() clock,
+  ) =>
+      initial ??
+      ComposerDraft(
+        id: DraftsRepository.newId(),
+        uid: uid,
+        text: '',
+        createdAt: clock(),
+        updatedAt: clock(),
+      );
+
+  static ComposerState _initialState(
+    ComposerDraft? d, {
+    required bool pollsOffered,
+    required bool audienceEnabled,
+  }) => d == null
+      ? ComposerState(draft: analyzePostDraft(''))
+      : ComposerState(
+          draft: analyzePostDraft(d.text),
+          // A poll or an audience the flags no longer offer is not loaded.
+          poll: pollsOffered ? d.poll : null,
+          replyAudience: audienceEnabled
+              ? d.replyAudience
+              : ReplyAudience.everyone,
+        );
+
+  final DraftsRepository? _drafts;
+  final String _draftUid;
+
+  /// The draft being written: its id, owner, creation time and the labels the
+  /// composer has no control for (kept so a re-save does not clear them).
+  /// Replaced by [loadDraft].
+  ComposerDraft _base;
+
+  /// The draft as opened (or the empty one): "changed since open" compares
+  /// with it.
+  late ComposerDraft _baseline;
+
+  /// Stops autosaving once the draft was posted, scheduled or discarded.
+  bool _draftDone = false;
+  bool _loadingDraft = false;
+
+  /// Unsent posts are in use: `drafts` is on (the screen passes a repository
+  /// only then), for a new root post.
+  bool get draftsActive => _drafts != null && !_draftDone;
+
+  /// The draft's id (the same row until it is posted or discarded).
+  String get draftId => _base.id;
+
+  /// The composer's content as a draft row.
+  ComposerDraft get currentDraft => _base.copyWith(
+    text: state.draft.text,
+    poll: state.poll,
+    clearPoll: state.poll == null,
+    replyAudience: state.replyAudience,
+  );
+
+  /// What leaving the composer needs now (see [LeaveAction]).
+  LeaveAction get leaveAction {
+    if (state.isSubmitting) return LeaveAction.none;
+    final media = state.hasAttachments;
+    if (!draftsActive) {
+      return media ? LeaveAction.discardMedia : LeaveAction.none;
+    }
+    final draft = currentDraft;
+    if (draft.isEmpty) {
+      return media ? LeaveAction.discardMedia : LeaveAction.none;
+    }
+    return hasUnsavedDraftChanges || media
+        ? LeaveAction.savePrompt
+        : LeaveAction.none;
+  }
+
+  /// There is something to keep and it differs from the draft as opened or as
+  /// last saved.
+  bool get hasUnsavedDraftChanges {
+    if (!draftsActive) return false;
+    final draft = currentDraft;
+    return !draft.isEmpty &&
+        (draft.text != _baseline.text ||
+            draft.poll != _baseline.poll ||
+            draft.replyAudience != _baseline.replyAudience);
+  }
+
+  /// Loads the saved draft [id] of this account into the composer (picked in
+  /// the Drafts list). [DraftLoadResult.gone] when it is missing (or not this
+  /// account's) or the read failed; [DraftLoadResult.blockedByMedia] when it
+  /// has a poll and photos or a GIF are attached (a poll excludes them, and
+  /// neither is dropped silently). The composer is then left as it was.
+  Future<DraftLoadResult> loadSavedDraft(String id) async {
+    final repo = _drafts;
+    if (repo == null || state.isSubmitting) return DraftLoadResult.gone;
+    try {
+      final draft = await repo.read(_draftUid, id);
+      if (draft == null || isClosed) return DraftLoadResult.gone;
+      return loadDraft(draft);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+      return DraftLoadResult.gone;
+    }
+  }
+
+  /// Puts [draft] into the composer (picked from the Drafts list): text, poll
+  /// and audience, under the draft's own id. Nothing is saved by this.
+  ///
+  /// The same exclusions as the toolbar apply (W6-11): a poll is loaded only
+  /// when the rules offer one now (flags, gate memory, a root post), is
+  /// refused while photos or a GIF are attached, and clears a schedule time
+  /// (a schedule is never part of a draft, and a scheduled post has no poll).
+  /// Ignored while the post is being sent.
+  DraftLoadResult loadDraft(ComposerDraft draft) {
+    if (state.isSubmitting || _drafts == null || draft.uid != _draftUid) {
+      return DraftLoadResult.gone;
+    }
+    final loadsPoll = draft.poll != null && rules.showPoll;
+    if (loadsPoll && state.hasAttachments) {
+      return DraftLoadResult.blockedByMedia;
+    }
+    _base = draft;
+    _baseline = draft;
+    _draftDone = false;
+    _loadingDraft = true;
+    emit(
+      state.copyWith(
+        draft: analyzePostDraft(draft.text),
+        poll: loadsPoll ? draft.poll : null,
+        clearPoll: !loadsPoll,
+        pollDurationClamped: false,
+        replyAudience: canChooseReplyAudience
+            ? draft.replyAudience
+            : ReplyAudience.everyone,
+        clearScheduledAt: loadsPoll,
+        clearError: true,
+      ),
+    );
+    _loadingDraft = false;
+    return DraftLoadResult.loaded;
+  }
+
+  /// Keeps the content as a draft now ("Save"). Never throws: a storage
+  /// failure is reported without the text and answers `skipped`.
+  Future<DraftSaveResult> saveDraft() async {
+    final repo = _drafts;
+    if (repo == null) return DraftSaveResult.skipped;
+    try {
+      final saved = currentDraft;
+      final result = await repo.upsert(saved);
+      // Kept as it stands: leaving again without edits asks nothing.
+      if (result != DraftSaveResult.skipped) _baseline = saved;
+      return result;
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+      return DraftSaveResult.skipped;
+    }
+  }
+
+  /// Deletes the draft row ("Discard", a posted or scheduled post) and stops
+  /// autosaving it.
+  Future<void> discardDraft() async {
+    final repo = _drafts;
+    _draftDone = true;
+    if (repo == null) return;
+    try {
+      await repo.delete(_draftUid, [_base.id]);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+    }
+  }
+
+  /// A storage failure is reported with its stack but never its message: a
+  /// database error can carry the bound values, that is the draft's text.
+  void _reportDraftStorage(StackTrace stack) =>
+      _onUnexpectedError?.call(StateError('Drafts storage failed.'), stack);
+
+  /// The content now lives as a scheduled post: its draft row is done and
+  /// the emptied composer starts a new draft.
+  void _draftScheduled() {
+    final repo = _drafts;
+    if (repo == null) return;
+    unawaited(
+      repo
+          .delete(_draftUid, [_base.id])
+          .then(
+            (_) {},
+            onError: (Object _, StackTrace stack) => _reportDraftStorage(stack),
+          ),
+    );
+    _base = _baseDraft(_draftUid, null, _clock);
+    _baseline = _base;
+    _draftDone = false;
+  }
+
+  @override
+  void onChange(Change<ComposerState> change) {
+    super.onChange(change);
+    final repo = _drafts;
+    if (repo == null || _draftDone || _loadingDraft) return;
+    final a = change.currentState;
+    final b = change.nextState;
+    // Only edits are kept: not sending, not the reset after a schedule.
+    if (b.status != ComposerStatus.editing || b.scheduledNotice != null) {
+      return;
+    }
+    if (a.draft.text == b.draft.text &&
+        a.poll == b.poll &&
+        a.replyAudience == b.replyAudience) {
+      return;
+    }
+    repo.autosave(
+      _base.copyWith(
+        text: b.draft.text,
+        poll: b.poll,
+        clearPoll: b.poll == null,
+        replyAudience: b.replyAudience,
+      ),
+    );
+  }
 
   /// The post being replied to; empty for a top-level post.
   final String replyToPostId;
@@ -217,6 +528,34 @@ class ComposerCubit extends Cubit<ComposerState> {
       replyToPostId.isEmpty &&
       quoteOfPostId.isEmpty &&
       _repository.subFeatureEnabled(kFeatureScheduledPosts);
+
+  /// The raw flags the composer's toolbar rules read (ADR-0029 D12): `polls`
+  /// and `engagement` for the poll, `gif` and `media` for the GIF button. The
+  /// gate's session-long FEATURE_DISABLED memory is added by [rules].
+  final bool pollsFlag;
+  final bool engagementOn;
+  final bool gifFlag;
+  final bool mediaOn;
+
+  /// The one answer to "which toolbar buttons are on" (W6-11): the screen and
+  /// every cubit guard read it, none restates a rule. Reads the gate live, so
+  /// a `FEATURE_DISABLED feature=polls` hides the button for the session.
+  ComposerAttachmentRules get rules => ComposerAttachmentRules(
+    flagPolls: pollsFlag && _repository.subFeatureEnabled(kFeaturePolls),
+    engagementOn: engagementOn,
+    // A FEATURE_DISABLED `gif` answer is remembered by the posts gate.
+    flagGif: gifFlag && _repository.subFeatureEnabled(kFeatureGif),
+    mediaOn: mediaOn,
+    isReply: replyToPostId.isNotEmpty,
+    isQuote: quoteOfPostId.isNotEmpty,
+    hasPhotos: state.hasAttachments && !_gifHeld,
+    hasGif: _gifHeld,
+    hasPoll: state.hasPoll,
+    // A time is only in force while the composer can still schedule.
+    scheduled: state.isScheduling && canSchedule,
+  );
+
+  bool get _gifHeld => _attachments?.state.hasGif ?? false;
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -270,6 +609,95 @@ class ComposerCubit extends Cubit<ComposerState> {
         attachmentsReady: state.attachmentsReady,
         replyAudience: state.replyAudience,
         scheduledAt: state.scheduledAt,
+        poll: state.poll,
+        pollDurationClamped: state.pollDurationClamped,
+      ),
+    );
+  }
+
+  /// Opens the poll builder with two empty choices and a one day length.
+  /// Ignored when the rules do not offer a poll now (flag off, a reply or
+  /// quote, photos, a GIF or a schedule is set), when one is already open and
+  /// while the post is being sent.
+  void pollAdded() {
+    if (state.isSubmitting || state.hasPoll) return;
+    final r = rules;
+    if (!r.showPoll || r.poll != ComposerBlock.none) return;
+    emit(state.copyWith(poll: newDraftPoll(), clearError: true));
+  }
+
+  /// "Remove poll": back to a plain post. Always allowed unless sending.
+  void pollRemoved() {
+    if (state.isSubmitting || !state.hasPoll) return;
+    emit(state.copyWith(clearPoll: true, clearError: true));
+  }
+
+  /// Sets the text of choice [index] as typed (kept raw; the rules run on it
+  /// when the poll is analysed).
+  void pollChoiceChanged(int index, String text) {
+    final poll = state.poll;
+    if (poll == null || state.isSubmitting) return;
+    if (index < 0 || index >= poll.choices.length) return;
+    if (poll.choices[index] == text) return;
+    final choices = [...poll.choices]..[index] = text;
+    emit(
+      state.copyWith(
+        poll: DraftPoll(
+          choices: choices,
+          durationMinutes: poll.durationMinutes,
+        ),
+        clearError: true,
+      ),
+    );
+  }
+
+  /// "Add a choice": an empty row, up to [kPollMaxChoices].
+  void pollChoiceAdded() {
+    final poll = state.poll;
+    if (poll == null || state.isSubmitting) return;
+    if (poll.choices.length >= kPollMaxChoices) return;
+    emit(
+      state.copyWith(
+        poll: DraftPoll(
+          choices: [...poll.choices, ''],
+          durationMinutes: poll.durationMinutes,
+        ),
+      ),
+    );
+  }
+
+  /// Removes choice [index]; a poll keeps at least [kPollMinChoices] rows.
+  void pollChoiceRemoved(int index) {
+    final poll = state.poll;
+    if (poll == null || state.isSubmitting) return;
+    if (poll.choices.length <= kPollMinChoices) return;
+    if (index < 0 || index >= poll.choices.length) return;
+    emit(
+      state.copyWith(
+        poll: DraftPoll(
+          choices: [...poll.choices]..removeAt(index),
+          durationMinutes: poll.durationMinutes,
+        ),
+      ),
+    );
+  }
+
+  /// Sets the length in whole minutes. Under [kPollMinMinutes] it is raised
+  /// to the minimum and [ComposerState.pollDurationClamped] says so; over
+  /// [kPollMaxMinutes] (7 days) it is cut to the maximum.
+  void pollDurationChanged(int totalMinutes) {
+    final poll = state.poll;
+    if (poll == null || state.isSubmitting) return;
+    final clamped = totalMinutes < kPollMinMinutes;
+    final minutes = totalMinutes.clamp(kPollMinMinutes, kPollMaxMinutes);
+    if (minutes == poll.durationMinutes &&
+        clamped == state.pollDurationClamped) {
+      return;
+    }
+    emit(
+      state.copyWith(
+        poll: DraftPoll(choices: poll.choices, durationMinutes: minutes),
+        pollDurationClamped: clamped,
       ),
     );
   }
@@ -284,6 +712,9 @@ class ComposerCubit extends Cubit<ComposerState> {
   void scheduleChanged(DateTime? publishAt) {
     if (state.isSubmitting) return;
     if (publishAt != null && !canSchedule) return;
+    // A poll cannot be scheduled (SchedulePost has no poll field, ADR-0029
+    // F5): the same rules object that disables the button refuses it here.
+    if (publishAt != null && rules.schedule != ComposerBlock.none) return;
     final next = publishAt == null
         ? null
         : truncatedToMinute(publishAt.toUtc());
@@ -349,6 +780,22 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       return null;
     }
+    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
+    // (the gate remembers it): do not upload what cannot be posted.
+    if (attachments.state.hasGif &&
+        !_repository.subFeatureEnabled(kFeatureGif)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'GIFs are not available.',
+            feature: kFeatureGif,
+          ),
+          uploadFailed: true,
+        ),
+      );
+      return null;
+    }
     try {
       final uploaded = await attachments.uploadAll();
       // The screen may have gone while the photos uploaded: never create
@@ -386,11 +833,21 @@ class ComposerCubit extends Cubit<ComposerState> {
     String text,
     List<String> mediaIds,
     List<String> altTexts,
-    ReplyPolicy policy,
-  ) {
-    final body = mediaIds.isEmpty
+    ReplyPolicy policy, [
+    DraftPoll? poll,
+  ]) {
+    var body = mediaIds.isEmpty
         ? text
         : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
+    // The poll is part of the request (ADR-0029 D2). Keyed on the NORMALISED
+    // labels and the length, like the server's hash: an edit that changes
+    // only spacing is the same request and reuses its key; any real change
+    // gets its own.
+    if (poll != null) {
+      body =
+          '$body\u0001poll=${analyzePoll(poll).stored.join('\u001f')}'
+          '\u0001dur=${poll.durationMinutes}';
+    }
     // A different audience is a different request body for the server.
     return policy == ReplyPolicy.REPLY_POLICY_UNSPECIFIED
         ? body
@@ -414,8 +871,11 @@ class ComposerCubit extends Cubit<ComposerState> {
   Future<void> submit() async {
     if (!state.canSubmit) return;
     final publishAt = state.scheduledAt;
-    if (publishAt != null) return _submitScheduled(publishAt);
+    // SchedulePost has no poll field: a poll never takes that path (the
+    // rules already keep the two apart; this is the last guard).
+    if (publishAt != null && !state.hasPoll) return _submitScheduled(publishAt);
     final text = state.draft.text;
+    final poll = state.poll;
     emit(
       state.copyWith(
         status: ComposerStatus.submitting,
@@ -436,7 +896,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     final altTexts = uploaded.altTexts;
 
     final policy = _policyToSend;
-    final bodyWithPolicy = _bodyKey(text, mediaIds, altTexts, policy);
+    final bodyWithPolicy = _bodyKey(text, mediaIds, altTexts, policy, poll);
     // A quote and a plain post with the same body are different requests.
     final intent = quoteOfPostId.isEmpty
         ? bodyWithPolicy
@@ -465,10 +925,18 @@ class ComposerCubit extends Cubit<ComposerState> {
         mediaIds: mediaIds,
         mediaAltTexts: altTexts,
         replyPolicy: policy,
+        poll: poll == null
+            ? null
+            : DraftPoll(
+                choices: analyzePoll(poll).stored,
+                durationMinutes: poll.durationMinutes,
+              ),
       );
       _keys.remove(intent);
       _keyText = null;
       pending?.remove(key);
+      // The post exists: its draft row is done (also when the screen closed).
+      unawaited(discardDraft());
       if (!isClosed) {
         // Echo check (ADR-0021 L-1): an older revision may have dropped the
         // field, leaving the post open to everyone. Warn; never fail.
@@ -481,6 +949,9 @@ class ComposerCubit extends Cubit<ComposerState> {
             status: ComposerStatus.posted,
             created: created,
             replyPolicyNotApplied: notApplied,
+            // Echo check (ADR-0029 L-1): an older revision drops the field
+            // and posts the question alone.
+            pollNotAdded: poll != null && !created.post.hasPoll(),
           ),
         );
       }
@@ -543,6 +1014,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       _keys.remove(intent);
       _keyText = null;
+      _draftScheduled();
       if (isClosed) return;
       emit(
         ComposerState(draft: analyzePostDraft(''), scheduledNotice: scheduled),
@@ -566,6 +1038,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     final audienceRefused =
         error is FeatureDisabledException &&
         error.feature == kFeatureReplyAudience;
+    final pollsRefused =
+        error is FeatureDisabledException && error.feature == kFeaturePolls;
     emit(
       state.copyWith(
         status: ComposerStatus.editing,
@@ -574,6 +1048,9 @@ class ComposerCubit extends Cubit<ComposerState> {
         // Any answer that turned scheduling off (the sub-feature, or the whole
         // of posts) takes the time with it: the button goes back to "Post".
         clearScheduledAt: !canSchedule,
+        // The server turned polls off: the builder goes with it, the text
+        // stays, so the user can still post.
+        clearPoll: pollsRefused,
       ),
     );
   }

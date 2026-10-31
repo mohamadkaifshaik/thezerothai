@@ -93,7 +93,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W6 delta |
 |---|---|---|
-| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) but are inert until W6-12/W6-16 | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
+| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) (Poll opens the builder, W6-12; GIF is inert until W6-16) | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
 | `posts.proto` | Next free field numbers: `CreatePostRequest` 10, `Post` 21, `EmbeddedPost` 10, `PostView` 7. `SchedulePostRequest` has no poll field (ADR-0021 D4) | `poll` fields, `viewer_poll_choice` (W6-2) |
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
@@ -365,19 +365,26 @@ Effect on the quotas (additive):
 | W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
-| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
-| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
+| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Done (#513) |
+| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Done (#510) |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
-| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
-| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
+| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
+| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
-| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Open |
+| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in fix/gif-browser-delay-clamp; report docs/reviews/test-report-w6-gif.md) |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
-| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Open |
+| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | In review: `docs/reviews/security-w6-composer-extras.md`, BLOCKED (H-1 to H-3) for `gif` and `media` beyond the dev allowlist; `polls` and `drafts` GO for the dev allowlist |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
 | W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open |
 | W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
+| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | Open |
+| W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | Open |
+| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Open |
+| W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | Open |
+| W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | Open |
+| W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
+| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
@@ -687,7 +694,7 @@ Order:
 - **Seam.** One `ComposerAttachmentKind` rule function decides what is enabled; widgets never restate it.
 - **Runs alongside W3/W4/W5:** `composer_screen.dart`, one PR at a time.
 
-### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: Open
+### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: In review
 - **Description.** Tapping Poll opens an inline builder (`composer.md` §2):
   - the text placeholder becomes "Ask a question";
   - Choice 1 and Choice 2 fields with "N / 25" counters (`CharacterCounter`), an "Add a choice" (+) up to 4, and a remove on choices 3 and 4;
@@ -761,7 +768,7 @@ Order:
 - **Seam.** `DraftsRepository` is the only reader and writer, so synced drafts (the stage-ladder row) replace its implementation and change no widget.
 - **Runs alongside W3/W4/W5:** **start now.** The `app_database.dart` schema bump conflicts with any other wave adding a table, so one PR at a time.
 
-### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: Open
+### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: In review
 - **Description.**
   - A composer header "Drafts" text button on the right (X §1).
   - Autosave while composing a new root post.
@@ -784,8 +791,10 @@ Order:
 - **Flag.** `drafts` (+ the existing scheduled gates).
 - **Seam.** The screen depends only on `DraftsRepository` and the existing scheduled repository.
 - **Runs alongside W3/W4/W5:** `app_router.dart` and `composer_screen.dart`, one PR at a time.
+- **Built (PR #525).** `ComposerCubit` takes an optional `DraftsRepository` + uid + `initialDraft` (root post only; a quote or a reply has none), autosaves from `onChange`, and decides the leave with `leaveAction` (`none` / `savePrompt` / `discardMedia`); `saveDraft`, `discardDraft` and `loadSavedDraft` serve the prompt and the list. Post and Schedule success delete the row (a schedule starts a new draft id). The header gets an optional secondary action on `AppFormHeader` (the "Drafts" button; saves first when there are changes). `/drafts?tab=scheduled` is the Scheduled tab; `/scheduled` redirects to it while `drafts` is on (the old screen stays with it off); `/drafts` needs `posts` + `drafts`. The composer pushes `/drafts` with `extra: true` (pick mode): a chosen draft pops its id and loads into the same composer; opened standalone, a tap pushes `/compose?draft=<id>`. The Scheduled list body is `ScheduledPostsBody`, shared by both screens. A malformed or unknown draft id never becomes the id of a new draft.
+- **Notes for later tickets.** Drafts keep text, poll, audience and the two disclosure labels; photos and a GIF are never kept (the prompt says so). The table key is `draftId` alone; the UI never adopts an id from a URL, and every query filters by uid (W6-20: the one shared-key risk is a caller who knows another account's 16-hex id AND bypasses the UI). A poll or audience whose flag is off is not loaded into the composer (the next autosave then drops it from the row).
 
-### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: Open
+### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
 - **Description.**
   - `GifSource` interface; `DeviceGifSource` over the platform picker (`.gif` only; web file input `accept="image/gif"`).
   - On-device checks before upload (≤ 2 MiB, ≤ 1,280 px edge, ≤ 300 frames; refuse with a clear message rather than re-encode).
@@ -804,6 +813,13 @@ Order:
 - **Flag.** `gif` + `media`.
 - **Seam.** `GifSource` (device today; the provider picker of W6-24 plugs in without touching the composer).
 - **Runs alongside W3/W4/W5:** `attachments_cubit.dart`, `image_picker_service.dart` and `image_processor.dart` (W3's banner editor uses the processor), so rebase.
+- **Delivered (2026-10-31).**
+  - `GifSource` / `DeviceGifSource` (`image_picker.pickImage` with no resize or quality arguments), `GifPreparer` (separate from `ImageProcessor`, which keeps its interface), `AttachmentKind.gif`, `AttachmentsCubit.pickGif`, `ProcessedImage.thumbContentType`, `GifBadge`, the GIF tile in `PostMedia`.
+  - **Deviations.**
+    - The picker cannot filter to `.gif` (no `file_selector` dependency was added): a non-GIF is refused after picking with "That file isn't a GIF." The web file input is therefore `image/*`, not `image/gif`.
+    - W6-11's rule did not block Schedule on a GIF; it now does, and a schedule disables the GIF button, both with "GIFs can't be scheduled" (SchedulePost refuses GIF media).
+    - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
+    - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
 ### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Open
 - **Description.** Emulator integration and unit:
@@ -825,7 +841,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Open
+### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Done (#519; report `docs/reviews/test-report-w6-gif.md`; D-1 Medium fixed: the sampler now counts delays under 2 cs as 10 cs)
 - **Description.**
   - The sniffer and content-type matrix;
   - size and edge caps;
@@ -861,7 +877,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: Open
+### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: In review (report `docs/reviews/security-w6-composer-extras.md`; the acceptance criterion "no open Critical or High" is not met yet: SECURITY: BLOCKED — H-1, H-2, H-3, which hold `gif` and `media` at the dev allowlist; follow-ups proposed there, not yet in this plan)
 - **Description.** A threat model for:
   - vote integrity (natural key, concurrency, sybils, rate × 3 instances, the daily cap);
   - the result oracle (redaction, refusal order, bytes of hidden counts);
@@ -942,6 +958,15 @@ Order:
 - **Flag.** `gif_search` + `gif` + `media`.
 - **Seam.** `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
+
+### W6-25 to W6-31 — W6-20 security follow-ups  Status: Open
+Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
+- **W6-25 (H-1), W6-26 (H-2), W6-27 (H-3):** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves off in prod. Until then `gif` and `media` stay on team and test accounts only.
+- **W6-28 (M-2):** before `gif` leaves the dev allowlist (with #521, M-1).
+- **W6-29 (L-2, L-6):** before `polls` leaves off in prod.
+- **W6-30 (L-4):** before `gif` leaves off in prod.
+- **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
+- Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
 
 ## Rollout plan
 - **Dev:** allowlist (3 uids) for `drafts` first (client only, no server risk), then `polls`, then `gif`, each after its security and cost tickets.

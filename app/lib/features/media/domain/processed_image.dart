@@ -15,6 +15,7 @@ class ProcessedImage {
     required this.thumbMd5,
     required this.blurhash,
     this.contentType = 'image/jpeg',
+    this.thumbContentType = '',
   });
 
   final Uint8List fullBytes;
@@ -34,7 +35,18 @@ class ProcessedImage {
   /// `image/jpeg` (the server also accepts `image/webp`; the pure-Dart
   /// encoder here writes JPEG only).
   final String contentType;
+
+  /// The thumbnail's content type for CreateUpload (ADR-0029 D10). Empty means
+  /// "the same as [contentType]" (every photo). A GIF sets `image/jpeg`: its
+  /// thumbnail is a still of the first frame.
+  final String thumbContentType;
+
+  /// An animated GIF: [fullBytes] are the picked file, unchanged.
+  bool get isGif => contentType == kGifContentType;
 }
+
+/// The content type of a GIF upload and of a GIF `MediaRef`.
+const kGifContentType = 'image/gif';
 
 /// Why a picked file cannot be turned into an upload (not an image, an
 /// unsupported format such as an un-transcoded HEIC, or a corrupt file).

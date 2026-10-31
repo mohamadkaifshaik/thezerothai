@@ -1,9 +1,14 @@
+import 'package:connectrpc/connect.dart' as connect;
+
+import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
+import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import '../../posts/domain/posts_feature_flag.dart';
+import '../../lists/domain/lists_feature_flag.dart';
 import '../domain/feed_key.dart';
 import '../domain/profile_tabs_feature_flag.dart';
 import 'timeline_store.dart';
@@ -41,9 +46,13 @@ class TimelineRepository {
     int pageSize = 0,
     Duration Function()? monotonic,
     RateLimitHold? rateLimitHold,
+    ServiceFeatureGate? listsGate,
+    void Function(lists_pb.ListInfo list)? onListSeen,
   }) : _apiClient = apiClient,
        _store = store,
        _gate = gate,
+       _listsGate = listsGate,
+       _onListSeen = onListSeen,
        _pageSize = pageSize,
        _elapsed = monotonic ?? _stopwatchClock() {
     _hold = rateLimitHold ?? RateLimitHold(monotonic: _elapsed);
@@ -52,6 +61,13 @@ class TimelineRepository {
   final ApiClient _apiClient;
   final TimelineStore _store;
   final PostsFeatureGate _gate;
+
+  /// The `lists` gate (W5-12): a list feed is fetched through it, never the
+  /// posts gate. Null = lists are not wired, a list feed is "not available".
+  final ServiceFeatureGate? _listsGate;
+
+  /// Every list header a `GetListTimeline` answer carries.
+  final void Function(lists_pb.ListInfo list)? _onListSeen;
 
   /// 0 lets the server pick its default (20).
   final int _pageSize;
@@ -282,6 +298,9 @@ class TimelineRepository {
           r.removedIds.toList(),
         );
       }
+      if (feed.isList) {
+        return await _fetchList(feed.listId!, sinceToken, pageToken);
+      }
       final tab = feed.tab!;
       final session = _store.session;
       final r = await _gate.run(
@@ -322,6 +341,50 @@ class TimelineRepository {
       rethrow;
     }
   }
+
+  /// `GetListTimeline` through the `lists` gate (ADR-0030). UNIMPLEMENTED (the
+  /// server does not have it yet) is read inside the gate callback and turned
+  /// into "not available yet" after the gate returns, so it neither trips the
+  /// gate shared with `ListService` / `SetHomeTabs` nor reaches the crash
+  /// reporter. Every answer's `list` header goes to `onListSeen` (tab label,
+  /// list detail header).
+  Future<_Page> _fetchList(
+    String listId,
+    String sinceToken,
+    String pageToken,
+  ) async {
+    final gate = _listsGate;
+    if (gate == null) throw _listsNotYet();
+    final r = await gate.run<tl.GetListTimelineResponse?>(() async {
+      try {
+        return await _apiClient.timeline.getListTimeline(
+          tl.GetListTimelineRequest(
+            listId: listId,
+            pageSize: _pageSize,
+            sinceToken: sinceToken,
+            pageToken: pageToken,
+          ),
+        );
+      } on connect.ConnectException catch (error) {
+        if (error.code == connect.Code.unimplemented) return null;
+        rethrow;
+      }
+    });
+    if (r == null) throw _listsNotYet();
+    if (r.hasList()) _onListSeen?.call(r.list);
+    return _Page(
+      r.posts.toList(),
+      r.nextPageToken,
+      r.sinceToken,
+      r.gapPageToken,
+      r.removedIds.toList(),
+    );
+  }
+
+  FeatureDisabledException _listsNotYet() => const FeatureDisabledException(
+    "Lists aren't available yet.",
+    feature: kFeatureLists,
+  );
 
   /// Serializes calls per feed and shares an identical in-flight call.
   Future<TimelineSnapshot> _single(

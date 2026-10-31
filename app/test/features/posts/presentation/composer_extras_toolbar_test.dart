@@ -7,6 +7,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/domain/engagement_feature_flag.dart';
+import 'package:dzeroth/features/media/data/gif_source.dart';
 import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
@@ -20,9 +21,18 @@ import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/composer_screen.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/composer_extras_buttons.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/composer_poll_builder.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/schedule_controls.dart';
+import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_problem_hint.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/features/posts/domain/poll_rules.dart';
+import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPolicy;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -41,13 +51,18 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 /// The Poll and GIF buttons of `/compose` (W6-11, ADR-0029): flag gates, the
 /// disabled reasons, and the layout across widths, themes and text scales.
-/// The poll builder and the GIF picker behind the buttons are W6-12 / W6-16.
+/// The poll builder (W6-12) is tested here too; the GIF picker is W6-16.
 void main() {
-  setUpAll(registerMediaFallbacks);
+  setUpAll(() {
+    registerMediaFallbacks();
+    registerFallbackValue(ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
+    registerFallbackValue(newDraftPoll());
+  });
 
   late _MockPostsRepository repo;
   late MockMediaRepository media;
   late FakeImagePicker picker;
+  late FakeGifSource gifSource;
   late PendingPostsCubit pending;
 
   const all = {
@@ -63,6 +78,7 @@ void main() {
     repo = _MockPostsRepository();
     media = MockMediaRepository();
     picker = FakeImagePicker();
+    gifSource = FakeGifSource();
     pending = PendingPostsCubit();
     when(() => repo.subFeatureEnabled(any())).thenReturn(true);
   });
@@ -118,6 +134,8 @@ void main() {
           RepositoryProvider<MediaRepository>.value(value: media),
           RepositoryProvider<ImagePickerService>.value(value: picker),
           RepositoryProvider<ImageProcessor>.value(value: FakeImageProcessor()),
+          RepositoryProvider<GifSource>.value(value: gifSource),
+          RepositoryProvider<GifPreparer>.value(value: FakeGifPreparer()),
           RepositoryProvider<UnexpectedErrorReporter>.value(
             value: (error, stack) {},
           ),
@@ -208,9 +226,66 @@ void main() {
       await tester.pumpAndSettle();
       expect(tooltip(tester, poll()), "Polls can't be scheduled");
       expect(enabled(tester, poll()), isFalse);
-      // The GIF and photos are still available with a schedule.
-      expect(tooltip(tester, gif()), 'Add a GIF');
+      // A GIF cannot be scheduled either (SchedulePost refuses it); photos
+      // still can.
+      expect(tooltip(tester, gif()), "GIFs can't be scheduled");
+      expect(enabled(tester, gif()), isFalse);
       expect(find.byTooltip('Add photos'), findsOneWidget);
+    });
+
+    testWidgets('a GIF disables photos, the poll and Schedule with reasons', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(enabled(tester, gif()), isTrue, reason: 'nothing attached yet');
+      gifSource.next = imageBytes('a');
+      await tester.tap(inner(gif()));
+      await tester.pumpAndSettle();
+
+      expect(gifSource.calls, 1);
+      expect(find.byTooltip('Remove GIF'), findsOneWidget);
+      expect(find.text('GIF'), findsWidgets);
+      expect(tooltip(tester, poll()), "Polls can't have a GIF");
+      expect(enabled(tester, poll()), isFalse);
+      expect(find.byTooltip("A GIF can't be added to photos"), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.image_outlined),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(find.byTooltip("GIFs can't be scheduled"), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.schedule_send_outlined),
+            )
+            .onPressed,
+        isNull,
+      );
+      // The GIF button itself stays off: one GIF per post.
+      expect(tooltip(tester, gif()), 'One GIF per post');
+      expect(enabled(tester, gif()), isFalse);
+
+      // Removing it puts everything back.
+      await tester.tap(find.byTooltip('Remove GIF'));
+      await tester.pumpAndSettle();
+      expect(enabled(tester, gif()), isTrue);
+      // The Poll button has no handler until W6-12, so it is off either way;
+      // what changes is its reason.
+      expect(tooltip(tester, poll()), 'Add poll');
+    });
+
+    testWidgets('a refused GIF says why and attaches nothing', (tester) async {
+      await open(tester);
+      gifSource.next = badBytes; // FakeGifPreparer refuses a leading 0
+      await tester.tap(inner(gif()));
+      await tester.pumpAndSettle();
+      expect(find.text('GIFs can be up to 2 MB.'), findsOneWidget);
+      expect(find.byTooltip('Remove GIF'), findsNothing);
+      expect(enabled(tester, gif()), isTrue);
     });
 
     testWidgets('photos disable the GIF and the poll with their reasons', (
@@ -264,6 +339,338 @@ void main() {
       await pump();
       expect(enabled(tester, gif()), isFalse);
     });
+
+    testWidgets('on the screen the Poll button is really enabled (W6-12)', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(enabled(tester, poll()), isTrue);
+      expect(tooltip(tester, poll()), 'Add poll');
+      // W6-16: the GIF button opens the picker.
+      expect(enabled(tester, gif()), isTrue);
+    });
+
+    testWidgets('Poll opens the builder and the button shows it is open', (
+      tester,
+    ) async {
+      await open(tester);
+      await tester.tap(poll());
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerPollBuilder), findsOneWidget);
+      expect(find.byIcon(Icons.poll), findsOneWidget);
+      // Photos, GIF and Schedule now say why they are off.
+      expect(
+        tooltip(tester, find.byType(ComposerGifButton)),
+        contains('Polls'),
+      );
+      expect(enabled(tester, find.byType(ScheduleButton)), isFalse);
+      expect(
+        tester.widget<IconButton>(inner(find.byType(ScheduleButton))).tooltip,
+        "Polls can't be scheduled",
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.image_outlined),
+            )
+            .onPressed,
+        isNull,
+      );
+    });
+  });
+
+  group('poll builder', () {
+    Finder field(String label) => find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.labelText == label,
+    );
+    Finder question() => find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == kPollQuestionHint,
+    );
+    AppPillButton post(WidgetTester tester) => tester.widget<AppPillButton>(
+      find.widgetWithText(AppPillButton, 'Post'),
+    );
+
+    Future<void> openBuilder(WidgetTester tester, {Size? size}) async {
+      await open(tester, size: size ?? const Size(390, 844));
+      await tester.tap(poll());
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows the question hint, two choices and the controls', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      expect(question(), findsOneWidget);
+      expect(field('Choice 1'), findsOneWidget);
+      expect(field('Choice 2'), findsOneWidget);
+      expect(field('Choice 3 (optional)'), findsNothing);
+      expect(find.text('Add a choice'), findsOneWidget);
+      expect(find.text('Poll length'), findsOneWidget);
+      expect(find.text('1 day, 0 hours, 0 minutes'), findsOneWidget);
+      expect(find.text('Remove poll'), findsOneWidget);
+      expect(find.text('0 / 25'), findsNWidgets(2));
+      expect(post(tester).onPressed, isNull);
+    });
+
+    testWidgets('2 filled choices and text enable Post', (tester) async {
+      await openBuilder(tester);
+      await tester.enterText(question(), 'Best colour?');
+      await tester.enterText(field('Choice 1'), 'Red');
+      await tester.pump();
+      expect(post(tester).onPressed, isNull);
+      await tester.enterText(field('Choice 2'), 'Blue');
+      await tester.pump();
+      expect(post(tester).onPressed, isNotNull);
+      expect(find.text('3 / 25'), findsOneWidget);
+      expect(find.text('4 / 25'), findsOneWidget);
+    });
+
+    testWidgets('a 26th code point turns the counter red and disables Post', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.enterText(question(), 'Best colour?');
+      await tester.enterText(field('Choice 1'), 'a' * 26);
+      await tester.enterText(field('Choice 2'), 'b');
+      await tester.pump();
+      final counter = tester.widget<Text>(find.text('26 / 25'));
+      final context = tester.element(find.text('26 / 25'));
+      expect(counter.style!.color, Theme.of(context).colorScheme.error);
+      expect(post(tester).onPressed, isNull);
+    });
+
+    testWidgets('duplicate choices show the hint and disable Post', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.enterText(question(), 'Best colour?');
+      await tester.enterText(field('Choice 1'), 'Red');
+      await tester.enterText(field('Choice 2'), 'red');
+      await tester.pump();
+      expect(find.text(kPollDuplicateHint), findsOneWidget);
+      expect(post(tester).onPressed, isNull);
+    });
+
+    testWidgets('Add a choice goes to four, then the button is gone', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.tap(find.text('Add a choice'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Add a choice'));
+      await tester.tap(find.text('Add a choice'));
+      await tester.pumpAndSettle();
+      expect(field('Choice 3 (optional)'), findsOneWidget);
+      expect(field('Choice 4 (optional)'), findsOneWidget);
+      expect(find.text('Add a choice'), findsNothing);
+      expect(find.byTooltip('Remove choice 1'), findsNothing);
+      expect(find.byTooltip('Remove choice 3'), findsOneWidget);
+      await tester.ensureVisible(find.byTooltip('Remove choice 4'));
+      await tester.tap(find.byTooltip('Remove choice 4'));
+      await tester.pumpAndSettle();
+      expect(field('Choice 4 (optional)'), findsNothing);
+      expect(find.text('Add a choice'), findsOneWidget);
+    });
+
+    testWidgets('removing a middle choice keeps the others typed text', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.tap(find.text('Add a choice'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Add a choice'));
+      await tester.tap(find.text('Add a choice'));
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Choice 3 (optional)'), 'three');
+      await tester.enterText(field('Choice 4 (optional)'), 'four');
+      await tester.pump();
+      await tester.ensureVisible(find.byTooltip('Remove choice 3'));
+      await tester.tap(find.byTooltip('Remove choice 3'));
+      await tester.pumpAndSettle();
+      final c3 = tester.widget<TextField>(field('Choice 3 (optional)'));
+      expect(c3.controller!.text, 'four');
+    });
+
+    testWidgets('Remove poll goes back to a plain post', (tester) async {
+      await openBuilder(tester);
+      await tester.enterText(question(), 'kept text');
+      await tester.ensureVisible(find.text('Remove poll'));
+      await tester.tap(find.text('Remove poll'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposerPollBuilder), findsNothing);
+      expect(find.text('kept text'), findsOneWidget);
+      expect(find.byTooltip('Add poll'), findsOneWidget);
+    });
+
+    testWidgets('under 600dp the length row opens the wheel sheet', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.tap(find.text('1 day, 0 hours, 0 minutes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Days'), findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 day, 0 hours, 0 minutes'), findsOneWidget);
+    });
+
+    testWidgets(
+      'wide: dropdowns, and 0 days is raised to 5 minutes with a hint',
+      (tester) async {
+        await openBuilder(tester, size: const Size(1200, 900));
+        expect(find.byType(DropdownButtonFormField<int>), findsNWidgets(3));
+        await tester.tap(find.byKey(const ValueKey('poll-Days-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('0').last);
+        await tester.pumpAndSettle();
+        expect(find.text(kPollMinLengthHint), findsOneWidget);
+        expect(find.byKey(const ValueKey('poll-Minutes-5')), findsOneWidget);
+      },
+    );
+
+    testWidgets('Tab moves through the question and the choices in order', (
+      tester,
+    ) async {
+      await openBuilder(tester);
+      await tester.tap(question());
+      await tester.pump();
+      for (final next in ['Choice 1', 'Choice 2']) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          Focus.of(
+            tester.element(
+              find.descendant(
+                of: field(next),
+                matching: find.byType(EditableText),
+              ),
+            ),
+          ).hasFocus,
+          isTrue,
+          reason: next,
+        );
+      }
+    });
+
+    group('after Post', () {
+      void stubCreate(pb.PostView answer) {
+        when(
+          () => repo.createPost(
+            idempotencyKey: any(named: 'idempotencyKey'),
+            text: any(named: 'text'),
+            replyToPostId: any(named: 'replyToPostId'),
+            quoteOfPostId: any(named: 'quoteOfPostId'),
+            mediaIds: any(named: 'mediaIds'),
+            mediaAltTexts: any(named: 'mediaAltTexts'),
+            replyPolicy: any(named: 'replyPolicy'),
+            poll: any(named: 'poll'),
+          ),
+        ).thenAnswer((_) async => answer);
+        when(
+          () => repo.deletePost(
+            postId: any(named: 'postId'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenAnswer((_) async {});
+      }
+
+      Future<void> fillAndPost(WidgetTester tester) async {
+        await openBuilder(tester);
+        await tester.enterText(question(), 'Best colour?');
+        await tester.enterText(field('Choice 1'), 'Red');
+        await tester.enterText(field('Choice 2'), 'Blue');
+        await tester.pump();
+        await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('the echo has a poll: no warning', (tester) async {
+        final view = postView(1, text: 'Best colour?');
+        view.post.poll = pb.Poll();
+        stubCreate(view);
+        await fillAndPost(tester);
+        expect(find.text('home page'), findsOneWidget);
+        expect(find.text(kPollNotAddedMessage), findsNothing);
+      });
+
+      testWidgets('the echo has no poll: warns, Delete deletes that post', (
+        tester,
+      ) async {
+        stubCreate(postView(7, text: 'Best colour?'));
+        await fillAndPost(tester);
+        expect(find.text(kPollNotAddedMessage), findsOneWidget);
+        expect(find.text('Keep'), findsOneWidget);
+        await tester.tap(find.text('Delete'));
+        await tester.pump();
+        verify(
+          () => repo.deletePost(
+            postId: postId(7),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).called(1);
+      });
+
+      testWidgets('Keep dismisses the warning and deletes nothing', (
+        tester,
+      ) async {
+        stubCreate(postView(7, text: 'Best colour?'));
+        await fillAndPost(tester);
+        await tester.tap(find.text('Keep'));
+        await tester.pumpAndSettle();
+        expect(find.text(kPollNotAddedMessage), findsNothing);
+        verifyNever(
+          () => repo.deletePost(
+            postId: any(named: 'postId'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        );
+      });
+    });
+
+    testWidgets('semantics: choices labelled, remove has a tooltip', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await openBuilder(tester);
+      expect(find.bySemanticsLabel(RegExp('Choice 1')), findsWidgets);
+      expect(
+        find.bySemanticsLabel('Poll length, 1 day, 0 hours, 0 minutes'),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    for (final width in [360.0, 600.0, 1200.0]) {
+      for (final brightness in Brightness.values) {
+        for (final scale in [1.0, 1.5, 2.0]) {
+          testWidgets(
+            '${width.toInt()} ${brightness.name} x$scale: four choices, no overflow',
+            (tester) async {
+              await open(
+                tester,
+                size: Size(width, 800),
+                brightness: brightness,
+                textScale: scale,
+              );
+              await tester.tap(poll());
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('Add a choice'));
+              await tester.pumpAndSettle();
+              await tester.ensureVisible(find.text('Add a choice'));
+              await tester.tap(find.text('Add a choice'));
+              await tester.pumpAndSettle();
+              await tester.enterText(field('Choice 1'), 'a' * 26);
+              await tester.enterText(field('Choice 2'), 'A' * 26);
+              await tester.pump();
+              await tester.ensureVisible(find.text('Remove poll'));
+              expect(find.text('Remove poll'), findsOneWidget);
+              expect(tester.takeException(), isNull);
+            },
+          );
+        }
+      }
+    }
   });
 
   group('accessibility and layout', () {

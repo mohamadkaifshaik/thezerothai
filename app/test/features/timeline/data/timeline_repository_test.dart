@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
+import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -11,6 +12,7 @@ import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import 'package:dzeroth/gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,6 +82,149 @@ void main() {
   List<String> idsOf(List<int> n) => [for (final i in n) postId(i)];
 
   const home = FeedKey.home();
+
+  group('list timeline (W5-12)', () {
+    const listProc = '/dzeroth.timeline.v1.TimelineService/GetListTimeline';
+    late ServiceFeatureGate listsGate;
+    late List<lists_pb.ListInfo> seen;
+    var listsOn = true;
+    var reported = 0;
+    final feed = FeedKey.list('77');
+
+    void giveList(
+      List<int> ids, {
+      String next = '',
+      String since = '',
+      String name = '',
+    }) {
+      script[listProc]!.add(
+        tl.GetListTimelineResponse(
+          posts: [for (final id in ids) postView(id)],
+          nextPageToken: next,
+          sinceToken: since,
+          list: name.isEmpty
+              ? null
+              : lists_pb.ListInfo(listId: '77', name: name),
+        ),
+      );
+    }
+
+    setUp(() {
+      listsOn = true;
+      reported = 0;
+      seen = [];
+      script[listProc] = [];
+      listsGate = ServiceFeatureGate(
+        isEnabled: () => listsOn,
+        onUnexpectedError: (_, _) => reported++,
+      );
+      repo = TimelineRepository(
+        apiClient: ApiClient.withTransport(transport),
+        store: store,
+        gate: gate,
+        listsGate: listsGate,
+        onListSeen: seen.add,
+      );
+    });
+
+    test('a list feed is cached apart from Home', () async {
+      giveHome([5, 4], since: 's1');
+      await repo.refresh(home);
+      giveList([9], since: 'l1', name: 'Friends');
+      await repo.refresh(feed);
+
+      expect(ids(await repo.cached(feed)), idsOf([9]));
+      expect(ids(await repo.cached(home)), idsOf([5, 4]));
+    });
+
+    test('cold open, then a refresh sends since_token and the list id; '
+        'every list header is passed on', () async {
+      giveList([9], since: 'l1', next: 'o1', name: 'Friends');
+      await repo.refresh(feed);
+      final cold = requests.single as tl.GetListTimelineRequest;
+      expect(cold.listId, '77');
+      expect(cold.sinceToken, isEmpty);
+
+      requests.clear();
+      giveList([10], since: 'l2', name: 'Friends 2');
+      final snap = await repo.refresh(feed);
+
+      final sent = requests.single as tl.GetListTimelineRequest;
+      expect(sent.sinceToken, 'l1');
+      expect(sent.listId, '77');
+      expect(ids(snap), idsOf([10, 9]));
+      expect(seen.map((l) => l.name), ['Friends', 'Friends 2']);
+    });
+
+    test('an older page sends page_token', () async {
+      giveList([9], since: 'l1', next: 'o1');
+      await repo.refresh(feed);
+      requests.clear();
+      giveList([8], next: '');
+      await repo.loadOlder(feed);
+
+      final sent = requests.single as tl.GetListTimelineRequest;
+      expect(sent.pageToken, 'o1');
+      expect(sent.sinceToken, isEmpty);
+    });
+
+    test('with the lists flag off no RPC is sent', () async {
+      listsOn = false;
+      await expectLater(
+        repo.refresh(feed),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(requests, isEmpty);
+    });
+
+    test('UNIMPLEMENTED is "not available yet": not reported, the shared '
+        'lists gate stays on', () async {
+      script[listProc]!.add(
+        connect.ConnectException(connect.Code.unimplemented, 'nope'),
+      );
+
+      await expectLater(
+        repo.refresh(feed),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'lists',
+          ),
+        ),
+      );
+      expect(listsGate.enabled, isTrue);
+      expect(reported, 0);
+    });
+
+    test(
+      'without a lists gate a list feed is "not available", no RPC',
+      () async {
+        final bare = TimelineRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: store,
+          gate: gate,
+        );
+        await expectLater(
+          bare.refresh(feed),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(requests, isEmpty);
+      },
+    );
+
+    test('NOT_FOUND forgets the cached list', () async {
+      giveList([9], since: 'l1');
+      await repo.refresh(feed);
+      script[listProc]!.add(
+        connect.ConnectException(connect.Code.notFound, 'gone'),
+      );
+
+      await expectLater(repo.refresh(feed), throwsA(isA<NotFoundException>()));
+
+      expect((await repo.cached(feed)).entries, isEmpty);
+    });
+  });
 
   group('cold start and first refresh', () {
     test('first refresh stores items, since and scroll token', () async {
