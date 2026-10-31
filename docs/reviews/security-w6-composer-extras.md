@@ -252,7 +252,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 ### L-2 (Low, privacy): `userLikes.pollVotes` outlives the vote docs and is not in the export
 
-**Status: In review (#PRNUM, W6-29).**
+**Status: In review (#552, W6-29).**
 
 **Where:**
 - `repo_polls.go:55-57`: every vote adds `"<postId>:<choice>"` to `userLikes/{uid}.pollVotes`. That list is trimmed only above 600 entries (`service_polls.go:183-200`) and has no age bound.
@@ -318,7 +318,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 ### L-6 (Low): poll choices can look identical
 
-**Status: In review (#PRNUM, W6-29).**
+**Status: In review (#552, W6-29).**
 
 **Where:** `NormalizeLabel` (`text.go:369-384`) refuses Cc, U+2028/2029 and bidi controls, but allows zero-width and other default-ignorable characters. `foldKey` (`poll.go:137`) keeps them.
 
