@@ -9,9 +9,13 @@ import 'lists_state.dart';
 /// at most 20 lists, so one page of 50 holds them all; the token is still
 /// followed (a short page can carry one) up to [_maxPages] pages.
 class ListsCubit extends Cubit<ListsState> {
-  ListsCubit({required ListsRepository repository})
+  ListsCubit({required ListsRepository repository, this.ownerId = ''})
     : _repository = repository,
       super(const ListsState());
+
+  /// Whose lists: empty = the caller's own; a user id = that user's public
+  /// lists (W5-13, `/u/:id/lists`).
+  final String ownerId;
 
   static const _pageSize = 50;
   static const _maxPages = 3;
@@ -27,6 +31,7 @@ class ListsCubit extends Cubit<ListsState> {
       var token = '';
       for (var page = 0; page < _maxPages; page++) {
         final r = await _repository.listUserLists(
+          ownerId: ownerId,
           pageSize: _pageSize,
           pageToken: token,
         );

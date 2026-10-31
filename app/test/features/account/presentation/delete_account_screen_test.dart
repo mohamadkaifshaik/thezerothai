@@ -274,6 +274,45 @@ void main() {
     expect(optIn.records.keys, containsAll(['uid-1', 'uid-2']));
   });
 
+  testWidgets('a failed delete leaves the unsent posts alone', (tester) async {
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenThrow(const NetworkException('offline'));
+    await drafts.upsert(
+      ComposerDraft(
+        id: 'a',
+        uid: 'uid-1',
+        text: 'still mine',
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      ),
+    );
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(drafts.wiped, isEmpty);
+    expect((await drafts.watch('uid-1').first).map((d) => d.id), ['a']);
+  });
+
+  testWidgets('W6-19: deleteAll failing is reported, the "Not now" record is '
+      'still forgotten and the final page still shows', (tester) async {
+    drafts = _FailingDeleteAllDrafts();
+    await pump(tester);
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(reported, hasLength(1));
+    expect(optIn.forgotten, ['uid-1']);
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+    verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+  });
+
   testWidgets('a storage failure is reported and never blocks the final page', (
     tester,
   ) async {
@@ -573,4 +612,10 @@ void main() {
     expect(handleMatches('', ''), isFalse);
     expect(handleMatches('kai', 'kaif'), isFalse);
   });
+}
+
+/// A drafts store whose wipe throws (a locked or corrupt database).
+class _FailingDeleteAllDrafts extends FakeDraftsRepository {
+  @override
+  Future<void> deleteAll(String uid) async => throw StateError('disk');
 }

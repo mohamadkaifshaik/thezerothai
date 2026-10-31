@@ -299,7 +299,8 @@ func TestW618_VisionCapBoundary(t *testing.T) {
 }
 
 // TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable: Vision failing on the sheet is a retryable UNAVAILABLE with
-// the reservation returned and the claim released (not a rejection, not a charge).
+// the claim released, not a rejection. Since W6-27 the thumbnail call that did answer is counted (1 unit); the sheet unit
+// that never got an answer is released.
 func TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
@@ -309,8 +310,8 @@ func TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable(t *testing.T) {
 	if !errors.As(err, &ae) || ae.Code != connect.CodeUnavailable {
 		t.Fatalf("err = %v, want UNAVAILABLE", err)
 	}
-	if got := e.repo.vision[monthKey(testNow)]; got != 0 {
-		t.Fatalf("vision units = %d, want 0", got)
+	if got := e.repo.vision[monthKey(testNow)]; got != 1 {
+		t.Fatalf("vision units = %d, want 1 (the answered thumbnail)", got)
 	}
 	if d := e.repo.docs[tg.MediaID]; d.Status != string(StatusPending) || d.ScreeningUntil != nil {
 		t.Fatalf("doc = %+v, want PENDING with the claim released", d)
