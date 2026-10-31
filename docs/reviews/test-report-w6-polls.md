@@ -5,11 +5,11 @@ half is W6-18; the client half is W6-19; the 50 votes/s for 60 s load shape belo
 
 ## W6-17: backend tests for polls (2026-10-31)
 
-Tester: tester agent. Branch `test/ui-w6-17-poll-tests` on `main@5ce07b43` (W6-5, W6-6, W6-7 + W6-8 as #515, the ADR as-built notes #520 and W6-18 #519
+Tester: tester agent. Branch `test/ui-w6-17-poll-tests` on `main@88e1c7f4` (W6-5, W6-6, W6-7 + W6-8 as #515, the ADR as-built notes #520 and W6-18 #519
 merged). I first built on `main@212c0249` plus the then-current head of `feat/ui-w6-7-vote-poll`; section 5 records what that older head showed.
 
 **VERDICT: PASS for W6-17 as specified.** All 12 tests added here pass on the merged base, and a mutation check shows the lifecycle test fails
-when the `poll_votes` step is not registered. The whole `TestAccountLifecycle_` family (23 tests) is green on `main@5ce07b43`. No production defect
+when the `poll_votes` step is not registered. The whole module's integration suite (the `make test-int` command, 43 packages) is green on this head with combined `internal/` coverage **93.2 %** (gate 70 %), and the `TestAccountLifecycle_` family (23 tests) is green. No production defect
 was found. Three red lifecycle tests seen on the older #515 head (+1 read each, one missing golden section) were fixed in the head that merged and
 are re-verified green (section 5). Every acceptance criterion of W6-5 to W6-8 has a named test (section 3). Three observations (O-1, O-2, O-4)
 and four gaps (section 7) are for the owners.
@@ -22,7 +22,9 @@ and four gaps (section 7) are for the owners.
 |---|---|---|
 | New W6-17 tests | `go test -tags=integration -run TestW617_ ./internal/apiserver` on Firestore, Auth and Storage emulators plus a standalone Pub/Sub emulator, on the merged base | **12 pass** (the two lifecycle tests included) |
 | Mutation check | `registerPollVoteLifecycle` replaced by `error(nil)` in `apiserver.go:468`, then `-run TestW617_Lifecycle` | **both lifecycle tests fail**, as they should (export empty, 2 vote docs survive, residue sweep reports them). Reverted |
-| Lifecycle family, all of `TestAccountLifecycle_` | `-run TestAccountLifecycle_ ./internal/apiserver` on `main@5ce07b43`, 214 s | **23 pass, 0 fail** (the older #515 head: 3 red, section 5) |
+| Lifecycle family, all of `TestAccountLifecycle_` | `-run TestAccountLifecycle_ ./internal/apiserver` on `main@5ce07b43`, 214 s (also inside the whole-module run below) | **23 pass, 0 fail** (the older #515 head: 3 red, section 5) |
+| Whole module, the `make test-int` command | `go test -tags=integration -p 1 -coverprofile=cover-internal.out -coverpkg=./internal/... ./...` on Firestore, Auth and Storage emulators plus a standalone Pub/Sub, on the head of this PR (just before the last docs commit) | **43 packages ok, 0 failed, EXIT=0**; combined `internal/` statement coverage **93.2 %** (gate 70 %); per file: `engagement/service_polls.go` 95.2 %, `purge_polls.go` 91.6 %, `repo_polls.go` 84.5 %, `posts/poll.go` 100 % (mean of function coverage) |
+| `gofmt -l`, `golangci-lint run --build-tags integration ./internal/apiserver/...` | the three new files | gofmt clean; lint reports 4 issues, all in `search_chain_integration_test.go` (not this PR), none in the new files |
 | Developers' poll tests, unit | `go test -cover ./internal/engagement ./internal/posts` | green; statement coverage 59.6 % (engagement) and 64.9 % (posts), **unit tests only** |
 | Terraform TTL guard | `TestW617_PollVotesTTLFieldIsInTerraform` (no emulator) | pass |
 | `go vet -tags=integration ./internal/apiserver` | | clean |
@@ -33,10 +35,9 @@ Environment notes:
 - Emulators ran from a scratch config outside the repo on ports 58xxx behind `scripts/with-private-tmp.sh`. The firebase-tools launch of the
   Pub/Sub emulator failed on this shared machine ("Port ... is not open") for the last two hours of the session, on every port set tried. The
   Pub/Sub jar itself starts in about a second, so the final runs used `emulators:exec --only firestore,auth,storage` with a standalone Pub/Sub
-  emulator (the same jar, one process I started, on 58778, then stopped by PID) and `PUBSUB_EMULATOR_HOST` set. The earlier full-family run on
+  emulator (the same jar, one process I started, on 58778 and 58779, each stopped by PID afterwards) and `PUBSUB_EMULATOR_HOST` set. The earlier full-family run on
   the older head used the normal launch.
-- `make test-int` (whole module, combined `internal/` coverage gate) was **not** run. Coverage above is the unit number of two packages; the
-  70 % gate is a combined unit plus integration number, not measured here.
+- `make test-int` itself was not run; its command was (above), with `-p 1` and the standalone Pub/Sub. `make ci` (the Flutter half) was not run.
 - Nothing was run against dev or prod.
 
 ### 2. What was added
@@ -191,8 +192,8 @@ The cost of the step is +1 read per account deletion and +1 per export (the empt
   the fake-based `TestVotePoll_Contention`. Real `OPTIMISTIC` contention is the W6-22 dev smoke, as for #292.
 - **G-2. The crash harness does not run `poll_votes`** (`newCrashChain`, `account_lifecycle_crash_integration_test.go:276`). Adding the step there
   would change the clean run's side-effect list that the crash tests pin; left for the owner. The step's checkpoint is covered at repo level.
-- **G-3. Not run:** `-race`; `make ci`; `make test-int` and the combined coverage gate (the poll files' coverage is therefore not measured here);
-  the load shape of one poll at 50 votes/s for 60 s (W6-21); prod `OPTIMISTIC` contention (W6-22); the whole module's integration suite; any
+- **G-3. Not run:** `-race`; `make ci`; `make test-int` itself (its command ran, section 1);
+  the load shape of one poll at 50 votes/s for 60 s (W6-21); prod `OPTIMISTIC` contention (W6-22); any
   Flutter test; anything against dev or prod.
 - **G-4. The user timeline and the other list producers are not budget-compared for polls at chain level** (only `GetPost` is). The per-producer
   redaction tables and the A4 guard cover the rule; the read cost of a list with a poll is the hydrate read it already paid.
