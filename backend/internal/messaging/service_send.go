@@ -125,7 +125,7 @@ func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, e
 }
 
 func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagingv1.SendMessageResponse, error) {
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(in.convID))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(in.convID))
 	// Step 2: a conversation_id resolves to its peer through the participant check (cached 60 s).
 	if in.byConvID {
 		conv, err := s.conversation(ctx, uid, in.convID)
@@ -333,10 +333,10 @@ func (s *service) failure(ctx context.Context, op, uid, convID string, err error
 	case ctxFailure(ctx) != nil:
 		return ctxFailure(ctx)
 	case isTxOp(op) && (errors.Is(err, store.ErrContended) || store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded):
-		s.d.Log.WarnContext(ctx, "messaging_"+op+"_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashUID(convID)))
+		s.d.Log.WarnContext(ctx, "messaging_"+op+"_contention", slog.String("uid_hash", logger.HashUID(uid)), slog.String(fieldConvHash, logger.HashConversation(convID)))
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "busy, please retry").WithRetryAfter(time.Second)
 	}
-	return logger.RedactErr(fmt.Errorf("messaging: %s: %w", op, err), append([]string{uid, convID}, redact...)...)
+	return redactErr(fmt.Errorf("messaging: %s: %w", op, err), append([]string{uid, convID}, redact...)...)
 }
 
 // ctxFailure is the wire answer for a request whose own context ended (canceled or past its deadline), else nil.
