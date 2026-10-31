@@ -213,7 +213,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 ### M-2 (Medium): the frame a GIF rests on is never forced into the sample
 
-**Status: In review (#PRNUM).** `sampleIndices` samples t = 0, T/3, 2T/3 and always the last frame (4 tiles at most, 2 units unchanged); ADR-0029 N5.
+**Status: In review (#545).** `sampleIndices` samples t = 0, T/3, 2T/3 and always the last frame (4 tiles at most, 2 units unchanged); ADR-0029 N5.
 
 **Where:** `gifscan.go:182-214` samples t = 0, T/4, T/2 and 3T/4 only. With more than 4 frames, the last frame is sampled only if it covers 3T/4.
 
