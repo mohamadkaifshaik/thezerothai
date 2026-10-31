@@ -276,15 +276,19 @@ class ComposerCubit extends Cubit<ComposerState> {
   ComposerAttachmentRules get rules => ComposerAttachmentRules(
     flagPolls: pollsFlag && _repository.subFeatureEnabled(kFeaturePolls),
     engagementOn: engagementOn,
-    flagGif: gifFlag,
+    // A FEATURE_DISABLED `gif` answer is remembered by the posts gate.
+    flagGif: gifFlag && _repository.subFeatureEnabled(kFeatureGif),
     mediaOn: mediaOn,
     isReply: replyToPostId.isNotEmpty,
     isQuote: quoteOfPostId.isNotEmpty,
-    hasPhotos: state.hasAttachments,
+    hasPhotos: state.hasAttachments && !_gifHeld,
+    hasGif: _gifHeld,
     hasPoll: state.hasPoll,
     // A time is only in force while the composer can still schedule.
     scheduled: state.isScheduling && canSchedule,
   );
+
+  bool get _gifHeld => _attachments?.state.hasGif ?? false;
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -505,6 +509,22 @@ class ComposerCubit extends Cubit<ComposerState> {
             'Photos are not available.',
             feature: kPostsSubFeatureMedia,
           ),
+        ),
+      );
+      return null;
+    }
+    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
+    // (the gate remembers it): do not upload what cannot be posted.
+    if (attachments.state.hasGif &&
+        !_repository.subFeatureEnabled(kFeatureGif)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'GIFs are not available.',
+            feature: kFeatureGif,
+          ),
+          uploadFailed: true,
         ),
       );
       return null;

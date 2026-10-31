@@ -369,7 +369,7 @@ Effect on the quotas (additive):
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
-| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
+| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Open |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
@@ -776,7 +776,7 @@ Order:
 - **Seam.** The screen depends only on `DraftsRepository` and the existing scheduled repository.
 - **Runs alongside W3/W4/W5:** `app_router.dart` and `composer_screen.dart`, one PR at a time.
 
-### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: Open
+### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
 - **Description.**
   - `GifSource` interface; `DeviceGifSource` over the platform picker (`.gif` only; web file input `accept="image/gif"`).
   - On-device checks before upload (≤ 2 MiB, ≤ 1,280 px edge, ≤ 300 frames; refuse with a clear message rather than re-encode).
@@ -795,6 +795,13 @@ Order:
 - **Flag.** `gif` + `media`.
 - **Seam.** `GifSource` (device today; the provider picker of W6-24 plugs in without touching the composer).
 - **Runs alongside W3/W4/W5:** `attachments_cubit.dart`, `image_picker_service.dart` and `image_processor.dart` (W3's banner editor uses the processor), so rebase.
+- **Delivered (2026-10-31).**
+  - `GifSource` / `DeviceGifSource` (`image_picker.pickImage` with no resize or quality arguments), `GifPreparer` (separate from `ImageProcessor`, which keeps its interface), `AttachmentKind.gif`, `AttachmentsCubit.pickGif`, `ProcessedImage.thumbContentType`, `GifBadge`, the GIF tile in `PostMedia`.
+  - **Deviations.**
+    - The picker cannot filter to `.gif` (no `file_selector` dependency was added): a non-GIF is refused after picking with "That file isn't a GIF." The web file input is therefore `image/*`, not `image/gif`.
+    - W6-11's rule did not block Schedule on a GIF; it now does, and a schedule disables the GIF button, both with "GIFs can't be scheduled" (SchedulePost refuses GIF media).
+    - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
+    - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
 ### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Open
 - **Description.** Emulator integration and unit:

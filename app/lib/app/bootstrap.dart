@@ -43,6 +43,8 @@ import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/posts/data/posts_repository.dart';
+import '../features/posts/domain/composer_attachment_rules.dart'
+    show kFeatureGif;
 import '../features/timeline/data/timeline_repository.dart';
 import '../features/timeline/data/timeline_store.dart';
 import '../firebase_options.dart' as dev_firebase;
@@ -166,6 +168,8 @@ Future<void> bootstrap() async {
     httpClient: http.Client(),
     isMediaEnabled: () =>
         onboardingBloc.state.enabledFeatures.contains(kFeatureMedia),
+    isGifEnabled: () =>
+        onboardingBloc.state.enabledFeatures.contains(kFeatureGif),
     rateLimitHold: rateLimitHold,
     onFeatureDisabled: () =>
         onboardingBloc.add(const OnboardingRefreshRequested()),
