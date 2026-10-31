@@ -12,6 +12,9 @@ PollDisplay _display(
   int? pending,
   int? known,
   bool forceClosed = false,
+  bool blocked = false,
+  bool changing = false,
+  bool limit = false,
   Duration shift = Duration.zero,
 }) => PollDisplay.of(
   poll: poll,
@@ -22,6 +25,9 @@ PollDisplay _display(
   pendingChoice: pending,
   knownChoice: known,
   forceClosed: forceClosed,
+  blocked: blocked,
+  changing: changing,
+  changeLimitReached: limit,
 );
 
 void main() {
@@ -118,6 +124,80 @@ void main() {
       final d = _display(pollOf(total: 4), known: 2);
       expect(d.mode, PollMode.votedHidden);
       expect(d.myChoice, 2);
+    });
+
+    test('a choice the server named beats a stale row (a refused change)', () {
+      final poll = pollOf(votes: [5, 4, 3], total: 12, visible: true);
+      final d = _display(poll, viewerChoice: 1, known: 2);
+      expect(d.myChoice, 2);
+      expect(d.committedChoice, 2);
+      expect(d.mode, PollMode.results);
+    });
+
+    test('Change vote needs an open poll, a vote, counts and no block', () {
+      final poll = pollOf(votes: [5, 4, 3], total: 12, visible: true);
+      expect(_display(poll, viewerChoice: 1).canChange, isTrue);
+      expect(_display(poll).canChange, isFalse, reason: 'never voted');
+      expect(_display(poll, viewerChoice: 1, blocked: true).canChange, isFalse);
+      expect(_display(poll, viewerChoice: 1, limit: true).canChange, isFalse);
+      expect(
+        _display(poll, viewerChoice: 1, isAuthor: true).canChange,
+        isFalse,
+      );
+      expect(
+        _display(poll, viewerChoice: 1, canVote: false).canChange,
+        isFalse,
+      );
+      expect(
+        _display(pollOf(total: 3), viewerChoice: 1).canChange,
+        isFalse,
+        reason: 'counts hidden',
+      );
+      final closed = pollOf(
+        votes: [1, 0, 0],
+        total: 1,
+        visible: true,
+        closesIn: const Duration(hours: -1),
+      );
+      expect(_display(closed, viewerChoice: 1).canChange, isFalse);
+    });
+
+    test(
+      'tapping Change vote shows the pills with the check and the percents',
+      () {
+        final poll = pollOf(votes: [5, 4, 3], total: 12, visible: true);
+        final d = _display(poll, viewerChoice: 1, changing: true);
+        expect(d.mode, PollMode.change);
+        expect(d.myChoice, 0);
+        expect(d.percents, isNotEmpty);
+      },
+    );
+
+    test('a change in flight moves one vote and leaves the total', () {
+      final poll = pollOf(votes: [5, 4, 3], total: 12, visible: true);
+      final d = _display(poll, viewerChoice: 1, pending: 2);
+      expect(d.pendingChange, isTrue);
+      expect(d.mode, PollMode.results);
+      expect(d.totalVotes, 12);
+      expect(d.myChoice, 2);
+      expect(d.committedChoice, 0);
+      expect(d.percents, [34, 33, 33]); // 4 / 4 / 4 of 12
+      expectPercentsTotal100(d.percents);
+    });
+
+    test('blocked and never voted: labels only, counts stay hidden', () {
+      final d = _display(pollOf(total: 3), blocked: true);
+      expect(d.mode, PollMode.readOnly);
+      expect(d.blocked, isTrue);
+      expect(d.percents, isEmpty);
+    });
+
+    test('blocked and voted: the check and the results, no control', () {
+      final poll = pollOf(votes: [5, 4, 3], total: 12, visible: true);
+      final d = _display(poll, viewerChoice: 2, blocked: true);
+      expect(d.mode, PollMode.results);
+      expect(d.myChoice, 1);
+      expect(d.canChange, isFalse);
     });
 
     test('an out-of-range viewer choice is ignored', () {

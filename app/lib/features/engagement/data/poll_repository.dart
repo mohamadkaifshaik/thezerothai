@@ -18,8 +18,10 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 ///   FEATURE_DISABLED for polls: the vote buttons go away, nothing is
 ///   reported.
 /// - Nothing retries here. [idempotencyKey] is validated for format only (the
-///   natural key `pollVotes/{post}_{uid}` is the record, ADR-0029 D7); the
-///   caller reuses one key per (post, choice) intent.
+///   natural key `pollVotes/{post}_{uid}` is the record, ADR-0029 D7). The
+///   caller reuses one key per (post, choice) intent for a first vote and uses
+///   a fresh key per tap for a change; a change also carries `expectedChoice`
+///   (Amendment 1 A2.2).
 /// - Errors are typed: `PollClosedException`, `AlreadyVotedException`,
 ///   `FeatureDisabledException`, `NotFoundException`, rate limits.
 class PollRepository {
@@ -48,10 +50,16 @@ class PollRepository {
   /// Votes [choiceIndex] (0-based) in the poll of [postId] (the original for a
   /// REPOST row). Returns the original's `PostView` with the committed counts,
   /// `results_visible` true and `viewer_poll_choice` set.
+  ///
+  /// [expectedChoice] (`VotePollRequest.expected_choice`, ADR-0029 Amendment
+  /// 1) is the vote the caller holds, 1-based as `viewer_poll_choice` is; 0
+  /// (default) is a first vote. A server that predates it ignores the field
+  /// and answers ALREADY_VOTED to a change.
   Future<posts_pb.PostView> vote({
     required String postId,
     required int choiceIndex,
     required String idempotencyKey,
+    int expectedChoice = 0,
   }) async {
     if (!canVote) {
       throw const FeatureDisabledException(
@@ -67,6 +75,7 @@ class PollRepository {
               idempotencyKey: idempotencyKey,
               postId: postId,
               choiceIndex: choiceIndex,
+              expectedChoice: expectedChoice > 0 ? expectedChoice : null,
             ),
           );
         } on connect.ConnectException catch (error) {

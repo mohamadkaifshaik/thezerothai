@@ -19,6 +19,12 @@ import '../format/poll_time.dart';
 ///   on the wire, so no bar is drawn from them.
 /// - Footer: "12 votes · 2 days left" or "12 votes · Final results". Counts
 ///   are what the server said when the post was read, never live.
+/// - Change (ADR-0029 Amendment 1 A2.8): when [onChangeVote] is set (open,
+///   voted, not the author, not blocked) the footer ends with an accent "Change
+///   vote" text button; it turns the bars into [PollMode.change] pills with the
+///   check on the current choice and a "Cancel" button ([onCancelChange]).
+/// - Blocked: [PollDisplay.blocked] shows [blockedReason] under the (disabled)
+/// choices.
 /// - No timer: the countdown is computed from `closes_at` and [now] when the
 ///   card is built.
 class PollCard extends StatelessWidget {
@@ -29,6 +35,9 @@ class PollCard extends StatelessWidget {
     this.onVote,
     this.onSeeFinalResults,
     this.refreshing = false,
+    this.onChangeVote,
+    this.onCancelChange,
+    this.blockedReason,
   });
 
   final PollDisplay display;
@@ -45,6 +54,15 @@ class PollCard extends StatelessWidget {
   /// The final-results read is in flight.
   final bool refreshing;
 
+  /// "Change vote" was tapped. Null hides the button.
+  final VoidCallback? onChangeVote;
+
+  /// "Cancel" was tapped in [PollMode.change].
+  final VoidCallback? onCancelChange;
+
+  /// Why voting is off when the viewer blocks the author.
+  final String? blockedReason;
+
   String _footer() {
     final votes = formatPollVotes(display.totalVotes);
     if (display.pending) return 'Sending your vote…';
@@ -58,7 +76,10 @@ class PollCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final canVote = display.mode == PollMode.vote && onVote != null;
+    final canVote =
+        (display.mode == PollMode.vote || display.mode == PollMode.change) &&
+        onVote != null;
+    final changing = display.mode == PollMode.change;
     return Semantics(
       container: true,
       label: 'Poll, ${display.labels.length} choices',
@@ -75,14 +96,37 @@ class PollCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Flexible(
-                child: Text(
-                  _footer(),
-                  style: theme.textTheme.bodyMedium?.copyWith(color: muted),
-                ),
+          if (display.blocked && display.mode != PollMode.change) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+              child: Text(
+                key: const ValueKey('poll-blocked'),
+                blockedReason ?? 'You blocked this account. Unblock to vote.',
+                style: theme.textTheme.bodyMedium?.copyWith(color: muted),
               ),
+            ),
+          ],
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                _footer(),
+                style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+              ),
+              if (changing && onCancelChange != null)
+                _FooterButton(
+                  key: const ValueKey('poll-cancel-change'),
+                  label: 'Cancel',
+                  semanticLabel: 'Cancel changing your vote',
+                  onPressed: onCancelChange!,
+                )
+              else if (!changing && onChangeVote != null)
+                _FooterButton(
+                  key: const ValueKey('poll-change-vote'),
+                  label: 'Change vote',
+                  semanticLabel: 'Change your vote',
+                  onPressed: onChangeVote!,
+                ),
             ],
           ),
           if (display.mode == PollMode.finalPending &&
@@ -120,6 +164,60 @@ class PollCard extends StatelessWidget {
   }
 }
 
+/// The accent text button after the footer ("· Change vote", "· Cancel"): 48dp
+/// target, spoken as [semanticLabel].
+class _FooterButton extends StatelessWidget {
+  const _FooterButton({
+    super.key,
+    required this.label,
+    required this.semanticLabel,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String semanticLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ExcludeSemantics(
+          child: Text(
+            ' · ',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Flexible(
+          child: Semantics(
+            container: true,
+            button: true,
+            label: semanticLabel,
+            excludeSemantics: true,
+            child: TextButton(
+              onPressed: onPressed,
+              style: TextButton.styleFrom(
+                foregroundColor: context.appColors.accentText,
+                minimumSize: const Size(
+                  AppSpacing.minTapTarget,
+                  AppSpacing.minTapTarget,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                tapTargetSize: MaterialTapTargetSize.padded,
+              ),
+              child: Text(label),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ChoiceRow extends StatelessWidget {
   const _ChoiceRow({
     super.key,
@@ -138,21 +236,35 @@ class _ChoiceRow extends StatelessWidget {
     final label = display.labels[index];
     final mine = display.myChoice == index;
     final bars = display.showsBars;
-    final percent = bars ? display.percents[index] : 0;
+    final changing = display.mode == PollMode.change;
+    final showPercent = display.percents.isNotEmpty;
+    final percent = showPercent ? display.percents[index] : 0;
     final leading = display.leading.contains(index);
     final voting = onVote != null;
+    final disabled = display.blocked && !voting;
     final radius = BorderRadius.circular(AppRadius.md);
     final accent = context.appColors.accentText;
 
     final spoken = [
-      if (voting) 'Vote for $label' else label,
-      if (bars) '$percent percent',
-      if (mine) 'your vote',
+      if (changing && mine)
+        '$label, current choice'
+      else if (changing)
+        'Change your vote to $label'
+      else if (voting)
+        'Vote for $label'
+      else
+        label,
+      if (showPercent) '$percent percent',
+      if (mine && !changing) 'your vote',
     ].join(', ');
 
     final textStyle = theme.textTheme.bodyLarge?.copyWith(
       fontWeight: leading || mine ? FontWeight.w700 : null,
-      color: voting ? accent : null,
+      color: voting
+          ? accent
+          : disabled
+          ? theme.colorScheme.onSurfaceVariant
+          : null,
     );
 
     final content = Padding(
@@ -173,7 +285,7 @@ class _ChoiceRow extends StatelessWidget {
               textAlign: voting ? TextAlign.center : TextAlign.start,
             ),
           ),
-          if (bars) ...[
+          if (showPercent) ...[
             const SizedBox(width: AppSpacing.sm),
             Text(
               '$percent%',

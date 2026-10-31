@@ -97,11 +97,21 @@ final class HandleTakenException extends AppException {
 /// A fixed cap was reached (e.g. following 5,000 accounts) or a cooldown is
 /// running (`ChangeHandle`: [quota] `handle_change`, [retryAfter] = time left).
 final class LimitReachedException extends AppException {
-  const LimitReachedException(super.message, {this.quota, this.retryAfter});
+  const LimitReachedException(
+    super.message, {
+    this.quota,
+    this.retryAfter,
+    this.choiceIndex,
+  });
 
   /// The server's `metadata["quota"]`, when it names the limit.
   final String? quota;
   final Duration? retryAfter;
+
+  /// The caller's stored 0-based poll choice from `metadata["choice"]`
+  /// (`LIMIT_REACHED` with `limit=poll_vote_changes`, ADR-0029 Amendment 1);
+  /// null otherwise.
+  final int? choiceIndex;
 }
 
 /// Referenced media is not READY or not owned by the caller.
@@ -192,9 +202,11 @@ final class PollClosedException extends AppException {
   static const userMessage = 'This poll has ended.';
 }
 
-/// The caller already voted in this poll with another choice (ADR-0029 D6 step
-/// 7, FAILED_PRECONDITION + ALREADY_VOTED). A vote is final; the server's
-/// choice is the caller's own, never anyone else's.
+/// The vote the caller sent does not match the one the server holds (ADR-0029
+/// D6 step 7 and Amendment 1 A2.2, FAILED_PRECONDITION + ALREADY_VOTED): a first
+/// vote that was already cast, a change sent with a stale `expected_choice`, or
+/// a change sent to a server that predates changes. The server's choice is the
+/// caller's own, never anyone else's.
 final class AlreadyVotedException extends AppException {
   const AlreadyVotedException({this.choiceIndex}) : super(userMessage);
 
