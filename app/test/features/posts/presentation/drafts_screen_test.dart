@@ -213,6 +213,39 @@ void main() {
       expect(find.text('came from'), findsOneWidget);
     });
 
+    testWidgets('shows the 30-day note; scheduled posts are not drafts', (
+      tester,
+    ) async {
+      drafts.rows.add(draft('a', 'one'));
+      await open(tester);
+      expect(find.text(kDraftsRetentionNote), findsOneWidget);
+      expect(kDraftsRetentionNote, contains('30 days'));
+      expect(kDraftExpiry, const Duration(days: 30));
+      // Scheduled posts live on the server and are not purged here.
+      expect(drafts.purged, ['uid-1']);
+    });
+
+    testWidgets('an expired draft is purged on open and never shown', (
+      tester,
+    ) async {
+      drafts.rows
+        ..add(draft('fresh', 'fresh one'))
+        ..add(
+          ComposerDraft(
+            id: 'old',
+            uid: 'uid-1',
+            text: 'stale one',
+            createdAt: now.subtract(const Duration(days: 40)),
+            updatedAt: now.subtract(const Duration(days: 31)),
+          ),
+        );
+      await open(tester);
+      expect(drafts.purged, ['uid-1']);
+      expect(find.text('fresh one'), findsOneWidget);
+      expect(find.text('stale one'), findsNothing);
+      expect(await drafts.read('uid-1', 'old'), isNull);
+    });
+
     testWidgets('empty: our own words, no Edit button', (tester) async {
       await open(tester);
       expect(find.text(kDraftsEmptyTitle), findsOneWidget);
