@@ -24,6 +24,7 @@ type Server struct {
 	svc       Service
 	bookmarks Bookmarks
 	likes     LikesList
+	polls     Polls
 	flags     posts.FlagChecker
 }
 
@@ -39,11 +40,18 @@ func WithBookmarks(b Bookmarks) ServerOption { return func(s *Server) { s.bookma
 // ListLikedPosts answers Unimplemented after the flag gate.
 func WithLikesList(l LikesList) ServerOption { return func(s *Server) { s.likes = l } }
 
+// WithPolls supplies the poll service behind VotePoll (ADR-0029 D6), overriding the default: NewServer already uses svc when it
+// implements Polls (the Module does). Without either, VotePoll answers Unimplemented after the flag gate.
+func WithPolls(p Polls) ServerOption { return func(s *Server) { s.polls = p } }
+
 // NewServer builds the Connect handler. Use with engagementv1connect.NewEngagementServiceHandler.
 func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server {
 	s := &Server{svc: svc, flags: fc}
 	if l, ok := svc.(LikesList); ok {
 		s.likes = l
+	}
+	if p, ok := svc.(Polls); ok {
+		s.polls = p
 	}
 	for _, o := range opts {
 		o(s)

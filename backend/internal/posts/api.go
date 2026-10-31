@@ -596,6 +596,9 @@ type Engagement interface {
 	RefuseShare(ctx context.Context, callerUID string, p *Post) error
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
 	CountsChanged(postID string, likeDelta, repostDelta int64)
+	// PollVoted applies one committed vote for choice (0-based) to the instance copy of the poll post (copy on write, a new Poll
+	// with fresh counts) and returns the updated post, or nil when the post is not cached (ADR-0029 D6 step 8).
+	PollVoted(postID string, choice int) *Post
 	// RepostCreated caches a REPOST this instance just committed: posts cache, author-recent, and the author's
 	// postsCount via identity.Directory.Forget.
 	RepostCreated(p *Post)

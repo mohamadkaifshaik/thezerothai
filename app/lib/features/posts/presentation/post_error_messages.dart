@@ -2,6 +2,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
+import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 import '../domain/schedule_rules.dart';
@@ -22,9 +23,15 @@ String createPostErrorMessage(AppException error) {
     FeatureDisabledException(feature: 'media') =>
       "Photos can't be added to posts right now. Remove them and post "
           'again, or try later.',
+    FeatureDisabledException(feature: kFeaturePolls) =>
+      "Polls aren't available right now. Your poll was removed; post the "
+          'text alone or try later.',
     FeatureDisabledException() => "Posting isn't available right now.",
     NetworkException() =>
       'No connection. Your post was not sent; check your network and try '
+          'again.',
+    ValidationException(field: 'poll') =>
+      "This poll can't be sent. Check the choices and the length, then try "
           'again.',
     ValidationException() =>
       "This post can't be sent. Check the text and try again.",
@@ -178,3 +185,8 @@ String scheduledListNoticeMessage(AppException error) {
     _ => "Couldn't refresh your scheduled posts.",
   };
 }
+
+/// Said when a poll was sent but the post the server echoed has none
+/// (ADR-0029 L-1: an older server revision drops the field and posts the
+/// question alone). The snackbar offers Delete and Keep.
+const kPollNotAddedMessage = 'Your poll was not added';

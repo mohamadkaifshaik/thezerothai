@@ -182,3 +182,20 @@ func pollInputOf(m *postsv1.PollDraft) *PollInput {
 	}
 	return &PollInput{Choices: m.GetChoices(), DurationMinutes: m.GetDurationMinutes()}
 }
+
+// Voted returns a copy of p whose poll counts one more vote for choice (ADR-0029 D6 step 8): a NEW Post and a NEW Poll with
+// fresh Counts, never an in-place change, because the cached *Post and its *Poll are shared by every reader (Cache.AdjustCounts
+// copies Post shallowly). It is p itself when p has no poll or choice is out of range.
+func (p *Post) Voted(choice int) *Post {
+	if p == nil || p.Poll == nil || choice < 0 || choice >= len(p.Poll.Options) {
+		return p
+	}
+	np := *p.Poll
+	np.Counts = make([]int64, len(p.Poll.Options))
+	copy(np.Counts, p.Poll.Counts)
+	np.Counts[choice]++
+	np.Total++
+	cp := *p
+	cp.Poll = &np
+	return &cp
+}

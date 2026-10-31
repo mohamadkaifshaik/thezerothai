@@ -9,6 +9,8 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../timeline/data/timeline_store.dart';
 import '../../timeline/domain/feed_key.dart';
+import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
+import '../domain/composer_draft.dart' show DraftPoll;
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 
@@ -57,7 +59,10 @@ class PostsRepository {
   /// Creates a post. [idempotencyKey] must be reused when retrying the same
   /// post (the server replays the stored result). [replyPolicy] stays
   /// UNSPECIFIED (everyone) unless the user chose a narrower audience for a
-  /// root post or quote (ADR-0021 D2); never set it on a reply.
+  /// root post or quote (ADR-0021 D2); never set it on a reply. [poll] (root
+  /// post only, ADR-0029) is sent as given: the caller passes the normalised
+  /// choices; the server answers VALIDATION `field=poll` or FEATURE_DISABLED
+  /// `feature=polls` (the gate then hides polls for the session).
   Future<pb.PostView> createPost({
     required String idempotencyKey,
     required String text,
@@ -66,6 +71,7 @@ class PostsRepository {
     List<String> mediaIds = const [],
     List<String> mediaAltTexts = const [],
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+    DraftPoll? poll,
   }) async {
     final session = _store.session;
     final response = await _gate.run(
@@ -78,12 +84,19 @@ class PostsRepository {
           mediaIds: mediaIds,
           mediaAltTexts: mediaAltTexts,
           replyPolicy: replyPolicy,
+          poll: poll == null
+              ? null
+              : pb.PollDraft(
+                  choices: poll.choices,
+                  durationMinutes: poll.durationMinutes,
+                ),
         ),
       ),
       requires: [
         if (replyToPostId.isNotEmpty) kPostsSubFeatureReplies,
         if (quoteOfPostId.isNotEmpty) kPostsSubFeatureQuotes,
         if (mediaIds.isNotEmpty) kPostsSubFeatureMedia,
+        if (poll != null) kFeaturePolls,
         // Only a chosen audience needs the flag; UNSPECIFIED never does.
         if (replyPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED)
           kFeatureReplyAudience,
