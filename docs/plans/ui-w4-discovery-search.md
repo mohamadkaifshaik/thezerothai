@@ -879,7 +879,7 @@ Source: security review W4-22 M-1 (`docs/reviews/security-w4-search.md`); ADR-00
   - `TrendKey` is the one matching function, shared by GetTrends, the sweep and `opsctl`.
 - **Parallel with W3:** yes (search module and `cmd/opsctl` only; Terraform variables one PR at a time).
 
-### W4-26 — Trends count only established authors  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged; after W4-25 (both edit `trends_refresh.go`)]  Status: Open
+### W4-26 — Trends count only established authors  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged; after W4-25 (both edit `trends_refresh.go`)]  Status: Built on `feat/ui-w4-26-established-authors` (PR open; not merged, not deployed)
 Source: security review W4-22 M-2; ADR-0028 note 2026-10-31, part 2. Gate: **before `trends` leaves the allowlist in prod** (prod percent).
 - **Description.** In `Refresher.run`, after the count and before `rank`:
   1. **Per-author post counts.** `tagCount.authors` becomes `map[string]int64` (uid → posts with the tag), so posts can be recounted per author. It stays in memory and is never persisted.

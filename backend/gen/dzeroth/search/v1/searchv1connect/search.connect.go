@@ -136,8 +136,10 @@ type SearchServiceClient interface {
 	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
-	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)
-	// distinct accounts used it in the window; tags are ranked by distinct accounts, then posts, then tag. Hidden posts,
+	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+	// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
+	// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
+	// established accounts, then their posts, then tag. Hidden posts,
 	// reposts and posts by protected accounts are not counted; tags on the operator denylist (TRENDS_DENYLIST) or the
 	// operator hide list (opsctl trends hide) and the trends flag remove tags. Tags are matched by a folded key (NFKC,
 	// lower-case, U+200C, U+200D and '_' removed), so a spelling variant of a removed tag goes with it.
@@ -267,8 +269,10 @@ type SearchServiceHandler interface {
 	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
-	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)
-	// distinct accounts used it in the window; tags are ranked by distinct accounts, then posts, then tag. Hidden posts,
+	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+	// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
+	// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
+	// established accounts, then their posts, then tag. Hidden posts,
 	// reposts and posts by protected accounts are not counted; tags on the operator denylist (TRENDS_DENYLIST) or the
 	// operator hide list (opsctl trends hide) and the trends flag remove tags. Tags are matched by a folded key (NFKC,
 	// lower-case, U+200C, U+200D and '_' removed), so a spelling variant of a removed tag goes with it.
