@@ -93,7 +93,7 @@ They are tracked in `docs/plans/composer-w15-w6.md` (its Open items section). Th
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W6 delta |
 |---|---|---|
-| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) but are inert until W6-12/W6-16 | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
+| Composer | `/compose` (`composer_screen.dart`): text 280, photos (`_AddPhotoButton`, ≤ 4), alt text (W2-10), reply audience link, Schedule button and "Will send on" line (CMP-D6). Leaving with photos asks "Your photos will not be saved." There is no Drafts button and no "Save post?" prompt; Poll and GIF buttons exist behind `polls`/`gif` (W6-11) (Poll opens the builder, W6-12; GIF is inert until W6-16) | Poll and GIF buttons; a Drafts header button; the "Save post?" prompt (W6-11, W6-12, W6-15, W6-16) |
 | `posts.proto` | Next free field numbers: `CreatePostRequest` 10, `Post` 21, `EmbeddedPost` 10, `PostView` 7. `SchedulePostRequest` has no poll field (ADR-0021 D4) | `poll` fields, `viewer_poll_choice` (W6-2) |
 | `common.proto` | The highest `ErrorReason` is `REPLY_NOT_ALLOWED = 16` (W3-25a then took 17 for `PROTECTED_ACCOUNT`, ADR-0025) | `POLL_CLOSED`, `ALREADY_VOTED` (or reuse; A6). W4 and W5 may take 18+ first: take the next free numbers when the PR opens |
 | Engagement | `likes/{postId}_{uid}` (natural key), counters through `posts.EngagementWriter` batches, `userLikes/{uid}` `{recent, recentReposts, bookmarks}` read once per request (60 s cache) through `posts.ViewerFlags` → `posts.HydrateViewer` → `ViewerSet` | `VotePoll`, `pollVotes`, `userLikes.pollVotes`, `ViewerSet.PollChoice` (A2, A3) |
@@ -365,8 +365,8 @@ Effect on the quotas (additive):
 | W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
 | W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
 | W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
-| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Open |
-| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
+| W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Done (#513) |
+| W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Done (#510) |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Open |
@@ -678,7 +678,7 @@ Order:
 - **Seam.** One `ComposerAttachmentKind` rule function decides what is enabled; widgets never restate it.
 - **Runs alongside W3/W4/W5:** `composer_screen.dart`, one PR at a time.
 
-### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: Open
+### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: In review
 - **Description.** Tapping Poll opens an inline builder (`composer.md` §2):
   - the text placeholder becomes "Ask a question";
   - Choice 1 and Choice 2 fields with "N / 25" counters (`CharacterCounter`), an "Add a choice" (+) up to 4, and a remove on choices 3 and 4;
