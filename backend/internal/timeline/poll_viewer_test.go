@@ -14,7 +14,7 @@ import (
 type voteViewer struct{ votes []string }
 
 func (v voteViewer) Viewer(context.Context, string) posts.ViewerSet {
-	return posts.NewViewerSet(nil, nil).WithPollVotes(v.votes)
+	return posts.ViewerSet{}.WithPollVotes(v.votes)
 }
 
 // W6-6: the home and user timelines render a poll through the real registry, HydrateViewer and posts.ToView.
