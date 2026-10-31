@@ -14,6 +14,7 @@ import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
 import '../../features/lists/presentation/lists_screen.dart';
+import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/graph/presentation/follow_requests_screen.dart';
@@ -181,6 +182,11 @@ class AppRouter {
   /// be changed and re-claimed (ADR-0010 D7).
   static String profileByIdPath(String userId) =>
       '/u/${Uri.encodeComponent(userId)}';
+
+  /// W5-13: another person's public Lists (behind the `lists` flag). Pass the
+  /// handle, if known, as `extra` for the header.
+  static String userListsPath(String userId) =>
+      '/u/${Uri.encodeComponent(userId)}/lists';
 
   /// One post (`GetPost`): what a post card opens.
   static String postPath(String postId) =>
@@ -376,6 +382,15 @@ class AppRouter {
             path: '/u/:userId',
             builder: (context, state) => AuthGate(
               child: ProfileScreen(userId: state.pathParameters['userId']!),
+            ),
+          ),
+          GoRoute(
+            path: '/u/:userId/lists',
+            builder: (context, state) => AuthGate(
+              child: UserListsScreen(
+                userId: state.pathParameters['userId']!,
+                handle: state.extra as String?,
+              ),
             ),
           ),
           GoRoute(
@@ -777,9 +792,9 @@ class AppRouter {
         : homePath;
   }
 
-  static final _listsRoutes = RegExp(r'^/lists(?:/|$)');
+  static final _listsRoutes = RegExp(r'^(?:/lists(?:/|$)|/u/[^/]+/lists$)');
 
-  /// `/lists` and `/lists/...` redirect Home unless `lists` is on for this
+  /// `/lists`, `/lists/...` and `/u/:id/lists` (W5-13) redirect Home unless `lists` is on for this
   /// caller (W5-11). The server stays authoritative.
   String? _listsFlagRedirect(String loc) {
     if (!_listsRoutes.hasMatch(loc)) return null;

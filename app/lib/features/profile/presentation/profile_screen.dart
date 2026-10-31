@@ -18,6 +18,7 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../shared/widgets/post_pin_control.dart';
 import '../../graph/data/graph_repository.dart';
+import '../../lists/domain/lists_feature_flag.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
 import '../../messages/presentation/open_conversation.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
@@ -316,6 +317,8 @@ ProfileHeader _header(
     showPostsCount: showPostsCount,
     nameKey: nameKey,
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),
+    // W5-13: the Lists rows of the overflow menu.
+    listsEnabled: isFeatureEnabled(context, kFeatureLists),
     // W7-17: the envelope button, only with `messaging` on for the caller.
     onMessage:
         !state.isOwnProfile && isFeatureEnabled(context, kFeatureMessaging)
