@@ -17,6 +17,7 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -191,7 +192,7 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	if len(moved.GetTabs()) != 3 || moved.GetTabs()[0].GetId() != toRename || moved.GetTabs()[2].GetId() != toPrivate {
 		t.Fatalf("reordered = %v", moved.GetTabs())
 	}
-	budgettest.Assert(t, "SetHomeTabs reorder of stored tabs", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 4, Writes: 2})
+	budgettest.Assert(t, "SetHomeTabs reorder of stored tabs", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 3, Writes: 2}) // interceptor, idempotency, users: a re-read of a dangling list would make it 5
 	if _, err := c.setTabs(viewer, "drop", toRename); err != nil {
 		t.Fatalf("removing dangling tabs: %v", err)
 	}
@@ -470,5 +471,79 @@ func TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads(t *testing.T) {
 		if w := ro.lineBudget(t, proc).Writes(); w != 0 {
 			t.Errorf("%s wrote %d documents under readonly", rpc, w)
 		}
+	}
+}
+
+// Token binding through the chain (ADR-0030 D5): a UserTimeline token and another viewer's list token are VALIDATION at the
+// interceptor's read only; the request never reaches the list or the posts.
+func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
+	c := newLTChain(t, nil)
+	owner, a, b, m := c.user(t), c.user(t), c.user(t), c.user(t)
+	list, _ := seedList(t, c.fs, owner.uid, false, []string{m.uid})
+	for range 25 { // a second page on the member's own timeline
+		seedPostBy(t, c.fs, m.uid)
+	}
+	ut, err := c.timeline.GetUserTimeline(context.Background(), authed(a.token, &timelinev1.GetUserTimelineRequest{UserId: m.uid, PageSize: 5}))
+	if err != nil || ut.Msg.GetSinceToken() == "" || ut.Msg.GetNextPageToken() == "" {
+		t.Fatalf("user timeline setup: %v", err)
+	}
+	mine, err := c.listTimeline(a, list, 1, "", "")
+	if err != nil || mine.GetSinceToken() == "" {
+		t.Fatalf("list setup: %v", err)
+	}
+	cases := []struct {
+		name         string
+		who          ltUser
+		since, page  string
+		wantFieldKey string
+	}{
+		{"user timeline since token", a, ut.Msg.GetSinceToken(), "", "since_token"},
+		{"user timeline page token", a, "", ut.Msg.GetNextPageToken(), "page_token"},
+		{"another viewer's list since token", b, mine.GetSinceToken(), "", "since_token"},
+	}
+	for _, tc := range cases {
+		_, err := c.listTimeline(tc.who, list, 20, tc.since, tc.page)
+		d := wireError(t, err, connect.CodeInvalidArgument)
+		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != tc.wantFieldKey {
+			t.Errorf("%s: detail = %v", tc.name, d)
+		}
+		budgettest.Assert(t, tc.name, c.lineBudget(t, rpcGetListTimeline), budgettest.Budget{Reads: 1})
+	}
+}
+
+// ADR-0030 D3 names "the owner blocks the caller" but not the reverse. This pins what the code does for a caller who blocks the
+// list's owner (GetList and GetListTimeline must agree) and is reported to the architect as a question, not a defect.
+func TestW515_CallerWhoBlocksTheOwnerSeesTheList(t *testing.T) {
+	c := newLTChain(t, nil)
+	owner, viewer := c.user(t), c.user(t)
+	list, _ := seedList(t, c.fs, owner.uid, false, memberNames(2))
+	if _, err := c.graph.Block(context.Background(), authed(viewer.token, &graphv1.BlockRequest{IdempotencyKey: contractKey("w515-bo"), UserId: owner.uid})); err != nil {
+		t.Fatal(err)
+	}
+	fresh := newLTChain(t, nil)
+	_, gerr := fresh.lists.GetList(context.Background(), authed(viewer.token, &listsv1.GetListRequest{ListId: list}))
+	_, terr := fresh.listTimeline(viewer, list, 20, "", "")
+	if (gerr == nil) != (terr == nil) {
+		t.Fatalf("GetList err=%v but GetListTimeline err=%v: the two reads disagree about a list whose owner the caller blocked", gerr, terr)
+	}
+	t.Logf("caller blocks the owner: GetList err=%v, GetListTimeline err=%v", gerr, terr)
+	// A pinned or opened list from an owner you blocked is a product question (D3 is silent); this test fixes the observed answer.
+	if gerr != nil {
+		wireError(t, gerr, connect.CodeNotFound)
+	}
+}
+
+// seedPostBy writes one public root post by uid in the shape seedList uses, 30 s or more old so the settle window has passed.
+func seedPostBy(t *testing.T, fs *firestore.Client, uid string) {
+	t.Helper()
+	pid := fmt.Sprintf("%019d", rand.Int64N(9_000_000_000_000_000_000)+1)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if _, err := fs.Collection("posts").Doc(pid).Set(context.Background(), map[string]any{
+		"authorId": uid, "author": map[string]any{"userId": uid, "handle": "h" + uid},
+		"kind": "POST", "isReply": false, "text": "own", "conversationId": pid, "hashtags": []string{},
+		"mentions": []map[string]any{}, "likeCount": int64(0), "repostCount": int64(0), "replyCount": int64(0), "quoteCount": int64(0),
+		"visibility": "PUBLIC", "createdAt": now.Add(-time.Duration(rand.IntN(3000)+60) * time.Second), "hasMedia": false,
+	}); err != nil {
+		t.Fatalf("seed post: %v", err)
 	}
 }
