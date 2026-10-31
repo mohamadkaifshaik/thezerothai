@@ -63,6 +63,9 @@ type userDoc struct {
 	Location       string `firestore:"location,omitempty"`
 	Website        string `firestore:"website,omitempty"`
 	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
+	// HomeTabs (ADR-0030 D6): the pinned Home tabs, absent = none. In userDoc so a whole-document rewrite (UpdateProfile, ChangeHandle, the
+	// privacy toggle) cannot drop it; only HomeTabsAdapter changes it, field-level.
+	HomeTabs []HomeTab `firestore:"homeTabs,omitempty"`
 	// Account-deletion job state (ADR-0011): set once by DeleteAccount, absent for every live account. Pointers
 	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
 	// (UpdateProfile) cannot drop them.
@@ -84,6 +87,7 @@ func (d userDoc) toProfile(uid string) Profile {
 		Location:            d.Location,
 		Website:             d.Website,
 		PinnedPostID:        d.PinnedPostID,
+		HomeTabsEnc:         encodeHomeTabs(d.HomeTabs),
 		IsPrivate:           d.IsPrivate,
 		Verified:            d.Verified,
 		Status:              statusFromString(d.Status),
@@ -113,6 +117,7 @@ func profileToDoc(p Profile) userDoc {
 		Location:            p.Location,
 		Website:             p.Website,
 		PinnedPostID:        p.PinnedPostID,
+		HomeTabs:            decodeHomeTabs(p.HomeTabsEnc),
 		IsPrivate:           p.IsPrivate,
 		Verified:            p.Verified,
 		Status:              statusToString(p.Status),

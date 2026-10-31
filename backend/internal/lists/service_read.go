@@ -144,10 +144,23 @@ func (a access) view() View {
 	return View{Header: h, Owner: a.owner}
 }
 
-// pinned reports whether viewer has the list pinned as a Home tab. The source is users/{viewer}.homeTabs, which does not exist
-// until W5-9 (SetHomeTabs, GetMe.home_tabs) and which the account-status interceptor will already have read (0 reads). Until
-// then every viewer sees false. Seam: W5-9 replaces this body (and may widen Deps) without touching a handler or a caller.
-func (s *service) pinned(_ context.Context, _, _ string) bool { return false }
+// pinned reports whether viewer has the list pinned as a Home tab (W5-9). The source is users/{viewer}.homeTabs through
+// identity.Directory, cache-first: 0 reads when the account-status interceptor has loaded the viewer's profile (the usual case),
+// else 1. Staleness bound: the profile cache TTL on another instance; the writing instance is updated in place. A tab stored
+// for a kind that is off for the viewer is still a pin of this list. A directory error answers false (a header flag, never a
+// reason to fail a read).
+func (s *service) pinned(ctx context.Context, viewer, listID string) bool {
+	profs, err := s.d.Directory.GetProfiles(ctx, []string{viewer})
+	if err != nil {
+		return false
+	}
+	for _, t := range profs[viewer].HomeTabs() {
+		if t.Kind == identity.HomeTabKindList && t.ID == listID {
+			return true
+		}
+	}
+	return false
+}
 
 // Get implements Reader.
 func (s *service) Get(ctx context.Context, viewer, listID string) (ListView, error) {

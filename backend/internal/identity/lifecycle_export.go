@@ -62,23 +62,24 @@ type exportProfile struct {
 	Bio         string `json:"bio"`
 	AvatarURL   string `json:"avatarUrl,omitempty"`
 	// ADR-0024 D11: the profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
-	BannerURL      string    `json:"bannerUrl,omitempty"`
-	Location       string    `json:"location,omitempty"`
-	Website        string    `json:"website,omitempty"`
-	PinnedPostID   string    `json:"pinnedPostId,omitempty"`
-	IsPrivate      bool      `json:"isPrivate"`
-	Verified       bool      `json:"verified"`
-	FollowersCount int64     `json:"followersCount"`
-	FollowingCount int64     `json:"followingCount"`
-	PostsCount     int64     `json:"postsCount"`
-	CreatedAt      time.Time `json:"createdAt"`
+	BannerURL      string          `json:"bannerUrl,omitempty"`
+	Location       string          `json:"location,omitempty"`
+	Website        string          `json:"website,omitempty"`
+	PinnedPostID   string          `json:"pinnedPostId,omitempty"`
+	HomeTabs       []exportHomeTab `json:"homeTabs,omitempty"`
+	IsPrivate      bool            `json:"isPrivate"`
+	Verified       bool            `json:"verified"`
+	FollowersCount int64           `json:"followersCount"`
+	FollowingCount int64           `json:"followingCount"`
+	PostsCount     int64           `json:"postsCount"`
+	CreatedAt      time.Time       `json:"createdAt"`
 }
 
 func profileSection(p Profile) exportProfile {
 	return exportProfile{
 		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
-		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID,
+		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, HomeTabs: exportHomeTabs(p),
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
 	}
 }
@@ -233,4 +234,19 @@ func (l *Lifecycle) composeExport(ctx context.Context, w io.Writer, p Profile, t
 		return fmt.Errorf("identity: flush export: %w", err)
 	}
 	return nil
+}
+
+// exportHomeTab is one pinned Home tab in the profile section (ADR-0030 D8). The title is the owner's own list name or "".
+type exportHomeTab struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+}
+
+func exportHomeTabs(p Profile) []exportHomeTab {
+	var out []exportHomeTab
+	for _, t := range p.HomeTabs() {
+		out = append(out, exportHomeTab{Kind: t.Kind, ID: t.ID, Title: t.Title})
+	}
+	return out
 }

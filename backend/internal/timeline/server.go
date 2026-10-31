@@ -58,6 +58,8 @@ type Server struct {
 	now    func() time.Time
 	// aud is the ADR-0025 visibility predicate (posts.Audience); WithProtectedAuthors gives it the protected set.
 	aud *posts.Audience
+	// homeTabs wires SetHomeTabs (home_tabs.go, W5-9); nil = Unimplemented.
+	homeTabs *HomeTabsDeps
 }
 
 // NewServer builds the Connect handler. Use with timelinev1connect.NewTimelineServiceHandler.
