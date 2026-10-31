@@ -3,12 +3,16 @@ package media
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
 	"image/jpeg"
+	"log/slog"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -533,13 +537,16 @@ func TestGIFScreen_TwoGIFsRunOneAfterAnotherAndBothFinish(t *testing.T) {
 	for _, tag := range []string{"a", "b", "c", "d"} {
 		targets = append(targets, e.createGIFWith(t, uidA, tag, colourGIF(pxWhite, uint8(len(targets)%3+1))))
 	}
+	// The Cloud Run request timeout (30 s, cloud-run-api request_timeout_seconds) is the deadline all four must meet.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	var wg sync.WaitGroup
 	results := make([]Result, len(targets))
 	for i, tg := range targets {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+			res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 			if err != nil {
 				t.Error(err)
 				return
@@ -562,12 +569,34 @@ func TestGIFScreen_TwoGIFsRunOneAfterAnotherAndBothFinish(t *testing.T) {
 }
 
 func TestGIFScreen_SamplerPanicIsRejectedAndReported(t *testing.T) {
+	var logs bytes.Buffer
 	gate := &gateObjects{panicRun: true}
-	e := newEnv(t, envOpts{objects: func(f *fakeObjects) Objects { gate.fakeObjects = f; return gate }})
+	e := newEnv(t, envOpts{
+		objects: func(f *fakeObjects) Objects { gate.fakeObjects = f; return gate },
+		log:     slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
 	tg := e.createGIFWith(t, uidA, "a", colourGIF(pxWhite, pxGreen))
 	r := e.finalizeGIF(t, tg)
 	if r.Status != StatusRejected || r.RejectionReason != reasonInvalid || e.repo.vision[monthKey(testNow)] != 0 {
 		t.Fatalf("result = %+v", r)
+	}
+	// An Error-Reporting-shaped ERROR entry (mw.ReportError) naming the operation, with a stack, and no uid.
+	var found bool
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var rec map[string]any
+		if json.Unmarshal([]byte(line), &rec) != nil || rec["level"] != "ERROR" {
+			continue
+		}
+		found = true
+		if rec["rpc"] != gifSheetOp || !strings.Contains(fmt.Sprint(rec["@type"]), "ReportedErrorEvent") || rec["stack_trace"] == "" {
+			t.Fatalf("error record = %v", rec)
+		}
+	}
+	if !found {
+		t.Fatalf("no ERROR record in %q", logs.String())
+	}
+	if strings.Contains(logs.String(), uidA) {
+		t.Fatalf("the report must not carry the uid: %s", logs.String())
 	}
 }
 

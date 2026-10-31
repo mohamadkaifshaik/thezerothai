@@ -135,6 +135,11 @@ func validateFinalize(items []FinalizeItem) error {
 // that died holding the claim blocks a client retry for at most this long. A run that outlives it is not unsafe: a
 // second call may claim and screen again, and the first one's Resolve then loses its UpdateTime precondition and
 // converges on the second's result (the pre-fix behaviour, now the rare case).
+//
+// A GIF (W6-10) takes longer: the claim is taken before the 5 s wait for the instance's GIF slot, then a 5 s object read,
+// a 2 s sampling deadline, the Vision calls (10 s each, in parallel) and the two copies, so its bounded worst case is
+// about 22 s plus the ordinary calls, still under this TTL and under the 30 s Cloud Run request timeout. A GIF that
+// runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
 const screeningClaimTTL = 30 * time.Second
 
 // claimReleaseTimeout bounds the best-effort release of a claim after a failed attempt. It runs on a context cut off
