@@ -449,6 +449,13 @@ message PostView {
   // userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
   // 0 on a withheld row.
   int32 viewer_poll_choice = 8;
+  // True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author
+  // (ADR-0029 Amendment 1 A1.5): VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
+  // disabled ("You blocked @handle. Unblock to vote."). Negative polarity on purpose: false on every other row, on every
+  // producer that does not set it and on older revisions, which is the behaviour before the amendment; the server stays
+  // the authority. Set only where a post by a blocked author is shown directly (GetPost, GetThread, GetUserTimeline of
+  // that author); never on a REPOST row (an embedded poll has no buttons). False on a withheld row.
+  bool viewer_poll_vote_blocked = 9;
 }
 
 message CreatePostRequest {
