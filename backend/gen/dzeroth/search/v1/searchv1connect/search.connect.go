@@ -103,7 +103,12 @@ type SearchServiceClient interface {
 	//   - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
 	//     2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
 	//     latest").
-	//   - LATEST: newest first, paged with next_page_token.
+	//   - LATEST: newest first, paged with next_page_token. The query windows are fixed tiers, independent of page_size
+	//     (page 1: the 30-post entry, or 50 rows at page_size 31..50; an older page: 20 rows at page_size <= 20, else 50).
+	//     A window is filtered whole and then cut to page_size, so a page can be SHORT while next_page_token is non-empty.
+	//     A window that came back not full is the end of the tag; its token (only when the page was cut) is a tail token and
+	//     the next call reads the whole rest of the tag. The token position is the last returned row when the page was cut,
+	//     else the last row of the window.
 	//   - MEDIA: posts with their own images (a quote's embedded images do not count), newest first. Each older call scans
 	//     30 older tagged posts and returns the ones with images, so a page may be short or EMPTY while next_page_token is
 	//     non-empty: keep following it until it is "".
@@ -113,7 +118,8 @@ type SearchServiceClient interface {
 	// them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
 	// follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
 	// caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
-	// therefore be short: next_page_token follows the query, not the number of rows returned.
+	// therefore be short. Whether next_page_token is set and how many rows come back depend only on the posts the caller
+	// can see and on whether the query window was full, never on how many were dropped (LATEST; MEDIA scans a fixed 30).
 	// Viewer flags (liked, reposted, bookmarked) follow FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS as on timelines.
 	// page_size 0 => 20, max 50 (clamped); TOP returns at most 20 whatever page_size says.
 	// page_token: opaque, sealed, bound to the caller, the tag and the tab, 24 h TTL. Expired, foreign, tampered, or
@@ -125,8 +131,9 @@ type SearchServiceClient interface {
 	// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances) and
 	// the shared "search_daily" cap (see SearchPeople).
 	// Firestore: TOP, LATEST first page and MEDIA first page (page_size <= 30): reads 33 cold (interceptor 1, caller
-	// graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 50: 53; LATEST older page 23 / 53
-	// at page_size 20 / 50; MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
+	// graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 31..50: 53; LATEST older page 23 / 53
+	// at page_size <= 20 / 21..50 (fixed windows of 20 / 50); a LATEST tail page 3 + the rows left (at most 32 after a page-1
+	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
 	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)
@@ -224,7 +231,12 @@ type SearchServiceHandler interface {
 	//   - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
 	//     2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
 	//     latest").
-	//   - LATEST: newest first, paged with next_page_token.
+	//   - LATEST: newest first, paged with next_page_token. The query windows are fixed tiers, independent of page_size
+	//     (page 1: the 30-post entry, or 50 rows at page_size 31..50; an older page: 20 rows at page_size <= 20, else 50).
+	//     A window is filtered whole and then cut to page_size, so a page can be SHORT while next_page_token is non-empty.
+	//     A window that came back not full is the end of the tag; its token (only when the page was cut) is a tail token and
+	//     the next call reads the whole rest of the tag. The token position is the last returned row when the page was cut,
+	//     else the last row of the window.
 	//   - MEDIA: posts with their own images (a quote's embedded images do not count), newest first. Each older call scans
 	//     30 older tagged posts and returns the ones with images, so a page may be short or EMPTY while next_page_token is
 	//     non-empty: keep following it until it is "".
@@ -234,7 +246,8 @@ type SearchServiceHandler interface {
 	// them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
 	// follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
 	// caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
-	// therefore be short: next_page_token follows the query, not the number of rows returned.
+	// therefore be short. Whether next_page_token is set and how many rows come back depend only on the posts the caller
+	// can see and on whether the query window was full, never on how many were dropped (LATEST; MEDIA scans a fixed 30).
 	// Viewer flags (liked, reposted, bookmarked) follow FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS as on timelines.
 	// page_size 0 => 20, max 50 (clamped); TOP returns at most 20 whatever page_size says.
 	// page_token: opaque, sealed, bound to the caller, the tag and the tab, 24 h TTL. Expired, foreign, tampered, or
@@ -246,8 +259,9 @@ type SearchServiceHandler interface {
 	// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances) and
 	// the shared "search_daily" cap (see SearchPeople).
 	// Firestore: TOP, LATEST first page and MEDIA first page (page_size <= 30): reads 33 cold (interceptor 1, caller
-	// graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 50: 53; LATEST older page 23 / 53
-	// at page_size 20 / 50; MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
+	// graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 31..50: 53; LATEST older page 23 / 53
+	// at page_size <= 20 / 21..50 (fixed windows of 20 / 50); a LATEST tail page 3 + the rows left (at most 32 after a page-1
+	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
 	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3)

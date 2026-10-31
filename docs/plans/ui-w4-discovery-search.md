@@ -941,7 +941,7 @@ Source: security review W4-22 M-2; ADR-0028 note 2026-10-31, part 2. Gate: **bef
 - **Seam.** `AuthorDirectory`, a subset of `identity.Directory`. The sweep reads profiles only through identity's interface.
 - **Parallel with W3:** yes.
 
-### W4-27 — SearchPosts LATEST: fixed windows, filter before cutting  [owner: backend-developer; tester adds the W4-20 case] [size: S] [depends: W4-8 merged]  Status: Open
+### W4-27 — SearchPosts LATEST: fixed windows, filter before cutting  [owner: backend-developer; tester adds the W4-20 case] [size: S] [depends: W4-8 merged]  Status: Done
 Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **before `search` leaves the allowlist in prod** (prod percent).
 - **Description.** LATEST only, in `service_posts.go` (`search`, `fetch`).
   - TOP issues no token.
