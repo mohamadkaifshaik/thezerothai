@@ -177,8 +177,8 @@ func skipSubBlocks(data []byte, pos int) (int, error) {
 }
 
 // sampleIndices picks the frames to screen: the frame visible at t = 0, T/4, T/2 and 3T/4 of the display time T (the
-// sum of the delays, a 0 delay counted as 1 cs = 10 ms), sorted and without repeats. A GIF with up to four frames
-// samples each frame once.
+// sum of the delays, a delay under 2 cs counted as 10 cs = 100 ms, as browsers and the Flutter codec play it), sorted
+// and without repeats. A GIF with up to four frames samples each frame once.
 func sampleIndices(frames []gifFrame) []int {
 	n := len(frames)
 	if n <= gifSamples {
@@ -189,8 +189,8 @@ func sampleIndices(frames []gifFrame) []int {
 		return out
 	}
 	delay := func(f gifFrame) int64 {
-		if f.delayCS <= 0 {
-			return 1
+		if f.delayCS < 2 { // W6-18 D-1: browsers play 0 and 1 cs as 10 cs, so the sampler must see the time a viewer sees
+			return 10
 		}
 		return int64(f.delayCS)
 	}

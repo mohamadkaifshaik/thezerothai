@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"os"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -104,14 +103,11 @@ func TestW618_ExplicitFrameVerdictMatrix(t *testing.T) {
 	}
 }
 
-// TestW618_KnownGap_BrowserDelayClampIsNotModelled documents a defect found by W6-18 (see the test report, D-1). The sampler
-// counts a delay of 0 or 1 cs as 1 cs (gifscan.go sampleIndices), but browsers (and the Flutter image codec) play a delay
-// of 0 or 1 cs as 10 cs. A GIF whose explicit frames use delay 1 therefore looks short to the sampler and long on screen:
-// here the explicit tail is 17 cs of the sampler's 80 cs (it falls after the 3T/4 sample, so it is never screened) but
-// 170 of the 233 cs a browser plays (73 % of the display time). This test pins TODAY's behaviour (READY); when sampleIndices
-// clamps like a browser, the outcome becomes REJECTED and the assertion below must flip. W618_RUN_DEFECTS=1 runs the
-// expected behaviour instead (REJECTED), which fails today.
-func TestW618_KnownGap_BrowserDelayClampIsNotModelled(t *testing.T) {
+// TestW618_BrowserDelayClampIsModelled closes W6-18 D-1 (see the test report). Browsers (and the Flutter image codec) play
+// a delay of 0 or 1 cs as 10 cs, so sampleIndices does too. A GIF whose explicit frames use delay 1 is long on screen:
+// here the explicit tail is 170 of the 233 cs a browser plays (73 % of the display time). Before the fix the sampler saw
+// it as 17 of 80 cs, after the 3T/4 sample, and published the GIF unscreened; now the samples reach it and it is REJECTED.
+func TestW618_BrowserDelayClampIsModelled(t *testing.T) {
 	idxs := append(repeatIdx(21, pxGreen), repeatIdx(17, pxRed)...)
 	delays := append(repeatInt(21, 3), repeatInt(17, 1)...)
 	data := timedGIF(idxs, delays)
@@ -120,31 +116,21 @@ func TestW618_KnownGap_BrowserDelayClampIsNotModelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	explicitSampled := false
 	for _, i := range sampleIndices(sc.frames) {
 		if i >= 21 {
-			t.Fatalf("fixture is wrong: sample %d is already an explicit frame", i)
+			explicitSampled = true
 		}
 	}
-	var sampler, browser int
-	for _, f := range sc.frames[21:] {
-		sampler += max(f.delayCS, 1)
-		browser += 10 // a browser plays <= 1 cs as 10 cs
-	}
-	if sampler != 17 || browser != 170 {
-		t.Fatalf("fixture is wrong: explicit tail = %d cs (sampler) / %d cs (browser)", sampler, browser)
+	if !explicitSampled {
+		t.Fatalf("samples %v never reach the explicit tail that fills 73 %% of a browser's playback", sampleIndices(sc.frames))
 	}
 
 	e := newEnv(t, envOpts{})
 	e.mod.bytesBy = redIsExplicit(t)
 	r := e.finalizeGIF(t, e.createGIFWith(t, uidA, "a", data))
-	if os.Getenv("W618_RUN_DEFECTS") != "" { // the expected behaviour: the explicit tail is 73 % of what a browser plays
-		if r.Status != StatusRejected {
-			t.Fatalf("D-1: result = %+v, want REJECTED (the explicit tail is 73 %% of the display time in a browser)", r)
-		}
-		return
-	}
-	if r.Status != StatusReady {
-		t.Fatalf("result = %+v: the delay clamp is now modelled, so flip this test to REJECTED and close D-1", r)
+	if r.Status != StatusRejected {
+		t.Fatalf("result = %+v, want REJECTED (the explicit tail is 73 %% of the display time in a browser)", r)
 	}
 }
 

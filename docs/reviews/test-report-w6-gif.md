@@ -24,7 +24,7 @@ whole-request chain for FinalizeUpload of a GIF, the sweep of a GIF draft, the p
 | Media package, unit + integration | `go test -tags=integration ./internal/media` against the emulators | **green** (one run hit `context deadline exceeded` in the existing `TestW320Banner_RacyRuleAndUnitsOnTheRealRepo` while two suites shared the machine; the rerun was green; not a GIF test) |
 | Posts, GIF tests | `go test -tags=integration ./internal/posts -run GIF` | green (`TestGIF_Integration_CreatePostGates`, `TestScheduled_Integration_GIFRefused`, new `TestSweepIT_GIFDraftIsUnavailableNotPublished`) |
 | Apiserver chain, GIF tests | `go test -tags=integration -timeout 40m ./internal/apiserver -run GIF` | green (three chain tests, one existing, two new) |
-| Defect reproduction | `W618_RUN_DEFECTS=1 go test ./internal/media -run KnownGap` | **fails as intended** (D-1) |
+| Defect reproduction | D-1 regression `go test ./internal/media -run BrowserDelayClamp` | passes (D-1 fixed, PR `fix/gif-browser-delay-clamp`) |
 | gofmt, `go vet -tags integration`, `golangci-lint run --build-tags integration` | on `./internal/media/...`, `./internal/posts/...`, `./internal/apiserver/...` | gofmt and vet clean. golangci-lint reports 0 issues in the new files (two findings in my first draft were fixed); it still reports 10 findings in other, existing files of the three packages (`poll_integration_test.go`, `has_media_integration_test.go`, `removals*_integration_test.go`, `search_chain_integration_test.go`), none from this PR |
 | Coverage of the GIF files (media unit tests only) | `go test -cover` on `gifscan.go`, `gifscreen.go` | `scanGIF` 90.3 %, `sampleGIF` 97.6 %, `sampleIndices` 100 %, `gifSheet` 100 %, `screenGIF` 100 %, `acquireGif` 87.5 %, `drawPaletted` 68.4 % (an unreachable-by-fixture branch of the palette copy) |
 
@@ -41,7 +41,7 @@ Environment notes:
 
 | File | Tests | Covers |
 |---|---|---|
-| `backend/internal/media/gif_w618_test.go` | `TestW618_ExplicitFrameVerdictMatrix` (14 cases), `TestW618_KnownGap_BrowserDelayClampIsNotModelled` (D-1), `TestW618_BombsFinalizeAllocatesLittle` (5 bombs), `TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget` (2), `TestW618_SlotIsReleasedAfterARefusalAndDoesNotBlockPhotos`, `TestW618_VisionCapBoundary` (2), `TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable`, `TestW618_PurgeAndPostDeleteRemoveGIFObjects` (3), `TestW618_KnownResidual_PublishSwapAfterScreening`, `TestW618_RequestHashGolden`, `TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts`, `TestW618_CreateUploadFlagOffIsRefusedBeforeAnyRead`, `TestW618_FinalizeIgnoresTheGifFlag`, `TestW618_ExportCoversAGIF` | section 3 |
+| `backend/internal/media/gif_w618_test.go` | `TestW618_ExplicitFrameVerdictMatrix` (14 cases), `TestW618_BrowserDelayClampIsModelled` (D-1, fixed), `TestW618_BombsFinalizeAllocatesLittle` (5 bombs), `TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget` (2), `TestW618_SlotIsReleasedAfterARefusalAndDoesNotBlockPhotos`, `TestW618_VisionCapBoundary` (2), `TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable`, `TestW618_PurgeAndPostDeleteRemoveGIFObjects` (3), `TestW618_KnownResidual_PublishSwapAfterScreening`, `TestW618_RequestHashGolden`, `TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts`, `TestW618_CreateUploadFlagOffIsRefusedBeforeAnyRead`, `TestW618_FinalizeIgnoresTheGifFlag`, `TestW618_ExportCoversAGIF` | section 3 |
 | `backend/internal/posts/gif_sweep_integration_test.go` | `TestSweepIT_GIFDraftIsUnavailableNotPublished` | `repo_publish_scheduled.go:231`: a draft that holds a GIF ends FAILED MEDIA_UNAVAILABLE, no post, nothing attached, no quota charge; the photo draft beside it publishes |
 | `backend/internal/apiserver/gif_finalize_chain_integration_test.go` | `TestGIFChain_FinalizePostScheduleAndDelete`, `TestGIFChain_CreateUploadGatesOverTheWire` (flag off, 7 shape refusals, nomedia) | `apiserver.Build` + the Storage emulator: FinalizeUpload of a real GIF, published bytes and types, Vision units, cost against a photo, CreatePost, GIF + photo, SchedulePost, DeletePost + post_delete |
 
@@ -121,7 +121,7 @@ added by W6-18; the others are the developers' (W6-9 `gif_test.go`, W6-10 `gifsc
 | Attack | Result |
 |---|---|
 | Harmless first frame, explicit later frame | REJECTED when the explicit frame is a sample point (all four positions, and in GIFs of 2 to 4 frames); READY when strictly between samples (the F11 residual, pinned) |
-| Explicit tail with delay 1 cs | **READY although it is 73 % of what a browser plays: defect D-1** |
+| Explicit tail with delay 1 cs | REJECTED (D-1 fixed: delays under 2 cs count as 10 cs) |
 | Decompression bombs | all refused before any decode: 0 Vision calls, the finalize allocates < 16 MiB |
 | One-GIF slot | busy slot answers MEDIA_NOT_READY, spends no units, releases the claim; the slot is freed after a refusal; a photo is never blocked |
 | Cap rejects GIFs for every account | confirmed, plus the one-unit boundary |
@@ -132,6 +132,8 @@ added by W6-18; the others are the developers' (W6-9 `gif_test.go`, W6-10 `gifsc
 ### 5. Defects
 
 **D-1 (Medium): the sampler does not model the browser's minimum frame delay, so explicit frames can dominate the playback time and still
+
+> **Fixed (2026-11-01, PR `fix/gif-browser-delay-clamp`).** `sampleIndices` counts a delay under 2 cs as 10 cs, as browsers and the Flutter codec play it; `TestW618_BrowserDelayClampIsModelled` now asserts REJECTED for the fixture below. ADR-0029 D11 point 4 gets the same correction in the as-built note.
 escape every sample.**
 `backend/internal/media/gifscan.go:182-214` (`sampleIndices`, also stated in ADR-0029 D11 point 4: "a 0 delay counted as 10 ms") counts a delay of
 0 cs as 1 cs (and keeps 1 cs as 1 cs). Browsers, and so the Flutter image codec behind the client, play a GIF frame whose delay is 0 or 1 cs
