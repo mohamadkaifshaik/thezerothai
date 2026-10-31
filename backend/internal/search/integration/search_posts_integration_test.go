@@ -241,7 +241,8 @@ func TestSearchPosts_Budgets(t *testing.T) {
 	})
 }
 
-// A blocked author's rows are dropped against the real graph, and the token still advances.
+// A blocked author's rows are dropped against the real graph. Page 1 filters the whole 25-row entry first (W4-27), so the 5
+// visible rows come back and, the entry not being full, no token follows (the old cut returned an empty page and a token).
 func TestSearchPosts_BlockedAuthorAgainstTheRealGraph(t *testing.T) {
 	client := newClient(t)
 	for n := 1; n <= 25; n++ {
@@ -254,12 +255,67 @@ func TestSearchPosts_BlockedAuthorAgainstTheRealGraph(t *testing.T) {
 	seedBlocked(t, client, "u", "bad")
 	svc := newInstance(t, client)
 	p1, c := run(t, svc, "u", "blk", searchv1.SearchTab_SEARCH_TAB_LATEST, 0, "")
-	if len(p1.Posts) != 0 || p1.NextPageToken == "" {
-		t.Fatalf("page 1: %d posts, token %q; want an empty page with a token", len(p1.Posts), p1.NextPageToken)
+	if len(p1.Posts) != 5 || p1.NextPageToken != "" || ids(p1)[0] != pid(5) {
+		t.Fatalf("page 1: %d posts, token %q; want the 5 visible rows and no token", len(p1.Posts), p1.NextPageToken)
 	}
-	exact(t, "all rows dropped", c, 1+25) // graph + the 25-post entry; no row returned, so no userLikes read
-	p2, _ := run(t, svc, "u", "blk", searchv1.SearchTab_SEARCH_TAB_LATEST, 0, p1.NextPageToken)
-	if len(p2.Posts) != 5 || p2.NextPageToken != "" {
-		t.Fatalf("page 2: %d posts, token %q", len(p2.Posts), p2.NextPageToken)
+	exact(t, "20 of 25 rows dropped", c, 1+25+1) // graph + the 25-post entry + userLikes (5 rows returned)
+}
+
+// LATEST windows are fixed tiers (W4-27, ADR-0028 note 2026-10-31 part 3). Reads here are the document figures minus the
+// interceptor's read: page 1 at k <= 30 cold 32 (graph 1 + entry 30 + userLikes 1), at k 31..50 52; an older page 22 at
+// k <= 20 (the graph is cached on the instance) and 52 at k 21..50; a tail page 1 + the rows left + userLikes.
+func TestSearchPosts_LatestWindowBudgets(t *testing.T) {
+	client := newClient(t)
+	for n := 1; n <= 130; n++ {
+		seed(t, client, n, "a", "win", 0, 0)
 	}
+	for n := 201; n <= 225; n++ { // a small tag of 25 posts: its end is reached on page 1
+		seed(t, client, n, "a", "small", 0, 0)
+	}
+	seedBlocked(t, client, "u", "nobody")
+	latest := searchv1.SearchTab_SEARCH_TAB_LATEST
+
+	t.Run("page 1 at 20 then older pages at 1 and 21", func(t *testing.T) {
+		svc := newInstance(t, client)
+		p1, c1 := run(t, svc, "u", "win", latest, 20, "")
+		exact(t, "page 1 at k=20 cold", c1, 1+30+1)
+		o1, c2 := run(t, svc, "u", "win", latest, 1, p1.NextPageToken) // k picks the tier, not the query size: 20 rows
+		if len(o1.Posts) != 1 || o1.NextPageToken == "" {
+			t.Fatalf("older page at k=1: %d posts, token %q", len(o1.Posts), o1.NextPageToken)
+		}
+		exact(t, "older page at k=1 (20-row window)", c2, 20+1)
+		o21, c3 := run(t, svc, "u", "win", latest, 21, p1.NextPageToken)
+		if len(o21.Posts) != 21 || o21.NextPageToken == "" {
+			t.Fatalf("older page at k=21: %d posts, token %q", len(o21.Posts), o21.NextPageToken)
+		}
+		exact(t, "older page at k=21 (50-row window)", c3, 50+1)
+	})
+
+	t.Run("page 1 at 31 is one 50-row query", func(t *testing.T) {
+		svc := newInstance(t, client)
+		p1, c := run(t, svc, "u", "win", latest, 31, "")
+		if len(p1.Posts) != 31 || p1.NextPageToken == "" {
+			t.Fatalf("page 1 at k=31: %d posts, token %q", len(p1.Posts), p1.NextPageToken)
+		}
+		exact(t, "page 1 at k=31 cold", c, 1+50+1)
+	})
+
+	t.Run("a tail page reads the rows left", func(t *testing.T) {
+		svc := newInstance(t, client)
+		p1, c1 := run(t, svc, "u", "small", latest, 1, "")
+		if len(p1.Posts) != 1 || p1.NextPageToken == "" {
+			t.Fatalf("page 1 at k=1: %d posts, token %q", len(p1.Posts), p1.NextPageToken)
+		}
+		exact(t, "page 1 of a 25-post tag", c1, 1+25+1)
+		p2, c2 := run(t, svc, "u", "small", latest, 20, p1.NextPageToken)
+		if len(p2.Posts) != 20 || p2.NextPageToken == "" || ids(p2)[0] != pid(224) {
+			t.Fatalf("tail page: %d posts, token %q", len(p2.Posts), p2.NextPageToken)
+		}
+		exact(t, "tail page: 24 rows left", c2, 24+1)
+		p3, c3 := run(t, svc, "u", "small", latest, 20, p2.NextPageToken)
+		if len(p3.Posts) != 4 || p3.NextPageToken != "" {
+			t.Fatalf("last tail page: %d posts, token %q", len(p3.Posts), p3.NextPageToken)
+		}
+		exact(t, "last tail page: 4 rows left", c3, 4+1)
+	})
 }

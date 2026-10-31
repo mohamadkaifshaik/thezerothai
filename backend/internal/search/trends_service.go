@@ -52,16 +52,16 @@ func newTrendsCache(store TrendsStore, ttl time.Duration, now func() time.Time) 
 // get returns the list and whether it came from the instance copy (no Firestore read). A failed load returns the error
 // and caches nothing, so the next caller retries.
 func (c *trendsCache) get(ctx context.Context) (doc *TrendsDoc, hit bool, err error) {
-	c.mu.Lock()
-	if c.loaded && c.now().Sub(c.loadedAt) < c.ttl {
-		d := c.doc
-		c.mu.Unlock()
+	if d, ok := c.fresh(); ok {
 		return d, true, nil
 	}
-	c.mu.Unlock()
 	// The shared load runs on the first caller's context (and its budget counter): the others wait for it and are not
-	// charged, which matches "one read per instance per TTL".
+	// charged, which matches "one read per instance per TTL". The copy is checked again inside the load: a caller that
+	// saw it stale just before another load finished would otherwise start a second read (W4-20 D-1).
 	v, err, _ := c.sf.Do("current", func() (any, error) {
+		if d, ok := c.fresh(); ok {
+			return trendsLoad{doc: d, hit: true}, nil
+		}
 		d, err := c.store.Get(ctx)
 		if err != nil {
 			return nil, err
@@ -69,13 +69,29 @@ func (c *trendsCache) get(ctx context.Context) (doc *TrendsDoc, hit bool, err er
 		c.mu.Lock()
 		c.doc, c.loadedAt, c.loaded = d, c.now(), true
 		c.mu.Unlock()
-		return d, nil
+		return trendsLoad{doc: d}, nil
 	})
 	if err != nil {
 		return nil, false, err
 	}
-	d, _ := v.(*TrendsDoc)
-	return d, false, nil
+	l, _ := v.(trendsLoad)
+	return l.doc, l.hit, nil
+}
+
+// trendsLoad is one singleflight result: the list and whether it came from the instance copy.
+type trendsLoad struct {
+	doc *TrendsDoc
+	hit bool
+}
+
+// fresh returns the instance copy when it is within the TTL.
+func (c *trendsCache) fresh() (*TrendsDoc, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loaded && c.now().Sub(c.loadedAt) < c.ttl {
+		return c.doc, true
+	}
+	return nil, false
 }
 
 // Trends is GetTrends. Flag: trends.

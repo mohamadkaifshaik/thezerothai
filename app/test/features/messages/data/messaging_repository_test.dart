@@ -412,21 +412,24 @@ void main() {
       );
     });
 
-    test('a since refresh merges by id and returns the INBOX request_count', () async {
-      convAnswers.add(
-        list([conv('a', minutesAgo: 5), conv('b', minutesAgo: 9)]),
-      );
-      await repo.refreshConversations(Folder.FOLDER_INBOX);
-      convAnswers.add(list([conv('b', unread: 2)], since: 's2'));
+    test(
+      'a since refresh merges by id and returns the INBOX request_count',
+      () async {
+        convAnswers.add(
+          list([conv('a', minutesAgo: 5), conv('b', minutesAgo: 9)]),
+        );
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        convAnswers.add(list([conv('b', unread: 2)], since: 's2'));
 
-      final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
+        final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
 
-      expect(convRequests.last.sinceToken, 's1');
-      expect(result.requestCount, 0);
-      expect(result.snapshot.conversations.map((c) => c.id), ['b', 'a']);
-      expect(result.snapshot.conversations.first.unreadCount.toInt(), 2);
-      expect(result.snapshot.sinceToken, 's2');
-    });
+        expect(convRequests.last.sinceToken, 's1');
+        expect(result.requestCount, 0);
+        expect(result.snapshot.conversations.map((c) => c.id), ['b', 'a']);
+        expect(result.snapshot.conversations.first.unreadCount.toInt(), 2);
+        expect(result.snapshot.sinceToken, 's2');
+      },
+    );
 
     test(
       'a full since page reloads the first page (no gap token exists)',
@@ -1190,5 +1193,98 @@ void main() {
         expect(transport.calledProcedures, [_listMsgs]);
       },
     );
+  });
+
+  group('a request the caller sent (W7-25b)', () {
+    pb.Conversation sentRow() => conv(
+      'c1',
+      state: ConversationState.CONVERSATION_STATE_REQUEST,
+    ).deepCopy()..canReply = true;
+
+    pb.ListConversationsResponse inbox(List<pb.Conversation> items) =>
+        pb.ListConversationsResponse(conversations: items, sinceToken: 's');
+
+    test(
+      'the list row keeps REQUEST in INBOX through a cold open and a refresh',
+      () async {
+        convAnswers.add(inbox([sentRow()]));
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+        var row = (await repo.cachedConversation('c1'))!;
+        expect(row.state, ConversationState.CONVERSATION_STATE_REQUEST);
+        expect(row.folder, Folder.FOLDER_INBOX);
+
+        convAnswers.add(inbox([sentRow()]));
+        await repo.refreshConversations(Folder.FOLDER_INBOX);
+        row = (await repo.cachedConversation('c1'))!;
+        expect(row.state, ConversationState.CONVERSATION_STATE_REQUEST);
+        expect(row.folder, Folder.FOLDER_INBOX);
+      },
+    );
+
+    test('an Inbox refresh that brings the accept tells the lists, once, '
+        'and a refresh that changes no state stays quiet', () async {
+      convAnswers.add(inbox([sentRow()]));
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      var changes = 0;
+      final sub = repo.conversationsChanged.listen((_) => changes++);
+      addTearDown(sub.cancel);
+
+      convAnswers.add(inbox([sentRow()]));
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      await pumpEventQueue();
+      expect(changes, 0);
+
+      convAnswers.add(inbox([conv('c1')]));
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      await pumpEventQueue();
+
+      expect(changes, 1);
+      final row = (await repo.cachedConversation('c1'))!;
+      expect(row.state, ConversationState.CONVERSATION_STATE_ACCEPTED);
+    });
+
+    test('a REQUESTS refresh never fires it', () async {
+      var changes = 0;
+      final sub = repo.conversationsChanged.listen((_) => changes++);
+      addTearDown(sub.cancel);
+      convAnswers.add(inbox([conv('q', folder: Folder.FOLDER_REQUESTS)]));
+      await repo.refreshConversations(Folder.FOLDER_REQUESTS);
+      await pumpEventQueue();
+
+      expect(changes, 0);
+    });
+
+    test('noteSentRequestAnswered makes the row ACCEPTED locally with no '
+        'request, and leaves a received request alone', () async {
+      convAnswers.add(
+        inbox([
+          sentRow(),
+          conv(
+            'q',
+            folder: Folder.FOLDER_REQUESTS,
+            state: ConversationState.CONVERSATION_STATE_REQUEST,
+          ),
+        ]),
+      );
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      transport.calledProcedures.clear();
+      var changes = 0;
+      final sub = repo.conversationsChanged.listen((_) => changes++);
+      addTearDown(sub.cancel);
+
+      await repo.noteSentRequestAnswered('c1');
+      await repo.noteSentRequestAnswered('q');
+      await pumpEventQueue();
+
+      final sent = (await repo.cachedConversation('c1'))!;
+      expect(sent.state, ConversationState.CONVERSATION_STATE_ACCEPTED);
+      expect(sent.folder, Folder.FOLDER_INBOX);
+      final received = (await repo.cachedConversation('q'))!;
+      expect(received.state, ConversationState.CONVERSATION_STATE_REQUEST);
+      expect(received.folder, Folder.FOLDER_REQUESTS);
+      expect(changes, 1);
+      expect(transport.calledProcedures, isEmpty);
+    });
   });
 }

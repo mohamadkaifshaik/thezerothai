@@ -199,6 +199,7 @@ against a cloud project.
   (ADR-0027 D11, `docs/runbooks/messaging.md` section 2). The export carries a `messages` section (own text in full, received messages as time and "received", the peer by
   handle, no uid). Cost for the reference account: about 380 reads, 360 writes, 20 deletes; an account with no conversations pays 1 read. Neither step nor section is flag-gated. A stuck
   step: `docs/runbooks/messaging.md` section 2.
+- Lists (ADR-0030 D8, W5-5): the `lists` step (after `messaging`, before `identity`; `lists.Eraser`) first deletes the user's own lists (pages of at most 500), then removes the uid from every other list that names it (`memberIds array-contains uid`, `ArrayRemove`, `LastUpdateTime` precondition); a conflicting page writes nothing and is re-queried. An account with no lists pays 2 reads. The export carries a `lists` section (own lists with member ids). Neither is flag-gated. A stuck step: `docs/runbooks/lists.md` section 5.
 - **Notifications and devices (P6, ADR-0017):** the `notifications` step removes the user's devices and their
   `deviceTokens` index docs, their own `users/{uid}/notifications` rows and the rows in other users' lists whose
   `actorIds` contains them. Nothing is left to tell the requester about notifications. The step costs 3 reads when
@@ -271,7 +272,7 @@ GOWORK=off go run ./cmd/opsctl check-t26 --project dzeroth-prod   # asks you to 
 `DELETING` with a `deletionJob` and publishes to the Pub/Sub topic `jobs`. The push subscription `jobs-push` calls
 `/internal/pubsub/jobs` (OIDC, only the `pubsub-push` service account). After a **120 s gate** (so no instance still
 treats the user as ACTIVE) the job runs the steps in this fixed order, in 20 s slices that re-publish themselves:
-`auth_disable`, `posts`, `graph`, `media`, `notifications`, `engagement`, `reports`, `scheduled`, `bookmarks`, `follow_requests`, `messaging`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
+`auth_disable`, `posts`, `graph`, `media`, `notifications`, `engagement`, `reports`, `scheduled`, `bookmarks`, `follow_requests`, `messaging`, `lists`, `identity`, `auth_delete`, `users_doc` (`users/{uid}` last). Step names are
 persisted in `deletionJob.step`; never rename or remove one without a migration. `RequestAccountExport` writes
 `exports/{id}` and a JSON object to the private bucket `<project>-exports` (7-day lifecycle, soft delete off); each
 `GetAccountExport` signs a fresh 15-minute GET URL. Exports are capped at 1 per day per user.
