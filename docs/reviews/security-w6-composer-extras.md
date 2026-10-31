@@ -166,7 +166,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
 
-**Status: FIXED in PR #PRNUM (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
+**Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
 
 **Where:**
 - `finalize.go:238-258`: when `screen` returns any error, `s.vision.release(units)` returns **all** reserved units. The doc stays PENDING, the claim is released (`finalize.go:220-224`), and the answer is retryable UNAVAILABLE.
