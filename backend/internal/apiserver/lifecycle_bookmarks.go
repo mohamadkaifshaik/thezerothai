@@ -3,7 +3,7 @@
 // export section (post id and bookmark time per row, never the post's content). Both are registered whether or not
 // FEATURE_BOOKMARKS is on, because documents outlive the flag. The step is appended after `scheduled`: its name is
 // persisted in deletionJob.step, so it never joins engagement's checkpoint.
-package apiserver
+package apiserver //nolint:dupl // mirrors lifecycle_poll_votes.go: the same step and section adapters over a different collection
 
 import (
 	"context"
