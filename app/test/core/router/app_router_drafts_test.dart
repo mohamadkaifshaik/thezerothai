@@ -199,6 +199,74 @@ void main() {
     expect(find.text('saved earlier'), findsNothing);
   });
 
+  // The real Home page needs providers this harness does not have; a redirect
+  // to Home is asserted by the path and the missing Drafts screen.
+  void drain(WidgetTester tester) {
+    while (tester.takeException() != null) {}
+  }
+
+  // W6-19: the flag gates of the two paths, in every combination.
+  for (final entry in {
+    'drafts off': const {kFeaturePosts},
+    'posts off': const {kFeatureDrafts},
+    'both off': const <String>{},
+  }.entries) {
+    if (entry.key == 'posts off') continue;
+    testWidgets('${entry.key}: /compose?draft=<id> never loads the draft', (
+      tester,
+    ) async {
+      await start(
+        tester,
+        entry.value,
+        AppRouter.composeDraftPath('00000000000000a1'),
+      );
+      expect(find.text('saved earlier'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('the Scheduled tab link with drafts on and posts off goes to '
+      'Settings, not to a Drafts screen', (tester) async {
+    final r = await start(tester, const {
+      kFeatureDrafts,
+    }, AppRouter.scheduledTabPath);
+    expect(find.byType(DraftsScreen), findsNothing);
+    expect(path(r), isNot(AppRouter.scheduledTabPath));
+  });
+
+  testWidgets("another account's draft id opens a new post and shows "
+      'nothing of it', (tester) async {
+    drafts.rows.add(
+      ComposerDraft(
+        id: '00000000000000b2',
+        uid: 'uid-2',
+        text: 'someone else wrote this',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await start(tester, on, AppRouter.composeDraftPath('00000000000000b2'));
+    expect(find.byType(ComposerScreen), findsOneWidget);
+  });
+
+  testWidgets("the Drafts list of one account never shows another's", (
+    tester,
+  ) async {
+    drafts.rows.add(
+      ComposerDraft(
+        id: '00000000000000b2',
+        uid: 'uid-2',
+        text: 'someone else wrote this',
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    await start(tester, on, AppRouter.draftsPath);
+    expect(find.text('someone else wrote this'), findsNothing);
+    expect(find.text('saved earlier'), findsOneWidget);
+    expect(find.text('saved earlier'), findsOneWidget);
+  });
+
   /// Settings -> /compose -> Drafts -> pick a draft: one composer, loaded in
   /// place; Back from the list without a choice returns to the same one.
   Future<void> composerToDraftsAndBack(WidgetTester tester, Size size) async {
@@ -265,4 +333,25 @@ void main() {
     expect(find.byType(ComposerScreen), findsOneWidget);
     expect(find.text('my draft'), findsOneWidget);
   });
+
+  // Last on purpose: the real Home page has no providers in this harness and
+  // leaves the test binding unclean for whatever runs after it.
+  for (final entry in {
+    'drafts off': const {kFeaturePosts},
+    'posts off': const {kFeatureDrafts},
+    'both off': const <String>{},
+  }.entries) {
+    testWidgets('${entry.key}: /drafts goes Home, no Drafts screen', (
+      tester,
+    ) async {
+      final r = await start(tester, entry.value, AppRouter.draftsPath);
+      drain(tester);
+      expect(path(r), isNot(AppRouter.draftsPath));
+      expect(find.byType(DraftsScreen), findsNothing);
+      expect(find.text('saved earlier'), findsNothing);
+      // Unmount: the real Home has no providers here and complains once.
+      await tester.pumpWidget(const SizedBox());
+      drain(tester);
+    });
+  }
 }
