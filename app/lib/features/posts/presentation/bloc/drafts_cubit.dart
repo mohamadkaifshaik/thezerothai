@@ -72,6 +72,9 @@ class DraftsCubit extends Cubit<DraftsViewState> {
       emit(const DraftsViewState(status: DraftsStatus.ready));
       return;
     }
+    // Drafts more than 30 days past their last edit go (W6-45); the watch
+    // below already leaves them out, so a failed purge shows nothing stale.
+    unawaited(_purgeExpired(uid));
     _sub = _repository
         .watch(uid)
         .listen(
@@ -85,6 +88,17 @@ class DraftsCubit extends Cubit<DraftsViewState> {
             if (!isClosed) emit(state.copyWith(status: DraftsStatus.error));
           },
         );
+  }
+
+  Future<void> _purgeExpired(String uid) async {
+    try {
+      await _repository.purgeExpired(uid);
+    } catch (_, stack) {
+      _onUnexpectedError?.call(
+        StateError('Expired drafts could not be removed.'),
+        stack,
+      );
+    }
   }
 
   /// "Try again" after a read failure.
