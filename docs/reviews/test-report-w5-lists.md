@@ -169,7 +169,7 @@ None in production code. No `t.Skip("W5-15 D-n")` repro was needed.
 | `go test -tags=integration -run TestW515_ ./internal/apiserver/` | pass, 8 tests |
 | `-run TestAccountLifecycle_ExportContentsGolden` (regenerated, then re-run without `-update-golden`) | pass |
 | `TestCreateList_Integration_ConcurrentSameKey` x30 (before the rewrite, no `-race`) and x5 (after) | pass |
-| Whole module, `go test -tags=integration -p 1 -coverprofile=... -coverpkg=./internal/... ./...` (the `make test-int` command) | COVERAGE_RESULT |
+| Whole module, `go test -tags=integration -p 1 -coverprofile=... -coverpkg=./internal/... ./...` (the `make test-int` command) | **green, every package `ok`**; combined `internal/` coverage **93.1 %** (gate 70 %), `internal/lists` 91.2 % on its own. A first run without `-p 1` had five timing failures in other packages (section 6, item 2) and was discarded |
 | Unit only, `-coverpkg=./internal/...` | 64.2 % of `internal/` (expected: the repositories are only exercised by the integration run; the gate is on the combined number) |
 
 Budgets measured through the real chain (request-line `fs_reads` / `fs_writes`, interceptor included; ceilings are the ADR figures):
