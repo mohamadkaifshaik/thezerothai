@@ -206,6 +206,10 @@ func (r *FirestoreRepo) ExportPage(ctx context.Context, uid, after string, limit
 // Exporter writes the `lists` export section.
 type Exporter struct {
 	src ExportSource
+	// member, handles and social are set by WithMembership (W5-46); a nil member writes no lists_member_of part.
+	member  MemberOfSource
+	handles HandleSource
+	social  SocialSource
 }
 
 // NewExporter builds the section on an ExportSource (FirestoreRepo in production).
@@ -240,7 +244,15 @@ func (x *Exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 		}
 		after = page[len(page)-1].ListID
 	}
-	if _, err := io.WriteString(w, "]}\n"); err != nil {
+	if _, err := io.WriteString(w, "]"); err != nil {
+		return fmt.Errorf("lists: write export: %w", err)
+	}
+	if x.member != nil {
+		if err := x.writeMemberOf(ctx, uid, w); err != nil {
+			return err
+		}
+	}
+	if _, err := io.WriteString(w, "}\n"); err != nil {
 		return fmt.Errorf("lists: write export: %w", err)
 	}
 	return nil

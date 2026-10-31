@@ -227,7 +227,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	listsRepo := lists.NewFirestoreRepo(nil, nil, nil)
-	if err := registerListsLifecycle(l, listsRepo); err != nil {
+	if err := registerListsLifecycle(l, listsRepo, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
@@ -253,7 +253,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err == nil {
 		t.Error("registering the messaging step twice was accepted")
 	}
-	if err := registerListsLifecycle(l, listsRepo); err == nil {
+	if err := registerListsLifecycle(l, listsRepo, nil, nil); err == nil {
 		t.Error("registering the lists step twice was accepted")
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err == nil {

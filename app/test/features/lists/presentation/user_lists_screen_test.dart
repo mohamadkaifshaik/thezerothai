@@ -92,6 +92,22 @@ void main() {
     expect(find.textContaining('profile not found'), findsNothing);
   });
 
+  testWidgets('PROTECTED_ACCOUNT: the protected-account view, no retry', (
+    tester,
+  ) async {
+    listCall().thenThrow(const ProtectedAccountException());
+    final semantics = tester.ensureSemantics();
+    await open(tester);
+    expect(find.text('These Lists are protected'), findsOneWidget);
+    expect(find.textContaining('@kaif'), findsWidgets);
+    expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+    // The generic repost/quote text of the exception never leaks in.
+    expect(find.textContaining('repost'), findsNothing);
+    expect(find.text('These Lists are unavailable'), findsNothing);
+    semantics.dispose();
+  });
+
   testWidgets('network error: Retry reloads', (tester) async {
     listCall().thenThrow(const NetworkException('offline'));
     await open(tester);

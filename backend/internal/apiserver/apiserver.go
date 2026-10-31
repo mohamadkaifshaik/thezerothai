@@ -478,7 +478,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// lists (ADR-0030 D8, W5-5): the erase step and export section are registered whether or not FEATURE_LISTS is on; the step runs
 	// after messaging, before identity. The repo is also the write path's storage (wired with the routes).
-	if err := registerListsLifecycle(lifecycle, listsRepo); err != nil {
+	if err := registerListsLifecycle(lifecycle, listsRepo, identitySvc.(identity.Directory), graphSvc); err != nil {
 		return nil, nil, fmt.Errorf("lists lifecycle registry: %w", err)
 	}
 	// poll_votes (ADR-0029 D8): the erase step and export section are registered whether or not FEATURE_POLLS is on; the step runs after
