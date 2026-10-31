@@ -17,16 +17,26 @@
 ///   repository), `TrendsCubit`, `LikesRepository`, `HomeTabsRepository`,
 ///   `ListsRepository`, `GraphRepository` caches, the app badges, the push
 ///   token and the snackbars.
-/// - Epoch-guarded writes, wiped by `wipeSessionData` / `claimCacheFor`
-///   (drift, ended by `wireAuthSession` on sign-out and on a switch):
-///   `TimelineRepository` (also its in-flight maps, the list-header hand-off),
-///   `NotificationsRepository`, `MessagingRepository`, the identity and graph
-///   writes, `RecentSearches`.
+/// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in
+///   `wireAuthSession` (runs on sign-out and on a switch; writes in flight are
+///   dropped by the shared `SessionEpoch`): `TimelineRepository` (also its
+///   in-flight maps, throttles, `RateLimitHold` and, since W5-50, the
+///   list-header hand-off), `NotificationsRepository`, `MessagingRepository`
+///   (+ tables), identity and graph writes, `EngagementRepository` (writes
+///   through the epoch-guarded timeline store, no memory of its own), recent
+///   searches (a drift table, removed by `clearAll`, no epoch).
 /// - Safe without a reset: drafts (`DraftsRepository`: every query filters by
-///   uid, W6-14); the theme choice (device-wide); `MediaUploader` reservations
-///   (keyed by a per-composition intent id, never reused by another account);
-///   `AccountCubit` and every screen-scoped cubit (built per mount, closed
-///   with the screen); feature gates (reset by every fresh `GetMe`).
+///   uid, W6-14); `PushOptInCubit` (keyed by uid, reloaded on every auth
+///   state); the theme choice and `ServicePausedCubit` (device-wide);
+///   `MediaUploader` reservations (keyed by a per-composition intent id, never
+///   reused by another account); `IdentityRepository`, `PostsRepository`,
+///   `ConnectSearchRepository`, `ModerationRepository`, `MediaRepository`
+///   (hold only capability flags such as "the server refused X" and the shared
+///   read hold, no account data); `AccountCubit` and every screen-scoped cubit
+///   (built per mount: a sign-out or switch makes `OnboardingBloc` emit its
+///   initial state, the router redirects away from every signed-in screen, and
+///   the screens are rebuilt for the next account); feature gates (reset by
+///   every fresh `GetMe`).
 class AccountSessionReset {
   final Map<String, void Function()> _steps = {};
 

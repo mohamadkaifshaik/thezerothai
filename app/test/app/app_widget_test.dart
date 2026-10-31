@@ -376,21 +376,20 @@ void main() {
       expect(cubit.state.entries, isEmpty);
     });
 
-    testWidgets(
-      'a direct switch to another account forgets them too',
-      (tester) async {
-        final cubit = await startVoted(tester);
-        authStates.add(
-          const AuthState(status: AuthStatus.authenticated, user: other),
-        );
-        await settleAuth(tester);
-        expect(
-          cubit.state.entries,
-          isEmpty,
-          reason: "the next account must not see uid-1's choice",
-        );
-      },
-    );
+    testWidgets('a direct switch to another account forgets them too', (
+      tester,
+    ) async {
+      final cubit = await startVoted(tester);
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settleAuth(tester);
+      expect(
+        cubit.state.entries,
+        isEmpty,
+        reason: "the next account must not see uid-1's choice",
+      );
+    });
   });
 
   group('Lists state belongs to the account (W5-16)', () {
@@ -450,21 +449,20 @@ void main() {
       expect(lists.header('77'), isNull);
     });
 
-    testWidgets(
-      'a direct switch to another account forgets list headers too',
-      (tester) async {
-        await startWithAHeader(tester);
-        authStates.add(
-          const AuthState(status: AuthStatus.authenticated, user: other),
-        );
-        await settleAuth(tester);
-        expect(
-          lists.header('77'),
-          isNull,
-          reason: "uid-2 must not be handed the name of uid-1's private list",
-        );
-      },
-    );
+    testWidgets('a direct switch to another account forgets list headers too', (
+      tester,
+    ) async {
+      await startWithAHeader(tester);
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settleAuth(tester);
+      expect(
+        lists.header('77'),
+        isNull,
+        reason: "uid-2 must not be handed the name of uid-1's private list",
+      );
+    });
   });
 
   testWidgets('the push opt-in record follows the signed-in account (W2-12)', (
