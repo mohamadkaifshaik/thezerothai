@@ -311,9 +311,12 @@ void main() {
     await tester.tap(find.widgetWithText(AppPillButton, 'Post'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Not allowed'), findsOneWidget);
+    // The reason shows twice: on the tile and in the snackbar.
+    expect(find.text('Not allowed'), findsNWidgets(2));
     expect(
-      find.bySemanticsLabel('Photo 1 of 1, was not accepted. Remove it.'),
+      find.bySemanticsLabel(
+        'Photo 1 of 1, was not accepted. Not allowed. Remove it.',
+      ),
       findsOneWidget,
     );
     expect(postButton(tester).onPressed, isNull);

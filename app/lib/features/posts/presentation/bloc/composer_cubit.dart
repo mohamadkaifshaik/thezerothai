@@ -11,7 +11,8 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
 import '../../domain/composer_attachment_rules.dart';
-import '../../domain/composer_draft.dart' show DraftPoll;
+import '../../data/drafts_repository.dart';
+import '../../domain/composer_draft.dart';
 import '../../domain/poll_rules.dart';
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
@@ -20,6 +21,31 @@ import '../../domain/schedule_rules.dart';
 import 'pending_posts_cubit.dart';
 
 enum ComposerStatus { editing, submitting, posted }
+
+/// The answer of [ComposerCubit.loadSavedDraft].
+enum DraftLoadResult {
+  loaded,
+
+  /// Missing, another account's, or unreadable.
+  gone,
+
+  /// The draft has a poll and photos or a GIF are attached.
+  blockedByMedia,
+}
+
+/// What leaving the composer needs (W6-15).
+enum LeaveAction {
+  /// Nothing is lost: leave.
+  none,
+
+  /// "Save post?" (Save, Discard, keep editing): unsent content that is not
+  /// yet saved as it stands.
+  savePrompt,
+
+  /// Only media is attached (or unsent posts are off): the old "Discard this
+  /// post?" question, because media is never kept.
+  discardMedia,
+}
 
 @immutable
 class ComposerState {
@@ -191,6 +217,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
     DateTime Function()? clock,
+    DraftsRepository? drafts,
+    String uid = '',
+    ComposerDraft? initialDraft,
   }) : replyToPostId = '',
        _repository = postsRepository,
        _pending = pending,
@@ -199,7 +228,19 @@ class ComposerCubit extends Cubit<ComposerState> {
        _onUnexpectedError = onUnexpectedError,
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
-       super(ComposerState(draft: analyzePostDraft(''))) {
+       // Unsent posts are for a new root post only: never a quote, and a
+       // reply has its own constructor.
+       _drafts = quoteOfPostId.isEmpty && uid.isNotEmpty ? drafts : null,
+       _draftUid = uid,
+       _base = _baseDraft(uid, initialDraft, clock ?? DateTime.now),
+       super(
+         _initialState(
+           initialDraft,
+           pollsOffered: pollsFlag && engagementOn,
+           audienceEnabled: replyAudienceEnabled,
+         ),
+       ) {
+    _baseline = _base;
     _watchAttachments();
   }
 
@@ -225,7 +266,233 @@ class ComposerCubit extends Cubit<ComposerState> {
        engagementOn = false,
        gifFlag = false,
        mediaOn = false,
-       super(ComposerState(draft: analyzePostDraft('')));
+       _drafts = null,
+       _draftUid = '',
+       _base = _baseDraft('', null, clock ?? DateTime.now),
+       super(ComposerState(draft: analyzePostDraft(''))) {
+    _baseline = _base;
+  }
+
+  static ComposerDraft _baseDraft(
+    String uid,
+    ComposerDraft? initial,
+    DateTime Function() clock,
+  ) =>
+      initial ??
+      ComposerDraft(
+        id: DraftsRepository.newId(),
+        uid: uid,
+        text: '',
+        createdAt: clock(),
+        updatedAt: clock(),
+      );
+
+  static ComposerState _initialState(
+    ComposerDraft? d, {
+    required bool pollsOffered,
+    required bool audienceEnabled,
+  }) => d == null
+      ? ComposerState(draft: analyzePostDraft(''))
+      : ComposerState(
+          draft: analyzePostDraft(d.text),
+          // A poll or an audience the flags no longer offer is not loaded.
+          poll: pollsOffered ? d.poll : null,
+          replyAudience: audienceEnabled
+              ? d.replyAudience
+              : ReplyAudience.everyone,
+        );
+
+  final DraftsRepository? _drafts;
+  final String _draftUid;
+
+  /// The draft being written: its id, owner, creation time and the labels the
+  /// composer has no control for (kept so a re-save does not clear them).
+  /// Replaced by [loadDraft].
+  ComposerDraft _base;
+
+  /// The draft as opened (or the empty one): "changed since open" compares
+  /// with it.
+  late ComposerDraft _baseline;
+
+  /// Stops autosaving once the draft was posted, scheduled or discarded.
+  bool _draftDone = false;
+  bool _loadingDraft = false;
+
+  /// Unsent posts are in use: `drafts` is on (the screen passes a repository
+  /// only then), for a new root post.
+  bool get draftsActive => _drafts != null && !_draftDone;
+
+  /// The draft's id (the same row until it is posted or discarded).
+  String get draftId => _base.id;
+
+  /// The composer's content as a draft row.
+  ComposerDraft get currentDraft => _base.copyWith(
+    text: state.draft.text,
+    poll: state.poll,
+    clearPoll: state.poll == null,
+    replyAudience: state.replyAudience,
+  );
+
+  /// What leaving the composer needs now (see [LeaveAction]).
+  LeaveAction get leaveAction {
+    if (state.isSubmitting) return LeaveAction.none;
+    final media = state.hasAttachments;
+    if (!draftsActive) {
+      return media ? LeaveAction.discardMedia : LeaveAction.none;
+    }
+    final draft = currentDraft;
+    if (draft.isEmpty) {
+      return media ? LeaveAction.discardMedia : LeaveAction.none;
+    }
+    return hasUnsavedDraftChanges || media
+        ? LeaveAction.savePrompt
+        : LeaveAction.none;
+  }
+
+  /// There is something to keep and it differs from the draft as opened or as
+  /// last saved.
+  bool get hasUnsavedDraftChanges {
+    if (!draftsActive) return false;
+    final draft = currentDraft;
+    return !draft.isEmpty &&
+        (draft.text != _baseline.text ||
+            draft.poll != _baseline.poll ||
+            draft.replyAudience != _baseline.replyAudience);
+  }
+
+  /// Loads the saved draft [id] of this account into the composer (picked in
+  /// the Drafts list). [DraftLoadResult.gone] when it is missing (or not this
+  /// account's) or the read failed; [DraftLoadResult.blockedByMedia] when it
+  /// has a poll and photos or a GIF are attached (a poll excludes them, and
+  /// neither is dropped silently). The composer is then left as it was.
+  Future<DraftLoadResult> loadSavedDraft(String id) async {
+    final repo = _drafts;
+    if (repo == null || state.isSubmitting) return DraftLoadResult.gone;
+    try {
+      final draft = await repo.read(_draftUid, id);
+      if (draft == null || isClosed) return DraftLoadResult.gone;
+      return loadDraft(draft);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+      return DraftLoadResult.gone;
+    }
+  }
+
+  /// Puts [draft] into the composer (picked from the Drafts list): text, poll
+  /// and audience, under the draft's own id. Nothing is saved by this.
+  ///
+  /// The same exclusions as the toolbar apply (W6-11): a poll is loaded only
+  /// when the rules offer one now (flags, gate memory, a root post), is
+  /// refused while photos or a GIF are attached, and clears a schedule time
+  /// (a schedule is never part of a draft, and a scheduled post has no poll).
+  /// Ignored while the post is being sent.
+  DraftLoadResult loadDraft(ComposerDraft draft) {
+    if (state.isSubmitting || _drafts == null || draft.uid != _draftUid) {
+      return DraftLoadResult.gone;
+    }
+    final loadsPoll = draft.poll != null && rules.showPoll;
+    if (loadsPoll && state.hasAttachments) {
+      return DraftLoadResult.blockedByMedia;
+    }
+    _base = draft;
+    _baseline = draft;
+    _draftDone = false;
+    _loadingDraft = true;
+    emit(
+      state.copyWith(
+        draft: analyzePostDraft(draft.text),
+        poll: loadsPoll ? draft.poll : null,
+        clearPoll: !loadsPoll,
+        pollDurationClamped: false,
+        replyAudience: canChooseReplyAudience
+            ? draft.replyAudience
+            : ReplyAudience.everyone,
+        clearScheduledAt: loadsPoll,
+        clearError: true,
+      ),
+    );
+    _loadingDraft = false;
+    return DraftLoadResult.loaded;
+  }
+
+  /// Keeps the content as a draft now ("Save"). Never throws: a storage
+  /// failure is reported without the text and answers `skipped`.
+  Future<DraftSaveResult> saveDraft() async {
+    final repo = _drafts;
+    if (repo == null) return DraftSaveResult.skipped;
+    try {
+      final saved = currentDraft;
+      final result = await repo.upsert(saved);
+      // Kept as it stands: leaving again without edits asks nothing.
+      if (result != DraftSaveResult.skipped) _baseline = saved;
+      return result;
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+      return DraftSaveResult.skipped;
+    }
+  }
+
+  /// Deletes the draft row ("Discard", a posted or scheduled post) and stops
+  /// autosaving it.
+  Future<void> discardDraft() async {
+    final repo = _drafts;
+    _draftDone = true;
+    if (repo == null) return;
+    try {
+      await repo.delete(_draftUid, [_base.id]);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+    }
+  }
+
+  /// A storage failure is reported with its stack but never its message: a
+  /// database error can carry the bound values, that is the draft's text.
+  void _reportDraftStorage(StackTrace stack) =>
+      _onUnexpectedError?.call(StateError('Drafts storage failed.'), stack);
+
+  /// The content now lives as a scheduled post: its draft row is done and
+  /// the emptied composer starts a new draft.
+  void _draftScheduled() {
+    final repo = _drafts;
+    if (repo == null) return;
+    unawaited(
+      repo
+          .delete(_draftUid, [_base.id])
+          .then(
+            (_) {},
+            onError: (Object _, StackTrace stack) => _reportDraftStorage(stack),
+          ),
+    );
+    _base = _baseDraft(_draftUid, null, _clock);
+    _baseline = _base;
+    _draftDone = false;
+  }
+
+  @override
+  void onChange(Change<ComposerState> change) {
+    super.onChange(change);
+    final repo = _drafts;
+    if (repo == null || _draftDone || _loadingDraft) return;
+    final a = change.currentState;
+    final b = change.nextState;
+    // Only edits are kept: not sending, not the reset after a schedule.
+    if (b.status != ComposerStatus.editing || b.scheduledNotice != null) {
+      return;
+    }
+    if (a.draft.text == b.draft.text &&
+        a.poll == b.poll &&
+        a.replyAudience == b.replyAudience) {
+      return;
+    }
+    repo.autosave(
+      _base.copyWith(
+        text: b.draft.text,
+        poll: b.poll,
+        clearPoll: b.poll == null,
+        replyAudience: b.replyAudience,
+      ),
+    );
+  }
 
   /// The post being replied to; empty for a top-level post.
   final String replyToPostId;
@@ -276,15 +543,19 @@ class ComposerCubit extends Cubit<ComposerState> {
   ComposerAttachmentRules get rules => ComposerAttachmentRules(
     flagPolls: pollsFlag && _repository.subFeatureEnabled(kFeaturePolls),
     engagementOn: engagementOn,
-    flagGif: gifFlag,
+    // A FEATURE_DISABLED `gif` answer is remembered by the posts gate.
+    flagGif: gifFlag && _repository.subFeatureEnabled(kFeatureGif),
     mediaOn: mediaOn,
     isReply: replyToPostId.isNotEmpty,
     isQuote: quoteOfPostId.isNotEmpty,
-    hasPhotos: state.hasAttachments,
+    hasPhotos: state.hasAttachments && !_gifHeld,
+    hasGif: _gifHeld,
     hasPoll: state.hasPoll,
     // A time is only in force while the composer can still schedule.
     scheduled: state.isScheduling && canSchedule,
   );
+
+  bool get _gifHeld => _attachments?.state.hasGif ?? false;
 
   final PostsRepository _repository;
   final PendingPostsCubit? _pending;
@@ -509,6 +780,22 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       return null;
     }
+    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
+    // (the gate remembers it): do not upload what cannot be posted.
+    if (attachments.state.hasGif &&
+        !_repository.subFeatureEnabled(kFeatureGif)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'GIFs are not available.',
+            feature: kFeatureGif,
+          ),
+          uploadFailed: true,
+        ),
+      );
+      return null;
+    }
     try {
       final uploaded = await attachments.uploadAll();
       // The screen may have gone while the photos uploaded: never create
@@ -648,6 +935,8 @@ class ComposerCubit extends Cubit<ComposerState> {
       _keys.remove(intent);
       _keyText = null;
       pending?.remove(key);
+      // The post exists: its draft row is done (also when the screen closed).
+      unawaited(discardDraft());
       if (!isClosed) {
         // Echo check (ADR-0021 L-1): an older revision may have dropped the
         // field, leaving the post open to everyone. Warn; never fail.
@@ -725,6 +1014,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       _keys.remove(intent);
       _keyText = null;
+      _draftScheduled();
       if (isClosed) return;
       emit(
         ComposerState(draft: analyzePostDraft(''), scheduledNotice: scheduled),
