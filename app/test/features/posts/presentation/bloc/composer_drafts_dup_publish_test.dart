@@ -18,11 +18,10 @@ import '../../../../support/media_fixtures.dart';
 
 /// W6-38: the drafts duplicate-publication matrix (ADR-0029 Amendment 1, A4).
 ///
-/// S1-S4 pin what is safe today. G1-G6 are written as tests of the FIXED
-/// behaviour and skipped until W6-39 persists the send key on the draft row;
-/// each asserts only what the server saw (how many items it accepted), never
-/// the cubit's internals, so it passes unchanged once the fix lands. Run them
-/// with `flutter test --run-skipped` to see today's duplicates.
+/// S1-S4 pin what is safe. G1-G6 are tests of the FIXED behaviour: W6-39
+/// persists the send key on the draft row (they were skipped until then).
+/// Each asserts only what the server saw (how many items it accepted), never
+/// the cubit's internals, and they passed unchanged when the fix landed.
 ///
 /// Every cell runs for CreatePost and SchedulePost, with no media, a photo
 /// and a GIF. A GIF cannot be scheduled (the composer refuses the time, the
@@ -343,7 +342,7 @@ void main() {
   group('S4 the same images are not attached twice', () {
     for (final m in [_Media.photo, _Media.gif]) {
       test(
-        'post + ${m.name}: an edited send under a new key is refused',
+        'post + ${m.name}: an edited send is not a second post',
         () async {
           final c = open();
           await prepare(c, _Kind.post, m);
@@ -356,7 +355,14 @@ void main() {
           await c.cubit.submit();
 
           expect(server.accepted, hasLength(1), reason: 'media is single use');
-          expect(c.cubit.state.error, isA<MediaNotReadyException>());
+          // The stored key is reused, so the server answers with the earlier
+          // send (IDEMPOTENCY_KEY_REUSED) before it looks at the media: the
+          // user is told an earlier version went out. (Before W6-39 a new
+          // key reached the media check and got MEDIA_NOT_READY.)
+          expect(
+            c.cubit.state.sendConflict,
+            SendConflict.earlierVersionSent,
+          );
         },
       );
     }
@@ -401,7 +407,7 @@ void main() {
           hasLength(1),
           reason: 'the reopened draft must reuse the first send',
         );
-      }, skip: 'W6-38 G1: fixed by W6-39');
+      });
     }
   });
 
@@ -433,7 +439,7 @@ void main() {
           hasLength(1),
           reason: 'a row that outlived its success must not post again',
         );
-      }, skip: 'W6-38 G2: fixed by W6-39');
+      });
     }
   });
 
@@ -462,7 +468,7 @@ void main() {
           hasLength(1),
           reason: 'an edit after an ambiguous failure must not add an item',
         );
-      }, skip: 'W6-38 G3: fixed by W6-39');
+      });
     }
   });
 
@@ -489,7 +495,7 @@ void main() {
           hasLength(1),
           reason: 'both composers must send under one key',
         );
-      }, skip: 'W6-38 G4: fixed by W6-39');
+      });
     }
   });
 
@@ -518,9 +524,6 @@ void main() {
             reason: 'the row is gone: the draft was already sent',
           );
         },
-        skip:
-            'W6-38 G5: fixed by W6-39 (the claim must refuse when the row '
-            'is gone, see the report)',
       );
     }
   });
@@ -543,7 +546,7 @@ void main() {
           hasLength(1),
           reason: 'one tap after an ambiguous send must not add the other kind',
         );
-      }, skip: 'W6-38 G6: fixed by W6-39 (the warning for the other kind)');
+      });
     }
   });
 }

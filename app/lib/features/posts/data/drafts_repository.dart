@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show immutable;
 
 import '../../../core/storage/app_database.dart';
 import '../domain/composer_draft.dart';
@@ -21,6 +22,58 @@ enum DraftSaveResult {
   /// removes its row and also answers this.)
   skipped,
 }
+
+/// Which RPC a draft send goes to. `CreatePost` and `SchedulePost` keep
+/// separate idempotency key spaces on the server, so a pending key belongs to
+/// exactly one of them (W6-39).
+enum SendKind { post, schedule }
+
+/// Why a send was refused before any RPC (W6-39).
+enum SendBlock {
+  /// The draft row is gone although this process knew it: another composer
+  /// sent it (or it was deleted). G5: never mint a key for it.
+  rowGone,
+
+  /// A key of the OTHER kind is pending (a post may exist where the user now
+  /// asks to schedule, or the reverse). G6.
+  otherKind,
+
+  /// The pending key is older than its window, so the server may no longer
+  /// recognise it: we cannot tell whether the earlier send landed.
+  unconfirmed,
+}
+
+/// The answer of [DraftsRepository.claimSend].
+@immutable
+class SendClaim {
+  const SendClaim.key(String this.key, {required this.reused})
+    : block = null,
+      pendingKind = null;
+  const SendClaim.blocked(SendBlock this.block, {this.pendingKind})
+    : key = null,
+      reused = false;
+
+  /// The idempotency key to send under; null when [block] is set.
+  final String? key;
+
+  /// The key was already stored by an earlier send of this draft (so that
+  /// send may have landed), as opposed to freshly minted now.
+  final bool reused;
+  final SendBlock? block;
+
+  /// For [SendBlock.otherKind]: the kind that is pending.
+  final SendKind? pendingKind;
+
+  bool get isBlocked => block != null;
+}
+
+/// How long a stored `post` key is reused: CreatePost's idempotency record
+/// lives 24 h, so the client stops an hour early (ADR-0029 A4).
+const kPostSendKeyWindow = Duration(hours: 23);
+
+/// A scheduled item keeps its key for 7 days after it reaches a terminal
+/// state (ADR-0029 A4); the window ends that long after its publish time.
+const kScheduleSendKeyAfterPublish = Duration(days: 7);
 
 /// The only reader and writer of unsent posts on this device (ADR-0029, W6-14).
 /// Drafts live in `ComposerDraftEntries`: every query is filtered by uid, the
@@ -86,7 +139,10 @@ class DraftsRepository {
         (t) => OrderingTerm.desc(t.updatedAt),
         (t) => OrderingTerm.desc(t.draftId),
       ]);
-    return query.watch().map((rows) => rows.map(_fromRow).toList());
+    return query.watch().map((rows) {
+      _seen.addAll(rows.map((r) => r.draftId));
+      return rows.map(_fromRow).toList();
+    });
   }
 
   /// One draft of [uid], or null (also null for another account's id).
@@ -100,6 +156,7 @@ class DraftsRepository {
                   t.updatedAt.isBiggerThanValue(cutoff),
             ))
             .getSingleOrNull();
+    if (row != null) _seen.add(draftId);
     return row == null ? null : _fromRow(row);
   }
 
@@ -155,12 +212,125 @@ class DraftsRepository {
     )..where((t) => t.uid.equals(uid))).go();
   }
 
+  /// Ids this instance has read, listed or written. A missing row whose id is
+  /// in here was removed by someone else (another composer sent it, or it was
+  /// deleted); a missing row never seen is a draft that was not autosaved yet.
+  /// An id leaves the set only when its own empty content removes the row.
+  final Set<String> _seen = {};
+
+  /// Claims the idempotency key for one send of [draft] (W6-39, ADR-0029
+  /// Amendment 1 A4), in one local transaction, before the RPC leaves. 0 RPCs.
+  /// `updatedAt` is never touched (W6-45): a claim is not an edit.
+  ///
+  /// - Row present with a key of the same [kind] inside its window: that key
+  ///   comes back with `reused: true`, whatever the content now is. The
+  ///   server then replays (same body) or answers IDEMPOTENCY_KEY_REUSED
+  ///   (another body): either way it cannot create a second post. The start
+  ///   time is not refreshed, so the window runs from the first mint.
+  /// - Row present with no key (or [forceNew]): a fresh key is stored.
+  /// - Row present with a key of the other kind: [SendBlock.otherKind].
+  /// - Row present with an expired key: [SendBlock.unconfirmed].
+  /// - Row missing and its id seen by this instance: [SendBlock.rowGone]. A
+  ///   draft nobody has stored yet (a Post inside the autosave delay) is
+  ///   stored by the claim itself, with its key.
+  ///
+  /// [draft] must not be empty (an image-only post has no row to keep a key
+  /// on). [forceNew] mints a new key over a pending one: the user's explicit
+  /// "post this version too" / "send anyway".
+  Future<SendClaim> claimSend({
+    required ComposerDraft draft,
+    required SendKind kind,
+    required String Function() newKey,
+    DateTime? publishAt,
+    bool forceNew = false,
+  }) {
+    assert(!draft.isEmpty, 'an empty draft has no row to claim');
+    final db = _database;
+    final table = db.composerDraftEntries;
+    final epoch = db.sessionEpoch.value;
+    return db.transaction(() async {
+      Future<ComposerDraftRow?> lookup() =>
+          (db.select(table)..where(
+                (t) => t.uid.equals(draft.uid) & t.draftId.equals(draft.id),
+              ))
+              .getSingleOrNull();
+      var row = await lookup();
+      if (row == null) {
+        if (_seen.contains(draft.id)) {
+          return const SendClaim.blocked(SendBlock.rowGone);
+        }
+        await _write(draft, epoch);
+        row = await lookup();
+      }
+      final stored = row?.sendKey;
+      if (row != null && stored != null && !forceNew) {
+        final pending = row.sendKind == SendKind.schedule.name
+            ? SendKind.schedule
+            : SendKind.post;
+        if (pending != kind) {
+          return SendClaim.blocked(SendBlock.otherKind, pendingKind: pending);
+        }
+        if (_expired(row, pending)) {
+          return const SendClaim.blocked(SendBlock.unconfirmed);
+        }
+        _seen.add(draft.id);
+        return SendClaim.key(stored, reused: true);
+      }
+      final key = newKey();
+      if (row != null) {
+        _seen.add(draft.id);
+        await (db.update(table)..where(
+              (t) => t.uid.equals(draft.uid) & t.draftId.equals(draft.id),
+            ))
+            .write(
+              ComposerDraftEntriesCompanion(
+                sendKey: Value(key),
+                sendKind: Value(kind.name),
+                sendPublishAt: Value(publishAt?.toUtc()),
+                sendStartedAt: Value(_now()),
+              ),
+            );
+      }
+      return SendClaim.key(key, reused: false);
+    });
+  }
+
+  bool _expired(ComposerDraftRow row, SendKind kind) {
+    final now = _now();
+    final publishAt = row.sendPublishAt;
+    if (kind == SendKind.schedule && publishAt != null) {
+      return now.isAfter(publishAt.add(kScheduleSendKeyAfterPublish));
+    }
+    final started = row.sendStartedAt;
+    return started == null || now.difference(started) >= kPostSendKeyWindow;
+  }
+
+  /// Forgets the pending key [key] of a draft after an answer that proves no
+  /// post was created. Only a row still holding exactly [key] is changed, and
+  /// `updatedAt` is left alone. Safe to call for a row that is gone.
+  Future<void> clearSend(String uid, String draftId, String key) {
+    final table = _database.composerDraftEntries;
+    return (_database.update(table)..where(
+          (t) =>
+              t.uid.equals(uid) & t.draftId.equals(draftId) & t.sendKey.equals(key),
+        ))
+        .write(
+          const ComposerDraftEntriesCompanion(
+            sendKey: Value(null),
+            sendKind: Value(null),
+            sendPublishAt: Value(null),
+            sendStartedAt: Value(null),
+          ),
+        );
+  }
+
   Future<DraftSaveResult> _write(ComposerDraft draft, int epoch) {
     final db = _database;
     final table = db.composerDraftEntries;
     return db.transaction(() async {
       if (!db.sessionEpoch.allows(epoch)) return DraftSaveResult.skipped;
       if (draft.isEmpty) {
+        _seen.remove(draft.id);
         await (db.delete(table)..where(
               (t) => t.uid.equals(draft.uid) & t.draftId.equals(draft.id),
             ))
@@ -187,6 +357,7 @@ class DraftsRepository {
           existing.madeWithAi == draft.madeWithAi) {
         return DraftSaveResult.saved;
       }
+      _seen.add(draft.id);
       await db
           .into(table)
           .insertOnConflictUpdate(
