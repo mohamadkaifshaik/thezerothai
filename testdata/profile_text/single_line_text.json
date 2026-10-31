@@ -28,6 +28,7 @@
   {"name": "right-to-left mark", "raw": "a\u200fb", "why": "Cf"},
   {"name": "soft hyphen", "raw": "a\u00adb", "why": "Cf"},
   {"name": "tag character U+E0041", "raw": "a\udb40\udc41", "why": "Cf tag character"},
+  {"name": "England flag (tag sequence) is refused with the tag characters", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f", "why": "Cf tag characters; documented side effect of L-2"},
   {"name": "ZWJ alone", "raw": "\u200d", "why": "joiner with no neighbours"},
   {"name": "ZWJ at the start", "raw": "\u200da", "why": "joiner needs a rune on both sides"},
   {"name": "ZWJ at the end", "raw": "a\u200d", "why": "joiner needs a rune on both sides"},
