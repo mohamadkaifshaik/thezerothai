@@ -158,12 +158,6 @@ Future<void> bootstrap() async {
     gate: postsGate,
     rateLimitHold: rateLimitHold,
   );
-  final timelineRepository = TimelineRepository(
-    apiClient: apiClient,
-    store: timelineStore,
-    gate: postsGate,
-    rateLimitHold: rateLimitHold,
-  );
   // P4 media: gated by `GetMe.enabled_features` containing `media`; the PUT
   // to the signed URL uses its own bare HTTP client (no auth headers).
   final mediaRepository = MediaRepository(
@@ -259,6 +253,16 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     gate: listsGate,
     onListSeen: homeTabsRepository.noteListInfo,
+  );
+  // The list timeline (W5-12) goes through the same `lists` gate and feeds every
+  // list header it gets to the lists repository (detail header, Home tab title).
+  final timelineRepository = TimelineRepository(
+    apiClient: apiClient,
+    store: timelineStore,
+    gate: postsGate,
+    rateLimitHold: rateLimitHold,
+    listsGate: listsGate,
+    onListSeen: listsRepository.noteListInfo,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,

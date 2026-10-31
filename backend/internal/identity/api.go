@@ -56,6 +56,9 @@ type Profile struct {
 	Location       string
 	Website        string
 	PinnedPostID   string
+	// HomeTabsEnc is users/{uid}.homeTabs in a comparable, immutable form (Profile must stay comparable: UpdateProfile detects a
+	// no-op with ==). Read it with HomeTabs(); only HomeTabsAdapter writes it.
+	HomeTabsEnc string
 	// DeletionRequestedAt and DeletionJob are the account-deletion job state (ADR-0011): zero/nil for every live
 	// account, set together by DeleteAccount. Never serialized to clients or exports.
 	DeletionRequestedAt time.Time
@@ -81,6 +84,10 @@ type MeResult struct {
 	// UnreadConversationCount is the caller's unread direct-message conversations (ADR-0027 D10, W7-11), capped at 100 by
 	// the counter; 0 when messaging is off for the caller, when no MessageBadge is wired and when the count failed.
 	UnreadConversationCount int64
+	// HomeTabs is the caller's pinned Home tabs in order whose kind's flag is on for the caller (ADR-0030 D6, W5-9). Dangling tabs
+	// (list deleted or made private) are kept: GetMe adds no read, the client learns it from GetListTimeline. From the profile
+	// GetMe already read: 0 extra reads.
+	HomeTabs []HomeTab
 }
 
 // UpdateProfileParams carries only the fields the caller wants to change (nil = unchanged), matching the

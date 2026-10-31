@@ -251,6 +251,8 @@ type ListMembers struct {
 	Header    Header
 	Owner     identity.Profile
 	MemberIDs []string
+	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (W5-9; cache-first, 0 reads when the interceptor loaded the viewer).
+	PinnedByViewer bool
 }
 
 // Reader is the only way another module reads a list (ADR-0030 D1; timeline uses it, W5-8). Every method applies the D3

@@ -59,7 +59,12 @@ class TimelineFeedView extends StatefulWidget {
     this.fillViewport = false,
     this.pinControl,
     this.hideEmptyState = false,
+    this.unavailableView,
   });
+
+  /// What a feed the server calls NOT_FOUND shows (a private or deleted List,
+  /// `TimelineState.unavailable`). Null = a plain "unavailable" empty view.
+  final Widget? unavailableView;
 
   final String? viewerUserId;
   final String emptyTitle;
@@ -365,7 +370,20 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   ) {
     if (state.entries.isEmpty) {
       final Widget child;
-      if (state.status == TimelineStatus.error && state.error != null) {
+      if (state.unavailable) {
+        child =
+            widget.unavailableView ??
+            const AppEmptyView(
+              icon: Icons.dynamic_feed_outlined,
+              title: "This timeline is unavailable",
+            );
+      } else if (state.error is FeatureDisabledException) {
+        child = const AppEmptyView(
+          icon: Icons.dynamic_feed_outlined,
+          title: "This timeline isn't available yet",
+          subtitle: "Please try again in a little while.",
+        );
+      } else if (state.status == TimelineStatus.error && state.error != null) {
         child = AppErrorView(error: state.error!, onRetry: cubit.refresh);
       } else if (state.status == TimelineStatus.loading || state.refreshing) {
         child = const PostListSkeleton();

@@ -206,7 +206,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends":
+		"messages", "trends", "polls":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -215,8 +215,20 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	// the message to take down) are the first positional arguments. They come off before the flags are parsed, so --project
 	// and --dry-run may follow them.
 	sub, msgTarget := "", ""
-	if (cmd == "reports" || cmd == "messages" || cmd == "trends") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if (cmd == "reports" || cmd == "messages" || cmd == "trends" || cmd == "polls") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
+	}
+	if cmd == "polls" {
+		// `opsctl polls loghash POST_ID`: no Firestore, no project; the keyed post_hash of the VotePoll request line (needs CURSOR_HMAC_KEY).
+		if sub != "loghash" || len(rest) != 1 || strings.HasPrefix(rest[0], "-") {
+			fmt.Fprintf(errOut, "usage: opsctl polls loghash POST_ID\n%s", usage)
+			return 2
+		}
+		if err := postLogHash(rest[0], os.Getenv(cursorKeyEnv), out); err != nil {
+			fmt.Fprintln(errOut, err)
+			return 2
+		}
+		return 0
 	}
 	if cmd == "messages" && (sub == "takedown" || sub == "loghash") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		msgTarget, rest = rest[0], rest[1:]

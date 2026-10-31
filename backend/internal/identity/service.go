@@ -252,6 +252,7 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	}
 	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile)}
 	res.UnreadConversationCount = s.unreadConversations(ctx, uid, enabled)
+	res.HomeTabs = visibleHomeTabs(profile.HomeTabs(), enabled)
 	if n, ok := s.cache.GetUnreadCount(uid); ok {
 		res.UnreadNotificationCount = n
 		return res, nil

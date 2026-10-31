@@ -337,11 +337,11 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | In review |
 | W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | In review |
 | W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | In review (PR #518) |
-| W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | In review (PR #524) |
-| W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
+| W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Done (#524) |
+| W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | In review |
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Done (#517) |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
-| W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Open |
+| W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | In review (#527) |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Open |
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
@@ -599,7 +599,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** The merge stays behind the `timeline` interface; the opaque, versioned token. The Stage 2 fan-out replaces `homeSources` with no client change.
 - **Parallel with W3 Part A / W4:** new file; the `server.go` Deps and `tokens.go` bindings serialise with W3-9.
 
-### W5-9 — Home tabs  [owner: backend-developer] [size: M] [depends: W5-3, W5-7]  Status: Open
+### W5-9 — Home tabs  [owner: backend-developer] [size: M] [depends: W5-3, W5-7]  Status: In review
 - **Description.**
   - **SetHomeTabs(tabs)**, in timeline:
     - at most `HOME_TABS_MAX_PINNED`, no duplicates;
@@ -617,7 +617,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Given GetMe, then +0 reads.
 - **Test notes.** `budgettest` 7 / 1; the flag matrix; the export golden file; identity's existing GetMe tests are unchanged.
 - **Observability.** `timeline_op=set_home_tabs`, `tabs`, `fs_reads`, `fs_writes`.
-- **Budget.** ≤ 7 reads, 1 write.
+- **Budget.** Superseded by ADR-0030 D7 (idempotency on every mutation): worst 19 reads, typical 4, writes 2 (users field-level, idempotency); the same tabs under a new key 1 write; a replay 2 reads, 0 writes. The "same order again, 0 writes" criterion holds only for a replay of the same key. GetMe +0 reads.
+- **Implementation note (W5-9).** GetMe does not drop dangling tabs (proto and ADR D6: +0 reads; the client shows them unavailable and offers Unpin); it drops only tabs whose kind is off for the caller. `homeTabs` is a `userDoc` field so whole-document rewrites keep it; `Profile` carries it as the comparable string `HomeTabsEnc`. `pinned_by_viewer` (GetList and the GetListTimeline header) reads the viewer's tabs through `identity.Directory`.
 - **Flag.** `FEATURE_LISTS` or `FEATURE_COMMUNITIES` per entry.
 - **Seam.** `timeline.HomeTabsStore` (consumer-side), so storage can move (A4) without touching timeline callers.
 - **Parallel with W3 Part A / W4:** identity files after W3-6 (profile write) and W4-4 (`identity/api.go`).
@@ -662,7 +663,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** `ListsCubit` over `ListsRepository`; a shared `AppTileIcon` (default tile) goes in `app/lib/shared/widgets` and is reused by W5-31.
 - **Parallel with W3 Part A / W4:** shell nav files serialise with W4-17.
 
-### W5-12 — List detail  [owner: frontend-developer] [size: M] [depends: W5-10]  Status: Open
+### W5-12 — List detail  [owner: frontend-developer] [size: M] [depends: W5-10]  Status: Done (PR pending)
 - **Description.** `/lists/:id`:
   - a header with the name, description, owner row, "N members" (→ `/lists/:id/members`), Pin / Unpin to Home and, for the owner, Edit;
   - the list timeline as `TimelineFeedView` over a `TimelineCubit(FeedKey.list(id))` (pill, gaps, prefetch, `removed_ids`);
