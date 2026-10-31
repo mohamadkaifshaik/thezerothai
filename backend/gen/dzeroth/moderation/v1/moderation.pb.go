@@ -39,6 +39,13 @@ const (
 	// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
 	// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
 	ReportTargetType_REPORT_TARGET_TYPE_MESSAGE ReportTargetType = 3
+	// A list (ADR-0030, plan W5-44). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+	// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
+	// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
+	// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
+	// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
+	// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+	ReportTargetType_REPORT_TARGET_TYPE_LIST ReportTargetType = 4
 )
 
 // Enum value maps for ReportTargetType.
@@ -48,12 +55,14 @@ var (
 		1: "REPORT_TARGET_TYPE_POST",
 		2: "REPORT_TARGET_TYPE_ACCOUNT",
 		3: "REPORT_TARGET_TYPE_MESSAGE",
+		4: "REPORT_TARGET_TYPE_LIST",
 	}
 	ReportTargetType_value = map[string]int32{
 		"REPORT_TARGET_TYPE_UNSPECIFIED": 0,
 		"REPORT_TARGET_TYPE_POST":        1,
 		"REPORT_TARGET_TYPE_ACCOUNT":     2,
 		"REPORT_TARGET_TYPE_MESSAGE":     3,
+		"REPORT_TARGET_TYPE_LIST":        4,
 	}
 )
 
@@ -298,12 +307,13 @@ const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12)\n" +
-	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\x93\x01\n" +
+	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xb0\x01\n" +
 	"\x10ReportTargetType\x12\"\n" +
 	"\x1eREPORT_TARGET_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17REPORT_TARGET_TYPE_POST\x10\x01\x12\x1e\n" +
 	"\x1aREPORT_TARGET_TYPE_ACCOUNT\x10\x02\x12\x1e\n" +
-	"\x1aREPORT_TARGET_TYPE_MESSAGE\x10\x03*\xa3\x02\n" +
+	"\x1aREPORT_TARGET_TYPE_MESSAGE\x10\x03\x12\x1b\n" +
+	"\x17REPORT_TARGET_TYPE_LIST\x10\x04*\xa3\x02\n" +
 	"\fReportReason\x12\x1d\n" +
 	"\x19REPORT_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12REPORT_REASON_SPAM\x10\x01\x12\x1c\n" +

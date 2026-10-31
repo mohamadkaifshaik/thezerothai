@@ -1039,14 +1039,20 @@ func (x *ListLikedPostsResponse) GetNextPageToken() string {
 
 type VotePollRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per (post, choice) intent.
+	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per tap (ADR-0029 Amendment 1 A2.2): reuse it
+	// only to retry that tap, and use a new key for every new tap.
 	IdempotencyKey string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	// The post with the poll; a REPOST id votes in its original.
 	PostId string `protobuf:"bytes,2,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// 0-based index into Poll.choices.
-	ChoiceIndex   int32 `protobuf:"varint,3,opt,name=choice_index,json=choiceIndex,proto3" json:"choice_index,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ChoiceIndex int32 `protobuf:"varint,3,opt,name=choice_index,json=choiceIndex,proto3" json:"choice_index,omitempty"`
+	// Compare-and-set for a vote change (ADR-0029 Amendment 1 A2.2). 0 = "I hold no vote, as far as I know"; 1-4 = the
+	// caller's current vote as choice index + 1, i.e. the viewer_poll_choice the client is rendering. A change to another
+	// choice applies only when this equals the stored vote; otherwise ALREADY_VOTED. Older clients send 0 and keep the
+	// behaviour before the amendment.
+	ExpectedChoice int32 `protobuf:"varint,4,opt,name=expected_choice,json=expectedChoice,proto3" json:"expected_choice,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *VotePollRequest) Reset() {
@@ -1096,6 +1102,13 @@ func (x *VotePollRequest) GetPostId() string {
 func (x *VotePollRequest) GetChoiceIndex() int32 {
 	if x != nil {
 		return x.ChoiceIndex
+	}
+	return 0
+}
+
+func (x *VotePollRequest) GetExpectedChoice() int32 {
+	if x != nil {
+		return x.ExpectedChoice
 	}
 	return 0
 }
@@ -1218,11 +1231,12 @@ const file_dzeroth_engagement_v1_engagement_proto_rawDesc = "" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"r\n" +
 	"\x16ListLikedPostsResponse\x120\n" +
 	"\x05posts\x18\x01 \x03(\v2\x1a.dzeroth.posts.v1.PostViewR\x05posts\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"v\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x9f\x01\n" +
 	"\x0fVotePollRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x17\n" +
 	"\apost_id\x18\x02 \x01(\tR\x06postId\x12!\n" +
-	"\fchoice_index\x18\x03 \x01(\x05R\vchoiceIndex\"B\n" +
+	"\fchoice_index\x18\x03 \x01(\x05R\vchoiceIndex\x12'\n" +
+	"\x0fexpected_choice\x18\x04 \x01(\x05R\x0eexpectedChoice\"B\n" +
 	"\x10VotePollResponse\x12.\n" +
 	"\x04post\x18\x01 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x04post2\xb0\a\n" +
 	"\x11EngagementService\x12[\n" +
