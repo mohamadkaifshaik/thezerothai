@@ -31,7 +31,9 @@ String listsErrorMessage(AppException error) {
       'Dzeroth is in a limited mode right now. Please try again shortly.',
     NetworkException() => 'No connection. Check your network and try again.',
     NotFoundException() => 'This List is unavailable.',
-    ValidationException() => 'Check the name and description, then try again.',
+    ValidationException() =>
+      'Check the name and description (one line, with a visible character), '
+          'then try again.',
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',
     _ => 'Something went wrong. Please try again.',
