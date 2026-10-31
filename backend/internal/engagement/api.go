@@ -73,6 +73,8 @@ type UserLikes struct {
 	RecentReposts []string
 	// Bookmarks is the complete set of the user's bookmarked post ids (ADR-0023 D3), at most the per-user cap.
 	Bookmarks []string
+	// PollVotes are the entries "<postId>:<index>" of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll (W6-7).
+	PollVotes []string
 }
 
 // Repo is the storage seam service.go depends on; repo_firestore.go implements it, tests use a fake.
