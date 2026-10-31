@@ -24,6 +24,19 @@ class FakeDraftsRepository implements DraftsRepository {
     _changes.add(null);
   }
 
+  /// The uids [purgeExpired] was called with, in order.
+  final List<String> purged = [];
+
+  @override
+  Future<int> purgeExpired(String uid) async {
+    purged.add(uid);
+    final cutoff = DateTime.now().subtract(kDraftExpiry);
+    final before = rows.length;
+    rows.removeWhere((d) => d.uid == uid && !d.updatedAt.isAfter(cutoff));
+    if (rows.length != before) _changes.add(null);
+    return before - rows.length;
+  }
+
   @override
   Future<void> delete(String uid, Iterable<String> ids) async {
     final set = ids.toSet();

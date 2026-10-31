@@ -163,7 +163,7 @@ func TestCreateList_Integration_Budget(t *testing.T) {
 	}
 }
 
-// A replay returns the stored header with 1 read (2 with the interceptor) and 0 writes, and creates no second list. The same
+// A replay returns the list's current header with 2 reads (the idempotency record, then the list; 3 with the interceptor, W5-45 / L-3) and 0 writes, and creates no second list. The same
 // key with another body is IDEMPOTENCY_KEY_REUSED with 0 writes.
 func TestCreateList_Integration_Replay(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
@@ -172,15 +172,15 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var replay View
-	c := measured(t, "CreateList replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	c := measured(t, "CreateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
 		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		replay = v
 	})
-	if c.Writes() != 0 || c.Reads() != 1 {
-		t.Errorf("replay reads/writes = %d/%d, want 1/0", c.Reads(), c.Writes())
+	if c.Writes() != 0 || c.Reads() != 2 {
+		t.Errorf("replay reads/writes = %d/%d, want 2/0", c.Reads(), c.Writes())
 	}
 	if replay.Header != first.Header {
 		t.Errorf("replay header = %+v, want %+v", replay.Header, first.Header)
@@ -355,14 +355,14 @@ func TestUpdateList_Integration(t *testing.T) {
 		t.Errorf("unchanged update wrote %d, want 1 (the idempotency document)", c.Writes())
 	}
 
-	// Replay: stored header, 1 read, 0 writes, even though the list changed since.
+	// Replay: the list as it is now (W5-45 / L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(3), ListID: id, Name: ptr("Third")}); err != nil {
 		t.Fatal(err)
 	}
-	c = measured(t, "UpdateList replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	c = measured(t, "UpdateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
 		rv, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
-		if err != nil || rv.Header.Name != "New name" {
-			t.Errorf("replay = %+v, %v, want the stored outcome", rv.Header, err)
+		if err != nil || rv.Header.Name != "Third" {
+			t.Errorf("replay = %+v, %v, want the current header", rv.Header, err)
 		}
 	})
 	if c.Writes() != 0 {

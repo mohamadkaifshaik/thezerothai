@@ -294,6 +294,10 @@ class _AppWidgetState extends State<AppWidget> {
     unawaited(_themeMode.load());
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
+      if (state.user?.uid != _purgedDraftsUid) {
+        _purgedDraftsUid = state.user?.uid;
+        _purgeExpiredDrafts(_purgedDraftsUid);
+      }
       // One path for a sign-out and a direct A to B switch (the auth stream
       // goes A to B with no unauthenticated state in between).
       final previousUid = _accountUid;
@@ -304,6 +308,8 @@ class _AppWidgetState extends State<AppWidget> {
       }
     });
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
+    _purgedDraftsUid = widget.authBloc.state.user?.uid;
+    _purgeExpiredDrafts(_purgedDraftsUid);
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
     widget.pushCubit.onForeground = _onForegroundPush;
     widget.pushCubit.onMessagePush = _onMessagePush;
@@ -312,6 +318,18 @@ class _AppWidgetState extends State<AppWidget> {
     // own: the badge costs 0 extra reads.
     _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
     _onOnboarding(widget.onboardingBloc.state);
+  }
+
+  /// The user whose expired drafts were last purged (W6-45).
+  String? _purgedDraftsUid;
+
+  /// Removes [uid]'s drafts more than 30 days past their last edit, on app
+  /// start and after sign-in. Local, 0 RPCs, whatever the `drafts` flag says;
+  /// only that uid's rows. A failure is not worth a message: the reads filter
+  /// expired rows anyway.
+  void _purgeExpiredDrafts(String? uid) {
+    if (uid == null || uid.isEmpty) return;
+    unawaited(_drafts.purgeExpired(uid).then<void>((_) {}, onError: (_) {}));
   }
 
   /// A push arrived in the foreground: bump the badge, unless the list is

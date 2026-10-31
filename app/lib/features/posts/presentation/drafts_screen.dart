@@ -28,6 +28,12 @@ const kDraftsEmptyBody =
     'Save a post from the composer and it will wait here, on this device, '
     'until you send it.';
 
+/// Retention note on the Unsent tab (W6-45, L-5): drafts are device-local and
+/// expire 30 days after the last edit (`kDraftExpiry`). Scheduled posts are
+/// server-side, not drafts, and are not affected.
+const kDraftsRetentionNote =
+    'Unsent posts are kept on this device for 30 days after you last edit them.';
+
 /// Tab labels.
 const kDraftsTabUnsent = 'Unsent posts';
 const kDraftsTabScheduled = 'Scheduled';
@@ -211,6 +217,28 @@ class _DraftsViewState extends State<_DraftsView> {
   }
 }
 
+/// The 30-day note above the list.
+class _RetentionNote extends StatelessWidget {
+  const _RetentionNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      child: Text(
+        kDraftsRetentionNote,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
 class _UnsentTab extends StatelessWidget {
   const _UnsentTab({
     required this.now,
@@ -261,6 +289,7 @@ class _UnsentTab extends StatelessWidget {
             Expanded(
               child: CustomScrollView(
                 slivers: [
+                  const SliverToBoxAdapter(child: _RetentionNote()),
                   SliverList.builder(
                     itemCount: state.drafts.length,
                     findChildIndexCallback: (key) {
