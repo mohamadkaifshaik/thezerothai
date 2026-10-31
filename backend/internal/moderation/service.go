@@ -252,7 +252,7 @@ func (s *service) reportedMessage(ctx context.Context, uid, targetID string) (Re
 	case errors.Is(err, ErrMessageNotFound):
 		return ReportedMessage{}, messageNotFound()
 	case err != nil:
-		return ReportedMessage{}, logger.RedactErr(fmt.Errorf("moderation: load message: %w", err), uid, convID, msgID)
+		return ReportedMessage{}, logger.RedactErrKeyed(fmt.Errorf("moderation: load message: %w", err), []string{convID, msgID}, uid) // the conversation id is guessable from a uid pair: keyed hash, never the plain one (W7-34, L-7)
 	}
 	return m, nil
 }

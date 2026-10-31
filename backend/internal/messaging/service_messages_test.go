@@ -444,7 +444,7 @@ func TestListMessages_ErrorsAndLogs(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for k, want := range map[string]any{fieldKind: kindListMessages, fieldPoll: false, fieldResults: int(3), fieldCacheHit: false, fieldConvHash: logger.HashUID(aliceBobConv)} {
+		for k, want := range map[string]any{fieldKind: kindListMessages, fieldPoll: false, fieldResults: int(3), fieldCacheHit: false, fieldConvHash: logger.HashConversation(aliceBobConv)} {
 			if v, _ := info.Get(k); fmt.Sprint(v) != fmt.Sprint(want) {
 				t.Errorf("%s = %v, want %v", k, v, want)
 			}

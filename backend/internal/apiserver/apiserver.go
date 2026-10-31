@@ -52,6 +52,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/httpcors"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpublish"
@@ -389,12 +390,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			MaxMembers: cfg.Lists.MaxMembers, AddsPerDay: int64(cfg.Quota.ListAddsPerDay), NewAccountAddsPerDay: int64(cfg.Quota.NewAccountListAddsPerDay),
 		},
 	})
+	listsReader := listsSvc.(lists.Reader)
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
-		Removals:  removals,
+		Removals: removals, Lists: listsReader,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	}, timeline.WithProtectedAuthors(protectedAuthors), // ADR-0025 D4 (W3-30)
-		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsSvc.(lists.Reader), Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned})) // ADR-0030 D6 (W5-9)
+		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned})) // ADR-0030 D6 (W5-9)
 
 	// ADR-0028 D3 (W4-7): SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
 	// block test is the held graph snapshot, 0 reads), exactly as the timelines do.
@@ -574,6 +576,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return engagementv1connect.NewEngagementServiceHandler(engagementServer, o...)
 	})
 
+	// W7-34 (L-7): conversation_hash in logs and error lines is an HMAC keyed by an HKDF derivation of CURSOR_HMAC_KEY (no new
+	// secret), so a log holder cannot confirm a guessed uid pair against the plain hash. `opsctl messages loghash` reproduces it.
+	if len(cfg.CursorHMACKey) == 0 {
+		log.Warn("cursor key empty: conversation_hash uses a per-process random key")
+	} else if err := logger.SetConversationKey(cfg.CursorHMACKey); err != nil {
+		return nil, nil, fmt.Errorf("apiserver: conversation hash key: %w", err)
+	}
 	// Messaging (ADR-0027): SendMessage (W7-5) behind FEATURE_MESSAGING, per caller and per recipient; ListConversations (W7-7)
 	// is not globally off; the other three RPCs check the flag and answer Unimplemented until W7-8 and W7-9. Badge evicts identity's cached
 	// unread_conversation_count (W7-11); the push event is adapted to notifications.Emitter (a no-op until W7-10 adds the type).

@@ -200,9 +200,10 @@ Accounts: **A** = @disha, **B** = @hello1, **C** = @fan_of_ur_s. Three browser p
 ```
 B:  resource.type="cloud_run_revision" AND resource.labels.service_name="api"
 ```
-Request lines are `jsonPayload.message="request"` with `rpc`, `kind`, `state`, `refused_reason`, `limit_name`, `results`, `conversation_hash`, `uid_hash`, `fs_reads`, `fs_writes`. `uid_hash` and `conversation_hash` are the first 16 hex characters of sha256 of the uid / the conversation id, so you can find your own testers without any uid in the log:
+Request lines are `jsonPayload.message="request"` with `rpc`, `kind`, `state`, `refused_reason`, `limit_name`, `results`, `conversation_hash`, `uid_hash`, `fs_reads`, `fs_writes`. `uid_hash` is the first 16 hex characters of sha256 of the uid; since W7-34 `conversation_hash` is **not** sha256 of the conversation id but a keyed HMAC of it (the plain hash of a guessable id would confirm a guessed uid pair), so you can find your own testers without any uid in the log, and the conversation with `opsctl messages loghash`:
 ```bash
-h16() { printf '%s' "$1" | sha256sum | cut -c1-16; }     # h16 "<uid>" ; the conversation id is the 32-hex tail of the /messages/<id> URL
+h16() { printf '%s' "$1" | sha256sum | cut -c1-16; }     # h16 "<uid>": uid_hash only (NOT conversation_hash)
+hconv() { (cd C:/Users/skmk1/Documents/google-claude-project/project/thezerothai/backend && GOWORK=off CURSOR_HMAC_KEY=$(gcloud secrets versions access latest --secret=cursor-hmac-key --project=dzeroth-dev | tr -d '\r') go run ./cmd/opsctl messages loghash "$1" | tr -d '\r'); }   # hconv "<convId>": the 32-hex tail of the /messages/<id> URL; the dev API's key, the secret version that was live when the lines were written
 lg() { gcloud logging read "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND $1" --project=dzeroth-dev --freshness="${2:-30m}" --limit=60 --format=json \
   | jq -c '.[] | {t: .timestamp[11:23], rpc: ((.jsonPayload.rpc // .jsonPayload.message // "") | split("/")[-1]), kind: .jsonPayload.kind, state: .jsonPayload.state, refused: .jsonPayload.refused_reason, limit: .jsonPayload.limit_name, results: .jsonPayload.results, reads: .jsonPayload.fs_reads, writes: .jsonPayload.fs_writes, status: .httpRequest.status}' | tr -d '\r'; }
 # e.g. lg 'jsonPayload.kind="send"'
@@ -239,13 +240,13 @@ The owed state is recorded in 10.1. If you use alternative (c) (delete C itself)
 
 **Run it.** B on **web**, signed in, the thread with A open and visible the whole time (so the poller is hot, 15 s). A sends **about 20** messages (any client; keep A's own thread otherwise untouched) at **random offsets, uniform 0 to 30 s apart** so the sends are not phase-locked to B's poll (a coin flip on a timer app or `shuf -i 0-30 -n 1` is enough). Do not touch B's tab. Note the start and end time. Cost to dev: about 20 sends x 10 reads plus 20 minutes of polls (80 x 1.4), under 400 reads. An **Android** push-triggered pull is a separate number (not the trigger): note the time from the send to the message on screen on the handset for a few sends.
 
-**Compute it** (fresh logs, run right after; `CONV` is the 32-hex id from the `/messages/<id>` URL, A and B are the testers' uids kept in the shell):
+**Compute it** (fresh logs, run right after; `conversation_hash` is keyed since W7-34, so `hconv` needs `gcloud secrets` access to the dev `cursor-hmac-key`, and a rotation of that secret changes the hash of older lines; `CONV` is the 32-hex id from the `/messages/<id>` URL, A and B are the testers' uids kept in the shell):
 ```bash
 TF=C:/Users/skmk1/Documents/google-claude-project/project/thezerothai/infra/terraform/envs/dev/terraform.tfvars
 ALL=$(grep -E '^feature_messaging_allowlist[[:space:]]*=' "$TF" | sed -E 's/^[^"]*"([^"]*)".*/\1/' | tr -d '\r')
 UID_A=$(printf '%s' "$ALL" | cut -d, -f1); UID_B=$(printf '%s' "$ALL" | cut -d, -f2)     # whichever two of the three you used as sender (A) and reader (B); never echoed
 CONV_ID=<the 32 hex characters at the end of the /messages/<id> URL>
-HA=$(h16 "$UID_A"); HB=$(h16 "$UID_B"); HC=$(h16 "$CONV_ID")       # `h16` from section 6; HC = conversation_hash
+HA=$(h16 "$UID_A"); HB=$(h16 "$UID_B"); HC=$(hconv "$CONV_ID")       # `h16` and `hconv` from section 6; HC = conversation_hash (keyed, W7-34; it needs gcloud access to the dev `cursor-hmac-key`)
 cat > "$LOCALAPPDATA/Temp/w7-p95.jq" <<'EOF'
 def t: .timestamp | sub("Z$"; "") | split(".") | ((.[0] + "Z" | fromdateiso8601) + (("0." + (.[1] // "0")) | tonumber));
 def r: . * 10 | round / 10;

@@ -17,6 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 var (
@@ -234,6 +235,10 @@ func TestReport_MessageInfrastructureErrorsAreRedacted(t *testing.T) {
 		if strings.Contains(err.Error(), secret) {
 			t.Errorf("error leaks %q: %v", secret, err)
 		}
+	}
+	// W7-34 (L-7): the conversation id is guessable from a uid pair, so its plain SHA-256 must not stand in for it either.
+	if got := err.Error(); strings.Contains(got, logger.HashUID(okConv)) || !strings.Contains(got, logger.HashConversation(okConv)) {
+		t.Errorf("error %q must carry the keyed conversation hash %q and not the plain one %q", got, logger.HashConversation(okConv), logger.HashUID(okConv))
 	}
 }
 

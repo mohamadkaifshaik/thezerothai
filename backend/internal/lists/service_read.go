@@ -186,7 +186,7 @@ func (s *service) Members(ctx context.Context, viewer, listID string) (ListMembe
 	}
 	h := a.list.header()
 	h.MemberCount = len(kept)
-	return ListMembers{Header: h, Owner: a.owner, MemberIDs: kept}, nil
+	return ListMembers{Header: h, Owner: a.owner, MemberIDs: kept, PinnedByViewer: s.pinned(ctx, viewer, listID)}, nil
 }
 
 // OwnedBy implements Reader: one uncached query of at most LISTS_MAX_PER_USER lists.
