@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-10-07 (retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07;
+<!-- Draft — last updated 2026-10-31 (Polls, Drafts and Lists sections: W6-46, founder approval of the text required;
+     retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07;
      any new entry needs an ADR-0011 amendment and an update here in the same PR) -->
 <!--
   MAINTAINERS: this policy is still a DRAFT. Do not remove the Draft marker until ALL of these are resolved:
@@ -17,6 +18,14 @@
      (accepted/incorporated), and re-check the links.
   9. Graph rollout decision (FEATURE_GRAPH stage) and deploy this policy before any real user is allowlisted.
   10. In-app deletion/export are not built; store submission needs them. No dates promised here on purpose.
+  11. Polls, Drafts and Lists (W6-46, 2026-10-31). The drafts "Deleting your account" bullet describes the app before
+      W6-31 (drafts on shared devices): re-check it, and the "only things that can outlast" sentence below, when W6-31
+      lands. The poll retention bullet assumes the `poll_votes_expire_at` TTL policy is applied and the
+      daily-maintenance Scheduler job runs in the project (both before FEATURE_POLLS leaves off there). Vote changes
+      and the voter-blocks-author rule ship in W6-36 (#555). The poll-vote and list sentences about export and
+      deletion are true of the in-app path (RequestAccountExport / DeleteAccount, steps and sections `poll_votes` and
+      `lists`); the manual path in docs/runbooks/account-deletion.md sections 3a and 3b covers neither, so
+      FEATURE_ACCOUNT_LIFECYCLE must be on in prod (or that runbook extended) before polls or lists leave off there.
 -->
 <html lang="en">
 <head>
@@ -106,7 +115,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>Dzeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 7 October 2026</p>
+    <p class="updated">Last updated: 31 October 2026</p>
 
     <p>
       Dzeroth ("Dzeroth", "we", "us") is a text-first social app at
@@ -163,10 +172,18 @@
         first.
       </li>
       <li>
+        <strong>Poll votes and lists.</strong> If you vote in a poll, we
+        store your choice with your account. If you make a list, we store
+        its name, its description, whether it is private and which accounts
+        are on it. The "Polls" and "Lists" sections below explain who can
+        see this and how long we keep it.
+      </li>
+      <li>
         <strong>On your device.</strong> Your browser or phone keeps your
         sign-in session and a local cache of your profile and social graph,
-        so the app loads faster. We do not use advertising or analytics
-        cookies.
+        so the app loads faster. Drafts of posts you haven't sent are also
+        kept only on your device (see "Drafts" below). We do not use
+        advertising or analytics cookies.
       </li>
       <li>
         <strong>Technical data.</strong> Our servers keep operational logs
@@ -213,6 +230,138 @@
         can never work out they've been blocked. For example, they will
         notice that any follow between you disappeared, and that your
         profile no longer loads for them.
+      </li>
+    </ul>
+
+    <h2>Polls</h2>
+    <ul>
+      <li>
+        <strong>Your vote is stored with your account.</strong> When you
+        vote in a poll, we store your choice and when you voted. If you
+        change your vote, we also store when you last changed it and how
+        many times you have changed it. This lets us count one vote per
+        account, show you your own vote and let you change it.
+      </li>
+      <li>
+        <strong>Individual choices are hidden from other users.</strong> No
+        other user, including the person who made the poll, can see which
+        choice you picked or a list of who voted. Anyone who can see the
+        poll sees the total number of votes. While the poll is open, the
+        number of votes for each choice is shown to the person who made it
+        and to people who have voted (and to everyone if we pause voting on
+        polls). Once it closes, everyone who can see the poll can see them.
+      </li>
+      <li>
+        <strong>Small polls can give a vote away.</strong> On a poll with
+        only a few votes, or when someone changes their vote, a change in
+        the counts can let someone who is watching work out how a
+        particular person voted, for example if they know that person has
+        just voted.
+      </li>
+      <li>
+        <strong>Changing your vote.</strong> You can change your vote while
+        the poll is open, up to a limited number of times. We keep only your
+        current choice, not the ones you picked before. Once the poll has
+        closed, votes can't be cast or changed.
+      </li>
+      <li>
+        <strong>Blocking.</strong> If you block the person who made a poll,
+        or they block you, you can't vote in their polls or change your
+        vote. A vote you cast before the block is kept and still counts.
+      </li>
+      <li>
+        <strong>How long we keep your vote.</strong> Until 30 days after the
+        poll closes. After that it is deleted, usually within a day (apart
+        from the database backups described below). If you delete your
+        account, your votes are deleted with it; the poll's totals still
+        include your vote, but nothing links it to you.
+      </li>
+      <li>
+        <strong>Your export.</strong> Your data export lists the poll votes
+        we still hold: which poll, your choice, when you voted and, if you
+        changed it, when you last did.
+      </li>
+      <li>
+        <strong>No polls about sensitive personal information.</strong>
+        Polls must not ask people for sensitive personal information, such
+        as health, religion or beliefs, political opinions, sex life or
+        sexual orientation, ethnicity, union membership, or genetic or
+        biometric data. See our
+        <a href="/rules.html#polls">community rules</a>.
+      </li>
+    </ul>
+
+    <h2>Drafts</h2>
+    <ul>
+      <li>
+        <strong>Drafts stay on your device.</strong> A draft is a post you
+        have started but not sent, saved by you or automatically while you
+        write. It is stored only on the device where you wrote it: in the
+        app's storage, or in your browser's storage if you use the website.
+        A draft keeps the text, any poll choices, who can reply and any
+        labels you chose; photos and GIFs are never saved in a draft.
+        Drafts are not sent to us until you post or schedule them, so we
+        can't see or recover them and they are not part of your data
+        export.
+      </li>
+      <li>
+        <strong>Signing out.</strong> Drafts stay on the device when you
+        sign out, so they are still there when you sign back in. Other
+        accounts used on that device can't see them in the app, but someone
+        with access to the device or browser could read them with technical
+        tools. On a shared device, delete your drafts before you sign out.
+      </li>
+      <li>
+        <strong>30-day limit.</strong> A draft you haven't edited for 30
+        days is no longer shown, and it is deleted from that device the
+        next time you open the app (or your drafts) there while signed in to
+        that account.
+      </li>
+      <li>
+        <strong>Deleting your account.</strong> When you delete your account
+        in the app, the account's drafts on that device are deleted at the
+        same time. Drafts on your other devices are not deleted
+        automatically, and neither are drafts on any device if your account
+        is deleted some other way (for example after an email request). To
+        remove them, delete them in Drafts on that device before you delete
+        your account, or clear the app's data or the browser's site data
+        there.
+      </li>
+    </ul>
+
+    <h2>Lists</h2>
+    <ul>
+      <li>
+        <strong>Your lists.</strong> If you make a list, we store its name,
+        its description, whether it is private and which accounts are on
+        it. A new list is private unless you choose to make it public. Only
+        you can see a private list.
+      </li>
+      <li>
+        <strong>Public lists.</strong> Other signed-in users can see your
+        public lists, including their names, descriptions and members,
+        except people you have blocked. If your account is protected, your
+        lists (public ones included) are visible only to you and the
+        followers you have approved.
+      </li>
+      <li>
+        <strong>Being added to a list.</strong> People aren't told when they
+        are added to a list. Someone can add you only if neither of you has
+        blocked the other and, if your account is protected, only if they
+        are a follower you have approved. If your account is protected,
+        your posts show up in someone's list only for people you have
+        approved.
+      </li>
+      <li>
+        <strong>Your export.</strong> Your data export includes the lists
+        you made, with their name, description, privacy setting and the
+        account IDs of their members. It also covers lists made by other
+        people that include you. A public list is shown with its name and
+        its owner's handle. Every other list that includes you is only
+        counted, with no name, owner or other members: private lists, lists
+        we have hidden for breaking our rules, lists of a protected account
+        you don't follow, and lists whose owner's account is no longer
+        active.
       </li>
     </ul>
 
@@ -271,9 +420,10 @@
 
     <h2>Where your data is stored</h2>
     <p>
-      Your profile and social graph are stored in Google Cloud's
-      <strong>Mumbai (asia-south1)</strong> region, and our servers run there
-      too. Sign-in records are held by Firebase Authentication, which does not
+      Your profile, social graph, poll votes and lists are stored in Google
+      Cloud's <strong>Mumbai (asia-south1)</strong> region, and our servers
+      run there too. Drafts stay on your device. Sign-in records are held by
+      Firebase Authentication, which does not
       let us choose a region. Google may process them in other countries. When
       image uploads ship, images will be stored in the
       <strong>United States</strong>, because that's where Google Cloud's free
@@ -285,6 +435,9 @@
     <ul>
       <li>Account and profile data: for as long as your account exists.</li>
       <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
+      <li>Poll votes: until 30 days after the poll closes, then usually deleted within a day; sooner if you delete your account. See "Polls" above.</li>
+      <li>Lists you make: until you delete them or your account.</li>
+      <li>Drafts: only on your device. See "Drafts" above for when they are deleted.</li>
       <li>Server logs: kept for about 30 days (Google Cloud Logging's default), then deleted.</li>
       <li>Database backups: weekly, each kept for 14 days, then deleted.</li>
       <li>Mail to privacy@dzeroth.com: kept in the founder's Gmail inbox. We have not set a fixed retention period for these emails yet.</li>
@@ -296,7 +449,7 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. We prepare it by hand with an internal tool (there is no in-app export yet) and send it to the email address on the account.</li>
+      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. It also includes your poll votes, the lists you made and the lists made by other people that include you, as described in "Polls" and "Lists" above; drafts are not included, because they are kept only on your device. We prepare it by hand with an internal tool (there is no in-app export yet) and send it to the email address on the account.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
@@ -312,7 +465,10 @@
       follows and followers, your blocked and muted lists, any data exports
       you requested and your daily limit counters. You are also removed from
       other people's follower, following and block lists, and their counts
-      are corrected. Once deletion starts it can't be undone. Your sign-in
+      are corrected. We also delete your poll votes and the lists you made,
+      and remove you from lists made by other people. Drafts are kept on
+      your devices, not by us (see "Drafts" above). Once deletion starts it
+      can't be undone. Your sign-in
       account is disabled within seconds, and for a typical account the rest
       is done within minutes.
     </p>
