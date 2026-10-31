@@ -346,7 +346,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (#537) |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
-| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
+| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | In review (PR: docs/ui-w5-17-lists-security; report `docs/reviews/security-w5-lists.md`, SECURITY: CLEAR, 4 Medium) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Open |
 | W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
@@ -372,6 +372,13 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0028 merged | serialise dev applies | Open |
+| W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Open (gate: before percent) |
+| W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer | yes | Open (gate: before percent) |
+| W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Open (gate: before the prod release containing #526 is promoted) |
+| W5-44 | *(W5-17 M-4)* opsctl `list hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | Open (gate: before percent) |
+| W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | Open (gate: before prod on) |
+| W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public, non-hidden lists naming the uid), if the founder says yes | backend-developer | S | founder answer | lifecycle export files serialise | Open (gate: before prod on) |
+| W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | Open |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).
@@ -764,7 +771,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: Open
+### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: In review (report `docs/reviews/security-w5-lists.md`)
 - **Description.** A threat model for:
   - private-list confidentiality (NOT_FOUND identity, caches keyed safely, the export);
   - id guessing;
