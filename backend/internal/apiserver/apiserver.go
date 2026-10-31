@@ -619,8 +619,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		search.WithTrends(trendsStore, nil),
 		// The denylist also applies at serve time (ADR-0028 note 2026-10-31), so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
-	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, featureFlags, search.RefresherConfig{
+	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
+		MinAccountAge: cfg.Search.TrendsMinAccountAge, MaxAuthorChecks: cfg.Search.TrendsMaxAuthorChecks,
 		Denylist: cfg.Search.TrendsDenylist, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
 	})
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
