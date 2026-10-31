@@ -30,15 +30,25 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_MESSAGE =
       ReportTargetType._(3, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_MESSAGE');
 
+  /// A list (ADR-0030, plan W5-44). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+  /// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
+  /// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
+  /// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
+  /// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
+  /// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+  static const ReportTargetType REPORT_TARGET_TYPE_LIST =
+      ReportTargetType._(4, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_LIST');
+
   static const $core.List<ReportTargetType> values = <ReportTargetType>[
     REPORT_TARGET_TYPE_UNSPECIFIED,
     REPORT_TARGET_TYPE_POST,
     REPORT_TARGET_TYPE_ACCOUNT,
     REPORT_TARGET_TYPE_MESSAGE,
+    REPORT_TARGET_TYPE_LIST,
   ];
 
   static final $core.List<ReportTargetType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 3);
+      $pb.ProtobufEnum.$_initByValueList(values, 4);
   static ReportTargetType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

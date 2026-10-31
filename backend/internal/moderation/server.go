@@ -39,8 +39,8 @@ func NewServer(svc Service, fc FlagChecker) *Server { return &Server{svc: svc, f
 var _ moderationv1connect.ModerationServiceHandler = (*Server)(nil)
 
 // ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads, when off). A MESSAGE report
-// also needs FEATURE_MESSAGING not globally off (guardMessaging, feature=messaging). Worst case reads and writes per
-// target are on Service.Report: MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
+// also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS (guardNotGloballyOff, feature=messaging or lists). Worst case reads and writes per
+// target are on Service.Report: LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
 func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderationv1.ReportContentRequest]) (*connect.Response[moderationv1.ReportContentResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -55,9 +55,10 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	}
 	m := req.Msg
 	targetType := targetTypeFromProto(m.GetTargetType())
-	if targetType == TargetMessage {
+	switch targetType {
+	case TargetMessage, TargetList:
 		// Before any work, so the exhausted-quota fast path (1 read) never runs for a switched-off feature.
-		if err := s.guardMessaging(ctx, uid); err != nil {
+		if err := s.guardNotGloballyOff(ctx, uid, secondFlag(targetType)); err != nil {
 			return nil, err
 		}
 	}
@@ -76,22 +77,31 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	return connect.NewResponse(&moderationv1.ReportContentResponse{ReportId: res.ReportID, AlreadyReported: res.AlreadyReported}), nil
 }
 
-// guardMessaging is the second flag gate of a MESSAGE report (ADR-0027 D6, F6): FEATURE_MESSAGING only has to be not
+// secondFlag is the feature a MESSAGE or LIST report needs besides `reports`.
+func secondFlag(t TargetType) string {
+	if t == TargetList {
+		return ListsFlagName
+	}
+	return MessagingFlagName
+}
+
+// guardNotGloballyOff is the second flag gate of a MESSAGE report (ADR-0027 D6, F6) and of a LIST report (plan W5-44): the
+// feature (messaging or lists) only has to be not
 // globally off, so a user dropped from the allowlist or percent bucket can still report what they received. A checker
 // without GloballyOff (posts.GloballyOffChecker) gets the stricter per-caller answer. Disabled is FAILED_PRECONDITION +
 // FEATURE_DISABLED with metadata feature=messaging, 0 reads.
-func (s *Server) guardMessaging(ctx context.Context, uid string) error {
-	on := s.flags != nil && s.flags.Enabled(uid, MessagingFlagName)
+func (s *Server) guardNotGloballyOff(ctx context.Context, uid, feature string) error {
+	on := s.flags != nil && s.flags.Enabled(uid, feature)
 	if g, ok := s.flags.(posts.GloballyOffChecker); ok {
-		on = !g.GloballyOff(MessagingFlagName)
+		on = !g.GloballyOff(feature)
 	}
 	if on {
 		return nil
 	}
 	logger.SetRequestField(ctx, "feature_disabled", true)
 	logger.SetRequestField(ctx, "outcome", "rejected:feature_disabled")
-	logger.SetRequestField(ctx, "feature", MessagingFlagName)
-	return flags.DisabledError().WithMeta("feature", MessagingFlagName)
+	logger.SetRequestField(ctx, "feature", feature)
+	return flags.DisabledError().WithMeta("feature", feature)
 }
 
 func targetTypeFromProto(t moderationv1.ReportTargetType) TargetType {
@@ -102,6 +112,8 @@ func targetTypeFromProto(t moderationv1.ReportTargetType) TargetType {
 		return TargetAccount
 	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_MESSAGE:
 		return TargetMessage
+	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_LIST:
+		return TargetList
 	}
 	return ""
 }
