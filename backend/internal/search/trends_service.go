@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	// trendsCacheTTL is the staleness bound of the per-instance copy of trends/current (ADR-0028 D4): 10 minutes after a
-	// refresh, so a tag is up to one sweep interval + 10 min old. At most one document read per instance per TTL.
+	// trendsCacheTTL is the staleness bound of the per-instance copy of the served list, loaded from trends/current and
+	// trends/hidden (ADR-0028 D4): 10 minutes after a refresh or a hide, so a tag is up to one sweep interval + 10 min old.
+	// At most one load (2 document reads) per instance per TTL.
 	trendsCacheTTL = 10 * time.Minute
 	// Limits of GetTrends (proto: 0 => 10, max 30, clamped) and of the prefix (ADR-0028 D1 step 7).
 	defaultTrendsLimit = 10

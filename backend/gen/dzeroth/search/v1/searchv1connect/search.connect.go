@@ -3,7 +3,7 @@
 // Source: dzeroth/search/v1/search.proto
 
 // Search, hashtag results and trends at Stage 0 (ADR-0028, W4). Owner module: backend/internal/search.
-// Collection owned: trends/current (tags and counts only, no uid). People come from identity
+// Collection owned: trends (trends/current: tags and counts; trends/hidden: the operator hide list; no uid). People come from identity
 // (Directory.SearchHandles over users.handleLower) and posts from posts.Reader.ByHashtag; search never queries another
 // module's collection directly. There is no search engine at Stage 0: people are found by handle prefix and posts by
 // one exact hashtag. Words in post text and display names are not searchable (ADR-0028 F2, F4; the Stage ladder names
