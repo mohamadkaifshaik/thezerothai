@@ -41,6 +41,9 @@ void main() {
       () => checkGifBytes(padded((1.8 * 1024 * 1024).round())),
       returnsNormally,
     );
+    final ok = prepareGifSync(padded((1.8 * 1024 * 1024).round()));
+    expect(ok.isGif, isTrue);
+    expect(ok.fullBytes.length, (1.8 * 1024 * 1024).round());
     expect(
       () => prepareGifSync(padded(3 * 1024 * 1024)),
       throwsA(

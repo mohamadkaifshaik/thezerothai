@@ -53,10 +53,7 @@ void main() {
           child: app!,
         ),
         home: Scaffold(
-          body: BlocProvider.value(
-            value: cubit,
-            child: const AttachmentGrid(),
-          ),
+          body: BlocProvider.value(value: cubit, child: const AttachmentGrid()),
         ),
       ),
     );

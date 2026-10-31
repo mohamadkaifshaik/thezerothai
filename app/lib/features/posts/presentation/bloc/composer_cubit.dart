@@ -10,6 +10,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
+import '../../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../../domain/posts_feature_flag.dart';
 import '../../domain/post_text_rules.dart';
 import '../../domain/reply_audience.dart';
@@ -345,6 +346,22 @@ class ComposerCubit extends Cubit<ComposerState> {
             'Photos are not available.',
             feature: kPostsSubFeatureMedia,
           ),
+        ),
+      );
+      return null;
+    }
+    // Likewise for a GIF once a CreatePost answered FEATURE_DISABLED `gif`
+    // (the gate remembers it): do not upload what cannot be posted.
+    if (attachments.state.hasGif &&
+        !_repository.subFeatureEnabled(kFeatureGif)) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          error: const FeatureDisabledException(
+            'GIFs are not available.',
+            feature: kFeatureGif,
+          ),
+          uploadFailed: true,
         ),
       );
       return null;
