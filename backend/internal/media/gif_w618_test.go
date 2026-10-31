@@ -206,7 +206,9 @@ func TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget(t *testing.T) {
 			if err != nil || len(sc.frames) != tt.frames {
 				t.Fatalf("fixture must pass the pre-scan at the limits: %v", err)
 			}
-			e := newEnv(t, envOpts{gifDecode: 20 * time.Second})
+			// The deadline is lifted far above production's 2 s: this test measures memory, and CI runs it under -race, which
+			// slows decoding several times (the worst case took about 30 s there with a 20 s limit and was REJECTED).
+			e := newEnv(t, envOpts{gifDecode: 5 * time.Minute})
 			tg := e.createGIFWith(t, uidA, "w", data)
 			runtime.GC()
 			var before, after runtime.MemStats
