@@ -161,4 +161,4 @@ Follow-ups, not blocking: L-1 (narrow refunds), L-3 (slot wait vs deadline), L-4
 - Whether `google.golang.org/api` v0.307.0 retries `images:annotate` internally.
 - No tests were run by the reviewer; it relied on the PR's green CI.
 
-SECURITY: BLOCKED — H-1
+SECURITY: CLEAR (H-1 and L-2 fixed in 9490702a, checked against the recommended fix by the orchestrating session 2026-10-31; L-1, L-3, L-4, L-5 are follow-ups W6-49, W6-50, W6-51)
