@@ -170,7 +170,8 @@ void main() {
   });
 
   test('NOT_FOUND is a typed NotFoundException', () async {
-    answer = (_) => connect.ConnectException(connect.Code.notFound, 'not found');
+    answer = (_) =>
+        connect.ConnectException(connect.Code.notFound, 'not found');
 
     await expectLater(repo.getList('1'), throwsA(isA<NotFoundException>()));
   });
@@ -237,5 +238,36 @@ void main() {
       throwsA(isA<FeatureDisabledException>()),
     );
     expect(repo.enabled, isFalse);
+  });
+
+  test('headers (W5-12): the latest ListInfo seen is kept, announced, and '
+      'forgotten on sign-out', () async {
+    final changes = <String>[];
+    final sub = repo.headerChanges.listen((l) => changes.add(l.name));
+    answer = (_) => pb.GetListResponse(list: info('9', name: 'One'));
+    await repo.getList('9');
+    repo.noteListInfo(info('9', name: 'Two'));
+
+    expect(repo.header('9')?.name, 'Two');
+    expect(changes, ['One', 'Two']);
+    expect(seen.map((l) => l.name), ['One', 'Two']);
+
+    repo.clearSession();
+    expect(repo.header('9'), isNull);
+    await sub.cancel();
+  });
+
+  test('listMembers follows empty pages that still have a token, at most '
+      'maxEmptyPages times, and only when asked', () async {
+    answer = (_) => pb.ListListMembersResponse(nextPageToken: 'more');
+
+    final plain = await repo.listMembers(listId: '1');
+    expect(plain.users, isEmpty);
+    expect(requests, hasLength(1));
+
+    requests.clear();
+    final capped = await repo.listMembers(listId: '1', maxEmptyPages: 5);
+    expect(requests, hasLength(6));
+    expect(capped.nextPageToken, 'more');
   });
 }
