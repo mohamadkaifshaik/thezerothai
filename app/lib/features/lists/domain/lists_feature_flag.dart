@@ -25,3 +25,12 @@ const kListAddsQuota = 'list_adds';
 
 /// HOME_TABS_MAX_PINNED: the most tabs a user can pin after Following.
 const kMaxPinnedHomeTabs = 5;
+
+/// The most Lists one owner can have (`LISTS_PER_USER`, server config). The
+/// server stays authoritative (LIMIT_REACHED `lists_per_user`); the client
+/// only uses it to disable Create with the reason before a wasted call.
+const kMaxListsPerUser = 20;
+
+/// Field limits of a List (the proto `max_len` rules, ADR-0030 D2).
+const kListNameMaxLength = 25;
+const kListDescriptionMaxLength = 100;
