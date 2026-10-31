@@ -46,7 +46,7 @@ type envOpts struct {
 	gifDecode    time.Duration
 	gifMaxFrames int
 	gifMaxArea   int64
-	maxAttempts  int // MEDIA_MAX_SCREEN_ATTEMPTS (0 = 3)
+	maxAttempts  int          // MEDIA_MAX_SCREEN_ATTEMPTS (0 = 3)
 	log          *slog.Logger // nil = the default logger
 }
 
