@@ -186,8 +186,9 @@ func TestW617_RedactionBytesIdentical(t *testing.T) {
 	}
 }
 
-// Every way a poll is out of reach answers one NOT_FOUND, byte for byte: a missing id, the author blocking the voter, the voter blocking
-// the author, a REPOST id of either, a taken-down post and a suspended author's post. Raw HTTP bodies, compared as strings.
+// Every way a poll is out of reach answers one NOT_FOUND, byte for byte: a missing id, the author blocking the voter (the voter blocking
+// the author is the other direction since W6-36: TARGET_BLOCKED, pinned at the end), a REPOST id of either, a taken-down post and a suspended
+// author's post. Raw HTTP bodies, compared as strings.
 func TestW617_NotFoundBytesIdentical(t *testing.T) {
 	e := newPollChain(t)
 	a, blockedByA, blocksA, plain, reposter := e.user(t), e.user(t), e.user(t), e.user(t), e.user(t)
@@ -243,14 +244,25 @@ func TestW617_NotFoundBytesIdentical(t *testing.T) {
 		t.Errorf("a refused vote changed the total to %d", total)
 	}
 
-	// The other direction is NOT hidden by design: a voter who blocked the author still sees the post (GetPost, Like and VotePoll share
-	// Viewable; only an author who blocks the caller hides it), so the vote is accepted. The plan ticket's "blocked either way" reads
-	// as NOT_FOUND both ways; the as-built behaviour follows ADR-0029 D6 step 4 ("visibility as GetPost"). Pinned here so a change is seen.
-	if g, err := e.posts.GetPost(ctx, authed(blocksA.token, &postsv1.GetPostRequest{PostId: pid})); err != nil || g.Msg.GetPost().GetPost().GetPostId() != pid {
+	// The other direction (W6-36, ADR-0029 Amendment 1 A1): the voter who blocked the author still SEES the post (GetPost shares Viewable; only
+	// an author who blocks the caller hides it), but cannot vote: FAILED_PRECONDITION TARGET_BLOCKED, 0 writes, and the poll view says so.
+	g, err := e.posts.GetPost(ctx, authed(blocksA.token, &postsv1.GetPostRequest{PostId: pid}))
+	if err != nil || g.Msg.GetPost().GetPost().GetPostId() != pid {
 		t.Fatalf("GetPost by a user who blocked the author = %v, %v", g, err)
 	}
-	if st, body := e.rawVote(t, blocksA, "w617-nf-key-blocker0001", pid, 0); st != http.StatusOK {
-		t.Errorf("vote by a user who blocked the author = %d %s, want 200 (same visibility as GetPost)", st, body)
+	if !g.Msg.GetPost().GetViewerPollVoteBlocked() || g.Msg.GetPost().GetPost().GetPoll().GetResultsVisible() {
+		t.Errorf("GetPost: viewer_poll_vote_blocked=%v results_visible=%v, want true and hidden results for a blocker who never voted",
+			g.Msg.GetPost().GetViewerPollVoteBlocked(), g.Msg.GetPost().GetPost().GetPoll().GetResultsVisible())
+	}
+	for i, by := range []string{repostID, pid} {
+		_, err := e.vote(blocksA, fmt.Sprintf("w617-nf-key-blocker%04d", i), by, 0)
+		assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
+	}
+	if n := e.voteDocs(t, pid); n != 0 {
+		t.Errorf("a TARGET_BLOCKED vote left %d vote docs", n)
+	}
+	if total, _ := e.counts(t, pid); total != 0 {
+		t.Errorf("a TARGET_BLOCKED vote changed the total to %d", total)
 	}
 }
 
@@ -438,7 +450,7 @@ func TestW617_NewAccountCap(t *testing.T) {
 // Many voters, each racing itself across choices, over two Build instances on one Firestore. Per voter exactly one call wins; the stored
 // counts equal the tally of vote docs; every userLikes.pollVotes holds the one stored entry; every answer agrees with the stored choice;
 // a cold instance's author view agrees with the store.
-func TestW617_ConcurrencyManyVotersRacingThemselves(t *testing.T) {
+func w617ConcurrencyArmA(t *testing.T) {
 	const voters = 60
 	e1 := newPollChain(t)
 	e2 := e1.another(t)
@@ -561,8 +573,10 @@ func TestW617_ConcurrencyManyVotersRacingThemselves(t *testing.T) {
 		for _, c := range got.GetChoices() {
 			sum += c.GetVotes()
 		}
-		if got.GetTotalVotes() < 1 || got.GetTotalVotes() > voters || sum != got.GetTotalVotes() {
-			t.Errorf("%s: cached author view total=%d choices sum=%d, want a self-consistent value in 1..%d", name, got.GetTotalVotes(), sum, voters)
+		// 0..voters, not 1..voters: an instance that cached the post before any vote, and saw no vote land locally (the winning calls went to
+		// the other instance), legitimately shows total 0 until the 60 s post-cache TTL expires (CI run 41202663587, instance 2).
+		if got.GetTotalVotes() < 0 || got.GetTotalVotes() > voters || sum != got.GetTotalVotes() {
+			t.Errorf("%s: cached author view total=%d choices sum=%d, want a self-consistent value in 0..%d", name, got.GetTotalVotes(), sum, voters)
 		}
 		t.Logf("%s: cached author view total %d of %d in the store (multi-instance lag, TTL-bounded)", name, got.GetTotalVotes(), voters)
 	}
@@ -715,6 +729,21 @@ func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
 	if rows != 1 {
 		t.Errorf("reposter's timeline has %d REPOST rows, want 1", rows)
 	}
+
+	// Vote changes (W6-36): expected_choice names the stored vote, so a change through the REPOST id lands on the original (one natural key).
+	// The old-client shape (expected_choice 0) is still ALREADY_VOTED.
+	changed, err := e.voteExpecting(voter, "w617-rp-vote-key-00003", repostID, 0, 3)
+	if err != nil || changed.GetPost().GetPostId() != pid || changed.GetViewerPollChoice() != 1 {
+		t.Fatalf("change through the REPOST id = %v, %v, want the original with viewer_poll_choice 1", changed, err)
+	}
+	if d, ok := voteDocFor(t, e, pid, voter.uid); !ok || d["choice"] != int64(0) || d["changes"] != int64(1) {
+		t.Errorf("vote doc after the change = %v, %v", d, ok)
+	}
+	if total, counts := e.counts(t, pid); total != 1 || counts["0"] != 1 || counts["2"] != 0 {
+		t.Errorf("after the change total=%d counts=%v, want one vote moved 2 -> 0", total, counts)
+	}
+	_, err = e.vote(voter, "w617-rp-vote-key-00004", repostID, 2)
+	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
 }
 
 // Polls add no Firestore read to the read path: GetPost and the user timeline cost the same reads for a poll post as for a plain post,

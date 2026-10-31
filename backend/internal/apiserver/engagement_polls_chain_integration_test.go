@@ -81,7 +81,12 @@ func (p *pollChain) poll(t *testing.T, author testUser) string {
 }
 
 func (p *pollChain) vote(u testUser, key, postID string, choice int32) (*postsv1.PostView, error) {
-	r, err := p.eng.VotePoll(context.Background(), authed(u.token, &engagementv1.VotePollRequest{IdempotencyKey: key, PostId: postID, ChoiceIndex: choice}))
+	return p.voteExpecting(u, key, postID, choice, 0)
+}
+
+// voteExpecting is vote with VotePollRequest.expected_choice (ADR-0029 Amendment 1 A2.2): 0 = no vote held, 1..4 = the held choice + 1.
+func (p *pollChain) voteExpecting(u testUser, key, postID string, choice, expected int32) (*postsv1.PostView, error) {
+	r, err := p.eng.VotePoll(context.Background(), authed(u.token, &engagementv1.VotePollRequest{IdempotencyKey: key, PostId: postID, ChoiceIndex: choice, ExpectedChoice: expected}))
 	if err != nil {
 		return nil, err
 	}

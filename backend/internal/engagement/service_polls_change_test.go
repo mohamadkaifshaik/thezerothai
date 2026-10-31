@@ -529,3 +529,70 @@ func TestVotePoll_ConcurrentChangeRace(t *testing.T) {
 		}
 	})
 }
+
+// The second arm of TestVotePoll_ReplayAndAlreadyVoted (A2.2): with the stored choice named, the "different choice" call is a change; with a stale
+// or absent expected_choice it is still ALREADY_VOTED. A replay of the new choice is free.
+func TestVotePoll_ReplayAndAlreadyVoted_ChangeArm(t *testing.T) {
+	e := newPollEnv(t)
+	if _, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 2, 0); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 0)
+	if ae := requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED); ae.Metadata["choice"] != "2" {
+		t.Fatalf("e=0: metadata %v", ae.Metadata)
+	}
+	_, err = e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 1) // stale: the stored vote is choice 2, not 0
+	requireReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
+	res, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 3) // names the stored vote
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i, ok := res.Viewer.PollChoice(res.Post); !ok || i != 0 || e.pr.writes != 1 || e.pr.changeWrites != 1 {
+		t.Fatalf("choice %d,%v creates=%d changes=%d, want choice 0 after one create and one change", i, ok, e.pr.writes, e.pr.changeWrites)
+	}
+	if _, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 0, 1); err != nil { // a replay of the new choice, whatever e says
+		t.Fatalf("replay: %v", err)
+	}
+	if e.pr.changeWrites != 1 {
+		t.Errorf("a replay wrote: change batches = %d", e.pr.changeWrites)
+	}
+}
+
+// The second arm of TestVotePoll_ConcurrentSameVoter: ten calls name the stored vote and ask for 1 or 2; exactly one change commits, the callers that
+// asked for the winner's choice succeed (the commit or a replay) and every other is ALREADY_VOTED naming the winner.
+func TestVotePoll_ConcurrentSameVoter_ChangeArm(t *testing.T) {
+	e := newPollEnv(t)
+	e.seedVote(voterKey, 0, 0)
+	type out struct {
+		choice int32
+		err    error
+	}
+	outs := make([]out, 10)
+	var wg sync.WaitGroup
+	for i := range outs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c := int32(1 + i%2)
+			_, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, c, 1)
+			outs[i] = out{c, err}
+		}()
+	}
+	wg.Wait()
+	if e.pr.changeWrites != 1 || e.pr.changes[docID(pidA, voterKey)] != 1 {
+		t.Fatalf("change batches = %d, changes = %d, want exactly one", e.pr.changeWrites, e.pr.changes[docID(pidA, voterKey)])
+	}
+	winner := int32(e.pr.votes[docID(pidA, voterKey)])
+	for i, o := range outs {
+		if o.choice == winner {
+			if o.err != nil {
+				t.Errorf("call %d asked for the winner and failed: %v", i, o.err)
+			}
+			continue
+		}
+		var ae *apierr.Error
+		if !errors.As(o.err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED || ae.Metadata["choice"] != strconv.Itoa(int(winner)) {
+			t.Errorf("call %d (choice %d) = %v, want ALREADY_VOTED choice=%d", i, o.choice, o.err, winner)
+		}
+	}
+}

@@ -87,9 +87,9 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 	}
 
 	ctx, c = budget.WithCounter(context.Background())
-	choice, found, err := e.repo.GetVote(ctx, uid, pid)
-	if err != nil || !found || choice != 1 || c.Reads() != 1 {
-		t.Errorf("GetVote = %d,%v,%v reads=%d", choice, found, err, c.Reads())
+	state, found, err := e.repo.GetVote(ctx, uid, pid)
+	if err != nil || !found || state.Choice != 1 || state.Changes != 0 || state.UpdateTime.IsZero() || c.Reads() != 1 {
+		t.Errorf("GetVote = %+v,%v,%v reads=%d", state, found, err, c.Reads())
 	}
 	if _, found, _ := e.repo.GetVote(ctx, "nobody", pid); found {
 		t.Error("GetVote found a vote nobody cast")
@@ -238,5 +238,144 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	}
 	if doc.Votes[0].PostID >= doc.Votes[500].PostID {
 		t.Errorf("rows are not in document-id order: %s .. %s", doc.Votes[0].PostID, doc.Votes[500].PostID)
+	}
+}
+
+// ChangeVote (ADR-0029 Amendment 1 A2.3): ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
+// the old entry, ArrayUnion of the new one). This test is the evidence that the emulator accepts that shape; dev Firestore is a separate check.
+func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
+	e := newRepoEnv(t)
+	const pid, other, uid = "0000000000000000031", "0000000000000000032", "voter"
+	e.seedPoll(t, pid, map[string]int64{"0": 4, "1": 0, "2": 0}, 4)
+	exp := time.Now().Add(48 * time.Hour).UTC()
+	if _, err := e.client.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{
+		"recent": []string{"x"}, "bookmarks": []string{"y"}, "pollVotes": []string{other + ":2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp}); err != nil || out != VoteWritten {
+		t.Fatalf("Vote = %v, %v", out, err)
+	}
+	st, found, err := e.repo.GetVote(context.Background(), uid, pid)
+	if err != nil || !found {
+		t.Fatal(err, found)
+	}
+
+	ctx, c := budget.WithCounter(context.Background())
+	out, err := e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 2, Version: st.UpdateTime})
+	if err != nil || out != ChangeWritten {
+		t.Fatalf("ChangeVote = %v, %v", out, err)
+	}
+	budgettest.Assert(t, "ChangeVote", c, budgettest.Budget{Reads: 0, Writes: 4})
+	if c.Writes() != 4 {
+		t.Errorf("writes = %d, want 4 (vote doc, post counters, userLikes x2)", c.Writes())
+	}
+	if total, counts := e.pollCounts(t, pid); total != 5 || counts["0"] != 4 || counts["2"] != 1 || counts["1"] != 0 {
+		t.Errorf("total=%d counts=%v, want total fixed and one vote moved 0 -> 2", total, counts)
+	}
+	ul, _ := e.client.Doc("userLikes/" + uid).Get(context.Background())
+	for field, want := range map[string]string{"pollVotes": "[" + other + ":2 " + pid + ":2]", "recent": "[x]", "bookmarks": "[y]"} {
+		if got, _ := ul.DataAt(field); fmt.Sprint(got) != want {
+			t.Errorf("userLikes.%s = %v, want %s: one entry per post, the others kept", field, got, want)
+		}
+	}
+	vd, _ := e.client.Doc("pollVotes/" + pid + "_" + uid).Get(context.Background())
+	if got, _ := vd.DataAt("choice"); got != int64(2) {
+		t.Errorf("choice = %v, want 2", got)
+	}
+	if got, _ := vd.DataAt("changes"); got != int64(1) {
+		t.Errorf("changes = %v, want 1", got)
+	}
+	if got, err := vd.DataAt("changedAt"); err != nil || got.(time.Time).IsZero() {
+		t.Errorf("changedAt = %v, %v, want a timestamp", got, err)
+	}
+	if got, _ := vd.DataAt("expireAt"); got.(time.Time).Sub(exp).Abs() > time.Millisecond {
+		t.Errorf("expireAt = %v, want %v unchanged by a change", got, exp)
+	}
+
+	// The same Version again is stale: the vote doc moved. Nothing is written.
+	ctx, c = budget.WithCounter(context.Background())
+	out, err = e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime})
+	if err != nil || out != ChangeStale {
+		t.Fatalf("stale ChangeVote = %v, %v, want ChangeStale", out, err)
+	}
+	if total, counts := e.pollCounts(t, pid); total != 5 || counts["1"] != 0 || counts["2"] != 1 {
+		t.Errorf("a stale change moved the counters: %d %v", total, counts)
+	}
+
+	// The fresh version commits again; changes counts up and the entry is replaced again.
+	st2, _, _ := e.repo.GetVote(context.Background(), uid, pid)
+	if st2.Choice != 2 || st2.Changes != 1 || !st2.UpdateTime.After(st.UpdateTime) {
+		t.Fatalf("GetVote after = %+v", st2)
+	}
+	if out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 2, To: 1, Version: st2.UpdateTime}); err != nil || out != ChangeWritten {
+		t.Fatalf("second ChangeVote = %v, %v", out, err)
+	}
+	ul, _ = e.client.Doc("userLikes/" + uid).Get(context.Background())
+	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != "["+other+":2 "+pid+":1]" {
+		t.Errorf("userLikes.pollVotes = %v", got)
+	}
+}
+
+// A deleted post fails the whole change batch (the counter Update's Exists precondition): the vote doc is untouched, so the service reads "unmoved".
+// A missing userLikes document does not fail it (field-level merges create it).
+func TestRepoChangeVote_PostGoneAndMissingUserLikes(t *testing.T) {
+	e := newRepoEnv(t)
+	const pid, uid = "0000000000000000033", "voter2"
+	e.seedPoll(t, pid, map[string]int64{"0": 1}, 1)
+	exp := time.Now().Add(time.Hour).UTC()
+	if _, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.client.Doc("userLikes/"+uid).Delete(context.Background()); err != nil { // an erased or never-written userLikes doc
+		t.Fatal(err)
+	}
+	st, _, _ := e.repo.GetVote(context.Background(), uid, pid)
+	if out, err := e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime}); err != nil || out != ChangeWritten {
+		t.Fatalf("change with no userLikes doc = %v, %v, want it to commit", out, err)
+	}
+	ul, err := e.client.Doc("userLikes/" + uid).Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != "["+pid+":1]" {
+		t.Errorf("pollVotes = %v", got)
+	}
+
+	if _, err := e.client.Doc("posts/" + pid).Delete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ = e.repo.GetVote(context.Background(), uid, pid)
+	out, err := e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 1, To: 0, Version: st.UpdateTime})
+	if err != nil || out != ChangeStale {
+		t.Fatalf("change on a deleted post = %v, %v, want ChangeStale", out, err)
+	}
+	after, _, _ := e.repo.GetVote(context.Background(), uid, pid)
+	if !after.UpdateTime.Equal(st.UpdateTime) || after.Choice != 1 {
+		t.Errorf("the vote doc moved on a failed batch: %+v -> %+v", st, after)
+	}
+}
+
+// The export gains changedAt for a changed vote only, from the real documents.
+func TestPollVoteExporter_ChangedAtFromFirestore(t *testing.T) {
+	e := newRepoEnv(t)
+	const pid, uid = "0000000000000000034", "voter3"
+	e.seedPoll(t, pid, map[string]int64{"0": 1}, 1)
+	if _, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	st, _, _ := e.repo.GetVote(context.Background(), uid, pid)
+	if _, err := e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := NewPollVoteExporter(e.repo).ExportUser(context.Background(), uid, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Votes []map[string]any `json:"poll_votes"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil || len(doc.Votes) != 1 || doc.Votes[0]["choice"] != float64(1) || doc.Votes[0]["changedAt"] == nil {
+		t.Fatalf("export = %v (%v), want the current choice 1 and a changedAt", doc.Votes, err)
 	}
 }
