@@ -265,7 +265,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Done (#500; D-1 Low fixed in #501) |
-| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow open) |
+| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow fixed in #509) |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (#492) |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Done in dev 2026-10-31 (allowlist 6 test accounts; smoke passed; grant removed) |
@@ -725,7 +725,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-21 — Client tests  [owner: tester] [size: S] [depends: W4-14 to W4-18]  Status: In review (this PR; one Low defect D-1 reported, skipped repro committed)
+### W4-21 — Client tests  [owner: tester] [size: S] [depends: W4-14 to W4-18]  Status: Done (#493; D-1 Low overflow fixed, repro test un-skipped)
 - **Description.** The cross-screen responsive matrix:
   - field → overlay → results → hashtag tap → Explore → side column;
   - flag combinations (`search` × `trends` × `ui_shell` × W3's flag);

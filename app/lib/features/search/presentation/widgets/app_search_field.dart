@@ -410,21 +410,29 @@ class _Panel extends StatelessWidget {
               header: true,
               child: Text(
                 'Recent',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
             ),
           ),
-          TextButton(
-            onPressed: onClearAll,
-            style: TextButton.styleFrom(
-              minimumSize: const Size(
-                AppSpacing.minTapTarget,
-                AppSpacing.minTapTarget,
+          Flexible(
+            child: TextButton(
+              onPressed: onClearAll,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(
+                  AppSpacing.minTapTarget,
+                  AppSpacing.minTapTarget,
+                ),
+              ),
+              child: const Text(
+                'Clear all',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            child: const Text('Clear all'),
           ),
         ],
       ),

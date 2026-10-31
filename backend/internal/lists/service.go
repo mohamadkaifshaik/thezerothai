@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -36,6 +37,9 @@ const (
 // limitLists is the LIMIT_REACHED metadata["limit"] value of the per-owner cap (lists.proto).
 const limitLists = "lists"
 
+// limitListMembers is the LIMIT_REACHED metadata["limit"] value of the per-list member cap.
+const limitListMembers = "list_members"
+
 // notFoundText is the one message of every NOT_FOUND this module answers (ADR-0030 D3: byte-identical for every cause).
 const notFoundText = "list not found"
 
@@ -47,6 +51,10 @@ type Limits struct {
 	CreatesPerDay           int64
 	NewAccountCreatesPerDay int64
 	NewAccountWindow        time.Duration
+	// MaxMembers is LIST_MAX_MEMBERS (150); AddsPerDay and NewAccountAddsPerDay are the quota.ListAdds daily limits (300, and 50
+	// inside NewAccountWindow). Used by AddMember (W5-6).
+	MaxMembers                       int
+	AddsPerDay, NewAccountAddsPerDay int64
 	// CacheEntries is CACHE_LISTS_ENTRIES.
 	CacheEntries int
 }
@@ -57,7 +65,9 @@ type Deps struct {
 	Directory identity.Directory
 	IDs       IDSource
 	Pins      Pins
-	Limits    Limits
+	// Graph is the owner's social context (cache-first, 60 s): the block and follow checks of AddMember and the lazy drop (W5-6).
+	Graph  graph.Reader
+	Limits Limits
 	// Now is the clock for the new-account window; nil means time.Now.
 	Now func() time.Time
 }
@@ -147,9 +157,13 @@ func (s *service) profile(ctx context.Context, uid string) (identity.Profile, er
 	}
 	p, ok := profiles[uid]
 	if !ok {
-		return identity.Profile{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
+		return identity.Profile{}, errNoProfile()
 	}
 	return p, nil
+}
+
+func errNoProfile() *apierr.Error {
+	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 }
 
 func (s *service) isNew(p identity.Profile) bool {
@@ -187,6 +201,15 @@ func mapErr(ctx context.Context, op, uid, listID string, err error) error {
 		logger.SetRequestField(ctx, "limit", limitLists)
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
 			"list limit reached").WithMeta("limit", limitLists)
+	case errors.Is(err, ErrMemberLimit):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", limitListMembers)
+		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED,
+			"list member limit reached").WithMeta("limit", limitListMembers)
+	case errors.Is(err, ErrProtected):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:protected_account")
+		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT,
+			"this account is protected: follow it first")
 	case errors.Is(err, ErrKeyReused):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:key_reused")
 		return apierr.New(connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED,

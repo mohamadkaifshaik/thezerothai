@@ -19,8 +19,10 @@ import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
+import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/presentation/bloc/bookmarks_cubit.dart';
 import '../features/engagement/presentation/bloc/engagement_cubit.dart';
+import '../features/engagement/presentation/bloc/poll_cubit.dart';
 import '../features/graph/data/graph_repository.dart';
 import '../features/graph/data/suggestions_repository.dart';
 import '../features/graph/presentation/bloc/suggestions_cubit.dart';
@@ -77,6 +79,7 @@ class AppWidget extends StatefulWidget {
     required this.engagementRepository,
     required this.bookmarksRepository,
     this.searchRepository,
+    this.pollRepository,
     required this.likesRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
@@ -113,6 +116,10 @@ class AppWidget extends StatefulWidget {
 
   /// Search (W4-13, `FEATURE_SEARCH`); null in tests that do not search.
   final SearchRepository? searchRepository;
+
+  /// Poll votes (W6-13, ADR-0029): `VotePoll` behind the `engagement` flag;
+  /// null in tests that do not vote (cards then show polls read-only).
+  final PollRepository? pollRepository;
 
   /// The Likes tab of History (W3-18, `FEATURE_LIKES_LIST`): `ListLikedPosts`
   /// in session memory; sign-out forgets it.
@@ -153,6 +160,14 @@ class _AppWidgetState extends State<AppWidget> {
     repository: widget.engagementRepository,
     onUnexpectedError: reportUnexpectedError,
   );
+  // The session's poll overlay (W6-13): optimistic vote, fresh counts; sign-out
+  // forgets it. Null without a repository (tests).
+  late final PollCubit? _polls = widget.pollRepository == null
+      ? null
+      : PollCubit(
+          repository: widget.pollRepository!,
+          onUnexpectedError: reportUnexpectedError,
+        );
   // The session's bookmark overlay (W2-6); sign-out forgets it. The toast's
   // "View" opens the Bookmarks screen (W2-7).
   late final BookmarksCubit _bookmarks = BookmarksCubit(
@@ -223,6 +238,7 @@ class _AppWidgetState extends State<AppWidget> {
         _messengerKey.currentState?.clearSnackBars();
         _pendingPosts.clear();
         _engagement.reset();
+        _polls?.reset();
         _bookmarks.reset();
         _suggestions.reset();
         _trends?.reset();
@@ -296,6 +312,7 @@ class _AppWidgetState extends State<AppWidget> {
     // user, and when the flag set changes, never on an unread-count change.
     // It sends nothing when messaging is on for the caller or the cache is
     // empty.
+    if (flagsChanged) _polls?.flagsChanged();
     final uid = state.profile?.userId;
     if (flagsChanged || uid != _probedUid) {
       _probedUid = uid;
@@ -337,6 +354,7 @@ class _AppWidgetState extends State<AppWidget> {
     _onboardingSub.cancel();
     _pendingPosts.close();
     _engagement.close();
+    _polls?.close();
     _bookmarks.close();
     _suggestions.close();
     _trends?.close();
@@ -389,6 +407,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.onboardingBloc),
           BlocProvider.value(value: _pendingPosts),
           BlocProvider.value(value: _engagement),
+          if (_polls case final polls?) BlocProvider.value(value: polls),
           BlocProvider.value(value: _bookmarks),
           BlocProvider.value(value: _suggestions),
           if (_trends case final trends?) BlocProvider.value(value: trends),
