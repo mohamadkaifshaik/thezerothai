@@ -50,6 +50,11 @@ import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
 import 'widgets/schedule_dialog.dart';
 
+/// Shown when a picked draft could not be opened.
+const kDraftGoneMessage = 'That draft is no longer available.';
+const kDraftNeedsNoMediaMessage =
+    'That draft has a poll. Remove your photos or GIF to open it.';
+
 /// Upper bound on what the field accepts. It is far above the 280 limit so
 /// the counter can go negative (the user sees how much to cut), while a huge
 /// paste never makes every keystroke expensive.
@@ -112,14 +117,16 @@ class ComposerScreen extends StatelessWidget {
     // Unsent posts (W6-15): `drafts` on, a signed-in account, and a new root
     // post (a quote never has a draft). Nothing draft-related is read from
     // the tree otherwise.
-    final uid = quoteOfPostId.isEmpty && featureEnabledSnapshot(context, kFeatureDrafts)
+    final uid =
+        quoteOfPostId.isEmpty && featureEnabledSnapshot(context, kFeatureDrafts)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
         : '';
     if (uid.isNotEmpty && draftId.isNotEmpty) {
       return _DraftLoader(
         uid: uid,
         draftId: draftId,
-        builder: (context, draft) => _composer(context, uid: uid, initial: draft),
+        builder: (context, draft) =>
+            _composer(context, uid: uid, initial: draft),
       );
     }
     return _composer(context, uid: uid);
@@ -410,9 +417,11 @@ class _ComposerViewState extends State<_ComposerView> {
   /// scheduling is still on.
   Future<void> _showScheduledList(GoRouter router, ComposerCubit cubit) async {
     if (cubit.draftsActive) {
+      // Pick mode only while this composer is still there to receive it
+      // (the toast's "View" can outlive the screen).
       final picked = await router.push<String>(
         AppRouter.scheduledTabPath,
-        extra: true,
+        extra: mounted && !cubit.isClosed,
       );
       await _loadPicked(cubit, picked);
     } else {
@@ -442,9 +451,22 @@ class _ComposerViewState extends State<_ComposerView> {
 
   Future<void> _loadPicked(ComposerCubit cubit, String? draftId) async {
     if (draftId == null || !mounted || cubit.isClosed) return;
-    if (await cubit.loadSavedDraft(draftId) && mounted) {
-      _controller.text = cubit.state.draft.text;
+    final result = await cubit.loadSavedDraft(draftId);
+    if (!mounted) return;
+    switch (result) {
+      case DraftLoadResult.loaded:
+        _controller.text = cubit.state.draft.text;
+      case DraftLoadResult.gone:
+        _notice(kDraftGoneMessage);
+      case DraftLoadResult.blockedByMedia:
+        _notice(kDraftNeedsNoMediaMessage);
     }
+  }
+
+  void _notice(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _droppedOldestNotice(ScaffoldMessengerState messenger) {

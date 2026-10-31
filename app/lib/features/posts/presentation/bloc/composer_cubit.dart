@@ -22,6 +22,17 @@ import 'pending_posts_cubit.dart';
 
 enum ComposerStatus { editing, submitting, posted }
 
+/// The answer of [ComposerCubit.loadSavedDraft].
+enum DraftLoadResult {
+  loaded,
+
+  /// Missing, another account's, or unreadable.
+  gone,
+
+  /// The draft has a poll and photos or a GIF are attached.
+  blockedByMedia,
+}
+
 /// What leaving the composer needs (W6-15).
 enum LeaveAction {
   /// Nothing is lost: leave.
@@ -225,7 +236,7 @@ class ComposerCubit extends Cubit<ComposerState> {
        super(
          _initialState(
            initialDraft,
-           pollsFlag: pollsFlag,
+           pollsOffered: pollsFlag && engagementOn,
            audienceEnabled: replyAudienceEnabled,
          ),
        ) {
@@ -278,14 +289,14 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   static ComposerState _initialState(
     ComposerDraft? d, {
-    required bool pollsFlag,
+    required bool pollsOffered,
     required bool audienceEnabled,
   }) => d == null
       ? ComposerState(draft: analyzePostDraft(''))
       : ComposerState(
           draft: analyzePostDraft(d.text),
           // A poll or an audience the flags no longer offer is not loaded.
-          poll: pollsFlag ? d.poll : null,
+          poll: pollsOffered ? d.poll : null,
           replyAudience: audienceEnabled
               ? d.replyAudience
               : ReplyAudience.everyone,
@@ -350,28 +361,38 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   /// Loads the saved draft [id] of this account into the composer (picked in
-  /// the Drafts list). False when it is gone (or not this account's) or the
-  /// read failed; the composer is then left as it was.
-  Future<bool> loadSavedDraft(String id) async {
+  /// the Drafts list). [DraftLoadResult.gone] when it is missing (or not this
+  /// account's) or the read failed; [DraftLoadResult.blockedByMedia] when it
+  /// has a poll and photos or a GIF are attached (a poll excludes them, and
+  /// neither is dropped silently). The composer is then left as it was.
+  Future<DraftLoadResult> loadSavedDraft(String id) async {
     final repo = _drafts;
-    if (repo == null || state.isSubmitting) return false;
+    if (repo == null || state.isSubmitting) return DraftLoadResult.gone;
     try {
       final draft = await repo.read(_draftUid, id);
-      if (draft == null || isClosed) return false;
-      loadDraft(draft);
-      return true;
-    } catch (error, stack) {
-      _onUnexpectedError?.call(error, stack);
-      return false;
+      if (draft == null || isClosed) return DraftLoadResult.gone;
+      return loadDraft(draft);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
+      return DraftLoadResult.gone;
     }
   }
 
   /// Puts [draft] into the composer (picked from the Drafts list): text, poll
   /// and audience, under the draft's own id. Nothing is saved by this.
+  ///
+  /// The same exclusions as the toolbar apply (W6-11): a poll is loaded only
+  /// when the rules offer one now (flags, gate memory, a root post), is
+  /// refused while photos or a GIF are attached, and clears a schedule time
+  /// (a schedule is never part of a draft, and a scheduled post has no poll).
   /// Ignored while the post is being sent.
-  void loadDraft(ComposerDraft draft) {
+  DraftLoadResult loadDraft(ComposerDraft draft) {
     if (state.isSubmitting || _drafts == null || draft.uid != _draftUid) {
-      return;
+      return DraftLoadResult.gone;
+    }
+    final loadsPoll = draft.poll != null && rules.showPoll;
+    if (loadsPoll && state.hasAttachments) {
+      return DraftLoadResult.blockedByMedia;
     }
     _base = draft;
     _baseline = draft;
@@ -380,16 +401,18 @@ class ComposerCubit extends Cubit<ComposerState> {
     emit(
       state.copyWith(
         draft: analyzePostDraft(draft.text),
-        poll: pollsFlag ? draft.poll : null,
-        clearPoll: !pollsFlag || draft.poll == null,
+        poll: loadsPoll ? draft.poll : null,
+        clearPoll: !loadsPoll,
         pollDurationClamped: false,
         replyAudience: canChooseReplyAudience
             ? draft.replyAudience
             : ReplyAudience.everyone,
+        clearScheduledAt: loadsPoll,
         clearError: true,
       ),
     );
     _loadingDraft = false;
+    return DraftLoadResult.loaded;
   }
 
   /// Keeps the content as a draft now ("Save"). Never throws: a storage
@@ -403,8 +426,8 @@ class ComposerCubit extends Cubit<ComposerState> {
       // Kept as it stands: leaving again without edits asks nothing.
       if (result != DraftSaveResult.skipped) _baseline = saved;
       return result;
-    } catch (error, stack) {
-      _onUnexpectedError?.call(error, stack);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
       return DraftSaveResult.skipped;
     }
   }
@@ -417,10 +440,15 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (repo == null) return;
     try {
       await repo.delete(_draftUid, [_base.id]);
-    } catch (error, stack) {
-      _onUnexpectedError?.call(error, stack);
+    } catch (_, stack) {
+      _reportDraftStorage(stack);
     }
   }
+
+  /// A storage failure is reported with its stack but never its message: a
+  /// database error can carry the bound values, that is the draft's text.
+  void _reportDraftStorage(StackTrace stack) =>
+      _onUnexpectedError?.call(StateError('Drafts storage failed.'), stack);
 
   /// The content now lives as a scheduled post: its draft row is done and
   /// the emptied composer starts a new draft.
@@ -432,8 +460,7 @@ class ComposerCubit extends Cubit<ComposerState> {
           .delete(_draftUid, [_base.id])
           .then(
             (_) {},
-            onError: (Object error, StackTrace stack) =>
-                _onUnexpectedError?.call(error, stack),
+            onError: (Object _, StackTrace stack) => _reportDraftStorage(stack),
           ),
     );
     _base = _baseDraft(_draftUid, null, _clock);

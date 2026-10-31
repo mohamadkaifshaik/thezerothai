@@ -1,5 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/media/data/media_uploader.dart';
+import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
@@ -10,9 +12,33 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../support/media_fixtures.dart';
 import '../../../../support/posts_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
+
+/// A store whose every call fails with a message that carries the draft text,
+/// as a database error carrying bound values would.
+class _LeakyRepository extends DraftsRepository {
+  _LeakyRepository(super.database, this.secret);
+
+  final String secret;
+
+  @override
+  void autosave(ComposerDraft draft) {}
+
+  @override
+  Future<DraftSaveResult> upsert(ComposerDraft draft) =>
+      Future.error(StateError('INSERT failed for $secret'));
+
+  @override
+  Future<void> delete(String uid, Iterable<String> ids) =>
+      Future.error(StateError('DELETE failed for $secret'));
+
+  @override
+  Future<ComposerDraft?> read(String uid, String draftId) =>
+      Future.error(StateError('SELECT failed for $secret'));
+}
 
 /// The composer cubit over a REAL drafts store (in-memory drift): autosave,
 /// "killed mid-typing", the leave decision, loading a saved draft, and one
@@ -22,8 +48,10 @@ void main() {
   late DraftsRepository drafts;
   late _MockPostsRepository posts;
   late PendingPostsCubit pending;
+  late List<Object> reported;
 
   setUp(() {
+    reported = [];
     db = AppDatabase.forTesting(NativeDatabase.memory());
     drafts = DraftsRepository(
       db,
@@ -46,6 +74,10 @@ void main() {
     String quote = '',
     bool withDrafts = true,
     bool polls = true,
+    bool engagement = true,
+    bool schedule = false,
+    DraftsRepository? store,
+    AttachmentsCubit? attachments,
   }) {
     final cubit = ComposerCubit(
       postsRepository: posts,
@@ -53,8 +85,11 @@ void main() {
       author: common.AuthorSnapshot(userId: uid, handle: 'me'),
       quoteOfPostId: quote,
       pollsFlag: polls,
-      engagementOn: true,
-      drafts: withDrafts ? drafts : null,
+      engagementOn: engagement,
+      scheduleEnabled: schedule,
+      attachments: attachments,
+      onUnexpectedError: (error, _) => reported.add(error),
+      drafts: withDrafts ? (store ?? drafts) : null,
       uid: uid,
       initialDraft: initial,
     );
@@ -204,7 +239,10 @@ void main() {
       final cubit = make();
       cubit.textChanged('typed first');
       await until((l) => l.length == 2);
-      expect(await cubit.loadSavedDraft('00000000000000a1'), isTrue);
+      expect(
+        await cubit.loadSavedDraft('00000000000000a1'),
+        DraftLoadResult.loaded,
+      );
       expect(cubit.state.draft.text, 'old');
       expect(cubit.draftId, '00000000000000a1');
       await Future<void>.delayed(const Duration(milliseconds: 60));
@@ -219,7 +257,10 @@ void main() {
     test("another account's draft cannot be loaded", () async {
       await drafts.upsert(stored('00000000000000b2', 'theirs', uid: 'u2'));
       final cubit = make(uid: 'u1');
-      expect(await cubit.loadSavedDraft('00000000000000b2'), isFalse);
+      expect(
+        await cubit.loadSavedDraft('00000000000000b2'),
+        DraftLoadResult.gone,
+      );
       expect(cubit.state.draft.text, isEmpty);
     });
 
@@ -229,6 +270,115 @@ void main() {
       );
       final cubit = make(initial: d, polls: false);
       expect(cubit.state.poll, isNull);
+    });
+  });
+
+  group('loading a draft with a poll follows the toolbar rules', () {
+    ComposerDraft withPoll() => stored(
+      '00000000000000c1',
+      'which?',
+    ).copyWith(poll: const DraftPoll(choices: ['a', 'b'], durationMinutes: 60));
+
+    AttachmentsCubit attachmentsWith(FakeImagePicker picker) {
+      final attachments = AttachmentsCubit(
+        picker: picker,
+        processor: FakeImageProcessor(),
+        uploader: MediaUploader(repository: MockMediaRepository()),
+      );
+      addTearDown(attachments.close);
+      return attachments;
+    }
+
+    test('a schedule time is cleared (a scheduled post has no poll)', () async {
+      await drafts.upsert(withPoll());
+      final cubit = make(schedule: true);
+      cubit.scheduleChanged(DateTime.now().add(const Duration(hours: 3)));
+      expect(cubit.state.isScheduling, isTrue);
+      expect(
+        await cubit.loadSavedDraft('00000000000000c1'),
+        DraftLoadResult.loaded,
+      );
+      expect(cubit.state.isScheduling, isFalse);
+      expect(cubit.state.poll, isNotNull);
+    });
+
+    test('a plain draft keeps the schedule time', () async {
+      await drafts.upsert(stored('00000000000000c2', 'plain'));
+      final cubit = make(schedule: true);
+      cubit.scheduleChanged(DateTime.now().add(const Duration(hours: 3)));
+      await cubit.loadSavedDraft('00000000000000c2');
+      expect(cubit.state.isScheduling, isTrue);
+    });
+
+    test('attached photos refuse it and nothing changes', () async {
+      await drafts.upsert(withPoll());
+      final picker = FakeImagePicker();
+      final attachments = attachmentsWith(picker);
+      final cubit = make(attachments: attachments);
+      cubit.textChanged('my own text');
+      picker.next = [imageBytes('a')];
+      await attachments.pick();
+      await Future<void>.delayed(Duration.zero);
+      expect(cubit.state.hasAttachments, isTrue);
+      expect(
+        await cubit.loadSavedDraft('00000000000000c1'),
+        DraftLoadResult.blockedByMedia,
+      );
+      expect(cubit.state.draft.text, 'my own text');
+      expect(cubit.state.poll, isNull);
+      expect(cubit.state.hasAttachments, isTrue);
+      expect(cubit.draftId, isNot('00000000000000c1'));
+    });
+
+    test('photos do not stop a plain draft', () async {
+      await drafts.upsert(stored('00000000000000c2', 'plain'));
+      final picker = FakeImagePicker();
+      final attachments = attachmentsWith(picker);
+      final cubit = make(attachments: attachments);
+      picker.next = [imageBytes('a')];
+      await attachments.pick();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        await cubit.loadSavedDraft('00000000000000c2'),
+        DraftLoadResult.loaded,
+      );
+      expect(cubit.state.draft.text, 'plain');
+    });
+
+    test('without the polls or engagement flag the poll is left out', () async {
+      for (final (polls, engagement) in [(false, true), (true, false)]) {
+        await drafts.upsert(withPoll());
+        final cubit = make(polls: polls, engagement: engagement);
+        await cubit.loadSavedDraft('00000000000000c1');
+        expect(cubit.state.poll, isNull, reason: '$polls $engagement');
+        expect(cubit.state.draft.text, 'which?');
+        final opened = make(
+          polls: polls,
+          engagement: engagement,
+          initial: withPoll(),
+        );
+        expect(opened.state.poll, isNull, reason: '$polls $engagement');
+      }
+    });
+  });
+
+  group('a storage failure never leaks the text', () {
+    const secret = 'my very private words';
+
+    test('save, discard and load report without the message', () async {
+      final cubit = make(store: _LeakyRepository(db, secret));
+      cubit.textChanged(secret);
+      expect(await cubit.saveDraft(), DraftSaveResult.skipped);
+      await cubit.discardDraft();
+      final other = make(store: _LeakyRepository(db, secret));
+      expect(
+        await other.loadSavedDraft('00000000000000d1'),
+        DraftLoadResult.gone,
+      );
+      expect(reported, hasLength(3));
+      for (final error in reported) {
+        expect(error.toString(), isNot(contains(secret)));
+      }
     });
   });
 

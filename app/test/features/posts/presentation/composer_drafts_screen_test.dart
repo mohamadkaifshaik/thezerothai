@@ -506,9 +506,9 @@ void main() {
       );
       expect(tester.takeException(), isNull);
       for (final finder in [
-          draftsButton(),
-          find.widgetWithText(TextButton, 'Cancel'),
-        ]) {
+        draftsButton(),
+        find.widgetWithText(TextButton, 'Cancel'),
+      ]) {
         expect(
           tester.getSize(finder).height,
           greaterThanOrEqualTo(40),
