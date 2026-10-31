@@ -452,6 +452,13 @@ const PostView$json = {
       '5': 5,
       '10': 'viewerPollChoice'
     },
+    {
+      '1': 'viewer_poll_vote_blocked',
+      '3': 9,
+      '4': 1,
+      '5': 8,
+      '10': 'viewerPollVoteBlocked'
+    },
   ],
 };
 
@@ -464,7 +471,8 @@ final $typed_data.Uint8List postViewDescriptor = $convert.base64Decode(
     'ZXJtaXNzaW9uElAKEmVtYmVkX3ZpZXdlcl9zdGF0ZRgFIAEoDjIiLmR6ZXJvdGgucG9zdHMudj'
     'EuRW1iZWRWaWV3ZXJTdGF0ZVIQZW1iZWRWaWV3ZXJTdGF0ZRIwChRib29rbWFya2VkX2J5X3Zp'
     'ZXdlchgGIAEoCFISYm9va21hcmtlZEJ5Vmlld2VyEhoKCHdpdGhoZWxkGAcgASgIUgh3aXRoaG'
-    'VsZBIsChJ2aWV3ZXJfcG9sbF9jaG9pY2UYCCABKAVSEHZpZXdlclBvbGxDaG9pY2U=');
+    'VsZBIsChJ2aWV3ZXJfcG9sbF9jaG9pY2UYCCABKAVSEHZpZXdlclBvbGxDaG9pY2USNwoYdmll'
+    'd2VyX3BvbGxfdm90ZV9ibG9ja2VkGAkgASgIUhV2aWV3ZXJQb2xsVm90ZUJsb2NrZWQ=');
 
 @$core.Deprecated('Use createPostRequestDescriptor instead')
 const CreatePostRequest$json = {

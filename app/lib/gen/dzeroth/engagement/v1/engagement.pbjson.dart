@@ -375,6 +375,7 @@ const VotePollRequest$json = {
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'post_id', '3': 2, '4': 1, '5': 9, '10': 'postId'},
     {'1': 'choice_index', '3': 3, '4': 1, '5': 5, '10': 'choiceIndex'},
+    {'1': 'expected_choice', '3': 4, '4': 1, '5': 5, '10': 'expectedChoice'},
   ],
 };
 
@@ -382,7 +383,7 @@ const VotePollRequest$json = {
 final $typed_data.Uint8List votePollRequestDescriptor = $convert.base64Decode(
     'Cg9Wb3RlUG9sbFJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW5jeU'
     'tleRIXCgdwb3N0X2lkGAIgASgJUgZwb3N0SWQSIQoMY2hvaWNlX2luZGV4GAMgASgFUgtjaG9p'
-    'Y2VJbmRleA==');
+    'Y2VJbmRleBInCg9leHBlY3RlZF9jaG9pY2UYBCABKAVSDmV4cGVjdGVkQ2hvaWNl');
 
 @$core.Deprecated('Use votePollResponseDescriptor instead')
 const VotePollResponse$json = {
