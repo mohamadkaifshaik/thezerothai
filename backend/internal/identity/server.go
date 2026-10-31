@@ -138,6 +138,7 @@ func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeR
 		EnabledFeatures:           result.EnabledFeatures,
 		PendingFollowRequestCount: result.PendingFollowRequestCount,
 		UnreadConversationCount:   result.UnreadConversationCount,
+		HomeTabs:                  toProtoHomeTabs(result.HomeTabs),
 	}), nil
 }
 
@@ -317,4 +318,22 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 		PostsCount:     p.PostsCount,
 		CreatedAt:      timestamppb.New(p.CreatedAt),
 	}
+}
+
+// toProtoHomeTabs converts GetMe's visible tabs (W5-9). A kind this build cannot name is skipped.
+func toProtoHomeTabs(tabs []HomeTab) []*commonv1.HomeTab {
+	var out []*commonv1.HomeTab
+	for _, t := range tabs {
+		var k commonv1.HomeTabKind
+		switch t.Kind {
+		case HomeTabKindList:
+			k = commonv1.HomeTabKind_HOME_TAB_KIND_LIST
+		case HomeTabKindCommunity:
+			k = commonv1.HomeTabKind_HOME_TAB_KIND_COMMUNITY
+		default:
+			continue
+		}
+		out = append(out, &commonv1.HomeTab{Kind: k, Id: t.ID, Title: t.Title})
+	}
+	return out
 }

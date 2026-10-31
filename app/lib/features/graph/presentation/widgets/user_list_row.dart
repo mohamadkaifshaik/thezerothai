@@ -29,7 +29,12 @@ class UserListRow extends StatelessWidget {
     this.onGone,
     this.onDismiss,
     this.showDivider = true,
+    this.extraAction,
   });
+
+  /// A second control after the follow button (or the trailing one), measured
+  /// with it (the List members page: Remove for the owner, W5-12).
+  final Widget? extraAction;
 
   final graph.UserListItem item;
 
@@ -154,7 +159,17 @@ class UserListRow extends StatelessWidget {
             actions: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                control,
+                if (extraAction == null)
+                  control
+                else
+                  Flexible(
+                    child: Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [control, extraAction!],
+                    ),
+                  ),
                 if (onDismiss != null)
                   IconButton(
                     tooltip: 'Dismiss @${user.handle}',
