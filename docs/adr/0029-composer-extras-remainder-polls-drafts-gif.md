@@ -650,7 +650,7 @@ Numbers marked **corrected** replace the figure in the section named.
 - `docs/reviews/cost-model.md` (FU-6, W6-21) belongs to sre-performance. N1 and N2 add no cost row, and the CPU
   correction is under 0.3 % of the vCPU line.
 
-### N4. For the founder (open; not decided by these notes)
+### N4. For the founder (decided 2026-11-01)
 - `GIF_MAX_FRAME_AREA_SUM`: keep 50,000,000 or lower it, so near-cap GIFs are not REJECTED by the 2 s decode deadline
   on a Cloud Run vCPU. Measure `refused_reason=deadline` in the W6-22 dev smoke first.
 - The GIF worst case (about 22 s) against FinalizeUpload's 20 s `finalizeDeadline`. Options:
@@ -658,5 +658,10 @@ Numbers marked **corrected** replace the figure in the section named.
   - shorten `GifQueueWait` from 5 s;
   - accept a rare retryable failure, with the Vision counter running up to 2 units under the real spend each time.
 - FU-5: the `media-pipeline` skill edit.
+
+**Founder decisions (2026-11-01):**
+1. `GIF_MAX_FRAME_AREA_SUM` stays 50,000,000 for now. The W6-22 dev smoke measures `refused_reason=deadline` on `gif_screen` lines; a non-zero share of legitimate GIFs refused by the deadline reopens this.
+2. The about 22 s worst case against the 20 s `finalizeDeadline`: accept the rare retryable failure for now (no code change), and measure it in the same W6-22 smoke (a FinalizeUpload of a GIF ending DEADLINE_EXCEEDED or MEDIA_NOT_READY after the slot wait). If it shows up, the first lever is raising the deadline for a GIF finalize, kept under the 30 s Cloud Run timeout and the 30 s screening claim.
+3. FU-5: the `media-pipeline` skill now describes sampled-frame GIF screening (this PR).
 
 **Cost impact of these notes.** Fixed cost INR 0. No INR row of the Cost impact section changes.
