@@ -776,7 +776,7 @@ Order:
 - **Seam.** The screen depends only on `DraftsRepository` and the existing scheduled repository.
 - **Runs alongside W3/W4/W5:** `app_router.dart` and `composer_screen.dart`, one PR at a time.
 
-### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review
+### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
 - **Description.**
   - `GifSource` interface; `DeviceGifSource` over the platform picker (`.gif` only; web file input `accept="image/gif"`).
   - On-device checks before upload (≤ 2 MiB, ≤ 1,280 px edge, ≤ 300 frames; refuse with a clear message rather than re-encode).
