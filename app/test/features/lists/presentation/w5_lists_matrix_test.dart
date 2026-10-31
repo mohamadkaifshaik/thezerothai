@@ -39,7 +39,7 @@ const _names = <String>[
   'Z​W​S​P​j​o​i​n',
 ];
 
-final _description100 = 'x' * 40 + ' \u{1F600}שלום ' + 'y' * 40;
+final _description100 = '${'x' * 40} \u{1F600}שלום ${'y' * 40}';
 
 /// W5-16: the cells the developers' matrices left open for the Lists screens:
 /// every state (empty, error, disabled, capped, editor, edit with Delete,
@@ -97,7 +97,10 @@ void main() {
       expect(find.textContaining("haven't created any Lists"), findsOneWidget);
       // 40dp on desktop platforms: the theme uses adaptivePlatformDensity
       // (observation O3, not a Lists defect).
-      expect(tester.getSize(find.byTooltip('Create a new List')).width, greaterThanOrEqualTo(40));
+      expect(
+        tester.getSize(find.byTooltip('Create a new List')).width,
+        greaterThanOrEqualTo(40),
+      );
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('error: message and Retry fit', (tester, env) async {

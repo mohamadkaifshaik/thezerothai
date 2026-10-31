@@ -57,7 +57,6 @@ void main() {
   late List<tl.SetHomeTabsRequest> homeTabWrites;
   late List<pb.ListInfo> serverLists;
   late Set<String> containing;
-  late List<common.HomeTab> serverTabs;
   late ListsRepository lists;
   late HomeTabsRepository tabs;
   late _MockOnboarding onboarding;
@@ -73,7 +72,6 @@ void main() {
     homeTabWrites = [];
     serverLists = [];
     containing = {};
-    serverTabs = [];
     final epoch = SessionEpoch();
     final api = ApiClient.withTransport(
       FakeTransport((procedure, input) async {
@@ -118,7 +116,6 @@ void main() {
         }
         if (input is tl.SetHomeTabsRequest) {
           homeTabWrites.add(input);
-          serverTabs = input.tabs.toList();
           return tl.SetHomeTabsResponse(tabs: input.tabs);
         }
         throw StateError('unexpected $procedure');
