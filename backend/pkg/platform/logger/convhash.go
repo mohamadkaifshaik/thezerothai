@@ -54,6 +54,11 @@ func HashConversation(id string) string {
 	if id == "" {
 		return ""
 	}
+	return hashKeyed(id)
+}
+
+// hashKeyed is the shared HMAC body of HashConversation and HashPost.
+func hashKeyed(s string) string {
 	k := convHashKey.Load()
 	if k == nil {
 		rk := make([]byte, 32)
@@ -64,8 +69,20 @@ func HashConversation(id string) string {
 		k = convHashKey.Load()
 	}
 	m := hmac.New(sha256.New, *k)
-	m.Write([]byte(id))
+	m.Write([]byte(s))
 	return hex.EncodeToString(m.Sum(nil)[:8])
+}
+
+// HashPost is the log pseudonym of a post id (post_hash on the VotePoll request line and the poll_vote_contention WARN): the
+// first 8 bytes of HMAC-SHA256(key, "post|" + id), with the same key as HashConversation (no new secret; the label keeps the two
+// domains apart). A post id is public, so an unkeyed hash next to the unkeyed uid_hash would let a log reader rebuild who voted in
+// which poll (security review L-1); keyed, a hash cannot be recomputed without CURSOR_HMAC_KEY. `opsctl polls loghash` reproduces it.
+// "" in, "" out.
+func HashPost(id string) string {
+	if id == "" {
+		return ""
+	}
+	return hashKeyed("post|" + id)
 }
 
 // RedactErrKeyed is RedactErr for a mix of ids: every occurrence of a uid in ids becomes HashUID(uid) and every occurrence of

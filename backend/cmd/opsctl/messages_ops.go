@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
@@ -87,5 +88,23 @@ func migratePlaceholder(ctx context.Context, b *backends, project string, dryRun
 	}
 	fmt.Fprintf(out, "migrate-placeholder: project=%s conversations=%d messages=%d entries=%d %s\n",
 		project, total.Conversations, total.Messages, total.Entries, verb)
+	return nil
+}
+
+// postLogHash is `opsctl polls loghash POST_ID`: it prints the post_hash the API logs on the VotePoll request line and the
+// poll_vote_contention WARN for that post (logger.HashPost, keyed like conversation_hash). No Firestore, no project. The id is
+// a decimal Snowflake string; the key is CURSOR_HMAC_KEY of the project whose logs are read, and the hash changes with it.
+func postLogHash(postID, key string, out io.Writer) error {
+	if postID == "" || len(postID) > 20 || strings.Trim(postID, "0123456789") != "" {
+		return errors.New("polls loghash needs POST_ID: the decimal post id")
+	}
+	if key == "" {
+		return fmt.Errorf("polls loghash needs %s in the environment: the project's cursor-hmac-key secret "+
+			"(gcloud secrets versions access latest --secret=cursor-hmac-key --project=<project> | tr -d '\r')", cursorKeyEnv)
+	}
+	if err := logger.SetConversationKey([]byte(key)); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, logger.HashPost(postID))
 	return nil
 }

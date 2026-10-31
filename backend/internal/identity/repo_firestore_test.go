@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -113,8 +114,9 @@ func TestUserDoc_RoundTripKeepsTheProfileExtras(t *testing.T) {
 		Handle: "alice", HandleLower: "alice", DisplayName: "Alice",
 		BannerURL: "https://m/b.webp", BannerThumbURL: "https://m/b_t.webp", Location: "Pune", Website: "https://example.com",
 		PinnedPostID: "0000000000000000301",
+		HomeTabs:     []HomeTab{{Kind: HomeTabKindList, ID: "0000000000000000401", Title: "Mine"}, {Kind: HomeTabKindList, ID: "0000000000000000402"}},
 	}
-	if got := profileToDoc(d.toProfile("uid-1")); got != d {
+	if got := profileToDoc(d.toProfile("uid-1")); !reflect.DeepEqual(got, d) {
 		t.Fatalf("round trip dropped or changed a field:\n got %+v\nwant %+v", got, d)
 	}
 	if got := d.toProfile("uid-1"); got.BannerURL != d.BannerURL || got.BannerThumbURL != d.BannerThumbURL || got.Location != d.Location ||
