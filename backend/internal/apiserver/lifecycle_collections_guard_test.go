@@ -133,8 +133,9 @@ var lifecycleCollections = []collectionRow{
 	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// ADR-0028 D6 (W4-9): trends/current holds tags and counts only (distinct authors are counted in memory and never
-	// persisted), so there is no uid to erase and nothing to export.
-	{Name: "trends", Disposition: notPersonal, ExportNote: "tags and counts only, no uid; not exported", Owner: "search", Cite: "ADR-0028 D6"},
+	// persisted), and trends/hidden (W4-25) holds the operator hide list as folded tag keys: no uid, no actor. So there is
+	// no uid to erase and nothing to export.
+	{Name: "trends", Disposition: notPersonal, ExportNote: "tags and counts only (trends/current), folded tag keys (trends/hidden); no uid; not exported", Owner: "search", Cite: "ADR-0028 D6, note 2026-10-31"},
 }
 
 // gcsPrefixRow is one GCS object namespace.

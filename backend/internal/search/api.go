@@ -1,5 +1,5 @@
 // Package search is the search and trends module (ADR-0028, plan W4): people by handle prefix, posts by one exact
-// hashtag, and the daily trending-hashtags list. It owns one collection, trends/current (tags and counts only, no uid).
+// hashtag, and the daily trending-hashtags list. It owns the trends collection: trends/current (tags and counts only, no uid) and trends/hidden (the operator hide list, folded tag keys, no uid).
 // People come from identity (Directory.SearchHandles) and posts from posts.Reader.ByHashtag; search never queries
 // another module's collection directly, and other modules reach it through the interfaces in this file only.
 //
