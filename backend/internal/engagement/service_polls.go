@@ -56,9 +56,6 @@ func (m *Module) VotePoll(ctx context.Context, uid, key, postID string, choiceIn
 
 var _ Polls = (*Module)(nil)
 
-// pollEntry is the userLikes.pollVotes entry of a vote: "<postId>:<index>" (ADR-0029 D3).
-func pollEntry(postID string, choice int) string { return postID + ":" + strconv.Itoa(choice) }
-
 // pollBusyErr is the retryable answer of a vote that kept losing lock races (contention) or ran out of its transaction time.
 func pollBusyErr() error { return bookmarkBusyErr() }
 
@@ -172,7 +169,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 		}
 		if !needRead {
 			res, verr := repo.Vote(wctx, VoteParams{
-				UID: uid, PostID: target.ID, Choice: choice, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose),
+				UID: uid, PostID: target.ID, Choice: choice, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose), ClosesAt: target.Poll.ClosesAt,
 			})
 			if verr != nil {
 				return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, verr)
@@ -221,7 +218,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 		if !prev.IsZero() && cur.UpdateTime.Equal(prev) {
 			return PollVote{}, notFound() // the precondition failed and the vote doc did not move: the post is gone
 		}
-		res, cerr := repo.ChangeVote(wctx, ChangeParams{UID: uid, PostID: target.ID, From: cur.Choice, To: choice, Version: cur.UpdateTime})
+		res, cerr := repo.ChangeVote(wctx, ChangeParams{UID: uid, PostID: target.ID, From: cur.Choice, To: choice, Version: cur.UpdateTime, ClosesAt: target.Poll.ClosesAt, ExpireAt: target.Poll.ClosesAt.Add(s.d.PollVoteTTLAfterClose)})
 		if cerr != nil {
 			return PollVote{}, s.mapVoteErr(ctx, uid, target.ID, cerr)
 		}
@@ -244,7 +241,11 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 // (D6 step 8), so a replay shows the results even when the userLikes entry was trimmed. The cache is updated from the written
 // data; a failed userLikes read degrades to a view without those flags (logged), it never fails a committed vote.
 func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post, choice int, wrote bool) PollVote {
-	entry := pollEntry(post.ID, choice)
+	var closes time.Time
+	if post.Poll != nil {
+		closes = post.Poll.ClosesAt
+	}
+	entry := pollEntry(post.ID, choice, closes)
 	var vs posts.ViewerSet
 	if st, serr := s.state(ctx, uid); serr != nil {
 		slog.WarnContext(ctx, "engagement_poll_vote_viewer_degraded", "error", logger.RedactErr(serr, uid, post.ID).Error())
@@ -331,4 +332,26 @@ func withPollVote(list []string, postID, entry string) []string {
 		out = append(out, e)
 	}
 	return append(out, entry)
+}
+
+// pruneExpiredPollVotes drops the expired userLikes.pollVotes entries (closesAt + POLL_VOTE_TTL_AFTER_CLOSE, poll_retention.go) from
+// a freshly loaded document: they are never cached or shown, and one best-effort field-level Update (an Exists precondition, no
+// read, 1 write, once per expiry because the removal is persisted) removes them from Firestore. A failed write is logged and
+// retried the next time the document is loaded (at most once per CACHE_TTL per instance); DEGRADED_MODE=readonly writes nothing.
+// Staleness: a cached copy can show the check mark of an entry that expired inside the last CACHE_TTL (60 s).
+func (s *service) pruneExpiredPollVotes(ctx context.Context, uid string, ul UserLikes) UserLikes {
+	live, expired := splitPollVotes(ul.PollVotes, s.d.PollVoteTTLAfterClose, s.now())
+	if len(expired) == 0 {
+		return ul
+	}
+	ul.PollVotes = live
+	if s.d.ReadOnly || s.d.PollRepo == nil {
+		return ul
+	}
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), trimTimeout)
+	defer cancel()
+	if err := s.d.PollRepo.TrimPollVotes(wctx, uid, expired); err != nil {
+		slog.WarnContext(ctx, "engagement_poll_prune_failed", "error", logger.RedactErr(err, uid).Error())
+	}
+	return ul
 }

@@ -28,10 +28,10 @@ func (s listsSection) WriteSection(ctx context.Context, uid string, w io.Writer)
 }
 
 // registerListsLifecycle registers the lists step and export section on l. Call it after registerMessagingLifecycle
-// (Lifecycle always runs the identity step last).
-func registerListsLifecycle(l *identity.Lifecycle, repo *lists.FirestoreRepo) error {
+// (Lifecycle always runs the identity step last). handles and social feed the `lists_member_of` part (W5-46): owner handles and the user's own follows.
+func registerListsLifecycle(l *identity.Lifecycle, repo *lists.FirestoreRepo, handles lists.HandleSource, social lists.SocialSource) error {
 	if err := l.RegisterEraser(identity.BeforeIdentity, listsEraserStep(lists.NewEraser(repo))); err != nil {
 		return err
 	}
-	return l.RegisterExportSection(listsSection{lists.NewExporter(repo)})
+	return l.RegisterExportSection(listsSection{lists.NewExporter(repo).WithMembership(repo, handles, social)})
 }

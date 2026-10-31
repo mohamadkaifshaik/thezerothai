@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -145,6 +147,11 @@ func (e *PollVoteEraser) PurgeUser(ctx context.Context, uid string, cp PollVoteC
 // PollVoteExporter writes the `poll_votes` export section.
 type PollVoteExporter struct {
 	src PollVoteExportSource
+	// choices (optional) is the per-account copy: LoadUserLikes of the same FirestoreRepo, with the vote TTL and the clock that
+	// decide which entries are still live.
+	choices func(ctx context.Context, uid string) (UserLikes, error)
+	ttl     time.Duration
+	now     func() time.Time
 }
 
 // NewPollVoteExporter builds the section on a PollVoteExportSource (FirestoreRepo in production).
@@ -152,8 +159,50 @@ func NewPollVoteExporter(src PollVoteExportSource) *PollVoteExporter {
 	return &PollVoteExporter{src: src}
 }
 
-// ExportUser streams {"poll_votes":[{"postId","choice","createdAt"[,"changedAt"]}]} to w, by post id, in pages of 500 (memory stays bounded).
-// Reads: one per vote, minimum 1. Votes expire (closesAt + 30 d), so the section holds recent votes only.
+// WithChoices adds the account's own record, userLikes.pollVotes, to the section as `current_choices` (security L-2, W6-29): the
+// voter's current choice per poll, {postId, choice}, with no time. load is Repo.LoadUserLikes (1 read, also for a missing
+// document), read fresh and never from the cache; ttl and now decide which entries are still live (an expired one is not
+// exported, as it is not shown). A nil now means time.Now.
+func (x *PollVoteExporter) WithChoices(load func(ctx context.Context, uid string) (UserLikes, error), ttl time.Duration, now func() time.Time) *PollVoteExporter {
+	if now == nil {
+		now = time.Now
+	}
+	x.choices, x.ttl, x.now = load, ttl, now
+	return x
+}
+
+// ExportedPollChoice is one row of `current_choices`: the voter's own current choice on one poll (0-based).
+type ExportedPollChoice struct {
+	PostID string `json:"postId"`
+	Choice int    `json:"choice"`
+}
+
+// currentChoices lists the live userLikes.pollVotes entries as rows, newest last. A malformed entry is skipped.
+func (x *PollVoteExporter) currentChoices(ctx context.Context, uid string) ([]ExportedPollChoice, error) {
+	ul, err := x.choices(ctx, uid)
+	if err != nil {
+		return nil, fmt.Errorf("engagement: export poll choices: %w", err)
+	}
+	live, _ := splitPollVotes(ul.PollVotes, x.ttl, x.now())
+	out := make([]ExportedPollChoice, 0, len(live))
+	for _, e := range live {
+		id, rest, ok := strings.Cut(e, ":")
+		if !ok || id == "" {
+			continue
+		}
+		c, _, _ := strings.Cut(rest, ":")
+		n, err := strconv.Atoi(c)
+		if err != nil || n < 0 {
+			continue
+		}
+		out = append(out, ExportedPollChoice{PostID: id, Choice: n})
+	}
+	return out, nil
+}
+
+// ExportUser streams {"poll_votes":[{"postId","choice","createdAt"[,"changedAt"]}],"current_choices":[{"postId","choice"}]} to w, by post id, in
+// pages of 500 (memory stays bounded); current_choices only when WithChoices was set. Reads: one per vote, minimum 1, + 1 for
+// current_choices. Votes expire (closesAt + 30 d), so the section holds recent votes only.
 func (x *PollVoteExporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := io.WriteString(w, `{"poll_votes":[`); err != nil {
 		return fmt.Errorf("engagement: write poll votes export: %w", err)
@@ -182,7 +231,23 @@ func (x *PollVoteExporter) ExportUser(ctx context.Context, uid string, w io.Writ
 		}
 		after = page[len(page)-1].id
 	}
-	if _, err := io.WriteString(w, "]}\n"); err != nil {
+	if x.choices == nil {
+		if _, err := io.WriteString(w, "]}\n"); err != nil {
+			return fmt.Errorf("engagement: write poll votes export: %w", err)
+		}
+		return nil
+	}
+	rows, err := x.currentChoices(ctx, uid)
+	if err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, `],"current_choices":`); err != nil {
+		return fmt.Errorf("engagement: write poll votes export: %w", err)
+	}
+	if err := enc.Encode(rows); err != nil { // an empty list is [], never null
+		return fmt.Errorf("engagement: write poll votes export: %w", err)
+	}
+	if _, err := io.WriteString(w, "}\n"); err != nil {
 		return fmt.Errorf("engagement: write poll votes export: %w", err)
 	}
 	return nil

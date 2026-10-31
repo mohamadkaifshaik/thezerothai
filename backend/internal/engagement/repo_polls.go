@@ -59,7 +59,9 @@ func (r *FirestoreRepo) Vote(ctx context.Context, p VoteParams) (VoteOutcome, er
 		})
 		r.w.Writer.StagePollVote(b, p.PostID, p.Choice)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
-			"pollVotes": firestore.ArrayUnion(pollEntry(p.PostID, p.Choice)), "updatedAt": now,
+			"pollVotes": firestore.ArrayUnion(pollEntry(p.PostID, p.Choice, p.ClosesAt)), "updatedAt": now,
+			// The expiry day of this entry, for the daily sweep (poll_retention.go); ArrayUnion, so no vote loses another one day.
+			"pollVotesDueDays": firestore.ArrayUnion(pollDueDay(p.ExpireAt)),
 		}, firestore.MergeAll)
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
@@ -113,10 +115,13 @@ func (r *FirestoreRepo) ChangeVote(ctx context.Context, p ChangeParams) (ChangeO
 		}, firestore.LastUpdateTime(p.Version))
 		r.w.Writer.StagePollChange(b, p.PostID, p.From, p.To)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
-			"pollVotes": firestore.ArrayRemove(pollEntry(p.PostID, p.From)), "updatedAt": now,
+			// Both forms of the old entry: the three-part one (W6-29) and a two-part one written before it (dev only).
+			"pollVotes": firestore.ArrayRemove(pollEntry(p.PostID, p.From, p.ClosesAt), pollEntry(p.PostID, p.From, time.Time{})), "updatedAt": now,
 		}, firestore.MergeAll)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
-			"pollVotes": firestore.ArrayUnion(pollEntry(p.PostID, p.To)), "updatedAt": now,
+			"pollVotes": firestore.ArrayUnion(pollEntry(p.PostID, p.To, p.ClosesAt)), "updatedAt": now,
+			// A no-op when the day is already there (the same post, the same closesAt); it adds the day when a legacy entry is replaced.
+			"pollVotesDueDays": firestore.ArrayUnion(pollDueDay(p.ExpireAt)),
 		}, firestore.MergeAll)
 	})
 	store.NoteTxnAttempts(ctx, "engagement_txn_contention", res.Attempts)
@@ -130,16 +135,19 @@ func (r *FirestoreRepo) ChangeVote(ctx context.Context, p ChangeParams) (ChangeO
 	}
 }
 
-// TrimPollVotes implements PollRepo: one field-level write, no read.
+// TrimPollVotes implements PollRepo: one field-level Update (an Exists precondition), no read. It never creates the document: a
+// trim or prune that races the account-deletion eraser must not bring a userLikes document back (W6-29). A missing document is
+// success.
 func (r *FirestoreRepo) TrimPollVotes(ctx context.Context, uid string, drop []string) error {
 	if len(drop) == 0 {
 		return nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
-	b.Set(r.userLikesRef(uid), map[string]any{
-		"pollVotes": firestore.ArrayRemove(toAny(drop)...), "updatedAt": r.now().UTC(),
-	}, firestore.MergeAll)
-	if err := b.Commit(ctx); err != nil {
+	_, err := r.userLikesRef(uid).Update(ctx, []firestore.Update{
+		{Path: "pollVotes", Value: firestore.ArrayRemove(toAny(drop)...)},
+		{Path: "updatedAt", Value: r.now().UTC()},
+	})
+	budget.FromContext(ctx).AddWrites(1)
+	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("engagement: trim userLikes pollVotes: %w", err)
 	}
 	return nil

@@ -119,6 +119,9 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 		return access{}, ErrNotFound
 	}
 	a.owner = op
+	if hiddenByProtection(op, l.OwnerID, a.viewerSnap) {
+		return access{}, ErrNotFound
+	}
 	if a.ownerSnap, err = s.social(ctx, l.OwnerID); err != nil {
 		return access{}, err
 	}
@@ -126,6 +129,14 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 		return access{}, ErrNotFound
 	}
 	return a, nil
+}
+
+// hiddenByProtection is the protected-owner rule of D3 (W5-42, W5-17 M-2): the lists of a protected account are visible to that account and
+// to the viewers who follow it, as ListFollowing is (ADR-0025 D5). The owner's profile and the viewer's graph are both held already, so
+// the rule costs 0 reads. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
+// FEATURE_PRIVATE_ACCOUNTS (ramping that flag down never un-hides a list). A viewer who blocked the owner is not special-cased (I-3).
+func hiddenByProtection(owner identity.Profile, ownerID string, viewer graph.Snapshot) bool {
+	return owner.IsPrivate && !viewer.Following[ownerID]
 }
 
 // countKept is the member count a viewer is shown: the stored members minus those who block the owner (the F4 read-time drop).
@@ -251,8 +262,11 @@ func (s *service) encodeAfter(binding, id string) string {
 
 // ListUserLists implements Service (the proto doc comment is the contract). Order of the work: validation and the token (0
 // reads); for another owner the viewer's graph (blockedBy names the owner), the owner's profile (missing or not ACTIVE), the
-// owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query of page_size + 1 docs
-// (the extra row decides next_page_token and is not returned).
+// owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query. The caller's own lists
+// read page_size + 1 docs (the extra row decides next_page_token). Another owner's read all LISTS_MAX_PER_USER docs, drop private
+// and hidden rows and return every public one with no token whatever page_size is: a token or a short page computed from the
+// raw rows would leak how many private lists the owner has and where they sit (ADR-0030 D3, W5-41). Simpler than paging the
+// filtered set and costs no more reads than the documented worst case (the owner has at most LISTS_MAX_PER_USER docs).
 func (s *service) ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error) {
 	begin(ctx, "user_lists")
 	owner := in.OwnerID
@@ -290,15 +304,20 @@ func (s *service) ListUserLists(ctx context.Context, viewer string, in UserLists
 			return UserLists{}, nil
 		}
 	}
-	size := limits.ClampPageSize(in.PageSize)
-	rows, err := s.d.Repo.ListByOwner(ctx, owner, after, size+1)
-	if err != nil {
-		return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
-	}
 	var out UserLists
-	if len(rows) > size {
-		rows = rows[:size]
-		out.NextPageToken = s.encodeAfter(binding, rows[size-1].ID)
+	var rows []List
+	if own {
+		size := limits.ClampPageSize(in.PageSize)
+		rows, err = s.d.Repo.ListByOwner(ctx, owner, after, size+1)
+		if err != nil {
+			return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
+		}
+		if len(rows) > size {
+			rows = rows[:size]
+			out.NextPageToken = s.encodeAfter(binding, rows[size-1].ID)
+		}
+	} else if rows, err = s.d.Repo.ListByOwner(ctx, owner, "", max(s.d.Limits.MaxPerUser, 1)); err != nil {
+		return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
 	}
 	for _, l := range rows {
 		if !own && hiddenFromOthers(l) {
@@ -341,6 +360,12 @@ func (s *service) otherOwner(ctx context.Context, viewer, owner string) (prof id
 	}
 	if os.Blocked[viewer] {
 		return identity.Profile{}, nil, false, identity.ProfileNotFoundError()
+	}
+	// W5-42 (W5-17 M-2): after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
+	// PROTECTED_ACCOUNT, the ListFollowing precedent (ADR-0025 D5, AQ: an error, not an empty page, so the client shows the
+	// protected-account state instead of "no lists"). 0 extra reads: the profile and both graphs are held.
+	if hiddenByProtection(p, owner, vs) {
+		return identity.Profile{}, nil, false, ErrProtected
 	}
 	if os.BlockedByOverflow {
 		return p, nil, true, nil

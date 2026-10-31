@@ -132,9 +132,12 @@ func validatePoll(l PollLimits, in *PollInput) (PollDraft, error) {
 	return PollDraft{Options: labels, DurationMin: int(in.DurationMinutes)}, nil
 }
 
-// foldKey is the comparison key of the distinctness rule: NFC of the case-folded NFC label. A fresh Caser per call, because a
-// cases.Caser is not safe for concurrent use.
-func foldKey(s string) string { return norm.NFC.String(cases.Fold().String(norm.NFC.String(s))) }
+// foldKey is the comparison key of the distinctness rule: NFC of the case-folded NFC label, after the zero-width and other
+// default-ignorable code points are dropped (text.StripFoldIgnorable; security L-6: "Yes" and "Ye​s" are one choice). The
+// stored label keeps them. A fresh Caser per call, because a cases.Caser is not safe for concurrent use.
+func foldKey(s string) string {
+	return norm.NFC.String(cases.Fold().String(norm.NFC.String(text.StripFoldIgnorable(s))))
+}
 
 // pollHashSuffix is the ADR-0029 D2 suffix appended to the request hash base after `|ai=1`, only when a poll is present:
 // `|poll=<n>:<hex SHA-256 of the normalised labels joined by U+001F>|dur=<minutes>`. Empty for no poll, so a CreatePost

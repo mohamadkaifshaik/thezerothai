@@ -5,6 +5,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph_pb;
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../domain/lists_feature_flag.dart';
@@ -61,14 +62,19 @@ class ListsRepository {
   ListsRepository({
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
+    required SessionEpoch epoch,
     void Function(pb.ListInfo list)? onListSeen,
   }) : _apiClient = apiClient,
        _gate = gate,
+       _epoch = epoch,
+       _seenEpoch = epoch.value,
        _onListSeen = onListSeen;
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
   final void Function(pb.ListInfo list)? _onListSeen;
+  final SessionEpoch _epoch;
+  int _seenEpoch;
   final Map<String, pb.ListInfo> _headers = {};
   final StreamController<pb.ListInfo> _headerChanges =
       StreamController<pb.ListInfo>.broadcast(sync: true);
@@ -77,7 +83,10 @@ class ListsRepository {
   bool get enabled => _gate.enabled;
 
   /// The latest header of [listId] this session has seen, or null.
-  pb.ListInfo? header(String listId) => _headers[listId];
+  pb.ListInfo? header(String listId) {
+    _sync();
+    return _headers[listId];
+  }
 
   /// Emits every header seen (a list screen filters by id).
   Stream<pb.ListInfo> get headerChanges => _headerChanges.stream;
@@ -86,13 +95,25 @@ class ListsRepository {
   /// timeline) and tells `onListSeen` (the Home tab title).
   void noteListInfo(pb.ListInfo list) {
     if (list.listId.isEmpty) return;
+    _sync();
     _headers[list.listId] = list;
     _onListSeen?.call(list);
     if (!_headerChanges.isClosed) _headerChanges.add(list);
   }
 
-  /// Forgets every header (sign-out).
-  void clearSession() => _headers.clear();
+  /// Forgets every header now (sign-out or a switch of account), whichever of
+  /// this and the epoch end comes first.
+  void clearSession() {
+    _seenEpoch = _epoch.value;
+    _headers.clear();
+  }
+
+  /// Drops every header when the session ended since last looked.
+  void _sync() {
+    if (_epoch.value == _seenEpoch) return;
+    _seenEpoch = _epoch.value;
+    _headers.clear();
+  }
 
   /// Creates a list. A null [isPrivate] leaves the field out: the server
   /// creates it private (F3, fails closed).
@@ -102,6 +123,7 @@ class ListsRepository {
     String description = '',
     bool? isPrivate,
   }) async {
+    final epoch = _epoch.value;
     final request = pb.CreateListRequest(
       idempotencyKey: idempotencyKey,
       name: name,
@@ -109,7 +131,7 @@ class ListsRepository {
     );
     if (isPrivate != null) request.isPrivate = isPrivate;
     final r = await _call(() => _apiClient.lists.createList(request));
-    return _seen(r.list);
+    return _seen(r.list, epoch);
   }
 
   /// Field presence is the signal: a null argument leaves the field unchanged.
@@ -120,6 +142,7 @@ class ListsRepository {
     String? description,
     bool? isPrivate,
   }) async {
+    final epoch = _epoch.value;
     final request = pb.UpdateListRequest(
       idempotencyKey: idempotencyKey,
       listId: listId,
@@ -128,7 +151,7 @@ class ListsRepository {
     if (description != null) request.description = description;
     if (isPrivate != null) request.isPrivate = isPrivate;
     final r = await _call(() => _apiClient.lists.updateList(request));
-    return _seen(r.list);
+    return _seen(r.list, epoch);
   }
 
   Future<void> deleteList({
@@ -143,10 +166,11 @@ class ListsRepository {
   }
 
   Future<pb.ListInfo> getList(String listId) async {
+    final epoch = _epoch.value;
     final r = await _call(
       () => _apiClient.lists.getList(pb.GetListRequest(listId: listId)),
     );
-    return _seen(r.list);
+    return _seen(r.list, epoch);
   }
 
   /// [ownerId] empty = the caller's own lists. [containsUserId] fills
@@ -157,6 +181,7 @@ class ListsRepository {
     int pageSize = 0,
     String pageToken = '',
   }) async {
+    final epoch = _epoch.value;
     final r = await _call(
       () => _apiClient.lists.listUserLists(
         pb.ListUserListsRequest(
@@ -167,7 +192,9 @@ class ListsRepository {
         ),
       ),
     );
-    r.lists.forEach(_seen);
+    for (final l in r.lists) {
+      _seen(l, epoch);
+    }
     return ListsPage(
       lists: r.lists.toList(),
       containingListIds: r.containingListIds.toSet(),
@@ -180,6 +207,7 @@ class ListsRepository {
     required String listId,
     required String userId,
   }) async {
+    final epoch = _epoch.value;
     final r = await _call(
       () => _apiClient.lists.addListMember(
         pb.AddListMemberRequest(
@@ -189,7 +217,7 @@ class ListsRepository {
         ),
       ),
     );
-    return _seen(r.list);
+    return _seen(r.list, epoch);
   }
 
   Future<pb.ListInfo> removeMember({
@@ -197,6 +225,7 @@ class ListsRepository {
     required String listId,
     required String userId,
   }) async {
+    final epoch = _epoch.value;
     final r = await _call(
       () => _apiClient.lists.removeListMember(
         pb.RemoveListMemberRequest(
@@ -206,7 +235,7 @@ class ListsRepository {
         ),
       ),
     );
-    return _seen(r.list);
+    return _seen(r.list, epoch);
   }
 
   /// A page can be short, or empty with a token still set (members the viewer
@@ -241,8 +270,10 @@ class ListsRepository {
     }
   }
 
-  pb.ListInfo _seen(pb.ListInfo list) {
-    noteListInfo(list);
+  /// Keeps [list] unless the session ended since the request started under
+  /// [epoch] (privacy: a late answer never lands in the next account).
+  pb.ListInfo _seen(pb.ListInfo list, int epoch) {
+    if (_epoch.allows(epoch)) noteListInfo(list);
     return list;
   }
 

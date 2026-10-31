@@ -47,10 +47,11 @@ void main() {
     );
   });
 
-  final profile = identity.Profile(
+  identity.Profile profileOf({bool isPrivate = false}) => identity.Profile(
     userId: 'u-kaif',
     handle: 'kaif',
     displayName: 'Kaif Shaik',
+    isPrivate: isPrivate,
   );
 
   Future<void> header(
@@ -58,6 +59,8 @@ void main() {
     bool own = false,
     bool graphEnabled = true,
     bool blocking = false,
+    bool protected = false,
+    bool following = false,
     bool listsEnabled = true,
     bool reportsEnabled = false,
     Size size = const Size(400, 800),
@@ -76,14 +79,20 @@ void main() {
           builder: (context, _) => Scaffold(
             body: SingleChildScrollView(
               child: ProfileHeader(
-                profile: profile,
+                profile: profileOf(isPrivate: protected),
                 isOwnProfile: own,
                 graphEnabled: graphEnabled,
                 listsEnabled: listsEnabled,
                 reportsEnabled: reportsEnabled,
                 relationship: own || !graphEnabled
                     ? null
-                    : graph.Relationship(userId: 'u-kaif', blocking: blocking),
+                    : graph.Relationship(
+                        userId: 'u-kaif',
+                        blocking: blocking,
+                        followState: following
+                            ? graph.FollowState.FOLLOW_STATE_FOLLOWING
+                            : graph.FollowState.FOLLOW_STATE_NONE,
+                      ),
               ),
             ),
           ),
@@ -185,6 +194,39 @@ void main() {
       });
     });
   }
+
+  // W5-42: a protected profile the viewer does not follow hides "View Lists".
+  group('protected profile (W5-42)', () {
+    testWidgets('not followed: no View Lists, Add stays', (tester) async {
+      await header(tester, protected: true);
+      await openMenu(tester);
+      expect(find.text('View Lists'), findsNothing);
+      expect(find.text(add), findsOneWidget);
+    });
+
+    testWidgets('followed: View Lists shown', (tester) async {
+      await header(tester, protected: true, following: true);
+      await openMenu(tester);
+      expect(find.text('View Lists'), findsOneWidget);
+    });
+
+    testWidgets('graph off (relationship unknown): no View Lists', (
+      tester,
+    ) async {
+      await header(tester, protected: true, graphEnabled: false);
+      await openMenu(tester);
+      expect(find.text('View Lists'), findsNothing);
+      expect(find.text(add), findsOneWidget);
+    });
+
+    testWidgets('public profile not followed: View Lists shown', (
+      tester,
+    ) async {
+      await header(tester);
+      await openMenu(tester);
+      expect(find.text('View Lists'), findsOneWidget);
+    });
+  });
 
   testWidgets('reports and lists share the menu', (tester) async {
     await header(tester, reportsEnabled: true);

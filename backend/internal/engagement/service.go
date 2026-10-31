@@ -205,6 +205,7 @@ func (s *service) state(ctx context.Context, uid string) (*likesState, error) {
 	if err != nil {
 		return nil, fmt.Errorf("engagement: load userLikes: %w", err)
 	}
+	ul = s.pruneExpiredPollVotes(ctx, uid, ul)
 	return s.cache.set(uid, ul), nil
 }
 

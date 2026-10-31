@@ -217,6 +217,10 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	// owns and A is only a member of belongs to its owner and is absent. Fixed ids keep the golden stable.
 	e.seedList(t, "0000000000000000604", a.uid, []string{f.uid, g.uid})
 	e.seedList(t, "0000000000000000605", f.uid, []string{a.uid, g.uid})
+	// W5-46: `lists_member_of` lists A's public membership (606: id, owner handle, name) and only counts the private (605) and moderator-hidden
+	// (607) ones; no member other than A appears anywhere in it.
+	e.seedListWith(t, "0000000000000000606", f.uid, []string{a.uid, g.uid}, false, false)
+	e.seedListWith(t, "0000000000000000607", f.uid, []string{a.uid, g.uid}, false, true)
 
 	// ADR-0027 F5 (W7-6): an accepted conversation with f and a request from g in the `messages` section. A's own messages
 	// are exported in full; f's and g's only as a time and "received"; neither uid appears.
@@ -290,6 +294,8 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	vHandle, _ := e.profileOf(t, v)
 	for _, leak := range []struct{ what, needle string }{
 		{"the uid of the user who blocked the subject (ADR-0008 D12)", y.uid},
+		{"a private list the subject is only a member of (W5-46)", "list 605"},
+		{"a moderator-hidden list the subject is only a member of (W5-46)", "list 607"},
 		{"the handle of the user who blocked the subject", yHandle},
 		{"the email of the user who blocked the subject", yEmail},
 		{"the uid of an unrelated user who blocks others", w.uid},

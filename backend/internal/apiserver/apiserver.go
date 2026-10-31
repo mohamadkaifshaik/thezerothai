@@ -478,12 +478,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// lists (ADR-0030 D8, W5-5): the erase step and export section are registered whether or not FEATURE_LISTS is on; the step runs
 	// after messaging, before identity. The repo is also the write path's storage (wired with the routes).
-	if err := registerListsLifecycle(lifecycle, listsRepo); err != nil {
+	if err := registerListsLifecycle(lifecycle, listsRepo, identitySvc.(identity.Directory), graphSvc); err != nil {
 		return nil, nil, fmt.Errorf("lists lifecycle registry: %w", err)
 	}
 	// poll_votes (ADR-0029 D8): the erase step and export section are registered whether or not FEATURE_POLLS is on; the step runs after
 	// messaging and lists, before identity (appended, never inserted: step names are persisted).
-	if err := registerPollVoteLifecycle(lifecycle, engagementRepo); err != nil {
+	if err := registerPollVoteLifecycle(lifecycle, engagementRepo, cfg.Composer.PollVoteTTLAfterClose); err != nil {
 		return nil, nil, fmt.Errorf("poll_votes lifecycle registry: %w", err)
 	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
@@ -679,8 +679,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
 	// ADR-0028 D7 (F1 = B, W4-9b): the same route also runs the trends refresh after the backstop, but its status is the
-	// backstop's alone. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
-	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), trendsRefresher, log, cfg.ProjectID, time.Now))
+	// backstop's alone. The poll vote sweep (W6-29) runs first. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
+		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
+		trendsRefresher,
+	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
 	// ADR-0021 D1: the scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
 	// budget counter and panic recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and

@@ -9,6 +9,7 @@ import '../../../shared/widgets/app_back_header.dart';
 import '../../../shared/widgets/app_empty_view.dart';
 import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/app_section_header.dart';
+import '../../../shared/widgets/protected_posts_view.dart';
 import '../../../shared/widgets/user_list_skeleton.dart';
 import '../data/lists_repository.dart';
 import 'bloc/lists_cubit.dart';
@@ -17,8 +18,10 @@ import 'widgets/list_row.dart';
 
 /// `/u/:userId/lists` (W5-13): another person's public Lists. 1 `ListUserLists`
 /// per open. A row opens the list (`/lists/:id`, W5-12). The `lists` flag gates
-/// the route. A person who is hidden from you (private, blocked, gone) answers
-/// NOT_FOUND, shown as one fixed text that hints at no cause.
+/// the route. A protected owner you do not follow answers PROTECTED_ACCOUNT
+/// (the protected-account view, W5-42). A person who is hidden from you
+/// (blocked, gone) answers NOT_FOUND, shown as one fixed text that hints at no
+/// cause.
 class UserListsScreen extends StatefulWidget {
   const UserListsScreen({super.key, required this.userId, this.handle});
 
@@ -89,6 +92,17 @@ class _UserListsScreenState extends State<UserListsScreen> {
             icon: Icons.list_alt_outlined,
             title: "Lists aren't available right now",
             subtitle: 'Please try again in a little while.',
+          );
+        }
+        if (error is ProtectedAccountException) {
+          // W5-42: a protected owner's Lists are for approved followers only.
+          return ProtectedPostsView(
+            title: 'These Lists are protected',
+            message: widget.handle == null || widget.handle!.isEmpty
+                ? 'Only approved followers can see this account’s Lists. '
+                      'To request access, follow the account.'
+                : 'Only approved followers can see @${widget.handle}’s '
+                      'Lists. To request access, follow the account.',
           );
         }
         if (error is NotFoundException) {

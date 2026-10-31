@@ -67,6 +67,7 @@ type w617Export struct {
 			Choice    int    `json:"choice"`
 			CreatedAt string `json:"createdAt"`
 		} `json:"poll_votes"`
+		CurrentChoices []map[string]any `json:"current_choices"`
 	} `json:"poll_votes"`
 	Posts struct {
 		Posts []struct {
@@ -128,6 +129,19 @@ func TestW617_LifecycleVoterDeletes(t *testing.T) {
 	}
 	if len(vx.PollVotes.PollVotes) != 2 || got[p1] != 2 || got[p2] != 0 {
 		t.Errorf("voter export poll_votes = %v, want {%s:2, %s:0} (0-based choice)", got, p1, p2)
+	}
+	// W6-29 (security L-2): the voter's current choice per poll from userLikes.pollVotes, no time.
+	cur := map[string]int{}
+	for _, row := range vx.PollVotes.CurrentChoices {
+		if len(row) != 2 {
+			t.Errorf("a current choice carries only postId and choice: %v", row)
+		}
+		id, _ := row["postId"].(string)
+		ch, _ := row["choice"].(float64)
+		cur[id] = int(ch)
+	}
+	if len(cur) != 2 || cur[p1] != 2 || cur[p2] != 0 {
+		t.Errorf("voter export current_choices = %v, want {%s:2, %s:0}", cur, p1, p2)
 	}
 	if strings.Contains(rawV, w.uid) {
 		t.Error("the voter's export names another voter")

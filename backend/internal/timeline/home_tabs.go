@@ -113,8 +113,9 @@ func tabsHash(tabs []tabKey) string {
 // SetHomeTabs replaces the caller's pinned Home tabs (proto: TimelineService.SetHomeTabs).
 //
 // Order: key format and tab shape (VALIDATION, 0 reads), the cap on the sent tabs (LIMIT_REACHED home_tabs), then the
-// FEATURE_LISTS gate when any tab is sent (an empty request skips it: "unpin everything" is accepted with lists off, but
-// stored LIST tabs are a kind that is off for the caller, so they are kept, see below), then validation of every tab not
+// FEATURE_LISTS gate when any tab is sent (an empty request skips it: "unpin everything" is accepted with lists off, answered
+// at once with the empty visible order, 0 reads, 0 writes; stored LIST tabs are a kind that is off for the caller, so they
+// are kept, see below), then validation of every tab not
 // already stored, then one identity transaction. Stored tabs of a kind that is off for the caller are kept after the sent
 // ones and count toward the cap.
 //
@@ -147,6 +148,11 @@ func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev
 		if err := lists.Guard(ctx, h.Flags, uid); err != nil {
 			return nil, err
 		}
+	} else if !h.visibleKind(uid, identity.HomeTabKindList) {
+		// W5-41/M-3: with lists off for the caller an empty request is a no-op (stored LIST tabs are kept and hidden), so the
+		// answer is the empty visible order at 0 reads and 0 writes, with no idempotency document.
+		logger.SetRequestField(ctx, "outcome", "noop:kind_off")
+		return connect.NewResponse(&timelinev1.SetHomeTabsResponse{Tabs: []*commonv1.HomeTab{}}), nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
 	defer cancel()

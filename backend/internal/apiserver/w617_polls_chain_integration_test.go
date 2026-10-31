@@ -549,8 +549,8 @@ func w617ConcurrencyArmA(t *testing.T) {
 			t.Fatalf("voter %d userLikes: %v", i, err)
 		}
 		got, _ := ul.DataAt("pollVotes")
-		if want := fmt.Sprintf("[%s:%d]", pid, stored[u.uid]); fmt.Sprint(got) != want {
-			t.Errorf("voter %d: userLikes.pollVotes = %v, want %s", i, got, want)
+		if !pollEntryIs(fmt.Sprint(got), pid, int(stored[u.uid])) {
+			t.Errorf("voter %d: userLikes.pollVotes = %v, want [%s:%d:<closesAtUnix>]", i, got, pid, stored[u.uid])
 		}
 	}
 

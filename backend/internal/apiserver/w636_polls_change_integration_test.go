@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -143,7 +144,7 @@ func w636ConcurrencyArmB(t *testing.T) {
 		if err != nil {
 			t.Fatalf("voter %d userLikes: %v", i, err)
 		}
-		if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != fmt.Sprintf("[%s:%d]", pid, stored[u.uid]) {
+		if got, _ := ul.DataAt("pollVotes"); !onePollEntry(got, pid, stored[u.uid]) {
 			t.Errorf("voter %d: userLikes.pollVotes = %v, want the one entry %s:%d (I-V3)", i, got, pid, stored[u.uid])
 		}
 	}
@@ -238,7 +239,7 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 	}
 	if ul, err := e.fs.Doc("userLikes/" + voter.uid).Get(context.Background()); err != nil {
 		t.Fatal(err)
-	} else if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != fmt.Sprintf("[%s:2]", pid) {
+	} else if got, _ := ul.DataAt("pollVotes"); !onePollEntry(got, pid, 2) {
 		t.Errorf("userLikes.pollVotes = %v, want the one entry for choice 2", got)
 	}
 
@@ -280,4 +281,20 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 	if d, _ := voteDocFor(t, e, closed, voter.uid); d["choice"] != int64(2) || d["changes"] != nil {
 		t.Errorf("a change after close wrote: %v", d)
 	}
+}
+
+// onePollEntry reports whether a userLikes.pollVotes value holds exactly one entry, for postID with choice, in the three-part form
+// "<postId>:<choice>:<closesAtUnix>" (W6-29).
+func onePollEntry(got any, postID string, choice int64) bool {
+	list, ok := got.([]any)
+	if !ok || len(list) != 1 {
+		return false
+	}
+	s, _ := list[0].(string)
+	rest, ok := strings.CutPrefix(s, postID+":"+strconv.FormatInt(choice, 10)+":")
+	if !ok {
+		return false
+	}
+	_, err := strconv.ParseInt(rest, 10, 64)
+	return err == nil
 }

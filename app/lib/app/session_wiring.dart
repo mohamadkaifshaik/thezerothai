@@ -128,7 +128,9 @@ Future<void> wipeSessionData({
 ///
 /// - A user going to null or to a different uid (a direct A to B switch counts)
 ///   dispatches [OnboardingUserSignedOut], ends the session epoch and wipes the
-///   cache ([wipeSessionData]), and calls [onSignedOut] (in-memory caches).
+///   cache ([wipeSessionData]), and calls the optional [onSignedOut]. The
+///   in-memory caches are not reset here: `AppWidget` runs the one
+///   `AccountSessionReset` for a sign-out and for a switch.
 /// - A new uid claims the cache ([AppDatabase.claimCacheFor]: owner stamp, wipe
 ///   when it is another user's or unstamped) and only then dispatches
 ///   [OnboardingUserAuthenticated], so nothing reads the cache before it is the
@@ -144,7 +146,7 @@ StreamSubscription<AuthState> wireAuthSession({
   required OnboardingBloc onboardingBloc,
   required AppDatabase database,
   required TimelineRepository timelineRepository,
-  required void Function() onSignedOut,
+  void Function()? onSignedOut,
   NotificationsRepository? notificationsRepository,
   MessagingRepository? messagingRepository,
   AppUser? initialUser,
@@ -185,7 +187,7 @@ StreamSubscription<AuthState> wireAuthSession({
         messagingRepository: messagingRepository,
       );
       chain(() => wipe);
-      onSignedOut();
+      onSignedOut?.call();
     }
     if (user != null && user.uid != previous?.uid) {
       final uid = user.uid;

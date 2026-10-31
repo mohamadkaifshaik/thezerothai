@@ -469,7 +469,7 @@ func (v ViewerSet) BookmarksOnly() ViewerSet {
 	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff}
 }
 
-// WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>" (newest last,
+// WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last,
 // ADR-0029 D3). A malformed entry is skipped. v itself is not changed (a ViewerSet is read-only and shared by the engagement cache).
 func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 	if len(votes) == 0 {
@@ -477,15 +477,16 @@ func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 	}
 	m := make(map[string]int, len(votes))
 	for _, e := range votes {
-		i := strings.LastIndexByte(e, ':')
-		if i <= 0 {
+		id, rest, ok := strings.Cut(e, ":")
+		if !ok || id == "" {
 			continue
 		}
-		n, err := strconv.Atoi(e[i+1:])
+		choice, _, _ := strings.Cut(rest, ":") // the optional third part is the closing time (W6-29): not needed here
+		n, err := strconv.Atoi(choice)
 		if err != nil || n < 0 || n >= MaxPollChoices {
 			continue
 		}
-		m[e[:i]] = n
+		m[id] = n
 	}
 	v.pollChoice = m
 	return v

@@ -73,7 +73,7 @@ type UserLikes struct {
 	RecentReposts []string
 	// Bookmarks is the complete set of the user's bookmarked post ids (ADR-0023 D3), at most the per-user cap.
 	Bookmarks []string
-	// PollVotes are the entries "<postId>:<index>" of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll (W6-7).
+	// PollVotes are the entries "<postId>:<index>:<closesAtUnix>" (two-part before W6-29) of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll (W6-7).
 	PollVotes []string
 }
 
@@ -370,6 +370,9 @@ type ChangeParams struct {
 	UID, PostID string
 	From, To    int
 	Version     time.Time
+	// ClosesAt and ExpireAt are the poll's closing time and the vote's TTL time (closesAt + POLL_VOTE_TTL_AFTER_CLOSE): the userLikes entry is
+	// "<postId>:<choice>:<closesAtUnix>" (poll_retention.go), and its expiry day goes into pollVotesDueDays.
+	ClosesAt, ExpireAt time.Time
 }
 
 // VoteParams is one vote batch.
@@ -378,6 +381,8 @@ type VoteParams struct {
 	// Choice is the 0-based index. ExpireAt is the vote doc's TTL time (closesAt + POLL_VOTE_TTL_AFTER_CLOSE).
 	Choice   int
 	ExpireAt time.Time
+	// ClosesAt is the poll's closing time: it goes into the userLikes entry (poll_retention.go).
+	ClosesAt time.Time
 }
 
 // PollRepo is the storage seam of VotePoll; repo_polls.go implements it, tests use a fake.

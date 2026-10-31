@@ -129,6 +129,7 @@ void main() {
     lists = ListsRepository(
       apiClient: api,
       gate: gate,
+      epoch: SessionEpoch(),
       onListSeen: tabs.noteListInfo,
     );
     onboarding = _MockOnboarding();

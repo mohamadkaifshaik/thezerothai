@@ -251,7 +251,11 @@ func TestVotePoll_ChangeMatrix(t *testing.T) {
 // poll alone, and costs the vote doc read plus one write batch: the documented budget (typical 1 vote read, 0 extra, writes counted at the repo).
 func TestVotePoll_ChangeEffects(t *testing.T) {
 	e := newPollEnv(t) // counts 5/2/0, total 7
-	e.repo.loaded = UserLikes{Recent: []string{pidA}, PollVotes: []string{"0000000000000000901:3", pidA + ":1", "0000000000000000902:0"}}
+	// Three-part entries (W6-29) on open polls, so none of them has expired and nothing is pruned.
+	open := e.now.Add(time.Hour)
+	closes := e.closes
+	other1, other2 := pollEntry("0000000000000000901", 3, open), pollEntry("0000000000000000902", 0, open)
+	e.repo.loaded = UserLikes{Recent: []string{pidA}, PollVotes: []string{other1, pollEntry(pidA, 1, closes), other2}}
 	e.seedVote(voterKey, 1, 0)
 	res, err := e.m.VotePoll(e.ctx, voterKey, keyOK, pidA, 2, 2)
 	if err != nil {
@@ -271,7 +275,7 @@ func TestVotePoll_ChangeEffects(t *testing.T) {
 		t.Errorf("PollVoteChanged calls = %v, want one 1>2", e.posts.pollVotes)
 	}
 	st, _ := e.m.s.cache.get(voterKey)
-	if got := fmt.Sprint(st.pollVotes); got != fmt.Sprint([]string{"0000000000000000901:3", "0000000000000000902:0", pidA + ":2"}) {
+	if got := fmt.Sprint(st.pollVotes); got != fmt.Sprint([]string{other1, other2, pollEntry(pidA, 2, closes)}) {
 		t.Errorf("cache pollVotes = %v, want the post's one entry replaced by :2 (I-V3), the others kept", st.pollVotes)
 	}
 	if i, ok := e.m.Viewer(e.ctx, voterKey).PollChoice(e.posts.docs[pidA]); !ok || i != 2 {

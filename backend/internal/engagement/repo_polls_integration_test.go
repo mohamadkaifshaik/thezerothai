@@ -50,10 +50,11 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 	if _, err := e.client.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{"recent": []string{"x"}, "bookmarks": []string{"y"}}); err != nil {
 		t.Fatal(err)
 	}
-	exp := time.Now().Add(48 * time.Hour).UTC()
+	closes := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	exp := closes.Add(48 * time.Hour)
 
 	ctx, c := budget.WithCounter(context.Background())
-	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp})
+	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp, ClosesAt: closes})
 	if err != nil || out != VoteWritten {
 		t.Fatalf("Vote = %v, %v", out, err)
 	}
@@ -65,7 +66,7 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 		t.Errorf("total=%d counts=%v", total, counts)
 	}
 	ul, _ := e.client.Doc("userLikes/" + uid).Get(context.Background())
-	for field, want := range map[string]string{"pollVotes": "[" + pid + ":1]", "recent": "[x]", "bookmarks": "[y]"} {
+	for field, want := range map[string]string{"pollVotes": "[" + pollEntry(pid, 1, closes) + "]", "pollVotesDueDays": fmt.Sprint([]int64{pollDueDay(exp)}), "recent": "[x]", "bookmarks": "[y]"} {
 		if got, _ := ul.DataAt(field); fmt.Sprint(got) != want {
 			t.Errorf("userLikes.%s = %v, want %s", field, got, want)
 		}
@@ -247,13 +248,14 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	e := newRepoEnv(t)
 	const pid, other, uid = "0000000000000000031", "0000000000000000032", "voter"
 	e.seedPoll(t, pid, map[string]int64{"0": 4, "1": 0, "2": 0}, 4)
-	exp := time.Now().Add(48 * time.Hour).UTC()
+	closes := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	exp := closes.Add(24 * time.Hour)
 	if _, err := e.client.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{
 		"recent": []string{"x"}, "bookmarks": []string{"y"}, "pollVotes": []string{other + ":2"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp}); err != nil || out != VoteWritten {
+	if out, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp, ClosesAt: closes}); err != nil || out != VoteWritten {
 		t.Fatalf("Vote = %v, %v", out, err)
 	}
 	st, found, err := e.repo.GetVote(context.Background(), uid, pid)
@@ -262,7 +264,7 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	}
 
 	ctx, c := budget.WithCounter(context.Background())
-	out, err := e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 2, Version: st.UpdateTime})
+	out, err := e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 2, Version: st.UpdateTime, ClosesAt: closes, ExpireAt: exp})
 	if err != nil || out != ChangeWritten {
 		t.Fatalf("ChangeVote = %v, %v", out, err)
 	}
@@ -274,7 +276,7 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 		t.Errorf("total=%d counts=%v, want total fixed and one vote moved 0 -> 2", total, counts)
 	}
 	ul, _ := e.client.Doc("userLikes/" + uid).Get(context.Background())
-	for field, want := range map[string]string{"pollVotes": "[" + other + ":2 " + pid + ":2]", "recent": "[x]", "bookmarks": "[y]"} {
+	for field, want := range map[string]string{"pollVotes": "[" + other + ":2 " + pollEntry(pid, 2, closes) + "]", "recent": "[x]", "bookmarks": "[y]"} {
 		if got, _ := ul.DataAt(field); fmt.Sprint(got) != want {
 			t.Errorf("userLikes.%s = %v, want %s: one entry per post, the others kept", field, got, want)
 		}
@@ -294,7 +296,7 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	}
 
 	// The same Version again is stale: the vote doc moved. Nothing is written.
-	out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime})
+	out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime, ClosesAt: closes, ExpireAt: exp})
 	if err != nil || out != ChangeStale {
 		t.Fatalf("stale ChangeVote = %v, %v, want ChangeStale", out, err)
 	}
@@ -307,11 +309,11 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	if st2.Choice != 2 || st2.Changes != 1 || !st2.UpdateTime.After(st.UpdateTime) {
 		t.Fatalf("GetVote after = %+v", st2)
 	}
-	if out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 2, To: 1, Version: st2.UpdateTime}); err != nil || out != ChangeWritten {
+	if out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 2, To: 1, Version: st2.UpdateTime, ClosesAt: closes, ExpireAt: exp}); err != nil || out != ChangeWritten {
 		t.Fatalf("second ChangeVote = %v, %v", out, err)
 	}
 	ul, _ = e.client.Doc("userLikes/" + uid).Get(context.Background())
-	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != "["+other+":2 "+pid+":1]" {
+	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != "["+other+":2 "+pollEntry(pid, 1, closes)+"]" {
 		t.Errorf("userLikes.pollVotes = %v", got)
 	}
 }
@@ -376,5 +378,112 @@ func TestPollVoteExporter_ChangedAtFromFirestore(t *testing.T) {
 	}
 	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil || len(doc.Votes) != 1 || doc.Votes[0]["choice"] != float64(1) || doc.Votes[0]["changedAt"] == nil {
 		t.Fatalf("export = %v (%v), want the current choice 1 and a changedAt", doc.Votes, err)
+	}
+}
+
+// The prune never recreates a userLikes document (a race with the account-deletion eraser), and a missing one is success.
+func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx, c := budget.WithCounter(context.Background())
+	if err := e.repo.TrimPollVotes(ctx, "erased", []string{"a:0:1"}); err != nil {
+		t.Fatalf("trim of a missing document: %v", err)
+	}
+	budgettest.Assert(t, "TrimPollVotes missing", c, budgettest.Budget{Reads: 0, Writes: 1})
+	if e.exists(t, "userLikes/erased") {
+		t.Fatal("the prune recreated userLikes/erased")
+	}
+}
+
+// The daily sweep (W6-29): documents with a due day in the window are cleaned, an open poll's vote and the other lists survive,
+// a document with only future days is not even read, a document without due days is not read, and the budget holds.
+func TestRepoSweepPollVotes(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	ttl := 30 * 24 * time.Hour
+	now := time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC)
+	gone := pollEntry("0000000000000000031", 1, now.Add(-ttl-48*time.Hour))  // expired two days ago
+	later := pollEntry("0000000000000000032", 0, now.Add(-ttl+24*time.Hour)) // expires tomorrow
+	open := pollEntry("0000000000000000033", 2, now.Add(time.Hour))          // still open
+	set := func(uid string, votes []string, days []int64) {
+		t.Helper()
+		if _, err := e.client.Doc("userLikes/"+uid).Set(ctx, map[string]any{"recent": []string{"x"}, "pollVotes": votes, "pollVotesDueDays": days}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dayOf := func(entry string) int64 { x, _ := pollEntryExpiry(entry, ttl); return pollDueDay(x) }
+	set("dormant", []string{gone, later, open}, []int64{dayOf(gone), dayOf(later), dayOf(open)})
+	set("onlyfuture", []string{open}, []int64{dayOf(open) + 40}) // beyond the window: not returned
+	set("onlygone", []string{gone}, []int64{dayOf(gone)})
+	lateToday := pollEntry("0000000000000000035", 0, now.Add(-ttl+2*time.Hour)) // expires at 14:00 today: returned, nothing to change
+	set("latetoday", []string{lateToday}, []int64{dayOf(lateToday)})
+	if _, err := e.client.Doc("userLikes/legacy").Set(ctx, map[string]any{"pollVotes": []string{"0000000000000000034:1"}}); err != nil { // no due days
+		t.Fatal(err)
+	}
+
+	bctx, c := budget.WithCounter(ctx)
+	res, err := e.repo.SweepPollVotes(bctx, now, ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Docs != 3 || res.Pruned != 2 || res.Entries != 2 || res.Skipped != 0 || res.More {
+		t.Fatalf("result = %+v, want 3 docs (one needs no write), 2 pruned, 2 entries", res)
+	}
+	budgettest.Assert(t, "SweepPollVotes", c, budgettest.Budget{Reads: 3, Writes: 2})
+
+	d, _ := e.client.Doc("userLikes/dormant").Get(ctx)
+	if v, _ := d.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{later, open}) {
+		t.Errorf("dormant pollVotes = %v, want [later open]", v)
+	}
+	if v, _ := d.DataAt("recent"); fmt.Sprint(v) != "[x]" {
+		t.Errorf("recent = %v: the sweep must be field-level", v)
+	}
+	if v, _ := d.DataAt("pollVotesDueDays"); fmt.Sprint(v) != fmt.Sprint([]int64{dayOf(later), dayOf(open)}) {
+		t.Errorf("dormant due days = %v", v)
+	}
+	g, _ := e.client.Doc("userLikes/onlygone").Get(ctx)
+	if v, _ := g.DataAt("pollVotes"); fmt.Sprint(v) != "[]" {
+		t.Errorf("onlygone pollVotes = %v, want empty", v)
+	}
+	if _, err := g.DataAt("pollVotesDueDays"); err == nil {
+		t.Error("onlygone still has pollVotesDueDays")
+	}
+
+	// A second run finds nothing due (tomorrow's entry is not due yet): 1 read, 0 writes. The empty query bills 1.
+	bctx, c = budget.WithCounter(ctx)
+	if res, err = e.repo.SweepPollVotes(bctx, now, ttl); err != nil || res.Pruned != 0 {
+		t.Fatalf("second run = %+v, %v", res, err)
+	}
+	budgettest.Assert(t, "SweepPollVotes idle", c, budgettest.Budget{Reads: 1, Writes: 0})
+}
+
+// A change replaces a legacy two-part entry (written before W6-29, dev only) with the three-part one, and adds the new entry's expiry
+// day to pollVotesDueDays so the daily sweep sees it (W6-29 with W6-36).
+func TestRepoChangeVote_ReplacesLegacyEntry(t *testing.T) {
+	e := newRepoEnv(t)
+	const pid, uid = "0000000000000000041", "voter"
+	e.seedPoll(t, pid, map[string]int64{"0": 1, "1": 0}, 1)
+	closes := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	exp := closes.Add(24 * time.Hour)
+	// The vote doc as an old revision wrote it, and its legacy userLikes entry with no due day.
+	if out, err := e.repo.Vote(context.Background(), VoteParams{UID: uid, PostID: pid, Choice: 0, ExpireAt: exp}); err != nil || out != VoteWritten {
+		t.Fatalf("Vote = %v, %v", out, err)
+	}
+	if _, err := e.client.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{"pollVotes": []string{pid + ":0"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, found, err := e.repo.GetVote(context.Background(), uid, pid)
+	if err != nil || !found {
+		t.Fatal(err, found)
+	}
+	out, err := e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime, ClosesAt: closes, ExpireAt: exp})
+	if err != nil || out != ChangeWritten {
+		t.Fatalf("ChangeVote = %v, %v", out, err)
+	}
+	ul, _ := e.client.Doc("userLikes/" + uid).Get(context.Background())
+	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != fmt.Sprint([]string{pollEntry(pid, 1, closes)}) {
+		t.Errorf("pollVotes = %v, want only the three-part entry (the legacy one removed)", got)
+	}
+	if got, _ := ul.DataAt("pollVotesDueDays"); fmt.Sprint(got) != fmt.Sprint([]int64{pollDueDay(exp)}) {
+		t.Errorf("pollVotesDueDays = %v, want [%d]", got, pollDueDay(exp))
 	}
 }

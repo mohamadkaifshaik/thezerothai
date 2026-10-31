@@ -333,10 +333,10 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerMessagingLifecycle(l, messaging.NewFirestoreRepo(nil, nil), nopHandles{}, nopSocial{}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerListsLifecycle(l, lists.NewFirestoreRepo(nil, nil, nil)); err != nil {
+	if err := registerListsLifecycle(l, lists.NewFirestoreRepo(nil, nil, nil), nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
