@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -139,7 +141,7 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := ul.DataAt("pollVotes"); fmt.Sprint(got) != fmt.Sprintf("[%s:1]", pid) {
+	if got, _ := ul.DataAt("pollVotes"); !pollEntryIs(fmt.Sprint(got), pid, 1) {
 		t.Errorf("userLikes.pollVotes = %v", got)
 	}
 
@@ -417,4 +419,14 @@ func TestPollVoteChain_FlagGate(t *testing.T) {
 			budgettest.Assert(t, "VotePoll flag refusal", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 1})
 		})
 	}
+}
+
+// pollEntryIs reports whether got (the printed array) is exactly one entry "<postId>:<choice>:<closesAtUnix>" (W6-29).
+func pollEntryIs(got, postID string, choice int) bool {
+	prefix := fmt.Sprintf("[%s:%d:", postID, choice)
+	if !strings.HasPrefix(got, prefix) || !strings.HasSuffix(got, "]") {
+		return false
+	}
+	n, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(got, prefix), "]"), 10, 64)
+	return err == nil && n > 0
 }

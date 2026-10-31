@@ -107,6 +107,7 @@
     "userId": "<uid:A>"
   },
   "poll_votes": {
+    "current_choices": [],
     "poll_votes": []
   },
   "posts": {

@@ -50,10 +50,11 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 	if _, err := e.client.Doc("userLikes/"+uid).Set(context.Background(), map[string]any{"recent": []string{"x"}, "bookmarks": []string{"y"}}); err != nil {
 		t.Fatal(err)
 	}
-	exp := time.Now().Add(48 * time.Hour).UTC()
+	closes := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	exp := closes.Add(48 * time.Hour)
 
 	ctx, c := budget.WithCounter(context.Background())
-	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp})
+	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp, ClosesAt: closes})
 	if err != nil || out != VoteWritten {
 		t.Fatalf("Vote = %v, %v", out, err)
 	}
@@ -65,7 +66,7 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 		t.Errorf("total=%d counts=%v", total, counts)
 	}
 	ul, _ := e.client.Doc("userLikes/" + uid).Get(context.Background())
-	for field, want := range map[string]string{"pollVotes": "[" + pid + ":1]", "recent": "[x]", "bookmarks": "[y]"} {
+	for field, want := range map[string]string{"pollVotes": "[" + pollEntry(pid, 1, closes) + "]", "pollVotesDueDays": fmt.Sprint([]int64{pollDueDay(exp)}), "recent": "[x]", "bookmarks": "[y]"} {
 		if got, _ := ul.DataAt(field); fmt.Sprint(got) != want {
 			t.Errorf("userLikes.%s = %v, want %s", field, got, want)
 		}
@@ -239,4 +240,77 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	if doc.Votes[0].PostID >= doc.Votes[500].PostID {
 		t.Errorf("rows are not in document-id order: %s .. %s", doc.Votes[0].PostID, doc.Votes[500].PostID)
 	}
+}
+
+// The prune never recreates a userLikes document (a race with the account-deletion eraser), and a missing one is success.
+func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx, c := budget.WithCounter(context.Background())
+	if err := e.repo.TrimPollVotes(ctx, "erased", []string{"a:0:1"}); err != nil {
+		t.Fatalf("trim of a missing document: %v", err)
+	}
+	budgettest.Assert(t, "TrimPollVotes missing", c, budgettest.Budget{Reads: 0, Writes: 1})
+	if e.exists(t, "userLikes/erased") {
+		t.Fatal("the prune recreated userLikes/erased")
+	}
+}
+
+// The daily sweep (W6-29): documents with a due day in the window are cleaned, an open poll's vote and the other lists survive,
+// a document with only future days is not even read, a document without due days is not read, and the budget holds.
+func TestRepoSweepPollVotes(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	ttl := 30 * 24 * time.Hour
+	now := time.Date(2026, 11, 30, 12, 0, 0, 0, time.UTC)
+	gone := pollEntry("0000000000000000031", 1, now.Add(-ttl-48*time.Hour))  // expired two days ago
+	later := pollEntry("0000000000000000032", 0, now.Add(-ttl+24*time.Hour)) // expires tomorrow
+	open := pollEntry("0000000000000000033", 2, now.Add(time.Hour))          // still open
+	set := func(uid string, votes []string, days []int64) {
+		t.Helper()
+		if _, err := e.client.Doc("userLikes/"+uid).Set(ctx, map[string]any{"recent": []string{"x"}, "pollVotes": votes, "pollVotesDueDays": days}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dayOf := func(entry string) int64 { x, _ := pollEntryExpiry(entry, ttl); return pollDueDay(x) }
+	set("dormant", []string{gone, later, open}, []int64{dayOf(gone), dayOf(later), dayOf(open)})
+	set("onlyfuture", []string{open}, []int64{dayOf(open) + 40}) // beyond the window: not returned
+	set("onlygone", []string{gone}, []int64{dayOf(gone)})
+	if _, err := e.client.Doc("userLikes/legacy").Set(ctx, map[string]any{"pollVotes": []string{"0000000000000000034:1"}}); err != nil { // no due days
+		t.Fatal(err)
+	}
+
+	bctx, c := budget.WithCounter(ctx)
+	res, err := e.repo.SweepPollVotes(bctx, now, ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Docs != 2 || res.Pruned != 2 || res.Entries != 2 || res.Skipped != 0 || res.More {
+		t.Fatalf("result = %+v, want 2 docs, 2 pruned, 2 entries", res)
+	}
+	budgettest.Assert(t, "SweepPollVotes", c, budgettest.Budget{Reads: 2, Writes: 2})
+
+	d, _ := e.client.Doc("userLikes/dormant").Get(ctx)
+	if v, _ := d.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{later, open}) {
+		t.Errorf("dormant pollVotes = %v, want [later open]", v)
+	}
+	if v, _ := d.DataAt("recent"); fmt.Sprint(v) != "[x]" {
+		t.Errorf("recent = %v: the sweep must be field-level", v)
+	}
+	if v, _ := d.DataAt("pollVotesDueDays"); fmt.Sprint(v) != fmt.Sprint([]int64{dayOf(later), dayOf(open)}) {
+		t.Errorf("dormant due days = %v", v)
+	}
+	g, _ := e.client.Doc("userLikes/onlygone").Get(ctx)
+	if v, _ := g.DataAt("pollVotes"); fmt.Sprint(v) != "[]" {
+		t.Errorf("onlygone pollVotes = %v, want empty", v)
+	}
+	if _, err := g.DataAt("pollVotesDueDays"); err == nil {
+		t.Error("onlygone still has pollVotesDueDays")
+	}
+
+	// A second run finds nothing due (tomorrow's entry is not due yet): 1 read, 0 writes. The empty query bills 1.
+	bctx, c = budget.WithCounter(ctx)
+	if res, err = e.repo.SweepPollVotes(bctx, now, ttl); err != nil || res.Pruned != 0 {
+		t.Fatalf("second run = %+v, %v", res, err)
+	}
+	budgettest.Assert(t, "SweepPollVotes idle", c, budgettest.Budget{Reads: 1, Writes: 0})
 }
