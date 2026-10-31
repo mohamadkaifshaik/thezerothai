@@ -15,7 +15,7 @@ void main() {
                   poll: poll,
                   durationClamped: false,
                   enabled: true,
-                  onChoiceChanged: (_, __) {},
+                  onChoiceChanged: (_, _) {},
                   onChoiceAdded: () {},
                   onChoiceRemoved: (_) {},
                   onLengthChanged: (_) {},
