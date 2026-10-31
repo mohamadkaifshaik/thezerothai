@@ -368,7 +368,7 @@ Effect on the quotas (additive):
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | In review |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | In review |
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
-| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Open |
+| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
 | W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Open |
@@ -752,7 +752,7 @@ Order:
 - **Seam.** `DraftsRepository` is the only reader and writer, so synced drafts (the stage-ladder row) replace its implementation and change no widget.
 - **Runs alongside W3/W4/W5:** **start now.** The `app_database.dart` schema bump conflicts with any other wave adding a table, so one PR at a time.
 
-### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: Open
+### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: In review
 - **Description.**
   - A composer header "Drafts" text button on the right (X §1).
   - Autosave while composing a new root post.
@@ -775,6 +775,8 @@ Order:
 - **Flag.** `drafts` (+ the existing scheduled gates).
 - **Seam.** The screen depends only on `DraftsRepository` and the existing scheduled repository.
 - **Runs alongside W3/W4/W5:** `app_router.dart` and `composer_screen.dart`, one PR at a time.
+- **Built (PR pending).** `ComposerCubit` takes an optional `DraftsRepository` + uid + `initialDraft` (root post only; a quote or a reply has none), autosaves from `onChange`, and decides the leave with `leaveAction` (`none` / `savePrompt` / `discardMedia`); `saveDraft`, `discardDraft` and `loadSavedDraft` serve the prompt and the list. Post and Schedule success delete the row (a schedule starts a new draft id). The header gets an optional secondary action on `AppFormHeader` (the "Drafts" button; saves first when there are changes). `/drafts?tab=scheduled` is the Scheduled tab; `/scheduled` redirects to it while `drafts` is on (the old screen stays with it off); `/drafts` needs `posts` + `drafts`. The composer pushes `/drafts` with `extra: true` (pick mode): a chosen draft pops its id and loads into the same composer; opened standalone, a tap pushes `/compose?draft=<id>`. The Scheduled list body is `ScheduledPostsBody`, shared by both screens. A malformed or unknown draft id never becomes the id of a new draft.
+- **Notes for later tickets.** Drafts keep text, poll, audience and the two disclosure labels; photos and a GIF are never kept (the prompt says so). The table key is `draftId` alone; the UI never adopts an id from a URL, and every query filters by uid (W6-20: the one shared-key risk is a caller who knows another account's 16-hex id AND bypasses the UI). A poll or audience whose flag is off is not loaded into the composer (the next autosave then drops it from the row).
 
 ### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
 - **Description.**

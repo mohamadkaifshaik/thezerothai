@@ -346,8 +346,8 @@ void main() {
       await open(tester);
       expect(enabled(tester, poll()), isTrue);
       expect(tooltip(tester, poll()), 'Add poll');
-      // The GIF picker is W6-16: its button has no handler yet.
-      expect(enabled(tester, gif()), isFalse);
+      // W6-16: the GIF button opens the picker.
+      expect(enabled(tester, gif()), isTrue);
     });
 
     testWidgets('Poll opens the builder and the button shows it is open', (
