@@ -357,7 +357,7 @@ priced at the margin, so a quota the product already exhausts bills Part A in fu
 - **L-2 visible rune.** `identity.singleLineIssue` (display name, location, list name and description) refuses Cf other
   than ZWJ/ZWNJ between two non-space, non-format runes, the fillers U+115F/1160/3164/FFA0, and a non-empty text with no
   letter, number, punctuation or symbol. Applied to a value being written only; an unrelated profile edit never
-  revalidates a stored name. Vectors: `testdata/profile_text/single_line_text.json` (Go only; Dart follow-up W5-48).
+  revalidates a stored name. Vectors: `testdata/profile_text/single_line_text.json` (Go only; Dart follow-up W5-49).
 - **L-3 id-only idempotency result.** The record of CreateList, UpdateList, AddListMember and RemoveListMember holds the list
   id only. A replay reads the list (owner-checked) for its current header: **+1 read on a replay, 0 on a first call**, and a
   replay after the list was deleted is NOT_FOUND. DeleteList's record (`deleted` flag) was never personal. Records written

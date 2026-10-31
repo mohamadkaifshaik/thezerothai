@@ -380,7 +380,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | In review (PR #549) |
 | W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public, non-hidden lists naming the uid), if the founder says yes | backend-developer | S | founder answer | lifecycle export files serialise | Open (gate: before prod on) |
 | W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | In review (PR #549) |
-| W5-48 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | Open |
+| W5-49 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | Open |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).

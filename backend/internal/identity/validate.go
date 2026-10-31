@@ -55,7 +55,7 @@ func isLineSeparator(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp)
 // singleLineIssue reports a rune that must never appear in a one-line field (display name, location, list name):
 //   - any control character (Cc, a newline included), a line or paragraph separator, or a bidi formatting control;
 //   - any other format character (Cf: U+200B, U+200E, U+200F, U+061C, U+2060-2064, an interior U+FEFF, soft hyphen,
-//     tag characters U+E0000-E007F, ...), except ZWNJ/ZWJ (U+200C, U+200D) between two non-format, non-space runes, which
+//     tag characters outside a subdivision flag sequence, ...), except ZWNJ/ZWJ (U+200C, U+200D) between two non-format, non-space runes, which
 //     emoji sequences and Persian/Indic shaping need (a variation selector is a mark, not Cf, and is allowed);
 //   - a filler that renders as nothing: U+115F, U+1160, U+3164, U+FFA0;
 //   - a non-empty text with no visible rune (W5-17 L-2): spaces, marks, joiners, Khmer inherent vowels U+17B4/U+17B5 and
@@ -65,8 +65,14 @@ func isLineSeparator(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp)
 func singleLineIssue(s string) bool {
 	rs := []rune(s)
 	visible := false
-	for i, r := range rs {
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
 		switch {
+		case r == 0x1F3F4:
+			// A subdivision flag (England, Scotland, Wales): the black flag, one or more tag characters, CANCEL TAG.
+			visible = true
+			i += tagSequenceLen(rs[i+1:])
+
 		case unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r) || isFiller(r):
 			return true
 		case r == 0x200C || r == 0x200D:
@@ -80,6 +86,20 @@ func singleLineIssue(s string) bool {
 		}
 	}
 	return s != "" && !visible
+}
+
+// tagSequenceLen returns how many runes after U+1F3F4 form a well-formed emoji tag sequence: one or more tag characters
+// (U+E0020-U+E007E) closed by U+E007F CANCEL TAG, counting the closer. 0 when rest does not start with one, so a stray,
+// unterminated or misplaced tag character falls through to the Cf rule and is refused.
+func tagSequenceLen(rest []rune) int {
+	n := 0
+	for n < len(rest) && rest[n] >= 0xE0020 && rest[n] <= 0xE007E {
+		n++
+	}
+	if n == 0 || n >= len(rest) || rest[n] != 0xE007F {
+		return 0
+	}
+	return n + 1
 }
 
 // isFiller reports the Hangul and halfwidth fillers, which render as nothing but are letters (Lo) to Unicode.

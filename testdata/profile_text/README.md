@@ -15,7 +15,7 @@ same PR, and review changes like proto changes.
 | `website.json` | `Profile.website` | 30 accept, 80 reject |
 | `display_name.json` | `Profile.display_name` | 9 accept, 16 reject |
 | `bio.json` | `Profile.bio` | 11 accept, 13 reject |
-| `single_line_text.json` | the shared one-line rules (display name, location, list name and description); Go only, Dart follow-up W5-48 | 9 accept, 26 reject |
+| `single_line_text.json` | the shared one-line rules (display name, location, list name and description); Go only, Dart follow-up W5-49 | 12 accept, 30 reject |
 
 ## Schema
 
@@ -60,9 +60,9 @@ Common to all four fields:
 
 | Field | Valid when |
 |---|---|
-| `display_name` | 1 to 50 code points; no control, line separator or bidi formatting control |. Server only, until W5-48 (see "Single-line rules" below): also no invisible format character, filler or text without a visible rune
+| `display_name` | 1 to 50 code points; no control, line separator or bidi formatting control |. Server only, until W5-49 (see "Single-line rules" below): also no invisible format character, filler or text without a visible rune
 | `bio` | 0 to 160 code points; no control other than U+000A (LF), no line separator, no bidi formatting control. CR is refused, not folded |
-| `location` | 0 to 30 code points; no control (so one line), no line separator, no bidi formatting control |. Server only, until W5-48: the same single-line rules as display_name (an empty location is still a valid clear)
+| `location` | 0 to 30 code points; no control (so one line), no line separator, no bidi formatting control |. Server only, until W5-49: the same single-line rules as display_name (an empty location is still a valid clear)
 | `website` | see below; empty is a clear |
 
 ### Website
@@ -89,7 +89,7 @@ functions the Edit profile screen uses (`websiteIssue`, `locationIssue`, `displa
 stored form and the host. `parseProfileWebsite` implements rules 1 to 6 and has no length limit on purpose (it also
 shows websites stored before the limit existed); `websiteIssue` adds the 100 code point limit for a value being written.
 
-## Single-line rules (W5-45, `single_line_text.json`; server only, Dart follow-up W5-48)
+## Single-line rules (W5-45, `single_line_text.json`; server only, Dart follow-up W5-49)
 
 Shared by display name, location, list name and list description (`identity.singleLineIssue`). Applied to the normalised
 value being written, in addition to the rules above:
@@ -97,7 +97,8 @@ value being written, in addition to the rules above:
 - No **format character** (category Cf: U+200B, U+200E, U+200F, U+061C, U+2060-U+2064, an interior U+FEFF, soft hyphen,
   tag characters U+E0000-U+E007F, ...). Exception: ZWJ (U+200D) and ZWNJ (U+200C) when both neighbours exist and are
   neither white space, a format character, a control nor a filler (emoji sequences, Persian and Indic shaping). A
-  variation selector is a mark, not Cf, and is allowed. Side effect: the England, Scotland and Wales flag emoji (tag
+  U+E0020-U+E007E only inside a well-formed subdivision flag, U+1F3F4, one or more tags, then U+E007F (England, Scotland,
+  Wales); a lone, unterminated or misplaced tag, or one after any other base, is refused.
   sequences) are refused.
 - No **filler** U+115F, U+1160, U+3164, U+FFA0.
 - A non-empty value needs at least one **visible rune**: a letter, number, punctuation or symbol (emoji are symbols), not

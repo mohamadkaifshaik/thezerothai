@@ -1,5 +1,5 @@
 {
- "_comment": "Shared single-line text vectors (W5-45, W5-17 L-2): the visible-rune and format-character rules of identity.singleLineIssue, which display name, location and list name/description share. Run through identity.SingleLineText (1..50 code points) and displayNameIssue. The Dart runner does not read this file yet (follow-up W5-48); the server is authoritative. Every non-ASCII code point is a JSON escape.",
+ "_comment": "Shared single-line text vectors (W5-45, W5-17 L-2): the visible-rune and format-character rules of identity.singleLineIssue, which display name, location and list name/description share. Run through identity.SingleLineText (1..50 code points) and displayNameIssue. The Dart runner does not read this file yet (follow-up W5-49); the server is authoritative. Every non-ASCII code point is a JSON escape.",
  "field": "single_line_text",
  "accept": [
   {"name": "plain", "raw": "Weekend cricket", "stored": "Weekend cricket"},
@@ -10,6 +10,9 @@
   {"name": "digits only", "raw": "123", "stored": "123"},
   {"name": "punctuation only", "raw": "!!", "stored": "!!"},
   {"name": "base letter plus combining mark composes", "raw": "Jose\u0301", "stored": "Jos\u00e9"},
+  {"name": "England flag (black flag, tags, CANCEL TAG)", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f", "stored": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f"},
+  {"name": "Scotland flag", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc73\udb40\udc63\udb40\udc74\udb40\udc7f", "stored": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc73\udb40\udc63\udb40\udc74\udb40\udc7f"},
+  {"name": "pirate flag (ZWJ sequence, no tags)", "raw": "\ud83c\udff4\u200d\u2620\ufe0f", "stored": "\ud83c\udff4\u200d\u2620\ufe0f"},
   {"name": "Devanagari with virama", "raw": "\u0928\u092e\u0938\u094d\u0924\u0947", "stored": "\u0928\u092e\u0938\u094d\u0924\u0947"}
  ],
  "reject": [
@@ -28,7 +31,11 @@
   {"name": "right-to-left mark", "raw": "a\u200fb", "why": "Cf"},
   {"name": "soft hyphen", "raw": "a\u00adb", "why": "Cf"},
   {"name": "tag character U+E0041", "raw": "a\udb40\udc41", "why": "Cf tag character"},
-  {"name": "England flag (tag sequence) is refused with the tag characters", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f", "why": "Cf tag characters; documented side effect of L-2"},
+  {"name": "tag character after a non-flag emoji base", "raw": "\ud83d\ude00\udb40\udc67\udb40\udc7f", "why": "tags are allowed only after U+1F3F4"},
+  {"name": "unterminated flag tag sequence", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc62", "why": "no CANCEL TAG"},
+  {"name": "lone CANCEL TAG", "raw": "a\udb40\udc7f", "why": "Cf outside a flag sequence"},
+  {"name": "black flag with CANCEL TAG but no tag", "raw": "\ud83c\udff4\udb40\udc7f", "why": "needs one or more tag characters"},
+  {"name": "tag after a closed flag sequence", "raw": "\ud83c\udff4\udb40\udc67\udb40\udc7f\udb40\udc67", "why": "stray tag character"},
   {"name": "ZWJ alone", "raw": "\u200d", "why": "joiner with no neighbours"},
   {"name": "ZWJ at the start", "raw": "\u200da", "why": "joiner needs a rune on both sides"},
   {"name": "ZWJ at the end", "raw": "a\u200d", "why": "joiner needs a rune on both sides"},
