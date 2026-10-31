@@ -224,8 +224,8 @@ success with no effect (the DeletePost precedent), and still stores the document
   precondition, never `Set`). Other users' pins of the erased user's lists dangle as opaque ids (D6). `homeTabs` goes
   with `users/{uid}`.
 - **Export section `lists`:** the user's own lists with name, description, `isPrivate` and member ids. `home_tabs`
-  joins the profile section. Lists the user is a member of are not exported (they belong to their owners and are never
-  shown to the member).
+  joins the profile section. Lists the user is a member of appear only in `lists_member_of`, redacted (note of 2026-10-31):
+  public ones as id, owner handle and name, every other one as a count. They belong to their owners.
 - **T11:** a `lists` row in `lifecycle_collections_guard_test.go`, residue-sweep fields `ownerId` and `memberIds`, and
   the step and section in `lifecycle_wiring_test.go`. The first PR that names the collection registers both (W5-4 with
   W5-5).
@@ -286,14 +286,14 @@ budget and stays under `ReadBudgetMaxCallReads` 269):
 | DeleteList | 3 (+1 users when pinned) | 3 | 1 (+1 when pinned) | 1 (list) + 1 TTL | non-owner or missing: success, 1 write |
 | AddListMember | 7 (interceptor, caller graph, target profile, idempotency, list, target `users` fresh in the txn, quotas; +1 target graph on overflow) | 5 | 3 (list, quotas, idempotency); already a member 1 | 1 TTL | refused 0 writes; replay 5 (+1 list read), a real add refused by cap, quota or a non-ACTIVE target has paid the fresh read (W5-45) |
 | RemoveListMember | 3 | 2 | 2; not a member 1 | 1 TTL | no quota; replay 3 (+1 list read, W5-45) |
-| GetList | 5 non-owner (interceptor, list, caller graph, owner profile, owner graph); 2 owner | 0–1 | 0 | 0 | |
+| GetList | 5 non-owner (interceptor, list, caller graph, owner profile, owner graph); 2 owner | 0–1 | 0 | 0 | W5-42: an unapproved viewer of a protected owner is refused after 4 (owner graph not read) |
 | ListUserLists | 24 another owner (interceptor, caller graph, owner profile, owner graph, ≤ 20 lists); 21 own | 4 | 0 | 0 | `contains` from `memberIds`, 0 reads |
 | ListListMembers, page 20 / 50 | 25 / 55 | 2 + misses | 0 | 0 | sealed 24 h token; `likesResume` over `memberIds` |
 | GetListTimeline | 51 at page 20, 111 at page 50; 218 with the window query | refresh 4 + new; cold 30 | 0 | 0 | D5 table |
 | SetHomeTabs | 19 (interceptor, idempotency, users, ≤ 5 lists, caller graph, ≤ 5 owner profiles and graphs) | 4 | 2 (users field-level, idempotency); unchanged 1 | 1 TTL | |
 | GetMe `home_tabs` | +0 | +0 | 0 | 0 | |
 | Eraser step `lists` | 1 per doc (min 2) | | 1 per list the user is on | 1 per own list | |
-| Export section `lists` | 1 per own list (min 1) | | 0 | 0 | |
+| Export section `lists` | 1 per own list (min 1) + 1 per list that names the user (min 1, W5-46), + owner profiles and 1 graph (cache-first) | | 0 | 0 | `lists_member_of`: public rows and a redacted count |
 
 **Per DAU per day** (the plan's assumptions: 30 % of DAU have a pinned list of about 40 members, refreshed 4 times and
 opened once a day, about 12 new list posts a day; W5-18 replaces them with measurements):
@@ -367,6 +367,37 @@ priced at the margin, so a quota the product already exhausts bills Part A in fu
   (worst 7 with the interceptor, was 6); missing or not ACTIVE is the same NOT_FOUND. Replays, no-ops, self-adds and
   Refusal answers do not pay it.
 - **W5-47.** `LIST_MAX_MEMBERS` above `config.MaxListMembersCeiling` (500) fails startup; the default stays 150.
+
+**Implementation note 2026-10-31 (W5-42, W5-46; founder decisions of 2026-10-31 on the W5-17 findings M-2 and L-7, and I-3).**
+- **D3 protected-owner rule (M-2).** For a viewer other than the owner, a list whose owner is protected
+  (`users.isPrivate`) and whom the viewer does not follow answers the same byte-identical NOT_FOUND as a missing list.
+  "Follow" means `following`, not a pending request. `resolve` decides it right after the owner's profile is read and before
+  the owner's graph (the viewer's graph and the owner's profile are already held: **+0 reads**, and the cheaper refusal skips
+  the owner-graph read). It therefore covers GetList, ListListMembers, `Reader.Members` (GetListTimeline, so a pinned Home tab
+  of such a list is unavailable, NOT_FOUND) and `ReportableList` (what a viewer cannot see they cannot report). The answer
+  comes from the profile's `isPrivate`, not from FEATURE_PRIVATE_ACCOUNTS, so ramping that flag down never un-hides a
+  list. Unprotecting reopens the lists at once (cache bound 60 s). AddListMember is owner-only and unchanged.
+- **ListUserLists of a protected owner.** `otherOwner` answers `FAILED_PRECONDITION` + `PROTECTED_ACCOUNT` to an unapproved
+  viewer, the ListFollowing precedent (ADR-0025 D5), not an empty page: `is_private` is already public on GetProfile, so
+  the error reveals nothing new, and the client can show the protected-account view instead of "no Lists". The check runs
+  after the block checks (owner blocks the viewer, viewer's `blockedBy`), so a blocked viewer gets the missing-profile
+  NOT_FOUND and learns nothing about protection. +0 reads.
+- **I-3 (decided): blocking is one-way for reads.** `resolve` and `otherOwner` refuse when the owner blocks the viewer or
+  the viewer's `blockedBy` names the owner, **not** when the viewer blocked the owner. A viewer can still read the public
+  lists of an owner they blocked, consistent with viewing a blocked profile; member posts from accounts the viewer blocked
+  are still dropped. This differs from polls (ADR-0029), where a block in either direction stops voting.
+- **D8 export `lists_member_of` (L-7).** The `lists` section is now `{"lists":[...],"lists_member_of":{"public":[...],"redactedCount":N}}`.
+  `public` holds `{listId, ownerHandle, name}` for each list that names the user, is public and not moderator-hidden,
+  and whose owner is ACTIVE and either not protected or followed by the user (the same rule as a viewer). Every other list
+  that names the user (private, hidden, owner gone or not ACTIVE, protected owner not followed) only raises `redactedCount`:
+  no id, name, description, owner or other member, and the count does not say which cause applied. It tells the user
+  "you are on N lists you cannot read", which is their own membership record, and keeps a private list indistinguishable
+  from a moderated one. Lists the user owns are not repeated (they are in `lists`). Other members' ids never appear.
+  Query: `memberIds array-contains uid ORDER BY __name__ LIMIT 100`, paged (the eraser's query shape, automatic index).
+  **Reads: 1 per list that names the user (minimum 1), + owner profiles (distinct owners of public lists, cache-first, chunks
+  of 50) + 1 graph read only when a protected owner's list is met; 0 writes.** The reference account export (no memberships)
+  costs +1 read (716 to 717). A user on very many lists pays one read per list, bounded by the same 100-row pages and the
+  export job's time budget, as the eraser's phase 2.
 ## Stage ladder
 | Concern | Stage 0 (this ADR) | Seam to protect now | Stage 2/3 target (ADR) | Trigger (measured, 7 days sustained) |
 |---|---|---|---|---|
