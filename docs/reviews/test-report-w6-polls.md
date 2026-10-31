@@ -1,17 +1,18 @@
 # Test report: UI wave W6 (polls), backend
 
-Plan: `docs/plans/ui-w6-composer-extras.md` (W6-17). Design: ADR-0029 and its as-built notes (N2, PR #520, open when this was written). The GIF
+Plan: `docs/plans/ui-w6-composer-extras.md` (W6-17). Design: ADR-0029 and its as-built notes (N2, PR #520, merged). The GIF
 half is W6-18; the client half is W6-19; the 50 votes/s for 60 s load shape belongs with W6-21 and is not run here.
 
 ## W6-17: backend tests for polls (2026-10-31)
 
-Tester: tester agent. Branch `test/ui-w6-17-poll-tests` on `main@212c0249` plus `origin/feat/ui-w6-7-vote-poll` (PR #515, W6-7 + W6-8), which was
-still open. **Until #515 merges, this PR carries #515's commits**; merge #515 first and the diff shrinks to the tests and this report.
+Tester: tester agent. Branch `test/ui-w6-17-poll-tests` on `main@5ce07b43` (W6-5, W6-6, W6-7 + W6-8 as #515, the ADR as-built notes #520 and W6-18 #519
+merged). I first built on `main@212c0249` plus the then-current head of `feat/ui-w6-7-vote-poll`; section 5 records what that older head showed.
 
-**VERDICT: FAIL, on #515's own tests, not on production code.** All 12 tests added here pass (and a mutation check shows the lifecycle test fails
-when the `poll_votes` step is not registered). But the lifecycle test family that #515 touches has three red tests, each the stale expectation of
-one more empty-query read or one more empty export section, section 5 (D-1 to D-3). No production defect was found. Every acceptance criterion
-of W6-5 to W6-8 has a named test (section 3).
+**VERDICT: PASS for W6-17 as specified.** All 12 tests added here pass on the merged base, and a mutation check shows the lifecycle test fails
+when the `poll_votes` step is not registered. The whole `TestAccountLifecycle_` family (23 tests) is green on `main@5ce07b43`. No production defect
+was found. Three red lifecycle tests seen on the older #515 head (+1 read each, one missing golden section) were fixed in the head that merged and
+are re-verified green (section 5). Every acceptance criterion of W6-5 to W6-8 has a named test (section 3). Three observations (O-1, O-2, O-4)
+and four gaps (section 7) are for the owners.
 
 ---
 
@@ -19,9 +20,9 @@ of W6-5 to W6-8 has a named test (section 3).
 
 | Suite | Command | Result |
 |---|---|---|
-| New W6-17 tests | `go test -tags=integration -run TestW617_ ./internal/apiserver` on the Firestore and Auth emulators (and, for the two lifecycle tests, Pub/Sub and Storage too) | **12 pass.** The two lifecycle tests pass in the full-suite run; the last run, with Firestore and Auth only, skipped them (the Pub/Sub emulator would not start any more, see below) |
+| New W6-17 tests | `go test -tags=integration -run TestW617_ ./internal/apiserver` on Firestore, Auth and Storage emulators plus a standalone Pub/Sub emulator, on the merged base | **12 pass** (the two lifecycle tests included) |
 | Mutation check | `registerPollVoteLifecycle` replaced by `error(nil)` in `apiserver.go:468`, then `-run TestW617_Lifecycle` | **both lifecycle tests fail**, as they should (export empty, 2 vote docs survive, residue sweep reports them). Reverted |
-| Lifecycle family, all of `TestAccountLifecycle_` | `-run TestAccountLifecycle_ ./internal/apiserver`, 246 s | 21 pass, **3 fail** (D-1 to D-3) |
+| Lifecycle family, all of `TestAccountLifecycle_` | `-run TestAccountLifecycle_ ./internal/apiserver` on `main@5ce07b43`, 214 s | **23 pass, 0 fail** (the older #515 head: 3 red, section 5) |
 | Developers' poll tests, unit | `go test -cover ./internal/engagement ./internal/posts` | green; statement coverage 59.6 % (engagement) and 64.9 % (posts), **unit tests only** |
 | Terraform TTL guard | `TestW617_PollVotesTTLFieldIsInTerraform` (no emulator) | pass |
 | `go vet -tags=integration ./internal/apiserver` | | clean |
@@ -29,9 +30,11 @@ of W6-5 to W6-8 has a named test (section 3).
 Environment notes:
 - `-race` was not run: CGO is off on this machine. CI on Linux runs it. The new concurrency test keeps its shared state behind per-index
   slots and a `WaitGroup`, so it has no data race by construction.
-- Emulators ran from a scratch config outside the repo on ports 58xxx behind `scripts/with-private-tmp.sh`. The Pub/Sub emulator was flaky
-  on this shared machine ("Port ... is not open", about every second start, then every start for the last half hour); the retry used other 58xxx
-  port sets. The final run therefore used `--only firestore,auth`; the lifecycle tests passed earlier in the full run.
+- Emulators ran from a scratch config outside the repo on ports 58xxx behind `scripts/with-private-tmp.sh`. The firebase-tools launch of the
+  Pub/Sub emulator failed on this shared machine ("Port ... is not open") for the last two hours of the session, on every port set tried. The
+  Pub/Sub jar itself starts in about a second, so the final runs used `emulators:exec --only firestore,auth,storage` with a standalone Pub/Sub
+  emulator (the same jar, one process I started, on 58778, then stopped by PID) and `PUBSUB_EMULATOR_HOST` set. The earlier full-family run on
+  the older head used the normal launch.
 - `make test-int` (whole module, combined `internal/` coverage gate) was **not** run. Coverage above is the unit number of two packages; the
   70 % gate is a combined unit plus integration number, not measured here.
 - Nothing was run against dev or prod.
@@ -137,25 +140,27 @@ Ceilings are the ones `TestPollVoteChain_*` asserts; `budgettest.Assert` is "at 
 | VotePoll under `DEGRADED_MODE=readonly` (new) | at most 1 read, 0 writes | n/a | `TestW617_DegradedModes` |
 | GetPost, poll post vs plain post (new) | equal reads | +0 | `TestW617_ReadBudgetPollVsPlain` |
 | CreatePost with a poll | 2 reads, 4 writes warm | +0 over a root post | `TestCreate_Integration_Poll` |
-| Account deletion, reference account (1 post, 1 following, 1 follower, 1 export) | **29 reads**, 4 writes, 9 deletes | 28 reads | `TestAccountLifecycle_Chain`: **red, D-1** |
-| Account export, reference account (P=300 O=100 I=100) | **716 reads**, 2 writes | 715 | `TestAccountLifecycle_ReferenceAccountBudgets`: **red, D-2** |
-| Account deletion, reference account (P=300 O=100 I=100 E=1) | **526 reads**, 301 writes, 506 deletes | 525 + D and 524 + D | same: **red, D-2** |
+| Account deletion, reference account (1 post, 1 following, 1 follower, 1 export) | 29 reads, 4 writes, 9 deletes | 29 reads (28 before the step) | `TestAccountLifecycle_Chain`, green |
+| Account export, reference account (P=300 O=100 I=100) | 716 reads, 2 writes | 716 | `TestAccountLifecycle_ReferenceAccountBudgets`, green |
+| Account deletion, reference account (P=300 O=100 I=100 E=1) | 526 reads, 301 writes, 506 deletes | 526 | same, green |
 
 The extra read in each of the three is the empty first page of the new `poll_votes` eraser or export section (an empty query bills 1 read),
 exactly as the earlier steps' comments in those files account for theirs.
 
 ### 5. Defects
 
-No production defect. Three red tests of #515 (W6-8 added the step and the section, not their effect on these expectations). All are Medium:
-they turn `make test-int` red the moment #515 merges. They are not mine to fix in this PR: raising a budget constant is a cost decision for
-`sre-performance` and the owner of #515 (+1 read per account deletion and per export, which is negligible), and regenerating a golden is the
-owner's act. Owner: backend-developer, on #515.
+**No open defect, and no production defect.** On my first base (the head of `feat/ui-w6-7-vote-poll` before its last push) three tests of the
+lifecycle family were red, each the stale expectation of one more empty-query read or one more empty export section from the new `poll_votes`
+step. The head that merged as #515 (`3f9b04e1`) fixed all three, and a full `TestAccountLifecycle_` run on `main@5ce07b43` (23 tests, 214 s) is
+green. They are kept here as the record of what the step costs, and of why the lifecycle budgets carry one more read:
 
-| ID | Severity | Where | Repro | Expected | Actual |
-|---|---|---|---|---|---|
-| D-1 | Medium | `backend/internal/apiserver/account_lifecycle_integration_test.go:447` (and the accounting comment above it, ending at the lists step) | `-run TestAccountLifecycle_Chain ./internal/apiserver` on the emulators | work delivery within the budget, comment names the `poll_votes` step | `reads=29`, the check allows 28; the comment has no `poll_votes` line. Fix: `29` and "The poll_votes step (W6-8, ADR-0029 D8: one empty page, 1 read) adds 1 read: reads = 29." |
-| D-2 | Medium | `backend/internal/apiserver/account_lifecycle_reference_integration_test.go:43` (`planDeleteReads`), `:27` (`refDeleteReadsBase`), `:52` (`refExportReads`); fails at `:105`, `:158`, `:161` | `-run TestAccountLifecycle_ReferenceAccountBudgets ./internal/apiserver` | each constant includes the `poll_votes` step's 1 read | export 716 > 715; delete 526 > 525 and > 524 + D. Fix: +1 on each constant, with a comment |
-| D-3 | Medium | `backend/internal/apiserver/testdata/account_export_golden.json` (a section is missing between `notifications` and `posts`, about line 108) | `-run TestAccountLifecycle_ExportContentsGolden ./internal/apiserver`; the only difference is the section | the golden holds the section the export now writes | got `"poll_votes": {"poll_votes": []}` after `notifications`, want nothing. Fix: `-update-golden`, review the one-section diff |
+| ID | Where (as found) | Found | Status |
+|---|---|---|---|
+| D-1 | `account_lifecycle_integration_test.go:447`: reference-account deletion work delivery measured 29 reads against a limit of 28 | `TestAccountLifecycle_Chain` | fixed in #515: limit 29, comment line added |
+| D-2 | `account_lifecycle_reference_integration_test.go:43`, `:27`, `:52`: export 716 reads against 715, deletion 526 against 525 and 524 + D | `TestAccountLifecycle_ReferenceAccountBudgets` | fixed in #515: constants +1, comments added |
+| D-3 | `testdata/account_export_golden.json`: no `"poll_votes": {"poll_votes": []}` section between `notifications` and `posts` | `TestAccountLifecycle_ExportContentsGolden` | fixed in #515: golden has the section (line 109) |
+
+The cost of the step is +1 read per account deletion and +1 per export (the empty first page); no budget constant was changed by this PR.
 
 ### 6. Observations (not defects)
 
@@ -188,9 +193,8 @@ owner's act. Owner: backend-developer, on #515.
   would change the clean run's side-effect list that the crash tests pin; left for the owner. The step's checkpoint is covered at repo level.
 - **G-3. Not run:** `-race`; `make ci`; `make test-int` and the combined coverage gate (the poll files' coverage is therefore not measured here);
   the load shape of one poll at 50 votes/s for 60 s (W6-21); prod `OPTIMISTIC` contention (W6-22); the whole module's integration suite; any
-  Flutter test; anything against dev or prod. The last run of the new tests had no Pub/Sub emulator (it would not start), so the two lifecycle
-  tests were skipped in that run and passed in the earlier full-family run, which is the run the mutation check also used.
+  Flutter test; anything against dev or prod.
 - **G-4. The user timeline and the other list producers are not budget-compared for polls at chain level** (only `GetPost` is). The per-producer
   redaction tables and the A4 guard cover the rule; the read cost of a list with a poll is the hydrate read it already paid.
 
-VERDICT: FAIL — D-1, D-2, D-3 (three stale expectations in #515's lifecycle tests: +1 read on the deletion and export budgets and one missing golden section); the 12 new tests pass and no production defect was found
+VERDICT: PASS
