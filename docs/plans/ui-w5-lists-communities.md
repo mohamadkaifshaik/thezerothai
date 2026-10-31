@@ -768,7 +768,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Checks the rate-limit multiplication and the `stage-ladder` author-`in` scraping vector.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: In review
+### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: In review (#538)
 - **Description.**
   - Add the Part A rows (+22.1 reads, +0.51 writes, +2.3 requests per DAU) to `docs/reviews/cost-model.md` §2-§5 as a W5 block, additive like W2's.
   - Run an emulator load smoke, `make loadtest SCENARIO=list_timeline`: a cold page, a refresh with 0 and with 5 new, 150 members at page 50, and the author-recent cache shared with Home.
