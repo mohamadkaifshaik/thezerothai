@@ -385,10 +385,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if cfg.FeatureRemovedIDs.Mode != flags.Off {
 		removals = posts.NewRemovalLog(postsRepo, cfg.CacheTTL, nil)
 	}
-	// Lists (ADR-0030): built before the timeline, which reads a list only through lists.Reader (W5-8). The repo is also the erase step and the write path storage.
+	// Lists (ADR-0030, W5-9): the repo, the service and the one identity adapter over users/{uid}.homeTabs are built before the timeline
+	// because the timeline's SetHomeTabs reads lists through lists.Reader (the service) and writes tabs through the adapter
+	// (timeline.HomeTabsStore); the same adapter is lists.Pins, so DeleteList unpins and UpdateList retitles. Routes are mounted below.
 	listsRepo := lists.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
+	homeTabs := identity.NewHomeTabs(identityRepo, idempotency.New(fsClient), identityCache)
 	listsSvc := lists.New(lists.Deps{
 		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode, Graph: graphSvc, CursorKey: cfg.CursorHMACKey,
+		Pins: homeTabs,
 		Limits: lists.Limits{
 			MaxPerUser:    cfg.Lists.MaxPerUser,
 			CreatesPerDay: int64(cfg.Quota.ListCreatesPerDay), NewAccountCreatesPerDay: int64(cfg.Quota.NewAccountListCreatesPerDay),
@@ -401,7 +405,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
-	}, timeline.WithProtectedAuthors(protectedAuthors)) // ADR-0025 D4 (W3-30)
+	}, timeline.WithProtectedAuthors(protectedAuthors), // ADR-0025 D4 (W3-30)
+		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned})) // ADR-0030 D6 (W5-9)
 
 	// ADR-0028 D3 (W4-7): SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
 	// block test is the held graph snapshot, 0 reads), exactly as the timelines do.
@@ -621,8 +626,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// Lists (ADR-0030, W5-3): all seven routes are mounted so the interceptor chain covers them.
 	// Lists (ADR-0030): the write path (W5-4 CreateList, UpdateList, DeleteList; W5-6 AddListMember, RemoveListMember) and the reads (W5-7 GetList, ListUserLists, ListListMembers) behind
-	// FEATURE_LISTS. listsSvc also implements lists.Reader (W5-8: timeline reads lists only through listsReader, built above the timeline server). Pins stays nil until identity implements it (W5-9): a
-	// pinned tab of a deleted list is dropped lazily by GetMe then.
+	// FEATURE_LISTS. listsSvc (built above, before the timeline) also implements lists.Reader. Pins is the identity home-tabs adapter (W5-9): a
+	// DeleteList removes the owner's own pin; another user's pin of it dangles and the client shows it unavailable (GetMe adds no read).
 	listsServer := lists.NewServer(featureFlags, listsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
