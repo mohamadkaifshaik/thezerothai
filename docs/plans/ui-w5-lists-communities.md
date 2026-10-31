@@ -193,6 +193,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 | **Part B subtotal** | **≈ 2.0 requests** | | **≈ 16.0** | **≈ 0.11** |
 | **Total W5** | **≈ 4.3 requests** | | **≈ 38.1 reads** | **≈ 0.62 writes, ≈ 0.02 deletes** |
 
+- **W5-18 correction (2026-10-31, measured in `docs/reviews/cost-model.md` §17).** Part A measures **24.35 reads, 0.79 writes, 0.29 deletes and 2.29 requests per DAU** (this table: 22.1 / 0.51), because the table predates ADR-0030 D7: AddListMember writes 3 (not 2), RemoveListMember 2 (not 1), GetList non-owner worst 5 (not 3), SetHomeTabs worst 19 (not 7; measured 14), and the cold open is 38 (not 30; 46 all-cold, 30 warm). Worst measured: GetListTimeline 106 at 150 members page 50 (hold 269). Against the whole product with W6 the free reads cross at 130 DAU and the free writes at 484.
 - **Quota crossings.** On top of the W2 baseline the product reads 286.8 per DAU, so **the free 50k reads/day run out at about 174 DAU** (was 201). With W3 and W4 also on, it reads 363.5 per DAU and they run out at about 138 DAU. Writes: 34.1 per DAU, so the free 20k/day run out at about 586 DAU (was 597).
 - **Share check for the triggers:** list feeds are 17.4 of 286.8 reads (6.1 %); community feeds are 11.3 (3.9 %). Both are well under the 15 % trigger.
 
@@ -783,7 +784,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Checks the rate-limit multiplication and the `stage-ladder` author-`in` scraping vector.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: Open
+### W5-18 — Part A cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-8, W5-9]  Status: In review (#538)
 - **Description.**
   - Add the Part A rows (+22.1 reads, +0.51 writes, +2.3 requests per DAU) to `docs/reviews/cost-model.md` §2-§5 as a W5 block, additive like W2's.
   - Run an emulator load smoke, `make loadtest SCENARIO=list_timeline`: a cold page, a refresh with 0 and with 5 new, 150 members at page 50, and the author-recent cache shared with Home.
