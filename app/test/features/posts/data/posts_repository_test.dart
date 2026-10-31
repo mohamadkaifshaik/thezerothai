@@ -7,6 +7,8 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/domain/composer_attachment_rules.dart';
+import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
@@ -143,10 +145,7 @@ void main() {
     test('is UNSPECIFIED unless a policy is passed', () async {
       answer = (_) => pb.CreatePostResponse(post: postView(1));
       await repo.createPost(idempotencyKey: 'k', text: 't');
-      expect(
-        lastRequest().replyPolicy,
-        ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
-      );
+      expect(lastRequest().replyPolicy, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
     });
 
     test('a chosen policy goes on the wire', () async {
@@ -192,6 +191,53 @@ void main() {
       await repo.createPost(idempotencyKey: 'k3', text: 'plain');
       expect(transport.calledProcedures, [_create]);
     });
+  });
+
+  group('poll (ADR-0029)', () {
+    pb.CreatePostRequest lastRequest() =>
+        requests.whereType<pb.CreatePostRequest>().last;
+
+    test('goes on the wire as a PollDraft; no poll sends none', () async {
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(
+        idempotencyKey: 'k',
+        text: 'Best colour?',
+        poll: const DraftPoll(choices: ['Red', 'Blue'], durationMinutes: 90),
+      );
+      expect(lastRequest().poll.choices, ['Red', 'Blue']);
+      expect(lastRequest().poll.durationMinutes, 90);
+      await repo.createPost(idempotencyKey: 'k2', text: 'plain');
+      expect(lastRequest().hasPoll(), isFalse);
+    });
+
+    test(
+      'FEATURE_DISABLED feature=polls stops later polls, not plain posts',
+      () async {
+        answer = (_) => serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+          metadata: {'feature': kFeaturePolls},
+        );
+        const poll = DraftPoll(choices: ['a', 'b'], durationMinutes: 60);
+        await expectLater(
+          repo.createPost(idempotencyKey: 'k', text: 't', poll: poll),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(gate.postsEnabled, isTrue);
+        expect(gate.subFeatureEnabled(kFeaturePolls), isFalse);
+
+        transport.calledProcedures.clear();
+        await expectLater(
+          repo.createPost(idempotencyKey: 'k2', text: 't', poll: poll),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(transport.calledProcedures, isEmpty);
+
+        answer = (_) => pb.CreatePostResponse(post: postView(1));
+        await repo.createPost(idempotencyKey: 'k3', text: 'plain');
+        expect(transport.calledProcedures, [_create]);
+      },
+    );
   });
 
   group('getThread (FEATURE_REPLIES)', () {
