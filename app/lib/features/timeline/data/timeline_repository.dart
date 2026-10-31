@@ -282,6 +282,14 @@ class TimelineRepository {
           r.removedIds.toList(),
         );
       }
+      if (feed.isList) {
+        // GetListTimeline is wired by W5-12; until then a list feed is "not
+        // available yet", never a null-tab crash (and no RPC).
+        throw const FeatureDisabledException(
+          "Lists aren't available yet.",
+          feature: 'lists',
+        );
+      }
       final tab = feed.tab!;
       final session = _store.session;
       final r = await _gate.run(

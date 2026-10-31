@@ -339,7 +339,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | Open |
 | W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Open |
 | W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
-| W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Open |
+| W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Done (#517) |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Open |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Open |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Open |
@@ -622,7 +622,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** `timeline.HomeTabsStore` (consumer-side), so storage can move (A4) without touching timeline callers.
 - **Parallel with W3 Part A / W4:** identity files after W3-6 (profile write) and W4-4 (`identity/api.go`).
 
-### W5-10 — Client data layer A  [owner: frontend-developer] [size: S] [depends: W5-3]  Status: Open
+### W5-10 — Client data layer A  [owner: frontend-developer] [size: S] [depends: W5-3]  Status: Done (#517)
 - **Description.**
   - `ListsRepository` over the generated client, with friendly mapping of FEATURE_DISABLED, LIMIT_REACHED, QUOTA_EXCEEDED, RATE_LIMITED and NOT_FOUND.
   - `HomeTabsRepository`: reads `GetMe.home_tabs`, writes SetHomeTabs optimistically with rollback, and keeps a local title override from the latest list header.

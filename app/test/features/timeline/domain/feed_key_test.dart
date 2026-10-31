@@ -4,6 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 /// W3-16: a feed key names one cached feed and what the server binds its
 /// tokens to (caller, target, effective tab), so every tab needs its own key.
 void main() {
+  test('W5-10: FeedKey.list is the drift key list:<id>, apart from Home and '
+      'users', () {
+    final key = FeedKey.list('7');
+    expect(key.value, 'list:7');
+    expect(key.listId, '7');
+    expect(key.isList, isTrue);
+    expect(key.isHome, isFalse);
+    expect(key.userId, isNull);
+    expect(key.tab, isNull);
+    expect(key, FeedKey.list('7'));
+    expect(key, isNot(FeedKey.list('8')));
+    expect(key, isNot(const FeedKey.home()));
+    expect(const FeedKey.home().isList, isFalse);
+    expect(FeedKey.user('7').isList, isFalse);
+  });
+
   test('Posts and Replies keep the drift keys written before the tab field '
       '(cached feeds and their tokens survive the upgrade)', () {
     expect(FeedKey.user('u1').value, 'user:u1:posts');
@@ -80,3 +96,4 @@ void main() {
     );
   });
 }
+
