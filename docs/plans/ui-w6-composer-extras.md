@@ -370,7 +370,7 @@ Effect on the quotas (additive):
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
-| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
+| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (this PR; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in fix/gif-browser-delay-clamp; report docs/reviews/test-report-w6-gif.md) |
 | W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | In review: `docs/reviews/security-w6-composer-extras.md`, BLOCKED (H-1 to H-3) for `gif` and `media` beyond the dev allowlist; `polls` and `drafts` GO for the dev allowlist |
@@ -821,7 +821,7 @@ Order:
     - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
     - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
-### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Open
+### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: In review (this PR; see the report)
 - **Description.** Emulator integration and unit:
   - flag modes for `polls` and `engagement` (create per caller; vote with `engagement` per caller and `polls` not globally off; the globally-off reveal);
   - the F4 validation table;
