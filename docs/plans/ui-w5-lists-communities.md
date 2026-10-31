@@ -343,7 +343,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | In review (#531) |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Done (#527) |
-| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (PR pending) |
+| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (#537) |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Open |
@@ -699,7 +699,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **As built.** The profile overflow menu (graph on and off variants) gets "Add or remove from Lists" and "View Lists" for another user when `lists` is on (`ProfileHeader.listsEnabled`); the Add row is hidden while the viewer blocks the profile. The sheet is `showAddToListsSheet` over `AddToListsCubit`: 1 `ListUserLists(contains_user_id)` per open, then 1 Add or Remove per toggle, optimistic with rollback and the `listsErrorMessage` reason inline; the idempotency key is reused when the same toggle is retried after a failure and dropped after a success. `/u/:userId/lists` is `UserListsScreen` over `ListsCubit(ownerId:)`, behind the `lists` redirect; the handle travels as `extra` for the header only. Not built: pagination beyond 3 pages of 50 (the owner cap is 20).
 - **Parallel with W3 Part A / W4:** **after W3-13 / W3-14** (`profile_header.dart`).
 
-### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: In review (PR pending)
+### W5-14 — Home tab bar and Manage pinned  [owner: frontend-developer] [size: M] [depends: W5-10, W5-12]  Status: In review (#537)
 - **Description.**
   - The Home header's `AppTabBar` becomes content-sized and scrollable: Following first and fixed, then pinned tabs in order, then a trailing "+" (`home.md` §3: tabs content-sized, 4 dp accent bar).
   - Each tab is a lazily created, kept-alive `TimelineFeedView` + `TimelineCubit` (Following = `FeedKey.home`, a list = `FeedKey.list`, a community = `FeedKey.community` once W5-30 lands).
