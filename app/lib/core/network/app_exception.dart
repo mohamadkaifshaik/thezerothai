@@ -202,9 +202,11 @@ final class PollClosedException extends AppException {
   static const userMessage = 'This poll has ended.';
 }
 
-/// The caller already voted in this poll with another choice (ADR-0029 D6 step
-/// 7, FAILED_PRECONDITION + ALREADY_VOTED). A vote is final; the server's
-/// choice is the caller's own, never anyone else's.
+/// The vote the caller sent does not match the one the server holds (ADR-0029
+/// D6 step 7 and Amendment 1 A2.2, FAILED_PRECONDITION + ALREADY_VOTED): a first
+/// vote that was already cast, a change sent with a stale `expected_choice`, or
+/// a change sent to a server that predates changes. The server's choice is the
+/// caller's own, never anyone else's.
 final class AlreadyVotedException extends AppException {
   const AlreadyVotedException({this.choiceIndex}) : super(userMessage);
 

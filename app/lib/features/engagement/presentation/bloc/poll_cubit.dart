@@ -17,15 +17,19 @@ import 'poll_state.dart';
 ///   keeps the response (the committed counts). On failure the buttons come
 ///   back and the error is reported once ([PollState.failure]). A vote is
 ///   settled per tap, so there is one request per post at a time.
-/// - One idempotency key per (post, choice) intent, reused on a retry tap and
-///   dropped when the call succeeds or the intent is settled by a refusal.
+/// - A first vote uses one idempotency key per (post, choice) intent, reused on
+///   a retry tap and dropped when the call succeeds or a refusal settles it.
+///   A change never reuses a key (see below).
 /// - ALREADY_VOTED re-reads the post once and shows the server's choice;
 ///   POLL_CLOSED re-reads it once and shows the final results.
 ///   FEATURE_DISABLED (or an UNIMPLEMENTED skeleton) hides the vote buttons.
 /// - A *change* (ADR-0029 Amendment 1 A2.8, [vote] with `from`) is optimistic too
 ///   (counts move -1/+1 in the card) and sends `expected_choice` = `from + 1`
-///   with a FRESH key per tap. A new tap drops what an older tap of the same
-///   poll left behind (its key and its late answer, the A-B-A guard).
+///   with a FRESH key per tap. The A-B-A guard (A2.2/A2.8) holds because taps
+///   are serialised: [vote] refuses while a tap of that post is pending, so any
+///   transport retry of an older tap has finished before a newer tap can be
+///   sent; the older tap's key is dropped, and [_taps] is a second guard that
+///   ignores a late answer of a superseded tap.
 ///   ALREADY_VOTED (a stale `from`, or a server that predates changes) rolls
 ///   back, shows the server's choice and re-reads once; LIMIT_REACHED hides
 ///   the control; TARGET_BLOCKED turns the card to its blocked state.
@@ -223,7 +227,11 @@ class PollCubit extends Cubit<PollState> {
     try {
       final view = await _repository.refresh(postId);
       if (generation != _generation) return;
-      _put(postId, _entry(postId).copyWith(refreshing: false, fresh: view));
+      // A re-read is the server's word on the block too: the view says it.
+      _put(
+        postId,
+        _entry(postId).copyWith(refreshing: false, fresh: view, blocked: false),
+      );
     } on AppException catch (error) {
       if (generation != _generation) return;
       _put(

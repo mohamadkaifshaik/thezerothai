@@ -18,8 +18,10 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 ///   FEATURE_DISABLED for polls: the vote buttons go away, nothing is
 ///   reported.
 /// - Nothing retries here. [idempotencyKey] is validated for format only (the
-///   natural key `pollVotes/{post}_{uid}` is the record, ADR-0029 D7); the
-///   caller reuses one key per (post, choice) intent.
+///   natural key `pollVotes/{post}_{uid}` is the record, ADR-0029 D7). The
+///   caller reuses one key per (post, choice) intent for a first vote and uses
+///   a fresh key per tap for a change; a change also carries `expectedChoice`
+///   (Amendment 1 A2.2).
 /// - Errors are typed: `PollClosedException`, `AlreadyVotedException`,
 ///   `FeatureDisabledException`, `NotFoundException`, rate limits.
 class PollRepository {
