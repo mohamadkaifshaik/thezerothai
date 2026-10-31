@@ -143,7 +143,7 @@ digest cleared, the inbox previews of both people that showed it are rewritten, 
 - **Not undoable.** There is no restore for a message: the text is gone from the message document. The evidence is in the report only.
 - **The sender who retries gets the tombstone.** The takedown clears the message's request digest (as the account eraser does), so Send cannot
   compare a retry of the same idempotency key; it replays the message as `REMOVED` (no text) instead of a "key reused" error. It never creates a duplicate.
-- **The output holds no uid and no id in clear.** It prints `conversation_hash` and `message_hash` (one-way) and one `audit:` line with the
+- **The output holds no uid and no id in clear.** It prints `conversation_hash` (the keyed hash of the request logs, W7-34: set `CURSOR_HMAC_KEY` in your shell, else it prints `unavailable(set-CURSOR_HMAC_KEY)`; `docs/runbooks/messaging.md` section 5c) and `message_hash` (plain, one-way) and one `audit:` line with the
   project, time, before/after state, previews rewritten, `wrote`, `dry_run` and the report id. Keep that line with the case notes.
 - For an abusive sender rather than one message, `suspend-user --uid <owner> --report R` accepts a message report (its owner is the sender);
   a SUSPENDED sender can no longer send (account-status interceptor) and a SUSPENDED recipient answers `CANNOT_MESSAGE`.

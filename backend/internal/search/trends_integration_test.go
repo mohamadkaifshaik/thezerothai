@@ -53,7 +53,7 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	reader := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(c), Cache: posts.NewCache(time.Minute, 0, 0)})
 	reg := flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.On})
 	prot := &trendsFakeProtected{set: map[string]bool{"p": true}}
-	r := NewRefresher(store, reader, prot, reg, RefresherConfig{MinAuthors: 3, MaxPosts: 2000, MinInterval: 12 * time.Hour, Denylist: []string{"banned"},
+	r := NewRefresher(store, reader, prot, newFakeAuthors(), reg, RefresherConfig{MinAuthors: 3, MaxPosts: 2000, MinInterval: 12 * time.Hour, Denylist: []string{"banned"},
 		Now: func() time.Time { return now }})
 
 	// 3 authors on #launch (+ a taken-down, a REPOST and a protected author's post that must not count), 1 author on #spam x5,
@@ -85,8 +85,8 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	if err != nil || res.Skipped != "" || res.PostsScanned != newPosts-1 {
 		t.Fatalf("res %+v err %v", res, err)
 	}
-	if res.FsReads != 2+newPosts-1 || res.FsWrites != 1 {
-		t.Fatalf("run cost %d reads, %d writes, want %d and 1 (2 + new posts, 1 write)", res.FsReads, res.FsWrites, newPosts+1)
+	if res.FsReads != 2+newPosts-1+3 || res.FsWrites != 1 {
+		t.Fatalf("run cost %d reads, %d writes, want %d and 1 (2 + new posts, 1 write)", res.FsReads, res.FsWrites, newPosts+4)
 	}
 	doc, err := store.Get(context.Background())
 	if err != nil || doc == nil {
@@ -104,7 +104,7 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 		t.Fatalf("second run: %+v %v, want skipped fresh, 1 read, 0 writes", res, err)
 	}
 	// The kill switch: 0 reads, 0 writes against the real store.
-	off := NewRefresher(store, reader, prot, flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.Off}), RefresherConfig{})
+	off := NewRefresher(store, reader, prot, nil, flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.Off}), RefresherConfig{})
 	if res, err := off.Run(context.Background()); err != nil || res.Skipped != SkipFlagOff || res.FsReads != 0 || res.FsWrites != 0 {
 		t.Fatalf("flag off: %+v %v", res, err)
 	}

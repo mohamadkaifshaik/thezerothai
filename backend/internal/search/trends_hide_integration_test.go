@@ -92,11 +92,11 @@ func TestTrends_Integration_HideList(t *testing.T) {
 	for i, a := range []string{"a", "b", "c"} {
 		seedPost(t, c, i+1, a, "POST", now.Add(-time.Duration(5-i)*time.Hour), "", "slur", "ok")
 	}
-	r := NewRefresher(store, reader, &trendsFakeProtected{set: map[string]bool{}}, reg,
+	r := NewRefresher(store, reader, &trendsFakeProtected{set: map[string]bool{}}, newFakeAuthors(), reg,
 		RefresherConfig{MinAuthors: 3, MaxPosts: 2000, MinInterval: 12 * time.Hour, Now: func() time.Time { return now.Add(13 * time.Hour) }})
 	res, err := r.Run(bg)
-	if err != nil || res.Skipped != "" || res.FsReads != 2+3 || res.FsWrites != 1 {
-		t.Fatalf("sweep: %+v %v, want 5 reads (document, hide list, 3 posts) and 1 write", res, err)
+	if err != nil || res.Skipped != "" || res.FsReads != 2+3+3 || res.FsWrites != 1 {
+		t.Fatalf("sweep: %+v %v, want 8 reads (document, hide list, 3 posts, 3 authors) and 1 write", res, err)
 	}
 	if cur, _ := store.Get(bg); cur == nil || len(cur.Items) != 1 || cur.Items[0].Tag != "ok" {
 		t.Fatalf("sweep list: %+v", cur)

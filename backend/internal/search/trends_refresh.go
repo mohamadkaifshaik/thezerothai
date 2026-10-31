@@ -1,10 +1,12 @@
 package search
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -49,12 +51,30 @@ type PostScanner interface {
 	CreatedAfter(ctx context.Context, after posts.Position, limit int) ([]*posts.Post, error)
 }
 
+// AuthorDirectory is the part of identity.Directory the sweep uses to check authors (identity.Directory satisfies it).
+// GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING (ADR-0008 T6).
+// Its reads are charged to ctx's budget.Counter.
+type AuthorDirectory interface {
+	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)
+}
+
+const (
+	// authorBatch is the identity.Directory.GetProfiles batch size.
+	authorBatch = 50
+	// authorCheckMargin is added to writeReserve: a batch is not started with less than writeReserve + this left.
+	authorCheckMargin = time.Second
+)
+
 // RefresherConfig is the sweep's configuration (config.SearchConfig plus the switches).
 type RefresherConfig struct {
 	// MinAuthors is TRENDS_MIN_AUTHORS, MaxPosts TRENDS_MAX_POSTS_PER_RUN, MinInterval TRENDS_MIN_INTERVAL.
 	MinAuthors  int
 	MaxPosts    int
 	MinInterval time.Duration
+	// MinAccountAge is TRENDS_MIN_ACCOUNT_AGE: an author counts only when the account is at least this old (default 72h).
+	// MaxAuthorChecks is TRENDS_MAX_AUTHOR_CHECKS: the most distinct authors one run reads profiles for (default 500).
+	MinAccountAge   time.Duration
+	MaxAuthorChecks int
 	// Denylist is TRENDS_DENYLIST (tag bodies; normalised here like a query).
 	Denylist []string
 	// ReadOnly is DEGRADED_MODE=readonly.
@@ -69,6 +89,7 @@ type Refresher struct {
 	store     TrendsStore
 	scan      PostScanner
 	protected identity.ProtectedAuthors
+	dir       AuthorDirectory
 	flags     FlagChecker
 	cfg       RefresherConfig
 	deny      map[string]struct{} // TrendKey set of TRENDS_DENYLIST
@@ -77,8 +98,9 @@ type Refresher struct {
 var _ TrendsRefresher = (*Refresher)(nil)
 
 // NewRefresher builds the sweep. A nil protected loader fails every run that has posts to count: an unknown protected
-// set is never read as "nobody is protected" (ADR-0025). A nil FlagChecker is off for everyone.
-func NewRefresher(store TrendsStore, scan PostScanner, protected identity.ProtectedAuthors, fc FlagChecker, cfg RefresherConfig) *Refresher {
+// set is never read as "nobody is protected" (ADR-0025). A nil AuthorDirectory leaves every author unverified, so nothing
+// trends (fail closed, ADR-0028 note 2026-10-31). A nil FlagChecker is off for everyone.
+func NewRefresher(store TrendsStore, scan PostScanner, protected identity.ProtectedAuthors, dir AuthorDirectory, fc FlagChecker, cfg RefresherConfig) *Refresher {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -94,7 +116,13 @@ func NewRefresher(store TrendsStore, scan PostScanner, protected identity.Protec
 	if cfg.MinInterval <= 0 {
 		cfg.MinInterval = 12 * time.Hour
 	}
-	return &Refresher{store: store, scan: scan, protected: protected, flags: fc, cfg: cfg, deny: trendKeySet(cfg.Denylist)}
+	if cfg.MinAccountAge <= 0 {
+		cfg.MinAccountAge = 72 * time.Hour
+	}
+	if cfg.MaxAuthorChecks < 1 {
+		cfg.MaxAuthorChecks = 500
+	}
+	return &Refresher{store: store, scan: scan, protected: protected, dir: dir, flags: fc, cfg: cfg, deny: trendKeySet(cfg.Denylist)}
 }
 
 // RunResult is what one run did, for the log line and the tests.
@@ -111,15 +139,23 @@ type RunResult struct {
 	FsReads, FsWrites int64
 	// LaterPageErr is a failure after the first page: the run wrote what it had, as a backlog, and succeeded.
 	LaterPageErr error
+	// AuthorsChecked is the number of distinct authors whose profile batch was read; AuthorsUnverified the candidate
+	// authors that were not (the cap, a deadline, a failed batch): they count as not established. AuthorCheckErr is the
+	// failed batch, if any (reported to Error Reporting; the run still wrote).
+	AuthorsChecked, AuthorsUnverified int
+	AuthorCheckErr                    error
 }
 
 // Refresh recomputes trends/current from the posts created since the last run (ADR-0028 D6).
 //
 // Firestore, worst case: flag globally off or DEGRADED_MODE=readonly 0 reads, 0 writes; a run inside TRENDS_MIN_INTERVAL
 // of the last list 1 read (the document), 0 writes; otherwise 2 + new posts (the document, the hide list, then one read per
-// projected post, an empty page bills 1: <= 2 + TRENDS_MAX_POSTS_PER_RUN = 2,002) and 1 write. The protected set comes
-// through the identity loader on its detached counter and is never charged here. Refresh owns its budget counter and writes the one trends_refresh (or
-// trends_skipped) line. The error is non-nil only when nothing was written because the document read, the hide list, the first page or
+// projected post, an empty page bills 1: <= 2 + TRENDS_MAX_POSTS_PER_RUN = 2,002) plus the author check and 1 write. The
+// author check (ADR-0028 note 2026-10-31, part 2) reads the profiles of the distinct authors of the candidate tags with
+// identity.Directory.GetProfiles, at most TRENDS_MAX_AUTHOR_CHECKS (500) authors in batches of 50 (<= 10 calls, cache-first,
+// about 1 read per author on a cold cron instance): <= 2 + 2,000 + 500 = 2,502 reads in all, still 1 write. No candidate tag
+// means 0 extra reads. The protected set comes through the identity loader on its detached counter and is never charged
+// here. Refresh owns its budget counter and writes the one trends_refresh (or trends_skipped) line. The error is non-nil only when nothing was written because the document read, the hide list, the first page or
 // the protected set failed; a later-page failure writes the partial list as a backlog and is reported, not returned.
 func (r *Refresher) Refresh(ctx context.Context) error {
 	_, err := r.Run(ctx)
@@ -145,7 +181,8 @@ func (r *Refresher) Run(ctx context.Context) (RunResult, error) {
 		r.cfg.Log.InfoContext(ctx, "trends_skipped", append(attrs, "reason", res.Skipped)...)
 	default:
 		attrs = append(attrs, "trends_posts_scanned", res.PostsScanned, "trends_tags", res.TagsCounted,
-			"tags_kept", res.TagsKept, "backlog", res.Backlog, "outcome", "ok")
+			"tags_kept", res.TagsKept, "backlog", res.Backlog, "authors_checked", res.AuthorsChecked,
+			"authors_unverified", res.AuthorsUnverified, "outcome", "ok")
 		r.cfg.Log.InfoContext(ctx, "trends_refresh", attrs...)
 		if res.Backlog {
 			r.cfg.Log.WarnContext(ctx, "trends_backlog", "trends_posts_scanned", res.PostsScanned)
@@ -155,6 +192,9 @@ func (r *Refresher) Run(ctx context.Context) (RunResult, error) {
 		}
 		if res.LaterPageErr != nil {
 			mw.ReportError(ctx, r.cfg.Log.With(logger.TraceAttrs(ctx)...), refreshOp, logger.ScrubErr(res.LaterPageErr))
+		}
+		if res.AuthorCheckErr != nil {
+			mw.ReportError(ctx, r.cfg.Log.With(logger.TraceAttrs(ctx)...), refreshOp, logger.ScrubErr(res.AuthorCheckErr))
 		}
 	}
 	return res, err
@@ -240,11 +280,10 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 			for _, t := range p.Hashtags {
 				c := tags[t]
 				if c == nil {
-					c = &tagCount{authors: map[string]struct{}{}}
+					c = &tagCount{authors: map[string]int64{}}
 					tags[t] = c
 				}
-				c.posts++
-				c.authors[p.AuthorID] = struct{}{}
+				c.authors[p.AuthorID]++
 			}
 		}
 		if len(page) < want {
@@ -259,7 +298,10 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 		// Nothing new: hold the watermark a moment behind now, never before the old one.
 		wm = Watermark{At: laterOf(wm.At, now.Add(-emptySettle))}
 	}
-	items := r.rank(tags, hide)
+	// Only established authors count (ADR-0028 note 2026-10-31, part 2). The candidates are the tags that pass the denylist,
+	// the hide list and the raw author minimum, so author reads are spent on real candidates only.
+	cands := r.candidates(tags, hide)
+	items := rank(cands, r.establishedAuthors(ctx, now, cands, &res), r.cfg.MinAuthors)
 	res.TagsCounted = len(tags)
 	res.TagsKept = len(items)
 	doc := &TrendsDoc{
@@ -279,9 +321,126 @@ func laterOf(a, b time.Time) time.Time {
 	return b
 }
 
+// tagCount holds the posts per author (uid → posts with the tag). It stays in memory and is never persisted.
 type tagCount struct {
-	posts   int64
-	authors map[string]struct{}
+	authors map[string]int64
+}
+
+// candidate is a tag that may trend, with the posts per author counted so far.
+type candidate struct {
+	tag     string
+	authors map[string]int64
+}
+
+func (c candidate) posts() (n int64) {
+	for _, k := range c.authors {
+		n += k
+	}
+	return n
+}
+
+// candidates returns the tags that pass the denylist, the hide list and the distinct-author minimum on raw authors, in
+// provisional rank order (authors, then posts, then tag).
+func (r *Refresher) candidates(tags map[string]*tagCount, hide map[string]struct{}) []candidate {
+	out := make([]candidate, 0, len(tags))
+	for tag, c := range tags {
+		if len(c.authors) < r.cfg.MinAuthors || matchesKey(tag, r.deny, hide) {
+			continue
+		}
+		out = append(out, candidate{tag: tag, authors: c.authors})
+	}
+	slices.SortFunc(out, func(a, b candidate) int {
+		return compareRank(a.tag, int64(len(a.authors)), a.posts(), b.tag, int64(len(b.authors)), b.posts())
+	})
+	return out
+}
+
+// compareRank orders by authors, then posts (both descending), then tag.
+func compareRank(tagA string, authorsA, postsA int64, tagB string, authorsB, postsB int64) int {
+	switch {
+	case authorsA != authorsB:
+		return cmp.Compare(authorsB, authorsA)
+	case postsA != postsB:
+		return cmp.Compare(postsB, postsA)
+	default:
+		return strings.Compare(tagA, tagB)
+	}
+}
+
+// establishedAuthors reads the profiles of the candidates' authors and returns the uids that are established: returned by
+// GetProfiles (it omits missing, SUSPENDED and DELETING users, so the ACTIVE check costs nothing extra), with a non-zero
+// createdAt at least MinAccountAge before now. It walks the candidates in rank order and adds each tag's authors (in uid
+// order) until MaxAuthorChecks distinct uids are held; a tag cut off part-way keeps the authors already added. The batches
+// run one after another, each under a context that keeps writeReserve of the deadline for the Put. Authors left out by the
+// cap, by a deadline inside writeReserve + 1 s, or by a failed batch (recorded once, then checking stops) are unverified:
+// not in the result, so they do not count. Profiles are cache-first in identity, so one may be up to its cache TTL (60 s)
+// stale. No candidate means no read.
+func (r *Refresher) establishedAuthors(ctx context.Context, now time.Time, cands []candidate, res *RunResult) map[string]struct{} {
+	est := map[string]struct{}{}
+	all := map[string]struct{}{}
+	var uids []string
+	for _, c := range cands {
+		for _, a := range slices.Sorted(maps.Keys(c.authors)) {
+			if _, ok := all[a]; ok {
+				continue
+			}
+			all[a] = struct{}{}
+			if len(uids) < r.cfg.MaxAuthorChecks {
+				uids = append(uids, a)
+			}
+		}
+	}
+	checked := 0
+	if r.dir != nil {
+		for batch := range slices.Chunk(uids, authorBatch) {
+			bctx, cancel := ctx, context.CancelFunc(func() {})
+			if dl, ok := ctx.Deadline(); ok {
+				if dl.Sub(r.cfg.Now()) < writeReserve+authorCheckMargin {
+					break // out of time: the rest is unverified and the run still writes
+				}
+				bctx, cancel = context.WithDeadline(ctx, dl.Add(-writeReserve))
+			}
+			profiles, err := r.dir.GetProfiles(bctx, batch)
+			cancel()
+			if err != nil {
+				res.AuthorCheckErr = fmt.Errorf("search: trends author check: %w", err)
+				break
+			}
+			checked += len(batch)
+			for uid, p := range profiles {
+				if !p.CreatedAt.IsZero() && now.Sub(p.CreatedAt) >= r.cfg.MinAccountAge {
+					est[uid] = struct{}{}
+				}
+			}
+		}
+	}
+	res.AuthorsChecked = checked
+	res.AuthorsUnverified = len(all) - checked
+	return est
+}
+
+// rank recounts each candidate over established authors only (posts = the sum of their posts), applies the author minimum
+// again, orders by authors, then posts, then tag, and keeps the top maxTrendItems (ADR-0028 D6 step 6).
+func rank(cands []candidate, est map[string]struct{}, minAuthors int) []TrendItem {
+	items := make([]TrendItem, 0, len(cands))
+	for _, c := range cands {
+		var authors, nPosts int64
+		for a, n := range c.authors {
+			if _, ok := est[a]; ok {
+				authors++
+				nPosts += n
+			}
+		}
+		if authors < int64(minAuthors) {
+			continue
+		}
+		items = append(items, TrendItem{Tag: c.tag, Posts: nPosts, Authors: authors})
+	}
+	slices.SortFunc(items, func(a, b TrendItem) int { return compareRank(a.Tag, a.Authors, a.Posts, b.Tag, b.Authors, b.Posts) })
+	if len(items) > maxTrendItems {
+		items = items[:maxTrendItems]
+	}
+	return items
 }
 
 // matchesKey is true when the tag's TrendKey is in one of the sets (the denylist, the hide list).
@@ -293,30 +452,4 @@ func matchesKey(tag string, sets ...map[string]struct{}) bool {
 		}
 	}
 	return false
-}
-
-// rank applies the denylist, the hide list and the distinct-author minimum, orders by authors, then posts, then tag, and keeps the top
-// maxTrendItems (ADR-0028 D6 step 6).
-func (r *Refresher) rank(tags map[string]*tagCount, hide map[string]struct{}) []TrendItem {
-	items := make([]TrendItem, 0, len(tags))
-	for tag, c := range tags {
-		if len(c.authors) < r.cfg.MinAuthors || matchesKey(tag, r.deny, hide) {
-			continue
-		}
-		items = append(items, TrendItem{Tag: tag, Posts: c.posts, Authors: int64(len(c.authors))})
-	}
-	slices.SortFunc(items, func(a, b TrendItem) int {
-		switch {
-		case a.Authors != b.Authors:
-			return int(b.Authors - a.Authors)
-		case a.Posts != b.Posts:
-			return int(b.Posts - a.Posts)
-		default:
-			return strings.Compare(a.Tag, b.Tag)
-		}
-	})
-	if len(items) > maxTrendItems {
-		items = items[:maxTrendItems]
-	}
-	return items
 }
