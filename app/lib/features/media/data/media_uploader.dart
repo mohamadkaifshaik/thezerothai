@@ -97,6 +97,7 @@ class MediaUploader {
       Duration(seconds: 4),
       Duration(seconds: 8),
     ],
+    this.screeningRetries = 3,
     Future<void> Function(Duration)? delay,
     math.Random? random,
   }) : _repository = repository,
@@ -118,6 +119,14 @@ class MediaUploader {
   /// Waits before each repeat of a GIF FinalizeUpload that found the
   /// server's GIF slot busy; its length is the number of repeats.
   final List<Duration> gifBusyDelays;
+
+  /// How many times a FinalizeUpload that answered "image checks are
+  /// temporarily unavailable" is repeated automatically (ADR-0029 Amendment 1
+  /// A5.6), after the server's `retry_after`. The same call and media id:
+  /// nothing is re-signed or re-PUT, and the server counts it as a retry, not
+  /// a screening attempt. After the last repeat the exception is rethrown and
+  /// the tile offers a manual Retry.
+  final int screeningRetries;
   final Future<void> Function(Duration) _delay;
   final math.Random _jitter;
 
@@ -171,11 +180,29 @@ class MediaUploader {
     required List<FinalizeRequestItem> items,
     required bool waitForGifSlot,
   }) async {
+    var screeningAttempts = 0;
     for (var attempt = 0; ; attempt++) {
       try {
         return await _repository.finalizeUpload(
           idempotencyKey: key,
           items: items,
+        );
+      } on ScreeningUnavailableException catch (error) {
+        if (screeningAttempts >= screeningRetries) rethrow;
+        // The server's retry_after (5 s), or 2, 4, 8 s when it sent none,
+        // plus up to a quarter of jitter. Capped, so a bad value cannot park
+        // the upload for long.
+        var base =
+            error.retryAfter ?? Duration(seconds: 2 << screeningAttempts);
+        if (base > const Duration(seconds: 30)) {
+          base = const Duration(seconds: 30);
+        }
+        screeningAttempts++;
+        await _delay(
+          base +
+              Duration(
+                milliseconds: _jitter.nextInt(base.inMilliseconds ~/ 4 + 1),
+              ),
         );
       } on MediaNotReadyException {
         if (!waitForGifSlot || attempt >= gifBusyDelays.length) rethrow;
