@@ -74,10 +74,15 @@ The step needs `identity.ProtectedAuthors`. When the loader cannot produce a tru
 - RATE_LIMITED with `limit_name` `trends_daily` (W4-28): one uid made more than `TRENDS_CALLS_PER_DAY` (default 400 per instance, so up to 1,200 a day at 3 instances) GetTrends calls in an IST day; 0 reads. The typeahead and the `TrendsCubit` handle it quietly. A heavy honest user normally stays far below it (about 300 typeahead bursts + 100 loads); a user who hits it repeatedly is a scripted account (check `abuse-spike.md`). The cap is per instance and lost with it; raise it with the env var, not by code. The 60/min bucket is unchanged.
 
 ## 5. Calling the route in dev
-Dev has no Scheduler jobs. With the production-deployer's opt-in grant (founder OK, removed afterwards) and an OIDC identity token for the push service account:
+Dev has no Scheduler jobs. With the opt-in `cron_test_invoker` grant (`roles/iam.serviceAccountOpenIdTokenCreator` on `pubsub-push@<project>`, a targeted dev apply with the founder's OK and a dated expiry, removed afterwards by a targeted destroy), mint an ID token for the push service account with the IAM Credentials API and call the route. The audience is the `INTERNAL_OIDC_AUDIENCE` env value of the serving revision (the `*.asia-south1.run.app` URL, not the `*.a.run.app` one):
 ```
-curl -X POST -H "Authorization: Bearer $(gcloud auth print-identity-token --audiences=<api URL>)" <api URL>/internal/cron/trends-refresh
+AUD=<INTERNAL_OIDC_AUDIENCE>; SA=pubsub-push@dzeroth-dev.iam.gserviceaccount.com
+TOK=$(curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H content-type:application/json \
+  --data "{\"audience\":\"$AUD\",\"includeEmail\":true}" \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/$SA:generateIdToken" | jq -r .token)
+curl -X POST -H "Authorization: Bearer $TOK" -H content-length:0 "$AUD/internal/cron/trends-refresh"
 ```
+`gcloud auth print-identity-token --impersonate-service-account` does not work with this grant: it needs `iam.serviceAccounts.getAccessToken`, which the grant deliberately lacks. The first mint right after the apply can return no token while IAM propagates; retry after a minute. GetTrends keeps a 10-minute instance copy, so a list cached empty before the refresh shows the new tags only after it expires (W4-24, 2026-10-31).
 Expect 204 and one `trends_refresh` (or `trends_skipped`) line. Locally, with the emulators, the integration tests drive the same code (`make test-int`).
 
 ## 6. Rollback and kill
