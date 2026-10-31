@@ -17,6 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -38,6 +39,9 @@ type Deps struct {
 	// Removals is the moderation removal log (ADR-0016 D10), consulted only by since_token refreshes. Nil disables
 	// removed_ids (no reads, no reset): tests and processes that do not wire the log.
 	Removals posts.Removals
+	// Lists is the only way timeline reads a list (ADR-0030 D1, GetListTimeline). Nil leaves GetListTimeline unimplemented behind
+	// its flag gate: tests and processes that do not wire lists.
+	Lists lists.Reader
 
 	// CursorKey seals tokens (config.CursorHMACKey).
 	CursorKey []byte

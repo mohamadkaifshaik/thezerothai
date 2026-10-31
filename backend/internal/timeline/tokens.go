@@ -167,3 +167,10 @@ func (c codec) encodePage(f feed, upper posts.Position, lower *posts.Position) s
 	}
 	return cursor.EncodeWindowAt(c.key, f.page, w, c.now())
 }
+
+// listFeed is the token family of one list read by one caller (ADR-0030 D5): bound to the caller AND the list, so a Home or
+// user token on a list, a list token on another list or for another caller is VALIDATION with 0 reads. ids never contain a pipe.
+func listFeed(caller, listID string) feed {
+	base := "tl|list|" + caller + "|" + listID + "|"
+	return feed{since: base + "since", page: base + "page"}
+}
