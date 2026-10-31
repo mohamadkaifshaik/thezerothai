@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // W6-6 (ADR-0029 D3, D4): per-viewer redaction of a poll and the viewer's choice. The clock is passed to ToViewAt, so the
@@ -276,6 +277,50 @@ func TestServer_GetPost_PollViewer(t *testing.T) {
 			}
 			if v.GetViewerPollChoice() != tt.wantChoice {
 				t.Fatalf("viewer_poll_choice = %d, want %d", v.GetViewerPollChoice(), tt.wantChoice)
+			}
+		})
+	}
+}
+
+// GetThread uses the same viewer set and converter: a poll on the root as the focal row (real flag registry, so the
+// GloballyOff path is the production one).
+func TestServer_GetThread_PollViewer(t *testing.T) {
+	t.Parallel()
+	reg := func(engagement, polls flags.Mode) *flags.Registry {
+		return flags.NewRegistry(
+			flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: RepliesFlagName, Mode: flags.On},
+			flags.Spec{Name: EngagementFlagName, Mode: engagement}, flags.Spec{Name: PollsFlagName, Mode: polls})
+	}
+	tests := []struct {
+		name        string
+		fc          *flags.Registry
+		votes       []string
+		wantVisible bool
+		wantChoice  int32
+	}{
+		{"not voted: hidden", reg(flags.On, flags.On), nil, false, 0},
+		{"voted: results and choice", reg(flags.On, flags.On), []string{rRoot + ":0"}, true, 1},
+		{"engagement off, polls on (allowlist rollout): hidden", reg(flags.Off, flags.Allowlist), []string{rRoot + ":0"}, false, 0},
+		{"engagement off, polls off for everyone: results", reg(flags.Off, flags.Off), nil, true, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			e := newThreadEnv()
+			e.repo.docs[rRoot].Poll = &Poll{Options: []string{"A", "B"}, DurationMin: 60, ClosesAt: time.Now().Add(48 * time.Hour), Counts: []int64{9, 1}, Total: 10}
+			cv := &countingViewer{set: NewViewerSet(nil, nil).WithPollVotes(tt.votes)}
+			srv := NewServer(e.svc, tt.fc, WithViewerFlags(cv))
+			resp, err := srv.GetThread(callerCtx(testUID), connect.NewRequest(&postsv1.GetThreadRequest{PostId: rRoot}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := resp.Msg.GetFocal()
+			po := f.GetPost().GetPoll()
+			if po == nil || po.GetResultsVisible() != tt.wantVisible || po.GetTotalVotes() != 10 || (po.GetChoices()[0].GetVotes() == 9) != tt.wantVisible {
+				t.Fatalf("poll = %v, want visible=%v total 10", po, tt.wantVisible)
+			}
+			if f.GetViewerPollChoice() != tt.wantChoice {
+				t.Fatalf("viewer_poll_choice = %d, want %d", f.GetViewerPollChoice(), tt.wantChoice)
 			}
 		})
 	}
