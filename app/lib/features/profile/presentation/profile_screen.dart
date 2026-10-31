@@ -607,7 +607,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
               posts: context.read<PostsRepository>(),
               viewerUserId: viewerUserId,
               // An undone repost leaves the tab (W3-41c).
-              engagement: context.read<EngagementCubit>(),
+              engagement: _engagementOrNull(context),
               // The header's post count follows a delete at once (a deleted post
               // can only be the viewer's own).
               onPostDeleted: (_) {
@@ -965,5 +965,16 @@ class _BlockedPostsBanner extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// The session's engagement overlay, or null when no session is above (a
+/// profile shown outside the app, as in some tests): then an undone repost is
+/// only dropped by the next refresh, as before W3-41c.
+EngagementCubit? _engagementOrNull(BuildContext context) {
+  try {
+    return context.read<EngagementCubit>();
+  } on ProviderNotFoundException {
+    return null;
   }
 }
