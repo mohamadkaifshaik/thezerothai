@@ -326,5 +326,5 @@ func (s *service) listErr(ctx context.Context, uid string, err error) error {
 	if ce := ctxFailure(ctx); ce != nil {
 		return ce
 	}
-	return logger.RedactErr(fmt.Errorf("messaging: list conversations: %w", err), uid)
+	return redactErr(fmt.Errorf("messaging: list conversations: %w", err), uid)
 }

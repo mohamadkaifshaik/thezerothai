@@ -60,6 +60,8 @@ type backends struct {
 	moderator posts.Moderator
 	// messages takes one direct message down (`opsctl messages takedown`, ADR-0027 D12, W7-12).
 	messages messaging.Moderator
+	// placeholder serves `messages migrate-placeholder` (W7-34, L-2): the dev-only rewrite of the legacy erased-user placeholder.
+	placeholder messaging.PlaceholderMigrator
 	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
 	cleanup posts.Cleanup
 	// copied lists the suspended author's posts that have copies, for suspend-user's copy cleanup (#151).
@@ -111,6 +113,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})
 	postsRepo.SetRepostLinks(engagement.NewFirestoreRepo(client, engagement.WriteDeps{}))
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
+	msgRepo := messaging.NewFirestoreRepo(client, nil) // takedown and the placeholder migration: no quota store needed
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -140,7 +143,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		postsExporter: postsRepo,
 		profile:       identityRepo.GetProfile,
 		reports:       moderationRepo,
-		messages:      messaging.NewFirestoreRepo(client, nil), // takedown only: no quota store needed
+		messages:      msgRepo,
+		placeholder:   msgRepo,
 		moderator:     postsRepo,
 		cleanup:       postsRepo,
 		copied:        postsRepo,
@@ -210,11 +214,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if (cmd == "reports" || cmd == "messages") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
 	}
-	if cmd == "messages" && sub == "takedown" && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if cmd == "messages" && (sub == "takedown" || sub == "loghash") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		msgTarget, rest = rest[0], rest[1:]
 	}
-	if cmd == "messages" && sub != "takedown" { // before the flags: a stray positional would otherwise be reported instead
-		fmt.Fprintf(errOut, "messages needs the sub-command takedown\n%s", usage)
+	if cmd == "messages" && sub != "takedown" && sub != "loghash" && sub != "migrate-placeholder" { // before the flags: a stray positional would otherwise be reported instead
+		fmt.Fprintf(errOut, "messages needs a sub-command: takedown, loghash or migrate-placeholder\n%s", usage)
 		return 2
 	}
 	if err := fs.Parse(rest); err != nil {
@@ -262,9 +266,24 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	var msgConvID, msgID string
 	if cmd == "messages" {
 		var err error
-		if msgConvID, msgID, err = parseTakedownMessageArgs(sub, msgTarget, ma); err != nil {
-			fmt.Fprintf(errOut, "%v\n%s", err, usage)
-			return 2
+		switch sub {
+		case "loghash":
+			// No Firestore, no project: the keyed hash the request logs carry for this conversation.
+			if err := logHash(msgTarget, os.Getenv("CURSOR_HMAC_KEY"), out); err != nil {
+				fmt.Fprintln(errOut, err)
+				return 2
+			}
+			return 0
+		case "migrate-placeholder":
+			if isProd(*project) {
+				fmt.Fprintln(errOut, "messages migrate-placeholder is dev only: messaging was never on in prod, and the command refuses a -prod project")
+				return 2
+			}
+		default:
+			if msgConvID, msgID, err = parseTakedownMessageArgs(sub, msgTarget, ma); err != nil {
+				fmt.Fprintf(errOut, "%v\n%s", err, usage)
+				return 2
+			}
 		}
 	}
 	if *project == "" {
@@ -306,7 +325,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "export-posts":
 		err = exportPosts(ctx, b, *uid, *outFile, out)
 	case "messages":
-		err = takedownMessage(ctx, b, *project, msgConvID, msgID, ma, out, now)
+		if sub == "migrate-placeholder" {
+			err = migratePlaceholder(ctx, b, *project, ma.dryRun, out)
+		} else {
+			err = takedownMessage(ctx, b, *project, msgConvID, msgID, ma, out, now)
+		}
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":

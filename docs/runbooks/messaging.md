@@ -37,12 +37,12 @@ Each call is one bounded unit of work (at most 500 documents) and the checkpoint
 `both`, `entry`, `conversations`, `tombstoned`, `entriesDeleted`). For each conversation of the user, in `__name__` order:
 1. `phase ""`: pick the next conversation (`participants array-contains uid ORDER BY __name__ LIMIT 1`) and, in **one transaction**, add the uid to
    `gone` (so a send can no longer rewrite the deleted user's entries: the send transaction reads that document) and rewrite the peer's entry to the
-   "Deleted account" placeholder (`peerId` = `deleted`), with the snippet "Message deleted" when the user's message was the last (peer already gone: no entry read).
-2. `phase tombstone`: 500 per call, the user's messages (`senderId == uid`): `senderId` = `deleted`, and for a VISIBLE one text and `requestHash` emptied, `state = DELETED_ACCOUNT`. The peer's messages are never touched.
+   "Deleted account" placeholder (`peerId` = `_deleted`), with the snippet "Message deleted" when the user's message was the last (peer already gone: no entry read).
+2. `phase tombstone`: 500 per call, the user's messages (`senderId == uid`): `senderId` = `_deleted`, and for a VISIBLE one text and `requestHash` emptied, `state = DELETED_ACCOUNT`. The peer's messages are never touched.
 3. `phase finish`: delete the user's own `dmInbox` or `dmRequests` entry.
-4. `phase rewrite`, when the peer lives: one transaction replaces the uid by `deleted` in `participants`, `gone`, `requestFrom`, `requestTo` and drops `clearedAt.<uid>` and `clearedKey.<uid>`.
+4. `phase rewrite`, when the peer lives: one transaction replaces the uid by `_deleted` in `participants`, `gone`, `requestFrom`, `requestTo` and drops `clearedAt.<uid>` and `clearedKey.<uid>`.
    **It is last on purpose**: the cursor query finds the conversation through `participants`, so every earlier step keeps it findable and is idempotent, and after the rewrite there is nothing left to do.
-   `gone` is never empty in between, so sends stay refused; the peer's own eraser finds the conversation by the peer's uid and sees `deleted` in `gone`.
+   `gone` is never empty in between, so sends stay refused; the peer's own eraser finds the conversation by the peer's uid and sees `_deleted` in `gone`.
    `phase tree`, instead, only when the peer is gone too: the messages 500 per call, then the conversation document last.
 
 Cost for the reference account (20 conversations, 300 own messages, peers alive): about 380 reads (21 cursor queries, 20 conversation and 20
@@ -55,7 +55,7 @@ conversation (the crash matrix `TestAccountLifecycle_MessagingCrashAtEverySideEf
 | `messaging: mark conversation gone: ... DeadlineExceeded` (or `Aborted`) in the job's log line, once or twice, and the job then goes on | The two people of one conversation were deleted at the same moment: both `MarkGone` transactions read the conversation document and then write it, so they collide, and the loser can outlast the repo's 5 s `txTimeout`. Nothing was written (the transaction rolled back) | Nothing, if the job goes on: the lifecycle repeats the failed call with the same checkpoint (up to 5 errors in a row, then Pub/Sub redelivers, up to 10 times), and the repeat finds the finished state, so no conversation, message or entry is left behind. Act only when it persists: follow the first row and `account-deletion.md` section 6. The `TestEraser_BothDeletedConcurrently` integration test reproduces this on the emulator and applies the same retry (`eraseLikeTheJob`) |
 | A conversation is still listed for a deleted user's peer, with their messages as "Message deleted" | By design (F3): the peer keeps the conversation read-only (`gone` is non-empty); it is deleted when the peer's account is deleted too | Nothing |
 | `conversations/*` or `messages` documents remain after **both** accounts are deleted | The second eraser crashed after its `gone` mark and was never resumed (the lifecycle backstop re-runs the step) | Re-run the account's deletion; or delete the tree by hand: the messages (500 per batch), then `conversations/{convId}` last |
-| The deleted user's uid is found in a surviving peer's conversation | Should not happen: the step ends each conversation by replacing the uid with the fixed placeholder `deleted` (`messaging.DeletedUID`) in `participants`, `gone`, `requestFrom` / `requestTo`, drops the `clearedAt` and `clearedKey` entries (maps keyed by the uid), and sets the tombstones' `senderId` and the peer entry's `peerId` to it (ADR-0027 D11). The T11 residue sweep runs on this case with no allowlist entry. A hit is a code defect or a step that never finished: re-run the account's deletion | Treat `deleted` as "Deleted account" in any reader; it resolves to no profile |
+| The deleted user's uid is found in a surviving peer's conversation | Should not happen: the step ends each conversation by replacing the uid with the fixed placeholder `_deleted` (`messaging.DeletedUID`; W7-34: it starts with `_`, which `ids.ValidUID` refuses, so no account can ever hold it. Before W7-34 it was `deleted`, a valid uid shape; dev data is converted by `opsctl messages migrate-placeholder`, section 5c) in `participants`, `gone`, `requestFrom` / `requestTo`, drops the `clearedAt` and `clearedKey` entries (maps keyed by the uid), and sets the tombstones' `senderId` and the peer entry's `peerId` to it (ADR-0027 D11). The T11 residue sweep runs on this case with no allowlist entry. A hit is a code defect or a step that never finished: re-run the account's deletion | Treat `_deleted` as "Deleted account" in any reader; it resolves to no profile |
 
 The `messaging_purge_done` line carries `conversations`, `messages_tombstoned`, `entries_deleted` and `uid_hash` (never a peer uid) when the step finishes.
 
@@ -88,7 +88,7 @@ Worst case for one sender: about 900 messages a day, of which at most 20 new con
 - **Turn one lever down without a deploy:** none; limits are env vars on the `api` service, a Terraform change plus a release. Fast stop for a spam wave: `FEATURE_MESSAGING=off`, or remove the offender from the allowlist.
 - **Log queries** (request line, rpc `/dzeroth.messaging.v1.MessagingService/SendMessage`): `jsonPayload.limit_name` (`messages_daily`, `messages_mark_read_daily`, `messages_mutation_daily`, `request_unanswered`, `dm_new_daily`), `jsonPayload.refused_reason`
   (`blocked`, `recipient_inactive`, `recipient_flag_off`, `gone`: the wire answer is always `CANNOT_MESSAGE`), `jsonPayload.state` (`accepted`, `request`, `new`), `jsonPayload.silent`, `jsonPayload.replay`.
-  Never present: message text, snippets, peer uids, conversation ids in clear (`conversation_hash` and `uid_hash` only).
+  Never present: message text, snippets, peer uids, conversation ids in clear (`conversation_hash`, keyed since W7-34 and found with `opsctl messages loghash`, section 5c, and `uid_hash` only).
   AcceptMessageRequest and DeleteConversation (W7-9) log `kind=accept|delete`, `conversation_hash`, `state` (`accepted` / `request`), `replay` (a repeat that wrote nothing), `folder` (delete: `inbox` / `requests`),
   `refused_reason` (`recipient_flag_off` = the peer is outside the flag cohort, `gone` = the peer deleted the account; the wire answer is `CANNOT_MESSAGE` either way) and the request line's `fs_reads` / `fs_writes` / `fs_deletes`.
 
@@ -169,6 +169,35 @@ on a repeat apply unchanged.
 - **A sender whose account is not ACTIVE** (suspended, deleting) still has their `VISIBLE` messages shown in the thread, so they stay reportable;
   the evidence handle is empty and the report's owner uid names them.
 
+## 5c. Finding a conversation's log lines, and the placeholder migration (W7-34, security review L-2 and L-7)
+
+**`conversation_hash` is keyed.** A conversation id is the first 32 hex of SHA-256 of the two uids, so anyone who can guess a uid pair can compute the id, and a plain SHA-256 of
+it in the logs would confirm the guess. Since W7-34 the `conversation_hash` of the request line, of the `messaging_*_contention` warnings and of every id that an error line redacts
+is the first 16 hex characters of `HMAC-SHA256(key, conversationId)`, where `key = HKDF-SHA256(CURSOR_HMAC_KEY, info "dzeroth log conversation_hash v1")`. No new secret: it is derived from the
+existing `cursor-hmac-key`. `uid_hash` is unchanged (plain SHA-256, first 16 hex). Message and cursor ids inside an error are keyed the same way.
+
+**Operator method** (the 32-hex conversation id is the tail of the `/messages/<id>` URL; the key is read from the environment, never a flag):
+```bash
+cd backend
+export GOWORK=off
+CURSOR_HMAC_KEY=$(gcloud secrets versions access latest --secret=cursor-hmac-key --project=dzeroth-dev | tr -d '\r') \
+  go run ./cmd/opsctl messages loghash <convId>          # prints the 16 hex characters and nothing else
+```
+It needs no `--project` flag and opens no Firestore client. Use the key of the project whose logs you read (dev and prod have different secrets), and the version that was live when the
+lines were written: after a rotation of `cursor-hmac-key` the hash of the same conversation changes, so older log lines match only the older version
+(`gcloud secrets versions access <n> ...`). Without `CURSOR_HMAC_KEY` the command refuses (exit 2); it never falls back to the local development key. Then filter on it:
+`jsonPayload.conversation_hash="<hash>"`. `opsctl messages takedown` prints the same keyed hash in its `audit:` line when `CURSOR_HMAC_KEY` is set in your shell, else
+`conversation_hash=unavailable(set-CURSOR_HMAC_KEY)`.
+
+**One-off, dev only: `opsctl messages migrate-placeholder --project dzeroth-dev [--dry-run]`.** Before W7-34 the eraser wrote `deleted` for an erased user. That is a valid uid shape, so an account could in
+principle hold it; the placeholder is now `_deleted` (refused by `ids.ValidUID`, ADR-0008 A3). The command converts what the old eraser left in dev (messaging was never on in prod, and the
+command refuses a `-prod` project). Run the dry run first: it reads the same documents and writes nothing, and prints `conversations=… messages=… entries=…`. The real run is idempotent (a rerun finds nothing:
+1 read, 0 writes) and resumable. It finds conversations by `participants array-contains "deleted"`, and per conversation rewrites, in the eraser's order and field-level only (each write with a `LastUpdateTime`
+precondition): the messages with `senderId == "deleted"`, the surviving participant's entry `peerId`, and last the conversation's `participants`, `gone`, `requestFrom` and `requestTo`. `rev`, `updatedAt` and `changedAt` do
+not move. Cost: 1 read per conversation found, per matching message and per entry probe (+1 for a conversation without a matching message), at most 1 write per matching document. If the dry run prints zeros (leg 7, the
+account-deletion smoke, was never run in dev), there is nothing to convert. Do not run it while an account deletion is in flight. A conversation that was caught half-erased by the old code (the
+`gone` mark and tombstones written, `participants` not yet rewritten) is not found by the query: finish that deletion first, or convert it by hand.
+
 ## 6. Other failure modes
 | Symptom | Likely cause | What to do |
 |---|---|---|
@@ -185,7 +214,7 @@ on a repeat apply unchanged.
 | A conversation shows "Deleted account" in the list | The other person's account was erased: the eraser wrote `peerId = deleted` and a placeholder snapshot into this user's entry (D8). The list never looks the placeholder up and sets `can_reply = false` | Expected. The entry stays until its owner deletes it |
 | A thread poll (`since`) returns the newest message again | Expected: the `since` token trails the newest message by the 5 s settle window so a message committed a moment later by another instance is not missed; the client dedupes by id (ADR-0027 D7). An empty poll therefore reads 1 document | Nothing to fix |
 | A poll response has `gap_page_token` | The refresh page was full (more new messages than `page_size` since the token). The client keeps its cache and pages `gap_page_token` (bounded below by the old `since` position) | Expected after a long absence; the request line shows `kind=poll`, `results` = page size |
-| `NOT_FOUND conversation not found` on a thread the user believes exists | Same answer for an unknown id, a conversation the caller is not in, and a deleted one (D11). The request line has `conversation_hash` only | Compare the hash with `logger.HashUID(convId)` of the id from the client; never log the id |
+| `NOT_FOUND conversation not found` on a thread the user believes exists | Same answer for an unknown id, a conversation the caller is not in, and a deleted one (D11). The request line has `conversation_hash` only (keyed since W7-34) | Compute the hash with `opsctl messages loghash <convId>` (section 5c: needs `CURSOR_HMAC_KEY` of that project and the secret version live at the time) and filter on `jsonPayload.conversation_hash`; the plain `logger.HashUID(convId)` no longer matches. Never log the id |
 | Messages the user deleted for themselves reappear on one instance, or an Inbox badge keeps its old count | The conversation cache holds `clearedAt` for 60 s per instance (D14). The instance that handled DeleteConversation replaces its cached conversation from the written data, so the history is gone there at once; other instances converge within 60 s. The badge cache is evicted on the instance that handled the mark-read, accept or delete only | Converges within the cache TTL (60 s thread, 30 s badge); no action. `cache_hit=true` on `kind=list_messages` shows the cached read |
 | A non-participant's ListMessages / ReportContent / SendMessage probe shows `cache_hit=false` and `fs_reads` 2 every time | By design (W7-28, security review W7-22 H-1). The per-instance conversation cache answers only a caller who is in its `participants`; for anyone else it does one fresh `GetConversation` (found, missing or already cached by a participant), never puts the result in the cache, and answers the byte-identical NOT_FOUND. Otherwise one probe would warm the shared cache and a second, faster probe would reveal that two public uids talk to each other | None. A non-participant line with `cache_hit=true` or `fs_reads=1` would be the regression: check `conversationHit` and its unit test `TestConversationCache_NonParticipantProbeIsOneReadAndLeavesNoTrace` |
 | `MarkConversationRead` succeeds but nothing changes | The caller has no entry in either folder (unknown id, non-participant, deleted for the caller): success with 0 writes by design | `kind=mark_read` has `entry_found=false` and `fs_writes=0` |
