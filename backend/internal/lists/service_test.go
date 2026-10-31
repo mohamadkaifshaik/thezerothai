@@ -34,6 +34,10 @@ type fakeRepo struct {
 	createdBy []CreateParams
 	updatedBy []UpdateParams
 	deletedBy []DeleteParams
+
+	member    MemberResult
+	addedBy   []AddMemberParams
+	removedBy []RemoveMemberParams
 }
 
 func (f *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, error) {
@@ -57,10 +61,27 @@ func (f *fakeRepo) Delete(_ context.Context, p DeleteParams) (DeleteResult, erro
 	return f.del, f.err
 }
 
+func (f *fakeRepo) AddMember(_ context.Context, p AddMemberParams) (MemberResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.addedBy = append(f.addedBy, p)
+	if f.err == nil && p.Refusal != nil {
+		return MemberResult{}, p.Refusal // the real repository applies the verdict after the idempotency and ownership reads
+	}
+	return f.member, f.err
+}
+
+func (f *fakeRepo) RemoveMember(_ context.Context, p RemoveMemberParams) (MemberResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removedBy = append(f.removedBy, p)
+	return f.member, f.err
+}
+
 func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.createdBy) + len(f.updatedBy) + len(f.deletedBy)
+	return len(f.createdBy) + len(f.updatedBy) + len(f.deletedBy) + len(f.addedBy) + len(f.removedBy)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.

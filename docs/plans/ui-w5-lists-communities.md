@@ -335,7 +335,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | In review (PR #495) |
 | W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | In review |
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | In review |
-| W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | Open |
+| W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | In review |
 | W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | Open |
 | W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Open |
 | W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
@@ -538,7 +538,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** `lists.Eraser` / `lists.Exporter` behind identity's `StepEraser` / `ExportSection` adapters.
 - **Parallel with W3 Part A / W4:** lifecycle wiring files serialise with W4-9's guard row and W3-32.
 
-### W5-6 — List members  [owner: backend-developer] [size: S] [depends: W5-4]  Status: Open
+### W5-6 — List members  [owner: backend-developer] [size: S] [depends: W5-4]  Status: In review
 - **Description.**
   - **AddListMember**, owner only. The target must exist and be ACTIVE (`identity.Directory`, cached), and must not block or be blocked by the caller (the caller graph has both directions; the overflow rule fails closed). Inside the transaction: `quotas.listAdds`, the cap 150 and `ArrayUnion` + `memberCount`. Adding an existing member is success with 0 writes.
   - **RemoveListMember:** `ArrayRemove`; a missing member is success with 0 writes.
@@ -550,7 +550,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Given a replay, then 0 writes.
   - Given 301 adds in a day, then QUOTA_EXCEEDED.
 - **Test notes.** `budgettest` 5 / 2; the block matrix; the cap; concurrency (two adds race at 149).
-- **Observability.** `list_op=add|remove`, outcome, `fs_reads`, `fs_writes`.
+- **Observability.** `list_op=add
+- **Built as (W5-6).** The proto and ADR-0030 win over the wording above: no stored `memberCount` (it is `len(memberIds)`); a no-op add or remove writes the idempotency doc only (1 write, not 0); the whole `memberIds` array is written (not `ArrayUnion`) so the lazy drop shares the write. Target verdict is computed before the transaction and applied after the idempotency and ownership reads (a replay still answers). Measured service reads (interceptor excluded): add 5 cold / 6 on overflow, already-member 4, replay 3, remove 3 (graph read only for a real removal), non-member 2, remove replay 1. Warm floor of the service is 3 (idempotency, list, quotas), not 2.|remove`, outcome, `fs_reads`, `fs_writes`.
 - **Budget.** Add 5 cold / 2 warm, 2 writes; Remove 2 / 1, 1 write.
 - **Flag.** `FEATURE_LISTS`.
 - **Seam.** Block checks only through `graph.Reader.Snapshot`; the users check only through `identity.Directory`.
