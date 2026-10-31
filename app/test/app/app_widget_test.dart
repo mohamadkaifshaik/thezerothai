@@ -23,6 +23,9 @@ import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/gen/dzeroth/engagement/v1/engagement.pb.dart' as eng;
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
+import 'package:dzeroth/features/lists/data/lists_repository.dart';
+import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
@@ -153,6 +156,8 @@ void main() {
     AuthState auth = const AuthState(status: AuthStatus.unauthenticated),
     ServicePausedCubit? servicePaused,
     PollRepository? pollRepository,
+    ListsRepository? listsRepository,
+    HomeTabsRepository? homeTabsRepository,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -184,6 +189,8 @@ void main() {
         unreadBadgeCubit: badge,
         servicePausedCubit: servicePaused,
         pollRepository: pollRepository,
+        listsRepository: listsRepository,
+        homeTabsRepository: homeTabsRepository,
       ),
     );
     await tester.pump();
@@ -387,6 +394,86 @@ void main() {
       // poll overlay only on AuthStatus.unauthenticated (app_widget.dart:260),
       // so a direct A to B switch keeps the first account's votes. Remove the
       // skip when fixed.
+      skip: true,
+    );
+  });
+
+  group('Lists state belongs to the account (W5-16)', () {
+    const other = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+
+    late ListsRepository lists;
+    late HomeTabsRepository tabs;
+
+    setUp(() {
+      final gate = ServiceFeatureGate(isEnabled: () => true);
+      final api = ApiClient.withTransport(
+        FakeTransport((_, _) async => throw StateError('no RPC expected')),
+      );
+      tabs = HomeTabsRepository(
+        apiClient: api,
+        gate: gate,
+        epoch: database.sessionEpoch,
+      );
+      lists = ListsRepository(
+        apiClient: api,
+        gate: gate,
+        onListSeen: tabs.noteListInfo,
+      );
+    });
+
+    Future<void> startWithAHeader(WidgetTester tester) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(),
+        listsRepository: lists,
+        homeTabsRepository: tabs,
+      );
+      lists.noteListInfo(
+        lists_pb.ListInfo(listId: '77', name: 'A private list'),
+      );
+      expect(lists.header('77'), isNotNull);
+    }
+
+    Future<void> settleAuth(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('sign-out forgets every list header', (tester) async {
+      await startWithAHeader(tester);
+      authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+      await settleAuth(tester);
+      expect(lists.header('77'), isNull);
+    });
+
+    testWidgets(
+      'a direct switch to another account forgets list headers too',
+      (tester) async {
+        await startWithAHeader(tester);
+        authStates.add(
+          const AuthState(status: AuthStatus.authenticated, user: other),
+        );
+        await settleAuth(tester);
+        expect(
+          lists.header('77'),
+          isNull,
+          reason: "uid-2 must not be handed the name of uid-1's private list",
+        );
+      },
+      // W5-16 D3 (docs/reviews/test-report-w5-client.md): AppWidget calls
+      // ListsRepository.clearSession only on AuthStatus.unauthenticated
+      // (app_widget.dart:266) and bootstrap.dart passes only
+      // graphRepository.clearCache as wireAuthSession's onSignedOut, so a
+      // direct A to B switch keeps A's headers; ListDetailCubit shows a cached
+      // header at once (list_detail_cubit.dart:28). Remove the skip when fixed.
       skip: true,
     );
   });

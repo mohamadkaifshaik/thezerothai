@@ -59,10 +59,29 @@ class DraftsRepository {
     ).join();
   }
 
-  /// [uid]'s drafts, newest edit first. Emits again on every change.
+  /// The oldest `updatedAt` a draft may have and still be shown or loaded
+  /// (W6-45): a draft at or before this instant is 30 days or more past its
+  /// last user edit.
+  DateTime get _cutoff => _now().subtract(kDraftExpiry);
+
+  /// Deletes [uid]'s drafts whose last user edit is [kDraftExpiry] or more
+  /// ago (W6-45, L-5). Only that uid's rows; runs whatever the `drafts` flag
+  /// says. Returns how many were removed. 0 RPCs.
+  Future<int> purgeExpired(String uid) {
+    final cutoff = _cutoff;
+    return (_database.delete(_database.composerDraftEntries)..where(
+          (t) => t.uid.equals(uid) & t.updatedAt.isSmallerOrEqualValue(cutoff),
+        ))
+        .go();
+  }
+
+  /// [uid]'s drafts, newest edit first, expired ones left out (filtered when
+  /// this is subscribed; Drafts also purges on open). Emits again on every
+  /// change.
   Stream<List<ComposerDraft>> watch(String uid) {
+    final cutoff = _cutoff;
     final query = _database.select(_database.composerDraftEntries)
-      ..where((t) => t.uid.equals(uid))
+      ..where((t) => t.uid.equals(uid) & t.updatedAt.isBiggerThanValue(cutoff))
       ..orderBy([
         (t) => OrderingTerm.desc(t.updatedAt),
         (t) => OrderingTerm.desc(t.draftId),
@@ -72,9 +91,14 @@ class DraftsRepository {
 
   /// One draft of [uid], or null (also null for another account's id).
   Future<ComposerDraft?> read(String uid, String draftId) async {
+    final cutoff = _cutoff;
     final row =
-        await (_database.select(_database.composerDraftEntries)
-              ..where((t) => t.uid.equals(uid) & t.draftId.equals(draftId)))
+        await (_database.select(_database.composerDraftEntries)..where(
+              (t) =>
+                  t.uid.equals(uid) &
+                  t.draftId.equals(draftId) &
+                  t.updatedAt.isBiggerThanValue(cutoff),
+            ))
             .getSingleOrNull();
     return row == null ? null : _fromRow(row);
   }
@@ -148,16 +172,29 @@ class DraftsRepository {
                 (t) => t.uid.equals(draft.uid) & t.draftId.equals(draft.id),
               ))
               .getSingleOrNull();
+      // updatedAt is the last USER edit (W6-45): saving content identical to
+      // the stored row keeps the old stamp, so an autosave never extends the
+      // draft's 30 days. (Media and a schedule are never part of a draft.)
+      final clamped = _clamp(draft.text);
+      final pollJson = draft.poll == null
+          ? ''
+          : jsonEncode(draft.poll!.toJson());
+      if (existing != null &&
+          existing.draftText == clamped &&
+          existing.pollJson == pollJson &&
+          existing.replyPolicy == draft.replyAudience.name &&
+          existing.paidPartnership == draft.paidPartnership &&
+          existing.madeWithAi == draft.madeWithAi) {
+        return DraftSaveResult.saved;
+      }
       await db
           .into(table)
           .insertOnConflictUpdate(
             ComposerDraftEntriesCompanion.insert(
               draftId: draft.id,
               uid: draft.uid,
-              draftText: _clamp(draft.text),
-              pollJson: Value(
-                draft.poll == null ? '' : jsonEncode(draft.poll!.toJson()),
-              ),
+              draftText: clamped,
+              pollJson: Value(pollJson),
               replyPolicy: Value(draft.replyAudience.name),
               paidPartnership: Value(draft.paidPartnership),
               madeWithAi: Value(draft.madeWithAi),
