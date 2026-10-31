@@ -22,6 +22,9 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../features/lists/data/home_tabs_repository.dart';
+import '../features/lists/data/lists_repository.dart';
+import '../features/lists/domain/lists_feature_flag.dart';
 import '../features/engagement/domain/engagement_feature_flag.dart';
 import '../features/engagement/domain/likes_list_feature_flag.dart';
 import '../features/graph/data/graph_repository.dart';
@@ -238,6 +241,25 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
     rateLimitHold: rateLimitHold,
   );
+  // Lists (ADR-0030): one gate for ListService and SetHomeTabs LIST tabs (0
+  // RPCs while `lists` is off). The pinned tabs ride on every GetMe (0 extra
+  // RPCs) and every ListInfo seen refreshes a tab title; both end with the
+  // shared SessionEpoch (sign-out).
+  final listsGate = buildServiceGate(onboardingBloc, kFeatureLists);
+  final homeTabsRepository = HomeTabsRepository(
+    apiClient: apiClient,
+    gate: listsGate,
+    epoch: database.sessionEpoch,
+  );
+  identityRepository.addGetMeListener(
+    (response, epoch) =>
+        homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
+  );
+  final listsRepository = ListsRepository(
+    apiClient: apiClient,
+    gate: listsGate,
+    onListSeen: homeTabsRepository.noteListInfo,
+  );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,
     store: NotificationsStore(database),
@@ -306,6 +328,8 @@ Future<void> bootstrap() async {
         onUnexpectedError: reportUnexpectedError,
       ),
       likesRepository: likesRepository,
+      listsRepository: listsRepository,
+      homeTabsRepository: homeTabsRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,

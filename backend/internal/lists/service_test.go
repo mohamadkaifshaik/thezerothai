@@ -3,6 +3,7 @@ package lists
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,13 @@ type fakeRepo struct {
 	member    MemberResult
 	addedBy   []AddMemberParams
 	removedBy []RemoveMemberParams
+
+	// read side (W5-7)
+	docs    map[string]List
+	order   []string
+	getErr  error
+	gets    []string
+	queries []ownerQuery
 }
 
 func (f *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, error) {
@@ -81,7 +89,7 @@ func (f *fakeRepo) RemoveMember(_ context.Context, p RemoveMemberParams) (Member
 func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.createdBy) + len(f.updatedBy) + len(f.deletedBy) + len(f.addedBy) + len(f.removedBy)
+	return len(f.createdBy) + len(f.updatedBy) + len(f.deletedBy) + len(f.addedBy) + len(f.removedBy) + len(f.gets) + len(f.queries)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.
@@ -574,3 +582,68 @@ var (
 	rlo = string(rune(0x202e)) // right-to-left override
 	lri = string(rune(0x2066)) // left-to-right isolate
 )
+
+// Get, ListByOwner: the read side of the fake. gets and owned canned; calls recorded so a test can prove 0 repo reads.
+func (f *fakeRepo) Get(_ context.Context, id string) (List, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.gets = append(f.gets, id)
+	if f.getErr != nil {
+		return List{}, f.getErr
+	}
+	l, ok := f.docs[id]
+	if !ok {
+		return List{}, ErrNotFound
+	}
+	l.MemberIDs = append([]string(nil), l.MemberIDs...)
+	return l, nil
+}
+
+func (f *fakeRepo) ListByOwner(_ context.Context, owner, after string, limit int) ([]List, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, ownerQuery{owner: owner, after: after, limit: limit})
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	var out []List
+	for _, id := range f.order {
+		l := f.docs[id]
+		if l.OwnerID != owner || id <= after {
+			continue
+		}
+		l.MemberIDs = append([]string(nil), l.MemberIDs...)
+		out = append(out, l)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ownerQuery is one recorded ListByOwner call.
+type ownerQuery struct {
+	owner, after string
+	limit        int
+}
+
+// readCalls is the number of read calls the repository saw.
+func (f *fakeRepo) readCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.gets) + len(f.queries)
+}
+
+// seed stores lists the read methods serve, in id order.
+func (f *fakeRepo) seed(ls ...List) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.docs == nil {
+		f.docs = map[string]List{}
+	}
+	for _, l := range ls {
+		f.docs[l.ID] = l
+		f.order = append(f.order, l.ID)
+	}
+	slices.Sort(f.order)
+}

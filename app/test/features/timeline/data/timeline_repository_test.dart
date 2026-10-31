@@ -81,6 +81,27 @@ void main() {
 
   const home = FeedKey.home();
 
+  test('a list feed is separate from Home in the cache and, until W5-12 wires '
+      'GetListTimeline, answers "not available yet" with no RPC', () async {
+    giveHome([5, 4], next: 'older1', since: 's1');
+    await repo.refresh(home);
+    requests.clear();
+
+    expect((await repo.cached(FeedKey.list('1'))).entries, isEmpty);
+    await expectLater(
+      repo.refresh(FeedKey.list('1')),
+      throwsA(
+        isA<FeatureDisabledException>().having(
+          (e) => e.feature,
+          'feature',
+          'lists',
+        ),
+      ),
+    );
+    expect(requests, isEmpty);
+    expect(ids(await repo.cached(home)), idsOf([5, 4]));
+  });
+
   group('cold start and first refresh', () {
     test('first refresh stores items, since and scroll token', () async {
       giveHome([5, 4], next: 'older1', since: 's1');
