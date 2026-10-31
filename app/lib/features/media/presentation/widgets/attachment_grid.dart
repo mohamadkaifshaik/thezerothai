@@ -92,8 +92,8 @@ class _AttachmentTileState extends State<AttachmentTile> {
     final base = attachment.isGif ? 'GIF' : 'Photo $position of $total';
     if (attachment.status == AttachmentStatus.rejected &&
         attachment.rejectionReason.isNotEmpty) {
-      return '$base, was not accepted. ${attachment.rejectionReason} '
-          'Remove it.';
+      final reason = attachment.rejectionReason.replaceAll(RegExp(r'\.$'), '');
+      return '$base, was not accepted. $reason. Remove it.';
     }
     return switch (attachment.status) {
       AttachmentStatus.processing => '$base, preparing',
