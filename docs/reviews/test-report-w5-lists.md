@@ -32,13 +32,15 @@ Tester: tester agent. Branch `test/ui-w5-15-lists-backend-tests` on `origin/main
 | `backend/internal/lists/repo_members_integration_test.go` | new-account tier of `TestAddMember_Integration_Quota` | Asserts `quota=list_adds` on the 50-a-day tier; only the code was checked |
 | `backend/internal/lists/w515_page_size_test.go` | `TestListListMembers_PageSizeDefaultAndMax`, `TestListUserLists_PageSizeDefaultAndMax` (8 sizes each) | Rule 5: default 20, max 50, for 0, negative, 7, 20, 21, 50, 51 and 2^30 on both list-valued RPCs |
 | `backend/internal/apiserver/w515_lists_gaps_integration_test.go` | `TestW515_SetHomeTabsIsGatedByTheListsFlag` | Gate on SetHomeTabs through the real chain: off, allowlist without the caller, percent 0 give FEATURE_DISABLED `feature=lists` at 1 read (the interceptor's) and 0 writes |
-| | `TestW515_PinnedListsThatStopBeingReadable` | Dangling pins: another user's list turned private, deleted or renamed after the pin. GetMe still returns the tabs at the same cold read count as an account with no tabs (+0); GetList and GetListTimeline answer bytes identical to a missing id; stored tabs can be reordered (2 reads, 2 writes) and removed without reading the dangling lists; a fresh pin of either is VALIDATION `tabs`, identical to a missing list |
+| | `TestW515_PinnedListsThatStopBeingReadable` | Dangling pins: another user's list turned private, deleted or renamed after the pin. GetMe still returns the tabs at the same cold read count as an account with no tabs (+0); GetList and GetListTimeline answer bytes identical to a missing id; stored tabs can be reordered (2 reads, 2 writes; the ceiling is 3, so a re-read of a dangling list fails the test) and removed without reading the dangling lists; a fresh pin of either is VALIDATION `tabs`, identical to a missing list |
 | | `TestW515_PinnedListThatBecameHidden` | The same for a platform-hidden list (W5-29 field), and a new pin of a hidden list is VALIDATION |
 | | `TestW515_SetHomeTabsWorstCase` | The ADR table's worst SetHomeTabs shape (5 lists, 5 distinct owners, cold): exactly 19 reads, 2 writes; the sixth tab is LIMIT_REACHED `limit=home_tabs` at the interceptor's read |
 | | `TestW515_ListTimelinePagingAndPrivateBetweenPages` | page_size 0, -5 -> 20, 51 and 500 -> 50 on a 60-member list; the opaque cursor walk returns the 60 posts once, newest first; a list made private through the real UpdateList between page 1 and page 2 makes both the page token and the since token answer the one NOT_FOUND |
 | | `TestW515_ListTimelineAndMembersDropBlockedBothWays` | Real accounts and the real graph: a member the viewer blocks and a member who blocks the viewer are absent from that viewer's timeline and member page and present for the owner and a bystander |
 | | `TestW515_QuotaNamesAtTheDailyCaps` | `quota=list_creates` on the 11th create (3 reads, 0 writes) and `quota=list_adds` on the 301st add (6 reads, 0 writes) through the wire |
 | | `TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads` | The W5-4 criterion for all six mutations: UNAVAILABLE under `DEGRADED_MODE=readonly`; the four read RPCs still answer with 0 writes (this pins the `idempotency_level` annotation of every new RPC, which is what the interceptor reads) |
+| | `TestW515_ListTokenBindingAcrossFeedsAndViewers` | Token binding through the chain: a UserTimeline since token and page token on a list, and another viewer's list token, are VALIDATION `field=since_token`/`page_token` at the interceptor's one read |
+| | `TestW515_CallerWhoBlocksTheOwnerSeesTheList` | Pins what the code does when the caller blocks the list's owner (observation 3) |
 | `backend/internal/apiserver/account_lifecycle_export_integration_test.go` and `testdata/account_export_golden.json` | the export golden now seeds an own list with two members and a list the account is only a member of | The golden's `lists` section was `[]`, so the W5-5 criterion "the export matches the golden" proved nothing for a populated list. The golden diff is 13 lines in the `lists` section only: the own list (id, name, privacy, member ids, times) is exported, the membership-only list is absent. **Merge-conflict risk:** the golden is a shared file; if another PR changes it, regenerate with `-update-golden` and check that the `lists` hunk is the only one from this PR |
 
 Not added, because the existing test already pins it through the right layer (named in section 3): flag modes of the six list RPCs
@@ -93,7 +95,7 @@ All paths under `backend/internal/`. "NEW" is added by this ticket.
 | 45 members: 2 chunks, Home order | `timeline TestList_FortyFiveMembersTwoChunksInHomeOrder`; chain `TestListTimelineChain_WarmFortyFiveMembersIsServedFromAuthorRecent` |
 | `since` refresh with 0 new: 3 + C reads (owner, cold) | `timeline TestList_SinceRefreshWithNothingNewCostsOneQueryPerChunk`; chain `TestListTimelineChain_Budgets` |
 | A member the viewer muted is dropped; a blocked author / one who blocks the viewer is dropped | `timeline TestList_PerViewerDrops`; chain `TestListTimelineChain_PerViewerAndTakedown` (mute); NEW chain block test with real accounts |
-| A Home token on a list, a list token on another list or another caller: VALIDATION, 0 reads | `timeline TestList_TokenBindingAndMalformedIDCostNothing`; chain `TestListTimelineChain_PerViewerAndTakedown` |
+| A Home token on a list, a list token on another list or another caller: VALIDATION, 0 reads | `timeline TestList_TokenBindingAndMalformedIDCostNothing`; chain `TestListTimelineChain_PerViewerAndTakedown`; NEW chain `TestW515_ListTokenBindingAcrossFeedsAndViewers` (a UserTimeline token and another viewer's list token, at 1 read) |
 | Takedown after the token is in `removed_ids` | chain `TestListTimelineChain_PerViewerAndTakedown`; `timeline TestList_RemovedIDsAreScopedToTheMembers` |
 | 150 members at page 50: <= 110 reads, <= 217 with the window query | chain `TestListTimelineChain_Budgets`, `TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers` |
 | A list made private between pages: NOT_FOUND | NEW `TestW515_ListTimelinePagingAndPrivateBetweenPages` (page token and since token, through the real UpdateList) |
@@ -127,11 +129,11 @@ Evidence:
 - The contract for a racer that loses and exhausts its re-runs is documented: `service.mapErr` answers a retryable UNAVAILABLE (the same as
   messaging's "busy" racer, which `TestSend_ConcurrentSameKeyIsOneMessage` already accepts). The old test demanded that all four racers succeed.
 - Timing: a contended call takes 2.0 to 3.4 s on the emulator whatever the number of racers (4, 16 and 32 were measured: the delay is the SDK's own
-  backoff on the losers), against a 5 s `txTimeout`. A slower runner (CI runs this with `-race`) pushes a loser past the timeout and the test fails with the
+  backoff on the losers), against a 5 s `txTimeout`. A slower runner (the CI `make test-int` job runs the suite with `-race` when cgo is on) pushes a loser past the timeout and the test fails with the
   product's correct answer. The same package, run in parallel with 15 others against one emulator, answered `temporarily busy, please retry` to an
   uncontended `TestCreateList_Integration_Budget` (section 6), which shows the margin is load-dependent, not racy.
 - Not reproduced: 30 runs alone, plus 24 rounds from 8 processes against one emulator, all passed. No CI log of the failure was available
-  (the last 100 failed `ci` runs contain no `ConcurrentSameKey`; the only `DATA RACE` in them is the `newReadEnv` map race fixed by #529). The verdict
+  (the failed-step logs of the last 40 failed `ci` runs contain no `ConcurrentSameKey`, runs 41 to 100 no `TestCreateList_Integration` failure; the one `DATA RACE` found is the `newReadEnv` map race fixed by #529). The verdict
   therefore rests on the code and the timing, not on a captured failure. **If it still fails after this change, the failure text is the discriminator:**
   `lists = 2` or `listCreates = 2` is a product race (High); a `DATA RACE` frame in `docCache`, `service` or the repo is a product race; anything else is timing.
 
@@ -148,13 +150,12 @@ None in production code. No `t.Skip("W5-15 D-n")` repro was needed.
 1. **Same-class test risk.** `TestAddMember_Integration_ConcurrentSameKey` (two racers, both must succeed) has the same strictness as the old
    CreateList test and could flake the same way. It was not changed here (it has not been seen to fail); apply the same pattern if it does.
 2. **Load sensitivity of the emulator suite.** Running all packages at once (`go test ./...`, the default `-p`) against one emulator produced five
-   timing failures in packages this ticket does not own (`engagement TestBookmarkRepo_SamePostDifferentKeysConcurrently`, `media TestW320Banner_RacyRuleAndUnitsOnTheRealRepo`,
-   `moderation TestRepo_AccountEvidenceRoundTripAndPostReportsKeepTheirShape`, `timeline TestHome_WorstCaseAtTheFollowingCapAndBoundedConcurrency`) and `lists
-   TestCreateList_Integration_Budget` (`temporarily busy`). All passed when the packages were run one at a time (`-p 1`, as W7-20 did). On a loaded
+   timing failures: four in packages this ticket does not own (`engagement TestBookmarkRepo_SamePostDifferentKeysConcurrently`, `media TestW320Banner_RacyRuleAndUnitsOnTheRealRepo`,
+   `moderation TestRepo_AccountEvidenceRoundTripAndPostReportsKeepTheirShape`, `timeline TestHome_WorstCaseAtTheFollowingCapAndBoundedConcurrency`) and one in `lists`
+   (`TestCreateList_Integration_Budget`, `temporarily busy`). All passed when the packages were run one at a time (`-p 1`, as W7-20 did). On a loaded
    machine use `-p 1`.
-3. **Caller-blocks-owner on a list read.** ADR-0030 D3 lists "the owner blocks the caller" as NOT_FOUND but does not name the reverse (the caller
-   blocks the list's owner). The unit matrix (`TestListUserLists_Visibility`, `TestGetList_D3Matrix`) pins what the code does; nobody has decided that it is
-   intended. A question for the architect, not a defect.
+   machine use `-p 1`.
+3. **Caller-blocks-owner on a list read (question for the architect).** ADR-0030 D3 lists "the owner blocks the caller" as NOT_FOUND but does not name the reverse (the   caller blocks the list's owner). Measured (`TestW515_CallerWhoBlocksTheOwnerSeesTheList`): GetList and GetListTimeline both **succeed**, so a viewer sees a public list of an   owner they have blocked. The unit matrices pin only the owner-blocks-caller direction. Whether that is intended is undecided; the test fixes the observed answer and fails   if the two reads ever disagree.
 4. **Lint.** `golangci-lint --build-tags integration` reports 3 `errcheck` findings in `repo_members_integration_test.go` (lines 238, 467, 615: `wantCode`
    results ignored) and 4 findings in `search_chain_integration_test.go`. None is in a line this ticket added. CI runs lint without the integration tag, which is why they are not red.
 5. **Emulator ports on Windows.** Fixed ports in the 57xxx range collided repeatedly with a Pub/Sub emulator JVM that leaves a self-connected socket
@@ -166,7 +167,7 @@ None in production code. No `t.Skip("W5-15 D-n")` repro was needed.
 |---|---|
 | `go test ./internal/lists/` (unit, new page-size tests) | pass |
 | `go test -tags=integration ./internal/lists/` against the emulators, with coverage | pass; coverage of `internal/lists` **91.2 %** of statements (unit + integration) |
-| `go test -tags=integration -run TestW515_ ./internal/apiserver/` | pass, 8 tests |
+| `go test -tags=integration -run TestW515_ ./internal/apiserver/` | pass, 10 tests (after merging `origin/main@20fb36ec`) |
 | `-run TestAccountLifecycle_ExportContentsGolden` (regenerated, then re-run without `-update-golden`) | pass |
 | `TestCreateList_Integration_ConcurrentSameKey` x30 (before the rewrite, no `-race`) and x5 (after) | pass |
 | Whole module, `go test -tags=integration -p 1 -coverprofile=... -coverpkg=./internal/... ./...` (the `make test-int` command) | **green, every package `ok`**; combined `internal/` coverage **93.1 %** (gate 70 %), `internal/lists` 91.2 % on its own. A first run without `-p 1` had five timing failures in other packages (section 6, item 2) and was discarded |
@@ -192,5 +193,16 @@ Budgets measured through the real chain (request-line `fs_reads` / `fs_writes`, 
 - **Load shapes** (150 members all posting; 6 tab switches a minute): W5-18.
 - **Flutter / client tests:** W5-16. Security review of private-list confidentiality and member-page scraping: W5-17.
 - **`make ci` end to end** (Flutter analyze/test, buf): not part of a backend-tests ticket; `gofmt` and `go vet -tags=integration` are clean, and the packages touched are lint-clean for the lines added.
+
+## 9. Reuse report
+
+- Reused: `ltChain`, `newLTChain`, `seedList`, `memberNames`, `listTimeline`, `idsOf`, `wireError`, `marshalDet`, `asConnectErr`, `contractKey`, `w320Reason`,
+  `lineBudget` and `budgettest` (apiserver); `newListsEnv`, `measured`, `wantAPI`, `wantCode` (lists); `newReadEnv`, `memberList`, `listN` (lists unit);
+  `lifecycleEnv.seedList` and the golden normaliser (account export).
+- Extended: `TestAddMember_Integration_Quota` (the metadata assertion on the new-account tier), `TestAccountLifecycle_ExportContentsGolden` (two lists seeded).
+- Created: `ltChain.setTabs`, `ltChain.tabs`, `ltChain.createList`, `errSig`, `missingListID`, `seedPostBy` (in `w515_lists_gaps_integration_test.go`). Nothing existing fit:
+  `tabsHarness.setTabs` / `createList` (`w59_home_tabs_integration_test.go`) hang off `w320Chain`, which relaxes limits differently and has no `listTimeline`; the `wire` closure inside
+  `TestListTimelineChain_NotFoundIsByteIdenticalToGetList` is local to that test, so `errSig` is its in-package equivalent. A follow-up could fold the two harnesses into one.
+- Catalog updated: no (test helpers only; `docs/code-map.md` lists production helpers).
 
 VERDICT: PASS
