@@ -19,6 +19,7 @@ import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/lists/presentation/lists_screen.dart';
 import 'package:dzeroth/features/lists/presentation/manage_pinned_screen.dart';
+import 'package:dzeroth/features/lists/presentation/user_lists_screen.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -164,6 +165,7 @@ void main() {
   test('the paths', () {
     expect(AppRouter.listsPath, '/lists');
     expect(AppRouter.listPath('12'), '/lists/12');
+    expect(AppRouter.userListsPath('u 1'), '/u/u%201/lists');
     expect(AppRouter.listMembersPath('12'), '/lists/12/members');
   });
 
@@ -189,6 +191,35 @@ void main() {
     final (path, _) = await openAt(tester, const {'lists'}, '/lists');
     expect(path, '/lists');
     expect(find.byType(ListsScreen), findsOneWidget);
+  });
+
+  testWidgets('lists off: /u/:id/lists redirects Home, no RPC', (tester) async {
+    final (path, lists) = await openAt(tester, const {}, '/u/u9/lists');
+    expect(path, AppRouter.homePath);
+    expect(find.byType(UserListsScreen), findsNothing);
+    verifyNever(
+      () => lists.listUserLists(
+        ownerId: any(named: 'ownerId'),
+        containsUserId: any(named: 'containsUserId'),
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    );
+  });
+
+  testWidgets('lists on: /u/:id/lists shows that person\'s lists', (
+    tester,
+  ) async {
+    final (path, lists) = await openAt(tester, const {'lists'}, '/u/u9/lists');
+    expect(path, '/u/u9/lists');
+    expect(find.byType(UserListsScreen), findsOneWidget);
+    verify(
+      () => lists.listUserLists(
+        ownerId: 'u9',
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).called(1);
   });
 
   testWidgets('lists on: /lists/77 shows the detail and /lists/77/members '

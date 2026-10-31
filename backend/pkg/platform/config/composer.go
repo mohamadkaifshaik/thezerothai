@@ -25,6 +25,8 @@ const (
 	gifFramesCeiling    = 1000
 	gifEdgeCeiling      = 4096
 	gifFrameAreaCeiling = 200_000_000
+	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (W6-27, H-3).
+	mediaScreenAttemptsCeiling = 10
 )
 
 // ComposerConfig holds the poll and GIF limits of the composer extras (ADR-0029 D1, D6, D8, D11). The VotePoll bucket and
@@ -51,6 +53,9 @@ type ComposerConfig struct {
 	GifMaxFrames       int
 	GifMaxEdge         int
 	GifMaxFrameAreaSum int
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (default 3, 1..10): the most screening attempts (FinalizeUpload
+	// claims) one media document gets; after that it is REJECTED with no further Vision call (W6-27, security H-3).
+	MediaMaxScreenAttempts int
 }
 
 // loadComposer reads and validates the poll and GIF keys; the error names the key.
@@ -67,6 +72,7 @@ func loadComposer() (ComposerConfig, error) {
 		{&c.GifMaxFrames, "GIF_MAX_FRAMES", 300, gifFramesCeiling},
 		{&c.GifMaxEdge, "GIF_MAX_EDGE", 1280, gifEdgeCeiling},
 		{&c.GifMaxFrameAreaSum, "GIF_MAX_FRAME_AREA_SUM", 50_000_000, gifFrameAreaCeiling},
+		{&c.MediaMaxScreenAttempts, "MEDIA_MAX_SCREEN_ATTEMPTS", 3, mediaScreenAttemptsCeiling},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {

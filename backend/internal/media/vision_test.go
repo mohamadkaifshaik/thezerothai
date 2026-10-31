@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,5 +98,34 @@ func TestBuckets_RefuseSameBucket(t *testing.T) {
 	}
 	if b, err := NewBuckets("up", "pub"); err != nil || b == nil {
 		t.Fatalf("NewBuckets = %v, %v", b, err)
+	}
+}
+
+// W6-27: an answered per-image error is a VisionAnsweredError (billed, counted); an HTTP failure is not (never billed).
+func TestVision_AnsweredErrorsAreTyped(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		answered bool
+		invalid  bool
+	}{
+		{"INVALID_ARGUMENT", 200, `{"responses":[{"error":{"code":3,"message":"Bad image data."}}]}`, true, true},
+		{"other per-image error", 200, `{"responses":[{"error":{"code":7,"message":"denied"}}]}`, true, false},
+		{"no annotation", 200, `{"responses":[{}]}`, true, false},
+		{"empty responses", 200, `{"responses":[]}`, true, false},
+		{"http failure", 503, `{"error":{"code":503,"message":"unavailable"}}`, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := visionFor(t, tt.status, tt.body, nil).SafeSearch(context.Background(), "u/uid/1.jpg")
+			var ans *VisionAnsweredError
+			if got := errors.As(err, &ans); got != tt.answered {
+				t.Fatalf("answered = %v, want %v (err %v)", got, tt.answered, err)
+			}
+			if tt.answered && ans.Invalid() != tt.invalid {
+				t.Fatalf("invalid = %v, want %v", ans.Invalid(), tt.invalid)
+			}
+		})
 	}
 }

@@ -74,6 +74,9 @@ type Doc struct {
 	// SafeSearch spend for this PENDING document and every other call answers MEDIA_NOT_READY. Set by ClaimScreening,
 	// cleared by ReleaseScreening and by Resolve. A claim a crashed call left behind simply expires.
 	ScreeningUntil *time.Time `firestore:"screeningUntil,omitempty"`
+	// ScreenAttempts counts the screening claims this document has taken (W6-27, security H-3): ClaimScreening increments it in
+	// the claim write itself. At MediaMaxScreenAttempts the next FinalizeUpload REJECTS the document without a Vision call.
+	ScreenAttempts int64 `firestore:"screenAttempts,omitempty"`
 	// RetiredAt is set by the profile_media_retired step (ADR-0024 Amendment 1 A4) once the document's replaced or removed
 	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
 	// them a day later). The resolvers refuse a retired document, so a retired image can never be set again. ExpireAt is
@@ -129,7 +132,7 @@ type Repo interface {
 	CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error)
 	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent. Reads: len(ids).
 	GetMany(ctx context.Context, ids []string) (map[string]*Doc, error)
-	// ClaimScreening stamps screeningUntil = until on a PENDING document, conditional on its UpdateTime (ErrConflict
+	// ClaimScreening stamps screeningUntil = until and increments screenAttempts (W6-27) on a PENDING document, conditional on its UpdateTime (ErrConflict
 	// when another call changed it first, so exactly one of several concurrent callers wins), and returns the new
 	// UpdateTime the winner must use for Resolve and ReleaseScreening. Writes: 1.
 	ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error)
@@ -307,7 +310,7 @@ func (r *FirestoreRepo) updateAt(ctx context.Context, id string, updates []fires
 
 // ClaimScreening implements Repo.
 func (r *FirestoreRepo) ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error) {
-	return r.updateAt(ctx, id, []firestore.Update{{Path: "screeningUntil", Value: until}}, updateTime, "claim screening")
+	return r.updateAt(ctx, id, []firestore.Update{{Path: "screeningUntil", Value: until}, {Path: "screenAttempts", Value: firestore.Increment(1)}}, updateTime, "claim screening")
 }
 
 // ReleaseScreening implements Repo.

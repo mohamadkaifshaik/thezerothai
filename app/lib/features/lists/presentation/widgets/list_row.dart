@@ -13,7 +13,8 @@ String listMemberCountLabel(int count) =>
 /// muted "· N members", and a lock icon when private. A custom row (no
 /// `ListTile`); the whole row is the tap target (>= 48dp). [onEdit] adds a
 /// trailing Edit button for the owner. Reused by W5-13 for "a user's lists"
-/// (without [onEdit]).
+/// (without [onEdit]) and, with [checked] and [checkTrailing], for the
+/// checkbox rows of the Add-to-Lists sheet.
 class ListRow extends StatelessWidget {
   const ListRow({
     super.key,
@@ -21,6 +22,9 @@ class ListRow extends StatelessWidget {
     this.onTap,
     this.onEdit,
     this.trailing,
+    this.checked,
+    this.checkTrailing,
+    this.enabled = true,
   });
 
   final pb.ListInfo list;
@@ -30,6 +34,14 @@ class ListRow extends StatelessWidget {
   /// A widget after the row instead of the Edit button (the Pin button of
   /// Manage pinned, W5-14). Ignored when [onEdit] is given.
   final Widget? trailing;
+
+  /// Non-null makes the row a checkbox (spoken as checked or not) instead of a
+  /// button; [checkTrailing] is the box (or a spinner) at the end of the row.
+  final bool? checked;
+  final Widget? checkTrailing;
+
+  /// False while the row's action is in flight (spoken as disabled).
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -45,7 +57,9 @@ class ListRow extends StatelessWidget {
       children: [
         Expanded(
           child: Semantics(
-            button: onTap != null,
+            button: checked == null && onTap != null,
+            checked: checked,
+            enabled: enabled,
             label: spoken,
             excludeSemantics: true,
             onTap: onTap,
@@ -91,6 +105,10 @@ class ListRow extends StatelessWidget {
                           size: AppIconSize.md,
                           color: muted,
                         ),
+                      ],
+                      if (checkTrailing != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        checkTrailing!,
                       ],
                     ],
                   ),
