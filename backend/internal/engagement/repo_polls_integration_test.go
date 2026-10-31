@@ -275,6 +275,8 @@ func TestRepoSweepPollVotes(t *testing.T) {
 	set("dormant", []string{gone, later, open}, []int64{dayOf(gone), dayOf(later), dayOf(open)})
 	set("onlyfuture", []string{open}, []int64{dayOf(open) + 40}) // beyond the window: not returned
 	set("onlygone", []string{gone}, []int64{dayOf(gone)})
+	lateToday := pollEntry("0000000000000000035", 0, now.Add(-ttl+2*time.Hour)) // expires at 14:00 today: returned, nothing to change
+	set("latetoday", []string{lateToday}, []int64{dayOf(lateToday)})
 	if _, err := e.client.Doc("userLikes/legacy").Set(ctx, map[string]any{"pollVotes": []string{"0000000000000000034:1"}}); err != nil { // no due days
 		t.Fatal(err)
 	}
@@ -284,10 +286,10 @@ func TestRepoSweepPollVotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Docs != 2 || res.Pruned != 2 || res.Entries != 2 || res.Skipped != 0 || res.More {
-		t.Fatalf("result = %+v, want 2 docs, 2 pruned, 2 entries", res)
+	if res.Docs != 3 || res.Pruned != 2 || res.Entries != 2 || res.Skipped != 0 || res.More {
+		t.Fatalf("result = %+v, want 3 docs (one needs no write), 2 pruned, 2 entries", res)
 	}
-	budgettest.Assert(t, "SweepPollVotes", c, budgettest.Budget{Reads: 2, Writes: 2})
+	budgettest.Assert(t, "SweepPollVotes", c, budgettest.Budget{Reads: 3, Writes: 2})
 
 	d, _ := e.client.Doc("userLikes/dormant").Get(ctx)
 	if v, _ := d.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{later, open}) {

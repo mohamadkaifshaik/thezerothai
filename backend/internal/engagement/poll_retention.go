@@ -136,6 +136,9 @@ func (r *FirestoreRepo) SweepPollVotes(ctx context.Context, now time.Time, ttl t
 		}
 		live, expired := splitPollVotes(d.PollVotes, ttl, now)
 		due := dueDaysOf(live, ttl)
+		if len(expired) == 0 && sameDays(snap, due) {
+			continue // due later today: nothing to change, no write
+		}
 		updates := []firestore.Update{{Path: "pollVotesDueDays", Value: due}}
 		if len(due) == 0 {
 			updates[0].Value = firestore.Delete
@@ -176,4 +179,30 @@ func dueDaysOf(entries []string, ttl time.Duration) []int64 {
 		}
 	}
 	return out
+}
+
+// sameDays reports whether the document's stored pollVotesDueDays equals due as a set.
+func sameDays(snap *firestore.DocumentSnapshot, due []int64) bool {
+	raw, err := snap.DataAt("pollVotesDueDays")
+	if err != nil {
+		return len(due) == 0
+	}
+	list, _ := raw.([]any)
+	if len(list) != len(due) {
+		return false
+	}
+	have := make(map[int64]struct{}, len(list))
+	for _, v := range list {
+		n, ok := v.(int64)
+		if !ok {
+			return false
+		}
+		have[n] = struct{}{}
+	}
+	for _, d := range due {
+		if _, ok := have[d]; !ok {
+			return false
+		}
+	}
+	return true
 }
