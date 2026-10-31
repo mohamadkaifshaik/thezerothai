@@ -113,6 +113,10 @@ type Evidence struct {
 	Website     string
 	AvatarURL   string
 	BannerURL   string
+	// LIST reports only (plan W5-44): the list's name and description as the reporter saw them. AuthorHandle holds the owner's
+	// handle and PostCreatedAt the list's creation time. No member id is copied. Empty for every other report.
+	ListName        string
+	ListDescription string
 	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string

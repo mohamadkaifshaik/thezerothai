@@ -43,6 +43,13 @@ enum ReportTargetType {
   // "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
   // conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
   REPORT_TARGET_TYPE_MESSAGE = 3;
+  // A list (ADR-0030, plan W5-44). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+  // reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
+  // list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
+  // time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
+  // off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
+  // owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+  REPORT_TARGET_TYPE_LIST = 4;
 }
 
 // Reasons shown in the client sheet. Values are never renumbered or reused (buf breaking).
