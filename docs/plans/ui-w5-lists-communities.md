@@ -372,7 +372,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0028 merged | serialise dev applies | Open |
-| W5-44 | *(W5-17 M-4)* opsctl `lists hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | In review (PR #PRNUM; additive proto enum `REPORT_TARGET_TYPE_LIST = 4`; gate: before percent) |
+| W5-44 | *(W5-17 M-4)* opsctl `lists hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | In review (PR #543; additive proto enum `REPORT_TARGET_TYPE_LIST = 4`; gate: before percent) |
 | W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | Open |
 
 **Order:**
