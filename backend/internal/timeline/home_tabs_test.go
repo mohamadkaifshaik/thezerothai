@@ -37,11 +37,13 @@ type fakeTabsStore struct {
 	useCache bool
 	seen     map[string]string // key -> hash
 	writes   int
+	calls    int // Current + Replace calls: each is Firestore work in the real adapter
 }
 
 func (f *fakeTabsStore) Current(context.Context, string) ([]identity.HomeTab, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls++
 	if f.useCache {
 		return slices.Clone(f.cached), nil
 	}
@@ -51,6 +53,7 @@ func (f *fakeTabsStore) Current(context.Context, string) ([]identity.HomeTab, er
 func (f *fakeTabsStore) Replace(_ context.Context, _, key, hash string, next func([]identity.HomeTab) ([]identity.HomeTab, error)) ([]identity.HomeTab, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls++
 	if f.seen == nil {
 		f.seen = map[string]string{}
 	}
@@ -344,4 +347,43 @@ func TestSetHomeTabs_NotWiredAndUnauthenticated(t *testing.T) {
 	s = tabsServer(listsOn(), &fakeTabsStore{}, &fakeReader{}, 5)
 	_, err = s.SetHomeTabs(context.Background(), connect.NewRequest(&timelinev1.SetHomeTabsRequest{IdempotencyKey: idemK}))
 	wantAPIErr(t, err, connect.CodeUnauthenticated, 0, nil)
+}
+
+// TestSetHomeTabs_EmptyRequestCost (W5-43, security M-3): with lists off for the caller an empty request touches the store
+// not at all (0 reads, 0 writes, no idempotency document) and answers the empty visible order; with lists on it is the
+// transaction as before and unpins.
+func TestSetHomeTabs_EmptyRequestCost(t *testing.T) {
+	t.Parallel()
+	allow := map[string]struct{}{"in": {}}
+	tests := []struct {
+		name      string
+		spec      flags.Spec
+		uid       string
+		wantCalls int
+		wantStore []identity.HomeTab
+		wantWrite int
+	}{
+		{"off", flags.Spec{Name: lists.FlagName, Mode: flags.Off}, "in", 0, []identity.HomeTab{{Kind: "LIST", ID: listC}}, 0},
+		{"allowlist, unlisted", flags.Spec{Name: lists.FlagName, Mode: flags.Allowlist, Allowlist: allow}, "out", 0, []identity.HomeTab{{Kind: "LIST", ID: listC}}, 0},
+		{"percent 0", flags.Spec{Name: lists.FlagName, Mode: flags.Percent}, "in", 0, []identity.HomeTab{{Kind: "LIST", ID: listC}}, 0},
+		{"allowlist, listed", flags.Spec{Name: lists.FlagName, Mode: flags.Allowlist, Allowlist: allow}, "in", 2, nil, 1},
+		{"on", flags.Spec{Name: lists.FlagName, Mode: flags.On}, "out", 2, nil, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := &fakeTabsStore{stored: []identity.HomeTab{{Kind: "LIST", ID: listC}}}
+			s := tabsServer(flags.NewRegistry(tt.spec), st, &fakeReader{}, 5)
+			resp, err := sendTabs(s, tt.uid, idemK)
+			if err != nil || len(resp.GetTabs()) != 0 {
+				t.Fatalf("resp = %v, err = %v", resp, err)
+			}
+			if st.calls != tt.wantCalls || st.writes != tt.wantWrite || len(st.seen) != min(tt.wantCalls, 1) {
+				t.Fatalf("store calls %d, writes %d, idempotency docs %d; want %d, %d, %d", st.calls, st.writes, len(st.seen), tt.wantCalls, tt.wantWrite, min(tt.wantCalls, 1))
+			}
+			if !slices.Equal(st.stored, tt.wantStore) {
+				t.Fatalf("stored = %+v, want %+v", st.stored, tt.wantStore)
+			}
+		})
+	}
 }

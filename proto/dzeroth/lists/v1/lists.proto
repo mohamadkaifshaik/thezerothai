@@ -111,9 +111,12 @@ service ListService {
   // caller), else VALIDATION "contains_user_id", 0 reads beyond the interceptor: on another owner's lists it would be
   // a membership oracle. containing_list_ids lists the returned lists whose members include that user (0 reads: the
   // member ids are in the list docs already read).
-  // Paging: page_size 0 => 20, max 50 (clamped). With LISTS_MAX_PER_USER = 20 every owner fits in one page and
-  // next_page_token is always ""; the token is opaque and sealed so a higher cap changes no client.
-  // Query: lists where ownerId == owner, Limit(page_size), the automatic single-field index (no composite index).
+  // Paging: the caller's own lists page by page_size (0 => 20, max 50, clamped) with an opaque sealed next_page_token.
+  // Another owner's lists are never paged: every public list comes back in one response and next_page_token is "",
+  // whatever page_size is (a token or a short page would reveal the owner's private lists, ADR-0030 D3). The owner has at
+  // most LISTS_MAX_PER_USER (20) lists.
+  // Query: lists where ownerId == owner, Limit(page_size + 1) for the caller, Limit(LISTS_MAX_PER_USER) for another owner,
+  // the automatic single-field index (no composite index).
   // Cached: the owner's list set 60 s per instance; a write by the owner updates this instance's copy.
   // Firestore: another owner, reads 24 cold at 20 lists (interceptor, caller graph, owner profile, owner graph,
   // <= 20 list docs), 5 when they have none (an empty query bills 1); the caller's own lists 21 cold (interceptor,
