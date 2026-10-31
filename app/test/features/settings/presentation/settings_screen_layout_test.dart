@@ -60,9 +60,14 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
   (
     <String>{},
     true,
-    ['Email (maya.lindqvist@example.com)', 'Privacy Policy', 'Sign out'],
+    [
+      'Email (maya.lindqvist@example.com)',
+      'Community rules',
+      'Privacy Policy',
+      'Sign out',
+    ],
   ),
-  (<String>{}, false, ['Privacy Policy', 'Sign out']),
+  (<String>{}, false, ['Community rules', 'Privacy Policy', 'Sign out']),
   (
     {'profile_snapshot'},
     true,
@@ -70,6 +75,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Email (maya.lindqvist@example.com)',
       'Edit profile',
       'Change handle',
+      'Community rules',
       'Privacy Policy',
       'Sign out',
     ],
@@ -77,7 +83,13 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
   (
     {'profile_snapshot'},
     false,
-    ['Edit profile', 'Change handle', 'Privacy Policy', 'Sign out'],
+    [
+      'Edit profile',
+      'Change handle',
+      'Community rules',
+      'Privacy Policy',
+      'Sign out',
+    ],
   ),
   (
     {'graph'},
@@ -86,6 +98,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Email (maya.lindqvist@example.com)',
       'Blocked accounts',
       'Muted accounts',
+      'Community rules',
       'Privacy Policy',
       'Sign out',
     ],
@@ -93,7 +106,13 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
   (
     {'graph'},
     false,
-    ['Blocked accounts', 'Muted accounts', 'Privacy Policy', 'Sign out'],
+    [
+      'Blocked accounts',
+      'Muted accounts',
+      'Community rules',
+      'Privacy Policy',
+      'Sign out',
+    ],
   ),
   (
     {'graph', 'profile_snapshot'},
@@ -104,6 +123,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Change handle',
       'Blocked accounts',
       'Muted accounts',
+      'Community rules',
       'Privacy Policy',
       'Sign out',
     ],
@@ -116,6 +136,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Change handle',
       'Blocked accounts',
       'Muted accounts',
+      'Community rules',
       'Privacy Policy',
       'Sign out',
     ],
@@ -126,6 +147,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
     [
       'Email (maya.lindqvist@example.com)',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -134,7 +156,13 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
   (
     {'account_lifecycle'},
     false,
-    ['Download my data', 'Privacy Policy', 'Delete account', 'Sign out'],
+    [
+      'Download my data',
+      'Community rules',
+      'Privacy Policy',
+      'Delete account',
+      'Sign out',
+    ],
   ),
   (
     {'account_lifecycle', 'profile_snapshot'},
@@ -144,6 +172,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Edit profile',
       'Change handle',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -156,6 +185,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Edit profile',
       'Change handle',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -169,6 +199,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Blocked accounts',
       'Muted accounts',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -181,6 +212,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Blocked accounts',
       'Muted accounts',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -196,6 +228,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Blocked accounts',
       'Muted accounts',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -210,6 +243,7 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
       'Blocked accounts',
       'Muted accounts',
       'Download my data',
+      'Community rules',
       'Privacy Policy',
       'Delete account',
       'Sign out',
@@ -414,7 +448,10 @@ void main() {
 
       expect(launcher.launchCount, 1);
       expect(launcher.lastUrl, contains('privacy'));
-      expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+      expect(
+        find.byIcon(Icons.open_in_new),
+        findsNWidgets(2),
+      ); // Privacy Policy and Community rules
     });
 
     testWidgets('the Email row is not tappable and not a button', (
@@ -478,6 +515,7 @@ void main() {
         'Blocked accounts',
         'Muted accounts',
         'Download my data',
+        'Community rules',
         'Privacy Policy',
         'Delete account',
         'Sign out',
