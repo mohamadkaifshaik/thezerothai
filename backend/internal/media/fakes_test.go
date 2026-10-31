@@ -32,6 +32,7 @@ type fakeRepo struct {
 	retires  int // Retire calls, won or lost
 	// failures
 	createErr error
+	visionErr error // VisionUsed fails (the Vision-counter read: an internal error before any call)
 	retireErr error
 	resolveFn func(id string) error
 }
@@ -128,7 +129,7 @@ func (r *fakeRepo) ClaimScreening(_ context.Context, id string, updateTime, unti
 	return d.UpdateTime, nil
 }
 
-func (r *fakeRepo) ReleaseScreening(_ context.Context, id string, updateTime time.Time) error {
+func (r *fakeRepo) ReleaseScreening(_ context.Context, id string, updateTime time.Time, assessed bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.releases++
@@ -137,6 +138,9 @@ func (r *fakeRepo) ReleaseScreening(_ context.Context, id string, updateTime tim
 		return ErrConflict
 	}
 	d.ScreeningUntil = nil
+	if assessed {
+		d.ScreenAssessed++
+	}
 	d.UpdateTime = d.UpdateTime.Add(time.Second)
 	return nil
 }
@@ -162,6 +166,9 @@ func (r *fakeRepo) VisionUsed(_ context.Context, month string) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.visionRd++
+	if r.visionErr != nil {
+		return 0, r.visionErr
+	}
 	return r.vision[month], nil
 }
 

@@ -112,6 +112,16 @@ final class MediaNotReadyException extends AppException {
   final String? mediaId;
 }
 
+/// Image checks are temporarily unavailable (FinalizeUpload's screening step failed with no valid assessment: an outage, a timeout).
+/// Nothing was published and the upload is kept: the same FinalizeUpload for the same media id can be repeated after [retryAfter]
+/// with no re-upload (ADR-0029 Amendment 1 A5.6). Never counts against the image's attempts on the server.
+final class ScreeningUnavailableException extends AppException {
+  const ScreeningUnavailableException(super.message, {this.retryAfter});
+
+  /// The server's `retry_after` (5 s); null when the answer carried none.
+  final Duration? retryAfter;
+}
+
 /// The same idempotency key was reused with a different request body.
 final class IdempotencyKeyReusedException extends AppException {
   const IdempotencyKeyReusedException(super.message);
