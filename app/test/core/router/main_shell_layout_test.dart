@@ -116,6 +116,10 @@ void main() {
               page('/notifications', 'notifications body'),
         ),
         GoRoute(
+          path: '/lists',
+          builder: (context, state) => page('/lists', 'lists body'),
+        ),
+        GoRoute(
           path: '/bookmarks',
           builder: (context, state) => page('/bookmarks', 'bookmarks body'),
         ),
@@ -761,6 +765,46 @@ void main() {
       await pump(tester, width: 1400, location: '/settings', newShell: false);
 
       expect(find.text('settings body'), findsOneWidget);
+    });
+  });
+
+  group('Lists entry (W5-11)', () {
+    for (final width in [600.0, 1300.0]) {
+      testWidgets('${width.toInt()}dp: a rail destination that opens /lists', (
+        tester,
+      ) async {
+        await pump(tester, width: width, flags: const {'lists'});
+
+        final rail = find.byType(NavigationRail);
+        final labels = tester
+            .widget<NavigationRail>(rail)
+            .destinations
+            .map((d) => (d.label as Text).data)
+            .toList();
+        expect(labels, ['Home', 'Lists', 'Profile']);
+
+        await tester.tap(find.byIcon(Icons.list_alt_outlined));
+        await tester.pumpAndSettle();
+        expect(find.text('lists body'), findsOneWidget);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+      });
+    }
+
+    testWidgets('absent with lists off or ui_shell off; never in the phone '
+        'bottom bar', (tester) async {
+      for (final width in [360.0, 600.0, 1300.0]) {
+        await pump(tester, width: width, flags: const {'posts'});
+        expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+        await pump(
+          tester,
+          width: width,
+          flags: const {'lists'},
+          newShell: false,
+        );
+        expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+      }
+      await pump(tester, flags: const {'lists'});
+      expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
     });
   });
 

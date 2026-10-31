@@ -10,6 +10,8 @@ import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
+import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
 import '../../features/graph/presentation/follow_requests_screen.dart';
@@ -132,6 +134,12 @@ class AppRouter {
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
+
+  // W5-11: the caller's Lists. `/lists/:id` (the detail, W5-12) is under the
+  // same `lists` flag redirect.
+  static const listsPath = '/lists';
+  static String listPath(String listId) =>
+      '/lists/${Uri.encodeComponent(listId)}';
   // W4-15: the search results, behind the `search` flag; build links with
   // `searchResultsLocation` (domain/search_routes.dart).
   static const searchRoute = '/search';
@@ -301,6 +309,10 @@ class AppRouter {
                 ),
               ),
             ),
+          ),
+          GoRoute(
+            path: listsPath,
+            builder: (context, state) => const AuthGate(child: ListsScreen()),
           ),
           if (kVisibleShells.contains(ShellKind.creatorStudio))
             GoRoute(
@@ -568,6 +580,7 @@ class AppRouter {
             _profileEditFlagRedirect(loc) ??
             _scheduledFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
+            _listsFlagRedirect(loc) ??
             _searchFlagRedirect(loc) ??
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
@@ -706,6 +719,17 @@ class AppRouter {
   String? _bookmarksFlagRedirect(String loc) {
     if (loc != bookmarksPath) return null;
     return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
+        ? null
+        : homePath;
+  }
+
+  static final _listsRoutes = RegExp(r'^/lists(?:/|$)');
+
+  /// `/lists` and `/lists/...` redirect Home unless `lists` is on for this
+  /// caller (W5-11). The server stays authoritative.
+  String? _listsFlagRedirect(String loc) {
+    if (!_listsRoutes.hasMatch(loc)) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureLists)
         ? null
         : homePath;
   }
