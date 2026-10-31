@@ -337,7 +337,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | In review |
 | W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | In review |
 | W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | In review (PR #518) |
-| W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Built |
+| W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | In review (PR #524) |
 | W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Open |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Open |
@@ -575,7 +575,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** `lists.Reader` is the only way timeline reads a list.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-8 — `GetListTimeline`  [owner: backend-developer] [size: M] [depends: W5-7]  Status: Built (branch feat/ui-w5-8-list-timeline; flag off, tester and reviewers next)
+### W5-8 — `GetListTimeline`  [owner: backend-developer] [size: M] [depends: W5-7]  Status: In review (PR #524)
 - **Description.** In a new `backend/internal/timeline/service_list.go`:
   - `lists.Reader.Members` → authors minus `allowedAuthor` drops;
   - `removedIDs(ctx, tok, authors)` (scoped to the members, ≤ 180 authors so the window query applies);
