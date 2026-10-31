@@ -442,6 +442,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), graphSvc, log); err != nil {
 		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
 	}
+	// lists (ADR-0030 D8, W5-5): the erase step and export section are registered whether or not FEATURE_LISTS is on; the step runs
+	// after messaging, before identity. The repo is also the write path's storage (wired with the routes).
+	listsRepo := lists.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
+	if err := registerListsLifecycle(lifecycle, listsRepo); err != nil {
+		return nil, nil, fmt.Errorf("lists lifecycle registry: %w", err)
+	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
 	moderationSvc := moderation.New(moderation.Deps{
@@ -574,9 +580,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})
 
-	// Lists (ADR-0030, W5-3): the skeleton handler mounts all seven ListService routes behind FEATURE_LISTS (FEATURE_DISABLED
-	// feature=lists, 0 reads) so the interceptor chain covers them; W5-4, W5-6 and W5-7 replace the methods with the real service.
-	listsServer := lists.NewServer(featureFlags)
+	// Lists (ADR-0030, W5-3): all seven routes are mounted so the interceptor chain covers them.
+	// Lists (ADR-0030): the write path (W5-4, CreateList, UpdateList, DeleteList) behind FEATURE_LISTS; the other four RPCs answer
+	// FEATURE_DISABLED (0 reads) or Unimplemented until W5-6 and W5-7. Pins stays nil until identity implements it (W5-9): a
+	// pinned tab of a deleted list is dropped lazily by GetMe then.
+	listsSvc := lists.New(lists.Deps{
+		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode,
+		Limits: lists.Limits{
+			MaxPerUser:    cfg.Lists.MaxPerUser,
+			CreatesPerDay: int64(cfg.Quota.ListCreatesPerDay), NewAccountCreatesPerDay: int64(cfg.Quota.NewAccountListCreatesPerDay),
+			NewAccountWindow: cfg.Quota.NewAccountWindow, CacheEntries: cfg.Lists.CacheEntries,
+		},
+	})
+	listsServer := lists.NewServer(featureFlags, listsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
