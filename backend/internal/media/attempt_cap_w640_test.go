@@ -109,7 +109,7 @@ func TestW640_NoValidAssessmentConsumesARetryNotAnAttempt(t *testing.T) {
 		wantUnitsCap int64 // per-uid units cap after the 8 claims
 	}{
 		{"outage (transport error)", func(e *env, _ string) { e.mod.err = errors.New("vision unreachable") }, 0, 0},
-		{"our 10 s deadline", func(e *env, _ string) { e.mod.err = fmt.Errorf("media: vision annotate: %w", context.DeadlineExceeded) }, 0, 16},
+		{"our 10 s deadline (W6-42 H-1: counted in the monthly cap too)", func(e *env, _ string) { e.mod.err = fmt.Errorf("media: vision annotate: %w", context.DeadlineExceeded) }, 16, 16},
 		{"billed answer with a non-terminal error", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: 7} }, 16, 16},
 		{"billed answer without an annotation", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: -1} }, 16, 16},
 		{"internal error (Vision counter unreadable)", func(e *env, _ string) { e.repo.visionErr = errors.New("firestore unavailable") }, 0, 0},
@@ -363,5 +363,35 @@ func TestW640_PerDocBillableUnitsAreAtMost16(t *testing.T) {
 	}
 	if len(e.mod.calls) != calls || e.units() != 16 {
 		t.Fatalf("the ninth call must bill nothing: calls %d -> %d, units %d", calls, len(e.mod.calls), e.units())
+	}
+}
+
+// W6-42 H-1: the monthly counter and the per-uid cap use one "possibly billed" definition, and the counter write survives a hung-up client.
+
+// A context cancelled after the moderator answered still adds the units to the monthly counter.
+func TestW640_CancelledAfterAnswerStillCountsMonthlyUnits(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	ctx, cancel := context.WithCancel(context.Background())
+	e.mod.onCall = func() error { cancel(); return nil } // the client hangs up while Vision answers
+	_, _ = e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+	if got := e.units(); got != 1 {
+		t.Fatalf("monthly units = %d, want 1 (the answered call is billed even though the request ended)", got)
+	}
+}
+
+// A context cancelled mid-call is counted in the monthly counter and is not refunded to the per-uid cap.
+func TestW640_CancelledMidCallIsCountedAndNotRefunded(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "a")
+	ctx, cancel := context.WithCancel(context.Background())
+	e.mod.onCall = func() error { cancel(); return context.Canceled }
+	_, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+	wantUnavailable(t, err)
+	if got := e.units(); got != 1 {
+		t.Fatalf("monthly units = %d, want 1 (a cancelled call may have been billed)", got)
+	}
+	if got := e.unitsSpent(false); got != 1 {
+		t.Fatalf("per-uid units = %d, want 1 (not refunded)", got)
 	}
 }

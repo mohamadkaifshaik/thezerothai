@@ -172,7 +172,10 @@ func (r *fakeRepo) VisionUsed(_ context.Context, month string) (int64, error) {
 	return r.vision[month], nil
 }
 
-func (r *fakeRepo) AddVisionUnits(_ context.Context, month string, n int64) error {
+func (r *fakeRepo) AddVisionUnits(ctx context.Context, month string, n int64) error {
+	if err := ctx.Err(); err != nil { // like Firestore: a cancelled request context fails the write
+		return err
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.vision[month] += n

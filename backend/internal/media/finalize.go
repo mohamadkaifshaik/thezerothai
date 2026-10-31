@@ -66,7 +66,10 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 	wg.Wait()
 	// The Vision counter is the cost meter: record what was actually spent even when another item failed.
 	if units > 0 {
-		if err := s.Repo.AddVisionUnits(ctx, monthKey(s.Now()), units); err != nil {
+		// Detached from the request (W6-42 H-1): a client that hangs up after Vision answered must not hide the spend from the cap.
+		vctx, vcancel := context.WithTimeout(context.WithoutCancel(ctx), claimReleaseTimeout)
+		defer vcancel()
+		if err := s.Repo.AddVisionUnits(vctx, monthKey(s.Now()), units); err != nil {
 			s.Log.WarnContext(ctx, "vision_counter_write_failed", append([]any{"units", units, "error", logger.CauseChain(err)}, logger.TraceAttrs(ctx)...)...)
 		}
 	}
@@ -272,10 +275,11 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	if ok {
 		res, err := s.screen(ctx, d, gens, releaseSlot)
-		// Count what Vision answered, success or per-image error, and release only the units of calls that never got a
-		// response (W6-27, security H-3): Google bills an answered call, so releasing it would hide the spend from the cap.
-		spent = res.answered
-		s.vision.release(units - res.answered)
+		// One "possibly billed" definition for both counters (W6-42 H-1): every call that was not provably never sent counts, answered or not,
+		// so a deadline or a hung-up client (a call that may have been billed) stays in VISION_MONTHLY_CAP, as it does in the per-uid cap.
+		// Only calls that never reached Vision (res.refundable) are returned. Over-counts by at most 2 units per honest timeout.
+		spent = units - res.refundable
+		s.vision.release(res.refundable)
 		refundUnits = res.refundable // the per-uid cap refunds only calls that never went out (not timeouts, not answers)
 		assessed = res.valid > 0     // at least one valid assessment: if the doc does not end, this attempt is consumed (A5.2)
 		// A blocking verdict is final even when the other call failed (A5.3 row 2): the image is REJECTED, not retried.

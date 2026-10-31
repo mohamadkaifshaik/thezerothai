@@ -26,9 +26,9 @@
 
 | ID | Severity | Title | Blocks merge |
 |---|---|---|---|
-| H-1 | **High** (cost) | `VISION_MONTHLY_CAP` misses spend a client can trigger by hanging up | **yes** |
+| H-1 | **High** (cost) | `VISION_MONTHLY_CAP` misses spend a client can trigger by hanging up | **yes: fixed in FIXH1** |
 | L-1 | Low | Refunds cover every non-context error, not only Google's 429 and 5xx answers | no |
-| L-2 | Low | The cost statement gives only the in-memory bound (INR 780), not the durable one (INR 1,390) | **yes (doc, 2 lines)** |
+| L-2 | Low | The cost statement gives only the in-memory bound (INR 780), not the durable one (INR 1,390) | **yes: fixed in FIXH1** |
 | L-3 | Low | The GIF slot wait still counts against the 20 s `finalizeDeadline` | no |
 | L-4 | Low | A zero `createdAt` is "established" for the upload quota but "new" for the units cap | no |
 | L-5 | Low | The new caps are env-only and do not show in a Terraform plan (rule 11) | no |
