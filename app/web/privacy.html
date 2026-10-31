@@ -253,15 +253,18 @@
       </li>
       <li>
         <strong>Small polls can give a vote away.</strong> On a poll with
-        only a few votes, or when someone changes their vote, a change in
-        the counts can let someone who is watching work out how a
-        particular person voted, for example if they know that person has
-        just voted.
+        only a few votes, someone watching the counts may be able to work
+        out how a particular person voted, for example if they know that
+        person has just voted. Changing your vote moves one choice's count
+        down and another's up while the total stays the same, so it can
+        show the poll's author and people who have already voted both your
+        earlier and your new choice. People who haven't voted see only the
+        total while the poll is open, and a change doesn't move it.
       </li>
       <li>
         <strong>Changing your vote.</strong> You can change your vote while
-        the poll is open, up to a limited number of times. We keep only your
-        current choice, not the ones you picked before. Once the poll has
+        the poll is open, up to a limited number of times. Your earlier
+        choice is overwritten, not kept as a history. Once the poll has
         closed, votes can't be cast or changed.
       </li>
       <li>
@@ -274,7 +277,7 @@
         poll closes. After that it is deleted, usually within a day (apart
         from the database backups described below). If you delete your
         account, your votes are deleted with it; the poll's totals still
-        include your vote, but nothing links it to you.
+        include your vote, but the record of how you voted is deleted.
       </li>
       <li>
         <strong>Your export.</strong> Your data export lists the poll votes
