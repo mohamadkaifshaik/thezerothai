@@ -349,7 +349,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | In review (PR: docs/ui-w5-17-lists-security; report `docs/reviews/security-w5-lists.md`, SECURITY: CLEAR, 4 Medium) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
-| W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Open |
+| W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
 | W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Open |
@@ -809,7 +809,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-19 — Part A dev rollout  [owner: production-deployer] [size: S] [depends: W5-15, W5-17, W5-18, ADR-0030 merged]  Status: Open
+### W5-19 — Part A dev rollout  [owner: production-deployer] [size: S] [depends: W5-15, W5-17, W5-18, ADR-0030 merged]  Status: Done in dev 2026-10-31 (see "Dev rollout result" below)
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan for `feature_lists*` and the list config env vars (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe).
   - Apply only on OK, with an allowlist of 3 test uids.
@@ -822,6 +822,23 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** Dev: `feature_lists` set to allowlist (3 uids); prod stays `off`.
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** serialise dev applies with W3-24 / W4-24.
+- **Dev rollout result (2026-10-31).**
+  - **State.** `feature_lists = allowlist` with 3 uids (the founder's account and two dev test accounts; dev ceiling 3, #546) was applied earlier on 2026-10-31, so this ticket needed no apply. Serving revision `api-00953-giw` (100%, fallback `api-00950-kuh`); all 15 list env vars (`FEATURE_LISTS*`, `LISTS_MAX_PER_USER` 20, `LIST_MAX_MEMBERS` 150, `HOME_TABS_MAX_PINNED` 5, the quotas, rate limits and `CACHE_LISTS_ENTRIES`) are live with the values in `envs/dev/main.tf`. Prod: untouched.
+  - **Targeted plan** (from the main checkout's `envs/dev`, `-target` the `api` service and the `billing_alerts` topic, no plan file): 0 to add, 1 to change, 0 to destroy. **0 changes for lists.** The one change is a non-lists env add pending from #554, `RATE_LIMIT_MEDIA_FINALIZE_PER_MIN=10` (equal to the code default, so no behaviour change; accepted in `docs/reviews/security-w6-40-attempt-cap.md`), plus the known `template.revision -> null` line. Not applied. The 3.10 drift items stay outside the plan.
+  - **Smoke as dev test accounts (API only), 18:00 to 18:02 UTC:**
+    - Owner (allowlisted) created a public and a private list; the cap count (`ownerId ==` with `Limit(21)`, a transaction aggregation inside CreateList) ran twice on real Firestore with no "requires an index" error. `ListUserLists` by `owner_id`, by `owner_id` plus `contains_user_id`, and by `contains_user_id` alone (the Lists screen and "Add to Lists" queries) all answered 200.
+    - Added 3 members (the two other test accounts and the owner itself: the lists module sends no notification, and a self-add is always allowed, so no founder account was touched); the member page showed 3 and `GetList` `member_count` 3; a member removal gave 2; a rename worked.
+    - List timeline: cold open 3 posts (the members' existing posts, `since_token` set, no older page), refresh 0 new, a second allowlisted account read the same 3.
+    - Home tabs: pin list A (title set, `pinned_by_viewer` true), pin A and B, reorder to B, A (read back through `GetMe` `home_tabs` each time), then unpin all. The owner's `home_tabs` was empty before, so the saved snapshot `[]` was restored exactly.
+    - Negatives: a private list is `NOT_FOUND` for another allowlisted user on both `GetList` and `GetListTimeline`; the non-allowlisted account got `FAILED_PRECONDITION` + `FEATURE_DISABLED` (`feature=lists`) on `CreateList`, `GetList`, `GetListTimeline` and `SetHomeTabs`.
+    - Cleanup: both lists deleted; `GetList` and `GetListTimeline` of each answer `NOT_FOUND`; `ListUserLists` for the owner and for the member each show 0; `home_tabs` equals the saved snapshot; the flag was left at `allowlist` (3 uids), not turned off (that would need an apply).
+  - **Logs** (`dzeroth-dev`, service `api`, the smoke window). `list_op` lines: `create` done x2 (3 and 4 reads, 3 writes), `add` done x4 (3 to 5 reads, 3 writes), `remove` done x1 (2 reads, 2 writes), `update` done x1 (3 reads, 2 writes), `delete` done x2 (3 reads, 1 write), `members` ok x1 (0), `user_lists` ok x6 (1 read), `get` ok x3 and `rejected:not_found` x3. `timeline_op=list`: ok x4 (owner cold open 4 reads = 3 + C with C = 1, refresh 0, a second account's cold open 1, a re-open 0) and `not_found` x2 (0 reads). The only WARNING lines were the 9 probes above (5 x 404 for the private or deleted list, 4 x 400 `FEATURE_DISABLED` for the non-allowlisted account). No ERROR line and no 5xx in the window. The lines carry `uid_hash` (a prefix of a hash), not the uid.
+  - **Deviations from the ticket.**
+    - The step "turn the flag off" was replaced by keeping the allowlist, as the Flag line plans (turning it off needs an apply).
+    - Order of the dependencies against the allowlist apply (the Terraform revision `api-00429-lcx`, 12:42 UTC): W5-18 (#538, 12:14 UTC) and W5-17 (#540, 12:27 UTC) were merged before it; W5-15 (#539) merged at 13:03 UTC, 21 minutes after it and well before the smoke (18:00 UTC). The smoke ran on `api-00953-giw`, which also carries the W5-41 to W5-44 fixes merged after the apply. The status cells of W5-15, W5-17 and W5-18 in the table above are stale (owned by those tickets).
+    - The first smoke was API-only: the Lists screen, the Home tab bar and Manage pinned (W5-11 to W5-14) were not driven in the app, and no Android or web client check was made.
+  - **Owed.** The `memberIds array-contains uid` query (the eraser `RemoveMemberPage` and the `lists_member_of` export page) is served by the automatic array index (no override in `firestore.indexes.json`), but only an account deletion or an export calls it, so this smoke did not exercise it on real Firestore. Prove it with an erase or export of a throwaway dev test account that is a list member, before `lists` leaves the dev allowlist for prod. The latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
+  - Prod: no change (held release).
 
 ### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
 - **Description.** `docs/adr/0028-communities-and-moderation-scope.md` (Proposed), or the next free number. It decides:
