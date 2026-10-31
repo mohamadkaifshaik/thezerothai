@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
@@ -41,7 +42,8 @@ func TestW627_VisionUnitAccounting(t *testing.T) {
 		wantRej   string
 	}{
 		{"both answered", nil, 2, false, ""},
-		{"thumbnail transport failure: the full image's unit is counted", errors.New("vision 503"), 1, true, ""},
+		{"thumbnail Vision 503: the full image's unit is counted, the thumbnail's comes back", &googleapi.Error{Code: 503}, 1, true, ""},
+		{"thumbnail connection reset: both units counted (W6-49: possibly billed)", connReset(), 2, true, ""},
 		{"thumbnail answered with a non-terminal error: both counted", &VisionAnsweredError{Code: 7}, 2, true, ""},
 		{"thumbnail answered INVALID_ARGUMENT: both counted, REJECTED invalid", &VisionAnsweredError{Code: 3}, 2, false, reasonInvalid},
 	}
@@ -71,11 +73,11 @@ func TestW627_VisionUnitAccounting(t *testing.T) {
 	}
 }
 
-// A transport failure on every call never reached Vision: everything is released.
+// A connect failure on every call: nothing was sent, everything is released.
 func TestW627_TransportFailureStillReleases(t *testing.T) {
 	e := newEnv(t, envOpts{screenThumb: true})
 	tg := e.upload(t, uidA, PurposePost, "a")
-	e.mod.err = errors.New("vision unreachable")
+	e.mod.err = dialRefused() // a connect failure: nothing was sent
 	_, err := e.finalizeErr(t, tg.MediaID)
 	wantUnavailable(t, err)
 	if got := e.units(); got != 0 {
@@ -109,7 +111,7 @@ func TestW627_GIFThumbnailInvalidArgumentIsRejected(t *testing.T) {
 func TestW627_AttemptCapStopsTheLoop(t *testing.T) {
 	e := newEnv(t, envOpts{screenThumb: true, maxAttempts: 3})
 	tg := e.upload(t, uidA, PurposePost, "a")
-	e.mod.errBy = map[string]error{uploadThumbObject(uidA, tg.MediaID, "jpg"): errors.New("vision 503")}
+	e.mod.errBy = map[string]error{uploadThumbObject(uidA, tg.MediaID, "jpg"): &googleapi.Error{Code: 503}}
 	for i := 1; i <= 3; i++ {
 		_, err := e.finalizeErr(t, tg.MediaID)
 		wantUnavailable(t, err)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -443,7 +444,7 @@ func TestFinalize_Validation(t *testing.T) {
 func TestFinalize_ModerationOutageFailsClosed(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.upload(t, uidA, PurposePost, "a")
-	e.mod.err = errors.New("vision 503")
+	e.mod.err = &googleapi.Error{Code: 503}
 	_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if len(e.obj.public) != 0 || e.repo.docs[tg.MediaID].Status != string(StatusPending) {
@@ -719,8 +720,9 @@ func TestFinalize_LostRaceDuringScreeningConvergesOnReady(t *testing.T) {
 		return errors.New("vision: gs object not found")
 	}
 	got, spent, err := e.finalizeStale(t, tg.MediaID)
-	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 0 {
-		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and no units", got, spent, err)
+	// spent is 1 since W6-49: an error unbilled() does not recognise (this one is a plain error) may have been billed, so it stays counted.
+	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 1 {
+		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and the 1 unit of the unrecognised failure", got, spent, err)
 	}
 }
 

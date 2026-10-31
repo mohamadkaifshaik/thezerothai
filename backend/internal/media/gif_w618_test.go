@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	mediav1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
@@ -304,7 +305,7 @@ func TestW618_VisionCapBoundary(t *testing.T) {
 func TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
-	e.mod.bytesErr = errors.New("vision 503")
+	e.mod.bytesErr = &googleapi.Error{Code: 503}
 	_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Code != connect.CodeUnavailable {

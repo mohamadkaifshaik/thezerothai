@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -108,7 +109,9 @@ func TestW640_NoValidAssessmentConsumesARetryNotAnAttempt(t *testing.T) {
 		wantMonthly  int64 // VISION_MONTHLY_CAP counter after the 8 claims
 		wantUnitsCap int64 // per-uid units cap after the 8 claims
 	}{
-		{"outage (transport error)", func(e *env, _ string) { e.mod.err = errors.New("vision unreachable") }, 0, 0},
+		{"outage (Vision 503, refunded to both counters)", func(e *env, _ string) { e.mod.err = &googleapi.Error{Code: 503} }, 0, 0},
+		{"connection reset after the request was written (W6-49: possibly billed, counted in both)", func(e *env, _ string) { e.mod.err = connReset() }, 16, 16},
+		{"connect failure (W6-49: never sent, refunded to both counters)", func(e *env, _ string) { e.mod.err = dialRefused() }, 0, 0},
 		{"our 10 s deadline (W6-42 H-1: counted in the monthly cap too)", func(e *env, _ string) { e.mod.err = fmt.Errorf("media: vision annotate: %w", context.DeadlineExceeded) }, 16, 16},
 		{"billed answer with a non-terminal error", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: 7} }, 16, 16},
 		{"billed answer without an annotation", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: -1} }, 16, 16},
@@ -288,12 +291,12 @@ func TestW640_UnitsCapTierFollowsTheAccountAge(t *testing.T) {
 	}
 }
 
-// Refunds (A5.5): a call that never went out is refunded, a timeout and an answered call are not.
+// Refunds (A5.5, narrowed by W6-49): a call that never went out, or that Google answered with 429 or 5xx, is refunded; a timeout, a reset and an answered call are not.
 func TestW640_UnitsAreRefundedOnlyWhenNothingWasSent(t *testing.T) {
-	t.Run("outages never exhaust the cap", func(t *testing.T) {
+	t.Run("Vision 5xx outages never exhaust the cap", func(t *testing.T) {
 		e := newEnv(t, envOpts{screenThumb: true, unitsPerDay: 4, maxAttempts: 3, maxRetries: ptr(10)})
 		tg := e.upload(t, uidA, PurposePost, "a")
-		e.mod.err = errors.New("vision unreachable")
+		e.mod.err = &googleapi.Error{Code: 503}
 		for range 10 { // 10 x 2 units would be 20 against a cap of 4
 			_, err := e.finalizeErr(t, tg.MediaID)
 			wantUnavailable(t, err)

@@ -21,7 +21,6 @@ package media
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"sync"
@@ -30,6 +29,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
@@ -364,7 +364,7 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	// (c) A failed screening releases the claim.
 	tg2 := e.bannerUpload(t, uidA, "release")
 	e.mod.mu.Lock()
-	e.mod.err = errors.New("vision down")
+	e.mod.err = &googleapi.Error{Code: 503} // a Vision outage (refunded: only the claim and the release are written; an ambiguous failure also writes the monthly counter)
 	e.mod.mu.Unlock()
 	_, c, err = finalize(tg2.MediaID)
 	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
