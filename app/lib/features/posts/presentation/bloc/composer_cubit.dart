@@ -33,6 +33,32 @@ enum DraftLoadResult {
   blockedByMedia,
 }
 
+/// Why a draft send was stopped before, or after, the RPC without an error
+/// message of its own (W6-39, ADR-0029 Amendment 1 A4). The screen asks the
+/// user what to do; nothing is sent until they choose.
+enum SendConflict {
+  /// The server knows the key with another body: an earlier version of this
+  /// post was sent. Offers "View profile" and "Post this version too".
+  earlierVersionSent,
+
+  /// The draft row is gone: another composer sent it, or it was deleted.
+  /// Only "View profile".
+  draftGone,
+
+  /// A post may already exist and the user now asks to schedule it.
+  pendingPost,
+
+  /// A scheduled post may already exist and the user now asks to post it.
+  pendingSchedule,
+
+  /// The stored key is older than its window: we cannot tell whether the
+  /// earlier send landed.
+  unconfirmed;
+
+  /// Whether the user may override with a new key.
+  bool get canSendAnyway => this != draftGone;
+}
+
 /// What leaving the composer needs (W6-15).
 enum LeaveAction {
   /// Nothing is lost: leave.
@@ -64,6 +90,7 @@ class ComposerState {
     this.poll,
     this.pollDurationClamped = false,
     this.pollNotAdded = false,
+    this.sendConflict,
   });
 
   final PostDraft draft;
@@ -123,6 +150,10 @@ class ComposerState {
   /// to delete the post.
   final bool pollNotAdded;
 
+  /// A draft send that needs the user's decision (W6-39), shown once and
+  /// cleared by [ComposerCubit.sendConflictShown].
+  final SendConflict? sendConflict;
+
   bool get hasPoll => poll != null;
   bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
@@ -155,6 +186,8 @@ class ComposerState {
     DraftPoll? poll,
     bool? pollDurationClamped,
     bool? pollNotAdded,
+    SendConflict? sendConflict,
+    bool clearSendConflict = false,
     bool clearPoll = false,
     bool clearError = false,
     bool clearCreated = false,
@@ -177,6 +210,9 @@ class ComposerState {
         ? false
         : (pollDurationClamped ?? this.pollDurationClamped),
     pollNotAdded: pollNotAdded ?? this.pollNotAdded,
+    sendConflict: clearSendConflict
+        ? null
+        : (sendConflict ?? this.sendConflict),
   );
 }
 
@@ -566,6 +602,97 @@ class ComposerCubit extends Cubit<ComposerState> {
   final Uuid _uuid;
   final DateTime Function() _clock;
 
+  /// The send key claimed on the draft row for the send in flight.
+  ({String key, bool reused})? _claimed;
+  bool _forceNewKey = false;
+
+  /// Whether this send keeps its key on the draft row. An image-only post has
+  /// no row to keep one on (in-memory keys). Checked before any await so a
+  /// composer without drafts still adds its optimistic row in the same turn.
+  bool get _claims => _drafts != null && !_draftDone && !currentDraft.isEmpty;
+
+  static const _noClaim = (key: null, reused: false, refused: false);
+
+  /// Claims the stored key of this send, or refuses it (the state was
+  /// emitted). Only called when [_claims].
+  Future<({String? key, bool reused, bool refused})> _claim(
+    SendKind kind, {
+    required bool force,
+    DateTime? publishAt,
+  }) async {
+    final repo = _drafts!;
+    final draft = currentDraft;
+    try {
+      final claim = await repo.claimSend(
+        draft: draft,
+        kind: kind,
+        publishAt: publishAt,
+        newKey: _uuid.v4,
+        forceNew: force,
+      );
+      final key = claim.key;
+      if (key == null) {
+        if (!isClosed) {
+          emit(
+            state.copyWith(
+              status: ComposerStatus.editing,
+              sendConflict: switch (claim.block!) {
+                SendBlock.rowGone => SendConflict.draftGone,
+                SendBlock.unconfirmed => SendConflict.unconfirmed,
+                SendBlock.otherKind =>
+                  claim.pendingKind == SendKind.schedule
+                      ? SendConflict.pendingSchedule
+                      : SendConflict.pendingPost,
+              },
+            ),
+          );
+        }
+        return (key: null, reused: false, refused: true);
+      }
+      _claimed = (key: key, reused: claim.reused);
+      return (key: key, reused: claim.reused, refused: false);
+    } catch (_, stack) {
+      // Storage failed: send under an in-memory key rather than not at all.
+      _reportDraftStorage(stack);
+      return _noClaim;
+    }
+  }
+
+  /// The send stopped before any RPC (an upload failed): a key minted for it
+  /// proves nothing was sent, so it is dropped; a reused one stays.
+  void _releaseClaim() {
+    final claimed = _claimed;
+    _claimed = null;
+    if (claimed != null && !claimed.reused) _clearClaim(claimed);
+  }
+
+  void _clearClaim(({String key, bool reused}) claimed) {
+    final repo = _drafts;
+    if (repo == null) return;
+    unawaited(
+      repo
+          .clearSend(_draftUid, _base.id, claimed.key)
+          .then(
+            (_) {},
+            onError: (Object _, StackTrace stack) => _reportDraftStorage(stack),
+          ),
+    );
+  }
+
+  /// "Post this version too" / "Send anyway" after a [SendConflict]: sends
+  /// again under a NEW key, the user's explicit choice.
+  Future<void> sendAnyway() {
+    _forceNewKey = true;
+    return submit();
+  }
+
+  /// The conflict was shown.
+  void sendConflictShown() {
+    if (state.sendConflict != null) {
+      emit(state.copyWith(clearSendConflict: true));
+    }
+  }
+
   /// Idempotency key per submitted text, insertion-ordered and bounded.
   final Map<String, String> _keys = {};
   String? _keyText;
@@ -869,11 +996,15 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   Future<void> submit() async {
+    final force = _forceNewKey;
+    _forceNewKey = false;
     if (!state.canSubmit) return;
     final publishAt = state.scheduledAt;
     // SchedulePost has no poll field: a poll never takes that path (the
     // rules already keep the two apart; this is the last guard).
-    if (publishAt != null && !state.hasPoll) return _submitScheduled(publishAt);
+    if (publishAt != null && !state.hasPoll) {
+      return _submitScheduled(publishAt, force);
+    }
     final text = state.draft.text;
     final poll = state.poll;
     emit(
@@ -881,8 +1012,15 @@ class ComposerCubit extends Cubit<ComposerState> {
         status: ComposerStatus.submitting,
         clearError: true,
         clearCreated: true,
+        clearSendConflict: true,
       ),
     );
+    // A draft-backed send claims its stored key before anything leaves (and
+    // before any upload, so a refusal costs no Vision units).
+    final claim = _claims
+        ? await _claim(SendKind.post, force: force)
+        : _noClaim;
+    if (claim.refused) return;
 
     // On-device previews for the optimistic row (taken before upload).
     final thumbnails = [
@@ -891,7 +1029,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     ];
     // No await without photos: the optimistic row appears in the same turn.
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
-    if (uploaded == null) return;
+    if (uploaded == null) return _releaseClaim();
     final mediaIds = uploaded.mediaIds;
     final altTexts = uploaded.altTexts;
 
@@ -901,7 +1039,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     final intent = quoteOfPostId.isEmpty
         ? bodyWithPolicy
         : 'q:$quoteOfPostId\u0001$bodyWithPolicy';
-    final key = _keyFor(intent);
+    final key = claim.key ?? _keyFor(intent);
 
     final pending = _pending;
     final author = _author;
@@ -934,6 +1072,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       _keys.remove(intent);
       _keyText = null;
+      _claimed = null;
       pending?.remove(key);
       // The post exists: its draft row is done (also when the screen closed).
       unawaited(discardDraft());
@@ -974,7 +1113,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   ///
   /// On success the composer is reset to empty; [ComposerState.scheduledNotice]
   /// carries the stored item for the one "Your post will be sent on ..." toast.
-  Future<void> _submitScheduled(DateTime publishAt) async {
+  Future<void> _submitScheduled(DateTime publishAt, bool force) async {
     if (!canSchedule) {
       emit(
         state.copyWith(
@@ -993,16 +1132,20 @@ class ComposerCubit extends Cubit<ComposerState> {
         status: ComposerStatus.submitting,
         clearError: true,
         clearCreated: true,
+        clearSendConflict: true,
       ),
     );
-    // No await without photos: the optimistic row appears in the same turn.
+    final claim = _claims
+        ? await _claim(SendKind.schedule, force: force, publishAt: publishAt)
+        : _noClaim;
+    if (claim.refused) return;
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
-    if (uploaded == null) return;
+    if (uploaded == null) return _releaseClaim();
     final policy = _policyToSend;
     final intent =
         's:${publishAt.millisecondsSinceEpoch}\u0001'
         '${_bodyKey(text, uploaded.mediaIds, uploaded.altTexts, policy)}';
-    final key = _keyFor(intent);
+    final key = claim.key ?? _keyFor(intent);
     try {
       final scheduled = await _repository.schedulePost(
         idempotencyKey: key,
@@ -1014,6 +1157,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       );
       _keys.remove(intent);
       _keyText = null;
+      _claimed = null;
       _draftScheduled();
       if (isClosed) return;
       emit(
@@ -1032,6 +1176,31 @@ class ComposerCubit extends Cubit<ComposerState> {
     // Rollback: the optimistic item leaves Home/profile; the text stays in
     // the field and the key stays for the retry.
     _pending?.remove(key);
+    final claimed = _claimed;
+    _claimed = null;
+    if (claimed != null && claimed.key == key) {
+      if (error is IdempotencyKeyReusedException) {
+        // The server knows this key with another body: an earlier version was
+        // sent. The key stays (the user may reopen and ask again).
+        if (isClosed) return;
+        emit(
+          state.copyWith(
+            status: ComposerStatus.editing,
+            sendConflict: SendConflict.earlierVersionSent,
+          ),
+        );
+        return;
+      }
+      // Only a FRESH key whose first use was refused proves nothing was
+      // created. A reused key may have landed on an earlier try, and
+      // MEDIA_NOT_READY is ambiguous (the media may already be attached to a
+      // post that landed), as are quota answers (ADR-0021 review m1).
+      final proves =
+          error is ValidationException ||
+          error is FeatureDisabledException ||
+          error is EmailNotVerifiedException;
+      if (!claimed.reused && proves) _clearClaim(claimed);
+    }
     if (isClosed) return;
     // The server refused the audience (flag off): fall back to Everyone so
     // the user can still post (the gate also stops sending it).

@@ -22,12 +22,39 @@ Uri privacyPolicyUri() {
 /// Opens the privacy policy in the system browser (a new tab on web, so
 /// sign-up/sign-in form state is never lost). A launch failure is shown as a
 /// snackbar rather than thrown — a broken link must never block sign-up.
-Future<void> launchPrivacyPolicy(BuildContext context) async {
+Future<void> launchPrivacyPolicy(BuildContext context) => launchStaticPage(
+  context,
+  privacyPolicyUri(),
+  "Couldn't open the Privacy Policy.",
+);
+
+/// Resolves the community rules page (`app/web/rules.html`) like
+/// [privacyPolicyUri]: the current origin on web, production elsewhere.
+Uri communityRulesUri() {
+  return kIsWeb
+      ? Uri.base.resolve('/rules.html#polls')
+      : Uri.parse('https://dzeroth.com/rules.html#polls');
+}
+
+/// Opens the community rules in the system browser.
+Future<void> launchCommunityRules(BuildContext context) => launchStaticPage(
+  context,
+  communityRulesUri(),
+  "Couldn't open the community rules.",
+);
+
+/// Opens [uri] in the system browser (shared by the Privacy Policy and the
+/// community rules); a failure is a snackbar saying [failureMessage].
+Future<void> launchStaticPage(
+  BuildContext context,
+  Uri uri,
+  String failureMessage,
+) async {
   final messenger = ScaffoldMessenger.of(context);
   var launched = false;
   try {
     launched = await launchUrl(
-      privacyPolicyUri(),
+      uri,
       mode: LaunchMode.platformDefault,
       webOnlyWindowName: '_blank',
     );
@@ -37,9 +64,7 @@ Future<void> launchPrivacyPolicy(BuildContext context) async {
   if (!launched) {
     messenger
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(content: Text("Couldn't open the Privacy Policy.")),
-      );
+      ..showSnackBar(SnackBar(content: Text(failureMessage)));
   }
 }
 

@@ -18,11 +18,10 @@ import '../../../../support/media_fixtures.dart';
 
 /// W6-38: the drafts duplicate-publication matrix (ADR-0029 Amendment 1, A4).
 ///
-/// S1-S4 pin what is safe today. G1-G6 are written as tests of the FIXED
-/// behaviour and skipped until W6-39 persists the send key on the draft row;
-/// each asserts only what the server saw (how many items it accepted), never
-/// the cubit's internals, so it passes unchanged once the fix lands. Run them
-/// with `flutter test --run-skipped` to see today's duplicates.
+/// S1-S4 pin what is safe. G1-G6 are tests of the FIXED behaviour: W6-39
+/// persists the send key on the draft row (they were skipped until then).
+/// Each asserts only what the server saw (how many items it accepted), never
+/// the cubit's internals, and they passed unchanged when the fix landed.
 ///
 /// Every cell runs for CreatePost and SchedulePost, with no media, a photo
 /// and a GIF. A GIF cannot be scheduled (the composer refuses the time, the
@@ -342,23 +341,24 @@ void main() {
 
   group('S4 the same images are not attached twice', () {
     for (final m in [_Media.photo, _Media.gif]) {
-      test(
-        'post + ${m.name}: an edited send under a new key is refused',
-        () async {
-          final c = open();
-          await prepare(c, _Kind.post, m);
-          server.script.add(ServerReply.drop);
-          await c.cubit.submit();
-          expect(server.accepted, hasLength(1));
+      test('post + ${m.name}: an edited send is not a second post', () async {
+        final c = open();
+        await prepare(c, _Kind.post, m);
+        server.script.add(ServerReply.drop);
+        await c.cubit.submit();
+        expect(server.accepted, hasLength(1));
 
-          // The user edits and sends again: a new key, the same media ids.
-          c.cubit.textChanged('hello world, edited');
-          await c.cubit.submit();
+        // The user edits and sends again: a new key, the same media ids.
+        c.cubit.textChanged('hello world, edited');
+        await c.cubit.submit();
 
-          expect(server.accepted, hasLength(1), reason: 'media is single use');
-          expect(c.cubit.state.error, isA<MediaNotReadyException>());
-        },
-      );
+        expect(server.accepted, hasLength(1), reason: 'media is single use');
+        // The stored key is reused, so the server answers with the earlier
+        // send (IDEMPOTENCY_KEY_REUSED) before it looks at the media: the
+        // user is told an earlier version went out. (Before W6-39 a new
+        // key reached the media check and got MEDIA_NOT_READY.)
+        expect(c.cubit.state.sendConflict, SendConflict.earlierVersionSent);
+      });
     }
 
     test(
@@ -401,7 +401,7 @@ void main() {
           hasLength(1),
           reason: 'the reopened draft must reuse the first send',
         );
-      }, skip: 'W6-38 G1: fixed by W6-39');
+      });
     }
   });
 
@@ -433,7 +433,7 @@ void main() {
           hasLength(1),
           reason: 'a row that outlived its success must not post again',
         );
-      }, skip: 'W6-38 G2: fixed by W6-39');
+      });
     }
   });
 
@@ -462,7 +462,7 @@ void main() {
           hasLength(1),
           reason: 'an edit after an ambiguous failure must not add an item',
         );
-      }, skip: 'W6-38 G3: fixed by W6-39');
+      });
     }
   });
 
@@ -489,40 +489,77 @@ void main() {
           hasLength(1),
           reason: 'both composers must send under one key',
         );
-      }, skip: 'W6-38 G4: fixed by W6-39');
+      });
     }
   });
 
   group('G5 a stale composer posts a draft that was already posted', () {
     for (final cell in cells) {
-      test(
-        label(cell),
-        () async {
-          final seed = open();
-          await prepare(seed, cell.$1, _Media.none);
-          final id = seed.cubit.draftId;
-          final draft = await repo.read(_uid, id);
-          final a = open(initial: draft);
-          final b = open(initial: draft);
-          await prepare(a, cell.$1, cell.$2, text: draft!.text, save: false);
-          await prepare(b, cell.$1, cell.$2, text: draft.text, save: false);
+      test(label(cell), () async {
+        final seed = open();
+        await prepare(seed, cell.$1, _Media.none);
+        final id = seed.cubit.draftId;
+        final draft = await repo.read(_uid, id);
+        final a = open(initial: draft);
+        final b = open(initial: draft);
+        await prepare(a, cell.$1, cell.$2, text: draft!.text, save: false);
+        await prepare(b, cell.$1, cell.$2, text: draft.text, save: false);
 
-          await a.cubit.submit();
-          await untilRows((r) => r.isEmpty);
-          expect(server.accepted, hasLength(1));
-          await b.cubit.submit();
+        await a.cubit.submit();
+        await untilRows((r) => r.isEmpty);
+        expect(server.accepted, hasLength(1));
+        await b.cubit.submit();
 
-          expect(
-            server.accepted,
-            hasLength(1),
-            reason: 'the row is gone: the draft was already sent',
-          );
-        },
-        skip:
-            'W6-38 G5: fixed by W6-39 (the claim must refuse when the row '
-            'is gone, see the report)',
-      );
+        expect(
+          server.accepted,
+          hasLength(1),
+          reason: 'the row is gone: the draft was already sent',
+        );
+      });
     }
+  });
+
+  group('W6-39: an upload that fails after the claim', () {
+    test('drops a fresh key: nothing was sent', () async {
+      final c = open();
+      await prepare(c, _Kind.post, _Media.photo);
+      when(() => media.putObject(any(), any()))
+          .thenThrow(const NetworkException('upload lost'));
+
+      await c.cubit.submit();
+
+      expect(server.received, 0);
+      final row = (await rows()).single;
+      expect(row.id, c.cubit.draftId);
+      final stored = await db
+          .customSelect('SELECT send_key FROM composer_draft_entries')
+          .getSingle();
+      expect(stored.read<String?>('send_key'), isNull);
+    });
+
+    test('keeps a reused key (the earlier send may have landed)', () async {
+      final c = open();
+      await prepare(c, _Kind.post, _Media.none);
+      server.script.add(ServerReply.drop);
+      await c.cubit.submit();
+      final before = await db
+          .customSelect('SELECT send_key FROM composer_draft_entries')
+          .getSingle();
+      expect(before.read<String?>('send_key'), isNotNull);
+
+      // A photo is added, and its upload fails before the RPC.
+      c.picker.next = [imageBytes('a')];
+      await c.attachments.pick();
+      await Future<void>.delayed(Duration.zero);
+      when(() => media.putObject(any(), any()))
+          .thenThrow(const NetworkException('upload lost'));
+      await c.cubit.submit();
+
+      final after = await db
+          .customSelect('SELECT send_key FROM composer_draft_entries')
+          .getSingle();
+      expect(after.read<String?>('send_key'), before.read<String?>('send_key'));
+    });
   });
 
   group('G6 a send of the other kind after a lost response', () {
@@ -543,7 +580,7 @@ void main() {
           hasLength(1),
           reason: 'one tap after an ambiguous send must not add the other kind',
         );
-      }, skip: 'W6-38 G6: fixed by W6-39 (the warning for the other kind)');
+      });
     }
   });
 }
