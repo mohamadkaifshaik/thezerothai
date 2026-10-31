@@ -100,7 +100,7 @@ func (s *service) ListMessages(ctx context.Context, uid string, req *messagingv1
 	}
 	logger.SetRequestField(ctx, fieldKind, kind)
 	logger.SetRequestField(ctx, fieldPoll, in.since != nil)
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(in.convID))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(in.convID))
 	if s.d.Repo == nil || s.d.Social == nil || s.d.Profiles == nil || len(s.d.CursorKey) == 0 {
 		return nil, errors.New("messaging: list messages is not configured")
 	}
@@ -222,7 +222,7 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		})
 	}
 	if err := g.Wait(); err != nil {
-		return nil, s.messagesErr(ctx, uid, in.convID, err)
+		return nil, s.messagesErr(ctx, uid, in.convID, err, peer)
 	}
 
 	msgs := make([]*messagingv1.Message, 0, len(rows))
@@ -346,9 +346,10 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 }
 
 // messagesErr turns a repo, directory or graph error into the wire answer through the shared tail (failure): ErrNotFound is
-// the one NOT_FOUND of an unknown id and a non-participant (D11), and ids are redacted from anything that reaches a log.
-func (s *service) messagesErr(ctx context.Context, uid, convID string, err error) error {
-	return s.failure(ctx, "list_messages", uid, convID, err)
+// the one NOT_FOUND of an unknown id and a non-participant (D11), and ids are redacted from anything that reaches a log. redact adds
+// ids known only later (the peer uid, W7-34 L-7: a peer profile or graph error can carry it in a document path).
+func (s *service) messagesErr(ctx context.Context, uid, convID string, err error, redact ...string) error {
+	return s.failure(ctx, "list_messages", uid, convID, err, redact...)
 }
 
 // MarkRead implements Service.MarkRead (ADR-0027 D4, D10; plan W7-8).
@@ -376,13 +377,13 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 	if s.d.Repo == nil {
 		return nil, errors.New("messaging: mark read is not configured")
 	}
-	logger.SetRequestField(ctx, fieldConvHash, logger.HashUID(id))
+	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
 	found, err := s.d.Repo.MarkRead(ctx, uid, id, s.d.Now())
 	if err != nil {
 		if ce := ctxFailure(ctx); ce != nil {
 			return nil, ce
 		}
-		return nil, logger.RedactErr(fmt.Errorf("messaging: mark read: %w", err), uid, id)
+		return nil, redactErr(fmt.Errorf("messaging: mark read: %w", err), uid, id)
 	}
 	logger.SetRequestField(ctx, fieldEntryFound, found)
 	if found && s.d.Badge != nil {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
@@ -38,6 +39,7 @@ import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
 import 'widgets/composer_extras_buttons.dart';
+import 'widgets/composer_poll_builder.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
@@ -137,6 +139,12 @@ class ComposerScreen extends StatelessWidget {
             scheduleEnabled:
                 featureEnabledSnapshot(context, kFeaturePosts) &&
                 featureEnabledSnapshot(context, kFeatureScheduledPosts),
+            // The toolbar rules (W6-11) read these raw flags; the cubit adds
+            // the gate's memory of a FEATURE_DISABLED (`ComposerCubit.rules`).
+            pollsFlag: featureEnabledSnapshot(context, kFeaturePolls),
+            engagementOn: featureEnabledSnapshot(context, kFeatureEngagement),
+            gifFlag: featureEnabledSnapshot(context, kFeatureGif),
+            mediaOn: mediaEnabled,
             onUnexpectedError: context.read<UnexpectedErrorReporter>(),
           ),
         ),
@@ -192,9 +200,11 @@ class _ComposerView extends StatefulWidget {
 
 class _ComposerViewState extends State<_ComposerView> {
   final _controller = TextEditingController();
+  final _questionFocus = FocusNode();
 
   @override
   void dispose() {
+    _questionFocus.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -250,6 +260,54 @@ class _ComposerViewState extends State<_ComposerView> {
     setState(() {});
   }
 
+  /// ADR-0029 L-1: the server posted the question without its poll. Tell the
+  /// user once and offer Delete (the post is a bare question) or Keep. The
+  /// messenger and the repository are taken before the screen pops, so the
+  /// snackbar outlives it.
+  void _warnPollNotAdded(BuildContext context, pb.PostView created) {
+    final messenger = ScaffoldMessenger.of(context);
+    final posts = context.read<PostsRepository>();
+    final postId = created.post.postId;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 12),
+          content: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(kPollNotAddedMessage),
+              TextButton(
+                onPressed: messenger.hideCurrentSnackBar,
+                child: const Text('Keep'),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'Delete',
+            onPressed: () =>
+                unawaited(_deleteBarePost(messenger, posts, postId)),
+          ),
+        ),
+      );
+  }
+
+  Future<void> _deleteBarePost(
+    ScaffoldMessengerState messenger,
+    PostsRepository posts,
+    String postId,
+  ) async {
+    try {
+      await posts.deletePost(postId: postId, idempotencyKey: const Uuid().v4());
+    } on Object {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text("Couldn't delete the post. Try again.")),
+        );
+    }
+  }
+
   /// Opens the Schedule dialog and applies its answer. [notice] is a server
   /// refusal of the time, shown under the pickers.
   Future<void> _openSchedule(BuildContext context, {String? notice}) async {
@@ -288,6 +346,7 @@ class _ComposerViewState extends State<_ComposerView> {
       return;
     }
     if (state.status == ComposerStatus.posted) {
+      if (state.pollNotAdded) _warnPollNotAdded(context, state.created!);
       // ADR-0021 L-1: the server echoed another audience than the one sent.
       // The messenger is app-level, so the snackbar outlives this screen.
       if (state.replyPolicyNotApplied) {
@@ -334,6 +393,64 @@ class _ComposerViewState extends State<_ComposerView> {
         );
       context.read<ComposerCubit>().errorShown();
     }
+  }
+
+  /// The avatar and the post text. Fills the available height without a
+  /// poll; with one it is the poll's question (two lines to start, growing),
+  /// inside the scroll view that also holds the builder.
+  Widget _questionArea(
+    BuildContext context,
+    ComposerState state,
+    bool isQuote,
+  ) {
+    final cubit = context.read<ComposerCubit>();
+    final hasPoll = state.hasPoll;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ExcludeSemantics(child: AppAvatar(url: widget.avatarUrl)),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              focusNode: _questionFocus,
+              autofocus: true,
+              enabled: !state.isSubmitting,
+              expands: !hasPoll,
+              maxLines: null,
+              minLines: hasPoll ? 2 : null,
+              textAlignVertical: TextAlignVertical.top,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              inputFormatters: [
+                LengthLimitingTextInputFormatter(kComposerInputCap),
+              ],
+              style: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(fontSize: 18),
+              decoration: InputDecoration(
+                hintText: hasPoll
+                    ? kPollQuestionHint
+                    : isQuote
+                    ? 'Add a comment'
+                    : "What's happening?",
+                hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontSize: 18,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+              ),
+              onChanged: cubit.textChanged,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Leaves the screen; with photos attached it asks first (they are not
@@ -383,18 +500,10 @@ class _ComposerViewState extends State<_ComposerView> {
         // A time is only shown (and "Schedule" only written) while the
         // composer can still schedule: never a line the button cannot honour.
         final scheduling = state.isScheduling && cubit.canSchedule;
-        // One rule decides which toolbar buttons are on (W6-11). The poll
-        // and GIF attachments arrive with W6-12 / W6-16, so none is attached
-        // yet; the rule already reads the schedule and the photos.
-        final rules = ComposerAttachmentRules(
-          flagPolls: featureEnabledSnapshot(context, kFeaturePolls),
-          engagementOn: featureEnabledSnapshot(context, kFeatureEngagement),
-          flagGif: featureEnabledSnapshot(context, kFeatureGif),
-          mediaOn: widget.mediaEnabled,
-          isQuote: isQuote,
-          hasPhotos: state.hasAttachments,
-          scheduled: scheduling,
-        );
+        // One rule decides which toolbar buttons are on (W6-11); the cubit
+        // owns it so its own guards read the same answer.
+        final rules = cubit.rules;
+        final poll = state.poll;
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
@@ -452,59 +561,39 @@ class _ComposerViewState extends State<_ComposerView> {
                     if (scheduling && state.hasAttachments)
                       const _ScheduleImagesNoteBox(),
                     Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            ExcludeSemantics(
-                              child: AppAvatar(url: widget.avatarUrl),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                            Expanded(
-                              child: TextField(
-                                controller: _controller,
-                                autofocus: true,
-                                enabled: !state.isSubmitting,
-                                expands: true,
-                                maxLines: null,
-                                minLines: null,
-                                textAlignVertical: TextAlignVertical.top,
-                                keyboardType: TextInputType.multiline,
-                                textCapitalization:
-                                    TextCapitalization.sentences,
-                                inputFormatters: [
-                                  LengthLimitingTextInputFormatter(
-                                    kComposerInputCap,
+                      child: poll == null
+                          ? _questionArea(context, state, isQuote)
+                          // With a poll the question and the builder scroll
+                          // together: four choices and the length do not fit
+                          // above the keyboard on a phone.
+                          : SingleChildScrollView(
+                              child: Column(
+                                children: [
+                                  _questionArea(context, state, isQuote),
+                                  Padding(
+                                    padding:
+                                        const EdgeInsetsDirectional.fromSTEB(
+                                          AppSpacing.md,
+                                          0,
+                                          AppSpacing.md,
+                                          AppSpacing.md,
+                                        ),
+                                    child: ComposerPollBuilder(
+                                      poll: poll,
+                                      durationClamped:
+                                          state.pollDurationClamped,
+                                      enabled: !state.isSubmitting,
+                                      onChoiceChanged: cubit.pollChoiceChanged,
+                                      onChoiceAdded: cubit.pollChoiceAdded,
+                                      onChoiceRemoved: cubit.pollChoiceRemoved,
+                                      onLengthChanged:
+                                          cubit.pollDurationChanged,
+                                      onRemove: cubit.pollRemoved,
+                                    ),
                                   ),
                                 ],
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(fontSize: 18),
-                                decoration: InputDecoration(
-                                  hintText: isQuote
-                                      ? 'Add a comment'
-                                      : "What's happening?",
-                                  hintStyle: Theme.of(context)
-                                      .textTheme
-                                      .bodyLarge
-                                      ?.copyWith(
-                                        fontSize: 18,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .onSurfaceVariant,
-                                      ),
-                                  filled: false,
-                                  border: InputBorder.none,
-                                  enabledBorder: InputBorder.none,
-                                  focusedBorder: InputBorder.none,
-                                  disabledBorder: InputBorder.none,
-                                ),
-                                onChanged: cubit.textChanged,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
                     ),
                     if (isQuote) _QuotePreview(preview: widget.quotePreview),
                     if (widget.mediaEnabled)
@@ -542,6 +631,12 @@ class _ComposerViewState extends State<_ComposerView> {
                                 ComposerPollButton(
                                   block: rules.poll,
                                   enabled: !state.isSubmitting,
+                                  selected: state.hasPoll,
+                                  // Open: it only takes you back to the
+                                  // question (Remove poll is in the builder).
+                                  onPressed: state.hasPoll
+                                      ? _questionFocus.requestFocus
+                                      : cubit.pollAdded,
                                 ),
                               if (cubit.canSchedule)
                                 ScheduleButton(

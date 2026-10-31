@@ -40,7 +40,7 @@ const (
 	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
 	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
 	// the account-deletion plan owner (docs/plans/account-deletion-export.md T16).
-	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */ + 1 /* bookmarks step, ADR-0023 D6 */ + 2 /* W3-32 follow_requests step, ADR-0025 D11 */ + 1 /* W7-6 messaging step, ADR-0027 D8 */ + 2 /* W5-5 lists step, ADR-0030 D8 */
+	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */ + 1 /* bookmarks step, ADR-0023 D6 */ + 2 /* W3-32 follow_requests step, ADR-0025 D11 */ + 1 /* W7-6 messaging step, ADR-0027 D8 */ + 2 /* W5-5 lists step, ADR-0030 D8 */ + 1 /* W6-8 poll_votes step, ADR-0029 D8: the votes query, one read when empty */
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
 	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
 	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1
@@ -48,8 +48,8 @@ const (
 	// for the empty page) = 707, + 2 for the P5 engagement section (ADR-0018 D7: the likes and reposts queries, one
 	// read each when empty) = 709, + 1 for the ADR-0021 scheduled section (one read per page of users/{uid}/scheduled
 	// documents, minimum 1 for the empty page) = 710, + 1 for the ADR-0023 bookmarks section (one read per page of
-	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (W3-32: the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (W7-6: the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (W5-5: one read per page of own lists, minimum 1 for the empty page) = 715 (+ the lease claim and status writes of the L-4 amendment).
-	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1 + 2 + 1 + 1
+	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (W3-32: the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (W7-6: the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (W5-5: one read per page of own lists, minimum 1 for the empty page) = 715, + 1 for the ADR-0029 D8 poll_votes section (W6-8: one read per page of the account's votes, minimum 1 for the empty page) = 716 (+ the lease claim and status writes of the L-4 amendment).
+	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1 + 2 + 1 + 1 + 1
 	refExportWrites = 2
 )
 

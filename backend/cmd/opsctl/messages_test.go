@@ -75,8 +75,8 @@ func TestMessagesTakedown_UsageAndValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no sub-command", []string{"messages", "--project", "dzeroth-dev"}, "messages needs the sub-command takedown"},
-		{"unknown sub-command", []string{"messages", "restore", testMsgTarget, "--project", "dzeroth-dev"}, "messages needs the sub-command takedown"},
+		{"no sub-command", []string{"messages", "--project", "dzeroth-dev"}, "messages needs a sub-command"},
+		{"unknown sub-command", []string{"messages", "restore", testMsgTarget, "--project", "dzeroth-dev"}, "messages needs a sub-command"},
 		{"no target", []string{"messages", "takedown", "--project", "dzeroth-dev"}, "CONVERSATION_ID:MESSAGE_ID"},
 		{"target without separator", []string{"messages", "takedown", testConvID + testMsgID, "--project", "dzeroth-dev"}, "CONVERSATION_ID:MESSAGE_ID"},
 		{"target with upper-case hex", []string{"messages", "takedown", strings.ToUpper(testMsgTarget), "--project", "dzeroth-dev"}, "CONVERSATION_ID:MESSAGE_ID"},
@@ -133,9 +133,11 @@ func TestMessagesTakedown_TakesDownAndResolvesTheReport(t *testing.T) {
 	}
 }
 
-// The output carries one-way hashes of the ids and never the ids themselves, the message text, or a handle.
+// The output carries one-way hashes of the ids and never the ids themselves, the message text, or a handle. The conversation
+// hash is the keyed one of the request logs (W7-34, L-7) when CURSOR_HMAC_KEY is set, and never the plain SHA-256.
+// Not parallel: it sets the environment and the logger's process-wide key.
 func TestMessagesTakedown_OutputHasNoIDsAndNoText(t *testing.T) {
-	t.Parallel()
+	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
 	f := newMsgFixture()
 	code, out, stderr := f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev", "--report", testReportID)
 	if code != 0 {
@@ -146,7 +148,7 @@ func TestMessagesTakedown_OutputHasNoIDsAndNoText(t *testing.T) {
 			t.Errorf("output contains %q:\n%s", secret, out)
 		}
 	}
-	for _, want := range []string{"conversation_hash=" + logger.HashUID(testConvID), "message_hash=" + logger.HashUID(testMsgID), "at=1970-01-12T13:46:40Z"} {
+	for _, want := range []string{"conversation_hash=" + logger.HashConversation(testConvID), "message_hash=" + logger.HashUID(testMsgID), "at=1970-01-12T13:46:40Z"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("audit line lacks %q:\n%s", want, out)
 		}
@@ -295,5 +297,134 @@ func TestReportsShow_MessageEvidence(t *testing.T) {
 	f.ops.report.Evidence = nil
 	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence none") {
 		t.Errorf("no evidence:\n%s", out)
+	}
+}
+
+func TestMessagesTakedown_ConversationHashIsKeyedNeverPlain(t *testing.T) {
+	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
+	f := newMsgFixture()
+	_, out, _ := f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev")
+	if strings.Contains(out, "conversation_hash="+logger.HashUID(testConvID)) {
+		t.Errorf("the audit line carries the plain conversation hash:\n%s", out)
+	}
+	t.Setenv(cursorKeyEnv, "")
+	_, out, _ = f.run("", "messages", "takedown", testMsgTarget, "--project", "dzeroth-dev")
+	if strings.Contains(out, logger.HashUID(testConvID)) || !strings.Contains(out, "conversation_hash=unavailable(set-CURSOR_HMAC_KEY)") {
+		t.Errorf("without a key the audit line must say so, never print the plain hash:\n%s", out)
+	}
+}
+
+// loghash needs no project and no Firestore, takes the key only from the environment, and prints exactly the hash.
+func TestMessagesLogHash(t *testing.T) {
+	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
+	f := newMsgFixture()
+	code, out, stderr := f.run("", "messages", "loghash", testConvID)
+	want := logger.HashConversation(testConvID)
+	if code != 0 || out != want+"\n" || stderr != "" {
+		t.Fatalf("code=%d out=%q stderr=%q, want exactly %q", code, out, stderr, want)
+	}
+	if len(want) != 16 || want == logger.HashUID(testConvID) {
+		t.Errorf("hash %q must be 16 hex characters and differ from the plain hash %q", want, logger.HashUID(testConvID))
+	}
+	if len(f.mod.calls) != 0 {
+		t.Errorf("loghash touched the moderator: %+v", f.mod.calls)
+	}
+	// A different key (another project, or a rotated secret) gives a different hash.
+	t.Setenv(cursorKeyEnv, "another-key")
+	if _, out2, _ := f.run("", "messages", "loghash", testConvID); out2 == out {
+		t.Errorf("two keys gave the same hash %q", out2)
+	}
+	for _, tt := range []struct {
+		name, key string
+		args      []string
+		want      string
+	}{
+		{"no key", "", []string{"messages", "loghash", testConvID}, "needs CURSOR_HMAC_KEY"},
+		{"no id", "k", []string{"messages", "loghash"}, "needs CONVERSATION_ID"},
+		{"short id", "k", []string{"messages", "loghash", "abc"}, "needs CONVERSATION_ID"},
+		{"a message target", "k", []string{"messages", "loghash", testMsgTarget}, "needs CONVERSATION_ID"},
+	} {
+		t.Setenv(cursorKeyEnv, tt.key)
+		if code, out, stderr := f.run("", tt.args...); code != 2 || out != "" || !strings.Contains(stderr, tt.want) {
+			t.Errorf("%s: code=%d out=%q stderr=%q, want code 2 containing %q", tt.name, code, out, stderr, tt.want)
+		}
+	}
+}
+
+type fakeMigrator struct {
+	pages  []messaging.PlaceholderPage
+	calls  []string
+	dryRun []bool
+	err    error
+}
+
+func (f *fakeMigrator) MigratePlaceholder(_ context.Context, after string, dryRun bool) (messaging.PlaceholderPage, error) {
+	f.calls = append(f.calls, after)
+	f.dryRun = append(f.dryRun, dryRun)
+	if f.err != nil {
+		return messaging.PlaceholderPage{}, f.err
+	}
+	p := f.pages[0]
+	f.pages = f.pages[1:]
+	return p, nil
+}
+
+func runMigrate(m *fakeMigrator, args ...string) (code int, stdout, stderr string) {
+	var out, errOut bytes.Buffer
+	open := func(context.Context, string) (*backends, error) {
+		return &backends{placeholder: m, close: func() {}}, nil
+	}
+	code = run(context.Background(), append([]string{"messages", "migrate-placeholder"}, args...), strings.NewReader(""), &out, &errOut, open, time.Now)
+	return code, out.String(), errOut.String()
+}
+
+func TestMessagesMigratePlaceholder(t *testing.T) {
+	t.Parallel()
+	pages := func() []messaging.PlaceholderPage {
+		return []messaging.PlaceholderPage{
+			{Last: "aa", More: true, Conversations: 50, Messages: 3, Entries: 2},
+			{Last: "bb", More: false, Conversations: 4, Messages: 1, Entries: 1},
+		}
+	}
+	for _, dry := range []bool{true, false} {
+		m := &fakeMigrator{pages: pages()}
+		args := []string{"--project", "dzeroth-dev"}
+		if dry {
+			args = append(args, "--dry-run")
+		}
+		code, out, stderr := runMigrate(m, args...)
+		if code != 0 {
+			t.Fatalf("dry=%v code=%d out=%q stderr=%q", dry, code, out, stderr)
+		}
+		if len(m.calls) != 2 || m.calls[0] != "" || m.calls[1] != "aa" {
+			t.Errorf("dry=%v calls=%v dryRun=%v: want pages after \"\" then \"aa\" with the dry-run flag passed through", dry, m.calls, m.dryRun)
+		}
+		for _, d := range m.dryRun {
+			if d != dry {
+				t.Errorf("dry=%v but a call ran with dryRun=%v", dry, d)
+			}
+		}
+		want := "conversations=54 messages=4 entries=3 rewritten"
+		if dry {
+			want = "conversations=54 messages=4 entries=3 would be rewritten (nothing written)"
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("dry=%v output lacks %q:\n%s", dry, want, out)
+		}
+	}
+}
+
+func TestMessagesMigratePlaceholder_Refusals(t *testing.T) {
+	t.Parallel()
+	m := &fakeMigrator{}
+	if code, _, stderr := runMigrate(m, "--project", "dzeroth-prod"); code != 2 || !strings.Contains(stderr, "dev only") || len(m.calls) != 0 {
+		t.Errorf("prod: code=%d stderr=%q calls=%v, want exit 2, dev only, nothing opened", code, stderr, m.calls)
+	}
+	if code, _, stderr := runMigrate(m); code != 2 || !strings.Contains(stderr, "--project is required") {
+		t.Errorf("no project: code=%d stderr=%q", code, stderr)
+	}
+	m.err = errors.New("boom")
+	if code, _, _ := runMigrate(m, "--project", "dzeroth-dev"); code != 1 {
+		t.Errorf("a failing page must exit 1, got %d", code)
 	}
 }
