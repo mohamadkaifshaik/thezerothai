@@ -16,8 +16,8 @@ func TestLoad_SearchDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if rl := cfg.RateLimit; rl.SearchPeoplePerUserPerMinute != 30 || rl.SearchPostsPerUserPerMinute != 20 || rl.SearchCallsPerDay != 300 {
-		t.Errorf("search limits = %d/%d/%d, want 30/20/300", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute, rl.SearchCallsPerDay)
+	if rl := cfg.RateLimit; rl.SearchPeoplePerUserPerMinute != 30 || rl.SearchPostsPerUserPerMinute != 20 || rl.SearchCallsPerDay != 300 || rl.TrendsCallsPerDay != 400 {
+		t.Errorf("search limits = %d/%d/%d/%d, want 30/20/300/400", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute, rl.SearchCallsPerDay, rl.TrendsCallsPerDay)
 	}
 	s := cfg.Search
 	if s.PrefixCacheEntries != 2000 || s.TagCacheEntries != 500 || s.TrendsMinAuthors != 3 || s.TrendsMaxPostsPerRun != 2000 || s.TrendsMinInterval != 12*time.Hour || len(s.TrendsDenylist) != 0 {
@@ -44,6 +44,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 		t.Setenv("RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", "7")
 		t.Setenv("RATE_LIMIT_SEARCH_POSTS_PER_MIN", "8")
 		t.Setenv("SEARCH_CALLS_PER_DAY", "9")
+		t.Setenv("TRENDS_CALLS_PER_DAY", "13")
 		t.Setenv("CACHE_SEARCH_PREFIX_ENTRIES", "10")
 		t.Setenv("CACHE_SEARCH_TAG_ENTRIES", "11")
 		t.Setenv("TRENDS_MIN_AUTHORS", "4")
@@ -58,7 +59,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
-		if rl := cfg.RateLimit; rl.SearchPeoplePerUserPerMinute != 7 || rl.SearchPostsPerUserPerMinute != 8 || rl.SearchCallsPerDay != 9 {
+		if rl := cfg.RateLimit; rl.SearchPeoplePerUserPerMinute != 7 || rl.SearchPostsPerUserPerMinute != 8 || rl.SearchCallsPerDay != 9 || rl.TrendsCallsPerDay != 13 {
 			t.Errorf("rate limit override = %d/%d/%d", rl.SearchPeoplePerUserPerMinute, rl.SearchPostsPerUserPerMinute, rl.SearchCallsPerDay)
 		}
 		s := cfg.Search
@@ -81,7 +82,7 @@ func TestLoad_SearchOverridesAndValidation(t *testing.T) {
 	})
 
 	for _, key := range []string{
-		"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", "RATE_LIMIT_SEARCH_POSTS_PER_MIN", "SEARCH_CALLS_PER_DAY", "CACHE_SEARCH_PREFIX_ENTRIES",
+		"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", "RATE_LIMIT_SEARCH_POSTS_PER_MIN", "SEARCH_CALLS_PER_DAY", "TRENDS_CALLS_PER_DAY", "CACHE_SEARCH_PREFIX_ENTRIES",
 		"CACHE_SEARCH_TAG_ENTRIES", "TRENDS_MIN_AUTHORS", "TRENDS_MAX_POSTS_PER_RUN",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {

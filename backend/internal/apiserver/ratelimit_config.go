@@ -101,6 +101,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
 	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
 	searchDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchCallsPerDay)
+	// ADR-0028 note 2026-10-31 part 4 (W4-28, review L-4): GetTrends keeps the 60/min default bucket and gains its OWN daily
+	// cap (limit_name "trends_daily", TRENDS_CALLS_PER_DAY, default 400), never the search_daily one.
+	trendsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.TrendsCallsPerDay)
 	// ADR-0025 D13: RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
 	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap. Both are covered by the
 	// ADR-0010 D5 read budget; responses need no quota (the pending requests bound them).
@@ -221,6 +224,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			searchv1connect.SearchServiceSearchPeopleProcedure: {Name: "search_daily", Cap: searchDailyCap},
 			searchv1connect.SearchServiceSearchPostsProcedure:  {Name: "search_daily", Cap: searchDailyCap},
+			searchv1connect.SearchServiceGetTrendsProcedure:    {Name: "trends_daily", Cap: trendsDailyCap},
 
 			messagingv1connect.MessagingServiceSendMessageProcedure:          {Name: "messages_daily", Cap: messagesDailyCap},
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},

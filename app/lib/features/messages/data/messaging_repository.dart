@@ -85,7 +85,9 @@ class MessagingRepository {
   bool get enabled => _gate.canSend;
 
   /// Fires after the cached conversation lists changed by a local action, after
-  /// every Accept, every Delete, and dropBlockedRequest (W7-18), so an open
+  /// every Accept, every Delete, and dropBlockedRequest (W7-18), after an Inbox
+  /// refresh that changed a cached row's state and after
+  /// noteSentRequestAnswered (W7-25b), so an open
   /// inbox or requests list re-reads the cache (no network) instead of showing
   /// a stale row or count.
   /// Not a poll and not a server push: nothing here is live.
@@ -169,6 +171,7 @@ class MessagingRepository {
     final int? requestCount = folder == Folder.FOLDER_INBOX
         ? page.requestCount.toInt()
         : null;
+    final moved = await _requestStateMoved(folder, page.conversations);
     await _store.applyConversationsRefresh(
       folder,
       items: page.conversations,
@@ -177,6 +180,7 @@ class MessagingRepository {
       requestCount: requestCount,
       requestCountGeneration: generation,
     );
+    if (moved) _notifyConversationsChanged();
     final snapshot = await _store.readConversations(folder);
     return ConversationsResult(
       snapshot,
@@ -184,11 +188,28 @@ class MessagingRepository {
     );
   }
 
+  /// W7-25b: whether an INBOX answer moves a cached row to another state (the
+  /// requester sees the peer accept). Local reads only. When it does, the
+  /// caller fires [conversationsChanged] after the write so an open thread
+  /// re-reads its row. Any other refresh stays quiet.
+  Future<bool> _requestStateMoved(
+    Folder folder,
+    Iterable<pb.Conversation> items,
+  ) async {
+    if (folder != Folder.FOLDER_INBOX) return false;
+    for (final item in items) {
+      final cached = await _store.conversation(item.id);
+      if (cached != null && cached.state != item.state) return true;
+    }
+    return false;
+  }
+
   Future<ConversationsResult> _conversationsColdOpen(
     Folder folder,
     int session,
   ) async {
     final page = await _listConversations(folder);
+    final moved = await _requestStateMoved(folder, page.conversations);
     await _store.applyConversationsColdOpen(
       folder,
       items: page.conversations,
@@ -205,6 +226,7 @@ class MessagingRepository {
       await _store.readConversations(folder),
       empty: page.conversations.isEmpty,
     );
+    if (moved) _notifyConversationsChanged();
     return ConversationsResult(
       snapshot,
       requestCount: folder == Folder.FOLDER_INBOX
@@ -531,6 +553,26 @@ class MessagingRepository {
   Future<void> dropBlockedRequest(String conversationId) async {
     if (!await _isRequest(conversationId)) return;
     await _store.removeConversationEntry(conversationId);
+    _notifyConversationsChanged();
+  }
+
+  /// The peer's first reply reached a request the caller sent (W7-25b). Only
+  /// the recipient's reply can add a peer message, and it accepts the request
+  /// (ADR-0027 D4 step 5), so the cached row becomes an ACCEPTED inbox row now
+  /// instead of at the next Inbox refresh. Local only, no RPC. A conversation
+  /// that is not a cached sent request (REQUEST in INBOX) is left alone, and
+  /// the request count is not touched (it counts received requests).
+  Future<void> noteSentRequestAnswered(String conversationId) async {
+    final cached = await _store.conversation(conversationId);
+    if (cached == null ||
+        cached.state != ConversationState.CONVERSATION_STATE_REQUEST ||
+        cached.folder != Folder.FOLDER_INBOX) {
+      return;
+    }
+    await _store.markConversationAccepted(
+      conversationId,
+      session: _store.session,
+    );
     _notifyConversationsChanged();
   }
 

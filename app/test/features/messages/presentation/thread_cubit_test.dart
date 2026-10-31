@@ -7,6 +7,7 @@ import 'package:dzeroth/features/messages/domain/thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/thread_push_coverage.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +61,10 @@ void main() {
     uuid = _SeqUuid();
     when(() => repo.dropBlockedRequest(any())).thenAnswer((_) async {});
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
+    when(() => repo.cachedConversation(any())).thenAnswer((_) async => null);
+    when(() => repo.noteSentRequestAnswered(any())).thenAnswer((_) async {});
     when(
       () => repo.markConversationRead(
         idempotencyKey: any(named: 'idempotencyKey'),
@@ -1083,5 +1088,165 @@ void main() {
       expect(cubit.state.readOnly, isTrue);
       expect(reported, hasLength(1));
     });
+  });
+
+  group('a request the caller sent (W7-25b)', () {
+    pb.Conversation sent() =>
+        threadConv(state: ConversationState.CONVERSATION_STATE_REQUEST);
+    pb.Conversation accepted() => threadConv();
+    final own = [msg(1, fromSelf: true, secondsAgo: 100)];
+
+    test('a reopen from the cache keeps REQUEST in INBOX', () async {
+      stubOpen(
+        snap(own, conversation: sent()),
+        snap(own, conversation: sent()),
+      );
+      make();
+      await cubit.load();
+
+      expect(isSentRequest(cubit.state.conversation!), isTrue);
+    });
+
+    test(
+      'a row change flips the header to ACCEPTED without a request',
+      () async {
+        final changes = StreamController<void>.broadcast();
+        addTearDown(changes.close);
+        when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+        stubOpen(
+          snap(own, conversation: sent()),
+          snap(own, conversation: sent()),
+        );
+        make();
+        await cubit.load();
+        when(() => repo.cachedConversation(kThreadId))
+            .thenAnswer((_) async => accepted());
+
+        changes.add(null);
+        await pumpEventQueue();
+
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_ACCEPTED,
+        );
+        expect(isSentRequest(cubit.state.conversation!), isFalse);
+        verifyNever(() => repo.pollThread(any()));
+        verify(() => repo.refreshThread(kThreadId)).called(1); // the open only
+      },
+    );
+
+    test('a row change that says the same changes nothing', () async {
+      final changes = StreamController<void>.broadcast();
+      addTearDown(changes.close);
+      when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+      stubOpen(
+        snap(own, conversation: sent()),
+        snap(own, conversation: sent()),
+      );
+      make();
+      await cubit.load();
+      when(() => repo.cachedConversation(kThreadId))
+          .thenAnswer((_) async => sent());
+      final states = <ThreadState>[];
+      final sub = cubit.stream.listen(states.add);
+
+      changes.add(null);
+      await pumpEventQueue();
+      await sub.cancel();
+
+      expect(states, isEmpty);
+    });
+
+    test('can_reply false from the row ends the waiting note', () async {
+      final changes = StreamController<void>.broadcast();
+      addTearDown(changes.close);
+      when(() => repo.conversationsChanged).thenAnswer((_) => changes.stream);
+      stubOpen(
+        snap(own, conversation: sent()),
+        snap(own, conversation: sent()),
+      );
+      make();
+      await cubit.load();
+      when(() => repo.cachedConversation(kThreadId))
+          .thenAnswer((_) async => sent().deepCopy()..canReply = false);
+
+      changes.add(null);
+      await pumpEventQueue();
+
+      expect(isSentRequest(cubit.state.conversation!), isFalse);
+      expect(cubit.state.readOnly, isTrue);
+    });
+
+    test(
+      "the peer's message in a poll marks it ACCEPTED here and in the row",
+      () async {
+        stubOpen(
+          snap(own, conversation: sent()),
+          snap(own, conversation: sent()),
+        );
+        make();
+        await cubit.load();
+        final reply = msg(2, secondsAgo: 5);
+        when(() => repo.pollThread(kThreadId))
+            .thenAnswer((_) async => const PollResult(newMessages: true));
+        when(
+          () => repo.cachedThread(kThreadId),
+        ).thenAnswer((_) async => snap([reply, ...own], conversation: sent()));
+
+        await cubit.pull();
+
+        expect(
+          cubit.state.conversation!.state,
+          ConversationState.CONVERSATION_STATE_ACCEPTED,
+        );
+        expect(cubit.state.messages, hasLength(2));
+        verify(() => repo.noteSentRequestAnswered(kThreadId)).called(1);
+      },
+    );
+
+    test('the caller\'s own new message does not answer the request', () async {
+      stubOpen(
+        snap(own, conversation: sent()),
+        snap(own, conversation: sent()),
+      );
+      make();
+      await cubit.load();
+      final second = msg(2, fromSelf: true, secondsAgo: 5);
+      when(() => repo.pollThread(kThreadId))
+          .thenAnswer((_) async => const PollResult(newMessages: true));
+      when(
+        () => repo.cachedThread(kThreadId),
+      ).thenAnswer((_) async => snap([second, ...own], conversation: sent()));
+
+      await cubit.pull();
+
+      expect(isSentRequest(cubit.state.conversation!), isTrue);
+      verifyNever(() => repo.noteSentRequestAnswered(any()));
+    });
+
+    test(
+      'a received request is never marked answered by a peer message',
+      () async {
+        final received = threadConv(
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+          folder: Folder.FOLDER_REQUESTS,
+        );
+        stubOpen(
+          snap(thread(1), conversation: received),
+          snap(thread(1), conversation: received),
+        );
+        make();
+        await cubit.load();
+        when(() => repo.pollThread(kThreadId))
+            .thenAnswer((_) async => const PollResult(newMessages: true));
+        when(() => repo.cachedThread(kThreadId))
+            .thenAnswer((_) async => snap(thread(2), conversation: received));
+
+        await cubit.pull();
+
+        expect(isReceivedRequest(cubit.state.conversation!), isTrue);
+        verifyNever(() => repo.noteSentRequestAnswered(any()));
+      },
+    );
   });
 }

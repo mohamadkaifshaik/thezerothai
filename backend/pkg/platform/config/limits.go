@@ -115,6 +115,15 @@ type RateLimitConfig struct {
 	// Worst people rows 900 x 20 = 18,000 handles a day, already public on profiles.
 	SearchCallsPerDay int64
 
+	// TrendsCallsPerDay is the in-memory daily cap on GetTrends calls (one counter per uid per instance, ratelimit.DailyCap),
+	// env TRENDS_CALLS_PER_DAY, logged as limit_name "trends_daily" (ADR-0028 note 2026-10-31 part 4, review L-4). Its own cap,
+	// not search_daily: GetTrends is a warm 0-read call, so the read budget never binds it.
+	//
+	// Default 400 = 300 typeahead bursts (the search_daily level) + 100 TrendsCubit loads (a 5 min client TTL over 8 active
+	// hours is 96). At most 400 x 3 instances = 1,200 calls per account per day, about 36,500 a month: INR 3 to 10 per account
+	// month in requests, vCPU and memory, against INR 680 to 2,190 with only the 60/min bucket.
+	TrendsCallsPerDay int64
+
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest (ADR-0025 D13), env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph
 	// list bucket (GraphListPerMinute) and its graph_list_daily cap.
@@ -172,7 +181,7 @@ type RateLimitConfig struct {
 	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
 	// (ADR-0010 D5, ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
 	// typical day of ~183 reads). The counter is per instance LIFETIME (in memory, reset only at the IST day
-	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,368 reads
+	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,268 reads
 	// on the budget plus 40 on account_ops_daily = 2,408 per instance lifetime (ADR-0010 D5 A1, A6). The daily
 	// total is that times the lifetimes the uid touches: 3 on a steady day, up to 6 on a rollout day, and up to
 	// ~270 when an attacker idle-cycles instances (residual R2, accepted; abuse-spike.md has the churn check).

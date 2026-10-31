@@ -289,8 +289,8 @@ func TestTrends_ConcurrentColdCallersShareOneRead(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if store.gets > 2 { // a caller that arrives after the first load finished is a cache hit; never 20
-		t.Fatalf("store reads = %d for 20 concurrent callers, want 1 (2 tolerated for a late race)", store.gets)
+	if store.gets != 1 { // a caller that arrives after the first load finished is a cache hit, also inside the load
+		t.Fatalf("store reads = %d for 20 concurrent callers, want 1", store.gets)
 	}
 }
 

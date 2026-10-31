@@ -35,6 +35,11 @@ const (
 	topMaxPage = 20
 	// mediaScan is how many older tagged posts one MEDIA call scans.
 	mediaScan = 30
+	// LATEST query windows are fixed tiers independent of page_size (ADR-0028 note 2026-10-31 part 3, review L-1): page 1 is
+	// the whole tag entry (tagEntrySize rows) for page_size <= tagEntrySize and latestWide beyond it; an older page is
+	// latestOlderSmall for page_size <= latestOlderSmall and latestWide beyond it; a tail page reads the whole rest (latestWide).
+	latestOlderSmall = 20
+	latestWide       = 50
 	// entryLoadTimeout bounds the shared entry load, which runs detached from the first caller's cancellation.
 	entryLoadTimeout = 5 * time.Second
 )
@@ -145,6 +150,13 @@ func binding(uid, tag string, t tabKind) string {
 	return "search|" + uid + "|" + tag + "|" + t.String()
 }
 
+// tailBinding is the binding of a LATEST tail token: the page that issued it came from a window that was not full, so the
+// end of the tag was reached and every later page depends only on visible rows (ADR-0028 note 2026-10-31 part 3). The
+// decoder tries binding(LATEST), then tailBinding, so both tokens stay opaque and need no new codec.
+func tailBinding(uid, tag string) string {
+	return "search|" + uid + "|" + tag + "|LATEST_TAIL"
+}
+
 func tokenError() error {
 	return apierr.Validation("page_token", "invalid or expired page token")
 }
@@ -154,7 +166,8 @@ type dropTally struct{ hidden, blocked, muted, protected int }
 
 func (d dropTally) total() int { return d.hidden + d.blocked + d.muted + d.protected }
 
-// fetched is the unfiltered rows a call works on, newest first, and whether the query had more below the last row.
+// fetched is the unfiltered rows a call works on, newest first. more is whether the window was full (the query returned as
+// many rows as it asked for, or the entry held tagEntrySize), so older posts may exist below the last row.
 type fetched struct {
 	rows []*posts.Post
 	more bool
@@ -164,10 +177,18 @@ type fetched struct {
 // search implements SearchPosts (ADR-0028 D3, D5; plan W4-7, W4-8).
 //
 // Worst-case Firestore reads, interceptor included (writes 0): TOP, LATEST page 1 and MEDIA page 1 at page_size <= 30
-// cold 33 (interceptor 1, caller graph 1, userLikes 1, the tag entry 30), warm 0 to 3; LATEST page 1 at page_size 50: 53;
-// LATEST older page 23 / 53 at 20 / 50 (interceptor, graph, userLikes, query = page_size); MEDIA older scan 33 (scan 30).
+// cold 33 (interceptor 1, caller graph 1, userLikes 1, the tag entry 30), warm 0 to 3; LATEST page 1 at page_size 31 to 50:
+// 53 (query 50). LATEST windows are fixed tiers, never the page size itself (ADR-0028 note 2026-10-31 part 3, review L-1):
+// an older page is 23 at page_size <= 20 (query 20) and 53 at 21 to 50 (query 50); a tail page (the token of a window that
+// was not full, the end of the tag) reads 3 + the rows left, at most 32 after a page-1 entry and 52 after a 50-row window.
+// The client sends 20, so its cost is 33 / 23 / <= 32. MEDIA older scan 33 (scan 30).
 // An unsupported query, a grammar rejection and a bad token read nothing beyond the interceptor. The graph and userLikes
 // reads are 60 s instance caches; userLikes is read only when a row is returned and engagement or bookmarks is on.
+//
+// LATEST filters the WHOLE window (moderation, blocks, mutes, Audience), then cuts to page_size, so the number of rows and
+// whether a token follows depend only on the visible rows and on whether the window was full. The token position is the last
+// returned row when the page was cut, else the window's last queried row; a window that was not full issues a LATEST_TAIL
+// token (only when it was cut), and a tail page reads the whole rest of the tag.
 //
 // Staleness: the tag entry is shared across viewers and at most tagEntryTTL old; every per-viewer filter runs after it.
 func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab searchv1.SearchTab, pageSize int32, token string) (*searchv1.SearchPostsResponse, error) {
@@ -190,18 +211,24 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	limit := limits.ClampPageSize(pageSize)
 
 	var cur *cursor.Cursor
+	tail := false // the token is a LATEST_TAIL token
 	if token != "" {
 		if t == tabTop { // TOP issues no token, so none can be valid for it
 			return nil, tokenError()
 		}
 		c, err := cursor.DecodeAt(r.d.CursorKey, binding(uid, tag, t), token, r.d.Now())
+		if err != nil && t == tabLatest { // the tail token of a LATEST chain
+			if c, err = cursor.DecodeAt(r.d.CursorKey, tailBinding(uid, tag), token, r.d.Now()); err == nil {
+				tail = true
+			}
+		}
 		if err != nil || cursor.IsFirstPage(c) {
 			return nil, tokenError()
 		}
 		cur = &c
 	}
 
-	f, err := r.fetch(ctx, uid, tag, t, limit, cur)
+	f, err := r.fetch(ctx, uid, tag, t, limit, cur, tail)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +247,7 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	}
 
 	more := f.more
+	tailToken := false // the token issued below, if any, is a LATEST_TAIL token
 	var resume *posts.Post
 	if len(f.rows) > 0 {
 		resume = f.rows[len(f.rows)-1] // the last QUERIED row, kept or not, so a dropped post never stalls the token
@@ -236,10 +264,26 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 			kept = kept[:limit]
 			resume, more = kept[limit-1], true
 		}
+	case tabLatest:
+		// L-1: the whole window was filtered above, so the cut, the token and its position depend only on the visible rows
+		// and on whether the window was full. Cut at the page size and resume after the last row RETURNED (the next page
+		// queries the rows after it again, hidden ones included); with no cut, after the window's last queried row. A window
+		// that was not full holds the end of the tag: only a cut page then issues a token, and it is a tail token.
+		cut := len(kept) > limit
+		if cut {
+			kept = kept[:limit]
+			resume = kept[limit-1]
+		}
+		tailToken = !f.more
+		more = f.more || cut
 	}
 	resp := &searchv1.SearchPostsResponse{Posts: r.views(ctx, uid, kept, embed, snap), NormalizedTag: tag}
 	if more && resume != nil {
-		resp.NextPageToken = cursor.EncodeAt(r.d.CursorKey, binding(uid, tag, t), cursor.Cursor{CreatedAt: resume.CreatedAt, DocID: resume.ID}, r.d.Now())
+		b := binding(uid, tag, t)
+		if tailToken {
+			b = tailBinding(uid, tag)
+		}
+		resp.NextPageToken = cursor.EncodeAt(r.d.CursorKey, b, cursor.Cursor{CreatedAt: resume.CreatedAt, DocID: resume.ID}, r.d.Now())
 	}
 	logger.SetRequestField(ctx, fieldResults, len(resp.Posts))
 	logger.SetRequestField(ctx, fieldDropped, tally.total())
@@ -251,7 +295,7 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 }
 
 // fetch runs the one query (or entry read) the tab and token call for.
-func (r *postsRuntime) fetch(ctx context.Context, uid, tag string, t tabKind, limit int, cur *cursor.Cursor) (fetched, error) {
+func (r *postsRuntime) fetch(ctx context.Context, uid, tag string, t tabKind, limit int, cur *cursor.Cursor, tail bool) (fetched, error) {
 	query := func(before *cursor.Cursor, n int) ([]*posts.Post, error) {
 		var w posts.Window
 		if before != nil {
@@ -268,21 +312,28 @@ func (r *postsRuntime) fetch(ctx context.Context, uid, tag string, t tabKind, li
 		rows, err := query(cur, mediaScan)
 		return fetched{rows: rows, more: len(rows) == mediaScan}, err
 	case t == tabLatest && cur != nil:
-		rows, err := query(cur, limit)
-		return fetched{rows: rows, more: len(rows) == limit}, err
-	case t == tabLatest && limit > tagEntrySize: // larger than the entry: skip it
-		rows, err := query(nil, limit)
-		return fetched{rows: rows, more: len(rows) == limit}, err
+		w := latestWindow(limit, tail)
+		rows, err := query(cur, w)
+		return fetched{rows: rows, more: len(rows) == w}, err
+	case t == tabLatest && limit > tagEntrySize: // larger than the entry: one fixed wide window, skipping it
+		rows, err := query(nil, latestWide)
+		return fetched{rows: rows, more: len(rows) == latestWide}, err
 	}
 	entry, hit, err := r.entry(ctx, uid, tag)
 	if err != nil {
 		return fetched{}, err
 	}
-	if t == tabLatest { // page 1 is the first limit items of the entry
-		n := min(limit, len(entry))
-		return fetched{rows: entry[:n], more: len(entry) > n || len(entry) == tagEntrySize, hit: hit}, nil
-	}
+	// LATEST page 1 is the whole entry too (L-1): it is filtered first and cut at the page size afterwards.
 	return fetched{rows: entry, more: len(entry) == tagEntrySize, hit: hit}, nil
+}
+
+// latestWindow is the size of an older LATEST window: a fixed tier, never the page size itself (L-1). A tail page reads the
+// whole rest of the tag, which holds fewer than latestWide rows unless a late commit landed in the settle gap.
+func latestWindow(limit int, tail bool) int {
+	if tail || limit > latestOlderSmall {
+		return latestWide
+	}
+	return latestOlderSmall
 }
 
 // entry returns the newest tagEntrySize posts of tag, unfiltered: from the instance cache (0 reads) or one ByHashtag

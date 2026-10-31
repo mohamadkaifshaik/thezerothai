@@ -96,6 +96,10 @@ void main() {
     poller = FakeThreadPoller();
     current = snap(run(1, 3));
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
+    when(() => repo.cachedConversation(any())).thenAnswer((_) async => null);
+    when(() => repo.noteSentRequestAnswered(any())).thenAnswer((_) async {});
     when(() => repo.rateLimitHold).thenReturn(RateLimitHold());
     when(() => repo.cachedThread(any())).thenAnswer((_) async => current);
     when(() => repo.refreshThread(any())).thenAnswer((_) async => current);

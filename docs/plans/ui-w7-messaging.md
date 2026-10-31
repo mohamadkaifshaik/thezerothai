@@ -937,7 +937,7 @@ Order:
 - **Flag.** Dev: `feature_messaging` allowlist (3 uids); prod stays `off`.
 - **Seam.** —
 
-### W7-25 — Request state for the sender  [owner: architect (done), then W7-25a backend-developer and W7-25b frontend-developer] [size: S] [depends: W7-7, W7-9; W7-25a after W7-37a; W7-25b after W7-25a serves dev and after W7-26]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-25), 2026-10-30"); W7-25a Open, W7-25b Open
+### W7-25 — Request state for the sender  [owner: architect (done), then W7-25a backend-developer and W7-25b frontend-developer] [size: S] [depends: W7-7, W7-9; W7-25a after W7-37a; W7-25b after W7-25a serves dev and after W7-26]  Status: Ready to build (design: ADR-0027 "Implementation note (W7-25), 2026-10-30"); W7-25a merged (#486, serves dev); W7-25b In review
 - **Problem.** `ListConversations` reports every `dmInbox` entry as ACCEPTED, so the sender's pending request reads ACCEPTED in their Inbox list. The W7-18 waiting note ("Waiting for them to accept. You can send up to 3 messages.") needs REQUEST in INBOX, which only the `ListMessages` header carries, on a first or older page. So the note disappears when the sender reopens the thread, and stays after the peer accepts.
 - **Decision (ADR-0027 note W7-25; accepted by the founder 2026-10-30).** A `requestPending` bool on the requester's own `dmInbox` entry: true while the conversation is REQUEST, absent otherwise. Send writes it at +0. Accept clears it at +1 read and +1 write. `conversationOf` maps it to state REQUEST in folder INBOX. There is no new proto field.
 - **Seam.** `messaging.Service`; `conversationOf` stays the one mapper; the client's `MessagingRepository` is still the only RPC caller.
@@ -990,7 +990,7 @@ Order:
   - The writes crossover (about 506 DAU) moves by under 1 DAU.
 - **Flag.** `messaging` (Accept is per caller; unchanged).
 
-#### W7-25b — client (frontend-developer)  Status: Open
+#### W7-25b — client (frontend-developer)  Status: In review (PR to be linked; merge after W7-25a serves dev, which it does as of 2026-10-31)
 - **Files.**
   - `app/lib/features/messages/presentation/bloc/thread_cubit.dart`:
     - (1) Subscribe to `MessagingRepository.conversationsChanged` (W7-18) and, when it fires, re-read this conversation's cached row. Take its `state`, `folder` and `can_reply` into `ThreadState.conversation`. The row is what ListConversations wrote, so it now carries REQUEST for a sent request.

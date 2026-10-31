@@ -264,8 +264,8 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-17 | Explore screen `/explore` + nav destination | frontend-developer | M | W4-14, W4-10 for the dev check | shell nav files (`MainShell`, `AppBottomBar`, rail, drawer) may conflict with W3 UI | In review (#472) |
 | W4-18 | Desktop side column: search pill + "What's happening" card | frontend-developer | S | W4-17 | yes (`AppSideColumn`) | In review (#472) |
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | In review (#472) |
-| W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Open |
-| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | In review (#493) |
+| W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | In review (#500; D-1 Low fixed in #501) |
+| W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow open) |
 | W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (#492) |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Open |
@@ -704,7 +704,7 @@ Order:
 - **Seam.** W3's suggestion repository is the only data source.
 - **Parallel with W3:** **depends on W3.**
 
-### W4-20 — Backend tests  [owner: tester] [size: M] [depends: W4-5, W4-8, W4-10]  Status: Open
+### W4-20 — Backend tests  [owner: tester] [size: M] [depends: W4-5, W4-8, W4-10]  Status: In review (14 chain tests added; D-1 Low reported in docs/reviews/test-report-w4.md)
 - **Description.** Integration tests on emulators:
   - flag modes off / allowlist / percent / on for `search` and `trends`, with the refresh kill switch (`off` only);
   - the grammar table (valid, too short, too long, control and bidi characters, `#` with a digits-only body), each rejection at 0 reads;
@@ -941,7 +941,7 @@ Source: security review W4-22 M-2; ADR-0028 note 2026-10-31, part 2. Gate: **bef
 - **Seam.** `AuthorDirectory`, a subset of `identity.Directory`. The sweep reads profiles only through identity's interface.
 - **Parallel with W3:** yes.
 
-### W4-27 — SearchPosts LATEST: fixed windows, filter before cutting  [owner: backend-developer; tester adds the W4-20 case] [size: S] [depends: W4-8 merged]  Status: Open
+### W4-27 — SearchPosts LATEST: fixed windows, filter before cutting  [owner: backend-developer; tester adds the W4-20 case] [size: S] [depends: W4-8 merged]  Status: Done
 Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **before `search` leaves the allowlist in prod** (prod percent).
 - **Description.** LATEST only, in `service_posts.go` (`search`, `fetch`).
   - TOP issues no token.
@@ -1012,7 +1012,7 @@ Source: security review W4-22 L-1; ADR-0028 note 2026-10-31, part 3. Gate: **bef
 - **Seam.** `search.Service.Posts(LATEST)`; the token stays opaque and sealed (D5).
 - **Parallel with W3:** yes.
 
-### W4-28 — GetTrends daily call cap  [owner: backend-developer] [size: XS] [depends: W4-10 merged]  Status: Open
+### W4-28 — GetTrends daily call cap  [owner: backend-developer] [size: XS] [depends: W4-10 merged]  Status: Done
 Source: security review W4-22 L-4; ADR-0028 note 2026-10-31, part 4. Gate: **before `trends` leaves the allowlist in prod** (prod percent).
 - **Description.**
   - **Config.**
