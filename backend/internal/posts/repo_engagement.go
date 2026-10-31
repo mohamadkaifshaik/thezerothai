@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -36,6 +37,11 @@ type EngagementWriter interface {
 	StageLikeCount(b store.Batch, postID string, delta int64)
 	// StageRepostCount is StageLikeCount for repostCount.
 	StageRepostCount(b store.Batch, postID string, delta int64)
+	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
+	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
+	// with NotFound (0 writes). The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
+	// strings (ADR-0029 D1). The one counter helper of polls: sharding replaces its body, not its callers.
+	StagePollVote(b store.Batch, postID string, choice int)
 	// StageRepost appends the Create of a REPOST post doc.
 	StageRepost(b store.Batch, p *Post)
 	// StageDelete appends the delete of posts/{id}; mustExist adds the Exists precondition.
@@ -83,6 +89,14 @@ func (r *FirestoreRepo) StageLikeCount(b store.Batch, postID string, delta int64
 // StageRepostCount implements EngagementWriter.
 func (r *FirestoreRepo) StageRepostCount(b store.Batch, postID string, delta int64) {
 	bumpCount(b, r.ref(postID), "repostCount", delta)
+}
+
+// StagePollVote implements EngagementWriter.
+func (r *FirestoreRepo) StagePollVote(b store.Batch, postID string, choice int) {
+	b.Update(r.ref(postID), []firestore.Update{
+		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(choice)}, Value: firestore.Increment(1)},
+		{FieldPath: firestore.FieldPath{"poll", "total"}, Value: firestore.Increment(1)},
+	})
 }
 
 // StageRepost implements EngagementWriter.

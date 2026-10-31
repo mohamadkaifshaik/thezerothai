@@ -83,6 +83,21 @@ func (c *Cache) AdjustCounts(id string, likeDelta, repostDelta, quoteDelta int64
 	c.posts.Set(id, &cp)
 }
 
+// AdjustPoll replaces the cached copy of id with Post.Voted(choice) (copy on write, a new Poll with fresh counts) and returns it, so a
+// committed vote is visible to this instance at once (ADR-0029 D6 step 8). The read-modify-write is under the cache lock, so concurrent
+// votes on one instance compose. A post that is not cached is left alone and nil is returned (the next read brings the fresh counts).
+func (c *Cache) AdjustPoll(id string, choice int) *Post {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p, ok := c.posts.Get(id)
+	if !ok || p.Poll == nil {
+		return nil
+	}
+	np := p.Voted(choice)
+	c.posts.Set(id, np)
+	return np
+}
+
 // DeletePost evicts a post (own deletes).
 func (c *Cache) DeletePost(id string) { c.posts.Delete(id) }
 

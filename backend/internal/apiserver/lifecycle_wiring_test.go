@@ -191,7 +191,7 @@ func TestRegisterLifecycleModules(t *testing.T) {
 }
 
 // TestRegisterLifecycle_FullOrder pins the deletion order and the export sections exactly as Build registers them
-// (registerLifecycleModules, then engagement, reports, scheduled and bookmarks). The step names are persisted in
+// (registerLifecycleModules, then engagement, reports, scheduled, bookmarks, follow_requests, messaging and poll_votes). The step names are persisted in
 // users/{uid}.deletionJob.step and the section names are keys of the export file, so a reorder or rename strands
 // in-flight deletions or breaks exports already handed out (ADR-0011 Q1, ADR-0021: `scheduled` runs after the
 // existing steps and before identity).
@@ -230,11 +230,14 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerListsLifecycle(l, listsRepo); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "identity", "auth_delete", "users_doc"}
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
@@ -252,6 +255,9 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	}
 	if err := registerListsLifecycle(l, listsRepo); err == nil {
 		t.Error("registering the lists step twice was accepted")
+	}
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err == nil {
+		t.Error("registering the poll_votes step twice was accepted")
 	}
 }
 
