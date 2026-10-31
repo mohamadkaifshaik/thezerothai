@@ -492,6 +492,10 @@ index or Terraform file changes in this PR. A6 lists the contract changes for W6
   service-wide `VISION_MONTHLY_CAP` with `reject` still caps the total (10,000 units; 20,000 to 40,000 in credit
   mode). A ring that drains it denies uploads to everyone, as before.
 - **This loosens a merged security fix,** so W6-40's PR needs a security-auditor review (W6-42) before merge.
+- **Implementation notes (W6-40, #554, W6-42):**
+  - **A5.5:** a transport failure that returns an HTTP answer (Vision 5xx, the project-quota 429) is refunded to the per-uid cap, because the monthly counter has treated these as unbilled since #535. Each such call still takes one of the document's 8 claims, so the durable bounds hold.
+  - **A5.7 / N1:** deadlines and cancellations are counted in `VISION_MONTHLY_CAP` (and not refunded to the per-uid cap): one "possibly billed" definition for both counters. `AddVisionUnits` runs on a context detached from the request, so a client that hangs up cannot hide the spend. It over-counts by at most 2 units per honest timeout.
+  - **A5.7 cost, both bounds:** established accounts about INR 780 a month nominal (the in-memory cap while instances live) and about INR 1,390 durable (8 claims x 2 units x 20 uploads a day); new accounts about INR 156 nominal and about INR 347 durable.
 
 ### A6. Contract changes proposed for W6-35 (additive; `buf lint` and `buf breaking` clean)
 | File | Change | Number |

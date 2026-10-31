@@ -27,6 +27,12 @@ const (
 	gifFrameAreaCeiling = 200_000_000
 	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (W6-27, H-3).
 	mediaScreenAttemptsCeiling = 10
+	// mediaScreenRetriesCeiling bounds MEDIA_MAX_SCREEN_RETRIES (W6-40, ADR-0029 Amendment 1 A5.4): with the attempts it sets the claims
+	// ceiling, and every claim can bill up to 2 Vision units (8 claims x 2 = 16 per document at the defaults).
+	mediaScreenRetriesCeiling = 10
+	// mediaVisionUnitsDayCeiling and mediaVisionUnitsDayNewAccountCeiling bound the per-uid daily Vision-units caps (A5.5).
+	mediaVisionUnitsDayCeiling           = 200
+	mediaVisionUnitsDayNewAccountCeiling = 60
 )
 
 // ComposerConfig holds the poll and GIF limits of the composer extras (ADR-0029 D1, D6, D8, D11). The VotePoll bucket and
@@ -55,31 +61,44 @@ type ComposerConfig struct {
 	GifMaxFrameAreaSum int
 	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (default 3, 1..10): the most screening attempts (FinalizeUpload
 	// claims) one media document gets; after that it is REJECTED with no further Vision call (W6-27, security H-3).
+	// MediaMaxScreenAttempts, revised by W6-40 (ADR-0029 Amendment 1 A5.4): the attempts that produced a valid assessment without ending
+	// the document (screenAssessed). A document with that many is REJECTED with no Vision call.
 	MediaMaxScreenAttempts int
+	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES (default 5, 0..10): the claimed attempts that produced no valid assessment (an
+	// outage, a timeout, a billed-but-invalid answer). With MediaMaxScreenAttempts it sets the crash-safe claims ceiling on screenAttempts (3 + 5 = 8).
+	MediaMaxScreenRetries int
+	// MediaVisionUnitsPerDay and MediaVisionUnitsPerDayNewAccount are MEDIA_VISION_UNITS_PER_DAY (default 60, 2..200) and
+	// MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT (default 12, 2..60): the per-uid Vision units one instance lets a uid spend per IST day
+	// (media_vision_units_daily; 180 and 36 effective at 3 instances). Charged before the claim.
+	MediaVisionUnitsPerDay           int
+	MediaVisionUnitsPerDayNewAccount int
 }
 
 // loadComposer reads and validates the poll and GIF keys; the error names the key.
 func loadComposer() (ComposerConfig, error) {
 	var c ComposerConfig
 	for _, f := range []struct {
-		dst      *int
-		key      string
-		def, max int
+		dst           *int
+		key           string
+		def, min, max int
 	}{
-		{&c.PollMaxChoices, "POLL_MAX_CHOICES", 4, pollChoicesCeiling},
-		{&c.PollChoiceMaxCodepoints, "POLL_CHOICE_MAX_CODEPOINTS", 25, pollCodepointsCeiling},
-		{&c.PollViewerVotesKept, "POLL_VIEWER_VOTES_KEPT", 500, pollViewerVotesCeiling},
-		{&c.GifMaxFrames, "GIF_MAX_FRAMES", 300, gifFramesCeiling},
-		{&c.GifMaxEdge, "GIF_MAX_EDGE", 1280, gifEdgeCeiling},
-		{&c.GifMaxFrameAreaSum, "GIF_MAX_FRAME_AREA_SUM", 50_000_000, gifFrameAreaCeiling},
-		{&c.MediaMaxScreenAttempts, "MEDIA_MAX_SCREEN_ATTEMPTS", 3, mediaScreenAttemptsCeiling},
+		{&c.PollMaxChoices, "POLL_MAX_CHOICES", 4, 1, pollChoicesCeiling},
+		{&c.PollChoiceMaxCodepoints, "POLL_CHOICE_MAX_CODEPOINTS", 25, 1, pollCodepointsCeiling},
+		{&c.PollViewerVotesKept, "POLL_VIEWER_VOTES_KEPT", 500, 1, pollViewerVotesCeiling},
+		{&c.GifMaxFrames, "GIF_MAX_FRAMES", 300, 1, gifFramesCeiling},
+		{&c.GifMaxEdge, "GIF_MAX_EDGE", 1280, 1, gifEdgeCeiling},
+		{&c.GifMaxFrameAreaSum, "GIF_MAX_FRAME_AREA_SUM", 50_000_000, 1, gifFrameAreaCeiling},
+		{&c.MediaMaxScreenAttempts, "MEDIA_MAX_SCREEN_ATTEMPTS", 3, 1, mediaScreenAttemptsCeiling},
+		{&c.MediaMaxScreenRetries, "MEDIA_MAX_SCREEN_RETRIES", 5, 0, mediaScreenRetriesCeiling},
+		{&c.MediaVisionUnitsPerDay, "MEDIA_VISION_UNITS_PER_DAY", 60, 2, mediaVisionUnitsDayCeiling},
+		{&c.MediaVisionUnitsPerDayNewAccount, "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", 12, 2, mediaVisionUnitsDayNewAccountCeiling},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
 			return ComposerConfig{}, err
 		}
-		if v < 1 || v > f.max {
-			return ComposerConfig{}, fmt.Errorf("config: %s must be 1..%d (got %d)", f.key, f.max, v)
+		if v < f.min || v > f.max {
+			return ComposerConfig{}, fmt.Errorf("config: %s must be %d..%d (got %d)", f.key, f.min, f.max, v)
 		}
 		*f.dst = v
 	}

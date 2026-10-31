@@ -15,7 +15,7 @@ same PR, and review changes like proto changes.
 | `website.json` | `Profile.website` | 30 accept, 80 reject |
 | `display_name.json` | `Profile.display_name` | 9 accept, 16 reject |
 | `bio.json` | `Profile.bio` | 11 accept, 13 reject |
-| `single_line_text.json` | the shared one-line rules (display name, location, list name and description); Go only, Dart follow-up W5-49 | 12 accept, 30 reject |
+| `single_line_text.json` | the shared one-line rules (display name, location, list name and description); Go and Dart (W5-49) | 12 accept, 30 reject |
 
 ## Schema
 
@@ -60,9 +60,9 @@ Common to all four fields:
 
 | Field | Valid when |
 |---|---|
-| `display_name` | 1 to 50 code points; no control, line separator or bidi formatting control |. Server only, until W5-49 (see "Single-line rules" below): also no invisible format character, filler or text without a visible rune
+| `display_name` | 1 to 50 code points; no control, line separator or bidi formatting control |. Also (W5-45 on the server, W5-49 in Dart; see "Single-line rules" below) no invisible format character, filler or text without a visible rune
 | `bio` | 0 to 160 code points; no control other than U+000A (LF), no line separator, no bidi formatting control. CR is refused, not folded |
-| `location` | 0 to 30 code points; no control (so one line), no line separator, no bidi formatting control |. Server only, until W5-49: the same single-line rules as display_name (an empty location is still a valid clear)
+| `location` | 0 to 30 code points; no control (so one line), no line separator, no bidi formatting control |. The same single-line rules (server and Dart) as display_name (an empty location is still a valid clear)
 | `website` | see below; empty is a clear |
 
 ### Website
@@ -89,7 +89,12 @@ functions the Edit profile screen uses (`websiteIssue`, `locationIssue`, `displa
 stored form and the host. `parseProfileWebsite` implements rules 1 to 6 and has no length limit on purpose (it also
 shows websites stored before the limit existed); `websiteIssue` adds the 100 code point limit for a value being written.
 
-## Single-line rules (W5-45, `single_line_text.json`; server only, Dart follow-up W5-49)
+The Dart runner is `app/test/features/profile/domain/profile_text_fixture_test.dart` for the four files above and
+`app/test/shared/format/single_line_text_fixture_test.dart` for this one. The Dart port is `app/lib/shared/format/single_line_text.dart`
+(an explicit Cf table, since Dart has no category data) behind `displayNameIssue`, `locationIssue`, `listNameIssue` and
+`listDescriptionIssue`.
+
+## Single-line rules (W5-45, `single_line_text.json`; Go and Dart)
 
 Shared by display name, location, list name and list description (`identity.singleLineIssue`). Applied to the normalised
 value being written, in addition to the rules above:

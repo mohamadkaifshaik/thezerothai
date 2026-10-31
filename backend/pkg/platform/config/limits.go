@@ -16,6 +16,9 @@ type RateLimitConfig struct {
 	UserTimelinePerMinute int // GetUserTimeline, env RATE_LIMIT_USER_TIMELINE_PER_MIN, default 30
 	PostCreatePerMinute   int // CreatePost, env RATE_LIMIT_POST_CREATE_PER_MIN, default 10
 	PostDeletePerMinute   int // DeletePost, env RATE_LIMIT_POST_DELETE_PER_MIN, default 20
+	// MediaFinalizePerMinute is the FinalizeUpload bucket (ADR-0029 Amendment 1 A5.5, W6-40), env RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, default 10, per
+	// instance (30 with 3). CreateUpload stays on PostCreatePerMinute, so retries cannot starve new uploads and the reverse.
+	MediaFinalizePerMinute int
 	// ReportPerMinute is the ReportContent bucket (ADR-0016), env RATE_LIMIT_REPORT_PER_MIN, default 5.
 	ReportPerMinute int
 

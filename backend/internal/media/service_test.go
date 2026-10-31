@@ -47,6 +47,9 @@ type envOpts struct {
 	gifMaxFrames int
 	gifMaxArea   int64
 	maxAttempts  int          // MEDIA_MAX_SCREEN_ATTEMPTS (0 = 3)
+	maxRetries   *int         // MEDIA_MAX_SCREEN_RETRIES (nil = 5)
+	unitsPerDay  int64        // MEDIA_VISION_UNITS_PER_DAY (0 = 60)
+	newUnitsDay  int64        // MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT (0 = 12)
 	log          *slog.Logger // nil = the default logger
 }
 
@@ -71,7 +74,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	}
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
-		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts,
+		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
 		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
