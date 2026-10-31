@@ -46,6 +46,7 @@ type envOpts struct {
 	gifDecode    time.Duration
 	gifMaxFrames int
 	gifMaxArea   int64
+	maxAttempts  int          // MEDIA_MAX_SCREEN_ATTEMPTS (0 = 3)
 	log          *slog.Logger // nil = the default logger
 }
 
@@ -70,7 +71,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	}
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
-		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea,
+		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts,
 		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,

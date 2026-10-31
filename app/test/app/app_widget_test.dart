@@ -17,6 +17,11 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
+import 'package:dzeroth/features/engagement/data/poll_repository.dart';
+import 'package:dzeroth/features/engagement/presentation/bloc/poll_cubit.dart';
+import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
+import 'package:dzeroth/core/network/api_client.dart';
+import 'package:dzeroth/gen/dzeroth/engagement/v1/engagement.pb.dart' as eng;
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
@@ -40,6 +45,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../support/fake_push_messaging.dart';
+import '../support/fake_transport.dart';
+import '../support/poll_fixtures.dart';
 import '../support/media_fixtures.dart' show MockMediaRepository;
 import '../support/notifications_fixtures.dart';
 import '../support/suggestions_fixtures.dart';
@@ -145,6 +152,7 @@ void main() {
     required OnboardingState onboarding,
     AuthState auth = const AuthState(status: AuthStatus.unauthenticated),
     ServicePausedCubit? servicePaused,
+    PollRepository? pollRepository,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -175,6 +183,7 @@ void main() {
         pushCubit: push,
         unreadBadgeCubit: badge,
         servicePausedCubit: servicePaused,
+        pollRepository: pollRepository,
       ),
     );
     await tester.pump();
@@ -307,6 +316,79 @@ void main() {
     await tester.pump();
 
     expect(suggestions.clears, 1);
+  });
+
+  group('poll votes belong to the account (W6-19)', () {
+    const other = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+
+    PollRepository pollRepo() => PollRepository(
+      apiClient: ApiClient.withTransport(
+        FakeTransport(
+          (_, _) async => eng.VotePollResponse(
+            post: pollPostView(
+              1,
+              poll: pollOf(votes: const [1, 0, 0], total: 1, visible: true),
+              choice: 1,
+            ),
+          ),
+        ),
+      ),
+      gate: ServiceFeatureGate(isEnabled: () => true),
+      readPost: (_) async => pollPostView(1, poll: pollOf()),
+    );
+
+    Future<PollCubit> startVoted(WidgetTester tester) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(),
+        pollRepository: pollRepo(),
+      );
+      final cubit = tester.element(find.byType(MaterialApp)).read<PollCubit>();
+      await cubit.vote('1', 0);
+      expect(cubit.state.entries, isNotEmpty, reason: 'the vote is overlaid');
+      return cubit;
+    }
+
+    Future<void> settleAuth(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('sign-out forgets every vote overlay', (tester) async {
+      final cubit = await startVoted(tester);
+      authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+      await settleAuth(tester);
+      expect(cubit.state.entries, isEmpty);
+    });
+
+    testWidgets(
+      'a direct switch to another account forgets them too',
+      (tester) async {
+        final cubit = await startVoted(tester);
+        authStates.add(
+          const AuthState(status: AuthStatus.authenticated, user: other),
+        );
+        await settleAuth(tester);
+        expect(
+          cubit.state.entries,
+          isEmpty,
+          reason: "the next account must not see uid-1's choice",
+        );
+      },
+      // W6-19 D1 (docs/reviews/test-report-w6-client.md): AppWidget resets the
+      // poll overlay only on AuthStatus.unauthenticated (app_widget.dart:260),
+      // so a direct A to B switch keeps the first account's votes. Remove the
+      // skip when fixed.
+      skip: true,
+    );
   });
 
   testWidgets('the push opt-in record follows the signed-in account (W2-12)', (

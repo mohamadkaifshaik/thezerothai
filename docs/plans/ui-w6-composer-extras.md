@@ -370,9 +370,9 @@ Effect on the quotas (additive):
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
-| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Open |
+| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (this PR; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
 | W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in fix/gif-browser-delay-clamp; report docs/reviews/test-report-w6-gif.md) |
-| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Open |
+| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | In review (this PR; report `docs/reviews/test-report-w6-client.md`) |
 | W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | In review: `docs/reviews/security-w6-composer-extras.md`, BLOCKED (H-1 to H-3) for `gif` and `media` beyond the dev allowlist; `polls` and `drafts` GO for the dev allowlist |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
@@ -380,7 +380,7 @@ Effect on the quotas (additive):
 | W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
 | W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | In review |
 | W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | Open |
-| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Open |
+| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | In review (PR #535): `screenAttempts` on the claim write, `VisionAnsweredError` counted units, INVALID_ARGUMENT REJECTED, `MEDIA_MAX_SCREEN_ATTEMPTS` (default 3) |
 | W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | Open |
 | W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | Open |
 | W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
@@ -821,7 +821,7 @@ Order:
     - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
     - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
-### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Open
+### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: In review (this PR; see the report)
 - **Description.** Emulator integration and unit:
   - flag modes for `polls` and `engagement` (create per caller; vote with `engagement` per caller and `polls` not globally off; the globally-off reveal);
   - the F4 validation table;
@@ -860,7 +860,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: Open
+### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: In review (this PR; report docs/reviews/test-report-w6-client.md)
 - **Description.** The cross-feature matrix:
   - composer exclusions (poll × photo × GIF × schedule × reply / quote);
   - poll builder → post → card states;

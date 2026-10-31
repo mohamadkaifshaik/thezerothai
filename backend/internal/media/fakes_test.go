@@ -123,6 +123,7 @@ func (r *fakeRepo) ClaimScreening(_ context.Context, id string, updateTime, unti
 	}
 	u := until
 	d.ScreeningUntil = &u
+	d.ScreenAttempts++
 	d.UpdateTime = d.UpdateTime.Add(time.Second)
 	return d.UpdateTime, nil
 }
@@ -349,6 +350,8 @@ type fakeModerator struct {
 	byteCalls [][]byte
 	bytesBy   func([]byte) SafeSearch
 	bytesErr  error
+	// errBy scripts a per-object SafeSearch error (the other objects still answer).
+	errBy map[string]error
 }
 
 func (m *fakeModerator) SafeSearchBytes(_ context.Context, image []byte) (SafeSearch, error) {
@@ -381,6 +384,9 @@ func (m *fakeModerator) SafeSearch(_ context.Context, object string) (SafeSearch
 	defer m.mu.Unlock()
 	if m.err != nil {
 		return SafeSearch{}, m.err
+	}
+	if err := m.errBy[object]; err != nil {
+		return SafeSearch{}, err
 	}
 	return m.by[object], nil
 }

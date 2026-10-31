@@ -76,14 +76,14 @@ func (v *Vision) annotate(ctx context.Context, img *vision.Image) (SafeSearch, e
 		return SafeSearch{}, fmt.Errorf("media: vision annotate: %w", err)
 	}
 	if len(resp.Responses) != 1 {
-		return SafeSearch{}, fmt.Errorf("media: vision returned %d responses, want 1", len(resp.Responses))
+		return SafeSearch{}, &VisionAnsweredError{Code: -1}
 	}
 	r := resp.Responses[0]
 	if r.Error != nil {
-		return SafeSearch{}, fmt.Errorf("media: vision error code %d", r.Error.Code)
+		return SafeSearch{}, &VisionAnsweredError{Code: r.Error.Code}
 	}
 	if r.SafeSearchAnnotation == nil {
-		return SafeSearch{}, errors.New("media: vision returned no SafeSearch annotation")
+		return SafeSearch{}, &VisionAnsweredError{Code: -1}
 	}
 	a := r.SafeSearchAnnotation
 	return SafeSearch{Adult: likelihood(a.Adult), Violence: likelihood(a.Violence), Racy: likelihood(a.Racy)}, nil
@@ -121,3 +121,20 @@ func (a AllowAll) SafeSearchBytes(ctx context.Context, _ []byte) (SafeSearch, er
 }
 
 var _ Moderator = AllowAll{}
+
+// codeInvalidArgument is google.rpc.Code INVALID_ARGUMENT, which Vision reports per image for undecodable bytes
+// ("Bad image data").
+const codeInvalidArgument int64 = 3
+
+// VisionAnsweredError is a Moderator error for a call that reached Vision and got an answer: a per-image error, an
+// empty response, or a response without a SafeSearch annotation. Google bills such a call, so the screen counts its
+// unit against VISION_MONTHLY_CAP (W6-27, security H-3). A transport failure before any response is not one: it is
+// never billed and its reserved unit is released. Code is the response's google.rpc.Code, or -1 when there was none.
+type VisionAnsweredError struct{ Code int64 }
+
+func (e *VisionAnsweredError) Error() string {
+	return fmt.Sprintf("media: vision answered with error code %d", e.Code)
+}
+
+// Invalid reports whether Vision found the image undecodable (INVALID_ARGUMENT): a retry cannot fix it.
+func (e *VisionAnsweredError) Invalid() bool { return e.Code == codeInvalidArgument }

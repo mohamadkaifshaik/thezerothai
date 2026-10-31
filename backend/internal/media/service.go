@@ -24,19 +24,20 @@ import (
 // Request-log fields. They ride on the mw.Logging line; values are enums, counts and booleans only: never a uid,
 // object path or URL.
 const (
-	fieldOp          = "media_op"
-	fieldPurpose     = "purpose" // POST, AVATAR or BANNER (enum only)
-	fieldOutcome     = "outcome"
-	fieldImages      = "media_images"
-	fieldContentType = "content_type" // image/jpeg, image/webp or image/gif (validated or from the stored document)
-	fieldReady       = "media_ready"
-	fieldUnscreened  = "media_unscreened"
-	fieldRejected    = "media_rejected"
-	fieldVisionUnits = "vision_units"
-	fieldExhausted   = "vision_cap_exhausted"
-	fieldConverged   = "finalize_converged" // a lost finalize race answered with the winner's result
-	fieldBusy        = "finalize_busy"      // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
-	fieldJoined      = "finalize_joined"    // answered with the result of a same-instance call already finalizing this image
+	fieldOp                = "media_op"
+	fieldPurpose           = "purpose" // POST, AVATAR or BANNER (enum only)
+	fieldOutcome           = "outcome"
+	fieldImages            = "media_images"
+	fieldContentType       = "content_type" // image/jpeg, image/webp or image/gif (validated or from the stored document)
+	fieldReady             = "media_ready"
+	fieldUnscreened        = "media_unscreened"
+	fieldRejected          = "media_rejected"
+	fieldVisionUnits       = "vision_units"
+	fieldExhausted         = "vision_cap_exhausted"
+	fieldAttemptsExhausted = "screen_attempts_exhausted"
+	fieldConverged         = "finalize_converged" // a lost finalize race answered with the winner's result
+	fieldBusy              = "finalize_busy"      // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
+	fieldJoined            = "finalize_joined"    // answered with the result of a same-instance call already finalizing this image
 )
 
 // mediaIDPattern is the media id shape (19-digit zero-padded Snowflake decimal, like post ids).
@@ -53,6 +54,7 @@ const (
 	reasonInvalid  = "This image could not be used. Please choose a different one."
 	reasonPolicy   = "This image can't be used because it may break the community rules."
 	reasonCapacity = "Image uploads are temporarily limited. Please try again later."
+	reasonAttempts = "This image could not be checked. Please upload it again."
 	// reasonGifLarge is the pre-scan refusal and the decode deadline (ADR-0029 D11).
 	reasonGifLarge = "This GIF is too large or too long."
 )
@@ -84,6 +86,8 @@ type Deps struct {
 	GifMaxEdge         int
 	GifMaxFrames       int
 	GifMaxFrameAreaSum int64
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (W6-27): screening claims per media document before it is REJECTED. 0 means 3.
+	MediaMaxScreenAttempts int
 	// GifQueueWait is how long a GIF waits for the per-instance screening slot before MEDIA_NOT_READY (0 = 5 s) and
 	// GifDecodeTimeout the sampler's deadline (0 = 2 s). Overridable for tests.
 	GifQueueWait     time.Duration

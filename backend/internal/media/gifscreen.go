@@ -131,7 +131,7 @@ func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (shee
 
 // screenGIF is screen for a GIF (D11 step 6): the sheet by bytes and the thumbnail by URI, in parallel; the worse
 // verdict wins. It logs one gif_screen line.
-func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blocked bool, err error) {
+func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blocked bool, answered int64, err error) {
 	sheet, st, err := s.gifSheet(ctx, d, gens)
 	units := 0
 	defer func() {
@@ -144,16 +144,14 @@ func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blo
 		}, logger.TraceAttrs(ctx)...)...)
 	}()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
-	blocked, err = s.screenAll(ctx, d, []func(context.Context) (SafeSearch, error){
+	blocked, answered, err = s.screenAll(ctx, d, []func(context.Context) (SafeSearch, error){
 		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearchBytes(c, sheet) },
 		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearch(c, d.ThumbUploadPath) },
 	})
-	if err == nil {
-		units = 2
-	}
-	return blocked, err
+	units = int(answered)
+	return blocked, answered, err
 }
 
 // mediaNotReady is the retryable MEDIA_NOT_READY answer.

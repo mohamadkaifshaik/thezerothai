@@ -13,6 +13,7 @@ Owner: backend. Slice P4, ADR-0005. Flag: `FEATURE_MEDIA` (off | allowlist | per
 | `VISION_MONTHLY_CAP` | 10000 | Most SafeSearch units per calendar month (UTC). 0 = never call Vision |
 | `VISION_EXHAUSTED_POLICY` | `unscreened_established` | At the cap: accounts older than 7 days publish unscreened, newer ones are rejected. `reject` rejects everyone |
 | `VISION_SCREEN_THUMB` | true | 2 units per image (full + thumbnail). `false` halves Vision spend and leaves the thumbnail unscreened |
+| `MEDIA_MAX_SCREEN_ATTEMPTS` | 3 (1..10) | Screening claims (FinalizeUpload attempts that reach Vision) one media document gets, counted in `media.screenAttempts` inside the claim write (W6-27, security H-3). The next call REJECTS the document with "This image could not be checked. Please upload it again." and no Vision call. Plain environment variable; not in Terraform (like the GIF caps) |
 | `QUOTA_MEDIA_PER_DAY` / `QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY` | 20 / 5 | Images per user per IST day |
 | `MEDIA_UPLOAD_BUCKET`, `MEDIA_BUCKET`, `MEDIA_PUBLIC_BASE_URL` | `<proj>-media-upload`, `<proj>-media`, `https://storage.googleapis.com/<MEDIA_BUCKET>` | Private upload bucket (2-day lifecycle), public-read bucket, URL prefix put in posts |
 
@@ -41,6 +42,22 @@ Vision (or its credentials) failed. Nothing was published and the image is still
 Check the Vision API is enabled in the project and the runtime service account can read the upload bucket. If it persists
 for hours, set `VISION_MONTHLY_CAP=0` only if you accept unscreened publishing for established accounts (D7).
 
+### FinalizeUpload REJECTED: "could not be used" for a good image, or "could not be checked" (W6-27, security H-3)
+Two new terminal outcomes of the Vision accounting fix:
+- **Vision INVALID_ARGUMENT on an image** ("Bad image data"): the file passed size, type, MD5 and magic bytes but Vision cannot
+  decode it. The document is REJECTED with the generic "could not be used" reason; a retry cannot fix it. The answered call is billed
+  and counted. Many of these from one account is a corrupt-thumbnail loop; from many accounts, a client encoder bug (check the
+  `content_type` of the lines first).
+- **Attempt cap**: after `MEDIA_MAX_SCREEN_ATTEMPTS` (3) screening claims on one document, the next FinalizeUpload REJECTS it with
+  "This image could not be checked. Please upload it again." (request line `screen_attempts_exhausted=true`, `vision_units=0`).
+  A Vision outage (UNAVAILABLE answers) therefore burns one attempt per retry: during one, expect honest users to hit the cap after
+  3 tries and to upload again (a fresh document, a fresh count). Raise `MEDIA_MAX_SCREEN_ATTEMPTS` (max 10) only if outages are
+  frequent; each attempt can bill up to 2 units. An attempt that ends in `MEDIA_NOT_READY` because another call holds the claim
+  does not count (it never claims).
+- **Accounting**: `vision_units` on a failed FinalizeUpload now counts every call Vision answered (a verdict or a per-image error),
+  so the summed units of one media id can reach 2 x attempts. Only a call that never got a response (timeout, transport) is
+  released and not counted. Spend check (step 3 of the claim section below): 1 or 2 per attempt, no more.
+
 ### FinalizeUpload answers "the upload is not complete yet" after the PUTs finished (screening claim, W3-22 M-3)
 One call per image screens at a time. Before it reserves Vision units, FinalizeUpload writes `screeningUntil = now + 30 s`
 on the PENDING `media/<id>` document, conditional on the document's UpdateTime (1 write per image, so a finalize is
@@ -54,7 +71,7 @@ instance share a single flight and all get the same result.
 2. A claim a crashed call left behind expires on its own after 30 s; a failed attempt (Vision or GCS error) releases it, so
    the client's "try again" works at once. If a PENDING document still carries a `screeningUntil` more than a minute in the
    past or the future, delete that field in the Firestore console; nothing else is wrong with the document.
-3. Spend check: summing `vision_units` over the FinalizeUpload lines of one media id must give 1 or 2 (a BANNER always 2).
+3. Spend check: summing `vision_units` over the FinalizeUpload lines of one media id must give 1 or 2 per attempt (a BANNER always 2; at most `MEDIA_MAX_SCREEN_ATTEMPTS` attempts, W6-27).
    More means a screening outlived its 30 s claim (Vision slower than its 10 s deadline plus the copies), so a second call
    screened too: look at Vision latency before raising anything.
 4. Client side: the app reads `MEDIA_NOT_READY` from a finalize as "the object is missing" (`media_uploader.dart`) and re-signs and

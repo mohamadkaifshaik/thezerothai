@@ -48,7 +48,7 @@
 | **T**ampering | Changing a vote; double voting; inflating counts; **swapping media bytes after screening**; GIF bombs | A `Create` precondition on the natural key, and one atomic batch (Create + Increment + ArrayUnion). The `Exists` precondition on the post. GIF pre-scan limits before any decode. The MD5 re-check of the read bytes. | **H-1** (publish swap), **H-2** (animated WebP accepted as a still) |
 | **R**epudiation | A disputed vote | The vote doc keeps uid, choice and createdAt until `closesAt + 30 d`. The user's export lists their votes. | Holds (L-2 export gap) |
 | **I**nformation disclosure | Who voted for what; results before voting; a blocked author's poll; drafts on shared devices; logs | Redaction in the one converter, with a guard test over every PostView producer. Hidden counts are 0 (byte-identical). Refusals come after the visibility read. ALREADY_VOTED carries the caller's own choice only. No voter-list RPC. The request line carries no error metadata. Drafts are filtered by uid. | **L-1** (voter list in logs via #530), L-2, L-3, L-4, L-5 |
-| **D**enial of service / cost | Vote floods; GIF decode floods; **Vision spend that never counts**; slot starvation | VotePoll bucket and daily cap; one vote per account per poll; the read budget. Upload quota 20/day; one GIF slot per instance; the 2 s decode deadline. `VISION_MONTHLY_CAP` with `reject`; the Vision project quota of 30 req/min. | **H-3** (uncounted Vision spend) |
+| **D**enial of service / cost | Vote floods; GIF decode floods; **Vision spend that never counts**; slot starvation | VotePoll bucket and daily cap; one vote per account per poll; the read budget. Upload quota 20/day; one GIF slot per instance; the 2 s decode deadline. `VISION_MONTHLY_CAP` with `reject`; the Vision project quota of 30 req/min. | **H-3** (uncounted Vision spend; fixed in W6-27) |
 | **E**levation of privilege | Voting in your own poll; voting in a protected author's poll; voting while the flag is off | Author check; `posts.Viewable` with `Audience.Decide` (protected, blocked, hidden, author not ACTIVE → one NOT_FOUND); flag gate first, 0 reads | Holds |
 
 ### Effective limits (per instance × 3 max instances)
@@ -165,6 +165,8 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 **Proposed ticket:** W6-26, backend-developer (plus an architect note if WebP is dropped), XS. **Gate:** as H-1.
 
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
+
+**Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
 
 **Where:**
 - `finalize.go:238-258`: when `screen` returns any error, `s.vision.release(units)` returns **all** reserved units. The doc stays PENDING, the claim is released (`finalize.go:220-224`), and the answer is retryable UNAVAILABLE.
