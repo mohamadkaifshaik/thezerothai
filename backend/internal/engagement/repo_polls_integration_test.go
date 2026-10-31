@@ -293,8 +293,8 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 		t.Errorf("expireAt = %v, want %v unchanged by a change", got, exp)
 	}
 
-	ctx, c = budget.WithCounter(context.Background())
-	out, err = e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime})
+	// The same Version again is stale: the vote doc moved. Nothing is written.
+	out, err = e.repo.ChangeVote(context.Background(), ChangeParams{UID: uid, PostID: pid, From: 0, To: 1, Version: st.UpdateTime})
 	if err != nil || out != ChangeStale {
 		t.Fatalf("stale ChangeVote = %v, %v, want ChangeStale", out, err)
 	}
