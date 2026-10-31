@@ -169,6 +169,15 @@ The cost of the step is +1 read per account deletion and +1 per export (the empt
   still view the post and vote (`Viewable` hides a post only from a caller whom the **author** blocks, as `GetPost` and `Like` do; D6 step 4 says
   "visibility as GetPost"). `TestW617_NotFoundBytesIdentical` pins this. If the founder wants a blocker unable to vote, that is an architect
   decision and a change in `posts.Viewable`, not a VotePoll fix.
+  - **Decided 2026-10-31 (founder):** "prevent casting or changing votes if either user has blocked the other.
+    Preserve votes cast before blocking. Enforce on the backend."
+  - Worked out in ADR-0029 Amendment 1 A1 (Proposed until the founder merges it). Visibility is unchanged, so the rule
+    lives in `VotePoll`, not in `posts.Viewable`.
+  - A voter who blocked the author gets FAILED_PRECONDITION `TARGET_BLOCKED`. The author-blocks-voter answer stays the
+    byte-identical NOT_FOUND.
+  - Earlier votes are kept.
+  - Built and tested in W6-36 and W6-41. The O-1 part of `TestW617_NotFoundBytesIdentical` is flipped there, not
+    deleted.
 - **O-2. A cached poll can lag the store by up to the post-cache TTL (60 s) across instances.** In the 60-voter run the two busy instances showed
   the author totals of 25 and 35 against 60 stored (50 and 10, then 30 and 30, in other runs), each self-consistent (choices sum to the total, not
   observed above the store; a double count within one instance, a cold read that already holds a vote followed by that vote's own cache bump, is not excluded by this test, and would be bounded by the same TTL as likes). A cold instance showed the exact tally. This is the documented behaviour ("a replay does not bump the cache", and a vote on another
