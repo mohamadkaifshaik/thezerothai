@@ -85,7 +85,7 @@
 
 ## 2. Findings
 
-### H-1 (High): publish swap after screening (W6-18 R-1); applies to GIFs, thumbnails and photos
+### H-1 (High): publish swap after screening (W6-18 R-1); applies to GIFs, thumbnails and photos — **In review (#536, W6-25); not FIXED until merged**: create-only signed PUT (`x-goog-if-generation-match: 0`), generation pinned on the sniff, the GIF read and `CopyTo`; a swapped object is REJECTED with reason `invalid` and the request log carries `changed_after_verify=true`.
 
 **Where:**
 - `objstore.go:206-238`: the signed PUT binds Content-Type, Content-MD5 and a length range, but no generation precondition. A V4 URL is reusable until it expires (10 min).

@@ -20,7 +20,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
 // W6-10 (ADR-0029 D11, F11): frame-sampled GIF screening. Fixtures are built in the test (image/gif encoder, hand-made
@@ -464,7 +463,7 @@ type gateObjects struct {
 	panicRun bool
 }
 
-func (g *gateObjects) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (g *gateObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 {
 		if g.panicRun {
 			panic("boom")
@@ -485,7 +484,7 @@ func (g *gateObjects) UploadHead(ctx context.Context, object string, n int64) ([
 			runtime.Gosched()
 		}
 	}
-	return g.fakeObjects.UploadHead(ctx, object, n)
+	return g.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
 func TestGIFScreen_BusySlotAnswersMediaNotReadyWithoutSpend(t *testing.T) {
@@ -618,11 +617,11 @@ type swapObjects struct {
 	swap []byte
 }
 
-func (s *swapObjects) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (s *swapObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 && object == s.name {
 		return s.swap, nil
 	}
-	return s.fakeObjects.UploadHead(ctx, object, n)
+	return s.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
 func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
@@ -638,11 +637,15 @@ func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
 	}
 }
 
+// failingRead removes the GIF just before the pinned full read, the real path of a vanished object: the store answers 404
+// (ErrObjectNotFound, not ErrGenerationChanged), which is a retryable infrastructure error, not a rejection.
 type failingRead struct{ *fakeObjects }
 
-func (f failingRead) UploadHead(ctx context.Context, object string, n int64) ([]byte, error) {
+func (f failingRead) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
 	if n != 512 {
-		return nil, errors.Join(objstore.ErrObjectNotFound, errors.New("gone"))
+		f.mu.Lock()
+		delete(f.upload, object)
+		f.mu.Unlock()
 	}
-	return f.fakeObjects.UploadHead(ctx, object, n)
+	return f.fakeObjects.UploadHead(ctx, object, n, generation)
 }
