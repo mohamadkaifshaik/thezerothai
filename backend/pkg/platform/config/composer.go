@@ -20,6 +20,9 @@ const (
 	// pollViewerVotesCeiling bounds POLL_VIEWER_VOTES_KEPT: the userLikes.pollVotes array stays far below the 40,000
 	// index-entry and 1 MiB document limits (it is also index-exempt).
 	pollViewerVotesCeiling = 1000
+	// pollVoteChangesCeiling bounds POLL_VOTE_CHANGES_MAX (ADR-0029 Amendment 1 A2.4): each change is 4 writes, and the count-flapping bound of one
+	// account is 1 + this many moves of a poll's counts. Raising it past 20 needs an ADR, not an env var.
+	pollVoteChangesCeiling = 20
 	// gifFramesCeiling, gifEdgeCeiling and gifFrameAreaCeiling bound the decode guards (ADR-0029 D11): a raised value is
 	// a memory and CPU decision, so it needs an ADR, not an env var.
 	gifFramesCeiling    = 1000
@@ -48,6 +51,9 @@ type ComposerConfig struct {
 	// PollViewerVotesKept is how many entries userLikes.pollVotes keeps after a lazy trim (POLL_VIEWER_VOTES_KEPT,
 	// default 500), 1..1000.
 	PollViewerVotesKept int
+	// PollVoteChangesMax is the most times one voter may change their vote in one poll (POLL_VOTE_CHANGES_MAX, default 5, 0..20; ADR-0029
+	// Amendment 1 A2.4). 0 is the kill switch: votes are final again and every change answers LIMIT_REACHED. The count is durable (pollVotes.changes).
+	PollVoteChangesMax int
 	// GifMaxFrames, GifMaxEdge and GifMaxFrameAreaSum are the pre-scan limits of a GIF before any decode (GIF_MAX_FRAMES
 	// default 300, GIF_MAX_EDGE default 1,280 pixels per side, GIF_MAX_FRAME_AREA_SUM default 50,000,000 pixels).
 	GifMaxFrames       int
@@ -83,6 +89,15 @@ func loadComposer() (ComposerConfig, error) {
 		}
 		*f.dst = v
 	}
+	// 0 is a valid value here (the loop above requires 1 or more), so POLL_VOTE_CHANGES_MAX has its own bound.
+	changes, err := getInt("POLL_VOTE_CHANGES_MAX", 5)
+	if err != nil {
+		return ComposerConfig{}, err
+	}
+	if changes < 0 || changes > pollVoteChangesCeiling {
+		return ComposerConfig{}, fmt.Errorf("config: POLL_VOTE_CHANGES_MAX must be 0..%d (got %d)", pollVoteChangesCeiling, changes)
+	}
+	c.PollVoteChangesMax = changes
 	if c.PollMaxChoices < 2 {
 		return ComposerConfig{}, fmt.Errorf("config: POLL_MAX_CHOICES must be 2..%d (got %d)", pollChoicesCeiling, c.PollMaxChoices)
 	}

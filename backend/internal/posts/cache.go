@@ -98,6 +98,20 @@ func (c *Cache) AdjustPoll(id string, choice int) *Post {
 	return np
 }
 
+// AdjustPollChange is AdjustPoll for a vote change: the cached copy of id is replaced with Post.VoteChanged(from, to) (ADR-0029 Amendment 1 A2.7).
+// Same lock, same nil for a post that is not cached.
+func (c *Cache) AdjustPollChange(id string, from, to int) *Post {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p, ok := c.posts.Get(id)
+	if !ok || p.Poll == nil {
+		return nil
+	}
+	np := p.VoteChanged(from, to)
+	c.posts.Set(id, np)
+	return np
+}
+
 // DeletePost evicts a post (own deletes).
 func (c *Cache) DeletePost(id string) { c.posts.Delete(id) }
 
