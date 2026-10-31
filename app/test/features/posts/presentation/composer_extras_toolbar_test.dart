@@ -25,7 +25,6 @@ import 'package:dzeroth/features/posts/presentation/widgets/schedule_controls.da
 import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_problem_hint.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/domain/poll_rules.dart';
 import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;

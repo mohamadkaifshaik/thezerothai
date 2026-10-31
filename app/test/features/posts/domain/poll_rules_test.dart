@@ -66,7 +66,7 @@ void main() {
     test('blank and unsupported characters are told apart', () {
       expect(check('   ').blank, isTrue);
       expect(check('a\nb').forbidden, isTrue);
-      expect(check('a‮b').forbidden, isTrue);
+      expect(check('a${String.fromCharCode(0x202E)}b').forbidden, isTrue);
       expect(check('fine').ok, isTrue);
     });
 
