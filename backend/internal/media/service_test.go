@@ -40,6 +40,8 @@ type envOpts struct {
 	perDay      int64
 	newPerDay   int64
 	dirErr      error
+	// W6-50: the directory knows the account but its createdAt is zero (a users doc written without it).
+	accountUnknown bool
 	// W6-10 GIF screen: wrap the object store, override the guard values (0 = defaults).
 	objects      func(*fakeObjects) Objects
 	gifWait      time.Duration
@@ -75,7 +77,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
 		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
-		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
+		Directory: fakeDirectory{created: createdFor(o), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
 		Now: func() time.Time { return testNow },
@@ -85,6 +87,14 @@ func newEnv(t *testing.T, o envOpts) *env {
 	}
 	e.svc = svc
 	return e
+}
+
+// createdFor is the createdAt the fake directory reports: testNow minus the age, or the zero time for an account of unknown age.
+func createdFor(o envOpts) time.Time {
+	if o.accountUnknown {
+		return time.Time{}
+	}
+	return testNow.Add(-o.accountAge)
 }
 
 func item(full, thumb []byte, ct string) UploadItem {
