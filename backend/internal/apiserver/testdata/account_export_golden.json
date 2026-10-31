@@ -58,7 +58,20 @@
     "userId": "<uid:A>"
   },
   "lists": {
-    "lists": []
+    "lists": [
+      {
+        "createdAt": "<time>",
+        "description": "",
+        "isPrivate": true,
+        "listId": "0000000000000000604",
+        "memberIds": [
+          "<uid:f>",
+          "<uid:g>"
+        ],
+        "name": "list 604",
+        "updatedAt": "<time>"
+      }
+    ]
   },
   "media": {
     "media": []

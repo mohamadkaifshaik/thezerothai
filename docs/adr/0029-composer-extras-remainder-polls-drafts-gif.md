@@ -1330,6 +1330,15 @@ Numbers marked **corrected** replace the figure in the section named.
 
 **Cost impact of these notes.** Fixed cost INR 0. No INR row of the Cost impact section changes.
 
+### N5. D11 point 4 as built after W6-28 (security M-2): the last frame is always sampled
+
+Appended, not a rewrite: D11 point 4 above stays as decided; this is what the code does now.
+
+- **Samples.** `sampleIndices` picks the frame visible at t = 0, T/3 and 2T/3 of the display time T (a delay under 2 cs still counted as 10 cs, W6-18 D-1) **and always the last frame**, sorted and without repeats. A GIF of up to four frames still samples every frame. The reason is M-2: a GIF with no loop block or a finite loop count plays once and then rests on its last frame, so that frame is on screen indefinitely however short its own delay; with the old 0, T/4, T/2, 3T/4 points a 2 cs last frame after 40 harmless frames was never sampled.
+- **Count and layout: unchanged.** The number of samples stays at most 4 (the 3T/4 sample was replaced by the last frame, the others moved from T/4, T/2 to T/3, 2T/3). The sheet is still the 2 x 2 JPEG of up to 1,280 x 960, so **Vision units per GIF are 2 before and after** (sheet by bytes, thumbnail by URI). Where the last frame falls on a sample point the repeat is dropped, so the sheet can have 3 tiles.
+- **Decode cost.** The sampler decodes every frame up to the last sampled one (compositing needs the earlier ones), so it now always decodes every frame; before it stopped at the 3T/4 frame (about 75 % of the frames of an even-delay GIF). Measured on the W6-18 worst accepted GIF (300 frames of 400 x 400 on a 1,280 x 1,280 screen, 48,000,000 of the 50,000,000 area budget), `TestW628_WorstCaseDecodeTime`: all 300 frames in 0.44 to 0.76 s on the developer machine, against the 2 s `GIF_DECODE_TIMEOUT`. Cloud Run's CPU share can be slower, so `refused_reason=deadline` on `gif_screen` lines stays the signal that N4 decision 1 watches; no limit is changed (`GIF_MAX_FRAME_AREA_SUM` stays 50,000,000, the finalize deadline is unchanged, and the rare finalize retry of N4 decision 2 stays accepted).
+- **Residual.** F11 (an explicit frame strictly between samples) is unchanged and still accepted; the final resting frame is no longer part of it.
+
 ### N6. Retention of `userLikes.pollVotes` as built (W6-29, security L-2 and L-6)
 Appended; no decision above is rewritten. This is how D3 and D8 are met for the per-account copy.
 - **Entry format (D3 changes shape, not meaning).** `"<postId>:<choice>:<closesAtUnix>"`. `closesAt` is immutable per post, so the string can always be rebuilt from the post (`ArrayRemove` needs the exact string; the A2 change in W6-36 replaces the one entry of a post by removing the old string and adding the new one). The reader (`ViewerSet.WithPollVotes`) takes the first two parts and ignores the third. A build from before W6-29 reads a three-part entry as unreadable and shows no check mark (a safe degrade). Two-part entries (dev only) expire at the post's creation time + 30 days (the `POLL_MAX_DURATION` ceiling) + the TTL, never early.

@@ -138,7 +138,7 @@ func validateListID(id string) error {
 func validateName(s string) (string, error) {
 	n, ok := identity.SingleLineText(s, MinNameRunes, MaxNameRunes)
 	if !ok {
-		return "", apierr.Validation("name", "name must be 1-25 characters on one line, without control or direction characters")
+		return "", apierr.Validation("name", "name must be 1-25 characters on one line, with a visible character and without control, invisible or direction characters")
 	}
 	return n, nil
 }
@@ -146,7 +146,7 @@ func validateName(s string) (string, error) {
 func validateDescription(s string) (string, error) {
 	n, ok := identity.SingleLineText(s, 0, MaxDescriptionRunes)
 	if !ok {
-		return "", apierr.Validation("description", "description must be at most 100 characters on one line, without control or direction characters")
+		return "", apierr.Validation("description", "description must be at most 100 characters on one line, without control, invisible or direction characters")
 	}
 	return n, nil
 }
