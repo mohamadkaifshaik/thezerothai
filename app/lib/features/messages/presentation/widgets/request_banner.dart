@@ -23,9 +23,13 @@ bool isReceivedRequest(pb.Conversation conversation) =>
 
 /// A request the caller sent and the peer has not accepted: it stays in the
 /// caller's INBOX. A header with no folder is neither (nothing is guessed).
+/// With `can_reply` false (blocked, or the peer's account is gone) the thread
+/// is read-only and nothing is waited for, so it is not a pending request
+/// either (W7-25b).
 bool isSentRequest(pb.Conversation conversation) =>
     conversation.state == ConversationState.CONVERSATION_STATE_REQUEST &&
-    conversation.folder == Folder.FOLDER_INBOX;
+    conversation.folder == Folder.FOLDER_INBOX &&
+    conversation.canReply;
 
 /// What the request banner can ask of the conversation screen (W7-18). The
 /// screen owns the confirmations, the calls and the snackbars; the banner only

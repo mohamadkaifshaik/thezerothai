@@ -59,6 +59,9 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   RateLimitedException? rateLimitedFor() => null;
 
   @override
+  Stream<void> get conversationsChanged => const Stream<void>.empty();
+
+  @override
   Future<pb.Conversation?> cachedConversationWith(String peerUserId) async =>
       cachedByPeer[peerUserId];
 

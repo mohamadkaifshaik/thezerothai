@@ -74,6 +74,8 @@ class _MockMessaging extends Mock implements MessagingRepository {
     when(() => gate)
         .thenReturn(MessagingFeatureGate(isMessagingEnabled: () => false));
     when(probeAccess).thenAnswer((_) async {});
+    when(() => conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
   }
 }
 

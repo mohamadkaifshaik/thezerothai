@@ -35,6 +35,10 @@ void main() {
     polls = 0;
     nextPoll = () => const PollResult(newMessages: false);
     when(() => repo.rateLimitedFor()).thenReturn(null);
+    when(() => repo.conversationsChanged)
+        .thenAnswer((_) => const Stream<void>.empty());
+    when(() => repo.cachedConversation(any())).thenAnswer((_) async => null);
+    when(() => repo.noteSentRequestAnswered(any())).thenAnswer((_) async {});
     when(() => repo.cachedThread(any())).thenAnswer((_) async => snap(stored));
     when(() => repo.refreshThread(any())).thenAnswer((_) async => snap(stored));
     when(() => repo.pollThread(any())).thenAnswer((_) async {
