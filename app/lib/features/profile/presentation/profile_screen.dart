@@ -24,6 +24,7 @@ import '../../graph/presentation/graph_feature_flags.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../engagement/presentation/bloc/engagement_cubit.dart';
 import '../../posts/data/posts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
 import '../../timeline/data/timeline_repository.dart';
@@ -605,6 +606,8 @@ class _ProfilePostsState extends State<_ProfilePosts> {
               timeline: context.read<TimelineRepository>(),
               posts: context.read<PostsRepository>(),
               viewerUserId: viewerUserId,
+              // An undone repost leaves the tab (W3-41c).
+              engagement: _engagementOrNull(context),
               // The header's post count follows a delete at once (a deleted post
               // can only be the viewer's own).
               onPostDeleted: (_) {
@@ -962,5 +965,16 @@ class _BlockedPostsBanner extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// The session's engagement overlay, or null when no session is above (a
+/// profile shown outside the app, as in some tests): then an undone repost is
+/// only dropped by the next refresh, as before W3-41c.
+EngagementCubit? _engagementOrNull(BuildContext context) {
+  try {
+    return context.read<EngagementCubit>();
+  } on ProviderNotFoundException {
+    return null;
   }
 }

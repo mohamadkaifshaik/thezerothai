@@ -304,4 +304,33 @@ void main() {
     await tester.pump(debounce * 2);
     expect(repo.calls.where((c) => c.startsWith('people')), ['people:anne']);
   });
+
+  // W4-21 D-1: the Explore pill is only 264 dp wide next to the avatar button;
+  // "Recent" must ellipsize and "Clear all" stay a 48 dp target.
+  forEachThemeAndWidth(
+    'narrow pill: Recent header does not overflow',
+    (tester, env) async {
+      store = FakeRecentSearchesStore(['#go', '@ann']);
+      await pumpWithSearch(
+        tester,
+        SizedBox(width: env.size.width, child: const AppSearchField()),
+        repository: repo,
+        store: store,
+        size: Size(env.size.width + 32, 800),
+        textScale: env.textScale,
+        brightness: env.brightness,
+      );
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+      expect(find.text('Recent'), findsOneWidget);
+      expect(find.text('Clear all'), findsOneWidget);
+      expect(
+        tester.getSize(find.widgetWithText(TextButton, 'Clear all')).height,
+        greaterThanOrEqualTo(48),
+      );
+      expect(tester.takeException(), isNull);
+    },
+    widths: const [264, 360, 600],
+    textScales: const [1.0, 2.0],
+  );
 }
