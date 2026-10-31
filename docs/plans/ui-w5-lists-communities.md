@@ -342,7 +342,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Done (#517) |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Open |
-| W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Done (PR pending) |
+| W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Done (#531) |
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Open |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
@@ -681,7 +681,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** It reuses `TimelineFeedView` / `TimelineCubit` unchanged except for `FeedKey`.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-13 — "Add to Lists" and a user's lists  [owner: frontend-developer] [size: S] [depends: W5-11, W3-14]  Status: Done (PR pending)
+### W5-13 — "Add to Lists" and a user's lists  [owner: frontend-developer] [size: S] [depends: W5-11, W3-14]  Status: Done (#531)
 - **Description.**
   - On another user's profile overflow menu, "Add/remove from Lists" opens a sheet of your lists with checkboxes, from `ListUserLists(self, contains_user_id)`. Toggles call Add or Remove one at a time with rollback.
   - "View Lists" opens `/u/:id/lists` (their public lists).
