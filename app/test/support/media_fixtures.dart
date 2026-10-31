@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dzeroth/features/media/data/gif_source.dart';
 import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as pb;
+import 'package:image/image.dart' as img;
 import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 
@@ -168,3 +170,69 @@ void stubHappyUpload(
     return [for (final i in items) (result ?? readyResult)(i.mediaId)];
   });
 }
+
+/// What [FakeGifPreparer] makes of a GIF: the picked bytes unchanged, a JPEG
+/// thumbnail type, `image/gif`.
+ProcessedImage fakeGifProcessed([String tag = 'g']) => ProcessedImage(
+  fullBytes: Uint8List.fromList(List.filled(40, tag.codeUnitAt(0))),
+  thumbBytes: _tinyPng,
+  width: 320,
+  height: 240,
+  fullMd5: 'gif-$tag',
+  thumbMd5: 'gif-thumb-$tag',
+  blurhash: 'LEHV6nWB2yk8pyo0adR*.7kCMdnj',
+  contentType: kGifContentType,
+  thumbContentType: 'image/jpeg',
+);
+
+/// A GIF source that returns scripted bytes without a platform channel.
+class FakeGifSource implements GifSource {
+  Uint8List? next;
+  int calls = 0;
+
+  /// When set, the next pick throws it.
+  Object? failWith;
+
+  @override
+  Future<Uint8List?> pick() async {
+    calls++;
+    final failure = failWith;
+    if (failure != null) {
+      failWith = null;
+      throw failure;
+    }
+    final out = next;
+    next = null;
+    return out;
+  }
+}
+
+/// Prepares instantly: the first byte becomes the tag. A first byte of 0
+/// makes it refuse with [refusal].
+class FakeGifPreparer implements GifPreparer {
+  GifRefusedException refusal = GifRefusedException.tooBig;
+  final List<Uint8List> prepared = [];
+
+  @override
+  Future<ProcessedImage> prepare(Uint8List bytes) async {
+    prepared.add(bytes);
+    if (bytes.isNotEmpty && bytes.first == 0) throw refusal;
+    return fakeGifProcessed(String.fromCharCode(bytes.first));
+  }
+}
+
+/// A real animated GIF ([frames] solid frames of [width] x [height]) for the
+/// checks that read a GIF's headers.
+Uint8List realGifBytes({int width = 8, int height = 6, int frames = 2}) {
+  final first = img.Image(width: width, height: height);
+  img.fill(first, color: img.ColorRgb8(200, 30, 30));
+  for (var i = 1; i < frames; i++) {
+    final next = img.Image(width: width, height: height);
+    img.fill(next, color: img.ColorRgb8(30, 30, 200));
+    first.addFrame(next);
+  }
+  return Uint8List.fromList(img.encodeGif(first));
+}
+
+pb.MediaResult rejectedGif(String mediaId, [String? reason]) =>
+    rejectedResult(mediaId, reason ?? 'This GIF is too large or too long.');
