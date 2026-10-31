@@ -304,3 +304,60 @@ type LikesPage struct {
 	// NextPageToken is "" when this was the last page.
 	NextPageToken string
 }
+
+// Polls is the poll-voting seam of the module (ADR-0029 D6): the Connect handler depends on it (NewServer detects it on the
+// Service, as LikesList), a later split into its own service changes no caller. It reads posts only through
+// posts.Engagement.Viewable and posts.EngagementWriter.StagePollVote.
+type Polls interface {
+	// VotePoll records uid's one, final vote in the poll of postID (a REPOST id: its original). Reads cold: the visibility check
+	// 3 (post, author users, caller graph; +2 for a REPOST id, +1 on blockedBy overflow; 0 warm) + userLikes 1 for the response's
+	// viewer flags = 4, 5 with the interceptor's own read (the ADR-0029 "8" counts the REPOST and overflow worst case); a replay
+	// or ALREADY_VOTED reads the vote doc too (+1). Writes 3 in one batch (vote doc, the post's poll.counts.<i> and poll.total in
+	// one Update, userLikes.pollVotes) + 1 TTL delete later; a replay, ALREADY_VOTED and every refusal write 0.
+	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex int32) (PollVote, error)
+}
+
+// PollVote is what the handler renders for VotePoll: the poll's post (the original when the request named a REPOST) with the
+// committed counts, the viewer set for it (flags from the userLikes cache; the choice from this call's vote) and the render hint.
+type PollVote struct {
+	Post   *posts.Post
+	Viewer posts.ViewerSet
+	Hint   RowHint
+}
+
+// DailySpent reads a per-uid daily counter; *ratelimit.DailyCap satisfies it. VotePoll compares the interceptor's
+// poll_votes_daily counter with the lower new-account limit (the interceptor cannot tell account age).
+type DailySpent interface {
+	Spent(key string) int64
+}
+
+// VoteOutcome says what PollRepo.Vote did.
+type VoteOutcome int
+
+const (
+	// VoteWritten means the batch committed: vote doc, counters and userLikes entry.
+	VoteWritten VoteOutcome = iota
+	// VoteExists means the vote doc already existed (AlreadyExists): nothing was written.
+	VoteExists
+	// VotePostGone means the post was deleted before the commit (the counter Update found no document): nothing was written.
+	VotePostGone
+)
+
+// VoteParams is one vote batch.
+type VoteParams struct {
+	UID, PostID string
+	// Choice is the 0-based index. ExpireAt is the vote doc's TTL time (closesAt + POLL_VOTE_TTL_AFTER_CLOSE).
+	Choice   int
+	ExpireAt time.Time
+}
+
+// PollRepo is the storage seam of VotePoll; repo_polls.go implements it, tests use a fake.
+type PollRepo interface {
+	// Vote commits the vote batch (no read). AlreadyExists is VoteExists; a missing post is VotePostGone; exhausted contention is an
+	// error wrapping store.ErrContended.
+	Vote(ctx context.Context, p VoteParams) (VoteOutcome, error)
+	// GetVote reads pollVotes/{postId}_{uid} (1 read). found is false for a missing document.
+	GetVote(ctx context.Context, uid, postID string) (choice int, found bool, err error)
+	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, 1 write, no read).
+	TrimPollVotes(ctx context.Context, uid string, drop []string) error
+}

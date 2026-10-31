@@ -30,6 +30,11 @@ func (s *service) CountsChanged(postID string, likeDelta, repostDelta int64) {
 	s.cache.AdjustCounts(postID, likeDelta, repostDelta, 0)
 }
 
+// PollVoted implements Engagement.
+func (s *service) PollVoted(postID string, choice int) *Post {
+	return s.cache.AdjustPoll(postID, choice)
+}
+
 // RepostCreated implements Engagement.
 func (s *service) RepostCreated(p *Post) {
 	s.cache.SetPost(p)

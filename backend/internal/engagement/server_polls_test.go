@@ -1,11 +1,17 @@
 package engagement
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
+	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -56,4 +62,79 @@ func TestVotePoll_FlagMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// stubPolls answers VotePoll with a canned PollVote and records the call.
+type stubPolls struct {
+	res  PollVote
+	err  error
+	call string
+}
+
+func (s *stubPolls) VotePoll(_ context.Context, uid, key, postID string, choice int32) (PollVote, error) {
+	s.call = fmt.Sprintf("%s:%s:%s:%d", uid, key, postID, choice)
+	return s.res, s.err
+}
+
+// TestVotePoll_Handler: once the gate passes, the handler passes the request to the Polls seam and renders the post through
+// posts.ToView with the voter's set (results visible, viewer_poll_choice from the vote), then applies the render hint.
+func TestVotePoll_Handler(t *testing.T) {
+	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "engagement", Mode: flags.On}, flags.Spec{Name: "polls", Mode: flags.On})
+	post := &posts.Post{
+		ID: pidA, AuthorID: "author", Kind: posts.KindPost,
+		Poll: &posts.Poll{Options: []string{"a", "b"}, ClosesAt: time.Now().Add(time.Hour), Counts: []int64{4, 6}, Total: 10},
+	}
+	vs := posts.NewViewerSet([]string{pidA}, nil).WithPollVotes([]string{pidA + ":1"})
+	t.Run("renders the voter's view", func(t *testing.T) {
+		sp := &stubPolls{res: PollVote{Post: post, Viewer: vs}}
+		srv := NewServer(&stubSvc{}, reg, WithPolls(sp))
+		resp, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{IdempotencyKey: keyOK, PostId: pidA, ChoiceIndex: 1}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sp.call != "u:"+keyOK+":"+pidA+":1" {
+			t.Errorf("call = %q", sp.call)
+		}
+		v := resp.Msg.GetPost()
+		po := v.GetPost().GetPoll()
+		if !po.GetResultsVisible() || po.GetChoices()[1].GetVotes() != 6 || v.GetViewerPollChoice() != 2 || !v.GetLikedByViewer() {
+			t.Fatalf("view = %v", v)
+		}
+	})
+	t.Run("a protected author's view carries the wire visibility hint", func(t *testing.T) {
+		sp := &stubPolls{res: PollVote{Post: post, Viewer: vs, Hint: RowHint{Protected: true}}}
+		srv := NewServer(&stubSvc{}, reg, WithPolls(sp))
+		resp, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := resp.Msg.GetPost().GetPost().GetVisibility(); got != postsv1.Visibility_VISIBILITY_FOLLOWERS {
+			t.Errorf("visibility = %v, want FOLLOWERS", got)
+		}
+	})
+	t.Run("a service error passes through unchanged", func(t *testing.T) {
+		want := connect.NewError(connect.CodeFailedPrecondition, errors.New("x"))
+		srv := NewServer(&stubSvc{}, reg, WithPolls(&stubPolls{err: want}))
+		if _, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{})); !errors.Is(err, want) {
+			t.Fatalf("err = %v, want %v", err, want)
+		}
+	})
+	t.Run("a Service that implements Polls is used without an option", func(t *testing.T) {
+		sp := &stubPolls{res: PollVote{Post: post, Viewer: vs}}
+		srv := NewServer(struct {
+			Service
+			Polls
+		}{&stubSvc{}, sp}, reg)
+		if _, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{})); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("the gate still comes first", func(t *testing.T) {
+		off := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "engagement", Mode: flags.Off}, flags.Spec{Name: "polls", Mode: flags.On})
+		sp := &stubPolls{}
+		srv := NewServer(&stubSvc{}, off, WithPolls(sp))
+		if _, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{})); featureDisabledErr(err) == nil || sp.call != "" {
+			t.Fatalf("err = %v call = %q, want FEATURE_DISABLED before the service", err, sp.call)
+		}
+	})
 }

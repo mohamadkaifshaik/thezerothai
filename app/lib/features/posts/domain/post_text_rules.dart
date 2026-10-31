@@ -157,3 +157,63 @@ PostDraft analyzePostDraft(String raw) {
     problem: problem,
   );
 }
+
+/// Why a poll choice label is refused (the label rules of
+/// `text.NormalizeLabel`, ADR-0029 D1).
+enum LabelProblem {
+  /// Nothing visible after trimming (the server's "must not be empty").
+  blank,
+
+  /// A control character (a newline included), U+2028/U+2029 or a bidi
+  /// formatting control.
+  forbiddenCharacter,
+}
+
+/// A poll choice label after the server's normalisation.
+class NormalizedLabel {
+  const NormalizedLabel({required this.text, this.problem});
+
+  /// The label as the server would store it: TAB as a space, NFC, trimmed.
+  /// Meaningful even when [problem] is set, so the counter keeps working.
+  final String text;
+  final LabelProblem? problem;
+
+  /// Code points of [text] (what the 25 limit counts).
+  int get codePoints => text.runes.length;
+}
+
+/// Mirrors the Go `text.NormalizeLabel` (ADR-0029 D1): TAB becomes a space,
+/// NFC, trim with the post-text trim set, then refuse a label with nothing
+/// visible or with a control character, U+2028/U+2029 or a bidi control.
+/// Unlike [analyzePostDraft] it does not fold line endings: a newline is a
+/// control character here. The shared fixture `testdata/poll_rules.json`
+/// pins both sides.
+NormalizedLabel normalizeLabel(String raw) {
+  final runes = unorm.nfc(raw.replaceAll('\t', ' ')).runes.toList();
+  var start = 0;
+  var end = runes.length;
+  while (start < end && _isTrimmable(runes[start])) {
+    start++;
+  }
+  while (end > start && _isTrimmable(runes[end - 1])) {
+    end--;
+  }
+  final kept = runes.sublist(start, end);
+  final text = String.fromCharCodes(kept);
+  if (kept.every(_isInvisibleForEmptyCheck)) {
+    return NormalizedLabel(text: text, problem: LabelProblem.blank);
+  }
+  final forbidden = kept.any(
+    (r) =>
+        r < 0x20 ||
+        (r >= 0x7F && r <= 0x9F) ||
+        r == 0x2028 ||
+        r == 0x2029 ||
+        (r >= 0x202A && r <= 0x202E) ||
+        (r >= 0x2066 && r <= 0x2069),
+  );
+  return NormalizedLabel(
+    text: text,
+    problem: forbidden ? LabelProblem.forbiddenCharacter : null,
+  );
+}

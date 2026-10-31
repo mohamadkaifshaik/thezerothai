@@ -123,3 +123,17 @@ func withoutIDs(list, drop []string) []string {
 	}
 	return out
 }
+
+// updatePollVotes is updateBookmarks for userLikes.pollVotes: it applies fn to a present entry (the other lists are kept) and
+// returns the new state, or nil for an absent entry (left alone, for the same reason update does).
+func (c *userCache) updatePollVotes(uid string, fn func(votes []string) []string) *likesState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st, ok := c.lru.Get(uid)
+	if !ok {
+		return nil
+	}
+	next := newLikesState(st.recent, st.reposts, st.bookmarks, fn(append([]string(nil), st.pollVotes...)))
+	c.lru.Set(uid, next)
+	return next
+}

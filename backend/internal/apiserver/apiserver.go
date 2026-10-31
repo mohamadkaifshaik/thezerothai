@@ -346,6 +346,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		audienceSvc = bo.audienceSource(postsSvc)
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
+	// One rate-limit config for the interceptor and for VotePoll's new-account cap: the service reads the interceptor's own poll_votes_daily
+	// counter (ADR-0029 D6), so the two can never disagree about how many votes a caller has made.
+	rlCfg := RateLimitConfig(cfg)
+	var pollVoteCap engagement.DailySpent // stays a nil interface when the entry is missing (a typed nil would panic)
+	if c := rlCfg.DailyCaps[engagementv1connect.EngagementServiceVotePollProcedure].Cap; c != nil {
+		pollVoteCap = c
+	}
 	engagementMod, err := engagement.New(engagement.Deps{
 		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
 		Events:      engagementNotifier{slot: notifSlot},
@@ -360,6 +367,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		// W3-29b: both lists decide protected authors' rows through the one posts.Audience (ADR-0025 D4).
 		Audience: engAudience,
+		// VotePoll (ADR-0029 D6, W6-7): the vote batch, the vote doc TTL, the lazy userLikes trim and the new-account cap are config.
+		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept,
+		PollVoteCap: pollVoteCap, NewAccountPollVotesPerDay: cfg.RateLimit.PollVotesPerDayNewAccount,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -454,6 +464,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerListsLifecycle(lifecycle, listsRepo); err != nil {
 		return nil, nil, fmt.Errorf("lists lifecycle registry: %w", err)
 	}
+	// poll_votes (ADR-0029 D8): the erase step and export section are registered whether or not FEATURE_POLLS is on; the step runs after
+	// messaging and lists, before identity (appended, never inserted: step names are persisted).
+	if err := registerPollVoteLifecycle(lifecycle, engagementRepo); err != nil {
+		return nil, nil, fmt.Errorf("poll_votes lifecycle registry: %w", err)
+	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
 	moderationSvc := moderation.New(moderation.Deps{
@@ -515,7 +530,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// reach the rate limiter, so a minted uid creates no limiter key and no Firestore read. Anonymous passes
 		// only against the Auth emulator.
 		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
-		ratelimit.Interceptor(RateLimitConfig(cfg)),
+		ratelimit.Interceptor(rlCfg),
 		degraded.Interceptor(cfg.Degraded, mediaProcedures()),
 		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt, authn.AllowRestricted(RestrictedAllowedProcedures()...)),
 		mw.ErrorMapping(log),
