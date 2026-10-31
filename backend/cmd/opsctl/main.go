@@ -200,10 +200,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
-	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown: also resolve this report id")
+	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
-	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown: resolution note")
+	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide: resolution note")
 	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
@@ -298,7 +298,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		}
 	}
 	if cmd == "lists" {
-		if err := parseListsArgs(sub, listID); err != nil {
+		if err := parseListsArgs(sub, listID, ma); err != nil {
 			fmt.Fprintf(errOut, "%v\n%s", err, usage)
 			return 2
 		}
@@ -373,7 +373,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "trends":
 		err = trendsCommand(ctx, b, *project, sub, trendTag, out, now)
 	case "lists":
-		err = listsCommand(ctx, b, *project, sub, listID, ma.dryRun, out, now)
+		err = listsCommand(ctx, b, *project, sub, listID, ma, out, now)
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":

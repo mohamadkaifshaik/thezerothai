@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -160,5 +161,101 @@ func TestLists_ProdNeedsTypedConfirmation(t *testing.T) {
 	}
 	if code, _, _ := runLists(f, "dzeroth-prod\n", "lists", "hide", testListID, "--project", "dzeroth-prod"); code != 0 || f.sets != 1 {
 		t.Errorf("right confirmation: code=%d sets=%d", code, f.sets)
+	}
+}
+
+const testListReportID = "0123456789abcdef0123456789abcdef"
+
+func runListsWithReports(f *fakeLists, ops *fakeOps, args ...string) (code int, stdout, stderr string) {
+	var out, errOut bytes.Buffer
+	open := func(context.Context, string) (*backends, error) {
+		return &backends{lists: f, reports: ops, close: func() {}}, nil
+	}
+	now := func() time.Time { return time.Unix(1_000_000, 0) }
+	code = run(context.Background(), append(args, "--project", "dzeroth-dev"), strings.NewReader(""), &out, &errOut, open, now)
+	return code, out.String(), errOut.String()
+}
+
+func listReport(target string, status moderation.Status) *moderation.Report {
+	return &moderation.Report{TargetType: moderation.TargetList, TargetID: target, TargetOwnerID: "u2", Status: status}
+}
+
+// --report on hide: the report must be a LIST report of exactly this list (checked before the write), and a success resolves
+// it TAKEDOWN with the note, also when the list was already hidden.
+func TestLists_HideWithReport(t *testing.T) {
+	t.Parallel()
+	t.Run("resolves TAKEDOWN with the note", func(t *testing.T) {
+		t.Parallel()
+		f, ops := &fakeLists{exists: true}, &fakeOps{report: listReport(testListID, moderation.StatusOpen)}
+		code, out, errOut := runListsWithReports(f, ops, "lists", "hide", testListID, "--report", testListReportID, "--note", "slur in the name")
+		if code != 0 || f.sets != 1 {
+			t.Fatalf("code=%d sets=%d stderr=%q", code, f.sets, errOut)
+		}
+		if ops.resolved[testListReportID] != moderation.ResolutionTakedown || ops.notes[testListReportID] != "slur in the name" {
+			t.Errorf("resolved=%v notes=%v", ops.resolved, ops.notes)
+		}
+		if !strings.Contains(out, "report="+testListReportID) {
+			t.Errorf("audit line lacks the report id:\n%s", out)
+		}
+	})
+	t.Run("already hidden still resolves", func(t *testing.T) {
+		t.Parallel()
+		f, ops := &fakeLists{exists: true, hidden: true}, &fakeOps{report: listReport(testListID, moderation.StatusOpen)}
+		code, _, _ := runListsWithReports(f, ops, "lists", "hide", testListID, "--report", testListReportID)
+		if code != 0 || f.sets != 0 || ops.resolved[testListReportID] != moderation.ResolutionTakedown {
+			t.Errorf("code=%d sets=%d resolved=%v", code, f.sets, ops.resolved)
+		}
+	})
+	for name, rep := range map[string]*moderation.Report{
+		"a POST report":           {TargetType: moderation.TargetPost, TargetID: testListID, Status: moderation.StatusOpen},
+		"another list's report":   listReport("0000000000000000001", moderation.StatusOpen),
+		"an account report on id": {TargetType: moderation.TargetAccount, TargetID: testListID, Status: moderation.StatusOpen},
+	} {
+		t.Run("refuses "+name+" with 0 writes", func(t *testing.T) {
+			t.Parallel()
+			f, ops := &fakeLists{exists: true}, &fakeOps{report: rep}
+			code, _, errOut := runListsWithReports(f, ops, "lists", "hide", testListID, "--report", testListReportID)
+			if code != 1 || !strings.Contains(errOut, "refusing (nothing written)") || f.sets != 0 || len(ops.resolved) != 0 {
+				t.Errorf("code=%d sets=%d resolved=%v stderr=%q", code, f.sets, ops.resolved, errOut)
+			}
+		})
+	}
+	t.Run("dry-run checks but resolves nothing", func(t *testing.T) {
+		t.Parallel()
+		f, ops := &fakeLists{exists: true}, &fakeOps{report: listReport(testListID, moderation.StatusOpen)}
+		code, out, _ := runListsWithReports(f, ops, "lists", "hide", testListID, "--report", testListReportID, "--dry-run")
+		if code != 0 || f.sets != 0 || len(ops.resolved) != 0 || !strings.Contains(out, "would resolve report") {
+			t.Errorf("code=%d sets=%d resolved=%v out=%q", code, f.sets, ops.resolved, out)
+		}
+	})
+	t.Run("dry-run with a wrong report is still refused", func(t *testing.T) {
+		t.Parallel()
+		f, ops := &fakeLists{exists: true}, &fakeOps{report: listReport("0000000000000000001", moderation.StatusOpen)}
+		if code, _, _ := runListsWithReports(f, ops, "lists", "hide", testListID, "--report", testListReportID, "--dry-run"); code != 1 {
+			t.Errorf("code=%d, want 1", code)
+		}
+	})
+}
+
+func TestLists_ReportFlagValidation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"restore takes no report", []string{"lists", "restore", testListID, "--report", testListReportID}, "lists hide only"},
+		{"bad report id", []string{"lists", "hide", testListID, "--report", "xyz"}, "32-character report id"},
+		{"note needs a report", []string{"lists", "hide", testListID, "--note", "x"}, "needs --report"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f, ops := &fakeLists{exists: true}, &fakeOps{}
+			code, _, errOut := runListsWithReports(f, ops, tt.args...)
+			if code != 2 || !strings.Contains(errOut, tt.want) || f.sets != 0 {
+				t.Errorf("code=%d stderr=%q", code, errOut)
+			}
+		})
 	}
 }

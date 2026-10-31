@@ -151,7 +151,7 @@ func printReport(out io.Writer, r moderation.Report) {
 		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
 	case r.TargetType == moderation.TargetList && r.Evidence != nil:
 		// Plan W5-44: the list as the reporter saw it (public text once the list is public; no member ids). Hide it with
-		// `opsctl lists hide LIST_ID` (the target id above), then close this report with `reports resolve`.
+		// `opsctl lists hide LIST_ID --report R` (the target id above; it resolves this report as TAKEDOWN).
 		fmt.Fprintf(out, "evidence list by @%s created %s: name %q, description %q\n",
 			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.ListName, r.Evidence.ListDescription)
 	case r.TargetType == moderation.TargetList:

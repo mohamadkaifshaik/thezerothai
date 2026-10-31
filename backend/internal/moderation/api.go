@@ -164,7 +164,8 @@ type Service interface {
 	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE (ADR-0027 D12):
 	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
 	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
-	// cold and 3 warm for a MESSAGE. Writes 2 (report, quotas); a repeat writes 0.
+	// cold and 3 warm for a MESSAGE. LIST (plan W5-44): list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
+	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. Writes 2 (report, quotas); a repeat writes 0.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 
