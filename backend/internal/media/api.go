@@ -127,10 +127,12 @@ type SafeSearch struct {
 	Adult, Violence, Racy Likelihood
 }
 
-// Moderator screens one object of the upload bucket. The Vision implementation reads it through a gs:// URI, so
-// no image bytes cross the API.
+// Moderator screens images. SafeSearch reads one object of the upload bucket through its gs:// URI, so no image bytes cross
+// the API. SafeSearchBytes screens bytes the API built itself: the contact sheet of a GIF's sampled frames (ADR-0029 D11);
+// a client's upload is never relayed through it.
 type Moderator interface {
 	SafeSearch(ctx context.Context, object string) (SafeSearch, error)
+	SafeSearchBytes(ctx context.Context, image []byte) (SafeSearch, error)
 }
 
 // Signer signs a V4 PUT URL for an object of the upload bucket (no GCS call).
@@ -224,9 +226,14 @@ type Service interface {
 	// time (W3-22 M-3): calls on one instance share a single flight and all get its result; across instances a
 	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
 	// read, before any Vision call.
-	// A GIF (W6-9) adds no Firestore operations and no Class B beyond the attrs and 512-byte head reads of a photo (4 per
-	// GIF, 2 per object); it is screened like a photo until W6-10 (first frame by URI, 2 units, 1 without VISION_SCREEN_THUMB)
-	// and is REJECTED, never READY_UNSCREENED, at the Vision cap. The thumbnail is checked and published with its own type.
+	// A GIF (W6-9, W6-10) is screened by sampled frames (ADR-0029 D11): the API reads the whole private object (1 Class B,
+	// <= 2 MiB, on top of the 4 attrs and 512-byte head reads of a photo pair), pre-scans it, and sends a 2 x 2 JPEG contact
+	// sheet by bytes plus the thumbnail by URI: always 2 Vision units whatever VISION_SCREEN_THUMB says. Firestore is
+	// unchanged. A GIF the pre-scan or sampler refuses (above GIF_MAX_FRAMES / GIF_MAX_EDGE / GIF_MAX_FRAME_AREA_SUM, a
+	// frame outside the screen, the 2 s decode deadline, an unparseable stream) is REJECTED with 0 units; a busy GIF slot
+	// (another GIF being sampled on this instance for 5 s) answers the retryable MEDIA_NOT_READY with 0 units. At the
+	// Vision cap a GIF is REJECTED, never READY_UNSCREENED. Memory is bounded by a per-instance semaphore of 1 (see
+	// gifscreen.go). The thumbnail is checked and published with its own type.
 	FinalizeUpload(ctx context.Context, uid string, items []FinalizeItem) ([]Result, error)
 }
 

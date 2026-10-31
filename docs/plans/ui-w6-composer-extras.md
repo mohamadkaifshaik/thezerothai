@@ -627,7 +627,7 @@ Order:
 - **Seam.** The content-type table in `media`; posts sees only `MediaClaim`.
 - **Runs alongside W3/W4/W5:** `media/service.go` and `finalize.go` change in W3-5 (banner), so do this after it or rebase.
 
-### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: Open
+### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: In review (this PR; `FEATURE_GIF` stays off until 100 % of traffic is on a revision with it)
 - **Description.** For a GIF in FinalizeUpload (F11 a):
   1. Read the object from the private upload bucket (≤ 2 MiB).
   2. Parse the header and frame descriptors and **refuse before decoding** above `GIF_MAX_FRAMES`, `GIF_MAX_EDGE` or `GIF_MAX_FRAME_AREA_SUM`.

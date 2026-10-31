@@ -2,6 +2,9 @@ package media
 
 import (
 	"context"
+	"crypto/md5"
+	"image"
+	"image/color"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +22,12 @@ import (
 // W6-9 (ADR-0029 D10): image/gif for post media. The sampled-frame screening is W6-10; these tests cover the content-type
 // table, the thumbnail's own type, magic bytes, the flag, the cap rule and the cleanup names.
 
-func gifBytes(tag string) []byte { return append([]byte("GIF89a"), []byte(tag)...) }
+// gifBytes is a valid one-frame GIF whose bytes depend on tag (the screen parses it since W6-10).
+func gifBytes(tag string) []byte {
+	sum := md5.Sum([]byte(tag))
+	pal := color.Palette{color.White, color.RGBA{R: sum[0], G: sum[1], B: sum[2], A: 255}}
+	return encodeTestGIF(8, 8, pal, []testFrame{{rect: image.Rect(0, 0, 8, 8), idx: 1, delay: 10}})
+}
 
 func pngBytes(tag string) []byte {
 	return append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, []byte(tag)...)
@@ -240,7 +248,10 @@ func TestGIF_FinalizeHappyPath(t *testing.T) {
 			if len(e.obj.upload) != 0 {
 				t.Fatalf("private copies not deleted: %v", e.obj.upload)
 			}
-			// Interim (W6-10 adds the sampled sheet): full by URI plus the thumbnail = 2 units, as for a photo pair.
+			// W6-10: the sampled sheet by bytes plus the thumbnail by URI = 2 units, and the full object is never screened by URI.
+			if len(e.mod.byteCalls) != 1 || len(e.mod.calls) != 1 || e.mod.calls[0] != uploadThumbObject(uidA, tg.MediaID, tc.thumbExt) {
+				t.Fatalf("vision calls: %d by bytes, by URI %v", len(e.mod.byteCalls), e.mod.calls)
+			}
 			if got := e.repo.vision[monthKey(testNow)]; got != 2 {
 				t.Fatalf("vision units = %d, want 2", got)
 			}
@@ -253,7 +264,8 @@ func TestGIF_FinalizeHappyPath(t *testing.T) {
 
 func TestGIF_FinalizeAccepts87a(t *testing.T) {
 	e := newEnv(t, envOpts{})
-	full, thumb := []byte("GIF87a-body"), jpegBytes("t")
+	full, thumb := gifBytes("87"), jpegBytes("t")
+	full[4] = '7'
 	tgs, err := e.svc.CreateUpload(context.Background(), uidA, CreateUploadInput{IdempotencyKey: key1, Purpose: PurposePost, Items: []UploadItem{gifItem(full, thumb, ContentTypeJPEG)}})
 	if err != nil {
 		t.Fatal(err)
@@ -360,12 +372,21 @@ func TestGIF_AtTheVisionCapIsRejectedForEveryAccount(t *testing.T) {
 }
 
 func TestGIF_BlockedVerdictRejects(t *testing.T) {
-	e := newEnv(t, envOpts{})
-	tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
-	e.mod.by[uploadObject(uidA, tg.MediaID, "gif")] = SafeSearch{Adult: LikelihoodVeryLikely}
-	res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
-	if err != nil || res[0].Status != StatusRejected || res[0].RejectionReason != reasonPolicy {
-		t.Fatalf("res = %+v err=%v", res, err)
+	for _, by := range []string{"sheet", "thumbnail"} {
+		t.Run(by, func(t *testing.T) {
+			e := newEnv(t, envOpts{})
+			tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
+			bad := SafeSearch{Adult: LikelihoodVeryLikely}
+			if by == "sheet" {
+				e.mod.bytesBy = func([]byte) SafeSearch { return bad }
+			} else {
+				e.mod.by[uploadThumbObject(uidA, tg.MediaID, "jpg")] = bad
+			}
+			res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+			if err != nil || res[0].Status != StatusRejected || res[0].RejectionReason != reasonPolicy {
+				t.Fatalf("res = %+v err=%v", res, err)
+			}
+		})
 	}
 }
 

@@ -53,6 +53,8 @@ const (
 	reasonInvalid  = "This image could not be used. Please choose a different one."
 	reasonPolicy   = "This image can't be used because it may break the community rules."
 	reasonCapacity = "Image uploads are temporarily limited. Please try again later."
+	// reasonGifLarge is the pre-scan refusal and the decode deadline (ADR-0029 D11).
+	reasonGifLarge = "This GIF is too large or too long."
 )
 
 // Deps is everything New needs.
@@ -77,8 +79,15 @@ type Deps struct {
 	Policy           config.VisionExhaustedPolicy
 	ScreenThumb      bool
 	// GifMaxEdge is GIF_MAX_EDGE (ADR-0029 D11): the largest declared GIF width or height at CreateUpload. 0 means 1,280.
-	// W6-10 adds GIF_MAX_FRAMES and GIF_MAX_FRAME_AREA_SUM next to it for the pre-scan.
-	GifMaxEdge int
+	// GifMaxFrames and GifMaxFrameAreaSum are GIF_MAX_FRAMES and GIF_MAX_FRAME_AREA_SUM, the pre-scan limits of
+	// FinalizeUpload's frame-sampled screen (D11). 0 means 300 and 50,000,000 pixels.
+	GifMaxEdge         int
+	GifMaxFrames       int
+	GifMaxFrameAreaSum int64
+	// GifQueueWait is how long a GIF waits for the per-instance screening slot before MEDIA_NOT_READY (0 = 5 s) and
+	// GifDecodeTimeout the sampler's deadline (0 = 2 s). Overridable for tests.
+	GifQueueWait     time.Duration
+	GifDecodeTimeout time.Duration
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
 	Log *slog.Logger
@@ -90,6 +99,8 @@ type service struct {
 	// flight collapses concurrent FinalizeUpload calls for one media id on this instance (W3-22 M-3, part a); the
 	// screening claim (part b) covers the other instances.
 	flight singleflight.Group
+	// gifSlot is the GIF screening semaphore (capacity 1): at most one GIF is read and sampled at a time on this instance.
+	gifSlot chan struct{}
 }
 
 // New builds the media service. Missing dependencies are a programming error caught at startup.
@@ -112,7 +123,7 @@ func New(d Deps) (Service, error) {
 	if d.Policy == "" {
 		d.Policy = config.VisionPolicyEstablished
 	}
-	return &service{Deps: d, vision: &visionBudget{repo: d.Repo, cap: d.VisionMonthlyCap, now: d.Now}}, nil
+	return &service{Deps: d, vision: &visionBudget{repo: d.Repo, cap: d.VisionMonthlyCap, now: d.Now}, gifSlot: make(chan struct{}, 1)}, nil
 }
 
 // extension maps an accepted content type to the object extension.

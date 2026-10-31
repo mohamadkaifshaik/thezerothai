@@ -324,6 +324,23 @@ type fakeModerator struct {
 	// onCall, when set, runs once inside the next SafeSearch (a concurrent finalize resolving the doc and deleting
 	// the private objects while Vision is in flight); a non-nil result is returned as the call's error.
 	onCall func() error
+	// byteCalls records SafeSearchBytes arguments (a GIF's contact sheet); bytesBy scripts the verdict (nil = all zero).
+	byteCalls [][]byte
+	bytesBy   func([]byte) SafeSearch
+	bytesErr  error
+}
+
+func (m *fakeModerator) SafeSearchBytes(_ context.Context, image []byte) (SafeSearch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.byteCalls = append(m.byteCalls, image)
+	if m.bytesErr != nil {
+		return SafeSearch{}, m.bytesErr
+	}
+	if m.bytesBy != nil {
+		return m.bytesBy(image), nil
+	}
+	return SafeSearch{}, nil
 }
 
 func (m *fakeModerator) SafeSearch(_ context.Context, object string) (SafeSearch, error) {
