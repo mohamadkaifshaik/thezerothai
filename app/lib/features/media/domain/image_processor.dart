@@ -82,16 +82,7 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
 
   var source = img.bakeOrientation(decoded);
   source.exif.clear();
-  if (source.hasAlpha || source.numChannels != 3) {
-    final flat = img.Image(
-      width: source.width,
-      height: source.height,
-      numChannels: 3,
-    );
-    img.fill(flat, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(flat, source);
-    source = flat;
-  }
+  source = _flattenOnWhite(source);
 
   final avatar = purpose == ImagePurpose.avatar;
   final banner = purpose == ImagePurpose.banner;
@@ -129,14 +120,6 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
     threeToOne: banner,
   );
 
-  final hashSource = img.copyResize(
-    thumb.image,
-    width: thumb.image.width >= thumb.image.height ? 32 : null,
-    height: thumb.image.height > thumb.image.width ? 32 : null,
-    interpolation: img.Interpolation.average,
-  );
-  final blurhash = BlurHash.encode(hashSource, numCompX: 4, numCompY: 3).hash;
-
   return ProcessedImage(
     fullBytes: full.bytes,
     thumbBytes: thumb.bytes,
@@ -144,7 +127,133 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
     height: full.image.height,
     fullMd5: base64.encode(md5.convert(full.bytes).bytes),
     thumbMd5: base64.encode(md5.convert(thumb.bytes).bytes),
-    blurhash: blurhash,
+    blurhash: _blurhashOf(thumb.image),
+  );
+}
+
+/// JPEG has no alpha: transparent pixels become white.
+img.Image _flattenOnWhite(img.Image source) {
+  if (!source.hasAlpha && source.numChannels == 3) return source;
+  final flat = img.Image(
+    width: source.width,
+    height: source.height,
+    numChannels: 3,
+  );
+  img.fill(flat, color: img.ColorRgb8(255, 255, 255));
+  img.compositeImage(flat, source);
+  return flat;
+}
+
+/// The BlurHash (4 x 3 components, <= 64 chars) of a thumbnail.
+String _blurhashOf(img.Image thumb) {
+  // Longest side 32, the other at least 1 px: a very thin strip (a 1280 x 2
+  // GIF) must not round to zero.
+  final longest = math.max(thumb.width, thumb.height);
+  final hashSource = img.copyResize(
+    thumb,
+    width: math.max(1, (thumb.width * 32 / longest).round()),
+    height: math.max(1, (thumb.height * 32 / longest).round()),
+    interpolation: img.Interpolation.average,
+  );
+  return BlurHash.encode(hashSource, numCompX: 4, numCompY: 3).hash;
+}
+
+/// The server's GIF limits (ADR-0029 D10/F10): checked here so a GIF the
+/// server would refuse is never uploaded (and never spends a Vision unit).
+const kMaxGifBytes = kMaxFullBytes;
+const kMaxGifEdge = 1280;
+const kMaxGifFrames = 300;
+
+/// Why a picked file cannot be a GIF post attachment. [message] is shown to
+/// the user as is.
+class GifRefusedException implements Exception {
+  const GifRefusedException(this.message);
+  final String message;
+
+  static const notGif = GifRefusedException("That file isn't a GIF.");
+  static const tooBig = GifRefusedException('GIFs can be up to 2 MB.');
+  static const tooLarge = GifRefusedException(
+    'GIFs can be up to 1,280 pixels wide and tall.',
+  );
+  static const tooLong = GifRefusedException('GIFs can have up to 300 frames.');
+
+  @override
+  String toString() => message;
+}
+
+/// Checks a picked GIF and makes its upload: the picked bytes **unchanged**
+/// (re-encoding would drop the animation) plus a still first-frame JPEG
+/// thumbnail. An interface so widget and cubit tests never decode pixels.
+/// Throws [GifRefusedException] for a file the server would refuse.
+abstract interface class GifPreparer {
+  Future<ProcessedImage> prepare(Uint8List bytes);
+}
+
+/// Pure-Dart implementation run through `compute` (see [IsolateImageProcessor]
+/// for the web caveat).
+class IsolateGifPreparer implements GifPreparer {
+  const IsolateGifPreparer();
+
+  @override
+  Future<ProcessedImage> prepare(Uint8List bytes) {
+    // Cheap checks first: a 40 MB file is never shipped to an isolate.
+    checkGifBytes(bytes);
+    return compute(prepareGifSync, bytes);
+  }
+}
+
+/// The size and signature checks that need no decoding.
+void checkGifBytes(Uint8List bytes) {
+  final signature = bytes.length >= 6 ? String.fromCharCodes(bytes, 0, 6) : '';
+  if (signature != 'GIF87a' && signature != 'GIF89a') {
+    throw GifRefusedException.notGif;
+  }
+  if (bytes.length > kMaxGifBytes) throw GifRefusedException.tooBig;
+}
+
+/// Synchronous core of [IsolateGifPreparer], exported for tests: signature,
+/// size, logical screen (<= 1,280 each side) and frame count (<= 300) are
+/// read from the headers; only the first frame is decoded.
+ProcessedImage prepareGifSync(Uint8List bytes) {
+  checkGifBytes(bytes);
+  final decoder = img.GifDecoder();
+  final img.GifInfo? info;
+  try {
+    info = decoder.startDecode(bytes);
+  } on img.ImageException {
+    // A truncated or corrupt file that still starts with the signature.
+    throw GifRefusedException.notGif;
+  }
+  if (info == null || info.numFrames < 1) throw GifRefusedException.notGif;
+  if (info.width > kMaxGifEdge || info.height > kMaxGifEdge) {
+    throw GifRefusedException.tooLarge;
+  }
+  if (info.numFrames > kMaxGifFrames) throw GifRefusedException.tooLong;
+  final img.Image? frame;
+  try {
+    frame = decoder.decodeFrame(0);
+  } on img.ImageException {
+    throw GifRefusedException.notGif;
+  }
+  if (frame == null) throw GifRefusedException.notGif;
+
+  final still = _flattenOnWhite(frame);
+  final thumb = _encodeWithin(
+    still,
+    kPostThumbEdge,
+    kMaxThumbBytes,
+    quality: 70,
+  );
+  return ProcessedImage(
+    fullBytes: bytes,
+    thumbBytes: thumb.bytes,
+    width: info.width,
+    height: info.height,
+    fullMd5: base64.encode(md5.convert(bytes).bytes),
+    thumbMd5: base64.encode(md5.convert(thumb.bytes).bytes),
+    blurhash: _blurhashOf(thumb.image),
+    contentType: kGifContentType,
+    thumbContentType: 'image/jpeg',
   );
 }
 

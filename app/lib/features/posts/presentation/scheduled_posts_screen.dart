@@ -16,6 +16,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
 import '../../../shared/widgets/app_back_header.dart';
 import '../../../shared/widgets/app_main_column.dart';
 import '../../../shared/widgets/app_notice_banner.dart';
+import '../../../shared/widgets/headline_message.dart';
 import '../../../shared/widgets/post_list_skeleton.dart';
 import '../data/posts_repository.dart';
 import 'bloc/scheduled_posts_cubit.dart';
@@ -58,14 +59,52 @@ class ScheduledPostsScreen extends StatelessWidget {
   }
 }
 
-class _ScheduledPostsView extends StatefulWidget {
+/// The Scheduled screen: header and [ScheduledPostsBody].
+class _ScheduledPostsView extends StatelessWidget {
   const _ScheduledPostsView();
 
+  /// Back to where the user came from; with no history (a deep link) to
+  /// Settings.
+  void _back(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRouter.settingsPath);
+    }
+  }
+
   @override
-  State<_ScheduledPostsView> createState() => _ScheduledPostsViewState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: AppMainColumn(
+          child: Column(
+            children: [
+              AppBackHeader(
+                title: 'Scheduled posts',
+                onBack: () => _back(context),
+              ),
+              const Expanded(child: ScheduledPostsBody()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
+/// The Scheduled list without a Scaffold or header (CMP-D6, W6-15): the
+/// Scheduled screen puts a back header over it and the Drafts screen puts it
+/// under its Scheduled tab. Needs a [ScheduledPostsCubit] above it; owns its
+/// one scroll view (refresh, paging, Cancel / Dismiss).
+class ScheduledPostsBody extends StatefulWidget {
+  const ScheduledPostsBody({super.key});
+
+  @override
+  State<ScheduledPostsBody> createState() => _ScheduledPostsBodyState();
+}
+
+class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
   final ScrollController _controller = ScrollController();
 
   @override
@@ -88,16 +127,6 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
     if (position.maxScrollExtent > 0 &&
         position.pixels >= kPrefetchFraction * position.maxScrollExtent) {
       unawaited(context.read<ScheduledPostsCubit>().loadMore());
-    }
-  }
-
-  /// Back to where the user came from; with no history (a deep link) to
-  /// Settings.
-  void _back() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRouter.settingsPath);
     }
   }
 
@@ -132,34 +161,21 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ScheduledPostsCubit>();
-    return Scaffold(
-      body: SafeArea(
-        child: AppMainColumn(
-          child: Column(
-            children: [
-              AppBackHeader(title: 'Scheduled posts', onBack: _back),
-              Expanded(
-                child: BlocBuilder<ScheduledPostsCubit, ScheduledPostsState>(
-                  builder: (context, state) => RefreshIndicator(
-                    onRefresh: cubit.refresh,
-                    child: CustomScrollView(
-                      controller: _controller,
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      slivers: [
-                        // A failed refresh sits on top; a failed next page sits
-                        // at the end of the list (see _body), where the user
-                        // is, unless there are no rows to put it under.
-                        if (state.notice != null &&
-                            (!cubit.noticeFromPaging || state.items.isEmpty))
-                          SliverToBoxAdapter(child: _notice(state, cubit)),
-                        ..._body(state, cubit),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+    return BlocBuilder<ScheduledPostsCubit, ScheduledPostsState>(
+      builder: (context, state) => RefreshIndicator(
+        onRefresh: cubit.refresh,
+        child: CustomScrollView(
+          controller: _controller,
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            // A failed refresh sits on top; a failed next page sits at the end
+            // of the list (see _body), where the user is, unless there are no
+            // rows to put it under.
+            if (state.notice != null &&
+                (!cubit.noticeFromPaging || state.items.isEmpty))
+              SliverToBoxAdapter(child: _notice(state, cubit)),
+            ..._body(state, cubit),
+          ],
         ),
       ),
     );
@@ -188,7 +204,7 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
         if (state.error is FeatureDisabledException) {
           return const [
             SliverToBoxAdapter(
-              child: _ScheduledMessage(
+              child: HeadlineMessage(
                 title: kScheduledUnavailableTitle,
                 body: kScheduledUnavailableBody,
               ),
@@ -206,7 +222,7 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
         if (state.items.isEmpty) {
           return const [
             SliverToBoxAdapter(
-              child: _ScheduledMessage(
+              child: HeadlineMessage(
                 title: kScheduledEmptyTitle,
                 body: kScheduledEmptyBody,
               ),
@@ -253,44 +269,5 @@ class _ScheduledPostsViewState extends State<_ScheduledPostsView> {
           ),
         ];
     }
-  }
-}
-
-/// A heading over a muted line, start aligned, no illustration: the empty
-/// Scheduled list and the "not available" state. Not [AppEmptyView], which
-/// centres an icon.
-class _ScheduledMessage extends StatelessWidget {
-  const _ScheduledMessage({required this.title, required this.body});
-
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Semantics(
-            header: true,
-            child: Text(
-              title,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            body,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

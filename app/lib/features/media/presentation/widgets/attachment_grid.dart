@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/gif_badge.dart';
 import '../bloc/attachments_cubit.dart';
 import 'alt_text_editor.dart';
 
@@ -88,7 +89,12 @@ class _AttachmentTileState extends State<AttachmentTile> {
   }
 
   String get _label {
-    final base = 'Photo $position of $total';
+    final base = attachment.isGif ? 'GIF' : 'Photo $position of $total';
+    if (attachment.status == AttachmentStatus.rejected &&
+        attachment.rejectionReason.isNotEmpty) {
+      final reason = attachment.rejectionReason.replaceAll(RegExp(r'\.$'), '');
+      return '$base, was not accepted. $reason. Remove it.';
+    }
     return switch (attachment.status) {
       AttachmentStatus.processing => '$base, preparing',
       AttachmentStatus.uploading => '$base, uploading',
@@ -175,7 +181,9 @@ class _AttachmentTileState extends State<AttachmentTile> {
                   top: 0,
                   end: 0,
                   child: IconButton(
-                    tooltip: 'Remove photo $position',
+                    tooltip: attachment.isGif
+                        ? 'Remove GIF'
+                        : 'Remove photo $position',
                     icon: const Icon(Icons.close, size: AppIconSize.md),
                     style: IconButton.styleFrom(
                       backgroundColor: colors.surface.withValues(alpha: 0.7),
@@ -188,6 +196,12 @@ class _AttachmentTileState extends State<AttachmentTile> {
                         : null,
                   ),
                 ),
+                if (attachment.isGif)
+                  const PositionedDirectional(
+                    bottom: AppSpacing.xs,
+                    end: AppSpacing.xs,
+                    child: GifBadge(),
+                  ),
                 if (attachment.image != null)
                   PositionedDirectional(
                     bottom: 0,
@@ -210,8 +224,8 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       child: Text(
                         attachment.altText.isEmpty ? '+ ALT' : 'ALT',
                         semanticsLabel: attachment.altText.isEmpty
-                            ? 'Add description for photo $position'
-                            : 'Edit description for photo $position',
+                            ? 'Add description for ${attachment.isGif ? 'GIF' : 'photo $position'}'
+                            : 'Edit description for ${attachment.isGif ? 'GIF' : 'photo $position'}',
                       ),
                     ),
                   ),
@@ -251,7 +265,15 @@ class _Status extends StatelessWidget {
       case AttachmentStatus.failed:
         return _problem(context, Icons.refresh, 'Not sent');
       case AttachmentStatus.rejected:
-        return _problem(context, Icons.block_outlined, 'Not accepted');
+        // The server's reason is written for users (invalid, policy,
+        // capacity, "This GIF is too large or too long.").
+        return _problem(
+          context,
+          Icons.block_outlined,
+          attachment.rejectionReason.isEmpty
+              ? 'Not accepted'
+              : attachment.rejectionReason,
+        );
       case AttachmentStatus.unsupported:
         return _problem(context, Icons.broken_image_outlined, "Can't use this");
       case AttachmentStatus.ready || AttachmentStatus.uploaded:
@@ -265,10 +287,14 @@ class _Status extends StatelessWidget {
       children: [
         Icon(icon, size: AppIconSize.lg, color: colors.error),
         const SizedBox(height: AppSpacing.xs),
-        Text(
-          text,
-          style: Theme.of(context).textTheme.labelSmall,
-          textAlign: TextAlign.center,
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall,
+            textAlign: TextAlign.center,
+          ),
         ),
       ],
     );
