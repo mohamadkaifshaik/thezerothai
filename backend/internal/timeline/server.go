@@ -4,7 +4,8 @@
 // directly (ADR-0004 handoff; imports_test enforces the allowed packages and identifiers).
 //
 // merge.go is the pure exact-prefix merge, tokens.go the caller/feed-bound token codec, watermark.go the D13
-// settle watermark; service.go holds the two RPC bodies.
+// settle watermark; service.go holds the Home and profile RPC bodies and service_list.go the list feed (ADR-0030 D5, reads
+// lists only through lists.Reader).
 package timeline
 
 import (

@@ -116,7 +116,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			sawAny = true
 			pkg := strings.SplitN(rest, "/", 2)[0]
 			if !allowed[pkg] || strings.Contains(rest, "/") {
-				t.Errorf("%s imports %s: timeline may import only the posts, graph and identity packages", f, path)
+				t.Errorf("%s imports %s: timeline may import only the posts, graph, identity and lists packages", f, path)
 				continue
 			}
 			name := pkg

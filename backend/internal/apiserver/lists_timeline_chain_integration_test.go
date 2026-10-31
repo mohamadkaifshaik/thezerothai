@@ -391,3 +391,31 @@ func TestListTimelineChain_PerViewerAndTakedown(t *testing.T) {
 		t.Fatalf("owner-level drop: err=%v count=%d", err, rd.GetList().GetMemberCount())
 	}
 }
+
+// TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers: with removed_ids on, a refresh whose since_token predates the
+// instance's removal-log cache is answered by the ADR-0016 window query for all 150 authors (ADR-0030 D5: a list never has
+// more than 180), not rejected as truncated, and stays inside the documented 218.
+func TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers(t *testing.T) {
+	withLog := func(cfg *config.Config) { cfg.FeatureRemovedIDs = flags.Spec{Name: "removed_ids", Mode: flags.On} }
+	setup := newLTChain(t, withLog)
+	owner, viewer := setup.user(t), setup.user(t)
+	members := memberNames(150)
+	list, ids := seedList(t, setup.fs, owner.uid, false, members)
+	first, err := setup.listTimeline(viewer, list, 50, "", "")
+	if err != nil || first.GetSinceToken() == "" {
+		t.Fatalf("cold open: err=%v", err)
+	}
+	// A takedown after the token, so the window query has something to list.
+	if _, err := posts.NewFirestoreRepo(setup.fs).Takedown(context.Background(), ids[40], time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	fresh := newLTChain(t, withLog) // a cold removal-log cache: the token is older than what it covers
+	ref, err := fresh.listTimeline(viewer, list, 50, first.GetSinceToken(), "")
+	if err != nil {
+		t.Fatalf("refresh: %v (the window query must answer a 150-member list)", err)
+	}
+	if !slices.Contains(ref.GetRemovedIds(), ids[40]) {
+		t.Fatalf("removed_ids = %v, want %s", ref.GetRemovedIds(), ids[40])
+	}
+	budgettest.Assert(t, "non-owner page 50 refresh with the window query", fresh.lineBudget(t, rpcGetListTimeline), budgettest.Budget{Reads: 218})
+}
