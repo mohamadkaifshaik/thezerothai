@@ -796,6 +796,9 @@ func refreshCfg(c *config.Config) {
 	c.Search.TrendsMaxPostsPerRun = 100_000 // the emulator project is shared with other tests' posts
 	c.Search.TrendsMinInterval = time.Hour
 	c.Search.TrendsDenylist = []string{"banned"}
+	// W4-26: the chain test accounts are seconds old, so the 72 h established-author rule would leave nothing to trend.
+	// The age rule itself is covered by the search package tests (trends_authors*_test.go).
+	c.Search.TrendsMinAccountAge = time.Nanosecond
 }
 
 func TestSearchChain_TrendsRefreshEndToEnd(t *testing.T) {

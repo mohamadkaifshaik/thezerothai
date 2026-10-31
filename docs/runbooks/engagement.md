@@ -127,3 +127,21 @@ cold, 53 at page 50, 2 for an empty array, 20 warm at page 20); there is no `row
 | A row repeats or is skipped between two scrolls | Only a row changed at the page boundary can (the ADR-0024 D6 residual: both anchors unliked, or the last row unliked and the next one re-liked). A re-liked row moves to the top and is not shown twice. Anything larger is a bug: keep the token's issue time and the user's unlike times and check `likesResume` |
 | `UNIMPLEMENTED` "ListLikedPosts is not wired" | The Server was built without a `LikesList`. `apiserver.Build` cannot do this (`NewServer` takes it from the Module); a test or a split-out wiring left `WithLikesList` out |
 | `RESOURCE_EXHAUSTED` | The per-instance bucket `RATE_LIMIT_LIKES_LIST_PER_MIN` (10/min; it multiplies by max-instances) |
+
+## 10. Polls: VotePoll (ADR-0029 D6, W6-7 and W6-8)
+
+One vote per account per poll. The vote doc `pollVotes/{postId}_{uid}` is the idempotency record (ADR-0029 D7, the F2 bend of rule 4): no `idempotency/*` doc. One batch writes the vote doc, `posts.poll.counts.<i>` + `poll.total` (one Update, by `firestore.FieldPath`) and `userLikes.pollVotes`.
+
+**Request line** `poll_vote`: `outcome` (`voted`, `replay`, `already_voted`, `closed`, `author`, `not_found`, `contention`), `uid_hash`, `fs_reads`, `fs_writes`, `contention`. The choice is never logged.
+
+**Hot poll and `poll_vote_contention`.** A WARN `poll_vote_contention` (and `contention=true`, UNAVAILABLE with `retry_after`) means the batch kept losing the lock race on one post doc after 4 attempts. A handful is normal on a viral poll; a sustained rate is the Stage ladder trigger for sharded poll counters (new ADR, `StagePollVote` is the one body to replace). First check `gcloud logging read 'jsonPayload.message="poll_vote_contention"'` per post (count by time, not by uid).
+
+**Kill switch.** `FEATURE_POLLS=off` refuses VotePoll (FEATURE_DISABLED `feature=polls`, 0 reads), stops new polls and shows every existing poll's results to everyone. An allowlist or `percent 0` is a rollout, not a kill switch: callers outside it may still vote. `FEATURE_ENGAGEMENT` off for a caller refuses their vote (`feature=engagement`).
+
+**ALREADY_VOTED support questions.** Votes are final. `ALREADY_VOTED` carries `metadata["choice"]` (the caller's own stored 0-based index); the app shows it. After the poll closes even a replay answers `POLL_CLOSED`. A vote can land a few hundred ms after `closesAt` (accepted race). The vote doc is found with `pollVotes/{postId}_{uid}`; operators do not edit it.
+
+**New-account cap.** `POLL_VOTES_PER_DAY_NEW_ACCOUNT` (50) is enforced in the service by comparing the interceptor's `poll_votes_daily` counter (per instance, in memory, so it multiplies by max-instances and resets with the instance); the answer is the interceptor's RATE_LIMITED `limit=poll_votes_daily`.
+
+**TTL must be applied before prod polls.** Vote docs expire at `closesAt + POLL_VOTE_TTL_AFTER_CLOSE` (30 d) through the Terraform TTL policy `poll_votes_expire_at` on `pollVotes.expireAt`. Until it is applied in a project the docs simply stay (cost: storage only).
+
+**Account deletion and export.** Step `poll_votes` (after `messaging`, before `identity`) deletes `pollVotes where uid == X` in pages of 500 (1 read + 1 delete per doc); counts stay as anonymous totals (F6). Export section `poll_votes` lists postId, choice, createdAt. A deletion job already past the position of the step when it deployed skips it; its vote docs then expire by TTL.

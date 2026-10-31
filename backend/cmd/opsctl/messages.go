@@ -45,7 +45,7 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 // An unknown message, or one whose conversation is gone, is an error (exit 1).
 //
 // Output never contains the message text or a uid. Ids are printed only as one-way hashes (conversation_hash and
-// message_hash, the same fields messaging logs); the last line before the cost line is a fixed-shape audit line.
+// message_hash, the same fields messaging logs; conversation_hash is the keyed hash and needs CURSOR_HMAC_KEY in the shell, W7-34); the last line before the cost line is a fixed-shape audit line.
 //
 // Cost: the transaction reads the message (1) and, for a VISIBLE one, the conversation (1) and each participant's entry that
 // still exists (at most 2), and writes the message (1), the conversation revision (1) and each preview that named it (at most 2): at most 4 reads, 4
@@ -86,7 +86,7 @@ func takedownMessage(ctx context.Context, b *backends, project, convID, msgID st
 		report = a.report
 	}
 	fmt.Fprintf(out, "audit: messages takedown project=%s at=%s conversation_hash=%s message_hash=%s before=%s after=%s previews=%d wrote=%t dry_run=%t report=%s\n",
-		project, now().UTC().Format(time.RFC3339), logger.HashUID(convID), logger.HashUID(msgID), res.Before, res.After, res.Entries, res.Wrote, a.dryRun, report)
+		project, now().UTC().Format(time.RFC3339), conversationHashForAudit(convID), logger.HashUID(msgID), res.Before, res.After, res.Entries, res.Wrote, a.dryRun, report)
 
 	if a.report != "" {
 		if a.dryRun {

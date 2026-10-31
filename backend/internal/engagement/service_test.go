@@ -48,7 +48,9 @@ type fakeRepo struct {
 }
 
 func (f *fakeRepo) LoadUserLikes(context.Context, string) (UserLikes, error) {
+	f.mu.Lock() // concurrent callers (vote tests) share the counter
 	f.loads++
+	f.mu.Unlock()
 	return f.loaded, f.loadErr
 }
 
@@ -103,13 +105,19 @@ type fakePosts struct {
 	viewCalls int
 	// shareRefused lists protected authors (ADR-0025 D5).
 	shareRefused map[string]bool
+	// cached models the instance post cache for polls: PollVoted stores a copy-on-write post here and Viewable serves it.
+	cached    map[string]*posts.Post
+	pollVotes []string // "<postId>:<choice>", in call order
 }
 
 func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, error) {
 	f.mu.Lock()
 	f.viewCalls++
+	p, ok := f.cached[id]
 	f.mu.Unlock()
-	p, ok := f.docs[id]
+	if !ok {
+		p, ok = f.docs[id]
+	}
 	if !ok || f.hidden[id] {
 		return nil, posts.ErrNotFound
 	}
@@ -121,6 +129,27 @@ func (f *fakePosts) CountsChanged(id string, l, r int64) {
 	defer f.mu.Unlock()
 	f.counts = append(f.counts, fmt.Sprintf("%s:%d:%d", id, l, r))
 }
+
+// PollVoted fakes posts.Engagement.PollVoted: copy on write over the doc (or the previous cached copy), nil for an unknown post.
+func (f *fakePosts) PollVoted(id string, choice int) *posts.Post {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	base, ok := f.cached[id]
+	if !ok {
+		base, ok = f.docs[id]
+	}
+	if !ok || base.Poll == nil {
+		return nil
+	}
+	f.pollVotes = append(f.pollVotes, fmt.Sprintf("%s:%d", id, choice))
+	np := base.Voted(choice)
+	if f.cached == nil {
+		f.cached = map[string]*posts.Post{}
+	}
+	f.cached[id] = np
+	return np
+}
+
 func (f *fakePosts) RepostCreated(p *posts.Post) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

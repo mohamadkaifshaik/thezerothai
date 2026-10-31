@@ -25,6 +25,12 @@ type SearchConfig struct {
 	// TrendsMinInterval is the shortest time between two refreshes: a run within it of the last list is skipped as
 	// "fresh" (TRENDS_MIN_INTERVAL, default 12h; 50m with the hourly option, ADR-0028 D6). Must be > 0.
 	TrendsMinInterval time.Duration
+	// TrendsMinAccountAge is the age an author account needs before its posts count towards a trend (TRENDS_MIN_ACCOUNT_AGE,
+	// default 72h; ADR-0028 note 2026-10-31). Must be > 0.
+	TrendsMinAccountAge time.Duration
+	// TrendsMaxAuthorChecks caps the distinct authors one refresh run reads profiles for (TRENDS_MAX_AUTHOR_CHECKS, default 500).
+	// Authors beyond it are not counted that run.
+	TrendsMaxAuthorChecks int
 	// TrendsDenylist holds tag bodies that never trend (TRENDS_DENYLIST, comma-separated, default empty). Entries are
 	// trimmed, lower-cased and stripped of one leading '#'; empty entries are dropped. Further normalisation is the
 	// refresher's (ADR-0028 D6).
@@ -43,6 +49,7 @@ func loadSearch() (SearchConfig, error) {
 		{&c.TagCacheEntries, "CACHE_SEARCH_TAG_ENTRIES", 500},
 		{&c.TrendsMinAuthors, "TRENDS_MIN_AUTHORS", 3},
 		{&c.TrendsMaxPostsPerRun, "TRENDS_MAX_POSTS_PER_RUN", 2000},
+		{&c.TrendsMaxAuthorChecks, "TRENDS_MAX_AUTHOR_CHECKS", 500},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -61,6 +68,14 @@ func loadSearch() (SearchConfig, error) {
 		return SearchConfig{}, fmt.Errorf("config: TRENDS_MIN_INTERVAL must be > 0 (got %v)", d)
 	}
 	c.TrendsMinInterval = d
+	age, err := getDuration("TRENDS_MIN_ACCOUNT_AGE", 72*time.Hour)
+	if err != nil {
+		return SearchConfig{}, err
+	}
+	if age <= 0 {
+		return SearchConfig{}, fmt.Errorf("config: TRENDS_MIN_ACCOUNT_AGE must be > 0 (got %v)", age)
+	}
+	c.TrendsMinAccountAge = age
 	for _, t := range splitCSV(os.Getenv("TRENDS_DENYLIST")) {
 		t = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(t)), "#")
 		if t != "" {

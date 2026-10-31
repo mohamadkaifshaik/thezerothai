@@ -29,6 +29,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const rpcSendMessage = "/dzeroth.messaging.v1.MessagingService/SendMessage"
@@ -509,6 +510,11 @@ func TestMessagingChain_RequestLineHasNoSecrets(t *testing.T) {
 	}
 	if last["conversation_hash"] == nil || last["uid_hash"] == nil {
 		t.Errorf("missing conversation_hash / uid_hash: %v", last)
+	}
+	// W7-34 (L-7): the hash is the keyed one (CURSOR_HMAC_KEY via HKDF), never the plain SHA-256 of the guessable conversation id.
+	convID := r.GetConversation().GetId()
+	if last["conversation_hash"] != logger.HashConversation(convID) || last["conversation_hash"] == logger.HashUID(convID) {
+		t.Errorf("conversation_hash = %v, want the keyed %q and not the plain %q", last["conversation_hash"], logger.HashConversation(convID), logger.HashUID(convID))
 	}
 	raw := fmt.Sprint(last)
 	for _, secret := range []string{text, a.uid, b.uid, r.GetConversation().GetId(), r.GetMessage().GetId()} {

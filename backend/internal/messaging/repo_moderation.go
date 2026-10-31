@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -173,7 +172,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 		if errors.Is(err, ErrNotFound) {
 			return TakedownResult{}, ErrNotFound
 		}
-		return TakedownResult{}, logger.RedactErr(fmt.Errorf("messaging: take down message: %w", err), convID, msgID)
+		return TakedownResult{}, redactErr(fmt.Errorf("messaging: take down message: %w", err), convID, msgID)
 	}
 	return out, nil
 }
