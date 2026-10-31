@@ -881,7 +881,7 @@ Order:
 - **Seam.** Checks the counter seam and the `Moderator` seam.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-21 — Cost report  [owner: sre-performance] [size: S] [depends: W6-7, W6-10]  Status: Open
+### W6-21 — Cost report  [owner: sre-performance] [size: S] [depends: W6-7, W6-10]  Status: Done (docs/ui-w6-21-cost-report; measured in cost-model.md §16, BUDGET: HOLDS)
 - **Description.**
   - Add the W6 rows (+1.05 reads, +1.02 writes, +0.32 deletes, +0.44 requests per DAU; Vision +1.22 units per DAU-month; GIF egress) to `docs/reviews/cost-model.md` §1–§6, beside W2's and any W3/W4 rows that have landed.
   - Emulator load smoke `make loadtest SCENARIO=poll_vote`: a hot poll at 50 votes/s, and a typical mix.
@@ -889,6 +889,7 @@ Order:
   - Re-check the Vision cap crossover (≈ 747 DAU) and the GCS egress crossover (≈ 1,786 DAU).
 - **Acceptance criteria.** The model is updated with measured reads per call (± 25 % of this plan, or this plan's table corrected); a k6 script is added under `loadtest/`; the sharding trigger's signal (`poll_vote_contention`) has a Logs Explorer query in §9.
 - **Test notes.** —
+- **Outcome.** Every measured read is inside +/- 25% of the table above or below it (new vote 3.00 to 3.10 typical, 5 all-cold; replay 1; GIF finalize 1 to 2 reads, 3 writes against 2.7). Two corrections to this plan: the Vision cap crossover is **730 DAU, not 747** (13.69 units per DAU-month, not 13.39) and the GIF egress pool also takes the 0.61 MB finalize read (crossover 1,723 DAU, not 1,786). The `poll_vote_contention` query is in cost-model.md §9; the WARN carries no post id (§16 finding 1).
 - **Observability.** No new log-based metric or alert policy.
 - **Budget.** 0 (emulators).
 - **Flag.** n/a.
