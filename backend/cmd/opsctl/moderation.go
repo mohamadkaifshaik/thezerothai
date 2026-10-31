@@ -77,6 +77,7 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
   opsctl messages takedown CONVERSATION_ID:MESSAGE_ID --project P [--report REPORT] [--note TEXT] [--dry-run]
                           (tombstones one direct message as REMOVED: text cleared, both inbox previews rewritten; see docs/runbooks/messaging.md)
   opsctl messages loghash CONVERSATION_ID   (no --project, no Firestore: prints the keyed conversation_hash of the request logs; needs CURSOR_HMAC_KEY in the environment)
+  opsctl polls loghash POST_ID   (no --project, no Firestore: prints the keyed post_hash of the VotePoll request line and the poll_vote_contention WARN; needs CURSOR_HMAC_KEY in the environment)
   opsctl messages migrate-placeholder --project P [--dry-run]   (DEV ONLY, one-off: placeholder "deleted" -> "_deleted" in conversations, messages and entries; refuses *-prod)
 `
 

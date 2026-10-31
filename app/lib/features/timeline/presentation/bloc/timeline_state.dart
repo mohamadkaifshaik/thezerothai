@@ -29,7 +29,12 @@ class TimelineState {
     this.error,
     this.notice,
     this.authorProtected = false,
+    this.unavailable = false,
   });
+
+  /// A list feed the server answers NOT_FOUND for (private, deleted, hidden or
+  /// blocked: one answer for every cause). [entries] is empty then.
+  final bool unavailable;
 
   /// The author is protected and the viewer is not approved (ADR-0025 D4):
   /// show the protected view, not an empty feed.
@@ -77,6 +82,7 @@ class TimelineState {
     AppException? notice,
     bool clearNotice = false,
     bool? authorProtected,
+    bool? unavailable,
   }) => TimelineState(
     status: status ?? this.status,
     entries: entries ?? this.entries,
@@ -91,5 +97,6 @@ class TimelineState {
     error: clearError ? null : (error ?? this.error),
     notice: clearNotice ? null : (notice ?? this.notice),
     authorProtected: authorProtected ?? this.authorProtected,
+    unavailable: unavailable ?? this.unavailable,
   );
 }

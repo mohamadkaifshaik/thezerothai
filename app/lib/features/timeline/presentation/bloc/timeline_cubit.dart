@@ -119,7 +119,12 @@ class TimelineCubit extends Cubit<TimelineState> {
 
   /// Resume / foreground tick: throttled, and held behind the pill.
   Future<void> refreshIfStale() async {
-    if (isClosed || state.refreshing || state.loadingMore) return;
+    if (isClosed ||
+        state.unavailable ||
+        state.refreshing ||
+        state.loadingMore) {
+      return;
+    }
     if (state.entries.length >= kTimelineRetention) return;
     if (_timeline.rateLimitedFor() != null) return;
     // Throttle on the last attempt, not the last success: during an outage the
@@ -149,6 +154,7 @@ class TimelineCubit extends Cubit<TimelineState> {
           refreshing: false,
           clearError: true,
           clearNotice: true,
+          unavailable: false,
         ),
       );
     } on AppException catch (e) {
@@ -215,7 +221,7 @@ class TimelineCubit extends Cubit<TimelineState> {
       _apply(snapshot);
       emit(state.copyWith(clearLoadingGap: true));
     } on AppException catch (e) {
-      if (isClosed) return;
+      if (isClosed || _listGone(e)) return;
       emit(state.copyWith(clearLoadingGap: true, notice: e));
     } catch (_) {
       if (isClosed) return;
@@ -386,8 +392,31 @@ class TimelineCubit extends Cubit<TimelineState> {
     }
   }
 
+  /// A list feed answered NOT_FOUND: nothing of it may stay on screen (the
+  /// repository already dropped its cache).
+  bool _listGone(AppException error) {
+    if (!_feed.isList || error is! NotFoundException) return false;
+    _snapshot = const TimelineSnapshot();
+    _held.clear();
+    emit(
+      state.copyWith(
+        status: TimelineStatus.ready,
+        entries: const [],
+        hasMore: false,
+        refreshing: false,
+        loadingMore: false,
+        newPosts: 0,
+        unavailable: true,
+        clearError: true,
+        clearNotice: true,
+        clearLoadingGap: true,
+      ),
+    );
+    return true;
+  }
+
   void _fail(AppException error) {
-    if (isClosed) return;
+    if (isClosed || _listGone(error)) return;
     if (state.hasPosts) {
       emit(state.copyWith(refreshing: false, notice: error));
     } else {
@@ -402,7 +431,7 @@ class TimelineCubit extends Cubit<TimelineState> {
   }
 
   void _failMore(AppException error) {
-    if (isClosed) return;
+    if (isClosed || _listGone(error)) return;
     emit(
       state.copyWith(
         loadingMore: false,

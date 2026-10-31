@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:connectrpc/connect.dart' as connect;
 
 import '../../../core/feature_flags/service_feature_gate.dart';
@@ -49,7 +51,10 @@ class ListMembersPage {
 ///   [ProtectedAccountException] (AddListMember), rate limits.
 /// - **Mutations** take an `idempotencyKey` made once per user action by the
 ///   caller and reused on a retry (rule 4). Nothing is retried here.
-/// - **Session.** No state is held, so nothing to clear on sign-out.
+/// - **Headers (W5-12).** The latest `ListInfo` seen for each list is kept in
+///   session memory ([header], [headerChanges]); the list timeline repository
+///   feeds it too ([noteListInfo]), so the list detail never costs a `GetList`
+///   it does not need. [clearSession] ends it on sign-out.
 /// - [onListSeen] receives every `ListInfo` that comes back (the latest list
 ///   header), so `HomeTabsRepository` can keep its tab title current.
 class ListsRepository {
@@ -64,9 +69,30 @@ class ListsRepository {
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
   final void Function(pb.ListInfo list)? _onListSeen;
+  final Map<String, pb.ListInfo> _headers = {};
+  final StreamController<pb.ListInfo> _headerChanges =
+      StreamController<pb.ListInfo>.broadcast(sync: true);
 
   /// Whether list RPCs may be sent at all right now.
   bool get enabled => _gate.enabled;
+
+  /// The latest header of [listId] this session has seen, or null.
+  pb.ListInfo? header(String listId) => _headers[listId];
+
+  /// Emits every header seen (a list screen filters by id).
+  Stream<pb.ListInfo> get headerChanges => _headerChanges.stream;
+
+  /// Records a list header from any source (this repository, the list
+  /// timeline) and tells `onListSeen` (the Home tab title).
+  void noteListInfo(pb.ListInfo list) {
+    if (list.listId.isEmpty) return;
+    _headers[list.listId] = list;
+    _onListSeen?.call(list);
+    if (!_headerChanges.isClosed) _headerChanges.add(list);
+  }
+
+  /// Forgets every header (sign-out).
+  void clearSession() => _headers.clear();
 
   /// Creates a list. A null [isPrivate] leaves the field out: the server
   /// creates it private (F3, fails closed).
@@ -183,28 +209,40 @@ class ListsRepository {
     return _seen(r.list);
   }
 
+  /// A page can be short, or empty with a token still set (members the viewer
+  /// may not see are dropped). With [maxEmptyPages] above 0 an EMPTY page that
+  /// still has a token is followed, at most that many times, before the page
+  /// is returned; the token goes back unchanged.
   Future<ListMembersPage> listMembers({
     required String listId,
     int pageSize = 0,
     String pageToken = '',
+    int maxEmptyPages = 0,
   }) async {
-    final r = await _call(
-      () => _apiClient.lists.listListMembers(
-        pb.ListListMembersRequest(
-          listId: listId,
-          pageSize: pageSize,
-          pageToken: pageToken,
+    var token = pageToken;
+    for (var attempt = 0; ; attempt++) {
+      final r = await _call(
+        () => _apiClient.lists.listListMembers(
+          pb.ListListMembersRequest(
+            listId: listId,
+            pageSize: pageSize,
+            pageToken: token,
+          ),
         ),
-      ),
-    );
-    return ListMembersPage(
-      users: r.users.toList(),
-      nextPageToken: r.nextPageToken,
-    );
+      );
+      final page = ListMembersPage(
+        users: r.users.toList(),
+        nextPageToken: r.nextPageToken,
+      );
+      if (page.users.isNotEmpty || !page.hasMore || attempt >= maxEmptyPages) {
+        return page;
+      }
+      token = page.nextPageToken;
+    }
   }
 
   pb.ListInfo _seen(pb.ListInfo list) {
-    if (list.listId.isNotEmpty) _onListSeen?.call(list);
+    noteListInfo(list);
     return list;
   }
 
