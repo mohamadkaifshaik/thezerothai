@@ -3,6 +3,7 @@ package lists
 import (
 	"context"
 	"errors"
+	"maps"
 	"reflect"
 	"strconv"
 	"testing"
@@ -27,7 +28,9 @@ type readEnv struct {
 }
 
 // newReadEnv builds a service over fakes. The owner (testUID) and the viewer are ACTIVE unless profiles says otherwise.
-func newReadEnv(profiles map[string]identity.Profile, snaps map[string]graph.Snapshot, ls ...List) readEnv {
+// profiles is copied, never written: parallel subtests share the caller's map (a write here was a data race under -race).
+func newReadEnv(in map[string]identity.Profile, snaps map[string]graph.Snapshot, ls ...List) readEnv {
+	profiles := maps.Clone(in)
 	if profiles == nil {
 		profiles = map[string]identity.Profile{}
 	}
