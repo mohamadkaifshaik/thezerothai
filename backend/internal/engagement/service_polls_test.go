@@ -151,7 +151,7 @@ func TestVotePoll_FirstVote(t *testing.T) {
 	}
 	// The cache was filled by the response's userLikes read and now holds the vote, with the likes kept.
 	st, ok := e.m.s.cache.get("viewer")
-	if !ok || len(st.pollVotes) != 1 || st.pollVotes[0] != pidA+":1" || len(st.recent) != 1 || e.repo.loads != 1 {
+	if !ok || len(st.pollVotes) != 1 || st.pollVotes[0] != pollEntry(pidA, 1, e.closes) || len(st.recent) != 1 || e.repo.loads != 1 {
 		t.Errorf("cache = %+v ok=%v loads=%d", st, ok, e.repo.loads)
 	}
 	// A later GetPost-style hydration shows the choice from the same cache with no extra read.
@@ -396,7 +396,7 @@ func TestVotePoll_LazyTrim(t *testing.T) {
 			t.Fatalf("trims = %v, want one trim of the 111 oldest", len(e.pr.trims))
 		}
 		st, _ := e.m.s.cache.get("viewer")
-		if len(st.pollVotes) != 10 || st.pollVotes[9] != pidA+":0" {
+		if len(st.pollVotes) != 10 || st.pollVotes[9] != pollEntry(pidA, 0, e.closes) {
 			t.Fatalf("cache keeps %d votes (last %q), want the newest 10 with the new vote last", len(st.pollVotes), st.pollVotes[len(st.pollVotes)-1])
 		}
 	})

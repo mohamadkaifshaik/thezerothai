@@ -2,6 +2,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/storage/session_epoch.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/lists/domain/lists_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -44,6 +45,7 @@ void main() {
         isEnabled: () => enabled,
         onUnexpectedError: (_, _) => reported++,
       ),
+      epoch: SessionEpoch(),
       onListSeen: seen.add,
     );
   });

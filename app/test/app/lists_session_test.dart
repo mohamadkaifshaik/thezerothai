@@ -14,6 +14,7 @@ import 'package:dzeroth/features/lists/domain/home_tab_entry.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
@@ -205,7 +206,7 @@ void main() {
     );
   });
 
-  group('ListsRepository headers (in memory, no epoch)', () {
+  group('ListsRepository headers (in memory, session epoch)', () {
     late Completer<pb.GetListResponse> answer;
     late ListsRepository lists;
 
@@ -216,6 +217,7 @@ void main() {
           FakeTransport((procedure, _) async => answer.future),
         ),
         gate: on(),
+        epoch: db.sessionEpoch,
         onListSeen: tabs.noteListInfo,
       );
     });
@@ -227,32 +229,79 @@ void main() {
       expect(lists.header('77'), isNull);
     });
 
-    test(
-      'a GetList answer that arrives AFTER sign-out is not kept for the '
-      'next account',
-      () async {
-        await wire('a');
-        final pending = lists.getList('77');
-        auth.add(signedOut);
-        await settle();
-        lists.clearSession(); // what AppWidget does on `unauthenticated`
-        answer.complete(
-          pb.GetListResponse(
-            list: pb.ListInfo(listId: '77', name: 'A private list'),
-          ),
-        );
-        await pending;
-        expect(
-          lists.header('77'),
-          isNull,
-          reason: "B must not be handed the name of A's private list",
-        );
-      },
-      skip:
-          'W5-16 D2: ListsRepository has no SessionEpoch, so a response that '
-          'was in flight at sign-out repopulates _headers '
-          '(lists_repository.dart:244 _seen -> :87 noteListInfo) after '
-          'clearSession (:95). Remove the skip when fixed.',
+    test('a GetList answer that arrives AFTER sign-out is not kept for the '
+        'next account', () async {
+      await wire('a');
+      final pending = lists.getList('77');
+      auth.add(signedOut);
+      await settle();
+      lists.clearSession(); // what AppWidget does on `unauthenticated`
+      answer.complete(
+        pb.GetListResponse(
+          list: pb.ListInfo(listId: '77', name: 'A private list'),
+        ),
+      );
+      await pending;
+      expect(
+        lists.header('77'),
+        isNull,
+        reason: "B must not be handed the name of A's private list",
+      );
+    });
+  });
+
+  group('list timeline header hand-off (SessionEpoch)', () {
+    late Completer<tl.GetListTimelineResponse> answer;
+    late List<pb.ListInfo> handedOver;
+    late TimelineRepository timeline;
+
+    setUp(() {
+      answer = Completer<tl.GetListTimelineResponse>();
+      handedOver = [];
+      timeline = TimelineRepository(
+        apiClient: ApiClient.withTransport(
+          FakeTransport((procedure, _) async => answer.future),
+        ),
+        store: store,
+        gate: PostsFeatureGate(isPostsEnabled: () => true),
+        listsGate: on(),
+        onListSeen: handedOver.add,
+      );
+    });
+
+    tl.GetListTimelineResponse reply() => tl.GetListTimelineResponse(
+      posts: [postView(1)],
+      sinceToken: 's',
+      list: pb.ListInfo(listId: '77', name: 'A private list'),
     );
+
+    test('a GetListTimeline answer that arrives AFTER sign-out does not hand '
+        "A's list header to the next account", () async {
+      await wire('a');
+      final pending = timeline.refresh(FeedKey.list('77'));
+      auth.add(signedOut);
+      await settle();
+      answer.complete(reply());
+      await pending;
+      expect(handedOver, isEmpty);
+    });
+
+    test('and after a direct switch to B', () async {
+      await wire('a');
+      final pending = timeline.refresh(FeedKey.list('77'));
+      auth.add(signedIn('b'));
+      await settle();
+      answer.complete(reply());
+      await pending;
+      expect(handedOver, isEmpty);
+    });
+
+    test('an answer within the same session still hands it over', () async {
+      await wire('a');
+      final pending = timeline.refresh(FeedKey.list('77'));
+      answer.complete(reply());
+      await pending;
+      expect(handedOver.map((l) => l.name), ['A private list']);
+    });
   });
 }

@@ -230,7 +230,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerListsLifecycle(l, listsRepo, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "identity", "auth_delete", "users_doc"}
@@ -256,7 +256,7 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerListsLifecycle(l, listsRepo, nil, nil); err == nil {
 		t.Error("registering the lists step twice was accepted")
 	}
-	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err == nil {
+	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err == nil {
 		t.Error("registering the poll_votes step twice was accepted")
 	}
 }

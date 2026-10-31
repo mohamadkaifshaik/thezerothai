@@ -171,6 +171,7 @@ class TimelineRepository {
       feed,
       'since_token',
       sinceToken: state.sinceToken,
+      session: session,
     );
     if (page == null) {
       await _store.clearSince(feed, session: session);
@@ -199,6 +200,7 @@ class TimelineRepository {
         feed,
         'page_token',
         pageToken: state.olderPageToken,
+        session: session,
       );
       if (page == null) return _coldOpen(feed, session, replace: true);
       await _store.applyOlderPage(
@@ -224,6 +226,7 @@ class TimelineRepository {
         feed,
         'page_token',
         pageToken: gap.gapToken!,
+        session: session,
       );
       if (page == null) return _coldOpen(feed, session, replace: true);
       await _store.applyGapPage(
@@ -242,7 +245,7 @@ class TimelineRepository {
     int session, {
     bool replace = false,
   }) async {
-    final page = await _fetch(feed);
+    final page = await _fetch(feed, session: session);
     await _store.applyColdOpen(
       feed,
       posts: page.posts,
@@ -261,9 +264,15 @@ class TimelineRepository {
     String field, {
     String sinceToken = '',
     String pageToken = '',
+    required int session,
   }) async {
     try {
-      return await _fetch(feed, sinceToken: sinceToken, pageToken: pageToken);
+      return await _fetch(
+        feed,
+        sinceToken: sinceToken,
+        pageToken: pageToken,
+        session: session,
+      );
     } on ValidationException catch (error) {
       if (error.field == field) return null;
       rethrow;
@@ -275,6 +284,7 @@ class TimelineRepository {
     FeedKey feed, {
     String sinceToken = '',
     String pageToken = '',
+    required int session,
   }) async {
     // A held RATE_LIMITED answer applies to every read: send nothing.
     final held = _hold.check();
@@ -299,10 +309,9 @@ class TimelineRepository {
         );
       }
       if (feed.isList) {
-        return await _fetchList(feed.listId!, sinceToken, pageToken);
+        return await _fetchList(feed.listId!, sinceToken, pageToken, session);
       }
       final tab = feed.tab!;
-      final session = _store.session;
       final r = await _gate.run(
         () => _apiClient.timeline.getUserTimeline(
           tl.GetUserTimelineRequest(
@@ -352,6 +361,7 @@ class TimelineRepository {
     String listId,
     String sinceToken,
     String pageToken,
+    int session,
   ) async {
     final gate = _listsGate;
     if (gate == null) throw _listsNotYet();
@@ -371,7 +381,9 @@ class TimelineRepository {
       }
     });
     if (r == null) throw _listsNotYet();
-    if (r.hasList()) _onListSeen?.call(r.list);
+    // Privacy: a header that lands after sign-out or a switch of account is
+    // not handed to the next one.
+    if (r.hasList() && _store.session == session) _onListSeen?.call(r.list);
     return _Page(
       r.posts.toList(),
       r.nextPageToken,

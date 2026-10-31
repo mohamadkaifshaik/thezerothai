@@ -262,8 +262,11 @@ func (s *service) encodeAfter(binding, id string) string {
 
 // ListUserLists implements Service (the proto doc comment is the contract). Order of the work: validation and the token (0
 // reads); for another owner the viewer's graph (blockedBy names the owner), the owner's profile (missing or not ACTIVE), the
-// owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query of page_size + 1 docs
-// (the extra row decides next_page_token and is not returned).
+// owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query. The caller's own lists
+// read page_size + 1 docs (the extra row decides next_page_token). Another owner's read all LISTS_MAX_PER_USER docs, drop private
+// and hidden rows and return every public one with no token whatever page_size is: a token or a short page computed from the
+// raw rows would leak how many private lists the owner has and where they sit (ADR-0030 D3, W5-41). Simpler than paging the
+// filtered set and costs no more reads than the documented worst case (the owner has at most LISTS_MAX_PER_USER docs).
 func (s *service) ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error) {
 	begin(ctx, "user_lists")
 	owner := in.OwnerID
@@ -301,15 +304,20 @@ func (s *service) ListUserLists(ctx context.Context, viewer string, in UserLists
 			return UserLists{}, nil
 		}
 	}
-	size := limits.ClampPageSize(in.PageSize)
-	rows, err := s.d.Repo.ListByOwner(ctx, owner, after, size+1)
-	if err != nil {
-		return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
-	}
 	var out UserLists
-	if len(rows) > size {
-		rows = rows[:size]
-		out.NextPageToken = s.encodeAfter(binding, rows[size-1].ID)
+	var rows []List
+	if own {
+		size := limits.ClampPageSize(in.PageSize)
+		rows, err = s.d.Repo.ListByOwner(ctx, owner, after, size+1)
+		if err != nil {
+			return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
+		}
+		if len(rows) > size {
+			rows = rows[:size]
+			out.NextPageToken = s.encodeAfter(binding, rows[size-1].ID)
+		}
+	} else if rows, err = s.d.Repo.ListByOwner(ctx, owner, "", max(s.d.Limits.MaxPerUser, 1)); err != nil {
+		return UserLists{}, mapErr(ctx, "user_lists", viewer, "", err)
 	}
 	for _, l := range rows {
 		if !own && hiddenFromOthers(l) {
