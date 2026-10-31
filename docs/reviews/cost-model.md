@@ -296,9 +296,9 @@ Plan = `docs/plans/ui-w5-lists-communities.md` (Cost, "Per-RPC") worst / typical
 | `GetList`, non-owner cold / warm / owner cold | 3 / 0-1 | 5 non-owner, 2 owner | **5 / 0 / 2** | 0 | non-owner worst corrected 3 to 5 (the ADR's); typical 3 |
 | `ListUserLists`, own (5 lists) / another owner (5 lists) cold / with `contains_user_id` | 22 at n = 20 / 4 | 24 | **5 / 7 and 8 / 5** | 0 | yes (n = 5; the 20-list worst is derived: 1 + 20 + 3) |
 | `ListListMembers` page 20 non-owner cold / page 50 warm / next page / owner page 50 cold | 24 / 2 + misses | 25 / 55 | **22 / 30 / 0 / 50** | 0 | yes |
-| `CreateList` / replay | 4 (+20 at the cap) / 3 | 4 (+20) | **3 / 1** | **3 / 0** | yes |
-| `AddListMember` cold / replay / already a member / refused `LIMIT_REACHED` (the 151st) | 5 / 2 | 6 | **3 / 1 / 2 / 2** | **3 / 0 / 1 / 0** | reads yes; **writes corrected 2 to 3** (list, quota, idempotency) |
-| `RemoveListMember` / not a member | 2 / 1 | 3 | **2 / 2** | **2 / 1** | reads yes; **writes corrected 1 to 2** (list, idempotency) |
+| `CreateList` / replay | 4 (+20 at the cap) / 3 | 4 (+20) | **3 / 1**, replay **2** since W5-45 | **3 / 0** | yes; W5-45 L-3: the idempotency record holds the list id only, a replay re-reads the list (+1; asserted by the lists integration test, not re-run under k6) |
+| `AddListMember` cold / replay / already a member / refused `LIMIT_REACHED` (the 151st) | 5 / 2 | 6 | **3 / 1 / 2 / 2**; since W5-45 **4 / 2 / 2 / 3** (a real add reads `users/{target}` fresh in the transaction, L-4; a replay re-reads the list, L-3; asserted by the lists integration test) | **3 / 0 / 1 / 0** | reads yes; **writes corrected 2 to 3** (list, quota, idempotency) |
+| `RemoveListMember` / not a member | 2 / 1 | 3 | **2 / 2** | **2 / 1** | reads yes; **writes corrected 1 to 2** (list, idempotency); a replay is 2 since W5-45 (+1 list read) |
 | `UpdateList` rename / unchanged | 2 / 1 | 3 | **3 / 2** | **2 / 1** | yes |
 | `DeleteList` / again | 2 / 1 | 3 | **3 / 2** | **1** (+1 delete) **/ 1** | yes |
 - **Cold-versus-warm note.** The planning cold open (30) is the case where the list, the owner and the viewer's graph are cached; the all-cold first open on a fresh instance is 46 at 50 members (48 is the formula's worst) and 106 to 111 at 150 members. With 3 instances and scale-to-zero some opens are all-cold. The model uses **38** (half all-cold, half 30); if every open were all-cold it would be 46 (+2.4 reads per DAU, INR 1.8 a month at 3,000 DAU).

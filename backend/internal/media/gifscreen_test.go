@@ -127,11 +127,11 @@ func (e *env) finalizeGIF(t *testing.T, tg UploadTarget) Result {
 }
 
 func TestGIFScreen_ThirdSampledFrameExplicitIsRejected(t *testing.T) {
-	// 8 frames of equal delay: the samples are frames 0, 2, 4, 6. The first frame is harmless and the explicit one is
-	// the 3rd sample (frame 4), which Vision's first-frame-only reading of the file would never have seen.
+	// 8 frames of equal delay: the samples are frames 0, 2, 5, 7. The first frame is harmless and the explicit one is
+	// the 3rd sample (frame 5), which Vision's first-frame-only reading of the file would never have seen.
 	e := newEnv(t, envOpts{})
 	e.mod.bytesBy = redIsExplicit(t)
-	tg := e.createGIFWith(t, uidA, "a", colourGIF(pxWhite, pxGreen, pxGreen, pxGreen, pxRed, pxGreen, pxGreen, pxGreen))
+	tg := e.createGIFWith(t, uidA, "a", colourGIF(pxWhite, pxGreen, pxGreen, pxGreen, pxGreen, pxRed, pxGreen, pxGreen))
 	r := e.finalizeGIF(t, tg)
 	if r.Status != StatusRejected || r.RejectionReason != reasonPolicy {
 		t.Fatalf("result = %+v, want REJECTED %q", r, reasonPolicy)
@@ -189,9 +189,13 @@ func TestSampleIndices(t *testing.T) {
 		{"one frame", frames(10), []int{0}},
 		{"three frames are each sampled once", frames(10, 10, 10), []int{0, 1, 2}},
 		{"four frames", frames(10, 10, 10, 10), []int{0, 1, 2, 3}},
-		{"eight equal delays", frames(rep(8, 10)...), []int{0, 2, 4, 6}},
-		{"zero delay counts as 10 ms", frames(rep(8, 0)...), []int{0, 2, 4, 6}},
-		{"a long first frame covers every point", frames(append([]int{400}, rep(5, 1)...)...), []int{0}},
+		{"eight equal delays: 0, T/3, 2T/3 and the last", frames(rep(8, 10)...), []int{0, 2, 5, 7}},
+		{"zero delay counts as 10 ms", frames(rep(8, 0)...), []int{0, 2, 5, 7}},
+		{"five frames: the last is the fourth sample", frames(rep(5, 10)...), []int{0, 1, 3, 4}},
+		{"two frames", frames(10, 10), []int{0, 1}},
+		{"a long GIF of 300 frames", frames(rep(300, 5)...), []int{0, 100, 200, 299}},
+		{"a 2 cs last frame after a long GIF is sampled (M-2)", frames(append(rep(40, 10), 2)...), []int{0, 13, 26, 40}},
+		{"a long first frame covers every point, the last frame is still sampled", frames(append([]int{400}, rep(5, 1)...)...), []int{0, 5}},
 		{"a long last frame is sampled once", frames(append(rep(5, 1), 400)...), []int{0, 5}},
 	}
 	for _, tt := range tests {

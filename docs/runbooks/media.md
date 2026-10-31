@@ -37,6 +37,9 @@ hold `Content-Type`, `Content-MD5`, `x-goog-content-length-range` and `x-goog-if
 ### Upload replaced after verify (W6-25, H-1)
 The signed PUT is create-only (`x-goog-if-generation-match: 0`): a second PUT to the same URL gets 412 (the client treats 412 on its own retry as stored). The generation verify read is pinned on the GIF read and on the publish copy; if the object was replaced anyway, the call answers REJECTED (reason `invalid`) and the request log carries `changed_after_verify=true`; nothing is published. Pinned reads use an `ifGenerationMatch` precondition, so 412 means replaced (REJECTED) and 404 means the object vanished (retryable, not a rejection). If the store ever returns attributes without a generation, `verify` fails closed with an internal error (visible in Error Reporting) and nothing is published. A burst of these is an attack signal (look for repeated PUTs), not a bug. Cost: 0 extra GCS calls (the generation comes from the existing attrs read; the copy precondition is a parameter).
 
+### Animated WebP refused (W6-26, security H-2)
+`verify` refuses a WebP (photo, avatar, banner, GIF thumbnail; full or thumbnail object) that is animated or not provably a still: REJECTED, reason `invalid`, before any Vision unit is reserved (0 units). It walks the RIFF chunks in the pinned head: first chunk `VP8 `/`VP8L` is a still; `VP8X` with flag bit `0x02`, or any `ANIM`/`ANMF` chunk, is animated; a `VP8X` file whose `VP8 `/`VP8L` chunk is not within the head, or a truncated file, fails closed. A WebP reads 32 KiB (`webpHeadBytes`) instead of 512 bytes in the same single pinned `UploadHead` call: 0 extra GCS operations, at most 31.5 KiB more egress per WebP object. A user report "my WebP is rejected" with a still image usually means an ICC profile over about 32 KiB; the client's own uploads are JPEG and are unaffected.
+
 ### FinalizeUpload returns UNAVAILABLE ("image checks are temporarily unavailable")
 Vision (or its credentials) failed. Nothing was published and the image is still PENDING, so the client may retry.
 Check the Vision API is enabled in the project and the runtime service account can read the upload bucket. If it persists
@@ -131,8 +134,8 @@ FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUploa
 - **Verify.** The full object's magic must be `GIF87a` or `GIF89a` and its stored type `image/gif`; a GIF declared but PNG bytes is
   `REJECTED` (reason `invalid`), 0 Vision units. The original bytes are published unchanged.
 - **Vision, frame-sampled (W6-10, ADR-0029 D11, F11).** FinalizeUpload reads the whole private GIF (1 Class B), pre-scans the
-  container without decoding pixels, then decodes one frame at a time and tiles the frames visible at 0, T/4, T/2 and 3T/4 of the
-  display time (up to four) into a 2 x 2 JPEG sheet (up to 1,280 x 960). Vision gets the sheet **by bytes** and the thumbnail **by URI**:
+  container without decoding pixels, then decodes one frame at a time and tiles the frames visible at 0, T/3 and 2T/3 of the
+  display time **plus always the last frame** (W6-28, M-2: a GIF that plays once rests on its last frame; up to four, the 2 x 2 JPEG sheet (up to 1,280 x 960) and the 2 units are unchanged). Decoding to the last frame decodes every frame (worst accepted GIF about 0.4 to 0.8 s of the 2 s deadline; watch `refused_reason=deadline` on `gif_screen`). Vision gets the sheet **by bytes** and the thumbnail **by URI**:
   **always 2 units** (the full object is never sent by URI). This is stricter than D11 point 6, which said 1 unit with
   `VISION_SCREEN_THUMB=false`: the thumbnail is a separate client upload that lists show, so it is always screened, like a banner's.
   Frames between the sample points are not screened (the residual risk the founder accepted in F11 point 2); report-driven review

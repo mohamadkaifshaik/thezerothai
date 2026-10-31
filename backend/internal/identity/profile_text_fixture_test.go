@@ -129,3 +129,30 @@ func TestPunycodeEncode(t *testing.T) {
 		}
 	}
 }
+
+// The single-line rules (W5-45, W5-17 L-2): visible rune, format characters, fillers. Run through the shared helper lists
+// use and through the display name validator, which must agree.
+func TestSharedProfileText_SingleLine(t *testing.T) {
+	t.Parallel()
+	runProfileText(t, "single_line_text", func(raw string) (string, bool) {
+		stored, ok := SingleLineText(raw, 1, 50)
+		if dn := !displayNameIssue(raw); dn != ok {
+			t.Errorf("%q: SingleLineText ok=%v but displayNameIssue accepts=%v", raw, ok, dn)
+		}
+		return stored, ok
+	})
+}
+
+// An empty value is a clear, not a missing visible rune: a list description and a location may be "".
+func TestSingleLineText_EmptyIsAllowedWhenMinIsZero(t *testing.T) {
+	t.Parallel()
+	if got, ok := SingleLineText("  ", 0, 100); !ok || got != "" {
+		t.Errorf("blank description = %q, %v; want \"\", true", got, ok)
+	}
+	if locationIssue("") {
+		t.Error("an empty location (a clear) must stay valid")
+	}
+	if _, ok := SingleLineText(string(rune(0x200b)), 0, 100); ok {
+		t.Error("a description of only a zero width space must be refused")
+	}
+}
