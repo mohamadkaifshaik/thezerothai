@@ -216,6 +216,24 @@ type EngagementServiceClient interface {
 	//     => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
 	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
 	//     userLikes.
+	//
+	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives with W6-36): a vote is changeable until
+	// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
+	// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
+	// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
+	// block, still answers the byte-identical NOT_FOUND of step 4; a mute is not a block. Steps 6 and 7 become, with the
+	// stored vote cs and change count n, the requested choice_index c and e = expected_choice:
+	//
+	//	no vote doc => a new vote (step 6), any e;
+	//	cs == c => replay, the current view, 0 writes, any e;
+	//	cs != c and e == cs+1 and n < POLL_VOTE_CHANGES_MAX => a change, 4 writes;
+	//	cs != c and e == cs+1 and n >= POLL_VOTE_CHANGES_MAX => FAILED_PRECONDITION + LIMIT_REACHED with
+	//	  metadata["limit"] = "poll_vote_changes" and metadata["choice"] = cs (0-based), 0 writes;
+	//	cs != c and e != cs+1 (0 from an older client, or a stale value) => FAILED_PRECONDITION + ALREADY_VOTED with
+	//	  metadata["choice"] = cs, 0 writes.
+	//
+	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until W6-36 lands the server ignores
+	// expected_choice and keeps a vote final, as steps 6 and 7 below say.
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.
 	//
@@ -492,6 +510,24 @@ type EngagementServiceHandler interface {
 	//     => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
 	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
 	//     userLikes.
+	//
+	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives with W6-36): a vote is changeable until
+	// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
+	// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
+	// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
+	// block, still answers the byte-identical NOT_FOUND of step 4; a mute is not a block. Steps 6 and 7 become, with the
+	// stored vote cs and change count n, the requested choice_index c and e = expected_choice:
+	//
+	//	no vote doc => a new vote (step 6), any e;
+	//	cs == c => replay, the current view, 0 writes, any e;
+	//	cs != c and e == cs+1 and n < POLL_VOTE_CHANGES_MAX => a change, 4 writes;
+	//	cs != c and e == cs+1 and n >= POLL_VOTE_CHANGES_MAX => FAILED_PRECONDITION + LIMIT_REACHED with
+	//	  metadata["limit"] = "poll_vote_changes" and metadata["choice"] = cs (0-based), 0 writes;
+	//	cs != c and e != cs+1 (0 from an older client, or a stale value) => FAILED_PRECONDITION + ALREADY_VOTED with
+	//	  metadata["choice"] = cs, 0 writes.
+	//
+	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until W6-36 lands the server ignores
+	// expected_choice and keeps a vote final, as steps 6 and 7 below say.
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.
 	//

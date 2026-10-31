@@ -44,7 +44,7 @@ Branches: `feat/ui-w5-N-<slug>` off `main` (not stacked); one ticket per PR exce
 | Home tabs | `HomeScreen` has a one-tab "Following" `AppTabBar` (W1-5); `AppTabBar` already scrolls content-sized tabs and takes a trailing widget (`docs/ui-catalog.md`) | Following + pinned tabs, "+" → Manage pinned |
 | Post context label | `PostCard` has a private `_RepostedBy` row (`app/lib/shared/widgets/post_card.dart:463`) | generalise it into one context-label row (repost, community) |
 | Navigation | `AppDrawer` rows Profile / History / Settings / Sign out ("add Lists here in a later wave"); `MainShell` bar and rail Home, Notifications, Profile (W4-17 adds Explore) | Lists and Communities rows (drawer, desktop rail) |
-| Reports, takedowns | `ReportContent` with `ReportTargetType` POST and ACCOUNT (`moderation.proto`); opsctl `takedown-post`, `suspend-user`; `postRemovals` log for `removed_ids` (ADR-0016) | targets COMMUNITY and LIST; opsctl community suspend and list hide |
+| Reports, takedowns | `ReportContent` with `ReportTargetType` POST and ACCOUNT (`moderation.proto`); opsctl `takedown-post`, `suspend-user`; `postRemovals` log for `removed_ids` (ADR-0016) | targets COMMUNITY and LIST (LIST shipped in W5-44); opsctl community suspend and list hide (shipped in W5-44) |
 | Composer | a "Choose audience" pill is captured on X (`composer.md` §3: "Everyone" plus "My Communities") and is not built; `composer-w15-w6.md` lists "Communities audience" as out of its scope | the audience picker (W5-34) |
 | Lifecycle | `lifecycle_collections_guard_test.go` (T11) fails when code **names** a collection with no row, so the module's first PR that names `lists` or `communities` must also register its eraser and export (W2-3/W2-5 learned this) | W5-4 with W5-5, and W5-23 with W5-24, each in one PR |
 | Captures | Lists index (desktop MEASURED, mobile 500 dp MEASURED), Communities explore (desktop MEASURED, mobile OBSERVED), Home tabs + "Manage timelines" button (MEASURED; dialog contents UNKNOWN), composer audience popover (OBSERVED + A11Y) | the roadmap's "W5 Lists and Communities on mobile" capture is **partly done**; still UNKNOWN: list detail, create-list flow, list members, community page and About, join flow, create community, the Manage timelines dialog, moderator tools |
@@ -345,7 +345,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | In review (#531) |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Done (#527) |
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (#537) |
-| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Open |
+| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | In review (PR #539) |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | In review (PR: docs/ui-w5-17-lists-security; report `docs/reviews/security-w5-lists.md`, SECURITY: CLEAR, 4 Medium) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
@@ -361,7 +361,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
-| W5-29 | Platform levers: report targets COMMUNITY / LIST; opsctl community suspend / restore, list hide / restore; takedown appends `recentRemovals` | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
+| W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Open |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Open |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Open |
@@ -376,10 +376,11 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Open (gate: before percent) |
 | W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer | yes | Open (gate: before percent) |
 | W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Open (gate: before the prod release containing #526 is promoted) |
-| W5-44 | *(W5-17 M-4)* opsctl `list hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | Open (gate: before percent) |
+| W5-44 | *(W5-17 M-4)* opsctl `lists hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | In review (PR #543; additive proto enum `REPORT_TARGET_TYPE_LIST = 4`; gate: before percent) |
 | W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | Open (gate: before prod on) |
 | W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public, non-hidden lists naming the uid), if the founder says yes | backend-developer | S | founder answer | lifecycle export files serialise | Open (gate: before prod on) |
 | W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | Open |
+| W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | Open |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).
@@ -504,7 +505,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Parallel with W3 Part A / W4:** logic yes; the shared plumbing files merge one PR at a time with W3-4 / W4-3.
 
 ### W5-4 — Lists write path  [owner: backend-developer] [size: M] [depends: W5-3]  Status: In review  (**ships in one PR with W5-5**)
-- **Description.** `lists.FirestoreRepo` owns `lists/{listId}` (Snowflake id): `ownerId`, `name`, `description`, `private`, `memberIds[]`, `memberCount`, `hidden` (platform, W5-29), `createdAt`, `updatedAt`.
+- **Description.** `lists.FirestoreRepo` owns `lists/{listId}` (Snowflake id): `ownerId`, `name`, `description`, `private`, `memberIds[]`, `memberCount`, `hidden` (platform, written by `opsctl lists hide|restore`, W5-44), `createdAt`, `updatedAt`.
   - **CreateList:**
     - the idempotency doc (rule 4);
     - a transaction with `quotas.listCreates`;
@@ -534,7 +535,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - **Export section `lists`:** own lists with name, description, private and member ids.
   - **T11:** a `lists` row in `lifecycle_collections_guard_test.go`, the residue sweep fields `ownerId` and `memberIds`, and the `lifecycle_wiring_test.go` lists.
   - `homeTabs` lives on `users/{uid}` and goes with it; dangling pins to deleted lists are dropped lazily by GetMe (W5-9).
-  - **Runbook `docs/runbooks/lists.md`:** the kill switch, caps, a stuck eraser page, the F4 rule, and how to hide an abusive public list (W5-29).
+  - **Runbook `docs/runbooks/lists.md`:** the kill switch, caps, a stuck eraser page, the F4 rule, and how to hide an abusive public list (W5-44).
 - **Acceptance criteria.**
   - Given a user who owns 2 lists and is a member of 3 others, when the account is erased, then their 2 lists are gone, the 3 lists no longer name them, the counts are right, and a rerun writes 0.
   - Given the export, then the `lists` section matches the golden file.
@@ -567,7 +568,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ### W5-7 — List reads  [owner: backend-developer] [size: M] [depends: W5-4]  Status: In review (PR #518)
 - **Description.**
-  - **GetList:** private → NOT_FOUND for non-owners. A non-owner viewer also reads the owner graph for F4. `hidden` (W5-29) → NOT_FOUND for non-owners. `pinned_by_viewer` comes from the caller's `homeTabs` (0 reads).
+  - **GetList:** private → NOT_FOUND for non-owners. A non-owner viewer also reads the owner graph for F4. `hidden` (W5-44) → NOT_FOUND for non-owners. `pinned_by_viewer` comes from the caller's `homeTabs` (0 reads).
   - **ListUserLists(owner, contains_user_id):** non-owners see only public, non-hidden lists. `contains` is computed from `memberIds` at 0 reads.
   - **ListListMembers:** a page of `memberIds` → `identity.Directory` GetMany (cache-first) → drop non-ACTIVE users and the D6 / F4 drops → `Relationship` from the caller graph. Sealed cursor (position plus `updatedAt`), 24 h.
   - **`lists.Reader.Members(ctx, viewer, listID)`** for the timeline: visibility applied, members minus the F4 drops, cached 60 s.
@@ -741,7 +742,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Not built: the communities rows (arrive with W5-30).
 - **Parallel with W3 Part A / W4:** `home_screen.dart` serialises with W3-19.
 
-### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: Open
+### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: In review (PR #539; report `docs/reviews/test-report-w5-lists.md`)
 - **Description.** Emulator integration:
   - flag modes for `lists`;
   - the authz matrix (owner / other / private / hidden / blocked both ways / overflow);
@@ -1068,21 +1069,19 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: Open
 - **Description.**
-  - `ReportContent` accepts COMMUNITY and LIST targets. The target owner is the community or list owner. The evidence snapshot holds the name, description and rules text. Private lists are reportable only by their owner; others get NOT_FOUND. Quota `reports` as today.
+  - `ReportContent` accepts the COMMUNITY target (the LIST target shipped in W5-44). The target owner is the community owner. The evidence snapshot holds the name, description and rules text. Quota `reports` as today.
   - Opsctl:
     - `community suspend|restore` (status; SUSPENDED hides the community from reads and directory and blocks posting);
-    - `list hide|restore` (`hidden`);
     - `takedown-post` of a community post also appends the id to that community's `recentRemovals` (it already reads the post).
   - Runbook entries in `docs/runbooks/communities.md`, `lists.md` and the moderation runbook.
 - **Acceptance criteria.**
   - Given a COMMUNITY report, then a report doc with the evidence and 2 writes.
   - Given a suspended community, then GetCommunity and the feed answer NOT_FOUND, and CreatePost into it is refused.
-  - Given a hidden list, then non-owners get NOT_FOUND.
   - Given a takedown of a community post, then the next community refresh lists it in `removed_ids`.
 - **Test notes.** Emulator; opsctl dry runs.
 - **Observability.** The existing `report_filed` line with `target_type`; opsctl prints counts.
-- **Budget.** ReportContent as ADR-0016 (+1 read for the community or list doc); opsctl is an ops path.
-- **Flag.** `reports` for the new targets (plus `communities` / `lists`).
+- **Budget.** ReportContent as ADR-0016 (+1 read for the community doc); opsctl is an ops path.
+- **Flag.** `reports` for the new target (plus `communities`).
 - **Seam.** `moderation` reaches communities and lists only through their `Reader` interfaces.
 - **Parallel with W3 Part A / W4:** moderation module only.
 

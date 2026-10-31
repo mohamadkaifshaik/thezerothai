@@ -84,7 +84,9 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_HANDLE_TAKEN =
       ErrorReason._(8, _omitEnumNames ? '' : 'ERROR_REASON_HANDLE_TAKEN');
 
-  /// FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts).
+  /// FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts). Also VotePoll when the caller has
+  /// already changed this vote POLL_VOTE_CHANGES_MAX times (ADR-0029 Amendment 1 A2): metadata["limit"] =
+  /// "poll_vote_changes" and metadata["choice"] = the stored choice as a 0-based index.
   static const ErrorReason ERROR_REASON_LIMIT_REACHED =
       ErrorReason._(9, _omitEnumNames ? '' : 'ERROR_REASON_LIMIT_REACHED');
 
@@ -101,6 +103,8 @@ class ErrorReason extends $pb.ProtobufEnum {
       12, _omitEnumNames ? '' : 'ERROR_REASON_ACCOUNT_RESTRICTED');
 
   /// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
+  /// Also EngagementService.VotePoll when the caller blocks the poll's author (ADR-0029 Amendment 1 A1): refused for a
+  /// cast, a change and a replay; the vote already cast is kept and counted.
   static const ErrorReason ERROR_REASON_TARGET_BLOCKED =
       ErrorReason._(13, _omitEnumNames ? '' : 'ERROR_REASON_TARGET_BLOCKED');
 
@@ -141,9 +145,11 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_POLL_CLOSED =
       ErrorReason._(19, _omitEnumNames ? '' : 'ERROR_REASON_POLL_CLOSED');
 
-  /// FAILED_PRECONDITION: the caller already voted in this poll with another choice; a vote is final (ADR-0029 D6, F4).
+  /// FAILED_PRECONDITION: the caller already voted in this poll with another choice and the request did not name that vote
+  /// in expected_choice (ADR-0029 D6, F4; Amendment 1 A2.2). Since Amendment 1 a vote is changeable until the poll closes,
+  /// so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
   /// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
-  /// that choice: a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  /// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
   static const ErrorReason ERROR_REASON_ALREADY_VOTED =
       ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
 

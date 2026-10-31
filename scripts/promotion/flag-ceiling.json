@@ -25,7 +25,7 @@
         "GIF": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "GRAPH": {"mode": "on"},
         "LIKES_LIST": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
-        "LISTS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
+        "LISTS": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},
         "MEDIA": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "MESSAGING": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "NOTIFICATIONS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},

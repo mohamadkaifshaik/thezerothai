@@ -834,6 +834,12 @@ class MediaServiceApi {
   /// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
   /// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
   /// with it; the full GIF is published unchanged. Firestore cost as above.
+  /// Screening failures (ADR-0029 Amendment 1 A5; behaviour arrives with W6-40): the screening UNAVAILABLE ("image checks
+  /// are temporarily unavailable") carries retry_after (5 s); retry the same FinalizeUpload with the same media id, no
+  /// re-upload. RESOURCE_EXHAUSTED + RATE_LIMITED with metadata["limit"] = "media_vision_units_daily" is the per-user daily
+  /// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A
+  /// media item is REJECTED with reason "attempts" after 3 attempts that produced a valid assessment, or 8 claims in total;
+  /// its objects are deleted. A busy GIF slot consumes no attempt.
   $async.Future<FinalizeUploadResponse> finalizeUpload(
           $pb.ClientContext? ctx, FinalizeUploadRequest request) =>
       _client.invoke<FinalizeUploadResponse>(ctx, 'MediaService',

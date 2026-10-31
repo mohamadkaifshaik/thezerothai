@@ -202,7 +202,12 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 }
 
-// Two requests with the same key racing: one list, both succeed with the same id, one quota unit.
+// Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
+// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list or a second
+// quota charge. W5-15: this used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
+// takes 2 to 3.4 s on the emulator (the SDK's own backoff on the losers), so a slower runner pushed a loser over the
+// timeout and failed the test with a correct product answer. Now: at least one succeeds, every success is the same list,
+// a busy racer's retry with the same key replays that list, and there is exactly one list and one quota charge.
 func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	const n = 4
@@ -217,12 +222,29 @@ func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	winner := ""
 	for i := range n {
 		if errs[i] != nil {
-			t.Fatalf("request %d: %v", i, errs[i])
+			wantAPI(t, errs[i], connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil) // a lost race: retryable, nothing written
+			continue
 		}
-		if views[i].Header.ID != views[0].Header.ID {
-			t.Errorf("request %d got list %s, want %s", i, views[i].Header.ID, views[0].Header.ID)
+		if winner == "" {
+			winner = views[i].Header.ID
+		}
+		if views[i].Header.ID != winner {
+			t.Errorf("request %d got list %s, want %s", i, views[i].Header.ID, winner)
+		}
+	}
+	if winner == "" {
+		t.Fatalf("no racer succeeded: %v", errs)
+	}
+	for i := range n {
+		if errs[i] == nil {
+			continue
+		}
+		again, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(7), Name: "Racing"})
+		if err != nil || again.Header.ID != winner {
+			t.Errorf("retry of busy request %d: id=%s err=%v, want the replayed list %s", i, again.Header.ID, err, winner)
 		}
 	}
 	docs, err := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll()
