@@ -1,7 +1,7 @@
 // purge_polls.go is the right-to-delete and right-to-access path of pollVotes/{postId}_{uid} (ADR-0029 D8, ADR-0011, ticket
 // W6-8). The `poll_votes` account-deletion step (PollVoteEraser, registered BeforeIdentity after the existing steps, so it runs
 // after `engagement`, which already deleted userLikes and with it userLikes.pollVotes) deletes every vote document the user cast,
-// and the `poll_votes` export section lists post id, choice and time per row.
+// and the `poll_votes` export section lists post id, choice, time and (once changed) changedAt per row.
 //
 // Counts are left as they are (F6): a deleted account's vote stays in the poll's anonymous totals, and no document keeps naming
 // the uid afterwards. A vote document of ANOTHER user on a poll post that was deleted holds no uid of the post's author and
@@ -54,6 +54,8 @@ type ExportedPollVote struct {
 	PostID    string    `json:"postId"`
 	Choice    int       `json:"choice"`
 	CreatedAt time.Time `json:"createdAt"`
+	// ChangedAt is the time of the last vote change, present only once the vote was changed (ADR-0029 Amendment 1 A2.6). No earlier choice is kept.
+	ChangedAt *time.Time `json:"changedAt,omitempty"`
 	// id is the document id, the page cursor (not exported).
 	id string
 }
@@ -99,7 +101,12 @@ func (r *FirestoreRepo) ExportPollVotesPage(ctx context.Context, uid, afterID st
 		if err := s.DataTo(&d); err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("engagement: export decode poll vote: %w", err), uid, s.Ref.ID)
 		}
-		out = append(out, ExportedPollVote{PostID: d.PostID, Choice: d.Choice, CreatedAt: d.CreatedAt.UTC(), id: s.Ref.ID})
+		row := ExportedPollVote{PostID: d.PostID, Choice: d.Choice, CreatedAt: d.CreatedAt.UTC(), id: s.Ref.ID}
+		if !d.ChangedAt.IsZero() {
+			at := d.ChangedAt.UTC()
+			row.ChangedAt = &at
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }
@@ -145,7 +152,7 @@ func NewPollVoteExporter(src PollVoteExportSource) *PollVoteExporter {
 	return &PollVoteExporter{src: src}
 }
 
-// ExportUser streams {"poll_votes":[{"postId","choice","createdAt"}]} to w, by post id, in pages of 500 (memory stays bounded).
+// ExportUser streams {"poll_votes":[{"postId","choice","createdAt"[,"changedAt"]}]} to w, by post id, in pages of 500 (memory stays bounded).
 // Reads: one per vote, minimum 1. Votes expire (closesAt + 30 d), so the section holds recent votes only.
 func (x *PollVoteExporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := io.WriteString(w, `{"poll_votes":[`); err != nil {
