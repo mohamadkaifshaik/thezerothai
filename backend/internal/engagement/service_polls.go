@@ -77,8 +77,8 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	if err := validate(key, postID); err != nil {
 		return PollVote{}, err
 	}
-	// post_hash: HashUID (plain SHA-256, first 8 bytes), the logger's convention for object ids that are not guessable from other ids
-	// (message_hash does the same). A post id is public, so no key; it lets an operator count votes and contention per poll.
+	// post_hash: the keyed HashPost (security review W6-20 L-1): a post id is public, so a plain hash could be reversed by hashing
+	// known ids and would rebuild a voter list per poll. It still lets an operator count votes and contention per poll.
 	logger.SetRequestField(ctx, fieldPostHash, logger.HashPost(postID))
 	if choiceIndex < 0 || choiceIndex >= posts.MaxPollChoices {
 		return PollVote{}, apierr.Validation("choice_index", "choice_index must be between 0 and 3")
