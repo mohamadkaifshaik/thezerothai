@@ -1,6 +1,6 @@
 # Runbook: lists (ADR-0030)
 
-Owner module: `backend/internal/lists` (`Service`, `Pins` seams; `lists.Reader` arrives with W5-7). Plan:
+Owner module: `backend/internal/lists` (`Service`, `Reader`, `Pins` seams). Plan:
 `docs/plans/ui-w5-lists-communities.md` (W5-4 write path and W5-5 lifecycle ship together; W5-6 members, W5-7 reads, W5-8 timeline, W5-9
 Home tabs follow).
 
@@ -22,7 +22,7 @@ flag-gated:** the account eraser step and the export section.
 entries per instance, 60 s TTL.
 
 ## 3. Reading the request line
-One line per RPC: `list_op` (`create`, `update`, `delete`, `add`, `remove`), `dropped` (members removed by the lazy drop in the same write), `outcome` (`done`, `replay`, `noop`, `rejected:*`, `contention`), `fs_reads`,
+One line per RPC: `list_op` (`create`, `update`, `delete`, `add`, `remove`, `get`, `user_lists`, `members`), `dropped` (members removed by the lazy drop in the same write), `cache_hit` (reads: the list doc came from the instance cache), `rows_dropped_owner` / `rows_dropped_viewer` / `rows_dropped_inactive` (a member page: members who block the owner; members the viewer blocks, mutes or is blocked by, or, with the viewer's own blockedBy overflowed, does not follow; members that are not ACTIVE), `outcome` (`done`, `replay`, `noop`, `rejected:*`, `contention`), `fs_reads`,
 `fs_writes`, `txn_attempts`. Never a list id, name or description. A `lists_contention` WARN means a transaction kept losing the lock race
 (a double tap on one list; a list has one writer, so this is not a hot document); the client gets a retryable UNAVAILABLE. Lower
 `RATE_LIMIT_LISTS_WRITE_PER_MIN` if it persists. `lists_retitle_failed` / `lists_unpin_failed` WARNs (W5-9 onward) mean the pinned-tab
@@ -36,6 +36,9 @@ clean-up after a commit failed; the dangling tab is dropped lazily and nothing i
   Do not exempt `memberIds` from indexing in `firestore.indexes.json`: the eraser needs it.
 - **CreateList LIMIT_REACHED with fewer than 20 lists visible.** The count includes private and hidden lists. Count with
   `lists where ownerId == <uid>`.
+- **A member page is short, or empty, while `next_page_token` is set.** By design (proto): drops need no read and leave holes, so the client keeps following the token. Not a bug unless the token never ends; the token ends when the scan reaches the oldest member.
+- **"A list I can open on one device is NOT_FOUND on another", or the reverse after a privacy change.** The list doc is cached 60 s per instance (`CACHE_LISTS_ENTRIES`): making a list private or hidden stops serving non-owners within 60 s on every instance (at once on the one that took the write). The owner's graph is cached the same 60 s, so a block is seen within a minute. NOT_FOUND for a reader is one answer for every cause (missing, private, hidden, the owner blocks the reader, owner not ACTIVE, owner blockedBy overflowed): debug by reading the doc and the two graph docs, never by the message.
+- **ListUserLists of another owner is NOT_FOUND `profile not found`, or empty.** NOT_FOUND (GetProfile's bytes) when the owner is missing, not ACTIVE, blocks the caller or the caller's blockedBy names them; an empty page when the owner's blockedBy overflowed (ADR-0008 D2, fail closed).
 - **Idempotency key reused** (`IDEMPOTENCY_KEY_REUSED`): a client bug (same key, different body, including an unset versus empty field).
 
 ## 5. Account deletion and export (W5-5)
@@ -53,3 +56,6 @@ No notification when someone is added. AddListMember / RemoveListMember drop, in
 
 ## 7. Hiding an abusive public list
 Not built yet: `opsctl list hide` / `restore` and the `hidden` flag handling arrive with W5-29. Until then the only lever is the flag.
+
+## 8. Reads (W5-7)
+GetList, ListUserLists and ListListMembers share `RATE_LIMIT_LISTS_READ_PER_MIN` (30 per uid per instance, times max-instances 3) and the per-uid daily read budget. Page tokens (`ListUserLists`, `ListListMembers`) are sealed with `CURSOR_HMAC_KEY`, bound to the caller and the list (or owner), valid 24 h; a tampered, expired or foreign token is `VALIDATION page_token` with 0 reads. Members are listed newest added first; the resume rule is `pageresume.Index` over `memberIds`, so an add or a remove between two pages neither repeats nor skips a row. Worst-case reads (interceptor included): GetList 5 non-owner / 2 owner; ListUserLists 24 another owner, 21 own; ListListMembers 25 at page 20 / 55 at page 50 non-owner, 23 / 53 owner. `pinned_by_viewer` is false until W5-9 (SetHomeTabs) supplies the pin check. Deferred: the ADR-0030 D11 per-owner "list set" cache for ListUserLists (the doc cache serves GetList and `Reader` only); it would cut the own-lists call from at most 20 reads to 0-2 warm and changes no budget ceiling.

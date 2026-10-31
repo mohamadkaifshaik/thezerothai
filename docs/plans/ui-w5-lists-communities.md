@@ -336,7 +336,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | In review |
 | W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | In review |
 | W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | In review |
-| W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | Open |
+| W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | In review (PR #TBD) |
 | W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Open |
 | W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Open |
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Open |
@@ -557,7 +557,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Block checks only through `graph.Reader.Snapshot`; the users check only through `identity.Directory`.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-7 — List reads  [owner: backend-developer] [size: M] [depends: W5-4]  Status: Open
+### W5-7 — List reads  [owner: backend-developer] [size: M] [depends: W5-4]  Status: In review (PR #TBD)
 - **Description.**
   - **GetList:** private → NOT_FOUND for non-owners. A non-owner viewer also reads the owner graph for F4. `hidden` (W5-29) → NOT_FOUND for non-owners. `pinned_by_viewer` comes from the caller's `homeTabs` (0 reads).
   - **ListUserLists(owner, contains_user_id):** non-owners see only public, non-hidden lists. `contains` is computed from `memberIds` at 0 reads.
@@ -570,7 +570,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Given a tampered token, then VALIDATION with 0 reads.
 - **Test notes.** `budgettest` per the table; visibility and block matrices; cursor binding.
 - **Observability.** `list_op=get|user_lists|members`, `rows_dropped` by cause, `cache_hit`, `fs_reads`.
-- **Budget.** GetList 3 / 0–1; ListUserLists ≤ 22; ListListMembers 24 / 54 cold.
+- **Budget.** GetList 3 / 0–1; ListUserLists ≤ 22; ListListMembers 24 / 54 cold. **As built, ADR-0030 numbers (these supersede the line above; they include the owner-profile read that D3 needs and the interceptor):** GetList 5 non-owner / 2 owner; ListUserLists 24 another owner / 21 own; ListListMembers 25 / 55 (page 20 / 50) non-owner, 23 / 53 owner. The emulator tests assert them exactly, minus the interceptor.
 - **Flag.** `FEATURE_LISTS`.
 - **Seam.** `lists.Reader` is the only way timeline reads a list.
 - **Parallel with W3 Part A / W4:** yes.
