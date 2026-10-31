@@ -11,6 +11,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -428,6 +430,10 @@ const BookmarksFlagName = "bookmarks"
 // read-only.
 type ViewerSet struct {
 	liked, reposted, bookmarked map[string]struct{}
+	// pollChoice maps a poll post id to the 0-based choice the viewer made (userLikes.pollVotes, ADR-0029 D3). Read-only.
+	pollChoice map[string]int
+	// pollsOff is true when FEATURE_POLLS is globally off: nobody can vote, so every poll shows its results (ADR-0029 D4).
+	pollsOff bool
 }
 
 // NewViewerSet builds a ViewerSet from post-id lists (no bookmarks).
@@ -455,7 +461,45 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 
 // BookmarksOnly returns v without its liked and reposted sets: what a viewer with FEATURE_BOOKMARKS on but
 // FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags (ADR-0023 D5).
-func (v ViewerSet) BookmarksOnly() ViewerSet { return ViewerSet{bookmarked: v.bookmarked} }
+// The poll choices go with them (ADR-0029 D3); the polls-globally-off mark stays (it is not viewer state).
+func (v ViewerSet) BookmarksOnly() ViewerSet {
+	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff}
+}
+
+// WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>" (newest last,
+// ADR-0029 D3). A malformed entry is skipped. v itself is not changed (a ViewerSet is read-only and shared by the engagement cache).
+func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
+	if len(votes) == 0 {
+		return v
+	}
+	m := make(map[string]int, len(votes))
+	for _, e := range votes {
+		i := strings.LastIndexByte(e, ':')
+		if i <= 0 {
+			continue
+		}
+		n, err := strconv.Atoi(e[i+1:])
+		if err != nil || n < 0 || n >= MaxPollChoices {
+			continue
+		}
+		m[e[:i]] = n
+	}
+	v.pollChoice = m
+	return v
+}
+
+// WithPollsGloballyOff returns v marked so that every poll shows its results (FEATURE_POLLS is off for everyone, ADR-0029 D4).
+func (v ViewerSet) WithPollsGloballyOff() ViewerSet {
+	v.pollsOff = true
+	return v
+}
+
+// PollChoice reports the 0-based choice the viewer made on the poll behind p; for a REPOST item it describes the original
+// (embedded.post_id), as Flags does. voted is false for a viewer with no recorded vote, including one whose engagement flag is off.
+func (v ViewerSet) PollChoice(p *Post) (index int, voted bool) {
+	index, voted = v.pollChoice[viewerID(p)]
+	return index, voted
+}
 
 // Bookmarked reports whether the viewer bookmarked the item; for a REPOST item it describes the original
 // (embedded.post_id), as Flags does. ToView puts it on the wire as PostView.bookmarked_by_viewer.
@@ -493,17 +537,28 @@ type ViewerFlags interface {
 // neither FEATURE_ENGAGEMENT nor FEATURE_BOOKMARKS is on for uid, the full set with engagement on, and the bookmarks
 // alone (liked and reposted stripped) with only FEATURE_BOOKMARKS on. Cost: one cached userLikes read, 0 extra
 // (ADR-0023 D3, D5). Staleness bound: the userLikes instance cache TTL (60 s).
+// A set from here also carries the polls-globally-off mark (ADR-0029 D4), flag lookups only, 0 reads, even when it is otherwise empty.
 func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid string) ViewerSet {
-	if vf == nil || fc == nil {
+	if fc == nil {
 		return ViewerSet{}
+	}
+	var base ViewerSet
+	if g, ok := fc.(GloballyOffChecker); ok && g.GloballyOff(PollsFlagName) {
+		base = base.WithPollsGloballyOff()
+	}
+	if vf == nil {
+		return base
 	}
 	engagement := fc.Enabled(uid, EngagementFlagName)
 	if !engagement && !fc.Enabled(uid, BookmarksFlagName) {
-		return ViewerSet{}
+		return base
 	}
 	vs := vf.Viewer(ctx, uid)
 	if !engagement {
-		return vs.BookmarksOnly()
+		vs = vs.BookmarksOnly()
+	}
+	if base.pollsOff {
+		vs = vs.WithPollsGloballyOff()
 	}
 	return vs
 }
