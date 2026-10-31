@@ -248,7 +248,7 @@ void main() {
       expect(tester.getSize(plus).width, greaterThanOrEqualTo(48));
       expect(tester.getSize(plus).height, greaterThanOrEqualTo(48));
       expect(find.text('post 3'), findsOneWidget);
-    });
+    }, textScales: kMatrixTextScalesLarge);
 
     testWidgets('no list timeline is asked for before its tab is opened', (
       tester,
@@ -269,6 +269,11 @@ void main() {
           .thenAnswer((_) async => snapshotOf(many));
       when(() => timeline.refresh(home))
           .thenAnswer((_) async => snapshotOf(many));
+      final longList = [for (var i = 200; i > 140; i--) i];
+      when(() => timeline.cached(friends))
+          .thenAnswer((_) async => snapshotOf(longList));
+      when(() => timeline.refresh(friends))
+          .thenAnswer((_) async => snapshotOf(longList));
       await openHome(tester);
       final vertical = find.byWidgetPredicate(
         (w) => w is Scrollable && w.axis == Axis.vertical,
@@ -281,8 +286,15 @@ void main() {
 
       await _select(tester, 'list:L1');
       await tester.pumpAndSettle();
-      expect(find.text('post 11'), findsOneWidget);
+      expect(find.text('post 200'), findsOneWidget);
       expect(find.text('post 60'), findsNothing);
+      await tester.drag(vertical, const Offset(0, -900));
+      await tester.pumpAndSettle();
+      final friendsOffset = tester
+          .state<ScrollableState>(vertical)
+          .position
+          .pixels;
+      expect(friendsOffset, greaterThan(300));
 
       await _select(tester, 'following');
       await tester.pumpAndSettle();
@@ -294,6 +306,11 @@ void main() {
 
       await _select(tester, 'list:L1');
       await tester.pumpAndSettle();
+      expect(
+        tester.state<ScrollableState>(vertical).position.pixels,
+        friendsOffset,
+        reason: 'the List tab keeps its offset too',
+      );
       await _select(tester, 'following');
       await tester.pumpAndSettle();
       await _select(tester, 'list:L1');
@@ -494,7 +511,7 @@ void main() {
         tester.getSize(find.byIcon(Icons.drag_handle).first).height,
         greaterThanOrEqualTo(48),
       );
-    });
+    }, textScales: kMatrixTextScalesLarge);
 
     testWidgets('a drag reorder sends exactly one SetHomeTabs', (tester) async {
       await openManage(tester);
