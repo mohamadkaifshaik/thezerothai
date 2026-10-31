@@ -1,5 +1,5 @@
 # 0029. Composer extras remainder: polls, drafts on the device, GIFs from the device (W6)
-Status: Accepted (founder, 2026-10-30: F1–F12 as written, including F2 the rule-4 natural-key bend and F11 sampled-frame GIF screening with its residual risk, the API reading the uploaded GIF, and GIFs rejected at the Vision cap)
+Status: Accepted (founder, 2026-10-30: F1–F12 as written, including F2 the rule-4 natural-key bend and F11 sampled-frame GIF screening with its residual risk, the API reading the uploaded GIF, and GIFs rejected at the Vision cap); Amendment 1 Accepted in principle (founder, 2026-10-31; see the acceptance note in Amendment 1)
 Date: 2026-10-30
 Deciders: architect (proposal); founder (accepts by merging the PR). F2 was decided by the founder on 2026-10-27 (plan
 header) and is restated here as a rule-4 bend; the merge confirms it. **F11 needs the founder's explicit acceptance**
@@ -21,6 +21,670 @@ Related ADRs:
 - ADR-0022: credit mode. **Nothing here depends on a credit-mode item.**
 - ADR-0023: `userLikes.bookmarks`, `ViewerSet.BookmarksOnly`. ADR-0024: D4 `posts.hasMedia`. ADR-0025: protected
   authors, `posts.Audience`, `withheld` rows and PROTECTED embeds (L-2). ADR-0028: the current cost baseline.
+
+## Amendment 1 (2026-10-31, Accepted in principle): poll blocking, vote changes, drafts and the Vision attempt cap
+
+**Status: Accepted in principle (founder, 2026-10-31).** The founder's acceptance, verbatim in substance:
+- Blocking prevents new votes and vote changes, in either direction; votes cast before a block are preserved; votes can be
+  changed until the poll closes (A1, A2, the interpretation below).
+- Vision outages, timeouts and busy responses must not consume attempts (A5; a busy GIF slot takes no claim, A5.3).
+- The busy-GIF defect (A5.1) is fixed and tested in W6-40 (acceptance criterion: a GIF that meets a busy slot any number
+  of times is never REJECTED for attempts, and the busy path writes nothing).
+
+Everything else in A1 to A7 stands as written ("in principle"); W6-42's security review and the implementation PRs may
+refine details, and any change to an accepted point comes back to the founder. D1 to D13 and N1 to N4 stand except where
+A1 to A5 revise them.
+
+**Interpretation, read this first.** "Changes until closure" is read as: **each user holds exactly one vote at a time
+and may change it to another choice until the poll closes.** This **reverses** D6 step 7 ("a different choice is
+FAILED_PRECONDITION `ALREADY_VOTED`"), F4's "a vote is final", and the D7 argument that rested on it. If you meant
+"one final vote, and voting stays open until closure", say so at acceptance: A2 then falls away, and A1, A3, A4 and A5
+stand.
+
+Two consequences you should check at the same time:
+1. **`ALREADY_VOTED` is still emitted in one case** (A2.2): for a request that does not name the vote the caller
+   currently holds. That covers an old app version, a second device with a stale view, and a late retry of an older
+   tap. A change the caller asks for knowingly never gets it. The alternative (change unconditionally, never emit
+   `ALREADY_VOTED`) is simpler, but lets old clients and late retries silently move a vote.
+2. **A viewer who blocks the author, and has not voted, keeps hidden results until the poll closes** (A1.5).
+   Otherwise blocking, looking and unblocking would show the results before voting, which F3 forbids.
+
+**The decisions, quoted:**
+1. "W6-17 - Poll blocking: prevent casting or changing votes if either user has blocked the other. Preserve votes
+   cast before blocking. Enforce on the backend."
+2. "W6-20 - Polls and drafts: Polls inherit post visibility and block rules; allow one vote per user, changes until
+   closure, and lock options after the first vote. drafts are owner-only, may be incomplete, and require full
+   validation and moderation before publishing. Prevent duplicate publication."
+3. "W6-27 - Vision attempt cap: Count only completed, valid assessments toward the three attempts. Outages, timeouts
+   and internal errors consume no attempts. Allow retrying the retained image without re-uploading, with bounded
+   retries and separate rate limits."
+
+**Sources, read on `main` 13b5080f.**
+- Code: `engagement/{service_polls,repo_polls,service}.go`; `posts/{convert,audience,service_delete,poll}.go`;
+  `media/{finalize,vision,gifscreen,repo_firestore}.go`, with #535 (W6-27) and #536 (W6-25) merged; the client files
+  `drafts_repository.dart`, `composer_cubit.dart` and `drafts_screen.dart`.
+- Reviews: `docs/reviews/test-report-w6-polls.md` O-1 and O-2; `docs/reviews/security-w6-composer-extras.md` H-3, L-3,
+  L-5 and section 4.
+
+Tickets W6-35 to W6-42 (the plan; W6-32 to W6-34 went to the W6-25 review follow-ups in #536). No proto, code,
+index or Terraform file changes in this PR. A6 lists the contract changes for W6-35, and A7 the config.
+
+### A1. Block either way (decision 1)
+**A1.1 The rule.** Visibility is not changed ("polls inherit post visibility"). Only `VotePoll` changes.
+
+| Who blocks whom | GetPost, GetThread, the author's profile | `VotePoll` (cast, change, replay) | Votes cast before the block |
+|---|---|---|---|
+| The author blocks the voter (or both block each other) | NOT_FOUND, as today | NOT_FOUND, **byte-identical** to a missing post, as today (`TestW617_NotFoundBytesIdentical` keeps this part) | kept and counted; the voter can no longer see the post |
+| The voter blocks the author | visible, as today (ADR-0010 D6: `SurfaceDirect` shows a post by an author the viewer blocked) | **FAILED_PRECONDITION `ERROR_REASON_TARGET_BLOCKED` (13)**, 0 writes | kept and counted; the voter sees the results and their check mark |
+| Neither | as today | as today, plus A2 | — |
+
+- **The refusal reuses `TARGET_BLOCKED`.** Its proto comment already says "the caller blocks the target ... Unblock
+  first; never auto-unblocked (ADR-0008)". It can be explicit because the voter knows they blocked: it tells them
+  nothing they do not know. No new `ErrorReason`; only the comment gains `VotePoll` (A6).
+- **Order in `VotePoll`.** The check becomes step 5e, after the existing step-5 checks: no poll, then caller is the
+  author, then closed, then choice range, then **the viewer blocks the author**. It comes after `resolveViewable`, so
+  an author who blocks the voter, and a mutual block, still answer the one NOT_FOUND first. It comes after the closed
+  check, so a blocked voter on a closed poll gets `POLL_CLOSED` and refreshes to the final results.
+- **A replay is refused too.** A blocked voter's replay of their own vote is also `TARGET_BLOCKED`, as N2 answers a
+  replay after close with `POLL_CLOSED`. So the retry of a vote that committed just before the block, after a lost
+  response, gets `TARGET_BLOCKED`. The client then refreshes (GetPost, once) and shows the vote, which is kept.
+- **A REPOST id acts on its original** (D6 step 4), so the check is against the original's author. The reposter is not
+  a party to the poll.
+- **Mute is not a block.** A muted author's poll stays votable (mute only drops rows from lists).
+- **Staleness.** The graph snapshot is cached for 60 s per instance. So for up to 60 s after a block, a vote served by
+  another instance may still pass. This is the same bound `Viewable` already has for an author's block.
+
+**A1.2 Where the rule lives: engagement `VotePoll`, not `posts.Viewable`.**
+- `Viewable` is shared by GetPost, Like, Repost, AddBookmark and CreatePost's reply and quote targets.
+- Moving the rule there would either hide the post from the voter or refuse their likes too. "Inherit post visibility"
+  rules out the first, and decision 1 is about votes only.
+- Engagement already holds the snapshot (`pollVoteView` reads it at 0 reads after `Viewable` cached it), so the rule
+  is one line: `snap.Blocked[target.AuthorID]`.
+
+**A1.3 Read cost: +0, not +1.**
+- The voter's outgoing blocks are `graph/{voter}.blocked[]`, in the voter's own graph doc.
+- `Viewable` already reads that doc for every non-author caller (`needSnap`), and `blocked[]` (≤ 2,000) never
+  overflows.
+- No second document and no `GetAll` are needed.
+- The other direction (the author blocks the voter) stays as today: the voter's `blockedBy[]`, plus the author's graph
+  doc on overflow, which is the +1 already in the 8-read ceiling.
+
+**A1.4 No purge on block.**
+- Block and Unblock write nothing to `pollVotes`, the counters or `userLikes`, and no event subscriber is added.
+- Earlier votes stay and keep counting. After Unblock the voter can vote or change again, with no write.
+
+**A1.5 What the client sees.**
+- **New additive field `PostView.viewer_poll_vote_blocked = 9` (bool).** It is true when the post carries a live poll
+  (`Post.poll` set, not closed), the viewer is not the author, and the author is in the viewer's `blocked` set.
+- **Negative polarity on purpose.** A producer that does not set it, and every older revision, send `false`, which is
+  today's behaviour. The server stays the authority (`TARGET_BLOCKED`). A positive `viewer_can_vote` would hide the
+  buttons on every producer not yet wired.
+- **Which producers need it.** Only the surfaces that show a post by an author the viewer blocked: GetPost, GetThread
+  (`SurfaceDirect`) and GetUserTimeline of that author (`timeline/audience.go`, `SurfaceDirect`).
+  - `Audience.Decide` with `SurfaceList` or `SurfaceOwnList` already drops such rows (`audience.go:127`). So Home,
+    search, lists, Likes and Bookmarks never carry it.
+  - Embedded polls are frozen definitions with no buttons (D5), so the field is never set on a REPOST row.
+- **Converter seam.** `ViewerSet.WithBlockedAuthors(snap.Blocked)`, set at the producer from the snapshot that `Decide`
+  already used (0 reads). Read only by `ToViewAt`, so the converter stays the one place that knows the poll rules (D4).
+  `ApplyWithheld` clears it. The D4 guard test over every PostView producer is extended to it.
+- **Results for a voter who blocks the author:**
+  - Voted before the block: `results_visible` (they voted; D4 unchanged), with the check mark, and no change control.
+  - Never voted: counts stay hidden until the poll closes (D4 unchanged). Revealing them would let anyone block, look,
+    unblock and vote with the results in hand, which defeats F3. The total stays visible, as for everyone.
+- **Copy on the card:** "You blocked @handle. Unblock to vote." The choices are shown disabled.
+
+### A2. One vote at a time, changeable until closure (decision 2)
+**A2.1 Invariants.**
+- **I-V1:** at most one `pollVotes/{postId}_{uid}` per voter and poll (the natural key, unchanged).
+- **I-V2:** for every choice `i`, `poll.counts[i]` = the number of vote docs with `choice == i`, plus the votes of
+  erased voters that F6 keeps as anonymous totals. `poll.total` = Σ counts. A change moves one count down and one up
+  and leaves `total` alone.
+- **I-V3:** `userLikes/{uid}.pollVotes` holds **at most one** entry per post, equal to the vote doc's choice (no entry
+  once trimmed, D3). W6-29's export of that list relies on it.
+- **I-V4:** a poll's options never change after creation (A3).
+
+**A2.2 Contract: a compare-and-set field, and the decision table.**
+- **New additive field `VotePollRequest.expected_choice = 4` (int32).** 0 means "I hold no vote, as far as I know".
+  1 to 4 means the choice the caller believes it holds, as index + 1: the value of `viewer_poll_choice` the client is
+  rendering.
+- Below, `S` is the vote doc (stored choice `cs`, change count `n`), and the request asks for choice `c` with
+  `expected_choice` `e`:
+
+| Vote doc | Request | Answer | Writes |
+|---|---|---|---|
+| none | any `e` | a new vote, today's blind batch (D6 step 6) | 3 |
+| `cs == c` | any `e` | replay: the current view (D6 step 7) | 0 |
+| `cs != c` | `e == cs + 1` and `n < POLL_VOTE_CHANGES_MAX` | **change** (A2.3) | 4 |
+| `cs != c` | `e == cs + 1` and `n ≥ POLL_VOTE_CHANGES_MAX` | FAILED_PRECONDITION `LIMIT_REACHED` (9), `metadata["limit"] = "poll_vote_changes"`, `metadata["choice"]` = `cs` (0-based) | 0 |
+| `cs != c` | `e != cs + 1`: `e = 0` (an old client, or a check mark lost to the D3 trim), or a stale `e` (a second device, or a late retry of an older tap) | FAILED_PRECONDITION `ALREADY_VOTED` with `metadata["choice"]` = `cs`, today's answer | 0 |
+
+- **Why compare-and-set.**
+  - D7 kept rule 4 bent safely because "there is no undo, so a late retry can never re-create something the user
+    removed". With changes there is an undo.
+  - Without `e`, a late retry of an older tap would silently revert a newer change.
+  - Without `e`, an old app version, whose `ALREADY_VOTED` handler replays the stored choice, or a stale second
+    device would silently move a vote.
+  - With `e`, old clients keep exactly D6's behaviour, and a change applies only against the vote the caller saw.
+- **ABA residual.** The sequence A → B → A, followed by a late retry of the A → B tap, still applies: its `e` matches
+  again. This needs a retry from the client's own logic, because Connect and HTTP/2 do not duplicate requests. So the
+  client rule (A2.8) is: drop the pending retries of a superseded tap before sending a new one.
+- **Same key, different choice.**
+  - The key is still validated and **not stored**. D7's rule-4 bend now covers changes too, and you accept that by
+    merging.
+  - The server cannot see that a key was reused. So such a request is decided by the table like any other: a change
+    if `e` matches, otherwise `ALREADY_VOTED`. `IDEMPOTENCY_KEY_REUSED` is not used.
+  - Same key and same choice stays a replay.
+  - Rejected alternative: a ring of key hashes on the vote doc. It costs +0 writes, but adds an array that needs a
+    fieldOverride (a founder-gated file), and it still leaves old clients to `e`.
+- **`ALREADY_VOTED` (20) stays in the proto, and `buf breaking` stays clean.** It is no longer emitted for a change the
+  caller asked for knowingly, only for the last row of the table. Its comment changes (A6).
+- **Kill switch for changes.** `POLL_VOTE_CHANGES_MAX = 0` (config, a deploy) refuses every change with
+  `LIMIT_REACHED` and leaves votes final, without touching `polls`.
+
+**A2.3 The change write (Option C kept: the hot post doc is never read inside a transaction).**
+1. **The read.** When `e != 0` the service reads the vote doc first (+1, the read D6 step 7 already makes). When
+   `e == 0` it tries today's blind Create first, and reads the doc only on `AlreadyExists`. The read gives `cs`, `n`
+   and the doc's `UpdateTime`.
+2. **One blind batch, no transaction:**
+   - `pollVotes/{postId}_{uid}`: `Update` with a **`LastUpdateTime` precondition** equal to the read's `UpdateTime`:
+     `choice = c`, `changes = Increment(1)`, `changedAt = now`.
+   - `posts.EngagementWriter.StagePollChange(b, postID, from, to)`, the sibling of `StagePollVote`: an `Update` with an
+     `Exists` precondition, `Increment(poll.counts.<from>, -1)` and `Increment(poll.counts.<to>, +1)`. `poll.total` is
+     not touched.
+   - `userLikes/{uid}`: a field-level `ArrayRemove("<postId>:<from>")` and `ArrayUnion("<postId>:<to>")`. One write
+     cannot carry two transforms on one field, so these are **two writes to `userLikes` in the same batch**, applied
+     in order.
+     - W6-36 must prove that the Go client, the emulator and dev Firestore accept two writes to one document in one
+       commit.
+     - **Fallback** if they do not: a transaction that reads `userLikes` (+1 read) and rewrites `pollVotes` with the
+       entry replaced. The post doc is still only written, never read.
+3. **Precondition failures.** `store.CommitWithRetry` maps NotFound and FailedPrecondition alike to "precondition
+   failed". The service therefore re-reads the vote doc:
+   - If it moved, the table decides again: a concurrent change won.
+   - If it did not move, the post is gone: NOT_FOUND, 0 writes.
+   - Bounded at 4 attempts, then UNAVAILABLE with `contention=true` (D6 step 9).
+4. **Close.** Before every attempt the service re-checks `now < closesAt` (immutable and cached: 0 reads), so a
+   retried change cannot commit seconds after close. D6's few-hundred-millisecond window stays.
+
+**Why the counts stay right under concurrency.**
+- Every change is applied against the exact vote-doc version it read. A concurrent change, by a second device or a
+  racing tap, fails the precondition and is decided again against the new state.
+- Two changes by one voter therefore never both decrement the same old choice.
+- New votes by different users share only the post doc, which is written by `Increment`, never read. So I-V2 holds
+  after any interleaving.
+- **`TestW617_ConcurrencyManyVotersRacingThemselves`** (60 voters × 3 choices) is **flipped into two arms**:
+  - **Arm (a), `e = 0`:** today's assertions. One vote per voter; the other two calls replay or get `ALREADY_VOTED`
+    with the stored choice.
+  - **Arm (b):** each voter votes `c0`, then races `c1` and `c2`, both with `e = c0 + 1`. Exactly one of the two
+    changes commits and the other gets `ALREADY_VOTED` naming the winner. Afterwards there is exactly one vote doc
+    per voter with `changes == 1`, `Σ counts == total == 60`, each count equal to the tally of vote docs, and exactly
+    one `userLikes` entry per voter equal to the stored choice. Every success response's `viewer_poll_choice` is the
+    choice that call committed.
+
+**A2.4 Limits (abuse as cost).**
+- **A change is a `VotePoll` call**, so it counts toward:
+  - `RATE_LIMIT_POLL_VOTE_PER_MIN`: 30 per instance, 90 effective at 3 instances;
+  - `POLL_VOTES_PER_DAY`: 300 per instance, 900 effective;
+  - `POLL_VOTES_PER_DAY_NEW_ACCOUNT`: 50 per instance, 150 effective.
+- **New `POLL_VOTE_CHANGES_MAX`** (ComposerConfig; default 5, range 0 to 20; ceiling enforced like
+  `MEDIA_MAX_SCREEN_ATTEMPTS`).
+  - It is **durable**: `changes` on the vote doc, written by the change itself (+0 writes), so an instance restart
+    resets nothing.
+  - One account can move a poll's counts at most 1 + 5 times over the poll's life. That is the count-flapping bound:
+    moving a count by k needs k accounts.
+- **Option D's write bound is corrected.**
+  - Option D argued that "one vote per account per poll" bounds an account's writes at 3 × the open polls it can see,
+    whatever the in-memory cap does after a restart. With changes that is no longer true on its own.
+  - The durable `changes` counter restores a per-poll bound: 3 + 4 × 5 = 23 writes per account per poll.
+  - The daily caps bound calls to 900 a day. So the worst account writes 4 × 900 = 3,600 a day (INR 0.36), about
+    **INR 11 per account-month**, up from INR 8 (security review section 1).
+
+**A2.5 After close.** Every `VotePoll` after `closesAt` answers `POLL_CLOSED` (N2), changes and replays included.
+
+**A2.6 Lifecycle (D8).**
+- **Eraser:** unchanged. It deletes each vote doc with its current choice, and the counts stay as anonymous totals
+  (F6).
+- **Export `poll_votes`:** `postId`, `choice` (the current one), `createdAt`, plus **`changedAt`** once a vote was
+  changed.
+- **No history of earlier choices is kept anywhere.** The vote doc is updated in place and no log line carries a
+  choice (Observability), so there is no history to export or erase.
+- **TTL:** unchanged. `expireAt = closesAt + 30 d`, and a change does not move it.
+- **New vote-doc fields:** `changes` (int, absent = 0) and `changedAt` (timestamp, absent = never changed). They are
+  small scalars on the automatic indexes, and need no fieldOverride.
+
+**A2.7 Cache (the O-2 lag).**
+- **New `posts.Engagement.PollVoteChanged(postID, from, to) *Post`**, the sibling of `PollVoted`: `AdjustPoll` with −1
+  and +1, each count clamped at 0, total unchanged.
+- **The engagement cache must replace the entry.** `withPollVote` today returns the list unchanged when the post
+  already has an entry, which would keep the old choice. The change path replaces it instead (I-V3).
+- **O-2 is unchanged.** Other instances lag by up to the 60 s post-cache TTL. The voter's own response shows the
+  cached counts with this change applied.
+
+**A2.8 Client UX (W6-37).**
+- **What X offers.** Our X research (`docs/x_research/07_functionality_inventory.md`, git-ignored) records polls as
+  "one vote/user, expiry", and names no change control. So this control is ours, drawn in the card's existing visual
+  language.
+- **After a vote,** the footer reads "N votes · 2 days left · Change vote". "Change vote" is an accent text button.
+  - It is shown when the poll is open, the viewer voted, is not the author, and `viewer_poll_vote_blocked` is false.
+  - It is hidden on embeds, which have no buttons.
+- **Tapping "Change vote"** turns the bars back into the choice pills, with the current choice marked by its check,
+  plus "Cancel". The results stay visible: the viewer has voted.
+- **Tapping another pill** is optimistic: the bars move −1 and +1 locally and the check moves. Then `VotePoll` is sent
+  with a **fresh key per tap** and `expected_choice` = the current `viewer_poll_choice`.
+  - A retry of that tap reuses its key.
+  - A new tap first drops the pending retries of an older tap (A2.2, ABA).
+  - Tapping the current pill, or "Cancel", returns to the bars without a call.
+- **Error answers:**
+  - `ALREADY_VOTED`: render `metadata["choice"]` and refresh once with GetPost. No automatic replay any more for a
+    change; the existing replay stays for a first vote (`e = 0`).
+  - `LIMIT_REACHED` `poll_vote_changes`: "You can't change your vote again". Hide "Change vote" for that poll and
+    render `metadata["choice"]`.
+  - `TARGET_BLOCKED`: the disabled state of A1.5.
+  - `POLL_CLOSED`: one GetPost, then the final results.
+  - UNAVAILABLE: roll back. The retry reuses the key.
+- **Accessibility:** the button's semantics label is "Change your vote".
+
+**A2.9 L-3 gets worse. Your L-3 copy decision is now more pressing.**
+- A new vote moves one count and the total. A change moves **one count down and another up, with the total fixed**.
+- That shape tells anyone watching the counts (the author always, every voter after voting) that someone changed,
+  **and from which choice to which**.
+- In a small poll, for example from a protected account with a handful of approved followers, the person who just
+  changed is often guessable. So a change reveals **both** their old and their new choice.
+- The section 4 policy line the security review proposed ("you can vote only once") is now false. The revised wording
+  is in that review, and its approval stays with you.
+
+**A2.10 Cost.** See "Cost impact (Amendment 1)".
+
+### A3. Options locked after the first vote (decision 2): confirmed, and recorded as an invariant
+**Already true. Verified against the protos and the writers on 13b5080f:**
+- `PostsService` has CreatePost, DeletePost, GetPost, GetThread, SchedulePost, ListScheduledPosts and
+  CancelScheduledPost. There is no edit RPC.
+- `SchedulePostRequest` carries no poll (F5). No RPC updates a scheduled item: Cancel only cancels.
+- Engagement's only poll writer, `StagePollVote` (and A2's `StagePollChange`), touches `poll.counts.*` and
+  `poll.total` only.
+- The moderation writers set `moderation` and `moderatedAt`. The quote tombstone rewrites `embedded` on other posts
+  (N2).
+- So `poll.options`, `poll.durationMin` and `poll.closesAt` are written once, in the CreatePost write.
+
+**I-V4, binding on any future feature.**
+- An edit of posts or of scheduled posts (its own ADR) must refuse to change a poll's options, their order,
+  `durationMin` or `closesAt` once `poll.total > 0`. The check runs in the same transaction as the edit.
+- Reason: `pollVotes.choice` and `userLikes.pollVotes` store option **indexes**, so a reorder would silently move every
+  vote.
+- Recommended: a poll is never editable, even before its first vote.
+
+### A4. Drafts (decision 2)
+**Owner-only: holds.**
+- Every `DraftsRepository` query filters by uid. A URL draft id is safe: I-1 in the security review, where
+  `loadDraft` refuses another uid's row.
+- W6-31 adds the `{uid, draftId}` key as defence in depth.
+- Drafts live on the device only. That is device-local per uid, and no server path exists.
+
+**May be incomplete: holds.**
+- A draft can hold up to `kMaxDraftCodePoints` (2,000) code points, which is more than a post's 280, and a half-built
+  poll.
+- It never holds media (F8).
+- **This does not answer the L-5 age-limit question, which stays open.**
+
+**Full validation and moderation at publish: holds by construction.**
+- The Drafts screen never sends anything itself: it opens the composer (`/compose?draft=<id>` or the pick-mode pop).
+- So publishing a draft is a plain CreatePost or SchedulePost, with every check a new post gets:
+  - D9 text and the 280 limit;
+  - the poll rules (D1);
+  - reply audience, labels and flags;
+  - images uploaded fresh and screened by FinalizeUpload (A5);
+  - for a scheduled post, a fresh validation by the publish sweep (`INVALID_CONTENT`).
+- Text moderation at Stage 0 is report-driven (ADR-0016) for drafts, as for every post.
+- No server draft store exists, so nothing can bypass these checks.
+
+**Prevent duplicate publication: a gap exists.** Verified in `composer_cubit.dart` and `drafts_repository.dart`:
+
+| Case | Today | Verdict |
+|---|---|---|
+| S1. A double tap on Post or Schedule | `submit()` returns unless `canSubmit`. `submitting` is emitted synchronously before any await, so the second tap sends nothing | **safe** |
+| S2. A retry after a lost response, same session, same content | `_keyFor(intent)` returns the same key: `_fail` keeps it, and keys are per intent (text, media ids, alt texts, audience, poll; for a schedule also the time). The server replays: CreatePost's idempotency doc lives 24 h; the SchedulePost doc id is `hash(uid, key)` | **safe** |
+| S3. When the row is deleted | only after success: `discardDraft()` after CreatePost returns, `_draftScheduled()` after SchedulePost returns; autosave stops while submitting | **correct order** |
+| S4. The same images twice | CreatePost attaches media single-use (`media.postId`; `LoadForPost` refuses an attached doc), so a second post cannot carry the same images | **safe for media**, but see G1 |
+| **G1. A crash, a kill or a closed tab after the request left and before the answer** | The key lives only in the cubit's memory (`_keys`, at most 8 entries). The row survives. Reopening the draft builds a new cubit and mints a fresh uuid, so a **second post** is created. The reopened draft has no images (F8), so the duplicate is text-only (plus the poll). The scheduled path is the same: a second scheduled item, and both publish if text-only. With images, the second fails at publish because the first took them | **gap** |
+| **G2. Success, then a crash before the local delete** | `unawaited(discardDraft())` runs after success. A kill in that window leaves a postable row, and reopening it posts again | **gap** (small window) |
+| **G3. A lost response, then an edit, then Post, in the same session** | The edited intent gets a new key, so a second post can appear while the first, whose optimistic row was rolled back, already exists | **gap** |
+| **G4. The same draft open in two composers** (two web tabs, or a composer opened twice) | two in-memory keys, so two posts | **gap** |
+
+**The fix (W6-39, client only, 0 server cost):** persist the send on the draft row.
+- **New nullable columns,** in drift schema v10: `sendKey`, `sendKind` (post or schedule), `sendPublishAt` and
+  `sendStartedAt`. W6-31 also bumps the schema, so the two PRs serialise.
+- **Claim or reuse before the RPC.** In one local transaction, before sending: if the row already holds a `sendKey` of
+  the same kind and inside its window (below), reuse it; otherwise write a fresh one. This closes G1, G2 (the replay
+  returns the existing post) and G4 (the second composer reuses the first one's key).
+- **Clear it only on a definitive answer:**
+  - Success deletes the row.
+  - A refusal that proves nothing was created clears `sendKey` and keeps the row: VALIDATION, FEATURE_DISABLED,
+    EMAIL_NOT_VERIFIED and MEDIA_NOT_READY.
+  - Every other answer keeps it: network errors, UNAVAILABLE, DEADLINE_EXCEEDED, CANCELED, unknown errors, and
+    QUOTA_EXCEEDED and LIMIT_REACHED (the ADR-0021 review m1 note: they can follow a near-simultaneous success).
+- **The next send of that row** (after a reopen, or after an edit that follows an ambiguous failure, G3) uses the
+  stored key, whatever the content:
+  - The same body replays and returns the existing post. The row is deleted, with a toast: "Already posted. View".
+  - A different body gets `IDEMPOTENCY_KEY_REUSED`, which proves the earlier send landed. The composer says "An
+    earlier version of this post was sent" with "View profile". "Post this version too" mints a new key, as an
+    explicit choice.
+  - If nothing landed, the stored key creates the post once.
+- **The window.**
+  - For `post`, the bound is CreatePost's idempotency TTL (24 h). The client reuses the key for at most 23 h.
+  - After that the composer says "We couldn't confirm whether this was posted. Check your profile first", with "View
+    profile", before minting a new key.
+  - For `schedule`, the scheduled doc keeps the key (PENDING, then 7 d after a terminal state), so the window is the
+    item's life.
+  - A send of the other kind (scheduled first, then "Post now") cannot reuse the key: it warns the same way.
+- **Out of scope:** replies and quotes have no draft row (drafts are root posts only), so G1 for them is not a drafts
+  issue. Left as it is.
+
+### A5. The Vision attempt cap (decision 3; revises #535)
+**A5.1 What #535 does, and why it misses decision 3.**
+- `ClaimScreening` increments `screenAttempts` in the claim write. At `MEDIA_MAX_SCREEN_ATTEMPTS` (3) the next
+  FinalizeUpload REJECTS the doc (`reasonAttempts`) with no Vision call.
+- Every claimed attempt counts, whatever its outcome. So three Vision outages in a row reject an honest image.
+- **A busy GIF slot burns attempts.** `errGifBusy` is raised inside `screen` after the claim, and W6-16's client
+  retries the same finalize after 2, 4 and 8 s. A GIF that meets a busy slot three times is REJECTED. That is a live
+  defect under load.
+
+**A5.2 Definitions.**
+- **A valid assessment:** one Vision response, for one image of the doc in one attempt, that carries a
+  `SafeSearchAnnotation` (a verdict, blocking or not).
+- **A completed screening:** every image the doc needs (1, or 2 with the thumbnail) has a valid assessment in one
+  attempt. A completed screening is **terminal**: READY when nothing blocks, REJECTED `policy` when anything does. The
+  one exception: when publish or resolve fails afterwards, the doc stays PENDING.
+- **Read literally** ("count only completed assessments"), the cap of 3 could therefore almost never bind: a completed
+  screening ends the doc.
+- **The reading proposed here:** an attempt **consumes one of the 3** when it produced **at least one valid
+  assessment** (which was billed) and the doc did not end. That is the only reading under which the cap bounds
+  anything, and it is exactly the H-3 loop shape: one image answered, the other failing.
+
+**A5.3 (a) Which outcomes consume what.** These are per claimed attempt; the counters are in A5.4.
+
+| Outcome of the attempt | Doc | Consumes |
+|---|---|---|
+| Completed, nothing blocks, publish and resolve succeed | READY (terminal) | nothing (the doc is done) |
+| Any valid assessment blocks, **even if the other image failed** (**new:** today `screenAll` returns the other call's error and the doc retries) | REJECTED `policy` (terminal) | nothing |
+| Vision INVALID_ARGUMENT on an image (#535, unchanged) | REJECTED `invalid` (terminal) | nothing |
+| At least one valid assessment, nothing blocks, but another image got no valid assessment, or publish or resolve failed after a completed screening | PENDING | **1 attempt** (`screenAssessed`) |
+| No valid assessment: an outage or transport error, our 10 s Vision deadline or the 20 s finalize deadline, Vision 5xx or RESOURCE_EXHAUSTED, a failed Vision-counter reserve, an internal error, **or a billed answer that is not valid** (a per-image error other than INVALID_ARGUMENT, an empty response, a response without an annotation) | PENDING | **no attempt**, 1 **retry** |
+| Not claimed: verify refused or found the upload missing, another call holds the claim, **a busy GIF slot** (the slot wait moves **before** the claim) | unchanged | nothing (0 writes) |
+
+**A5.4 (b) and (e) The counters, at +0 writes.**
+- **`screenAttempts`** keeps its writer and is not renamed. The claim write increments it, so it now counts
+  **claims**. It is the crash-safe ceiling: a claim is recorded before any Vision call, so a lost release write or a
+  dead instance cannot escape it.
+- **New `screenAssessed`**, incremented by `Increment(1)` in the **existing** `releaseClaim` write. That write already
+  happens on every non-terminal path (1 write, `UpdateTime` precondition). It is incremented only when the attempt
+  consumed an attempt (A5.3, row 4).
+- **Retries** = `screenAttempts − screenAssessed`. This is exact at the pre-check, because the claim is exclusive.
+- **Pre-check (step 0b):** REJECTED `attempts` when `screenAssessed ≥ MEDIA_MAX_SCREEN_ATTEMPTS` (3, its meaning
+  revised to "attempts with a valid assessment"), or when `screenAttempts ≥ MEDIA_MAX_SCREEN_ATTEMPTS +
+  MEDIA_MAX_SCREEN_RETRIES` (3 + 5 = 8).
+- **A lost release write** after an assessed attempt counts it as a retry, not an attempt. That fails towards the
+  larger, still bounded, total.
+- **Write budget:** +0 writes and +0 reads. Terminal paths write `Resolve` or `reject` as today, and a busy slot now
+  writes nothing (it used to cost a claim and a release).
+
+**A5.5 (c) Separate rate limits, in Vision units.**
+- **FinalizeUpload gets its own bucket.** Today CreateUpload and FinalizeUpload share `rlMedia` at
+  `RATE_LIMIT_POST_CREATE_PER_MIN` (10 per minute per uid per instance). FinalizeUpload moves to the new
+  **`RATE_LIMIT_MEDIA_FINALIZE_PER_MIN`** (default 10; 30 effective at 3 instances), so retries cannot starve new
+  uploads, and the reverse.
+- **New per-uid Vision-units daily cap `media_vision_units_daily`** (`ratelimit.DailyCap` in the media service):
+  - **`MEDIA_VISION_UNITS_PER_DAY`**: default 60 per instance, 180 effective at 3 instances.
+  - **`MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT`**: default 12, 36 effective. The account age comes cache-first from the
+    profile the account-status interceptor read, so +0 reads (the N2 poll-cap pattern).
+  - **When it is checked and charged:** with the doc's units (1 or 2), after verify and **before the claim**. A refusal
+    therefore writes nothing: RESOURCE_EXHAUSTED, RATE_LIMITED, `limit = media_vision_units_daily`, `retry_after` to
+    IST midnight.
+  - **Refunds:** only when no Vision call was sent (a lost claim race, a reserve error, a pre-scan refusal), or when
+    the call failed before any response.
+  - **Never refunded:** timeouts and every answered call. A timed-out call may have been billed while
+    `VISION_MONTHLY_CAP` returned its units (N1), so this cap is what bounds that class per user.
+- **Honest headroom.** The heaviest honest use is 20 uploads × 2 units = 40, which leaves 20 units of retries even
+  when every request lands on one instance (min-instances 0 means one instance most of the time).
+- **Per instance, in memory, reset by a restart.** It is a cost control. The durable per-doc bound is A5.4 together
+  with the uploads quota (`quotas.uploads`: 20 a day, 5 for new accounts).
+
+**A5.6 (d) Retrying the retained image without re-uploading.**
+- **How long the image is kept.**
+  - The PENDING doc lives `PendingTTL` = 48 h (`expireAt`, TTL).
+  - The private upload objects are deleted by the upload bucket's lifecycle rule `age = 2` days.
+  - Both run asynchronously, and neither can remove the image before 48 h.
+  - A failed attempt keeps both: `releaseClaim` deletes nothing, and only `reject` deletes the objects.
+  - So the retry window is 48 h. In practice it is the composer session, because drafts keep no media ids (F8) and a
+    reopened draft re-uploads.
+- **A retry is the same FinalizeUpload, with the same media id.**
+  - With W6-25 (#536) the signed PUT is create-only, so a second PUT answers 412 and the client treats it as stored.
+  - Every attempt re-runs verify with the generation pin. The bytes screened are therefore always the bytes uploaded.
+  - W6-16's "fall back to the re-PUT path" after repeated MEDIA_NOT_READY stays correct: the re-PUT gets 412, then
+    the client finalizes again.
+- **Server:** the screening UNAVAILABLE ("image checks are temporarily unavailable") gains `retry_after` 5 s. This is
+  an existing field, so no proto change.
+- **Client UX (W6-40's client part):**
+  - The attachment tile shows "Checking…".
+  - On that UNAVAILABLE it retries the same finalize after `retry_after` (2, 4 and 8 s with jitter if absent), at most
+    3 times.
+  - Then it shows "Couldn't check this image · Retry", a manual tap with the same media id and no upload.
+  - Post stays disabled while a tile is unchecked.
+  - `RATE_LIMITED` `media_vision_units_daily`: "You've reached today's image checks. Try again tomorrow", with no
+    retry.
+  - REJECTED `attempts`: "We couldn't check this image. Remove it and choose another" (its objects are deleted).
+
+**A5.7 The H-3 bound is preserved.**
+- **Unit accounting is unchanged from #535.** `VisionAnsweredError` and the answered count are what keep
+  `VISION_MONTHLY_CAP` and its `reject` honest service-wide, so billed-but-invalid answers are still counted there.
+- **Per doc:** at most `MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES` = 8 claims × 2 = **16 billable units**
+  (#535: 3 × 2 = 6).
+- **Per account per day, effective at 3 instances:**
+
+| Bound | Units per day | INR per day | INR per account-month |
+|---|---|---|---|
+| #535 (3 attempts × 2 units × 20 uploads) | 120 | 17.1 | ≈ 520 |
+| This amendment without A5.5 (8 claims × 2 × 20) | 320 | 45.6 | ≈ 1,390 |
+| **This amendment with A5.5** (60 per instance × 3) | **180** | **25.7** | **≈ 780** |
+| New accounts with A5.5 (12 × 3; #535: 5 × 3 × 2 = 30) | 36 | 5.1 | ≈ 156 |
+
+- At INR 0.1425 per unit ($1.50 per 1,000, INR 95 per USD).
+- **The per-account bound is looser than #535's,** by INR 260 per account-month, in exchange for honest retries. The
+  service-wide `VISION_MONTHLY_CAP` with `reject` still caps the total (10,000 units; 20,000 to 40,000 in credit
+  mode). A ring that drains it denies uploads to everyone, as before.
+- **This loosens a merged security fix,** so W6-40's PR needs a security-auditor review (W6-42) before merge.
+
+### A6. Contract changes proposed for W6-35 (additive; `buf lint` and `buf breaking` clean)
+| File | Change | Number |
+|---|---|---|
+| `posts/v1/posts.proto` | `PostView.viewer_poll_vote_blocked` (bool): true when the viewer blocks the author of this post's live poll; VotePoll answers TARGET_BLOCKED; false on every other row and on older revisions; cleared on a withheld row | **9** (8 is `viewer_poll_choice`) |
+| `engagement/v1/engagement.proto` | `VotePollRequest.expected_choice` (int32): 0 = no vote known; 1-4 = the caller's current `viewer_poll_choice`; a change applies only when it equals the stored vote | **4** |
+| | `VotePollRequest.idempotency_key` comment: "one key per tap; reuse it only to retry that tap". The `rpc VotePoll` comment: the A2.2 table, the change budget and TARGET_BLOCKED | comments |
+| `common/v1/common.proto` | `ERROR_REASON_TARGET_BLOCKED` comment adds VotePoll (the caller blocks the poll's author). `ERROR_REASON_ALREADY_VOTED` comment: answered when `expected_choice` does not name the stored vote; `metadata["choice"]` unchanged. `ERROR_REASON_LIMIT_REACHED` comment adds `metadata["limit"] = "poll_vote_changes"` and `metadata["choice"]` | comments |
+| `media/v1/media.proto` | FinalizeUpload comment: the screening UNAVAILABLE carries `retry_after`; RATE_LIMITED `media_vision_units_daily`; REJECTED `attempts` after 3 assessed attempts or 8 claims | comments |
+
+- No field is reused or renumbered.
+- No new `ErrorReason`.
+- No new RPC.
+- `make proto` regenerates the Go and Dart code.
+
+### A7. Config changes (rule 11; ComposerConfig and the ratelimit config; defaults in Terraform for dev and prod)
+| Var | Default | Range | Meaning |
+|---|---|---|---|
+| `POLL_VOTE_CHANGES_MAX` | 5 | 0–20 | changes per voter per poll, durable (`pollVotes.changes`); 0 = votes are final |
+| `MEDIA_MAX_SCREEN_ATTEMPTS` | 3 (unchanged) | 1–10 (unchanged) | **revised meaning:** attempts that produced a valid assessment without ending the doc (`screenAssessed`) |
+| `MEDIA_MAX_SCREEN_RETRIES` | 5 | 0–10 | attempts with no valid assessment; with the above it sets the claims ceiling on `screenAttempts` |
+| `MEDIA_VISION_UNITS_PER_DAY` | 60 | 2–200 | per-uid Vision units a day, per instance (180 effective) |
+| `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` | 12 | 2–60 | the same, for accounts younger than the new-account window (36 effective) |
+| `RATE_LIMIT_MEDIA_FINALIZE_PER_MIN` | 10 | as the other buckets | FinalizeUpload's own bucket, split from CreateUpload's (30 effective) |
+
+**Flags.**
+- **No new flag.**
+  - The vote change and the block rule ride `polls`, which has never left the dev allowlist (ceiling: allowlist 6,
+    `max_percent` 0) and is `off` in prod.
+  - The Vision revision rides `media` and `gif`, also allowlist only.
+- **Kill switches:**
+  - `POLL_VOTE_CHANGES_MAX = 0` for changes;
+  - `FEATURE_POLLS = off` for polls;
+  - `FEATURE_GIF = off`, `FEATURE_MEDIA = off` or `DEGRADED_MODE = nomedia` for media.
+- **The 100 % rule (L-1) applies to `polls`:**
+  - An old revision answers a change with `ALREADY_VOTED`, and a new client renders the stored choice. That is
+    harmless.
+  - An old revision does not refuse a blocked voter, which is acceptable on the dev allowlist.
+  - So `polls` leaves the dev allowlist, and goes on in prod, only once 100 % of traffic is on a revision with W6-36.
+
+### Cost impact (Amendment 1)
+- **Fixed monthly cost added: INR 0.** No new service, index, fieldOverride, topic, Scheduler job or TTL policy.
+  Nothing depends on ADR-0022.
+
+**Per RPC.** Worst-case reads include the account-status interceptor; every call is charged to the ADR-0010 D5
+budget.
+
+| Path | Reads worst | Reads typical | Writes | Deletes |
+|---|---|---|---|---|
+| `VotePoll` change | **9**: the 8 of a new vote (D6 ceiling) + the vote doc 1; +1 per precondition retry, ≤ 3 more | 4 | **4**: vote doc, post counters, `userLikes` × 2 (fallback: 3 writes + 1 read) | 0 |
+| `VotePoll` at the change cap, or `ALREADY_VOTED` for a stale `e` | 9 | 4 | 0 | 0 |
+| `VotePoll` refused `TARGET_BLOCKED` | ≤ 7 (as the other step-5 refusals) | 2 | 0 | 0 |
+| `viewer_poll_vote_blocked` on GetPost, GetThread and GetUserTimeline | **+0** (the snapshot `Decide` read) | 0 | 0 | 0 |
+| Block or Unblock | +0 (no poll side effect) | | +0 | +0 |
+| A resumed draft send (W6-39) | a CreatePost or SchedulePost replay: 14 cold / 1 warm, or the SchedulePost replay row | | 0 on a replay | 0 |
+| FinalizeUpload, a retry with no valid assessment | 2n + 1 + interceptor, as today | as today | 2 (claim + release), as today | 0 |
+| FinalizeUpload, a busy GIF slot | as today | | **0** (was 2) | 0 |
+| FinalizeUpload refused by `media_vision_units_daily` or by its bucket | ≤ the reads before the claim | | 0 | 0 |
+
+**Per DAU per day** (assumption: changes are 10 % of votes, so 0.03 a DAU a day; W6-41 measures it with the W6-21 harness):
+- +0.12 reads and +0.12 writes;
+- +0.03 Cloud Run requests;
+- 0 Vision units on the honest path. An outage retry is not billed when unanswered; the units cap bounds the rest.
+
+**INR per month** (Mumbai prices, INR 95 per USD, on ADR-0029's baseline; `sre-performance` re-bases on
+`cost-model.md` §16):
+
+| Line | 300 DAU | 1,000 DAU | 3,000 DAU |
+|---|---|---|---|
+| Firestore reads (+0.12 per DAU a day, all billed) | 0.04 | 0.12 | 0.36 |
+| Firestore writes (+0.12 per DAU a day, billed past the free writes) | 0 | 0.36 | 1.08 |
+| Vision, honest path | 0 | 0 | 0 |
+| **Amendment 1 total** | **≈ 0.04** | **≈ 0.5** | **≈ 1.4** |
+
+**Free quotas that move** (whole product):
+
+| Quota | Runs out at (was) | Amendment delta at 2× that DAU | at 10× |
+|---|---|---|---|
+| Firestore writes 20k a day (40.70 per DAU, was 40.58) | ≈ 491 DAU (493) | 982 DAU: INR 0.35 | 4,910 DAU: INR 1.8 |
+| Firestore reads 50k a day (358.77 per DAU, was 358.65) | ≈ 139 DAU (139) | 278 DAU: INR 0.03 | 1,390 DAU: INR 0.17 |
+| Vision, Cloud Run, GCS | unchanged | — | — |
+
+**Abuse as cost** (per instance × 3 max instances):
+- `VotePoll`: 90 calls a minute and 900 a day per account (150 for new accounts). At most 4 writes a call and 23 per
+  account per poll, so about INR 11 per account-month (A2.4).
+- FinalizeUpload: 30 calls a minute, 180 Vision units a day per account (36 for new accounts), and 16 per media doc,
+  so about INR 780 per account-month (A5.7).
+
+**Trigger that justifies it:** none (no fixed cost).
+
+### Stage ladder (Amendment 1)
+| Concern | Stage 0 (this amendment) | Seam to protect now | Stage 2/3 target | Trigger (measured, 7 days) |
+|---|---|---|---|---|
+| Poll counters with changes | −1/+1 `Increment` on `posts/{id}.poll.counts.*` in a blind batch; one post write per change, as per vote | `StagePollVote` and `StagePollChange`, the only poll counter writers; `contention` and `outcome=changed` on the `poll_vote` line | sharded counters (the "Poll counters" row of the Stage ladder above), which take decrements unchanged | unchanged: sustained contention, or more than 1 vote or change per second on one poll for 5 minutes. Changes make a hot poll hotter: count them in the same signal |
+| Per-uid Vision units | in-memory `DailyCap` per instance (× 3) plus the durable per-doc claims ceiling | the media service's `visionUnits` limiter interface | a shared limiter (Memorystore) or a `quotas` field (+1 read, +1 write per finalize) | abuse that spreads across instances: `media_vision_units_daily` refusals on all 3 instances for one uid, or monthly units above 1.5× the model with no matching uploads |
+| Draft sends | the send key on the device's draft row | `DraftsRepository` (its only reader and writer) | synced drafts (the "Drafts" row of the Stage ladder above) carry the send key server-side | as the synced-drafts trigger |
+
+No collection approaches 500 writes a second: a change updates an existing vote doc and adds no new key.
+
+### Observability (Amendment 1)
+- **`poll_vote` line:**
+  - New outcomes: `changed`, `change_limit`, `stale_expected` (the `ALREADY_VOTED` row) and `voter_blocks_author`.
+  - **Never** the old or the new choice, nor `expected_choice`. Logs still never pair a uid with a choice.
+- **FinalizeUpload line:**
+  - `screen_outcome` (terminal, assessed or unassessed), `screen_claims`, `screen_assessed`;
+  - `units_daily_refused` (bool);
+  - `attempts_exhausted` (`assessed` or `claims`).
+- **No new log-based metric or alert policy.**
+
+### Tests to flip (never delete)
+**Backend:**
+- `TestW617_NotFoundBytesIdentical`:
+  - Keep the byte identity for "the author blocks the voter" (also by REPOST id), takedown, `SUSPENDED_AUTHOR` and
+    another instance.
+  - Flip the O-1 part: a voter who blocked the author now gets `TARGET_BLOCKED`, 0 vote docs, total unchanged, and the
+    post is still visible through GetPost.
+- `TestW617_RepostIDVotesInTheOriginal`: the different-choice call by REPOST id:
+  - with `e = 0` it stays `ALREADY_VOTED`;
+  - add `e = 3` (the stored choice + 1): a change on the original, counts −1 and +1, total 1.
+- `TestW617_ConcurrencyManyVotersRacingThemselves`: two arms (A2.3).
+- `TestVotePoll_ReplayAndAlreadyVoted` and `TestVotePoll_ConcurrentSameVoter`: the same two-arm split.
+- `TestW627_AttemptCapStopsTheLoop` keeps passing: a thumbnail that fails while the full image answers is an
+  assessed attempt. It gains companions:
+  - both calls unanswered: no attempt consumed, stopped at 8 claims;
+  - billed-invalid answers: units counted, retries consumed;
+  - a busy GIF slot: no claim, no write.
+- `TestFinalize_FailedAttemptReleasesTheClaim`: the release also carries `screenAssessed`.
+
+**Client:**
+- `poll_cubit_test` "ALREADY_VOTED re-reads the post once and keeps the server choice": keeps the first-vote case;
+  for a change, no automatic replay.
+- `poll_repository_test` "ALREADY_VOTED carries the server choice (0-based)".
+- `poll_display_test` "a choice the server named (ALREADY_VOTED) before the re-read".
+- The `poll_card_test`, `post_card_poll_test` and `w6_poll_flow_test` cases that assume no control after a vote:
+  "results: percents total 100, check and bold on the leader", and "tap on choice 2: exactly one VotePoll, bars with
+  the check". They now also expect "Change vote".
+
+### Founder decisions on the open items (2026-10-31, second message)
+1. **GDPR Art. 9 → no sensitive-data polls, initially.** Polls must not solicit sensitive personal information (health,
+   religion or belief, political opinion, sex life or orientation, ethnicity, union membership, genetic or biometric
+   data). Enforced as a content rule (Terms/community rules, a composer hint, a report reason and the moderation runbook),
+   not by automated detection at Stage 0. W6-43. Because such polls are prohibited, L-2 (W6-29) is not promoted to an
+   Art. 9 requirement, but W6-29 stays required before release for retention (item 4).
+2. **L-3 copy → "Individual choices are hidden from other users"**, never "anonymous". This is accurate as built: no RPC
+   returns another account's choice (D4; only the voter sees their own, and only the voter's export lists it). Because
+   live totals can still reveal a choice (or a change, A2.9) in a very small poll, the Privacy Policy states that caveat
+   in plain words. W6-44.
+3. **L-5 → drafts expire 30 days after the user's last edit.** Device-local, enforced on the client (purge on open and on
+   app start; a scheduled post is server-side and not a draft). "May be incomplete" still holds. W6-45 (serialise with
+   W6-31 and W6-39, the same drafts table).
+4. **Privacy Policy → disclose vote storage, visibility, retention and deletion; finalize vote retention before
+   release.** As built: the vote doc expires `POLL_VOTE_TTL_AFTER_CLOSE` (default 30 days) after the poll closes, but the
+   per-account copy `userLikes.pollVotes` has no expiry until W6-29. The release is blocked until W6-29 is merged and the
+   founder confirms the period (proposed: 30 days after close for both). The policy text (`app/web/privacy.html`) is
+   W6-46; finalizing retention is W6-47. The section 4 polls line is revised for vote changes ("vote only once" is no
+   longer true).
+
+### What the founder accepted (2026-10-31, in principle)
+- The interpretation and its reversal of D6 step 7, F4 and D7's argument.
+- `ALREADY_VOTED` kept for a stale `expected_choice` (or choose the unconditional change instead).
+- `TARGET_BLOCKED` for a voter who blocks the author, hidden results until close for one who never voted, and
+  `viewer_poll_vote_blocked`.
+- `POLL_VOTE_CHANGES_MAX` 5.
+- The drafts send-key fix.
+- The reading of "completed, valid assessment" in A5.2, the 3 + 5 split, and the units cap at 60 / 12 per instance,
+  with its per-account bound looser than #535's by about INR 260 a month.
+
+### Handoff (Amendment 1)
+- **architect:** W6-35 (the A6 protos, `make proto`). FU-7, in a `.claude/` PR the founder approves:
+  - `firestore-data-model` rows: `pollVotes.changes` and `pollVotes.changedAt`, `media.screenAssessed`, and the
+    revised meaning of `media.screenAttempts`;
+  - operation rows from the Per RPC table above;
+  - the stage-ladder rows above.
+- **backend-developer:**
+  - W6-36: A1 and A2, in one PR on `service_polls.go`, `repo_polls.go` and the converter.
+  - W6-40: A5. It needs W6-42's review before merge.
+  - Seams: `posts.EngagementWriter.StagePollChange`, `posts.Engagement.PollVoteChanged`,
+    `ViewerSet.WithBlockedAuthors`, the media `visionUnits` limiter.
+- **frontend-developer:**
+  - W6-37: the poll card.
+  - W6-39: the draft send key.
+  - The W6-40 client part: the finalize retry tile.
+- **tester:** W6-38 (drafts duplicate-publication matrix) and W6-41 (backend and client tests for A1, A2 and A5; the
+  flips above).
+- **security-auditor:** W6-42, a review of W6-36 (the `TARGET_BLOCKED` oracle check, `expected_choice` and logs) and of
+  W6-40 (the H-3 bound, the units cap and refunds).
+- **sre-performance** (`cost-model.md`, its own file): the rows above.
+  - `VotePoll` change: 9 / 4 reads and 4 writes.
+  - Changes at 0.03 per DAU a day: +0.12 reads and +0.12 writes per DAU a day.
+  - The writes crossover moves to about 491 DAU.
+  - The FinalizeUpload busy-slot row drops to 0 writes.
+  - The abuse bounds: INR 11 (votes) and INR 780 (Vision) per account-month.
+- **production-deployer:** W6-22's dev plan gains the A7 vars, which are config only.
 
 ## Context
 X's composer offers three things ours lacks: a poll, an unsent draft that survives closing the composer, and a GIF that
