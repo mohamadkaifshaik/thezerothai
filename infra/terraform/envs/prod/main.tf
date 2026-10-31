@@ -162,6 +162,7 @@ locals {
     { name = "MEDIA_MAX_SCREEN_RETRIES", value = "5" },                # W6-51 (security review W6-40 L-5): claimed screening attempts with no valid assessment; config/composer.go default, startup range 0..10
     { name = "MEDIA_VISION_UNITS_PER_DAY", value = "60" },             # per-uid Vision units per IST day, per instance (180 at 3 instances); config/composer.go default, startup range 2..200
     { name = "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", value = "12" }, # the same for accounts inside the new-account window; config/composer.go default, startup range 2..60
+    { name = "POLL_VOTE_CHANGES_MAX", value = "5" },                   # vote changes per voter per poll (W6-36, ADR-0029 Amendment 1 A2.2; security review W6-36 L-3); 0 = votes final again (kill switch); config/composer.go default, startup range 0..20
     { name = "QUOTA_POSTS_PER_DAY", value = "100" },
     { name = "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", value = "20" },
   ]
