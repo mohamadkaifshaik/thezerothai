@@ -736,13 +736,24 @@ Future<ReportOutcome> _reportAccount(
 const _addToListsValue = 'lists_add';
 const _viewListsValue = 'lists_view';
 
-List<PopupMenuEntry<String>> _listsMenuItems({required bool canAdd}) => [
+/// W5-42: "View Lists" is hidden on a protected profile the viewer does not
+/// follow (the server answers PROTECTED_ACCOUNT / NOT_FOUND for its Lists).
+/// [following] is null when the relationship is unknown (graph off): hidden
+/// then too.
+bool _canViewLists(identity.Profile profile, {required bool? following}) =>
+    !profile.isPrivate || (following ?? false);
+
+List<PopupMenuEntry<String>> _listsMenuItems({
+  required bool canAdd,
+  required bool canView,
+}) => [
   if (canAdd)
     const PopupMenuItem(
       value: _addToListsValue,
       child: Text('Add or remove from Lists'),
     ),
-  const PopupMenuItem(value: _viewListsValue, child: Text('View Lists')),
+  if (canView)
+    const PopupMenuItem(value: _viewListsValue, child: Text('View Lists')),
 ];
 
 /// Runs a Lists menu row; false when [value] is not one of them.
@@ -812,7 +823,11 @@ class _ReportOnlyMenu extends StatelessWidget {
           unawaited(_reportAccount(context, profile, offerBlock: false));
         },
         itemBuilder: (context) => [
-          if (listsEnabled) ..._listsMenuItems(canAdd: true),
+          if (listsEnabled)
+            ..._listsMenuItems(
+              canAdd: true,
+              canView: _canViewLists(profile, following: null),
+            ),
           if (canReport)
             PopupMenuItem(
               value: 'report',
@@ -890,7 +905,15 @@ class _OverflowMenu extends StatelessWidget {
                 child: Text(relationship.blocking ? 'Unblock' : 'Block'),
               ),
               if (listsEnabled)
-                ..._listsMenuItems(canAdd: !relationship.blocking),
+                ..._listsMenuItems(
+                  canAdd: !relationship.blocking,
+                  canView: _canViewLists(
+                    profile,
+                    following:
+                        relationship.followState ==
+                        graph.FollowState.FOLLOW_STATE_FOLLOWING,
+                  ),
+                ),
               if (canReport)
                 PopupMenuItem(
                   value: 'report',

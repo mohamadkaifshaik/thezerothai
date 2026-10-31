@@ -24,11 +24,21 @@ type seededLists struct {
 
 func (e *lifecycleEnv) seedList(t *testing.T, id, owner string, members []string) {
 	t.Helper()
+	e.seedListWith(t, id, owner, members, true, false)
+}
+
+// seedListWith seeds a list with the given privacy and moderator-hidden flags.
+func (e *lifecycleEnv) seedListWith(t *testing.T, id, owner string, members []string, private, hidden bool) {
+	t.Helper()
 	now := time.Now().UTC()
-	if _, err := e.fs.Collection("lists").Doc(id).Set(context.Background(), map[string]any{
-		"ownerId": owner, "name": "list " + id[len(id)-3:], "description": "", "isPrivate": true,
+	doc := map[string]any{
+		"ownerId": owner, "name": "list " + id[len(id)-3:], "description": "", "isPrivate": private,
 		"memberIds": members, "createdAt": now, "updatedAt": now,
-	}); err != nil {
+	}
+	if hidden {
+		doc["hidden"] = true
+	}
+	if _, err := e.fs.Collection("lists").Doc(id).Set(context.Background(), doc); err != nil {
 		t.Fatal(err)
 	}
 }

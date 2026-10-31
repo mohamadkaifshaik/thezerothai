@@ -111,6 +111,9 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 		return access{}, ErrNotFound
 	}
 	a.owner = op
+	if hiddenByProtection(op, l.OwnerID, a.viewerSnap) {
+		return access{}, ErrNotFound
+	}
 	if a.ownerSnap, err = s.social(ctx, l.OwnerID); err != nil {
 		return access{}, err
 	}
@@ -118,6 +121,14 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 		return access{}, ErrNotFound
 	}
 	return a, nil
+}
+
+// hiddenByProtection is the protected-owner rule of D3 (W5-42, W5-17 M-2): the lists of a protected account are visible to that account and
+// to the viewers who follow it, as ListFollowing is (ADR-0025 D5). The owner's profile and the viewer's graph are both held already, so
+// the rule costs 0 reads. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
+// FEATURE_PRIVATE_ACCOUNTS (ramping that flag down never un-hides a list). A viewer who blocked the owner is not special-cased (I-3).
+func hiddenByProtection(owner identity.Profile, ownerID string, viewer graph.Snapshot) bool {
+	return owner.IsPrivate && !viewer.Following[ownerID]
 }
 
 // countKept is the member count a viewer is shown: the stored members minus those who block the owner (the F4 read-time drop).
@@ -333,6 +344,12 @@ func (s *service) otherOwner(ctx context.Context, viewer, owner string) (prof id
 	}
 	if os.Blocked[viewer] {
 		return identity.Profile{}, nil, false, identity.ProfileNotFoundError()
+	}
+	// W5-42 (W5-17 M-2): after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
+	// PROTECTED_ACCOUNT, the ListFollowing precedent (ADR-0025 D5, AQ: an error, not an empty page, so the client shows the
+	// protected-account state instead of "no lists"). 0 extra reads: the profile and both graphs are held.
+	if hiddenByProtection(p, owner, vs) {
+		return identity.Profile{}, nil, false, ErrProtected
 	}
 	if os.BlockedByOverflow {
 		return p, nil, true, nil
