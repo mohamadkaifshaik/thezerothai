@@ -88,10 +88,18 @@ func (s *service) chargeUnits(ctx context.Context, uid string, units int64) (*ra
 // already read (identity.Directory), so it adds no read. An error or an unknown age counts as new (the stricter tier).
 func (s *service) isNewAccount(ctx context.Context, uid string) bool {
 	created, err := s.Directory.AccountCreatedAt(ctx, uid)
-	if err != nil || created.IsZero() {
+	if err != nil {
 		return true
 	}
-	return s.Now().Sub(created) < s.NewAccountWindow
+	return s.isNewAccountAt(created, s.Now())
+}
+
+// isNewAccountAt is the module's one definition of the new-account tier, shared by the upload quota (CreateUpload) and the per-uid Vision-units cap
+// (chargeUnits), so an account never gets the wider limit of one and the narrower of the other (W6-50, W6-42 L-4). A zero createdAt (a users doc written
+// without it; signup always sets it) is NEW: an unknown age proves nothing about the account, so it takes the stricter tier, the same fail-closed answer the
+// unreadable age gets above and that establishedAccount gives for the unscreened publish (zero is not established).
+func (s *service) isNewAccountAt(created, now time.Time) bool {
+	return created.IsZero() || now.Sub(created) < s.NewAccountWindow
 }
 
 // screeningUnavailable is the retryable "image checks are temporarily unavailable" answer, with retry_after (A5.6).
