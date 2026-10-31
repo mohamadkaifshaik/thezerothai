@@ -382,6 +382,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | In review (PR #549) |
 | W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | Open |
 | W5-49 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | Open |
+| W5-50 | *(W5-16 D2, D3)* ListsRepository session epoch and reset on account switch: `ListsRepository` takes the shared `SessionEpoch` (a `GetList` / `ListUserLists` / mutation answer and a `GetListTimeline` header that land after sign-out or a switch are dropped); one `AccountSessionReset` run by `AppWidget` for sign-out and for a direct A to B switch; inventory of every per-account cache | frontend-developer | S | W5-16 | yes | In review (#553) |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).

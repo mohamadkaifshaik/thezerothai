@@ -376,26 +376,20 @@ void main() {
       expect(cubit.state.entries, isEmpty);
     });
 
-    testWidgets(
-      'a direct switch to another account forgets them too',
-      (tester) async {
-        final cubit = await startVoted(tester);
-        authStates.add(
-          const AuthState(status: AuthStatus.authenticated, user: other),
-        );
-        await settleAuth(tester);
-        expect(
-          cubit.state.entries,
-          isEmpty,
-          reason: "the next account must not see uid-1's choice",
-        );
-      },
-      // W6-19 D1 (docs/reviews/test-report-w6-client.md): AppWidget resets the
-      // poll overlay only on AuthStatus.unauthenticated (app_widget.dart:260),
-      // so a direct A to B switch keeps the first account's votes. Remove the
-      // skip when fixed.
-      skip: true,
-    );
+    testWidgets('a direct switch to another account forgets them too', (
+      tester,
+    ) async {
+      final cubit = await startVoted(tester);
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settleAuth(tester);
+      expect(
+        cubit.state.entries,
+        isEmpty,
+        reason: "the next account must not see uid-1's choice",
+      );
+    });
   });
 
   group('Lists state belongs to the account (W5-16)', () {
@@ -422,6 +416,7 @@ void main() {
       lists = ListsRepository(
         apiClient: api,
         gate: gate,
+        epoch: database.sessionEpoch,
         onListSeen: tabs.noteListInfo,
       );
     });
@@ -454,28 +449,20 @@ void main() {
       expect(lists.header('77'), isNull);
     });
 
-    testWidgets(
-      'a direct switch to another account forgets list headers too',
-      (tester) async {
-        await startWithAHeader(tester);
-        authStates.add(
-          const AuthState(status: AuthStatus.authenticated, user: other),
-        );
-        await settleAuth(tester);
-        expect(
-          lists.header('77'),
-          isNull,
-          reason: "uid-2 must not be handed the name of uid-1's private list",
-        );
-      },
-      // W5-16 D3 (docs/reviews/test-report-w5-client.md): AppWidget calls
-      // ListsRepository.clearSession only on AuthStatus.unauthenticated
-      // (app_widget.dart:266) and bootstrap.dart passes only
-      // graphRepository.clearCache as wireAuthSession's onSignedOut, so a
-      // direct A to B switch keeps A's headers; ListDetailCubit shows a cached
-      // header at once (list_detail_cubit.dart:28). Remove the skip when fixed.
-      skip: true,
-    );
+    testWidgets('a direct switch to another account forgets list headers too', (
+      tester,
+    ) async {
+      await startWithAHeader(tester);
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settleAuth(tester);
+      expect(
+        lists.header('77'),
+        isNull,
+        reason: "uid-2 must not be handed the name of uid-1's private list",
+      );
+    });
   });
 
   testWidgets('the push opt-in record follows the signed-in account (W2-12)', (

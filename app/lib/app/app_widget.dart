@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
+import '../core/session/account_session_reset.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
@@ -247,9 +248,49 @@ class _AppWidgetState extends State<AppWidget> {
   int _lastUnread = 0;
   int _lastUnreadConversations = 0;
 
+  /// The uid whose session is on screen, to tell a switch from a refresh.
+  String? _accountUid;
+
+  /// Every per-account in-memory holder, reset together (see
+  /// [AccountSessionReset] for the inventory).
+  final AccountSessionReset _accountReset = AccountSessionReset();
+
+  void _registerAccountState() {
+    _accountReset
+      ..register(
+        'snackbars',
+        () => _messengerKey.currentState?.clearSnackBars(),
+      )
+      ..register('pending posts', _pendingPosts.clear)
+      ..register('engagement', _engagement.reset)
+      ..register('polls', () => _polls?.reset())
+      ..register('bookmarks', _bookmarks.reset)
+      ..register('suggestions', _suggestions.reset)
+      ..register('trends', () => _trends?.reset())
+      ..register('graph', widget.graphRepository.clearCache)
+      ..register('likes', widget.likesRepository.clearSession)
+      ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
+      ..register('lists', () => widget.listsRepository?.clearSession())
+      ..register('badges', () {
+        widget.unreadBadgeCubit.seed(0);
+        _messagesBadge.seed(0);
+        _lastFeatures = null;
+        _probedUid = null;
+        _lastUnread = 0;
+        _lastUnreadConversations = 0;
+      })
+      ..register('push', () => unawaited(widget.pushCubit.stop()));
+  }
+
+  /// Sign-out or a switch of account: forget the previous account.
+  void _endAccountSession() =>
+      _accountReset.run(onError: reportUnexpectedError);
+
   @override
   void initState() {
     super.initState();
+    _accountUid = widget.authBloc.state.user?.uid;
+    _registerAccountState();
     unawaited(_themeMode.load());
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
@@ -257,24 +298,13 @@ class _AppWidgetState extends State<AppWidget> {
         _purgedDraftsUid = state.user?.uid;
         _purgeExpiredDrafts(_purgedDraftsUid);
       }
-      if (state.status == AuthStatus.unauthenticated) {
-        _messengerKey.currentState?.clearSnackBars();
-        _pendingPosts.clear();
-        _engagement.reset();
-        _polls?.reset();
-        _bookmarks.reset();
-        _suggestions.reset();
-        _trends?.reset();
-        widget.likesRepository.clearSession();
-        widget.homeTabsRepository?.clearSession();
-        widget.listsRepository?.clearSession();
-        widget.unreadBadgeCubit.seed(0);
-        _messagesBadge.seed(0);
-        _lastFeatures = null;
-        _probedUid = null;
-        _lastUnread = 0;
-        _lastUnreadConversations = 0;
-        unawaited(widget.pushCubit.stop());
+      // One path for a sign-out and a direct A to B switch (the auth stream
+      // goes A to B with no unauthenticated state in between).
+      final previousUid = _accountUid;
+      _accountUid = state.user?.uid;
+      if (state.status == AuthStatus.unauthenticated ||
+          (previousUid != null && _accountUid != previousUid)) {
+        _endAccountSession();
       }
     });
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
