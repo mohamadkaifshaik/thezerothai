@@ -122,7 +122,7 @@ func (s *service) listLikedPosts(ctx context.Context, uid string, pageSize int32
 	}
 	live, err := s.d.Reader.GetMany(ctx, postIDs)
 	if err != nil {
-		return LikesPage{}, logger.RedactErr(fmt.Errorf("engagement: list liked posts: load posts: %w", err), append([]string{uid}, postIDs...)...)
+		return LikesPage{}, logger.RedactErrPosts(fmt.Errorf("engagement: list liked posts: load posts: %w", err), postIDs, uid)
 	}
 	res, err := s.dropRows(ctx, uid, postIDs, live)
 	if err != nil {
