@@ -31,7 +31,7 @@ clean-up after a commit failed; the dangling tab is dropped lazily and nothing i
 - **NOT_FOUND for a list the owner expects.** One answer for every cause (missing, someone else's, deleted). Nothing to debug beyond
   checking the id in the console. DeleteList of such an id succeeds on purpose (a retry after a lost response).
 - **"requires an index" on `ownerId ==` or `memberIds array-contains`.** Both are served by automatic single-field indexes and the emulator
-  never reports a missing one, so the W5-19 dev smoke is the first proof. If real Firestore asks for an index: stop and ask the architect.
+  never reports a missing one, so the W5-19 dev smoke is the first proof. Proven on dev 2026-10-31 for `ownerId ==` (the CreateList count and the owner page); `memberIds array-contains` is called only by the eraser and the `lists_member_of` export and is still owed (plan W5-19 "Owed"). If real Firestore asks for an index: stop and ask the architect.
   Do not exempt `memberIds` from indexing in `firestore.indexes.json`: the eraser needs it.
 - **CreateList LIMIT_REACHED with fewer than 20 lists visible.** The count includes private and hidden lists. Count with
   `lists where ownerId == <uid>`.
