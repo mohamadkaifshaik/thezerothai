@@ -386,7 +386,7 @@ Effect on the quotas (additive):
 | W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
 | W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
 | W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
-| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | In review (#571) |
+| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Done (#571; rule C accepted by the founder 2026-11-01; runbook text is W6-33a) |
 | W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (two-sided tag check: 13b5080f, or no uploader a3455ef5; prod upload CORS; W6-34 Done; Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | In review (#569) |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
@@ -1067,10 +1067,10 @@ too.
 | C+ | C plus a fail-closed script: `client_floors` in `flag-ceiling.json`, and an ancestry check in `release-prod.yml` and in `promote-prod.yml` before the web build (the W3-42 `rollback_floors` pattern) | none | Gate files (workflows, ceiling) and a new validator with fixtures | 0; a full-history checkout in two jobs |
 | D | General forced upgrade: a minimum supported build served as server config and compared at app start | n/a | The store-launch item in the `release-rollout` and `production-readiness` skills; needs its own ADR | 0 reads |
 
-**Decision: Proposed. Founder confirmation: pending.**
-- Hold this PR for the founder. Do not merge it under the standing merge-when-green rule.
+**Decision: C, accepted by the founder 2026-11-01.**
 - The decision rests on one part of fact 3 that the repo cannot prove: that no prod-configured mobile build
   (`FIREBASE_ENV=prod`, from any commit) was ever installed outside the team.
+- The founder confirmed it on 2026-11-01: never. If that ever turns out wrong, reopen W6-33 at C+ or A (A needs an ADR).
 - **C.**
 - A and B add a cross-cutting contract and an ADR only to refuse a set of builds that is empty. A also cannot work until
   builds carry real numbers.
