@@ -71,8 +71,10 @@
   20. W6-53 (#581, merged 2026-11-01) adds the vote's change count to the poll_votes export, so the Polls "Your
       export" sentence ends "when you last did, and how many times" (wording chosen 2026-11-01; the founder
       delegated it).
-  21. Analytics and crash reporting: the app ships neither firebase_analytics nor firebase_crashlytics
-      (app/pubspec.yaml). Founder 2026-11-01: neither Google Analytics nor Crashlytics is on for dzeroth-prod in the
+  21. Analytics and crash reporting: since TEL-3 the app ships both firebase_analytics and firebase_crashlytics
+      (app/pubspec.yaml), with collection off natively (AndroidManifest meta-data, Info.plist keys, web analytics
+      script ignored) and no Dart call to either SDK until TEL-4. Founder 2026-11-01: neither Google Analytics
+      nor Crashlytics is on for dzeroth-prod in the
       Firebase console. Keep both off there while the text says we use neither.
 -->
 <html lang="en">
