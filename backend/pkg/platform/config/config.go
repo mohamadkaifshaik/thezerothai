@@ -258,6 +258,18 @@ type Config struct {
 	// every environment.
 	FeatureShells flags.Spec
 
+	// FeatureCrashReporting is the client-only telemetry flag (wire name `crash_reporting`, ADR-0032 D11) gating the "Send crash reports"
+	// switch and Firebase Crashlytics collection in the Android app. No RPC is gated by it, it only reaches clients through
+	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_CRASH_REPORTING[_ALLOWLIST|_PERCENT], default off in
+	// every environment. Runbook: docs/runbooks/client-telemetry.md.
+	FeatureCrashReporting flags.Spec
+
+	// FeatureAnalytics is the client-only telemetry flag (wire name `analytics`, ADR-0032 D11) gating the "Share usage statistics"
+	// switch and Google Analytics for Firebase collection in the Android app. No RPC is gated by it, it only reaches clients through
+	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_ANALYTICS[_ALLOWLIST|_PERCENT], default off in every
+	// environment. Runbook: docs/runbooks/client-telemetry.md.
+	FeatureAnalytics flags.Spec
+
 	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
 	// off in every environment: off means no log reads and no suspension-reset cost (docs/runbooks/moderation.md 3b).
@@ -1091,6 +1103,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureCrashReporting, err := flags.LoadSpec("CRASH_REPORTING", "crash_reporting", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureAnalytics, err := flags.LoadSpec("ANALYTICS", "analytics", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureRemovedIDs, err := flags.LoadSpec("REMOVED_IDS", "removed_ids", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1190,6 +1210,8 @@ func Load() (Config, error) {
 		FeatureGif:                featureGif,
 		FeatureUIShell:            featureUIShell,
 		FeatureShells:             featureShells,
+		FeatureCrashReporting:     featureCrashReporting,
+		FeatureAnalytics:          featureAnalytics,
 		FeatureRemovedIDs:         featureRemovedIDs,
 		FeatureProfileSnapshot:    featureProfileSnapshot,
 		FeatureReplies:            featureReplies,
