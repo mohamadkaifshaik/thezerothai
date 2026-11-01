@@ -105,3 +105,24 @@ func RedactErrKeyed(err error, convIDs []string, ids ...string) error {
 	}
 	return &redactedError{msg: msg, cause: err}
 }
+
+// RedactErrPosts is RedactErr for an error that names post ids (W6-52, security review L-2): every occurrence of a post id in
+// postIDs becomes HashPost(id), the keyed pseudonym of the request line, and every occurrence of a uid in ids becomes
+// HashUID(id). An unkeyed hash of a public post id next to the uid hash would let a log reader rebuild who voted in which poll.
+func RedactErrPosts(err error, postIDs []string, ids ...string) error {
+	if err == nil {
+		return nil
+	}
+	msg := CauseChain(err)
+	for _, id := range postIDs {
+		if id != "" {
+			msg = strings.ReplaceAll(msg, id, HashPost(id))
+		}
+	}
+	for _, id := range ids {
+		if id != "" {
+			msg = strings.ReplaceAll(msg, id, HashUID(id))
+		}
+	}
+	return &redactedError{msg: msg, cause: err}
+}
