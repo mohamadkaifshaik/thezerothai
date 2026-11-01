@@ -1030,3 +1030,59 @@ variable "feature_gif_percent" {
     error_message = "feature_gif_percent must be an integer 0-100."
   }
 }
+
+variable "feature_crash_reporting" {
+  description = "FEATURE_CRASH_REPORTING rollout mode for client crash reporting (client-only, ADR-0032 D11; gates the crash switch and Firebase Crashlytics collection in the Android app, no RPC): off | allowlist | percent | on. Default off; nothing leaves off before the Before release list in docs/plans/client-crash-analytics.md. Runbook docs/runbooks/client-telemetry.md."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_crash_reporting)
+    error_message = "feature_crash_reporting must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_crash_reporting_allowlist" {
+  description = "FEATURE_CRASH_REPORTING_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_crash_reporting_percent" {
+  description = "FEATURE_CRASH_REPORTING_PERCENT: 0-100, only meaningful when feature_crash_reporting = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_crash_reporting_percent >= 0 && var.feature_crash_reporting_percent <= 100 && floor(var.feature_crash_reporting_percent) == var.feature_crash_reporting_percent
+    error_message = "feature_crash_reporting_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_analytics" {
+  description = "FEATURE_ANALYTICS rollout mode for client usage analytics (client-only, ADR-0032 D11; gates the usage switch and Google Analytics for Firebase collection in the Android app, no RPC): off | allowlist | percent | on. Default off; nothing leaves off before the Before release list in docs/plans/client-crash-analytics.md. Runbook docs/runbooks/client-telemetry.md."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_analytics)
+    error_message = "feature_analytics must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_analytics_allowlist" {
+  description = "FEATURE_ANALYTICS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_analytics_percent" {
+  description = "FEATURE_ANALYTICS_PERCENT: 0-100, only meaningful when feature_analytics = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_analytics_percent >= 0 && var.feature_analytics_percent <= 100 && floor(var.feature_analytics_percent) == var.feature_analytics_percent
+    error_message = "feature_analytics_percent must be an integer 0-100."
+  }
+}
