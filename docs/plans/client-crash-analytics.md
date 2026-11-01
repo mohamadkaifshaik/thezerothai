@@ -181,7 +181,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | ID | Ticket | Owner | Size | Depends | Parallel | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | TEL-1 | ADR: client crash reporting and usage analytics (data inventory, terms, consent, rule 10, Q10 (f), A1–A8, proposed `CLAUDE.md` and `stage-ladder` lines, prod ceiling) | architect | M | — | **yes, start now** | Open |
-| TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Open |
+| TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Open |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Open |
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Open |
@@ -220,7 +220,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** Names both flags and the ceiling proposal.
 - **Seam.** Defines the seam TEL-4 builds and the Stage 2/3 row.
 
-### TEL-2 — Flag registration  [owner: backend-developer] [size: S] [depends: —]  Status: Open
+### TEL-2 — Flag registration  [owner: backend-developer] [size: S] [depends: —]  Status: Done (#597)
 - **Description.** Follow `FEATURE_SHELLS` (W8-1) line for line:
   - `config.go`: `FeatureCrashReporting` and `FeatureAnalytics` with doc comments ("client-only ... no RPC is gated"); `LoadSpec` on one line each;
   - copies of `shells_test.go`; the env names in the test env list; both in `flags.NewRegistry`;
