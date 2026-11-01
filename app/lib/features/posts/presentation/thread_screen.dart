@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
@@ -77,6 +78,7 @@ class ThreadScreen extends StatelessWidget {
           create: (context) => ComposerCubit.reply(
             postsRepository: context.read<PostsRepository>(),
             replyToPostId: postId,
+            usage: UsageScope.of(context),
           ),
         ),
       ],

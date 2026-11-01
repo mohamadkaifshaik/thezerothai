@@ -356,7 +356,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Done (#596) |
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Done (#601) |
 | W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Done (#601) |
-| W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Open |
+| W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Done (#613) |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
@@ -364,8 +364,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
-| W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Open |
-| W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Open |
+| W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
+| W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Done (#614) |
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Open |
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
@@ -1024,7 +1024,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Export reads **1 + 2 per community** (the community doc and the user's own member doc, which alone carries `joinedAt` and `bannedAt`), not the ADR's 1 + 1: the reference account's section is 5 reads, not 3. A SUSPENDED community the user does not own, and a community whose doc is gone, count once in `redactedCount` and emit no row (`moderationActions` included). Reference-account lifecycle budgets: +1 read for the step and +1 for the section on an account with no memberships.
   - `.claude/skills/firestore-data-model/SKILL.md` (code-owner gated) still says "after `lists`" and "1 + the communities" for the export, and omits the extra memberships read per hand-over candidate; stored field names match.
 
-### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Open
+### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Done (#613)
 - **Description.**
   - **JoinCommunity:** one transaction. ACTIVE community, not BANNED, joined cap 50, `quotas.communityJoins`; it writes the member doc, memberships, `memberCount` Increment and quotas. Already a member → 0 writes.
   - **LeaveCommunity:** not the owner; it deletes the member doc, removes the community from `joined` (it stays in `modlogged` if present), decrements `memberCount` and, **when the leaver is a moderator, removes the uid from `moderatorIds`** in the same transaction, with a modlog entry.
@@ -1235,7 +1235,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `CommunitiesRepository` has no session state (no headers cached yet), so it takes no `SessionEpoch`. `FeedKey.community` is wired in `TimelineRepository` as "not available" until W5-32 adds `GetCommunityTimeline`.
   - `HomeTabsRepository` shows and writes COMMUNITY tabs only while `communities` is on; a VALIDATION `tabs` refusal of a write that holds a community tab (the server before W5-27) rolls back and reads as FEATURE_DISABLED `communities`.
 
-### W5-31 — Communities screen and Create  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
+### W5-31 — Communities screen and Create  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Done (#616)
 - **Description.** `/communities`:
   - an `AppBackHeader` "Communities";
   - "My Communities" rows (default tile, name, "N members", role badge);
@@ -1255,8 +1255,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities` (+ `ui_shell` for nav).
 - **Seam.** It reuses W5-11's `AppTileIcon`, `AppSectionHeader` and `UserListRow` patterns.
 - **Parallel with W3 Part A / W4:** shell nav files after W5-11 and W4-17.
+- **As built (W5-31).**
+  - Routes `/communities`, `/communities/new`, `/communities/:id`, `/communities/:id/members` share one `communities` flag redirect (Home when off). `/communities/new` is flag-gated only: the Create entry needs `can_create`, and a non-creator who opens the URL gets the server's FORBIDDEN `not_creator` text.
+  - Drawer row and rail destination (rail only, like Lists) need `communities` and `ui_shell`.
+  - My Communities and the directory load, fail and retry independently (an RPC not served yet reads as a calm note inside its section).
 
-### W5-32 — Community page  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
+### W5-32 — Community page  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Done (#616)
 - **Description.** `/communities/:id`:
   - a header (name, "N members" → members page, Join / Joined / Banned, Pin to Home);
   - `AppTabBar` Posts · About;
@@ -1275,6 +1279,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities`.
 - **Seam.** Feed reuse unchanged except `FeedKey`.
 - **Parallel with W3 Part A / W4:** yes.
+- **As built (W5-32).**
+  - `TimelineRepository` fetches `FeedKey.community` through a `communitiesGate` (`GetCommunityTimeline`, like the list path); `onCommunitySeen` is an optional hook, not wired in `bootstrap.dart` (the page reads its header from its one `GetCommunity`).
+  - No compose-to-community from the page: W5-34 owns posting, including preselect from `/communities/:id`.
+  - The members page has no moderation actions (ban, roles): W5-35.
+  - Pin / Unpin reuses the new shared `PinToHomeButton` (extracted from the List header).
 
 ### W5-33 — Context label row on `PostCard`  [owner: frontend-developer] [size: S] [depends: W5-30]  Status: Done (#614)
 - **Description.** Generalise the private `_RepostedBy` into one context-label row: an icon over the avatar column plus muted text (`communities.md` §3, MEASURED). Its variants are "<name> reposted" (existing behaviour, unchanged) and "<community name>" (people icon; tap → `/communities/:id`, only with `communities`). There is one row; when both apply, the repost label wins. Semantics: the article label starts with the community name (`communities.md` §4).
