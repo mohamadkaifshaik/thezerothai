@@ -435,3 +435,47 @@ session from a saved targeted plan).** Step 1 only; `PROFILE_MEDIA_RETIRE` is `o
 - A follow-up targeted plan (`-target=module.media_buckets.google_storage_bucket.media`) says "No changes".
 - Not run in prod: steps 2 to 4. Do step 2 (a throwaway `m/99999...` object, deleted afterwards) with the founder's OK when the prod
   switch is next in line; the prod bucket holds 0 objects today.
+
+## Before `FEATURE_MEDIA` leaves `off` in prod (W6-33, rule C)
+Design and rationale: `docs/plans/ui-w6-composer-extras.md`, section "W6-33". `FEATURE_MEDIA` (and so `gif`, which never runs
+ahead of `media`) leaves `off` in prod only when all four checks hold, and they must keep holding while it is not `off`.
+Every command below is read-only. Commits: uploader `a3455ef533aa1cc7737fac19cf4e2a24e5792d30`, W6-25 fix (#536)
+`13b5080fc5950b6cbcc52cfe2c9d56ae9d491915`. Replace `<tag>` with the `v*` tag being released.
+
+1. **Tag, two-sided.** Run `git fetch --tags origin` first.
+   - (a) The release that first moves the flag serves the prod revision and the live Hosting release from a tag that has the fix
+     (exit 0 means it does): `git merge-base --is-ancestor 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 <tag>; echo $?`
+     Also prove `promote-prod` `stage=100` completed for the tag (that step deploys Hosting):
+     `gh run list --workflow=promote-prod.yml --json headBranch,conclusion,displayTitle,createdAt,databaseId --limit 10`
+     then `gh run view <databaseId>` shows the `stage` input in the title/log; `conclusion` must be `success`.
+   - (b) Every later prod tag released while the flag is not `off` has no uploader (exit 1) or has the fix (exit 0):
+     `git merge-base --is-ancestor a3455ef533aa1cc7737fac19cf4e2a24e5792d30 <tag>; echo $?`
+   - Every mobile build given to anyone outside the team comes from a `release-prod` run of a tag that passes (b).
+2. **CORS.** The prod upload bucket allows `x-goog-if-generation-match` (without it every web upload fails the preflight):
+   `gcloud storage buckets describe gs://dzeroth-prod-media-upload --format='json(cors_config)'`
+   The `responseHeader` list must hold `x-goog-if-generation-match`. If not, the prod apply of #536's CORS change is owed: a
+   founder plan-then-OK item (never applied by an agent), before any `v*` tag that contains #536.
+3. **W6-34 is Done** (`MediaUploader` test: a 412 on a retried PUT leads to `putDone`, then FinalizeUpload; #569):
+   `grep -n '^| W6-34 ' docs/plans/ui-w6-composer-extras.md` shows `Done`, and `git log origin/main --oneline --grep='W6-34'` shows the merge.
+4. **Hosting floor.** While the flag is not `off`, no Hosting rollback may target a release built from a commit that contains
+   the uploader but not the fix (see `docs/runbooks/rollback.md`, Web). List the live and previous releases (read-only):
+   `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: dzeroth-prod" "https://firebasehosting.googleapis.com/v1beta1/sites/dzeroth-prod/releases?pageSize=20" | jq -r '.releases[] | [.name,.releaseTime,.type,.version.name]|@tsv'`
+   Map each release time to the tag that `promote-prod` `stage=100` built it from (the run time in check 1) and run the
+   ancestry checks on that tag. Hosting is never deployed by hand: every release here should show a `stage=100` run.
+   Run this check again at rollback time, not only at release time.
+
+### Reopen trigger
+W6-33 reopens (move to C+ or A) if any client with upload code built before 13b5080f reaches prod users: a prod-configured APK
+sideloaded outside the team, a store track with external testers built from a commit with the uploader but without the fix, or
+a prod release line cut from a commit that has a3455ef5 but not 13b5080f. Signals:
+- A pre-#536 build reports `StorageRefusedException(412)` through `reportUnexpectedError` (Error Reporting).
+- One uid repeats CreateUpload with `outcome=replay` and no FinalizeUpload follows. A current build finalizes after one replay.
+  Logs Explorer (project `dzeroth-prod`; `dzeroth-dev` to rehearse), range 1 hour, then look for an `uid_hash` that appears several times:
+  ```
+  resource.type="cloud_run_revision"
+  resource.labels.service_name="api"
+  jsonPayload.rpc="/dzeroth.media.v1.MediaService/CreateUpload"
+  jsonPayload.outcome="replay"
+  ```
+  CLI count per uid: `gcloud logging read '<the filter above, one line, AND-joined>' --project=<proj> --freshness=1h --limit=1000 --format='value(jsonPayload.uid_hash)' | sort | uniq -c | sort -rn`
+  Several replays for one `uid_hash` within the hour with no FinalizeUpload line (`jsonPayload.rpc` ending `/FinalizeUpload`) for that hash is the signal.

@@ -1185,6 +1185,7 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
   - The CORS describe and the Hosting release list were run read-only against prod, and their output is quoted with the
     date (the prod CORS check may still show the header missing; record that, do not apply).
   - The reopen query runs on dev logs.
+  - The prod CORS apply from #536 is still owed (check 2, founder plan-then-OK); as of 2026-11-01 the prod upload CORS lacks `x-goog-if-generation-match`.
 - **Test notes.** None (runbooks only).
 - **Observability.** The reopen query in `media.md`; no new metric or alert policy.
 - **Budget.** 0.
