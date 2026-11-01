@@ -441,11 +441,14 @@ session from a saved targeted plan).** Step 1 only; `PROFILE_MEDIA_RETIRE` is `o
 Design and rationale: `docs/plans/ui-w6-composer-extras.md`, section "W6-33". `FEATURE_MEDIA` (and so `gif`, which never runs
 ahead of `media`) leaves `off` in prod only when all four checks hold, and they must keep holding while it is not `off`.
 Every command below is read-only. Commits: uploader `a3455ef533aa1cc7737fac19cf4e2a24e5792d30`, W6-25 fix (#536)
-`13b5080fc5950b6cbcc52cfe2c9d56ae9d491915`. Replace `<tag>` with the `v*` tag being released.
+`13b5080fc5950b6cbcc52cfe2c9d56ae9d491915`, media floor (W6-58 #586, W6-20 re-review C-2 and C-6; it contains #577 and the W6-25
+fix) `9ec07c59c14ceef20e33e6d5ad429303ec5b83b3`. Replace `<tag>` with the `v*` tag being released.
 
 1. **Tag, two-sided.** Run `git fetch --tags origin` first.
-   - (a) The release that first moves the flag serves the prod revision and the live Hosting release from a tag that has the fix
-     (exit 0 means it does): `git merge-base --is-ancestor 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 <tag>; echo $?`
+   - (a) The release that first moves the flag serves the prod revision and the live Hosting release from a tag that has the
+     media floor, so the check covers H-2, H-3, M-1, M-2, L-4 and N-1 as well as the W6-25 fix (exit 0 means it does):
+     `git merge-base --is-ancestor 9ec07c59c14ceef20e33e6d5ad429303ec5b83b3 <tag>; echo $?`. It is the same floor as in
+     `docs/runbooks/rollback.md`, Backend.
      Also prove `promote-prod` `stage=100` completed for the tag (that step deploys Hosting):
      `gh run list --workflow=promote-prod.yml --json headBranch,conclusion,displayTitle,createdAt,databaseId --limit 10`
      then `gh run view <databaseId>` shows the `stage` input in the title/log; `conclusion` must be `success`.
