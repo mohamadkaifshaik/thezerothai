@@ -4,6 +4,7 @@ Source: `docs/plans/roadmap.md` (W5 row "Lists and Communities, custom Home tabs
 Branches: `feat/ui-w5-N-<slug>` off `main` (not stacked); one ticket per PR except where a ticket says "same PR as" (the T11 lifecycle guard); merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
+Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-30); F1 and F6 to F14 for communities at the defaults with ADR-0031 (Accepted 2026-11-01, #583).
 - **F1. Who may create a community at Stage 0?** `FEATURE_COMMUNITIES` cannot express this alone. Its allowlist gates the whole feature per uid, so the flag cannot be on for readers and allowlist-only for creators at the same time. **Default: a config list `COMMUNITY_CREATORS` (at most 10 uids, a Terraform variable like `SUGGESTED_USER_IDS`, not a secret).** CreateCommunity checks the caller is in the list (0 reads), and the client learns it from `ListMyCommunitiesResponse.can_create` (0 reads). Each creator owns at most 2 communities. Open creation later is its own decision, made with a security review: an account-age gate, a creation quota and the moderation load. Alternative: a third flag `FEATURE_COMMUNITY_CREATE` (the `quotes` sub-flag precedent), which adds a founder-gated ceiling row.
 - **F2. Members per list (`LIST_MAX_MEMBERS`).** **150.** The list timeline is Home's pull-merge over the members, and each refresh pays one read per 30 members even when nothing is new (table in Non-functional targets). At 150 a list is at most 5 chunks. Raising the cap later is a config change and is safe; lowering it would strand lists that are already larger, so start low. Alternatives: 500 (17 chunks) or 5,000 (X's limit), which fails the per-call read hold of 269.
 - **F3. Lists per user and the default visibility.** **At most 20 lists per user, created private.** The owner can make a list public. X creates lists public by default, but a public list of people is a harassment surface, so we default to private.
@@ -350,7 +351,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security-w5-lists.md`) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Done (#538) |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
-| W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #583) |
+| W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Done (#583; ADR-0031 Accepted 2026-11-01, F1 and F6 to F14 at the defaults) |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Open |
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Open |
@@ -429,7 +430,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 ## Tickets
 
 ### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #485)
-- **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Proposed). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
+- **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Accepted 2026-10-30). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
   - the `lists` collection and doc shape (A5);
   - the member cap (F2) with the chunk arithmetic above, and the per-user caps and quotas;
   - the visibility and block rules (F3, F4);
@@ -846,7 +847,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Prod: no change (held release).
 
 ### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #583)
-- **Description.** `docs/adr/0031-communities-and-moderation-scope.md` (Proposed). 0028 went to W4, 0029 to W6 and 0030 to Part A, so Part B is 0031. It decides:
+- **Description.** `docs/adr/0031-communities-and-moderation-scope.md` (Accepted 2026-11-01, #583). 0028 went to W4, 0029 to W6 and 0030 to Part A, so Part B is 0031. It decides:
   - F1 and F6 to F13;
   - the collections (`communities/{cid}`, `communities/{cid}/communityMembers/{uid}`, `communityMemberships/{uid}`) and doc shapes;
   - the feed query (A1, **with the dev Firestore check recorded**; an emulator run does not count);

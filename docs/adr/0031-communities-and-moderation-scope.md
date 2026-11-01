@@ -1,8 +1,8 @@
 # 0031. Communities and their moderation scope at Stage 0 (W5 Part B)
-Status: Proposed
+Status: Accepted (founder, 2026-11-01, by merging #583; F1 and F6 to F14 at the defaults)
 Date: 2026-11-01
 Deciders: architect (proposal); the founder accepts by merging the PR. The Part B founder questions (F1, F6 to F13 of
-the plan, and the new F14 below) are not answered yet. **Each one has a recommended default, which this ADR applies,
+the plan, and the new F14 below) were taken at their defaults when the founder merged #583 on 2026-11-01. **Each one has a recommended default, which this ADR applies,
 and the founder may override any of them at acceptance** (table "Founder decisions"). The architect's own calls (table
 "Architect's calls") can be overridden the same way. No default bends a `CLAUDE.md` non-negotiable rule, adds a fixed
 cost or changes a founder-gated file.

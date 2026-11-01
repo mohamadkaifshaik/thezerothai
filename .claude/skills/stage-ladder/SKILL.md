@@ -34,7 +34,7 @@ ADR with measured numbers (`free-tier-budget` §6) accepted by the founder. The 
 | End-to-end encryption | None; the inbox says "Messages are not end-to-end encrypted" | Message text is read and written only by `messaging.Service` | Per-device keys, a key directory, passcode-protected backup, message franking for reports | Founder decision; its own ADR (ADR-0027 Option D2: key management, moderation, attachments, search and export) |
 | Retention | None (messages live until deleted) | `createdAt` on every message; the eraser already pages a conversation | A TTL policy or an "older than N months" sweep (TTL deletes are billed) | Messaging storage > 0.5 GiB, or a founder retention policy |
 
-## Communities (ADR-0031, W5 Part B; Proposed until the founder merges it)
+## Communities (ADR-0031, W5 Part B; Accepted 2026-11-01)
 Public communities only, behind `FEATURE_COMMUNITIES`. Creation is limited to `COMMUNITY_CREATORS`. Triggers are
 measured and sustained 7 days.
 
