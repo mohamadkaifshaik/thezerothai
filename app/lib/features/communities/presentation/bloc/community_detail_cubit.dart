@@ -4,7 +4,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
-import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../../lists/data/home_tabs_repository.dart';
 import '../../../lists/domain/home_tab_entry.dart';
 import '../../data/communities_repository.dart';
@@ -57,10 +56,7 @@ class CommunityDetailCubit extends Cubit<CommunityDetailState> {
     final generation = ++_generation;
     if (state.community == null) {
       emit(
-        state.copyWith(
-          status: CommunityDetailStatus.loading,
-          clearError: true,
-        ),
+        state.copyWith(status: CommunityDetailStatus.loading, clearError: true),
       );
     }
     try {
@@ -85,6 +81,12 @@ class CommunityDetailCubit extends Cubit<CommunityDetailState> {
       if (state.community != null) return;
       emit(state.copyWith(status: CommunityDetailStatus.error, error: error));
     }
+  }
+
+  /// The timeline said NOT_FOUND: show "unavailable" (one text for every cause).
+  void markUnavailable() {
+    if (isClosed || state.status == CommunityDetailStatus.unavailable) return;
+    emit(state.copyWith(status: CommunityDetailStatus.unavailable));
   }
 
   /// Joins the community. Returns the failure (rolled back) or null.

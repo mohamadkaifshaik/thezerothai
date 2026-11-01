@@ -127,6 +127,10 @@ void main() {
               builder: (context, state) => const Text('lists page'),
             ),
             GoRoute(
+              path: 'communities',
+              builder: (context, state) => const Text('communities page'),
+            ),
+            GoRoute(
               path: 'settings',
               builder: (context, state) => const Text('settings page'),
             ),
@@ -487,6 +491,37 @@ void main() {
 
         expect(find.byType(AppDrawer), findsNothing);
         expect(find.text('lists page'), findsOneWidget);
+      });
+    });
+
+    group('Communities row (W5-31)', () {
+      testWidgets('needs the communities flag: absent otherwise', (
+        tester,
+      ) async {
+        for (final flags in <Set<String>>[
+          const {},
+          const {'lists'},
+        ]) {
+          await pump(tester, profile: _alice, flags: flags);
+          await openDrawer(tester);
+          expect(find.text('Communities'), findsNothing, reason: '$flags');
+        }
+      });
+
+      testWidgets('with communities: sits before Settings, closes the drawer '
+          'and opens /communities', (tester) async {
+        await pump(tester, profile: _alice, flags: {'communities'});
+        await openDrawer(tester);
+
+        expect(
+          tester.getTopLeft(find.text('Communities')).dy,
+          lessThan(tester.getTopLeft(find.text('Settings')).dy),
+        );
+        await tester.tap(find.text('Communities'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AppDrawer), findsNothing);
+        expect(find.text('communities page'), findsOneWidget);
       });
     });
 
