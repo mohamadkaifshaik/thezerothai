@@ -38,6 +38,26 @@ class FakeDraftsRepository implements DraftsRepository {
   }
 
   @override
+  Future<int> count(String uid) async => rows.where((d) => d.uid == uid).length;
+
+  @override
+  Stream<int> watchCount(String uid) {
+    // A controller, not async*: cancelling an async* generator that is parked
+    // on an await waits for its next event.
+    late StreamController<int> out;
+    StreamSubscription<void>? sub;
+    out = StreamController<int>(
+      onListen: () {
+        void emit() => out.add(rows.where((d) => d.uid == uid).length);
+        emit();
+        sub = _changes.stream.listen((_) => emit());
+      },
+      onCancel: () => sub?.cancel(),
+    );
+    return out.stream;
+  }
+
+  @override
   Future<void> delete(String uid, Iterable<String> ids) async {
     final set = ids.toSet();
     rows.removeWhere((d) => d.uid == uid && set.contains(d.id));

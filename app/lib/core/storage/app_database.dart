@@ -263,10 +263,14 @@ class AppSettingEntries extends Table {
 /// the owner may sign out and back in and expects the draft (F7). Every read
 /// and write is filtered by [uid], so another account on the device never sees
 /// it; `DraftsRepository.deleteAll` removes one uid's rows when that account
-/// is deleted. Only `DraftsRepository` reads and writes it.
+/// is deleted or chooses "Delete them" at sign-out (W6-31). The primary key is
+/// `{uid, draftId}` (schema v11, W6-31 I-1): a draft id is random, but even a
+/// clash or a crafted id can never overwrite another account's row. Only
+/// `DraftsRepository` reads and writes it.
 @DataClassName('ComposerDraftRow')
 class ComposerDraftEntries extends Table {
-  /// Opaque random id, unique per device.
+  /// Opaque random id, unique per account on the device (the key is
+  /// `{uid, draftId}`).
   TextColumn get draftId => text()();
 
   /// Firebase uid of the author.
@@ -305,8 +309,9 @@ class ComposerDraftEntries extends Table {
   /// never refreshed by a reuse.
   DateTimeColumn get sendStartedAt => dateTime().nullable()();
 
+  /// `uid` first, so the index also answers every "this account's drafts" query.
   @override
-  Set<Column> get primaryKey => {draftId};
+  Set<Column> get primaryKey => {uid, draftId};
 }
 
 @DriftDatabase(
@@ -336,7 +341,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -396,6 +401,14 @@ class AppDatabase extends _$AppDatabase {
           composerDraftEntries,
           composerDraftEntries.sendStartedAt,
         );
+      }
+      // v10 -> v11 (W6-31, I-1): the drafts key becomes {uid, draftId}. The
+      // table is rebuilt with every column copied by name (the send key
+      // columns included). A database older than v9 just got the table above
+      // in its v11 shape, so only v9 and v10 are rebuilt (v9 after the
+      // columns it was missing were added).
+      if (from >= 9 && from < 11) {
+        await m.alterTable(TableMigration(composerDraftEntries));
       }
     },
   );

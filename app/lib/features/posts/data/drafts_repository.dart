@@ -76,9 +76,11 @@ const kPostSendKeyWindow = Duration(hours: 23);
 const kScheduleSendKeyAfterPublish = Duration(days: 7);
 
 /// The only reader and writer of unsent posts on this device (ADR-0029, W6-14).
-/// Drafts live in `ComposerDraftEntries`: every query is filtered by uid, the
-/// table survives sign-out (F7) and is wiped for one uid by [deleteAll] when
-/// that account is deleted. 0 RPCs, 0 server bytes.
+/// Drafts live in `ComposerDraftEntries`, keyed `{uid, draftId}` (W6-31): every
+/// query is filtered by uid, the table survives sign-out (F7) unless the user
+/// chose "Delete them" there, and is wiped for one uid by [deleteAll] when that
+/// account is deleted or the user deletes the rows from Settings. 0 RPCs, 0
+/// server bytes.
 ///
 /// Nothing here logs: a draft's text never reaches a logger or Crashlytics, and
 /// a storage failure in the debounced autosave is reported by
@@ -145,6 +147,25 @@ class DraftsRepository {
     });
   }
 
+  /// How many rows [uid] has on this device, expired ones not yet purged
+  /// included: what "Delete them" at sign-out and Settings' "Delete unsent
+  /// posts on this device" would remove (W6-31). Only that uid's rows. Reads
+  /// nothing of the content and does not mark any id as seen. 0 RPCs.
+  Future<int> count(String uid) => _countQuery(uid).getSingle();
+
+  /// [count] again whenever the rows change; the Settings entry shows only
+  /// while it is above 0. Emits the current value first.
+  Stream<int> watchCount(String uid) => _countQuery(uid).watchSingle();
+
+  Selectable<int> _countQuery(String uid) {
+    final table = _database.composerDraftEntries;
+    final total = table.draftId.count();
+    return (_database.selectOnly(table)
+          ..addColumns([total])
+          ..where(table.uid.equals(uid)))
+        .map((row) => row.read(total) ?? 0);
+  }
+
   /// One draft of [uid], or null (also null for another account's id).
   Future<ComposerDraft?> read(String uid, String draftId) async {
     final cutoff = _cutoff;
@@ -203,8 +224,10 @@ class DraftsRepository {
     )..where((t) => t.uid.equals(uid) & t.draftId.isIn(list))).go();
   }
 
-  /// Removes every draft of [uid]: "Delete all", and a successful
-  /// DeleteAccount on this device.
+  /// Removes every draft of [uid]: "Delete all", a successful DeleteAccount on
+  /// this device, "Delete them" at sign-out and Settings' "Delete unsent posts
+  /// on this device" (W6-31). Whatever the `drafts` flag says. Only that uid's
+  /// rows.
   Future<void> deleteAll(String uid) {
     cancelPending();
     return (_database.delete(
