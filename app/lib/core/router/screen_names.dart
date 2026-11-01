@@ -48,7 +48,6 @@ const Map<String, String> kScreenNames = {
   '/settings/export': 'export_data',
   '/settings/delete-account': 'delete_account',
   '/creator-studio': 'creator_studio',
-  '/premium': 'premium',
   '/advertise': 'advertise',
   '/calls': 'calls',
 };

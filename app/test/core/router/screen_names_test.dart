@@ -20,6 +20,7 @@ void main() {
       expect(screenNameForTemplate('/post/123'), kOtherScreen);
       expect(screenNameForTemplate('/unmapped/:id'), kOtherScreen);
       expect(screenNameForTemplate(null), kOtherScreen);
+      expect(screenNameForTemplate('/premium'), kOtherScreen);
     });
 
     test('table names are lower snake case and keys are templates', () {
@@ -58,7 +59,12 @@ void main() {
     }
     // A new route needs a row in kScreenNames, or an explicit decision here
     // that it is `other`.
-    final unnamed = templates.where((t) => !kScreenNames.containsKey(t));
+    // The Premium pop-up is not a screen: it stays `other`. (Its path is not
+    // written in lib/ outside the router, see shells_tap_only_test.dart.)
+    const intentionallyOther = {'/premium'};
+    final unnamed = templates.where(
+      (t) => !kScreenNames.containsKey(t) && !intentionallyOther.contains(t),
+    );
     expect(unnamed, isEmpty, reason: 'add these to kScreenNames: $unnamed');
   });
 
