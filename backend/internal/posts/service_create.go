@@ -41,6 +41,9 @@ import (
 // the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
 // nothing.
 //
+// Community (ADR-0031 D5, W5-22): a set community_id is FEATURE_DISABLED feature=communities, 0 reads and 0 writes, whatever the flag
+// says (see CreateInput.CommunityID); W5-26 replaces the refusal for a caller inside the flag with posts.CommunityGate.
+//
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
 // FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
@@ -80,6 +83,18 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	// polls (ADR-0029 D2) comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED, 0 reads.
 	if in.Poll != nil && !in.PollsEnabled {
 		return nil, featureDisabled("polls")
+	}
+	// communities (ADR-0031 D10, D5) comes after polls: a set community_id with FEATURE_COMMUNITIES off for the caller is FEATURE_DISABLED
+	// feature=communities, 0 reads beyond the interceptor. W5-22 builds none of the rest of the gate (shape, protected caller, community,
+	// membership, quota, cap: W5-26), so a set community_id with the flag ON is refused the same way ("not built yet" is one of the
+	// documented meanings of FEATURE_DISABLED) rather than silently creating an ordinary public post outside the community.
+	if in.CommunityID != "" {
+		if !in.CommunitiesEnabled {
+			logger.SetRequestField(ctx, fieldCommunityRefused, "flag_off")
+		} else {
+			logger.SetRequestField(ctx, fieldCommunityRefused, "not_built")
+		}
+		return nil, featureDisabled("communities")
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")

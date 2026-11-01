@@ -21,6 +21,7 @@ import (
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
 
+	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
@@ -32,6 +33,7 @@ import (
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -121,11 +123,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags (ADR-0008 D6) ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif)
+	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 	// ADR-0025 (W3-25b): the private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "toggles_per_day", cfg.Quota.PrivacyTogglesPerDay, "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
 		"protected_set_max_stale", cfg.Privacy.ProtectedSetMaxStale.String(), "respond_per_min", cfg.RateLimit.FollowRequestsRespondPerUserPerMinute)
+	// ADR-0031 D10, D11: the community limits, so an operator can see what the revision enforces. Numbers only: the creators are a count,
+	// never the uids.
+	log.Info("community_limits", "creators", len(cfg.Communities.Creators), "max_owned", cfg.Communities.MaxOwned, "max_joined", cfg.Communities.MaxJoined,
+		"max_moderators", cfg.Communities.MaxModerators, "joins_per_day", cfg.Quota.CommunityJoinsPerDay, "posts_per_day", cfg.Quota.CommunityPostsPerDay)
 
 	// --- modules ---
 	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
@@ -637,6 +643,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	listsServer := lists.NewServer(featureFlags, listsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
+	})
+
+	// Communities (ADR-0031, W5-22): the skeleton mounts all twelve CommunityService routes behind FEATURE_COMMUNITIES (FEATURE_DISABLED
+	// feature=communities, 0 reads) so the interceptor chain covers them; W5-23 to W5-28 replace the methods with the real service.
+	communitiesServer := communities.NewServer(featureFlags)
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
 	})
 
 	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,

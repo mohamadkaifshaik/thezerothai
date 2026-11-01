@@ -42,8 +42,11 @@ const (
 	HomeTabKind_HOME_TAB_KIND_UNSPECIFIED HomeTabKind = 0
 	// A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
 	HomeTabKind_HOME_TAB_KIND_LIST HomeTabKind = 1
-	// A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
-	// SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+	// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
+	// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
+	// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
+	// caller and keeps them in storage. Until GetCommunityTimeline ships (plan W5-27), SetHomeTabs answers VALIDATION
+	// "tabs" for it and GetMe never returns it.
 	HomeTabKind_HOME_TAB_KIND_COMMUNITY HomeTabKind = 2
 )
 
@@ -159,6 +162,19 @@ const (
 	// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
 	// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
 	ErrorReason_ERROR_REASON_ALREADY_VOTED ErrorReason = 20
+	// PERMISSION_DENIED: the caller's role does not allow this action (ADR-0031 D4; communities.v1 header). Never sent for
+	// an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",
+	// "not_moderator", "not_owner" or "not_creator". Do not retry; show a fixed message per reason ("not_member" on a
+	// reply: "Only members can reply"). A client built before this value sees UNSPECIFIED and falls back to the
+	// PERMISSION_DENIED code mapping, a generic "restricted" message. The only path an older client can reach is a reply
+	// in a community conversation (CreatePost), since that gate runs whenever communities is not globally off.
+	ErrorReason_ERROR_REASON_FORBIDDEN ErrorReason = 21
+	// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (ADR-0031 D4; communities.v1
+	// header). metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
+	// or "community_archived" (an ARCHIVED community is read-only). Do not retry. A client built before this value sees
+	// UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
+	// ARCHIVED community's conversation (CreatePost).
+	ErrorReason_ERROR_REASON_COMMUNITY_STATE ErrorReason = 22
 )
 
 // Enum value maps for ErrorReason.
@@ -185,6 +201,8 @@ var (
 		18: "ERROR_REASON_CANNOT_MESSAGE",
 		19: "ERROR_REASON_POLL_CLOSED",
 		20: "ERROR_REASON_ALREADY_VOTED",
+		21: "ERROR_REASON_FORBIDDEN",
+		22: "ERROR_REASON_COMMUNITY_STATE",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -208,6 +226,8 @@ var (
 		"ERROR_REASON_CANNOT_MESSAGE":         18,
 		"ERROR_REASON_POLL_CLOSED":            19,
 		"ERROR_REASON_ALREADY_VOTED":          20,
+		"ERROR_REASON_FORBIDDEN":              21,
+		"ERROR_REASON_COMMUNITY_STATE":        22,
 	}
 )
 
@@ -239,11 +259,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
-//     may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//     (snapshotted when the row was written);
-//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//     cache, up to 60 s stale).
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
+//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -460,7 +480,9 @@ type HomeTab struct {
 	// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
 	// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
 	// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
-	// for that id, and calls GetList once for a tab it has no label for.
+	// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab (ADR-0031 D6):
+	// the client labels it from the last GetCommunityTimeline or GetCommunity header it holds, and calls GetCommunity
+	// once for a tab it has no label for.
 	Title         string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -629,7 +651,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\vHomeTabKind\x12\x1d\n" +
 	"\x19HOME_TAB_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12HOME_TAB_KIND_LIST\x10\x01\x12\x1b\n" +
-	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xd1\x05\n" +
+	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\x8f\x06\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -652,7 +674,9 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1eERROR_REASON_PROTECTED_ACCOUNT\x10\x11\x12\x1f\n" +
 	"\x1bERROR_REASON_CANNOT_MESSAGE\x10\x12\x12\x1c\n" +
 	"\x18ERROR_REASON_POLL_CLOSED\x10\x13\x12\x1e\n" +
-	"\x1aERROR_REASON_ALREADY_VOTED\x10\x14BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1aERROR_REASON_ALREADY_VOTED\x10\x14\x12\x1a\n" +
+	"\x16ERROR_REASON_FORBIDDEN\x10\x15\x12 \n" +
+	"\x1cERROR_REASON_COMMUNITY_STATE\x10\x16BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

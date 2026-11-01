@@ -591,9 +591,10 @@ type GetMeResponse struct {
 	UnreadConversationCount int64 `protobuf:"varint,7,opt,name=unread_conversation_count,json=unreadConversationCount,proto3" json:"unread_conversation_count,omitempty"`
 	// The caller's pinned Home tabs in order, after the fixed Following tab (ADR-0030 D6, founder decision F5): at most
 	// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
-	// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS) are omitted here but kept in storage, so
-	// they come back with the flag. A tab may name a list that was deleted or made private since: the client learns it
-	// from GetListTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
+	// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES, ADR-0031 D6)
+	// are omitted here but kept in storage, so they come back with the flag. A tab may name a list that was deleted or
+	// made private since, or a community that was suspended: the client learns it from GetListTimeline's or
+	// GetCommunityTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
 	// TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
 	HomeTabs      []*v1.HomeTab `protobuf:"bytes,8,rep,name=home_tabs,json=homeTabs,proto3" json:"home_tabs,omitempty"`
 	unknownFields protoimpl.UnknownFields

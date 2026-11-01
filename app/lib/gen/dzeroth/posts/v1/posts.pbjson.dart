@@ -378,6 +378,14 @@ const Post$json = {
       '6': '.dzeroth.posts.v1.Poll',
       '10': 'poll'
     },
+    {
+      '1': 'community',
+      '3': 22,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.CommunityRef',
+      '10': 'community'
+    },
   ],
 };
 
@@ -399,7 +407,21 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     'F0ZWRBdBJACgxyZXBseV9wb2xpY3kYEiABKA4yHS5kemVyb3RoLnBvc3RzLnYxLlJlcGx5UG9s'
     'aWN5UgtyZXBseVBvbGljeRIpChBwYWlkX3BhcnRuZXJzaGlwGBMgASgIUg9wYWlkUGFydG5lcn'
     'NoaXASIAoMbWFkZV93aXRoX2FpGBQgASgIUgptYWRlV2l0aEFpEioKBHBvbGwYFSABKAsyFi5k'
-    'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGw=');
+    'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGwSPAoJY29tbXVuaXR5GBYgASgLMh4uZHplcm90aC'
+    '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eQ==');
+
+@$core.Deprecated('Use communityRefDescriptor instead')
+const CommunityRef$json = {
+  '1': 'CommunityRef',
+  '2': [
+    {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
+    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
+  ],
+};
+
+/// Descriptor for `CommunityRef`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List communityRefDescriptor = $convert.base64Decode(
+    'CgxDb21tdW5pdHlSZWYSDgoCaWQYASABKAlSAmlkEhIKBG5hbWUYAiABKAlSBG5hbWU=');
 
 @$core.Deprecated('Use postViewDescriptor instead')
 const PostView$json = {
@@ -502,6 +524,7 @@ const CreatePostRequest$json = {
       '6': '.dzeroth.posts.v1.PollDraft',
       '10': 'poll'
     },
+    {'1': 'community_id', '3': 11, '4': 1, '5': 9, '10': 'communityId'},
   ],
 };
 
@@ -514,7 +537,8 @@ final $typed_data.Uint8List createPostRequestDescriptor = $convert.base64Decode(
     'YUFsdFRleHRzEkAKDHJlcGx5X3BvbGljeRgHIAEoDjIdLmR6ZXJvdGgucG9zdHMudjEuUmVwbH'
     'lQb2xpY3lSC3JlcGx5UG9saWN5EikKEHBhaWRfcGFydG5lcnNoaXAYCCABKAhSD3BhaWRQYXJ0'
     'bmVyc2hpcBIgCgxtYWRlX3dpdGhfYWkYCSABKAhSCm1hZGVXaXRoQWkSLwoEcG9sbBgKIAEoCz'
-    'IbLmR6ZXJvdGgucG9zdHMudjEuUG9sbERyYWZ0UgRwb2xs');
+    'IbLmR6ZXJvdGgucG9zdHMudjEuUG9sbERyYWZ0UgRwb2xsEiEKDGNvbW11bml0eV9pZBgLIAEo'
+    'CVILY29tbXVuaXR5SWQ=');
 
 @$core.Deprecated('Use createPostResponseDescriptor instead')
 const CreatePostResponse$json = {
@@ -929,6 +953,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.Poll': Poll$json,
   '.dzeroth.posts.v1.PollChoice': PollChoice$json,
   '.dzeroth.posts.v1.Mention': Mention$json,
+  '.dzeroth.posts.v1.CommunityRef': CommunityRef$json,
   '.dzeroth.posts.v1.DeletePostRequest': DeletePostRequest$json,
   '.dzeroth.posts.v1.DeletePostResponse': DeletePostResponse$json,
   '.dzeroth.posts.v1.GetPostRequest': GetPostRequest$json,

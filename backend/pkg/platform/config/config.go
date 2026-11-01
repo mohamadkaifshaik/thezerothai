@@ -86,6 +86,9 @@ type Config struct {
 	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES (ADR-0030 D10). The list buckets and
 	// the daily mutation cap live in RateLimit; the create and add quotas in Quota.
 	Lists ListsConfig
+	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes (ADR-0031 D10, D11, D12). The community buckets and the
+	// three daily caps live in RateLimit; the join and community-post quotas in Quota.
+	Communities CommunitiesConfig
 	// Search holds the cache sizes and trend-refresh values of search and trends (ADR-0028 D9). The search buckets and the
 	// shared daily cap live in RateLimit.
 	Search SearchConfig
@@ -198,6 +201,11 @@ type Config struct {
 	// SetHomeTabs and GetMe.home_tabs. FEATURE_LISTS[_ALLOWLIST|_PERCENT], default off in every environment (dev ceiling: allowlist,
 	// no prod raise). It also needs FEATURE_POSTS, like Home.
 	FeatureLists flags.Spec
+	// FeatureCommunities is the ADR-0031 D10 flag (wire name `communities`) gating every CommunityService RPC, GetCommunityTimeline,
+	// CreatePost.community_id and the COMMUNITY entries of SetHomeTabs and GetMe.home_tabs. FEATURE_COMMUNITIES[_ALLOWLIST|_PERCENT],
+	// default off in every environment (dev ceiling: allowlist of 3, no prod raise). CreateCommunity also needs the caller in
+	// Communities.Creators (COMMUNITY_CREATORS).
+	FeatureCommunities flags.Spec
 	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment. W3-4 registers it; W3-5 and W3-6 add the gates.
@@ -513,6 +521,10 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},
 		{"RATE_LIMIT_LISTS_READ_PER_MIN", 30, &rl.ListsReadPerUserPerMinute},
 		{"RATE_LIMIT_LIST_TIMELINE_PER_MIN", 12, &rl.ListTimelinePerUserPerMinute},
+		// ADR-0031 D11: the seven community mutations 20/min, the five community reads 30/min, GetCommunityTimeline 12/min (per instance, x3).
+		{"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", 20, &rl.CommunitiesWritePerUserPerMinute},
+		{"RATE_LIMIT_COMMUNITIES_READ_PER_MIN", 30, &rl.CommunitiesReadPerUserPerMinute},
+		{"RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN", 12, &rl.CommunityTimelinePerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -580,6 +592,11 @@ func Load() (Config, error) {
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
 		// ADR-0030 D10: ONE daily cap over the six list mutations (limit_name "list_mutation_daily"); see RateLimitConfig.ListMutationsPerDay.
 		{&rl.ListMutationsPerDay, "LIST_MUTATIONS_PER_DAY", 500},
+		// ADR-0031 D11: in-memory daily caps (per uid per instance, x3): Create/Update/Join/Leave share community_mutation_daily; Hide/Restore/
+		// SetMemberRole share community_mod_actions_daily; CreatePost into a community draws on community_posts_per_community_daily per uid|cid.
+		{&rl.CommunityMutationsPerDay, "COMMUNITY_MUTATIONS_PER_DAY", 200},
+		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},
+		{&rl.CommunityPostsPerCommunityPerDay, "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", 20},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -829,6 +846,12 @@ func Load() (Config, error) {
 		{&q.NewAccountListCreatesPerDay, "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY", 3},
 		{&q.ListAddsPerDay, "QUOTA_LIST_ADDS_PER_DAY", 300},
 		{&q.NewAccountListAddsPerDay, "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", 50},
+		// ADR-0031 D11: 20 JoinCommunity writes and 50 community posts per IST day, 5 and 10 for accounts younger than the new-account window
+		// (quota.CommunityJoins, quota.CommunityPosts; community posts are on top of the posts quota).
+		{&q.CommunityJoinsPerDay, "QUOTA_COMMUNITY_JOINS_PER_DAY", 20},
+		{&q.NewAccountCommunityJoinsPerDay, "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", 5},
+		{&q.CommunityPostsPerDay, "QUOTA_COMMUNITY_POSTS_PER_DAY", 50},
+		{&q.NewAccountCommunityPostsPerDay, "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY", 10},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -851,6 +874,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	messaging, err := loadMessaging()
+	if err != nil {
+		return Config{}, err
+	}
+	communities, err := loadCommunities()
 	if err != nil {
 		return Config{}, err
 	}
@@ -1012,6 +1039,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureCommunities, err := flags.LoadSpec("COMMUNITIES", "communities", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1119,6 +1150,7 @@ func Load() (Config, error) {
 		Privacy:                   privacy,
 		Messaging:                 messaging,
 		Lists:                     lists,
+		Communities:               communities,
 		Search:                    search,
 		Composer:                  composer,
 		HandleChangeCooldown:      handleCooldown,
@@ -1145,6 +1177,7 @@ func Load() (Config, error) {
 		FeatureBookmarks:          featureBookmarks,
 		FeatureMessaging:          featureMessaging,
 		FeatureLists:              featureLists,
+		FeatureCommunities:        featureCommunities,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

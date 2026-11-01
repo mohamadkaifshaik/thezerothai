@@ -98,6 +98,39 @@ abstract final class PostService {
   /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
   /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
   /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
+  /// Communities (ADR-0031 D5; FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
+  /// - community_id posts a root post or a quote into that community. A set community_id while communities is off for
+  ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", 0 reads beyond the
+  ///   interceptor, checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
+  ///   reply_to_post_id => VALIDATION field "community_id" (a reply belongs to its root's conversation). With a
+  ///   reply_policy other than UNSPECIFIED or EVERYONE => VALIDATION field "reply_policy" (F8: a community conversation
+  ///   is members only and takes no policy of its own). 0 writes.
+  /// - Then, in this order (posts.CommunityGate): a protected caller => FAILED_PRECONDITION + PROTECTED_ACCOUNT, 0 reads
+  ///   (F6; the interceptor's profile is held); a missing or SUSPENDED community => NOT_FOUND "community not found"
+  ///   (byte-identical for both); an ARCHIVED one => FAILED_PRECONDITION + COMMUNITY_STATE metadata["reason"] =
+  ///   "community_archived" (status from the 60 s community cache); inside the transaction the caller's member doc, read
+  ///   fresh: BANNED => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "banned", not a member => "not_member" (a ban
+  ///   made on another instance stops the next post at once); quotas.communityPosts (50 per IST day, 10 for new accounts,
+  ///   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
+  ///   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
+  ///   "community_posts_per_community_daily". Every refusal writes 0.
+  /// - Blocks with the community's owner or moderators never refuse a post (ADR-0031 D7). The post is an ordinary public
+  ///   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
+  /// - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
+  ///   community in the same write: +0 writes. The request hash covers community_id only when it is set, so a request
+  ///   without one replays exactly as before; the same key with another community_id => IDEMPOTENCY_KEY_REUSED.
+  /// - Extra over CreatePost: reads +2 cold (community via the cache, member doc fresh in the transaction) / +1 warm,
+  ///   planning +1.5; writes +0.
+  /// - Clients send community_id only when GetMe.enabled_features lists "communities", and check that the returned post
+  ///   carries `community` (an older server drops the field): if not, warn and offer delete.
+  /// Replies in a community conversation (ADR-0031 D5, F8): members only. Every reply inherits its parent's conversation
+  /// community (+0 reads: the parent is already read). While communities is not globally off, and after the existing
+  /// reply rules (a block either way => NOT_FOUND, ADR-0021 policies): a SUSPENDED community => NOT_FOUND "community not
+  /// found"; an ARCHIVED one => COMMUNITY_STATE "community_archived"; a caller who is not a JOINED member (banned
+  /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", 0 writes. The member doc is cached
+  /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. Extra reads +2 cold (community, member
+  /// doc, both cached) / +0 warm. With communities globally off, community posts behave as ordinary posts: no label and
+  /// no reply gate (the kill switch).
   static const createPost = connect.Spec(
     '/$name/CreatePost',
     connect.StreamType.unary,
@@ -142,7 +175,9 @@ abstract final class PostService {
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
   /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
-  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
+  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0). In a community
+  /// conversation (ADR-0031 D5) it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
+  /// member doc, cached 60 s), +0 warm.
   static const getPost = connect.Spec(
     '/$name/GetPost',
     connect.StreamType.unary,
@@ -168,7 +203,8 @@ abstract final class PostService {
   /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   /// (one conversation query, minimum 1); writes 0.
   /// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
-  /// read for a FOLLOWING conversation (the root author's graph), +0 warm.
+  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation (ADR-0031 D5)
+  /// ALLOWED for a JOINED member and NOT_ALLOWED otherwise, +1 cold read (the caller's member doc), +0 warm.
   static const getThread = connect.Spec(
     '/$name/GetThread',
     connect.StreamType.unary,
@@ -186,6 +222,9 @@ abstract final class PostService {
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
   /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
   /// here: VALIDATION field "media_ids" (ADR-0029 D10).
+  /// Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
+  /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode
+  /// (plan W5-34).
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
   /// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION

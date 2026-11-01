@@ -39,16 +39,31 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_LIST =
       ReportTargetType._(4, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_LIST');
 
+  /// A community (ADR-0031 D14). target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
+  /// SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
+  /// community (the caller is its owner) => VALIDATION "target_id". A block with the owner does not refuse it (the
+  /// community is public). The evidence is the owner's handle (empty for an ownerless ARCHIVED community), the
+  /// community's name, description and rules and its creation time (no member id, no child doc), kept in the report
+  /// document with the post evidence's retention. Reports of posts in a community use REPORT_TARGET_TYPE_POST; they go to
+  /// the platform only, never to the community's moderators. Needs FEATURE_COMMUNITIES not globally off (else
+  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads); the existing reports quota
+  /// applies. Firestore: reads cold 5 (interceptor 1, community 1, owner users 1, report doc 1, quotas 1), warm 2;
+  /// writes 2.
+  static const ReportTargetType REPORT_TARGET_TYPE_COMMUNITY =
+      ReportTargetType._(
+          5, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_COMMUNITY');
+
   static const $core.List<ReportTargetType> values = <ReportTargetType>[
     REPORT_TARGET_TYPE_UNSPECIFIED,
     REPORT_TARGET_TYPE_POST,
     REPORT_TARGET_TYPE_ACCOUNT,
     REPORT_TARGET_TYPE_MESSAGE,
     REPORT_TARGET_TYPE_LIST,
+    REPORT_TARGET_TYPE_COMMUNITY,
   ];
 
   static final $core.List<ReportTargetType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 4);
+      $pb.ProtobufEnum.$_initByValueList(values, 5);
   static ReportTargetType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
