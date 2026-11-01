@@ -112,6 +112,9 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 
 		Poll:         pollInputOf(m.GetPoll()),
 		PollsEnabled: s.pollsEnabled(uid),
+
+		CommunityID:        m.GetCommunityId(),
+		CommunitiesEnabled: s.communitiesEnabled(uid),
 	})
 	if err != nil {
 		return nil, err
@@ -216,6 +219,15 @@ const PollsFlagName = "polls"
 // pollsEnabled is the FEATURE_POLLS decision for uid (off when no checker is wired).
 func (s *Server) pollsEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, PollsFlagName)
+}
+
+// CommunitiesFlagName is the wire name of FEATURE_COMMUNITIES (ADR-0031 D10; communities.FlagName, posts does not import communities).
+// It gates SETTING CreatePost.community_id.
+const CommunitiesFlagName = "communities"
+
+// communitiesEnabled is the FEATURE_COMMUNITIES decision for uid (off when no checker is wired).
+func (s *Server) communitiesEnabled(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, CommunitiesFlagName)
 }
 
 // ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE (ADR-0021 D2). It gates only SETTING a reply
