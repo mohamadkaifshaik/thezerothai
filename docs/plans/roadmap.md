@@ -116,3 +116,11 @@ Items with no home in a wave plan. Wave status lives in the plans listed in sect
   - (d) Refresh `app/android/google-services.prod.json` read-only (`docs/runbooks/cloud-bootstrap.md` section 4), then the TEL-14 device check (Google Sign-In on a prod build).
 
   Blocks any prod Android distribution (Play internal track onward), the TEL-14 device check and the prod Android step of TEL-15. It does not block web or dev.
+- **3.25, Both, AFTER MVP.** Web Analytics (founder 2026-11-01: "keep android only now, after MVP plan for web analytics"). ADR-0032 stays Android only for the MVP (F2, D10); the web keeps `flutterfire_ignore_scripts = ['analytics']` and Crashlytics stays off the web. After the MVP, the planner writes a plan and the architect an ADR-0032 amendment covering:
+  - a cookie consent banner applied before collection starts, with collection off when consent is denied and the app unaffected when Analytics is blocked;
+  - the Privacy Policy cookie sentence ("We do not use advertising or analytics cookies") and the analytics section;
+  - strict CSP: the loader hash from `scripts/csp/check-firebase-loader-hashes.sh --print` and the exact Analytics hosts, with no `unsafe-inline` and no broad wildcards;
+  - removing the `firebase_analytics` exception from that script;
+  - production web build and consent-denied checks.
+
+  The event list stays ADR-0032 F4 (`post_created`, `follow`, `search_used`, template screen views; founder 2026-11-01 kept it, with no signup, community-join or other events). Nothing is built before the amendment is accepted.
