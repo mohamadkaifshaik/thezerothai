@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 type fakePollPurger struct {
@@ -146,5 +149,53 @@ func TestPollVoteExporter_ChangedAt(t *testing.T) {
 	}
 	if len(doc.Votes[1]) != 3 || doc.Votes[1]["changedAt"] != nil {
 		t.Fatalf("unchanged row = %v, want no changedAt", doc.Votes[1])
+	}
+}
+
+// W6-54: an error naming pollVotes/<postId>_<uid> must carry HashPost(postId)_HashUID(uid) and none of the plain post id, the
+// plain uid or the unkeyed hash of the post id, on the purge commit, the export query and the export decode paths.
+func TestPurgePollVotes_RedactsDocIDsKeyed(t *testing.T) {
+	t.Parallel()
+	const uid = "uidAbc123"
+	posts := []string{"7300000000000000001", "7300000000000000002"}
+	cases := []struct {
+		name string
+		ids  []string
+	}{
+		{"purge commit, two documents", []string{posts[0] + "_" + uid, posts[1] + "_" + uid}},
+		{"export query cursor", []string{posts[0] + "_" + uid}},
+		{"export decode", []string{posts[1] + "_" + uid}},
+		{"empty cursor", []string{""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var named string
+			for _, id := range tc.ids {
+				if id != "" {
+					named += " documents/pollVotes/" + id
+				}
+			}
+			err := redactPollVoteErr(fmt.Errorf("engagement: purge poll votes %s: rpc error:%s", logger.HashUID(uid), named), uid, tc.ids...)
+			msg := err.Error()
+			if strings.Contains(msg, uid) {
+				t.Fatalf("plain uid in %q", msg)
+			}
+			for _, id := range tc.ids {
+				if id == "" {
+					continue
+				}
+				p := id[:strings.LastIndex(id, "_")]
+				if strings.Contains(msg, p) {
+					t.Fatalf("plain post id in %q", msg)
+				}
+				if strings.Contains(msg, logger.HashUID(p)) {
+					t.Fatalf("unkeyed post hash in %q", msg)
+				}
+				if !strings.Contains(msg, logger.HashPost(p)+"_"+logger.HashUID(uid)) {
+					t.Fatalf("want HashPost_HashUID in %q", msg)
+				}
+			}
+		})
 	}
 }
