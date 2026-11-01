@@ -94,8 +94,8 @@ func TestBookmarkWrites_InternalErrorRedactsUIDAndPostID(t *testing.T) {
 			t.Errorf("Error() = %q still contains %q", err.Error(), raw)
 		}
 	}
-	if !strings.Contains(err.Error(), logger.HashUID(uid)) || !strings.Contains(err.Error(), logger.HashUID(pidA)) {
-		t.Errorf("Error() = %q, want both ids replaced by their hashes", err.Error())
+	if !strings.Contains(err.Error(), logger.HashUID(uid)) || !strings.Contains(err.Error(), logger.HashPost(pidA)) || strings.Contains(err.Error(), logger.HashUID(pidA)) {
+		t.Errorf("Error() = %q, want the uid as HashUID and the post id as the keyed HashPost (never the unkeyed HashUID(postId))", err.Error())
 	}
 	if !errors.Is(err, path) {
 		t.Error("the redacted error must still unwrap to its cause")
