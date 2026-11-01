@@ -7,8 +7,9 @@ import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
-import '../../posts/domain/posts_feature_flag.dart';
+import '../../communities/domain/communities_feature_flag.dart';
 import '../../lists/domain/lists_feature_flag.dart';
+import '../../posts/domain/posts_feature_flag.dart';
 import '../domain/feed_key.dart';
 import '../domain/profile_tabs_feature_flag.dart';
 import 'timeline_store.dart';
@@ -310,6 +311,15 @@ class TimelineRepository {
       }
       if (feed.isList) {
         return await _fetchList(feed.listId!, sinceToken, pageToken, session);
+      }
+      if (feed.isCommunity) {
+        // `GetCommunityTimeline` is wired with the community page (W5-32).
+        // Until then a community feed is "not available": no RPC, and never
+        // the user-timeline path below (a community key has no user or tab).
+        throw const FeatureDisabledException(
+          "Communities aren't available yet.",
+          feature: kFeatureCommunities,
+        );
       }
       final tab = feed.tab!;
       final r = await _gate.run(

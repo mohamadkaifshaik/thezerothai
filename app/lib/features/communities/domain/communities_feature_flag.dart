@@ -1,0 +1,44 @@
+/// Name of the Communities flag (`FEATURE_COMMUNITIES`) as exposed through
+/// `GetMeResponse.enabled_features` (ADR-0031 D10; a missing name means off).
+/// It is also the `metadata["feature"]` of the FEATURE_DISABLED answer of every
+/// communities RPC, of `GetCommunityTimeline`, of CreatePost with a
+/// `community_id` and of SetHomeTabs for a COMMUNITY tab. The server stays
+/// authoritative. Never hardcode `'communities'` anywhere else.
+const kFeatureCommunities = 'communities';
+
+/// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
+/// 2 owned communities per creator, lifetime.
+const kCommunitiesOwnedLimit = 'communities_owned';
+
+/// 50 joined communities per user.
+const kCommunitiesJoinedLimit = 'communities_joined';
+
+/// 10 moderators per community.
+const kCommunityModeratorsLimit = 'community_moderators';
+
+/// `metadata["quota"]` of QUOTA_EXCEEDED on JoinCommunity (20 per IST day, 5
+/// for accounts younger than 24 h).
+const kCommunityJoinsQuota = 'community_joins';
+
+/// `metadata["quota"]` of QUOTA_EXCEEDED on CreatePost into a community.
+const kCommunityPostsQuota = 'community_posts';
+
+/// `metadata["limit"]` of the daily RATE_LIMITED caps (read as
+/// `RateLimitedException.limitName`).
+const kCommunityMutationDailyLimit = 'community_mutation_daily';
+const kCommunityModActionsDailyLimit = 'community_mod_actions_daily';
+const kCommunityPostsPerCommunityDailyLimit =
+    'community_posts_per_community_daily';
+
+/// The server's caps, for disabling an action with the reason before a wasted
+/// call. The server stays authoritative (LIMIT_REACHED).
+const kMaxCommunitiesOwned = 2;
+const kMaxCommunitiesJoined = 50;
+const kMaxCommunityModerators = 10;
+const kMaxCommunityRules = 10;
+
+/// Field limits (code points, after NFC and trim; ADR-0031 D2).
+const kCommunityNameMaxLength = 30;
+const kCommunityDescriptionMaxLength = 160;
+const kCommunityRuleTitleMaxLength = 60;
+const kCommunityRuleTextMaxLength = 300;

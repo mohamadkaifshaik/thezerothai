@@ -113,11 +113,16 @@ AppException mapConnectError(Object error) {
         return AlreadyVotedException(
           choiceIndex: int.tryParse(detail.metadata['choice'] ?? ''),
         );
-      // ADR-0031 N1 (W5-22): FORBIDDEN and COMMUNITY_STATE exist in the regenerated enum but no client code maps them yet; they fall
-      // through to the code-based mapping, exactly what an older build does with an unknown reason. W5-30 maps them
-      // (`metadata["reason"]`, one fixed message per reason).
+      // ADR-0031 N1 (W5-30): keyed by `metadata["reason"]`, one fixed message per reason. An unknown reason maps to
+      // the `unknown` value of the enum (generic text), never to AccountRestricted / ProfileRequired.
       case common.ErrorReason.ERROR_REASON_FORBIDDEN:
+        return CommunityForbiddenException(
+          CommunityForbiddenReason.fromWire(detail.metadata['reason']),
+        );
       case common.ErrorReason.ERROR_REASON_COMMUNITY_STATE:
+        return CommunityStateException(
+          CommunityStateReason.fromWire(detail.metadata['reason']),
+        );
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

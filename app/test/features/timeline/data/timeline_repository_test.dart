@@ -83,6 +83,25 @@ void main() {
 
   const home = FeedKey.home();
 
+  group('community timeline (W5-30)', () {
+    test('a community feed is "not available" until it is wired (W5-32): '
+        'no RPC, typed, never the user-timeline path', () async {
+      final feed = FeedKey.community('1234567890123456789');
+
+      await expectLater(
+        repo.refresh(feed),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'communities',
+          ),
+        ),
+      );
+      expect(requests, isEmpty);
+    });
+  });
+
   group('list timeline (W5-12)', () {
     const listProc = '/dzeroth.timeline.v1.TimelineService/GetListTimeline';
     late ServiceFeatureGate listsGate;
