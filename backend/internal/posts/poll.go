@@ -202,3 +202,20 @@ func (p *Post) Voted(choice int) *Post {
 	cp.Poll = &np
 	return &cp
 }
+
+// VoteChanged returns a copy of p whose poll moves one vote from choice from to choice to (ADR-0029 Amendment 1 A2.7): a NEW Post and a
+// NEW Poll with fresh Counts, like Voted, with each count clamped at 0 and Total unchanged. It is p itself when p has no poll, a
+// choice is out of range or from == to.
+func (p *Post) VoteChanged(from, to int) *Post {
+	if p == nil || p.Poll == nil || from == to || from < 0 || to < 0 || from >= len(p.Poll.Options) || to >= len(p.Poll.Options) {
+		return p
+	}
+	np := *p.Poll
+	np.Counts = make([]int64, len(p.Poll.Options))
+	copy(np.Counts, p.Poll.Counts)
+	np.Counts[from] = max(np.Counts[from]-1, 0)
+	np.Counts[to]++
+	cp := *p
+	cp.Poll = &np
+	return &cp
+}

@@ -46,12 +46,16 @@ func (s *Server) guardPoll(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
-// VotePoll records the caller's one, final vote in a poll (ADR-0029 D6); the rules are Polls.VotePoll. It is behind FEATURE_POSTS,
-// FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off. Worst case once the gate passes (ADR-0029 Cost impact):
-// 8 reads cold (interceptor 1, post 1, author users 1, caller graph 1, +2 for a REPOST id, +1 on blockedBy overflow, userLikes 1) and
-// 3 writes in one batch (vote doc, the post's poll counters, userLikes.pollVotes) + 1 TTL delete later; planning 3 reads. A replay or ALREADY_VOTED reads the vote doc too (+1, 9
-// worst) and writes 0; a refusal at step 5 (closed, author, no poll, choice range) is at most 7 reads and 0 writes; a flag, shape,
-// rate-bucket or cap refusal costs the interceptor's 1 read. The new-account daily cap is applied in the service.
+// VotePoll records the caller's vote in a poll, or changes it until the poll closes (ADR-0029 D6, Amendment 1 A1 and A2); the rules are
+// Polls.VotePoll. It is behind FEATURE_POSTS, FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off. Worst case once the gate
+// passes (ADR-0029 Cost impact):
+//   - a new vote: 8 reads cold (interceptor 1, post 1, author users 1, caller graph 1, +2 for a REPOST id, +1 on blockedBy overflow, userLikes 1)
+//     and 3 writes in one batch (vote doc, the post's poll counters, userLikes.pollVotes) + 1 TTL delete later; planning 3 reads;
+//   - a change (expected_choice names the stored vote): 9 reads worst (the 8 + the vote doc), 4 typical, 4 writes in one batch (vote doc under a
+//     LastUpdateTime precondition, the post's two counters, userLikes ArrayRemove and ArrayUnion), +1 read per lost round (at most 3 more);
+//   - a replay, ALREADY_VOTED (a stale or absent expected_choice) and LIMIT_REACHED (the change cap): 9 worst, 0 writes;
+//   - TARGET_BLOCKED (the voter blocks the author), closed, author, no poll, choice range: at most 7 reads, 0 writes (the block check adds none);
+//   - a flag, shape, rate-bucket or cap refusal costs the interceptor's 1 read. The new-account daily cap is applied in the service.
 func (s *Server) VotePoll(ctx context.Context, req *connect.Request[engagementv1.VotePollRequest]) (*connect.Response[engagementv1.VotePollResponse], error) {
 	uid, err := s.guardPoll(ctx)
 	if err != nil {
@@ -62,7 +66,7 @@ func (s *Server) VotePoll(ctx context.Context, req *connect.Request[engagementv1
 	}
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
 	defer cancel()
-	res, err := s.polls.VotePoll(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId(), req.Msg.GetChoiceIndex())
+	res, err := s.polls.VotePoll(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetPostId(), req.Msg.GetChoiceIndex(), req.Msg.GetExpectedChoice())
 	if err != nil {
 		return nil, err
 	}

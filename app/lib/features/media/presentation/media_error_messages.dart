@@ -2,6 +2,10 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 
+/// `RATE_LIMITED` `metadata["limit"]` of the per-account daily Vision-units
+/// cap (backend `media_vision_units_daily`).
+const kMediaVisionUnitsDailyLimit = 'media_vision_units_daily';
+
 /// Friendly snackbar text for a failed photo upload (CreateUpload, the PUT
 /// to storage, or FinalizeUpload) while sending a post. Never the raw server
 /// text. Degraded mode says text posts still work (`DEGRADED_MODE=nomedia`
@@ -9,6 +13,14 @@ import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 /// attachment for a GIF post (W6-16).
 String uploadErrorMessage(AppException error, {bool gif = false}) {
   return switch (error) {
+    // The per-account daily Vision-units cap (ADR-0029 Amendment 1 A5.5):
+    // there is nothing to retry today.
+    RateLimitedException(limitName: kMediaVisionUnitsDailyLimit) =>
+      "You've reached today's image checks. Try again tomorrow.",
+    // Image checks stayed unavailable after the quiet retries: the tile offers
+    // a Retry and nothing is uploaded again (A5.6).
+    ScreeningUnavailableException() =>
+      "We couldn't check your image. Use Retry on its tile.",
     QuotaExceededException() =>
       "You've reached today's limit for photos. Post without them, or try "
           'again tomorrow.',

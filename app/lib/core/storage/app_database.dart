@@ -287,6 +287,24 @@ class ComposerDraftEntries extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
+  /// The send in flight or lost (W6-39, ADR-0029 Amendment 1 A4): the
+  /// idempotency key claimed for the last send of this draft, null when no
+  /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
+  /// by `clearSend`; never touches [updatedAt] (W6-45). Not personal data and
+  /// never logged.
+  TextColumn get sendKey => text().nullable()();
+
+  /// `post` or `schedule`: which RPC [sendKey] belongs to (the two have
+  /// separate key spaces on the server).
+  TextColumn get sendKind => text().nullable()();
+
+  /// The publish time of a pending `schedule` send, UTC.
+  DateTimeColumn get sendPublishAt => dateTime().nullable()();
+
+  /// When [sendKey] was first minted; the 23 h window runs from here and is
+  /// never refreshed by a reuse.
+  DateTimeColumn get sendStartedAt => dateTime().nullable()();
+
   @override
   Set<Column> get primaryKey => {draftId};
 }
@@ -318,7 +336,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -364,6 +382,20 @@ class AppDatabase extends _$AppDatabase {
       // v8 -> v9 (W6-14): unsent posts, kept per uid across sign-out.
       if (from < 9) {
         await m.createTable(composerDraftEntries);
+      }
+      // v9 -> v10 (W6-39): the pending send key. A database older than v9 just
+      // got the table above, already with the columns, so only v9 adds them.
+      if (from == 9) {
+        await m.addColumn(composerDraftEntries, composerDraftEntries.sendKey);
+        await m.addColumn(composerDraftEntries, composerDraftEntries.sendKind);
+        await m.addColumn(
+          composerDraftEntries,
+          composerDraftEntries.sendPublishAt,
+        );
+        await m.addColumn(
+          composerDraftEntries,
+          composerDraftEntries.sendStartedAt,
+        );
       }
     },
   );

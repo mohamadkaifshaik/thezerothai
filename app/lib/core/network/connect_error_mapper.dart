@@ -22,6 +22,15 @@ AppException mapConnectError(Object error) {
             microseconds: detail.retryAfter.nanos ~/ 1000,
           )
         : null;
+    // FinalizeUpload's "image checks are temporarily unavailable" (W6-40):
+    // UNAVAILABLE with no reason but a retry_after. A plain UNAVAILABLE (cold
+    // start, network blip) carries no ErrorDetail and stays a
+    // NetworkException below.
+    if (error.code == connect.Code.unavailable &&
+        detail.reason == common.ErrorReason.ERROR_REASON_UNSPECIFIED &&
+        retryAfter != null) {
+      return ScreeningUnavailableException(message, retryAfter: retryAfter);
+    }
     switch (detail.reason) {
       case common.ErrorReason.ERROR_REASON_VALIDATION:
         return ValidationException(message, field: detail.metadata['field']);

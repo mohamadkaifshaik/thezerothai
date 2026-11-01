@@ -165,6 +165,7 @@ locals {
     { name = "RATE_LIMIT_USER_TIMELINE_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_POST_CREATE_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_POST_DELETE_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", value = "10" }, # FinalizeUpload's own bucket (W6-40, ADR-0029 Amendment 1 A5.5); config.go default
     { name = "QUOTA_POSTS_PER_DAY", value = "100" },
     { name = "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", value = "20" },
   ]

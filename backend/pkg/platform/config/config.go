@@ -488,6 +488,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_USER_TIMELINE_PER_MIN", 30, &rl.UserTimelinePerMinute},
 		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
 		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
+		// ADR-0029 Amendment 1 A5.5 (W6-40): FinalizeUpload has its own bucket, split from CreateUpload's (10/min per instance, 30 with 3).
+		{"RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", 10, &rl.MediaFinalizePerMinute},
 		{"RATE_LIMIT_REPORT_PER_MIN", 5, &rl.ReportPerMinute},
 		// ADR-0023 D4: AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
 		{"RATE_LIMIT_BOOKMARKS_PER_MIN", 30, &rl.BookmarksPerUserPerMinute},

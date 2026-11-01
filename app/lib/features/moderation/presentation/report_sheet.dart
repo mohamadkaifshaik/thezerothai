@@ -64,6 +64,10 @@ Future<ReportOutcome> showReportSheet(
           subject: subject,
           blockLabel: blockLabel,
           detail: detail,
+          otherReasonNote:
+              targetType == ReportTargetType.REPORT_TARGET_TYPE_POST
+              ? kReportOtherPostNote
+              : null,
         ),
       ),
     );
@@ -88,9 +92,13 @@ class ReportSheet extends StatelessWidget {
     required this.subject,
     this.blockLabel,
     this.detail,
+    this.otherReasonNote,
   });
 
   final String subject;
+
+  /// Shown under "Something else" while it is selected (W6-43), or null.
+  final String? otherReasonNote;
 
   /// One more sentence under the intro (W7-18: what a reported message shares).
   final String? detail;
@@ -110,7 +118,11 @@ class ReportSheet extends StatelessWidget {
           builder: (context, state) {
             return state.sent
                 ? _Confirmation(blockLabel: blockLabel)
-                : _Form(subject: subject, detail: detail);
+                : _Form(
+                    subject: subject,
+                    detail: detail,
+                    otherReasonNote: otherReasonNote,
+                  );
           },
         ),
       ),
@@ -119,9 +131,10 @@ class ReportSheet extends StatelessWidget {
 }
 
 class _Form extends StatelessWidget {
-  const _Form({required this.subject, this.detail});
+  const _Form({required this.subject, this.detail, this.otherReasonNote});
 
   final String subject;
+  final String? otherReasonNote;
   final String? detail;
 
   @override
@@ -165,6 +178,18 @@ class _Form extends StatelessWidget {
                       selected: state.reason == reason,
                       enabled: !state.submitting,
                       onTap: () => cubit.selectReason(reason),
+                    ),
+                  if (otherReasonNote != null &&
+                      state.reason == ReportReason.REPORT_REASON_OTHER)
+                    Padding(
+                      key: const ValueKey("report-other-note"),
+                      padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+                      child: Text(
+                        otherReasonNote!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ),
                 ],
               );

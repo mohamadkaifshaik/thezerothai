@@ -20,6 +20,9 @@ const (
 	// pollViewerVotesCeiling bounds POLL_VIEWER_VOTES_KEPT: the userLikes.pollVotes array stays far below the 40,000
 	// index-entry and 1 MiB document limits (it is also index-exempt).
 	pollViewerVotesCeiling = 1000
+	// pollVoteChangesCeiling bounds POLL_VOTE_CHANGES_MAX (ADR-0029 Amendment 1 A2.4): each change is 4 writes, and the count-flapping bound of one
+	// account is 1 + this many moves of a poll's counts. Raising it past 20 needs an ADR, not an env var.
+	pollVoteChangesCeiling = 20
 	// gifFramesCeiling, gifEdgeCeiling and gifFrameAreaCeiling bound the decode guards (ADR-0029 D11): a raised value is
 	// a memory and CPU decision, so it needs an ADR, not an env var.
 	gifFramesCeiling    = 1000
@@ -27,6 +30,12 @@ const (
 	gifFrameAreaCeiling = 200_000_000
 	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (W6-27, H-3).
 	mediaScreenAttemptsCeiling = 10
+	// mediaScreenRetriesCeiling bounds MEDIA_MAX_SCREEN_RETRIES (W6-40, ADR-0029 Amendment 1 A5.4): with the attempts it sets the claims
+	// ceiling, and every claim can bill up to 2 Vision units (8 claims x 2 = 16 per document at the defaults).
+	mediaScreenRetriesCeiling = 10
+	// mediaVisionUnitsDayCeiling and mediaVisionUnitsDayNewAccountCeiling bound the per-uid daily Vision-units caps (A5.5).
+	mediaVisionUnitsDayCeiling           = 200
+	mediaVisionUnitsDayNewAccountCeiling = 60
 )
 
 // ComposerConfig holds the poll and GIF limits of the composer extras (ADR-0029 D1, D6, D8, D11). The VotePoll bucket and
@@ -48,6 +57,9 @@ type ComposerConfig struct {
 	// PollViewerVotesKept is how many entries userLikes.pollVotes keeps after a lazy trim (POLL_VIEWER_VOTES_KEPT,
 	// default 500), 1..1000.
 	PollViewerVotesKept int
+	// PollVoteChangesMax is the most times one voter may change their vote in one poll (POLL_VOTE_CHANGES_MAX, default 5, 0..20; ADR-0029
+	// Amendment 1 A2.4). 0 is the kill switch: votes are final again and every change answers LIMIT_REACHED. The count is durable (pollVotes.changes).
+	PollVoteChangesMax int
 	// GifMaxFrames, GifMaxEdge and GifMaxFrameAreaSum are the pre-scan limits of a GIF before any decode (GIF_MAX_FRAMES
 	// default 300, GIF_MAX_EDGE default 1,280 pixels per side, GIF_MAX_FRAME_AREA_SUM default 50,000,000 pixels).
 	GifMaxFrames       int
@@ -55,34 +67,56 @@ type ComposerConfig struct {
 	GifMaxFrameAreaSum int
 	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (default 3, 1..10): the most screening attempts (FinalizeUpload
 	// claims) one media document gets; after that it is REJECTED with no further Vision call (W6-27, security H-3).
+	// MediaMaxScreenAttempts, revised by W6-40 (ADR-0029 Amendment 1 A5.4): the attempts that produced a valid assessment without ending
+	// the document (screenAssessed). A document with that many is REJECTED with no Vision call.
 	MediaMaxScreenAttempts int
+	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES (default 5, 0..10): the claimed attempts that produced no valid assessment (an
+	// outage, a timeout, a billed-but-invalid answer). With MediaMaxScreenAttempts it sets the crash-safe claims ceiling on screenAttempts (3 + 5 = 8).
+	MediaMaxScreenRetries int
+	// MediaVisionUnitsPerDay and MediaVisionUnitsPerDayNewAccount are MEDIA_VISION_UNITS_PER_DAY (default 60, 2..200) and
+	// MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT (default 12, 2..60): the per-uid Vision units one instance lets a uid spend per IST day
+	// (media_vision_units_daily; 180 and 36 effective at 3 instances). Charged before the claim.
+	MediaVisionUnitsPerDay           int
+	MediaVisionUnitsPerDayNewAccount int
 }
 
 // loadComposer reads and validates the poll and GIF keys; the error names the key.
 func loadComposer() (ComposerConfig, error) {
 	var c ComposerConfig
 	for _, f := range []struct {
-		dst      *int
-		key      string
-		def, max int
+		dst           *int
+		key           string
+		def, min, max int
 	}{
-		{&c.PollMaxChoices, "POLL_MAX_CHOICES", 4, pollChoicesCeiling},
-		{&c.PollChoiceMaxCodepoints, "POLL_CHOICE_MAX_CODEPOINTS", 25, pollCodepointsCeiling},
-		{&c.PollViewerVotesKept, "POLL_VIEWER_VOTES_KEPT", 500, pollViewerVotesCeiling},
-		{&c.GifMaxFrames, "GIF_MAX_FRAMES", 300, gifFramesCeiling},
-		{&c.GifMaxEdge, "GIF_MAX_EDGE", 1280, gifEdgeCeiling},
-		{&c.GifMaxFrameAreaSum, "GIF_MAX_FRAME_AREA_SUM", 50_000_000, gifFrameAreaCeiling},
-		{&c.MediaMaxScreenAttempts, "MEDIA_MAX_SCREEN_ATTEMPTS", 3, mediaScreenAttemptsCeiling},
+		{&c.PollMaxChoices, "POLL_MAX_CHOICES", 4, 1, pollChoicesCeiling},
+		{&c.PollChoiceMaxCodepoints, "POLL_CHOICE_MAX_CODEPOINTS", 25, 1, pollCodepointsCeiling},
+		{&c.PollViewerVotesKept, "POLL_VIEWER_VOTES_KEPT", 500, 1, pollViewerVotesCeiling},
+		{&c.GifMaxFrames, "GIF_MAX_FRAMES", 300, 1, gifFramesCeiling},
+		{&c.GifMaxEdge, "GIF_MAX_EDGE", 1280, 1, gifEdgeCeiling},
+		{&c.GifMaxFrameAreaSum, "GIF_MAX_FRAME_AREA_SUM", 50_000_000, 1, gifFrameAreaCeiling},
+		{&c.MediaMaxScreenAttempts, "MEDIA_MAX_SCREEN_ATTEMPTS", 3, 1, mediaScreenAttemptsCeiling},
+		{&c.MediaMaxScreenRetries, "MEDIA_MAX_SCREEN_RETRIES", 5, 0, mediaScreenRetriesCeiling},
+		{&c.MediaVisionUnitsPerDay, "MEDIA_VISION_UNITS_PER_DAY", 60, 2, mediaVisionUnitsDayCeiling},
+		{&c.MediaVisionUnitsPerDayNewAccount, "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", 12, 2, mediaVisionUnitsDayNewAccountCeiling},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
 			return ComposerConfig{}, err
 		}
-		if v < 1 || v > f.max {
-			return ComposerConfig{}, fmt.Errorf("config: %s must be 1..%d (got %d)", f.key, f.max, v)
+		if v < f.min || v > f.max {
+			return ComposerConfig{}, fmt.Errorf("config: %s must be %d..%d (got %d)", f.key, f.min, f.max, v)
 		}
 		*f.dst = v
 	}
+	// 0 is a valid value here (the loop above requires 1 or more), so POLL_VOTE_CHANGES_MAX has its own bound.
+	changes, err := getInt("POLL_VOTE_CHANGES_MAX", 5)
+	if err != nil {
+		return ComposerConfig{}, err
+	}
+	if changes < 0 || changes > pollVoteChangesCeiling {
+		return ComposerConfig{}, fmt.Errorf("config: POLL_VOTE_CHANGES_MAX must be 0..%d (got %d)", pollVoteChangesCeiling, changes)
+	}
+	c.PollVoteChangesMax = changes
 	if c.PollMaxChoices < 2 {
 		return ComposerConfig{}, fmt.Errorf("config: POLL_MAX_CHOICES must be 2..%d (got %d)", pollChoicesCeiling, c.PollMaxChoices)
 	}

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/privacy_policy_link.dart'
+    show launchCommunityRules;
 import '../../../../shared/widgets/character_counter.dart';
 import '../../domain/composer_draft.dart' show DraftPoll;
 import '../../domain/poll_rules.dart';
@@ -12,6 +14,9 @@ const kPollDuplicateHint = 'Choices must be different';
 
 /// Hint under the length when it was raised to the minimum.
 const kPollMinLengthHint = 'A poll lasts at least 5 minutes.';
+
+/// The rule in one line under the builder (W6-43; full text in `rules.html`).
+const kPollSensitiveHint = "Don't ask for sensitive personal info.";
 
 /// The placeholder of the post text while a poll is open: the text is the
 /// poll's question.
@@ -48,6 +53,7 @@ class ComposerPollBuilder extends StatefulWidget {
     required this.onLengthChanged,
     required this.onRemove,
     this.pickLength = showPollLengthSheet,
+    this.openRules = launchCommunityRules,
   });
 
   final DraftPoll poll;
@@ -63,6 +69,9 @@ class ComposerPollBuilder extends StatefulWidget {
   final ValueChanged<int> onLengthChanged;
   final VoidCallback onRemove;
   final PollLengthPicker pickLength;
+
+  /// Opens the community rules (a test seam; default opens the web page).
+  final void Function(BuildContext context) openRules;
 
   @override
   State<ComposerPollBuilder> createState() => _ComposerPollBuilderState();
@@ -121,7 +130,7 @@ class _ComposerPollBuilderState extends State<ComposerPollBuilder> {
     final analysis = analyzePoll(poll);
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final canAdd = poll.choices.length < kPollMaxChoices;
-    return DecoratedBox(
+    final box = DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: theme.colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(AppRadius.md),
@@ -206,6 +215,63 @@ class _ComposerPollBuilderState extends State<ComposerPollBuilder> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        box,
+        _SensitiveInfoHint(onTap: () => widget.openRules(context)),
+      ],
+    );
+  }
+}
+
+/// The one-line rule under the builder (W6-43, GDPR Art. 9): polls must not ask
+/// for sensitive personal information. "See the rules" opens the community
+/// rules; the whole row is at least 48dp tall and wraps at large text.
+class _SensitiveInfoHint extends StatelessWidget {
+  const _SensitiveInfoHint({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Semantics(
+      link: true,
+      label: "$kPollSensitiveHint. See the community rules.",
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        key: const ValueKey("poll-sensitive-hint"),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text.rich(
+              TextSpan(
+                style: style,
+                children: [
+                  const TextSpan(text: kPollSensitiveHint),
+                  const TextSpan(text: " "),
+                  TextSpan(
+                    text: "See the rules",
+                    style: TextStyle(
+                      color: context.appColors.accentText,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

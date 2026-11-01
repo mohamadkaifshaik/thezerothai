@@ -53,7 +53,7 @@ Future<void> reportPeerMessage(
     subject: peerHandle.isEmpty ? 'this message' : "@$peerHandle's message",
     detail: kReportMessageDetail,
   );
-  _thank(messenger, outcome);
+  thankForReport(messenger, outcome);
 }
 
 /// `ThreadScreen.onReport` (the info menu's "Report @handle"): reports the
@@ -71,10 +71,12 @@ Future<void> reportConversationPeer(
     targetId: peer.userId,
     subject: peer.handle.isEmpty ? 'this account' : '@${peer.handle}',
   );
-  _thank(messenger, outcome);
+  thankForReport(messenger, outcome);
 }
 
-void _thank(ScaffoldMessengerState messenger, ReportOutcome outcome) {
+/// The "Report sent" toast for a finished report sheet; nothing for a
+/// cancelled one or one the server already had (the sheet said so).
+void thankForReport(ScaffoldMessengerState messenger, ReportOutcome outcome) {
   // Cancelled: nothing was sent. Already reported: the sheet said so (the
   // server had it), so no toast on top of that.
   if (outcome == ReportOutcome.cancelled ||

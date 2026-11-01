@@ -140,7 +140,7 @@ func TestState_PollPruneIsBestEffortAndHonoursReadonly(t *testing.T) {
 // A vote carries the closing time into the batch (the repo builds the entry and the due day from it).
 func TestVotePoll_PassesClosesAt(t *testing.T) {
 	e := newPollEnv(t)
-	if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1); err != nil {
+	if _, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1, 0); err != nil {
 		t.Fatal(err)
 	}
 	if !e.pr.last.ClosesAt.Equal(e.closes) || !e.pr.last.ExpireAt.Equal(e.closes.Add(retentionTTL)) {

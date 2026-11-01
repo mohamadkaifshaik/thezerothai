@@ -102,7 +102,9 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		VisionMonthlyCap: int64(cfg.VisionMonthlyCap), Policy: cfg.VisionExhaustedPolicy, ScreenThumb: cfg.VisionScreenThumb, GifMaxEdge: cfg.Composer.GifMaxEdge,
 		GifMaxFrames: cfg.Composer.GifMaxFrames, GifMaxFrameAreaSum: int64(cfg.Composer.GifMaxFrameAreaSum),
 		MediaMaxScreenAttempts: cfg.Composer.MediaMaxScreenAttempts,
-		Log:                    log,
+		MediaMaxScreenRetries:  &cfg.Composer.MediaMaxScreenRetries,
+		VisionUnitsPerDay:      int64(cfg.Composer.MediaVisionUnitsPerDay), VisionUnitsPerDayNewAccount: int64(cfg.Composer.MediaVisionUnitsPerDayNewAccount),
+		Log: log,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("media service: %w", err)

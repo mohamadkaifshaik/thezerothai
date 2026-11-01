@@ -41,7 +41,7 @@ const (
 	gifLogMessage           = "gif_screen"
 )
 
-// errGifBusy: another GIF held the semaphore for GifQueueWait.
+// errGifBusy: another GIF held the semaphore for GifQueueWait. FinalizeUpload answers it with MEDIA_NOT_READY before it claims the document (A5.1).
 var errGifBusy = errors.New("media: gif screening busy")
 
 // gifStats is what the gif_screen line reports.
@@ -86,13 +86,10 @@ func (s *service) acquireGif(ctx context.Context) (release func(), err error) {
 }
 
 // gifSheet reads the whole private GIF, pre-scans it, and returns the JPEG contact sheet of its sampled frames. The
-// error is a *gifRefusal (the GIF is rejected, 0 Vision units), errGifBusy (retryable), or an infrastructure error.
+// error is a *gifRefusal (the GIF is rejected, 0 Vision units) or an infrastructure error. The caller took the slot (acquireGif, before its claim);
+// release frees it as soon as the sheet is encoded or on any error.
 // 1 Class B read. A decoder panic is recovered into a refusal and reported to Error Reporting.
-func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (sheet []byte, st gifStats, err error) {
-	release, err := s.acquireGif(ctx)
-	if err != nil {
-		return nil, st, err
-	}
+func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens, release func()) (sheet []byte, st gifStats, err error) {
 	defer release()
 	defer func() {
 		if v := recover(); v != nil {
@@ -133,8 +130,8 @@ func (s *service) gifSheet(ctx context.Context, d *Doc, gens verifiedGens) (shee
 
 // screenGIF is screen for a GIF (D11 step 6): the sheet by bytes and the thumbnail by URI, in parallel; the worse
 // verdict wins. It logs one gif_screen line.
-func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blocked bool, answered int64, err error) {
-	sheet, st, err := s.gifSheet(ctx, d, gens)
+func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens, releaseSlot func()) (res screenResult, err error) {
+	sheet, st, err := s.gifSheet(ctx, d, gens, releaseSlot)
 	units := 0
 	defer func() {
 		var ref *gifRefusal
@@ -146,14 +143,15 @@ func (s *service) screenGIF(ctx context.Context, d *Doc, gens verifiedGens) (blo
 		}, logger.TraceAttrs(ctx)...)...)
 	}()
 	if err != nil {
-		return false, 0, err
+		// Nothing went to Vision (a refusal, a changed object, a read failure): the whole units charge comes back.
+		return screenResult{refundable: 2}, err
 	}
-	blocked, answered, err = s.screenAll(ctx, d, []func(context.Context) (SafeSearch, error){
+	res, err = s.screenAll(ctx, d, []func(context.Context) (SafeSearch, error){
 		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearchBytes(c, sheet) },
 		func(c context.Context) (SafeSearch, error) { return s.Moderator.SafeSearch(c, d.ThumbUploadPath) },
 	})
-	units = int(answered)
-	return blocked, answered, err
+	units = int(res.answered)
+	return res, err
 }
 
 // mediaNotReady is the retryable MEDIA_NOT_READY answer.

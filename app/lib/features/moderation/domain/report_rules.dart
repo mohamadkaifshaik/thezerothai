@@ -41,3 +41,11 @@ String reportReasonLabel(ReportReason reason) {
 
 /// Code points in [note] (what the server counts).
 int reportNoteLength(String note) => note.runes.length;
+
+/// Shown under "Something else" when reporting a post (W6-43): there is no
+/// separate reason for a poll that asks for sensitive personal information
+/// (health, religion, politics, sex life, ethnicity, union, genetic or
+/// biometric data); "Something else" with this note is how it is reported.
+const kReportOtherPostNote =
+    'Use this for a poll that asks people for sensitive personal '
+    'information, such as health, religion or beliefs, or political opinions.';

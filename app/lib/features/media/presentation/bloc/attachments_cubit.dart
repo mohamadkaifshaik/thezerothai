@@ -31,6 +31,12 @@ enum AttachmentStatus {
   /// The upload failed; tap Post again to retry.
   failed,
 
+  /// Uploaded, but the server could not check it (image checks were
+  /// unavailable after the automatic retries). The upload is kept: the tile's
+  /// Retry repeats FinalizeUpload for the same media id, with no re-upload
+  /// (ADR-0029 Amendment 1 A5.6). Post waits until it is checked.
+  unchecked,
+
   /// The server refused the image; remove it.
   rejected,
 
@@ -351,6 +357,19 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         ),
       );
     } on AppException catch (error) {
+      if (error is ScreeningUnavailableException) {
+        // Every tile in flight was uploaded and none could be checked. Keep
+        // the uploads and offer the manual Retry on each.
+        for (final a in state.items) {
+          if (a.status == AttachmentStatus.uploading) {
+            _update(
+              a.id,
+              (x) => x.copyWith(status: AttachmentStatus.unchecked),
+            );
+          }
+        }
+        rethrow;
+      }
       // The server named the image it could not find: that tile failed, the
       // others simply go back to waiting.
       final named = error is MediaNotReadyException && error.mediaId != null
@@ -434,6 +453,48 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       mediaIds: mediaIds,
       altTexts: alts.every((t) => t.isEmpty) ? const [] : alts,
     );
+  }
+
+  /// The tile's Retry (ADR-0029 Amendment 1 A5.6): FinalizeUpload again for
+  /// the same media id. The uploader remembers the finished PUTs, so nothing
+  /// is re-uploaded and no upload quota is spent.
+  Future<void> retryCheck(String id) async {
+    final tile = state.items.where((a) => a.id == id).firstOrNull;
+    final image = tile?.image;
+    if (tile == null ||
+        image == null ||
+        tile.status != AttachmentStatus.unchecked) {
+      return;
+    }
+    _update(id, (a) => a.copyWith(status: AttachmentStatus.uploading));
+    try {
+      final outcomes = await _uploader.upload(
+        purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: [UploadJob(id: id, image: image)],
+      );
+      final outcome = outcomes.single;
+      _update(
+        id,
+        (a) => switch (outcome.status) {
+          UploadOutcomeStatus.ready => a.copyWith(
+            status: AttachmentStatus.uploaded,
+            mediaId: outcome.mediaId,
+            progress: 1,
+          ),
+          UploadOutcomeStatus.rejected => a.copyWith(
+            status: AttachmentStatus.rejected,
+            rejectionReason: outcome.reason,
+          ),
+          UploadOutcomeStatus.failed => a.copyWith(
+            status: AttachmentStatus.failed,
+          ),
+        },
+      );
+    } on ScreeningUnavailableException {
+      _update(id, (a) => a.copyWith(status: AttachmentStatus.unchecked));
+    } on AppException {
+      _update(id, (a) => a.copyWith(status: AttachmentStatus.failed));
+    }
   }
 
   /// Drops everything (after a post succeeded).

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -47,6 +48,9 @@ type envOpts struct {
 	gifMaxFrames int
 	gifMaxArea   int64
 	maxAttempts  int          // MEDIA_MAX_SCREEN_ATTEMPTS (0 = 3)
+	maxRetries   *int         // MEDIA_MAX_SCREEN_RETRIES (nil = 5)
+	unitsPerDay  int64        // MEDIA_VISION_UNITS_PER_DAY (0 = 60)
+	newUnitsDay  int64        // MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT (0 = 12)
 	log          *slog.Logger // nil = the default logger
 }
 
@@ -71,7 +75,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	}
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
-		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts,
+		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
 		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
@@ -440,7 +444,7 @@ func TestFinalize_Validation(t *testing.T) {
 func TestFinalize_ModerationOutageFailsClosed(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.upload(t, uidA, PurposePost, "a")
-	e.mod.err = errors.New("vision 503")
+	e.mod.err = &googleapi.Error{Code: 503}
 	_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if len(e.obj.public) != 0 || e.repo.docs[tg.MediaID].Status != string(StatusPending) {
@@ -716,8 +720,9 @@ func TestFinalize_LostRaceDuringScreeningConvergesOnReady(t *testing.T) {
 		return errors.New("vision: gs object not found")
 	}
 	got, spent, err := e.finalizeStale(t, tg.MediaID)
-	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 0 {
-		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and no units", got, spent, err)
+	// spent is 1 since W6-49: an error unbilled() does not recognise (this one is a plain error) may have been billed, so it stays counted.
+	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 1 {
+		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and the 1 unit of the unrecognised failure", got, spent, err)
 	}
 }
 

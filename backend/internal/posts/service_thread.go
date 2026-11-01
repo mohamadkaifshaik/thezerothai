@@ -59,6 +59,9 @@ type Thread struct {
 	NextPageToken     string
 	// ReplyPermission is the viewer hint shared by every row of the thread (ADR-0021 D2).
 	ReplyPermission postsv1.ReplyPermission
+	// BlockedAuthors is the caller's outgoing block set from the snapshot the service already loaded (0 reads), for viewer_poll_vote_blocked on the
+	// focal post (ADR-0029 Amendment 1 A1.5). Read-only.
+	BlockedAuthors map[string]bool
 }
 
 // replyParent validates a reply target for CreatePost: the id shape, then the GetPost visibility rules
@@ -140,7 +143,7 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		return nil, logger.RedactErr(fmt.Errorf("posts: thread: caller graph: %w", err), callerUID)
 	}
 
-	out := &Thread{Focal: focal}
+	out := &Thread{Focal: focal, BlockedAuthors: snap.Blocked}
 	root := focal.ConversationID
 	if root == "" {
 		root = focal.ID
@@ -524,6 +527,20 @@ func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) 
 		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 	}
 	return s.aud.EmbedState(ctx, viewer, snap, p)
+}
+
+// PollBlockedAuthors implements PollBlockHinter (ADR-0029 Amendment 1 A1.5): the viewer's blocked set when p carries a live poll by another author,
+// else nil. The snapshot is the one GetPost has just cached for a non-author viewer (<= 60 s old): 0 reads on the hit, never a read for the
+// viewer's own post or a post without an open poll. A graph error is nil (the field stays false; VotePoll is the authority).
+func (s *service) PollBlockedAuthors(ctx context.Context, viewer string, p *Post) map[string]bool {
+	if p.Poll == nil || viewer == "" || p.AuthorID == viewer || p.Poll.Closed(s.now()) {
+		return nil
+	}
+	snap, err := s.graph.Snapshot(ctx, viewer)
+	if err != nil {
+		return nil
+	}
+	return snap.Blocked
 }
 
 // ProtectedAuthor implements VisibilityHinter: whether p's author is in the protected set (the computed wire

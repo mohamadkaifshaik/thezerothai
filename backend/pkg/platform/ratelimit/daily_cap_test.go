@@ -353,3 +353,28 @@ func TestDailyCap_AllowN(t *testing.T) {
 		})
 	}
 }
+
+func TestDailyCap_RefundReturnsUnitsAndNeverGoesBelowZero(t *testing.T) {
+	d := NewDailyCap(10)
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	if !d.AllowN("u", 6) || d.AllowN("u", 5) {
+		t.Fatal("6 fits, the next 5 must not")
+	}
+	d.Refund("u", 2)
+	if got := d.Spent("u"); got != 4 {
+		t.Fatalf("spent after refund = %d, want 4", got)
+	}
+	if !d.AllowN("u", 6) {
+		t.Fatal("the refunded units must be spendable again")
+	}
+	d.Refund("u", 100)
+	if got := d.Spent("u"); got != 0 {
+		t.Fatalf("spent after an over-refund = %d, want 0 (floored)", got)
+	}
+	d.Refund("u", 0)
+	d.Refund("u", -3)
+	if got := d.Spent("u"); got != 0 {
+		t.Fatalf("spent = %d, want 0 (no-op refunds)", got)
+	}
+}

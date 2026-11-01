@@ -144,10 +144,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
 	listMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ListMutationsPerDay)
 
-	// P4: CreateUpload and FinalizeUpload share one per-user bucket at the CreatePost rate (a post with images is
-	// two media calls plus one CreatePost). Images are bounded per day by quota.Uploads (20, 5 for new accounts)
-	// and Vision spend by VISION_MONTHLY_CAP.
+	// P4: CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Images are bounded per day by
+	// quota.Uploads (20, 5 for new accounts) and Vision spend by VISION_MONTHLY_CAP.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
+	// W6-40 (ADR-0029 Amendment 1 A5.5): FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
+	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, charged before the claim.
+	rlMediaFinalize := ratelimit.NewLimiter(cfg.RateLimit.MediaFinalizePerMinute, idleBucketTTL)
 
 	return ratelimit.Config{
 		Default: rlDefault,
@@ -169,7 +171,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
 			engagementv1connect.EngagementServiceListLikedPostsProcedure:      rlLikesList,
 			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
-			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMedia,
+			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMediaFinalize,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
 			graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
 			graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,

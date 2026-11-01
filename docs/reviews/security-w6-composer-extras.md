@@ -167,7 +167,7 @@ The test report suggests re-checking the MD5 of the published copy. That would n
 ### H-3 (High, cost amplification): Vision units spent by a half-failed screen are never counted, and the call can be repeated without limit
 
 **Status: FIXED in PR #535 (W6-27).** Answered Vision calls are counted (`VisionAnsweredError`), only never-answered calls are released; a per-image INVALID_ARGUMENT is REJECTED; `media.screenAttempts` (in the claim write, +0 writes) caps attempts at `MEDIA_MAX_SCREEN_ATTEMPTS` (3), after which the document is REJECTED with no Vision call. Fix item 4 (a `media_finalize_daily` DailyCap) was optional and is not done.
-- **Revised by founder decision 3, 2026-10-31.** ADR-0029 Amendment 1 A5, ticket W6-40, Proposed.
+- **Revised by W6-40 (#554), re-review W6-42.** Founder decision 3, 2026-10-31; ADR-0029 Amendment 1 A5; built as proposed (differences are listed in the PR).
   - Only attempts that produced a valid assessment count toward the 3.
   - Unanswered and invalid-answer attempts count toward a separate `MEDIA_MAX_SCREEN_RETRIES` (5) under a claims
     ceiling of 8.
@@ -450,3 +450,19 @@ These are worked out in ADR-0029 Amendment 1, accepted in principle by the found
 | `gif` | **GO**, on condition that W6-25 to W6-28 are ticketed and `gif` and `media` stay on team and test accounts only | **BLOCKED** until H-1, H-2, H-3 (W6-25 to W6-27), M-1 (#521) and M-2 (W6-28) are fixed. The same holds for `media` | **BLOCKED** until all of the above plus W6-30. H-1 to H-3 also block `FEATURE_MEDIA` in prod |
 
 SECURITY: BLOCKED — H-1, H-2, H-3
+
+## 7. Re-reviews
+
+### W6-42 part 2, 2026-10-31: W6-36 vote changes and block either way (PR #555)
+
+- **Reviewed:** `feat/polls-w6-36-block-and-change` at `58864230`, CI green. Full review: `docs/reviews/security-w6-36-poll-changes.md`.
+- **Verdict: SECURITY: CLEAR.** No Critical, High or Medium. #555 may merge.
+- **Lows, all follow-ups:**
+  - L-1: the NOT_FOUND byte test covers only a first vote (W6-41).
+  - L-2: internal-error lines hash the post id unkeyed, a leftover of this review's L-1 (W6-52).
+  - L-3: `POLL_VOTE_CHANGES_MAX` is not in Terraform (W6-51, #562).
+  - L-4: W6-46's small-poll caveat must name vote changes.
+- **This review's L-3 widening:** an accepted residual under the founder's 2026-10-31 copy decision.
+- **This review's L-2:** a change leaves exactly one `userLikes.pollVotes` entry per post, from both the three-part and the legacy state, so the export and retention hold.
+- **`polls` beyond the dev allowlist:** GO from security once the runbook §10 dev check (extended to assert exactly one entry after a change) passes on dev Firestore, W6-37 and W6-41 are done, and the 100 % rule holds. Prod adds W6-44, W6-46 and W6-47.
+- **W6-42 overall:** with part 1 (`security-w6-40-attempt-cap.md`, CLEAR after 9490702a), W6-42 has no open Critical or High.

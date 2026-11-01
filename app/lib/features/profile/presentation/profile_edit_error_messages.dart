@@ -12,7 +12,8 @@ import 'bloc/edit_profile_cubit.dart';
 String updateProfileErrorMessage(AppException error) {
   return switch (error) {
     ValidationException(field: 'display_name') =>
-      'Your name must be 1 to 50 characters of plain text, on one line.',
+      'Your name must be 1 to 50 characters on one line and contain a visible '
+          'character.',
     ValidationException(field: 'bio') =>
       'Your bio can be at most 160 characters of plain text.',
     ValidationException(field: 'location') =>
@@ -107,11 +108,18 @@ const kBannerGoneMessage =
 const kImagesGoneMessage =
     'Those photos are no longer available. Choose them again.';
 
+/// Wording of the server (W5-45): the name "must ... contain a visible
+/// character", and a location has no invisible characters.
+const kNameVisibleCharacterMessage =
+    'Your name must contain a visible character and no invisible ones.';
+const kLocationInvisibleMessage = 'Use one line of plain text, with no invisible characters.';
+
 /// The inline error under the display name field for a local check, or null.
 String? displayNameFieldError(DisplayNameIssue? issue) => switch (issue) {
   DisplayNameIssue.empty => 'Your name cannot be empty.',
   DisplayNameIssue.tooLong => 'At most $kMaxDisplayNameLength characters.',
   DisplayNameIssue.forbiddenCharacter => 'Use one line of plain text.',
+  DisplayNameIssue.invisibleCharacter => kNameVisibleCharacterMessage,
   null => null,
 };
 
@@ -126,6 +134,7 @@ String? bioFieldError(BioIssue? issue) => switch (issue) {
 String? locationFieldError(LocationIssue? issue) => switch (issue) {
   LocationIssue.tooLong => 'At most $kMaxLocationLength characters.',
   LocationIssue.forbiddenCharacter => 'Use one line of plain text.',
+  LocationIssue.invisibleCharacter => kLocationInvisibleMessage,
   null => null,
 };
 

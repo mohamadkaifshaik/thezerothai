@@ -614,15 +614,18 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	}
 
 	// Release with the claim's own time clears the field; with a stale time it is a conflict and changes nothing.
-	if err := e.real.ReleaseScreening(ctx, pending.ID, pending.UpdateTime); !errors.Is(err, ErrConflict) {
+	if err := e.real.ReleaseScreening(ctx, pending.ID, pending.UpdateTime, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("release with a stale time = %v, want ErrConflict", err)
 	}
 	rctx, rc := counted()
-	if err := e.real.ReleaseScreening(rctx, pending.ID, claimedAt); err != nil {
+	if err := e.real.ReleaseScreening(rctx, pending.ID, claimedAt, true); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	budgettest.Assert(t, "ReleaseScreening", rc, budgettest.Budget{Writes: 1})
+	budgettest.Assert(t, "ReleaseScreening (assessed: screenAssessed rides the same write)", rc, budgettest.Budget{Writes: 1})
 	released := load()
+	if released.ScreenAssessed != 1 {
+		t.Fatalf("screenAssessed = %d, want 1 (W6-40: incremented in the release write)", released.ScreenAssessed)
+	}
 	if released.ScreeningUntil != nil || released.Status != string(StatusPending) {
 		t.Fatalf("released doc = %+v, want PENDING with no claim", released)
 	}

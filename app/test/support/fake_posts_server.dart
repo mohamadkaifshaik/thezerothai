@@ -56,6 +56,10 @@ class FakePostsServer extends Fake implements PostsRepository {
   /// Scripted answers, consumed one per committed call; empty means [ServerReply.ok].
   final List<ServerReply> script = [];
 
+  /// Errors thrown by the next calls BEFORE anything is committed (a refusal
+  /// that creates nothing), one per call.
+  final List<AppException> refusals = [];
+
   /// Every key that reached the server, in order (replays included).
   final List<String> receivedKeys = [];
 
@@ -86,6 +90,7 @@ class FakePostsServer extends Fake implements PostsRepository {
     DraftPoll? poll,
   }) async {
     receivedKeys.add(idempotencyKey);
+    if (refusals.isNotEmpty) throw refusals.removeAt(0);
     final body =
         'post|$text|${mediaIds.join(',')}|${mediaAltTexts.join(',')}'
         '|${replyPolicy.value}|${poll?.choices.join(',')}';
@@ -118,6 +123,7 @@ class FakePostsServer extends Fake implements PostsRepository {
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
   }) async {
     receivedKeys.add(idempotencyKey);
+    if (refusals.isNotEmpty) throw refusals.removeAt(0);
     final minute = publishAt.toUtc().millisecondsSinceEpoch ~/ 60000;
     final body =
         'sched|$text|${mediaIds.join(',')}|${mediaAltTexts.join(',')}'

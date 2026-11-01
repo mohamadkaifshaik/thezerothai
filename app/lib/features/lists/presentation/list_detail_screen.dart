@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/app_back_header.dart';
 import '../../../shared/widgets/app_main_column.dart';
+import '../../messages/presentation/report_conversation.dart'
+    show thankForReport;
+import '../../moderation/domain/reports_feature_flag.dart';
+import '../../moderation/presentation/report_sheet.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../posts/data/posts_repository.dart';
 import '../../timeline/data/timeline_repository.dart';
@@ -15,8 +21,10 @@ import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../data/home_tabs_repository.dart';
 import '../data/lists_repository.dart';
+import '../domain/lists_feature_flag.dart';
 import 'bloc/list_detail_cubit.dart';
 import 'bloc/list_detail_state.dart';
+import '../../../shared/widgets/app_menu_item_row.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_detail_header.dart';
 import 'widgets/list_editor_sheet.dart';
@@ -102,8 +110,25 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     if (outcome?.deletedId != null && mounted) _back();
   }
 
+  /// W5-48: the shared report sheet with the List target. NOT_FOUND (a List
+  /// the viewer cannot see), the reports quota and VALIDATION `target_id`
+  /// (own List) are mapped inside the sheet (`reportErrorMessage`).
+  Future<void> _report() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final outcome = await showReportSheet(
+      context,
+      targetType: ReportTargetType.REPORT_TARGET_TYPE_LIST,
+      targetId: widget.listId,
+      subject: 'this List',
+    );
+    thankForReport(messenger, outcome);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canReport =
+        isFeatureEnabled(context, kFeatureReports) &&
+        isFeatureEnabled(context, kFeatureLists);
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,
     );
@@ -144,6 +169,13 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                     header != null &&
                     viewerUserId != null &&
                     header.owner.userId == viewerUserId;
+                // Not the owner's own List (the server answers VALIDATION);
+                // without a known viewer the entry stays hidden.
+                final showReport =
+                    canReport &&
+                    header != null &&
+                    viewerUserId != null &&
+                    !isOwner;
                 return TimelineFeedView(
                   viewerUserId: viewerUserId,
                   emptyTitle: 'No posts yet',
@@ -157,6 +189,28 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                       child: AppBackHeader(
                         title: header?.name ?? 'List',
                         onBack: _back,
+                        actions: [
+                          if (showReport)
+                            PopupMenuButton<String>(
+                              tooltip: 'More options',
+                              icon: const Icon(Icons.more_horiz),
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size.square(
+                                  AppSpacing.minTapTarget,
+                                ),
+                              ),
+                              onSelected: (_) => _report(),
+                              itemBuilder: (context) => const [
+                                PopupMenuItem(
+                                  value: 'report',
+                                  child: AppMenuItemRow(
+                                    icon: Icons.flag_outlined,
+                                    label: 'Report List',
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
                       ),
                     ),
                     SliverToBoxAdapter(

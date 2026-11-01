@@ -244,6 +244,16 @@ class SettingsList extends StatelessWidget {
         'About',
         [
           SettingsRow(
+            icon: Icons.rule_outlined,
+            title: 'Community rules',
+            trailing: Icon(
+              Icons.open_in_new,
+              size: AppIconSize.md,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            onTap: () => launchCommunityRules(context),
+          ),
+          SettingsRow(
             icon: Icons.privacy_tip_outlined,
             title: 'Privacy Policy',
             trailing: Icon(

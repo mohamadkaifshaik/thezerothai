@@ -492,6 +492,10 @@ index or Terraform file changes in this PR. A6 lists the contract changes for W6
   service-wide `VISION_MONTHLY_CAP` with `reject` still caps the total (10,000 units; 20,000 to 40,000 in credit
   mode). A ring that drains it denies uploads to everyone, as before.
 - **This loosens a merged security fix,** so W6-40's PR needs a security-auditor review (W6-42) before merge.
+- **Implementation notes (W6-40, #554, W6-42):**
+  - **A5.5:** a transport failure that returns an HTTP answer (Vision 5xx, the project-quota 429) is refunded to the per-uid cap, because the monthly counter has treated these as unbilled since #535. Each such call still takes one of the document's 8 claims, so the durable bounds hold.
+  - **A5.7 / N1:** deadlines and cancellations are counted in `VISION_MONTHLY_CAP` (and not refunded to the per-uid cap): one "possibly billed" definition for both counters. `AddVisionUnits` runs on a context detached from the request, so a client that hangs up cannot hide the spend. It over-counts by at most 2 units per honest timeout.
+  - **A5.7 cost, both bounds:** established accounts about INR 780 a month nominal (the in-memory cap while instances live) and about INR 1,390 durable (8 claims x 2 units x 20 uploads a day); new accounts about INR 156 nominal and about INR 347 durable.
 
 ### A6. Contract changes proposed for W6-35 (additive; `buf lint` and `buf breaking` clean)
 | File | Change | Number |
@@ -1329,6 +1333,32 @@ Numbers marked **corrected** replace the figure in the section named.
 3. FU-5: the `media-pipeline` skill now describes sampled-frame GIF screening (this PR).
 
 **Cost impact of these notes.** Fixed cost INR 0. No INR row of the Cost impact section changes.
+
+## As-built notes, 2026-10-31: block and change (W6-36)
+
+### N5. Amendment 1 A1 and A2 as built (W6-36)
+- **Two writes to one document in one commit: proven on the emulator, not yet on dev Firestore.** `ChangeVote` stages two field-level
+  merges of `userLikes/{uid}` (`ArrayRemove` of the old entry, `ArrayUnion` of the new one) in the same `WriteBatch` as the vote doc
+  `Update` and the post counters. `TestRepoChangeVote_BatchBudgetAndEffects` shows it commits (4 writes, 0 reads, one entry left, the other
+  arrays kept), so the transaction fallback of A2.3 was **not** built. Check it once on dev with a test account before `polls` widens
+  (runbook `engagement.md` section 10); if dev rejects it, the fallback is a swap of `FirestoreRepo.ChangeVote`.
+- **`userLikes` is written with `Set` + `MergeAll`, not `Update`.** A missing `userLikes` doc therefore never fails the commit, and the only
+  preconditions are the vote doc's `LastUpdateTime` and the post's `Exists`. That keeps "the vote doc did not move after a failed
+  precondition" a sound proof that the post is gone.
+- **The block rule fails closed.** `VotePoll` returns an internal error, never "not blocked", when no graph reader is wired or its snapshot
+  errors. It reads the caller's snapshot that `Viewable` just cached (+0 reads).
+- **`viewer_poll_vote_blocked` producers.** GetPost (a `PollBlockHinter` on the service, called only for a live poll by another author),
+  GetThread (`Thread.BlockedAuthors`, from the snapshot the service already holds) and GetUserTimeline (`checkVisible` returns the blocked
+  set). Home and lists pass nil. `TestPollConverterGuard_Repo` now pins which files may call `WithBlockedAuthors`.
+- **Outcomes.** `poll_vote` gains `changed`, `change_limit`, `stale_expected` and `voter_blocks_author`; `already_voted` is renamed
+  `stale_expected` (it is now only the stale-`expected_choice` row). Runbook section 10 is updated.
+- **Config.** `POLL_VOTE_CHANGES_MAX` (default 5, 0..20) in `ComposerConfig`; env only (no Terraform variable exists for the poll keys).
+- **Measured on the emulator chain** (`TestW636_ChangeBudgetCapAndClose`, request line, warm instance): a change costs 1 read (the vote doc) and 4
+  writes; the documented ceiling stays 9 reads cold (`budgettest.Assert`). `TARGET_BLOCKED` is asserted at the existing 7-read refusal ceiling and 0
+  writes.
+- **W6-29 (`userLikes.pollVotes` retention, #552).** It changes the entry to `<postId>:<choice>:<closesAtUnix>`. `closesAt` is immutable, so a
+  change can rebuild the old entry from the post; whichever PR merges second adapts `ChangeVote` (`ChangeParams` gains `ClosesAt`, and the
+  `ArrayRemove` names both the new form and the legacy two-part form so a dev leftover is removed too).
 
 ### N5. D11 point 4 as built after W6-28 (security M-2): the last frame is always sampled
 

@@ -259,6 +259,9 @@ Plan = ADR-0029 Cost impact and `docs/plans/ui-w6-composer-extras.md`, worst / t
 | `VotePoll` replay (same key) | 9 / 4 | 0 | **1** | **0** | yes (below the plan) |
 | `VotePoll` ALREADY_VOTED (new key, other choice) | 9 / 4 | 0 | **1** (74 of 75 in the mix; one had 2) | **0** | yes (below) |
 | `VotePoll` refused: the author / choice out of range / post without a poll / POLL_CLOSED | <= 7 / 2 | 0 | **0 / 1 / 2 / 1** | **0** | yes (below) |
+| `VotePoll` change (Amendment 1 A2, W6-36; `expected_choice` names the stored vote) | 9 / 4 | 4 (vote doc, post counters, `userLikes` x2) | **1** (warm instance, the vote doc; `TestW636_ChangeBudgetCapAndClose`), 9 asserted as the cold ceiling | **4** | yes (below the plan on a warm instance; not measured cold or under load: W6-41 measures it with the W6-21 harness) |
+| `VotePoll` LIMIT_REACHED (`POLL_VOTE_CHANGES_MAX`) or ALREADY_VOTED for a stale `expected_choice` | 9 / 4 | 0 | the vote doc read, same as the replay row | **0** | yes |
+| `VotePoll` TARGET_BLOCKED (the voter blocks the author, A1) | <= 7 / 2 | 0 | at most the 7 asserted (`TestW636_VoterBlocksAuthor`); the block check adds **0** (the caller's graph snapshot `Viewable` cached) | **0** | yes |
 | `VotePoll` refused by the flag, shape, bucket or cap | 1 / 0-1 | 0 | not measured on the wire here; `TestPollVoteChain_FlagGate` / `_BucketLimit` / `_NewAccountCap` pass (ceiling 1) | | ceiling asserted |
 | `GetPost` of a closed poll (client, once per cached row), viewer cold, post cached | 4 / 1 | 0 | **1** | **0** | yes (exact) |
 | `GetPost` of an open poll, voter and non-voter, both warm | 4 / - | 0 | **0 / 0** (the poll view adds 0: it reads the `userLikes` the call already makes) | **0** | yes |

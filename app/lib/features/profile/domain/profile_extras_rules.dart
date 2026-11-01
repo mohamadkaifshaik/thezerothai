@@ -1,6 +1,7 @@
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 import '../../../shared/format/profile_website.dart';
+import '../../../shared/format/single_line_text.dart';
 
 /// Client checks for the profile text fields, mirroring the server
 /// (`backend/internal/identity/validate.go`, ADR-0024 D2, W3-22 L-2 / L-3).
@@ -29,6 +30,10 @@ enum DisplayNameIssue {
   /// A control character (a line break included: the name is one line), a
   /// line or paragraph separator or a bidi formatting control.
   forbiddenCharacter,
+
+  /// An invisible format character, a filler, or no visible character (W5-45,
+  /// W5-49): the name would render blank or hide text.
+  invisibleCharacter,
 }
 
 enum BioIssue {
@@ -48,6 +53,9 @@ enum LocationIssue {
   /// line or paragraph separator (U+2028, U+2029) or a bidi formatting
   /// control.
   forbiddenCharacter,
+
+  /// An invisible format character or a filler (W5-45, W5-49).
+  invisibleCharacter,
 }
 
 enum WebsiteIssue {
@@ -112,18 +120,18 @@ bool _isBidi(int r) =>
     (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069);
 
 /// Why [raw] cannot be saved as a display name, or null: 1 to
-/// [kMaxDisplayNameLength] code points after trim and NFC, on one line.
+/// [kMaxDisplayNameLength] code points after trim and NFC, on one line, with a
+/// visible character and no invisible format character (`singleLineIssue`).
 DisplayNameIssue? displayNameIssue(String raw) {
   final text = normalizeDisplayName(raw);
   final length = text.runes.length;
   if (length < 1) return DisplayNameIssue.empty;
   if (length > kMaxDisplayNameLength) return DisplayNameIssue.tooLong;
-  for (final r in text.runes) {
-    if (_isControl(r) || _isLineSeparator(r) || _isBidi(r)) {
-      return DisplayNameIssue.forbiddenCharacter;
-    }
-  }
-  return null;
+  return switch (singleLineIssue(text)) {
+    SingleLineIssue.forbidden => DisplayNameIssue.forbiddenCharacter,
+    SingleLineIssue.invisible => DisplayNameIssue.invisibleCharacter,
+    null => null,
+  };
 }
 
 /// Why [raw] cannot be saved as a bio, or null (empty is a valid clear): up to
@@ -146,12 +154,11 @@ BioIssue? bioIssue(String raw) {
 LocationIssue? locationIssue(String raw) {
   final text = normalizeProfileLocation(raw);
   if (text.runes.length > kMaxLocationLength) return LocationIssue.tooLong;
-  for (final r in text.runes) {
-    if (_isControl(r) || _isLineSeparator(r) || _isBidi(r)) {
-      return LocationIssue.forbiddenCharacter;
-    }
-  }
-  return null;
+  return switch (singleLineIssue(text)) {
+    SingleLineIssue.forbidden => LocationIssue.forbiddenCharacter,
+    SingleLineIssue.invisible => LocationIssue.invisibleCharacter,
+    null => null,
+  };
 }
 
 /// Why [raw] cannot be saved as a website, or null (empty is a valid clear).

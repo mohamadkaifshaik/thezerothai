@@ -11,14 +11,21 @@ import (
 	vision "google.golang.org/api/vision/v1"
 )
 
-// visionTimeout bounds one SafeSearch call (every outbound call has a deadline).
+// visionTimeout bounds one SafeSearch call (every outbound call has a deadline). The call's context is also bounded by what is left of the
+// request's own deadline (FinalizeUpload's 20 s), so a call gets the lesser of the two; screenAll refuses to start one with under minVisionBudget left.
 const visionTimeout = 10 * time.Second
+
+// errNotSent marks a Moderator failure that happened before any request reached Google (the Vision service could not be built: no credentials,
+// a metadata-server failure). Nothing can have been billed, so the call's unit is returned to both counters (unbilled, W6-49).
+var errNotSent = errors.New("media: vision request not sent")
 
 // Vision is the Cloud Vision SafeSearch Moderator. SafeSearch reads the object through its gs:// URI with the runtime
 // service account's own credentials (roles/storage.objectAdmin on the upload bucket), so a client's image bytes never
 // cross the API; SafeSearchBytes sends the server-built GIF contact sheet inline. The service is built lazily on the first call, so nothing happens before ListenAndServe.
 type Vision struct {
 	bucket string
+	// newService builds the API client on the first call; nil means vision.NewService. Overridable for tests only.
+	newService func(ctx context.Context) (*vision.Service, error)
 
 	mu  sync.Mutex
 	svc *vision.Service
@@ -40,9 +47,13 @@ func (v *Vision) service(ctx context.Context) (*vision.Service, error) {
 	if v.svc != nil {
 		return v.svc, nil
 	}
-	svc, err := vision.NewService(context.WithoutCancel(ctx))
+	build := v.newService
+	if build == nil {
+		build = func(ctx context.Context) (*vision.Service, error) { return vision.NewService(ctx) }
+	}
+	svc, err := build(context.WithoutCancel(ctx))
 	if err != nil {
-		return nil, fmt.Errorf("media: build vision service: %w", err)
+		return nil, fmt.Errorf("%w: build vision service: %w", errNotSent, err) // before any request: unbilled
 	}
 	v.svc = svc
 	return svc, nil
@@ -128,8 +139,9 @@ const codeInvalidArgument int64 = 3
 
 // VisionAnsweredError is a Moderator error for a call that reached Vision and got an answer: a per-image error, an
 // empty response, or a response without a SafeSearch annotation. Google bills such a call, so the screen counts its
-// unit against VISION_MONTHLY_CAP (W6-27, security H-3). A transport failure before any response is not one: it is
-// never billed and its reserved unit is released. Code is the response's google.rpc.Code, or -1 when there was none.
+// unit against VISION_MONTHLY_CAP (W6-27, security H-3). A failure without a response is not one: whether its unit comes back is decided by
+// unbilled (only an HTTP 429 or 5xx answer or a failure before the request was sent; a timeout, a reset or an EOF may have been billed, W6-49).
+// Code is the response's google.rpc.Code, or -1 when there was none.
 type VisionAnsweredError struct{ Code int64 }
 
 func (e *VisionAnsweredError) Error() string {

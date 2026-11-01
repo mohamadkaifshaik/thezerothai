@@ -6,6 +6,7 @@ import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../../../shared/widgets/app_form_header.dart';
 import '../../../../shared/widgets/character_counter.dart';
 import '../../data/lists_repository.dart';
+import '../../domain/list_text_rules.dart';
 import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_editor_cubit.dart';
 
@@ -79,6 +80,8 @@ class _ListEditorSheetState extends State<ListEditorSheet> {
   bool get _canSave {
     final name = _name.text.trim();
     if (name.isEmpty) return false;
+    if (listNameIssue(name) != null) return false;
+    if (listDescriptionIssue(_description.text) != null) return false;
     final before = _cubit.existing;
     if (before == null) return true;
     return name != before.name ||
@@ -150,7 +153,12 @@ class _ListEditorSheetState extends State<ListEditorSheet> {
                       enabled: !busy,
                       maxLength: kListNameMaxLength,
                       textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(labelText: 'Name'),
+                      decoration: InputDecoration(
+                        labelText: 'Name',
+                        errorText: listNameFieldError(
+                          listNameIssue(_name.text),
+                        ),
+                      ),
                       buildCounter: _counter(kListNameMaxLength),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -160,8 +168,11 @@ class _ListEditorSheetState extends State<ListEditorSheet> {
                       maxLength: kListDescriptionMaxLength,
                       minLines: 2,
                       maxLines: 4,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Description',
+                        errorText: listDescriptionFieldError(
+                          listDescriptionIssue(_description.text),
+                        ),
                       ),
                       buildCounter: _counter(kListDescriptionMaxLength),
                     ),
