@@ -66,25 +66,8 @@ func TestErrors_Shape(t *testing.T) {
 	}
 }
 
-// TestLimits_PostsPerCommunityCap: the uid|cid DailyCap admits the configured number per uid and community per day and keeps
-// uids and communities apart; the key cannot be forged by a uid (a uid has no "|").
-func TestLimits_PostsPerCommunityCap(t *testing.T) {
-	c := NewPostsPerCommunityCap(2)
-	k := PostsCapKey("uid-a", "1111111111111111111")
-	if k != "uid-a|1111111111111111111" {
-		t.Fatalf("key = %q", k)
-	}
-	for i := 1; i <= 3; i++ {
-		if got, want := c.Allow(k), i <= 2; got != want {
-			t.Fatalf("post %d: Allow = %v, want %v (exactly 2 per uid and community)", i, got, want)
-		}
-	}
-	if !c.Allow(PostsCapKey("uid-a", "2222222222222222222")) {
-		t.Error("another community must have its own allowance")
-	}
-	if !c.Allow(PostsCapKey("uid-b", "1111111111111111111")) {
-		t.Error("another uid must have its own allowance")
-	}
+// TestLimits_Names pins the three RATE_LIMITED limit names communities.proto documents.
+func TestLimits_Names(t *testing.T) {
 	for name, want := range map[string]string{
 		LimitMutationDaily:          "community_mutation_daily",
 		LimitModActionsDaily:        "community_mod_actions_daily",

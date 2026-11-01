@@ -41,7 +41,7 @@ The startup line `community_limits` shows the creators **count**, never the uids
 | `RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN` / `_READ_PER_MIN` / `RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN` | 20 / 30 / 12 | x3 instances |
 | `COMMUNITY_MUTATIONS_PER_DAY` (`community_mutation_daily`) | 200 | 600; Create, Update, Join, Leave per uid |
 | `COMMUNITY_MOD_ACTIONS_PER_DAY` (`community_mod_actions_daily`) | 200 | 600; Hide, Restore, SetMemberRole per actor |
-| `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY` (`community_posts_per_community_daily`) | 20 | 60; per `uid\|cid` (the posts gate, W5-26) |
+| `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY` (`community_posts_per_community_daily`) | 20 | 60; per `uid\|cid` (drawn on by the communities-side posts gate, W5-26) |
 | `CACHE_COMMUNITIES_ENTRIES` / `CACHE_COMMUNITY_FEED_ENTRIES` / `CACHE_COMMUNITY_MEMBERS_ENTRIES` | 200 / 100 / 5,000 | per instance, 60 s |
 
 A user who sees `RATE_LIMITED` with `metadata["limit"]` = one of the three daily names has hit the in-memory cap for the day (it
