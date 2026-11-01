@@ -1,4 +1,4 @@
-In review (#567) |# UI W6: composer extras remainder (polls, drafts on the device, GIFs from the device)
+# UI W6: composer extras remainder (polls, drafts on the device, GIFs from the device)
 Plan owner: planner · Date: 2026-10-26 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **New backend surface:**
 
 > **Decision (founder, 2026-10-27):** F2 = yes (the natural-key vote doc is the idempotency record). GIFs stay in W6: a same-day deferral was withdrawn; F9 to F11 proceed on their stated defaults, with F11 (server-side frame-sampled SafeSearch, which has the API read the uploaded GIF) to be confirmed in ADR W6-1.
@@ -354,62 +354,63 @@ Effect on the quotas (additive):
 
 | ID | Ticket | Owner | Size | Depends | Runs alongside W3/W4/W5? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | In review (PR #473) |
-| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | In review (PR #473) |
-| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | In review (PR #473) |
-| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | In review (PR #484) |
+| W6-1 | ADR-0029 "Composer extras remainder: polls, local drafts, device GIFs" | architect | M | — | **yes, start now** (new file) | Done (#473; skill rows still owed: ADR-0029 FU-3 and FU-4, and FU-7 per N13) |
+| W6-2 | Proto: poll messages in `posts.proto`, `VotePoll` in `engagement.proto`, `ErrorReason`s; `posts.poll` fieldOverride + ack; data-model rows | architect | M | W6-1 drafted | `posts.proto` and `common.proto` numbers: one PR at a time | Done (#473; fieldOverrides in W6-4 #484) |
+| W6-3 | Proto: `media.proto` GIF content type and thumbnail content type | architect | S | W6-1 drafted | after W3-5's `media.proto` change, or rebase | Done (#473) |
+| W6-4 | `make proto`; `FEATURE_POLLS` / `FEATURE_DRAFTS` / `FEATURE_GIF`, config, rate limits, daily cap, ceilings, Terraform vars, TTL field | backend-developer | M | W6-2, W6-3 | shared config, ceiling and Terraform files: one PR at a time | Done (#484) |
 | W6-5 | posts: CreatePost with a poll; `Post.poll` and `EmbeddedPost.poll` converters; `requestHash` suffix; moderation view | backend-developer | M | W6-4 | `service_create.go`, `convert.go`: rebase on W3-7 | Done (#497) |
-| W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Done |
-| W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | In review |
-| W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | In review |
-| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | In review |
-| W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Open |
-| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | In review |
+| W6-6 | posts + engagement: viewer choice (`userLikes.pollVotes` → `ViewerSet.PollChoice`) and per-viewer redaction in the converter | backend-developer | M | W6-5 | `posts/api.go` (`ViewerSet`, `HydrateViewer`) | Done (#504) |
+| W6-7 | engagement: `VotePoll` (visibility, closed/author checks, the vote batch, natural-key replay, caps) | backend-developer | M | W6-6 | yes (engagement module); **same PR as W6-8** | Done (#515) |
+| W6-8 | engagement: `pollVotes` lifecycle (eraser, export, T11 row, pinned order), TTL, runbook section | backend-developer | S | W6-7 (same PR) | `lifecycle_wiring_test.go`, guard test: one PR at a time | Done (#515) |
+| W6-9 | media: accept `image/gif` for post media (validation, sniffing, publish, flag gate, one per post) | backend-developer | M | W6-4 | `media/service.go`, `finalize.go`: after W3-5 | Done (#496) |
+| W6-10 | media: frame-sampled SafeSearch for GIFs, with decode guards | backend-developer | M | W6-9, F11 | yes (media module) | Done (#505) |
+| W6-11 | Composer toolbar: Poll and GIF buttons, mutual-exclusion rules, flag gates | frontend-developer | S | W6-4 | `composer_screen.dart`: one PR at a time | Done (#498) |
 | W6-12 | Poll builder in the composer (choices, length, remove, echo check) | frontend-developer | M | W6-11 | `composer_cubit.dart` | Done (#513) |
 | W6-13 | Poll card (vote, results, closed, author view, compact embed) + `VotePoll` repository | frontend-developer | M | W6-2 (generated Dart), W6-7 for the dev check | `post_card.dart`: rebase on W3/W4 | Done (#510) |
-| W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | In review |
-| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | In review |
-| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | In review |
-| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | In review (this PR; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
-| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in fix/gif-browser-delay-clamp; report docs/reviews/test-report-w6-gif.md) |
-| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | In review (this PR; report `docs/reviews/test-report-w6-client.md`) |
-| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | In review: `docs/reviews/security-w6-composer-extras.md`, BLOCKED (H-1 to H-3) for `gif` and `media` beyond the dev allowlist; `polls` and `drafts` GO for the dev allowlist |
-| W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Open |
-| W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Open |
-| W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open |
-| W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open |
-| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | Done (#536) |
-| W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | In review (PR #541): `webpIsStill` in `media/webpscan.go`, refused in `verify` with reason `invalid`, 0 Vision units, 32 KiB pinned head for WebP (same single call) |
-| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Done (#535); revision proposed in ADR-0029 Amendment 1 A5 (W6-40): `screenAttempts` on the claim write, `VisionAnsweredError` counted units, INVALID_ARGUMENT REJECTED, `MEDIA_MAX_SCREEN_ATTEMPTS` (default 3) |
-| W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | In review (#545) |
-| W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | In review (#552; required before release: retention, W6-47) |
-| W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | In review (#577) |
-| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | In review (#574) |
-| W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
+| W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | Done (#487) |
+| W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Done (#525) |
+| W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Done (#525; #522 closed as merged via #525) |
+| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Done (#532; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
+| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in #521; report docs/reviews/test-report-w6-gif.md) |
+| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Done (#534; report `docs/reviews/test-report-w6-client.md`; D1 Low fixed in W6-48 #553) |
+| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Report merged (#533); H-1 #536, H-2 #541, H-3 #535 (revised #554) and M-2 #545 merged; verdict not re-issued: the report still ends BLOCKED and its H-1 and H-2 headers still read In review (security-auditor) |
+| W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Done (#528; `cost-model.md` §16, BUDGET: HOLDS) |
+| W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Done in dev (smoke passed 2026-11-01: polls, drafts, GIF); prod stays `off` until the held release |
+| W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open (conditional) |
+| W6-24 | *(conditional on W6-23)* GIF search picker behind `FEATURE_GIF_SEARCH` | frontend-developer | M | W6-23, W6-16 | yes | Open (conditional) |
+| W6-25 | *(W6-20 H-1)* Create-only signed PUT (`x-goog-if-generation-match:0`, client treats 412 as stored); pin the verified generation on the GIF read and on `CopyTo`; flip `TestW618_KnownResidual_PublishSwapAfterScreening` | backend-developer + frontend-developer | S | W6-20 | media files serialise with W6-26/27/28 | Done in dev (#536; dev upload CORS applied); prod: upload-bucket CORS `x-goog-if-generation-match` apply pending before the next `v*` tag (founder plan-then-OK) |
+| W6-26 | *(W6-20 H-2)* Refuse animated WebP (VP8X animation flag, ANIM/ANMF chunks) for photos, avatars, banners and GIF thumbnails, or drop WebP (architect note) | backend-developer | XS | W6-20 | after W6-25 | Done (#541): `webpIsStill` in `media/webpscan.go`, refused in `verify` with reason `invalid`, 0 Vision units, 32 KiB pinned head for WebP (same single call) |
+| W6-27 | *(W6-20 H-3)* Count Vision units for every call that answered; a Vision INVALID_ARGUMENT is REJECTED; cap screening attempts per media doc | backend-developer | S | W6-20 | after W6-26 | Done (#535); revised by ADR-0029 Amendment 1 A5 (W6-40, #554): `screenAttempts` on the claim write, `VisionAnsweredError` counted units, INVALID_ARGUMENT REJECTED, `MEDIA_MAX_SCREEN_ATTEMPTS` (default 3) |
+| W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | Done (#545) |
+| W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | Done (#552; retention set by W6-47, #564) |
+| W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Done (#577) |
+| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Done (#574) |
+| W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Done (#567) |
 | W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Done (#571; rule C accepted by the founder 2026-11-01; runbook text is W6-33a) |
-| W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (two-sided tag check: 13b5080f, or no uploader a3455ef5; prod upload CORS; W6-34 Done; Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | In review (#579) |
-| W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | In review (#569) |
-| W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
-| W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Done (#555) |
-| W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | In review (#559) |
-| W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
-| W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | In review (fix/ui-w6-39-drafts-send-key) |
-| W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | In review (#554, W6-42 before merge) |
-| W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters; W6-42 part 2 L-1 (NOT_FOUND bytes after a vote, with `expected_choice`) and I-7 (one `userLikes` entry after a REPOST-id change) | tester | M | W6-36, W6-37, W6-40 | yes | In review (#575) |
+| W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (two-sided tag check: 13b5080f, or no uploader a3455ef5; prod upload CORS; W6-34 Done; Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Done (#579); prod: upload-bucket CORS apply (check 2) pending (founder plan-then-OK) |
+| W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Done (#569) |
+| W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Done (#548) |
+| W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Done (#555; dev change-batch check passed 2026-11-01, recorded in #568) |
+| W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Done (#559) |
+| W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Done (#547) |
+| W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | Done (#560) |
+| W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | Done (#554; W6-42 part 1 CLEAR) |
+| W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters; W6-42 part 2 L-1 (NOT_FOUND bytes after a vote, with `expected_choice`) and I-7 (one `userLikes` entry after a REPOST-id change) | tester | M | W6-36, W6-37, W6-40 | yes | Done (#575) |
 | W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Done (part 1 #554, part 2 #555: both SECURITY CLEAR) |
-| W6-43 | *(founder 2026-10-31, Art. 9)* No polls soliciting sensitive personal information: a Terms / community-rules line, a short composer hint under the poll builder, a report reason (or the existing "other" reason with a sensitive-data note) and a moderation runbook entry; no automated detection at Stage 0 | architect (rule text) + frontend-developer + backend-developer | S | Amendment 1 merged | yes | In review (this PR) |
-| W6-44 | *(founder 2026-10-31, L-3)* In-app copy "Individual choices are hidden from other users" near the poll results / in Help; never "anonymous" | frontend-developer | XS | W6-37 | poll card files serialise with W6-37 | In review (#570) |
-| W6-45 | *(founder 2026-10-31, L-5)* Drafts expire 30 days after the user's last edit: client purge on app start and Drafts open, `updatedAt` = last user edit (not autosave of an unchanged draft), tests incl. the boundary | frontend-developer | S | — | serialise with W6-31 and W6-39 (drafts table) | In review (gate: before release) |
+| W6-43 | *(founder 2026-10-31, Art. 9)* No polls soliciting sensitive personal information: a Terms / community-rules line, a short composer hint under the poll builder, a report reason (or the existing "other" reason with a sensitive-data note) and a moderation runbook entry; no automated detection at Stage 0 | architect (rule text) + frontend-developer + backend-developer | S | Amendment 1 merged | yes | Done (#558) |
+| W6-44 | *(founder 2026-10-31, L-3)* In-app copy "Individual choices are hidden from other users" near the poll results / in Help; never "anonymous" | frontend-developer | XS | W6-37 | poll card files serialise with W6-37 | Done (#570) |
+| W6-45 | *(founder 2026-10-31, L-5)* Drafts expire 30 days after the user's last edit: client purge on app start and Drafts open, `updatedAt` = last user edit (not autosave of an unchanged draft), tests incl. the boundary | frontend-developer | S | — | serialise with W6-31 and W6-39 (drafts table) | Done (#550) |
 | W6-46 | *(founder 2026-10-31)* Privacy Policy (`app/web/privacy.html`): polls (vote stored with the account; individual choices hidden from other users, small-poll caveat; votes can be changed until close; retention; deleted with the account; in the export), drafts (device-only, 30-day expiry, wiped on account deletion from that device), lists (W5-42 protected owners, W5-46 export of memberships with private-list details redacted) | architect (draft) + founder (approval) | S | W6-47 for the retention period | yes | Done (#564; founder approved the text 2026-11-01). Before release: refresh the older sentences of the page that are no longer true (posts, uploads, likes, notifications, export, Cloud Vision and push now exist) and qualify the header "only things that outlast deletion" (follow-up ticket, numbered in the W6 status sync); re-check the drafts "Deleting your account" bullet when W6-31 lands; the export and deletion sentences hold for the in-app path only, so `FEATURE_ACCOUNT_LIFECYCLE` must be on in prod (or `account-deletion.md` sections 3a and 3b extended) before `polls` or `lists` leave off there |
 | W6-47 | *(founder 2026-10-31)* Finalize vote retention before release: W6-29 merged (TTL on `userLikes.pollVotes`), founder confirms the period (proposed 30 days after close for the vote doc and the per-account copy), policy and runbook state it | architect + founder | XS | W6-29 | yes | Done (#564): founder approved 30 days after close for both (2026-10-31); W6-29 merged (#552); stated in runbook `engagement.md` section 10, an ADR-0029 dated note and the policy's "Polls" section (W6-46). Release preconditions unchanged: TTL policy `poll_votes_expire_at` applied and the `daily-maintenance` Scheduler job running before `polls` leaves off in a project |
-| W6-49 | *(W6-42 L-1, L-3, #554)* media: refund to the per-uid cap only a `*googleapi.Error` 429 or >= 500 and pre-send errors; give the Vision calls the remaining finalize time (or shorten `GifQueueWait`) and fix the `finalize.go` "about 17 s" comment | backend-developer | XS | W6-40 | after W6-40 | In review (#563) |
-| W6-50 | *(W6-42 L-4, #554)* media: align the zero-`createdAt` tier between the upload quota and the units cap | backend-developer | XS | W6-40 | after W6-40 | In review (#565) |
-| W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), and `POLL_VOTE_CHANGES_MAX` (W6-42 part 2 L-3, #555), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | Done (#562; dev apply pending) |
-| W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | In review (#553) |
-| W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | In review (#566) |
+| W6-49 | *(W6-42 L-1, L-3, #554)* media: refund to the per-uid cap only a `*googleapi.Error` 429 or >= 500 and pre-send errors; give the Vision calls the remaining finalize time (or shorten `GifQueueWait`) and fix the `finalize.go` "about 17 s" comment | backend-developer | XS | W6-40 | after W6-40 | Done (#563) |
+| W6-50 | *(W6-42 L-4, #554)* media: align the zero-`createdAt` tier between the upload quota and the units cap | backend-developer | XS | W6-40 | after W6-40 | Done (#565) |
+| W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), and `POLL_VOTE_CHANGES_MAX` (W6-42 part 2 L-3, #555), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | Done in dev (#562; applied in dev 2026-11-01, targeted, recorded in #568); prod: apply pending (founder plan-then-OK) |
+| W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | Done (#553, with W5-50) |
+| W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | Done (#566) |
 | W6-53 | *(W6-42 part 2 I-9; ADR-0029 N12)* `poll_votes` export: add `changes` (the vote doc's stored change count) to `ExportedPollVote`, JSON `changes,omitempty`, present exactly when `changedAt` is, so a vote that never changed keeps its bytes; extend `TestPollVoteExporter_ChangedAt` and `TestPollVoteExporter_ChangedAtFromFirestore`; 0 reads, 0 writes; adds one field to Amendment 1 A2.6's export list (the founder confirms with this PR) | backend-developer | XS | W6-36 (#555) | yes (recommended before `polls` goes on in prod, with W6-46) | Open (founder approved adding `changes` 2026-11-01) |
-| W6-54 | *(ADR-0029 as-built review, 2026-11-01)* Poll erase/export error lines: redact vote doc ids before the uid (keyed HashPost), no plain post id | backend-developer | XS | W6-52 | yes | In review (#576) |
-| W6-56 | *(W6-54 follow-up, 2026-11-01)* Bookmarks and likes erase/export error lines: post ids keyed (HashPost), never next to a uid hash in plain | backend-developer | XS | W6-52 | yes | In review (#578) |
+| W6-54 | *(ADR-0029 as-built review, 2026-11-01)* Poll erase/export error lines: redact vote doc ids before the uid (keyed HashPost), no plain post id | backend-developer | XS | W6-52 | yes | Done (#576) |
+| W6-56 | *(W6-54 follow-up, 2026-11-01)* Bookmarks and likes erase/export error lines: post ids keyed (HashPost), never next to a uid hash in plain | backend-developer | XS | W6-52 | yes | Done (#578) |
+| W6-57 | *(W6-17 CI flake, opened 2026-11-01)* Deflake `TestW617_ConcurrencyManyVotersRacingThemselves`: find the root cause; no skip, quarantine, retry wrapper or relaxed assertion; if it is a prod defect, a backend ticket follows | tester | S | W6-41 | yes (tests only) | Done (#555): no code change; the only CI failure (run 41202663587, 2026-10-31, cached author view on instance 2 = 0) was a test expectation already corrected in #555 (034c1c06, w617_polls_chain_integration_test.go:560-566); 20/20 local passes on the emulators 2026-11-01 |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
@@ -433,7 +434,7 @@ Order:
 
 ## Tickets
 
-### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #473)
+### W6-1 — ADR "Composer extras remainder: polls, local drafts, device GIFs"  [owner: architect] [size: M] [depends: —]  Status: Done (#473; skill rows still owed: ADR-0029 FU-3 and FU-4, and FU-7 per N13)
 - **Description.** ADR-0029 (`docs/adr/0029-composer-extras-remainder-polls-drafts-gif.md`; 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4). It covers:
   - the poll model and the vote path (A1–A9);
   - F1–F6 and F10–F12 as founder items with options, defaults and INR at 300 / 1,000 / 3,000 DAU citing `cost-model.md`;
@@ -462,7 +463,7 @@ Order:
 - **Seam.** `posts.EngagementWriter.StagePollVote`, `posts.ViewerSet.PollChoice`, `engagement.Service.VotePoll`, the `media` content-type table and `Moderator`, and the client `DraftsRepository` and `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: In review (PR #473)
+### W6-2 — Poll contract  [owner: architect] [size: M] [depends: W6-1 drafted]  Status: Done (#473; fieldOverrides in W6-4 #484)
 - **Description.** Additive changes only, with numbers as of `main` d2ff011 (re-check at PR time):
   - **`posts.proto`:**
     - `message PollChoice { string label = 1; int64 votes = 2; /* 0 when hidden */ }`;
@@ -489,7 +490,7 @@ Order:
 - **Seam.** `Poll` is a message (choices with images or a "poll ended" state can be added later); `viewer_poll_choice` is per-viewer and never cached across viewers.
 - **Runs alongside W3/W4/W5:** the field and `ErrorReason` numbers collide textually with any other wave's proto PR, so one PR at a time.
 
-### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: In review (PR #473)
+### W6-3 — Media contract for GIFs  [owner: architect] [size: S] [depends: W6-1 drafted]  Status: Done (#473)
 - **Description.** In `media.proto`:
   - the `UploadItem.content_type` comment allows `image/gif` (POST only);
   - add `string thumb_content_type = 8` (`image/jpeg` or `image/webp`; empty = same as `content_type`, today's behaviour), or document the fixed JPEG rule per A10;
@@ -505,7 +506,7 @@ Order:
 - **Seam.** The content-type table stays inside `media`; posts never sees a MIME type except through `LoadForPost`'s claim.
 - **Runs alongside W3/W4/W5:** after W3-5's `MEDIA_PURPOSE_BANNER` change, or rebase.
 
-### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: In review (PR #484)
+### W6-4 — Generate, flags, config, ceilings, Terraform  [owner: backend-developer] [size: M] [depends: W6-2, W6-3]  Status: Done (#484)
 - **Description.**
   - Register `FEATURE_POLLS`, `FEATURE_DRAFTS` and `FEATURE_GIF` in `config.go` and `flags.NewRegistry` (follow `FEATURE_BOOKMARKS`; `drafts` follows `ui_shell`: no RPC guard).
   - Config, added to `config_test.go`'s env list with range checks: `POLL_MAX_CHOICES` 4, `POLL_CHOICE_MAX_CODEPOINTS` 25, `POLL_MIN_DURATION` 5m, `POLL_MAX_DURATION` 168h, `POLL_VOTE_TTL_AFTER_CLOSE` 720h, `RATE_LIMIT_POLL_VOTE_PER_MIN` 30, `POLL_VOTES_PER_DAY` 300, `POLL_VOTES_PER_DAY_NEW_ACCOUNT` 50, `POLL_VIEWER_VOTES_KEPT` 500, `GIF_MAX_FRAMES` 300, `GIF_MAX_EDGE` 1280, `GIF_MAX_FRAME_AREA_SUM` 50,000,000.
@@ -562,7 +563,7 @@ Order:
   - W6-7 note: `Cache.AdjustCounts` shallow-copies `Post`, so every cached copy shares one `*Poll`; after a committed vote build a NEW `Poll` with fresh `Counts` for the cache, never mutate in place.
   - W6-7 note: increment a vote with `firestore.FieldPath{"poll","counts",strconv.Itoa(i)}` and `{"poll","total"}`, not a dotted string (the keys are numeric strings).
 
-### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Done
+### W6-6 — Viewer choice and per-viewer redaction  [owner: backend-developer] [size: M] [depends: W6-5]  Status: Done (#504)
 - **Description.**
   - engagement: `LoadUserLikes` also returns `pollVotes`.
   - posts: `ViewerSet` gains `pollChoice map[string]int` and `PollChoice(p)`, keyed by `viewerID`.
@@ -595,7 +596,7 @@ Order:
   - Guard: `TestPollConverterGuard_Repo` (posts package) names the producers (GetPost and GetThread, timelines, SearchPosts, ListBookmarks, ListLikedPosts, CreatePost via `ToProtoForViewer`) and fails on a `PostView`/`Poll` literal outside the converter or a plain `ToProto` call. W6-7 adds the `VotePoll` response to it.
   - Not done here (W6-7): the `userLikes.pollVotes` write and its trim to `POLL_VIEWER_VOTES_KEPT`, the cache update after a vote, and the VotePoll response view. The read side does not trim.
 
-### W6-7 — `VotePoll`  [owner: backend-developer] [size: M] [depends: W6-6]  Status: In review (this PR; ships with W6-8)
+### W6-7 — `VotePoll`  [owner: backend-developer] [size: M] [depends: W6-6]  Status: Done (#515, with W6-8)
 - **Description.** `engagement.Service.VotePoll`, step by step:
   1. Flags: `engagement` on for the caller (as Like) and `polls` not globally off; else FEATURE_DISABLED (`feature=engagement` or `polls`) with 0 reads.
   2. `idempotency_key` format, verified identity, `choice_index` in 0..3; VALIDATION with 0 reads.
@@ -624,7 +625,7 @@ Order:
 - **Seam.** `engagement.Service.VotePoll` → `posts.EngagementWriter.StagePollVote` (the one counter helper; sharding replaces its body, not its callers).
 - **Runs alongside W3/W4/W5:** yes (the engagement module); `engagement_wiring.go` is shared, so rebase.
 
-### W6-8 — `pollVotes` lifecycle and runbook  [owner: backend-developer] [size: S] [depends: W6-7, in the same PR]  Status: In review (same PR as W6-7)
+### W6-8 — `pollVotes` lifecycle and runbook  [owner: backend-developer] [size: S] [depends: W6-7, in the same PR]  Status: Done (#515, with W6-7)
 - **Description.**
   - Eraser step `poll_votes` (engagement): `pollVotes where uid == X`, pages ≤ 500, 1 read and 1 delete per doc. Registered `BeforeIdentity` after `engagement`, with the pinned order in `lifecycle_wiring_test.go` updated. Counts are left as they are (F6).
   - Export section `poll_votes`: `postId`, `choice`, `createdAt` per doc.
@@ -654,7 +655,7 @@ Order:
   - W6-8: the `poll_votes` step and section are appended after `messaging` (step names are persisted, so nothing is inserted mid-sequence); the pinned lists in `lifecycle_wiring_test.go` and `registeredLifecycle` and the T11 row are updated. Eraser and export page by document id (`uid ==`), no composite index.
   - Tests: unit (`service_polls_test.go`, `purge_polls_test.go`, `server_polls_test.go`, `posts/poll_vote_test.go`), emulator repo (`repo_polls_integration_test.go`), chain (`engagement_polls_chain_integration_test.go`). Not run: `-race` (no cgo), the full `make ci` and `make test-int`, a lifecycle chain test of an account with real votes (repo-level erase/export with 120 and 1,100 seeded votes instead), prod OPTIMISTIC concurrency (W6-22).
 
-### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: In review (PR #496; flag stays off until W6-10 merges)
+### W6-9 — Accept `image/gif` for post media  [owner: backend-developer] [size: M] [depends: W6-4]  Status: Done (#496)
 - **Description.**
   - CreateUpload accepts `image/gif` for `MEDIA_PURPOSE_POST` only (AVATAR and BANNER refuse), behind `FEATURE_GIF` (FEATURE_DISABLED `feature=gif`).
   - Items: exactly 1 GIF per CreateUpload and never mixed with other items; full ≤ `MaxFullBytes` (2 MiB); the thumbnail per `thumb_content_type` (JPEG or WebP ≤ 256 KiB).
@@ -680,7 +681,7 @@ Order:
 - **Seam.** The content-type table in `media`; posts sees only `MediaClaim`.
 - **Runs alongside W3/W4/W5:** `media/service.go` and `finalize.go` change in W3-5 (banner), so do this after it or rebase.
 
-### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: In review (this PR; `FEATURE_GIF` stays off until 100 % of traffic is on a revision with it)
+### W6-10 — Frame-sampled SafeSearch for GIFs  [owner: backend-developer] [size: M] [depends: W6-9, F11]  Status: Done (#505; `FEATURE_GIF` stays off until 100 % of traffic is on a revision with it)
 - **Description.** For a GIF in FinalizeUpload (F11 a):
   1. Read the object from the private upload bucket (≤ 2 MiB).
   2. Parse the header and frame descriptors and **refuse before decoding** above `GIF_MAX_FRAMES`, `GIF_MAX_EDGE` or `GIF_MAX_FRAME_AREA_SUM`.
@@ -705,7 +706,7 @@ Order:
 - **Seam.** The `Moderator` interface takes either a URI or bytes; the sampler is a pure function, so it can move to a separate job unchanged.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: In review
+### W6-11 — Composer toolbar: Poll and GIF  [owner: frontend-developer] [size: S] [depends: W6-4]  Status: Done (#498)
 - **Description.** In the composer's bottom bar, next to `_AddPhotoButton`, X's order (`composer.md` §1): photo, **GIF**, **poll**, schedule. Each button shows only when its flag is on (`gif` + `media`; `polls` + `engagement`). Mutual exclusion, mirroring X §1b and F4/F5/F10:
   - a poll disables photo, GIF and Schedule;
   - a schedule disables the poll;
@@ -724,7 +725,7 @@ Order:
 - **Seam.** One `ComposerAttachmentKind` rule function decides what is enabled; widgets never restate it.
 - **Runs alongside W3/W4/W5:** `composer_screen.dart`, one PR at a time.
 
-### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: In review
+### W6-12 — Poll builder  [owner: frontend-developer] [size: M] [depends: W6-11]  Status: Done (#513)
 - **Description.** Tapping Poll opens an inline builder (`composer.md` §2):
   - the text placeholder becomes "Ask a question";
   - Choice 1 and Choice 2 fields with "N / 25" counters (`CharacterCounter`), an "Add a choice" (+) up to 4, and a remove on choices 3 and 4;
@@ -745,7 +746,7 @@ Order:
 - **Seam.** `PollDraft` is the single model used by the builder, drafts (W6-14) and CreatePost.
 - **Runs alongside W3/W4/W5:** `composer_cubit.dart`, one PR at a time.
 
-### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: In review
+### W6-13 — Poll card and voting  [owner: frontend-developer] [size: M] [depends: W6-2; W6-7 for the dev check]  Status: Done (#510)
 - **Description.** `PollView` in `PostCard`, the thread view and the post detail:
   - **Open and not voted:** outlined choice buttons and "N votes · 2 days left".
   - **Voted, author or closed:** result bars with percentages (rounded so they total 100), the leading choice bold, a check on the viewer's choice, and "N votes · Final results" when closed.
@@ -773,7 +774,7 @@ Order:
 - **Seam.** `PollRepository` is the only caller of `VotePoll`; the card is presentational.
 - **Runs alongside W3/W4/W5:** `post_card.dart` also changes in W3 (pinned label) and W4-16 (hashtag tap), so rebase.
 
-### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: In review
+### W6-14 — Drafts store  [owner: frontend-developer] [size: M] [depends: —]  Status: Done (#487)
 - **Description.**
   - A drift table `ComposerDraftEntries` (`draftId`, `uid`, `draftText` (not `text`: it would shadow drift's `text()`), `pollJson`, `replyPolicy`, `paidPartnership`, `madeWithAi`, `createdAt`, `updatedAt`) in `AppDatabase`, schema **v9** (additive migration; v7 and v8 were taken by W7 messaging).
   - **Not** in `clearAll` (F7 default); every query is filtered by uid; writes are guarded by `SessionEpoch` (`epoch:`).
@@ -798,7 +799,7 @@ Order:
 - **Seam.** `DraftsRepository` is the only reader and writer, so synced drafts (the stage-ladder row) replace its implementation and change no widget.
 - **Runs alongside W3/W4/W5:** **start now.** The `app_database.dart` schema bump conflicts with any other wave adding a table, so one PR at a time.
 
-### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: In review
+### W6-15 — Drafts UI  [owner: frontend-developer] [size: M] [depends: W6-14, W6-4]  Status: Done (#525)
 - **Description.**
   - A composer header "Drafts" text button on the right (X §1).
   - Autosave while composing a new root post.
@@ -824,7 +825,7 @@ Order:
 - **Built (PR #525).** `ComposerCubit` takes an optional `DraftsRepository` + uid + `initialDraft` (root post only; a quote or a reply has none), autosaves from `onChange`, and decides the leave with `leaveAction` (`none` / `savePrompt` / `discardMedia`); `saveDraft`, `discardDraft` and `loadSavedDraft` serve the prompt and the list. Post and Schedule success delete the row (a schedule starts a new draft id). The header gets an optional secondary action on `AppFormHeader` (the "Drafts" button; saves first when there are changes). `/drafts?tab=scheduled` is the Scheduled tab; `/scheduled` redirects to it while `drafts` is on (the old screen stays with it off); `/drafts` needs `posts` + `drafts`. The composer pushes `/drafts` with `extra: true` (pick mode): a chosen draft pops its id and loads into the same composer; opened standalone, a tap pushes `/compose?draft=<id>`. The Scheduled list body is `ScheduledPostsBody`, shared by both screens. A malformed or unknown draft id never becomes the id of a new draft.
 - **Notes for later tickets.** Drafts keep text, poll, audience and the two disclosure labels; photos and a GIF are never kept (the prompt says so). The table key is `draftId` alone; the UI never adopts an id from a URL, and every query filters by uid (W6-20: the one shared-key risk is a caller who knows another account's 16-hex id AND bypasses the UI). A poll or audience whose flag is off is not loaded into the composer (the next autosave then drops it from the row).
 
-### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: In review (#522)
+### W6-16 — GIFs from the device  [owner: frontend-developer] [size: M] [depends: W6-9]  Status: Done (#525; #522 closed as merged via #525)
 - **Description.**
   - `GifSource` interface; `DeviceGifSource` over the platform picker (`.gif` only; web file input `accept="image/gif"`).
   - On-device checks before upload (≤ 2 MiB, ≤ 1,280 px edge, ≤ 300 frames; refuse with a clear message rather than re-encode).
@@ -851,7 +852,7 @@ Order:
     - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
     - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
-### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: In review (this PR; see the report)
+### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Done (#532; report `docs/reviews/test-report-w6-polls.md`, VERDICT PASS)
 - **Description.** Emulator integration and unit:
   - flag modes for `polls` and `engagement` (create per caller; vote with `engagement` per caller and `polls` not globally off; the globally-off reveal);
   - the F4 validation table;
@@ -871,7 +872,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Done (#519; report `docs/reviews/test-report-w6-gif.md`; D-1 Medium fixed: the sampler now counts delays under 2 cs as 10 cs)
+### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Done (#519; report `docs/reviews/test-report-w6-gif.md`; D-1 Medium fixed in #521: the sampler now counts delays under 2 cs as 10 cs)
 - **Description.**
   - The sniffer and content-type matrix;
   - size and edge caps;
@@ -890,7 +891,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: In review (this PR; report docs/reviews/test-report-w6-client.md)
+### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: Done (#534; report `docs/reviews/test-report-w6-client.md`; D1 Low fixed in W6-48 #553)
 - **Description.** The cross-feature matrix:
   - composer exclusions (poll × photo × GIF × schedule × reply / quote);
   - poll builder → post → card states;
@@ -907,7 +908,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: In review (report `docs/reviews/security-w6-composer-extras.md`; the acceptance criterion "no open Critical or High" is not met yet: SECURITY: BLOCKED — H-1, H-2, H-3, which hold `gif` and `media` at the dev allowlist; follow-ups proposed there, not yet in this plan)
+### W6-20 — Security review  [owner: security-auditor] [size: S] [depends: W6-7, W6-10, W6-15]  Status: Report merged (#533); H-1 #536, H-2 #541, H-3 #535 (revised #554) and M-2 #545 merged; verdict not re-issued: the report still ends BLOCKED and its H-1 and H-2 headers still read In review (security-auditor)
 - **Description.** A threat model for:
   - vote integrity (natural key, concurrency, sybils, rate × 3 instances, the daily cap);
   - the result oracle (redaction, refusal order, bytes of hidden counts);
@@ -927,7 +928,7 @@ Order:
 - **Seam.** Checks the counter seam and the `Moderator` seam.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-21 — Cost report  [owner: sre-performance] [size: S] [depends: W6-7, W6-10]  Status: Done (docs/ui-w6-21-cost-report; measured in cost-model.md §16, BUDGET: HOLDS)
+### W6-21 — Cost report  [owner: sre-performance] [size: S] [depends: W6-7, W6-10]  Status: Done (#528; `cost-model.md` §16, BUDGET: HOLDS)
 - **Description.**
   - Add the W6 rows (+1.05 reads, +1.02 writes, +0.32 deletes, +0.44 requests per DAU; Vision +1.22 units per DAU-month; GIF egress) to `docs/reviews/cost-model.md` §1–§6, beside W2's and any W3/W4 rows that have landed.
   - Emulator load smoke `make loadtest SCENARIO=poll_vote`: a hot poll at 50 votes/s, and a typical mix.
@@ -942,7 +943,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-22 — Dev rollout  [owner: production-deployer] [size: S] [depends: W6-17 to W6-21, ADR merged]  Status: Open
+### W6-22 — Dev rollout  [owner: production-deployer] [size: S] [depends: W6-17 to W6-21, ADR merged]  Status: Done in dev (smoke passed 2026-11-01: polls, drafts, GIF); prod stays `off` until the held release
 - **Description.**
   - Show the founder a **targeted** dev Terraform plan (`docs/plans/roadmap.md` section 9, item 3.10: a full dev apply is unsafe) for `feature_polls*`, `feature_drafts*`, `feature_gif*`, the config env vars and the `pollVotes.expireAt` TTL field.
   - The `posts.poll` fieldOverride deploys with the dev deploy workflow after merge. For prod it waits for the held release (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and must be deployed before `FEATURE_POLLS` leaves `off` there.
@@ -960,6 +961,9 @@ Order:
 - **Flag.** Dev: `feature_polls`, `feature_drafts` and `feature_gif` at allowlist (3 uids); prod stays `off`.
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** serialise dev applies with theirs.
+- **Progress (2026-11-01).** Poll legs PASSED on dev 2026-11-01 03:25-03:31Z (5-min poll by w7smoke1; 8 concurrent votes from w7smoke2/3: voted 1, replay 1, stale_expected 2 per voter; counts {0:1,1:1} = 2 vote docs; after close results visible to author and voter; a late change answers closed, the author cannot vote in their own poll).
+- **GIF leg PASSED (2026-11-01 04:45-04:48Z, api-00986-gic, w7smoke1, through the API).** A clean 4-frame 160 px GIF: `gif_screen` frames 4, sampled 4, units 2, READY; posted; the public URL serves the uploaded bytes unchanged (NETSCAPE loop block kept, so it animates) and the JPEG thumbnail. The same GIF with a comment block: REJECTED before Vision (`refused_reason=comment`, `screen_outcome=rejected_invalid`, 0 units; "This image could not be used."), the W6-30 server refusal. Finalize took 8.5 s (screened) and 6.9 s (refused). Playback was checked by the served bytes, not on screen.
+- **Drafts leg PASSED (2026-11-01 04:49-04:51Z, dzeroth-dev.web.app, w7smoke1, headless Chrome).** Composer, Cancel, "Save post?", Save; a full page reload; the draft is listed under Unsent posts; opened with its text; Post; Drafts empty; the post on Home. `CreatePost` ok, 155 ms, 3 reads, 4 writes. No console, CSP, worker or wasm error (the drift sqlite3 wasm loads under the Hosting CSP). A reload on `/drafts` lands Home: by design, since `/drafts` is not a stashed deep-link target (`AppRouter.deepLinkTarget`).
 
 ### W6-23 — *(conditional on F9)* GIF picker ADR addendum  [owner: architect] [size: S] [depends: F9 terms verified in writing]  Status: Open (conditional)
 - **Description.** Only after the founder has Klipy's production terms in writing (rate limits, attribution wording and placement, ads or revenue share, re-hosting allowed or not, cost at scale), decide:
@@ -989,7 +993,7 @@ Order:
 - **Seam.** `GifSource`.
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-25 to W6-31 — W6-20 security follow-ups  Status: Open (W6-25 Done #536; W6-27 Done #535, revision proposed in W6-40)
+### W6-25 to W6-31 — W6-20 security follow-ups  Status: Done (W6-25 #536, W6-26 #541, W6-27 #535 revised by W6-40 #554, W6-28 #545, W6-29 #552, W6-30 #577, W6-31 #574); prod: the upload-bucket CORS apply from #536 pending (founder plan-then-OK)
 Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
 - **W6-25 (H-1), W6-26 (H-2), W6-27 (H-3):** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves off in prod. Until then `gif` and `media` stay on team and test accounts only.
 - **W6-28 (M-2):** before `gif` leaves the dev allowlist (with #521, M-1).
@@ -998,7 +1002,7 @@ Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md
 - **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
 - Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
 
-### W6-33 — Client minimum-version gate before prod `FEATURE_MEDIA` (design)  Status: In review (#571)
+### W6-33 — Client minimum-version gate before prod `FEATURE_MEDIA` (design)  Status: Done (#571; rule C accepted by the founder 2026-11-01; runbook text is W6-33a)
 Architect design, 2026-11-01, for the W6-25 review's L-4. **No ADR:** the decision adds no header, no error reason, no
 proto and no client contract. The row's owner cell still names frontend-developer and production-deployer. The work is
 now W6-33a (production-deployer) plus the existing W6-34 (frontend-developer): no new frontend code.
@@ -1169,7 +1173,7 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
 - security-auditor: no new surface. Confirm that the rule closes the W6-25 review's L-4, and decide the related API
   floor above.
 
-#### W6-33a — Release-order checks and the Hosting floor for media  [owner: production-deployer] [size: XS] [depends: the W6-33 design merged]  Status: Open
+#### W6-33a — Release-order checks and the Hosting floor for media  [owner: production-deployer] [size: XS] [depends: the W6-33 design merged]  Status: Done (#579); prod: upload-bucket CORS apply (check 2) pending (founder plan-then-OK)
 - **Description.**
   - `docs/runbooks/media.md`: a section "Before `FEATURE_MEDIA` leaves `off` in prod (W6-33)". It lists checks 1 to 4
     above, each with the read-only command that proves it:
@@ -1196,7 +1200,7 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
 - **Seam.** Clients reach prod users only through tagged releases (W6-33 stage ladder).
 - **Runs alongside W3/W4/W5:** yes. Edits to `media.md` serialise with any open media PR that edits the same section.
 
-### W6-35 to W6-42 — ADR-0029 Amendment 1 (founder decisions 2026-10-31)  Status: Open (Amendment 1 Proposed)
+### W6-35 to W6-42 — ADR-0029 Amendment 1 (founder decisions 2026-10-31)  Status: Done (Amendment 1 merged #544; W6-35 #548, W6-36 #555, W6-37 #559, W6-38 #547, W6-39 #560, W6-40 #554, W6-41 #575, W6-42 #554 and #555)
 Design, numbers and the founder's open items are in ADR-0029 Amendment 1 (A1 to A7). Numbering: W6-32 to W6-34 went to
 the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 
@@ -1210,7 +1214,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   - The media revision rides `media` and `gif`.
   - No ceiling changes.
 
-#### W6-35 — Poll and media contract, additive  [owner: architect (contract), backend-developer (generate)] [size: XS] [depends: Amendment 1 merged]  Status: Open
+#### W6-35 — Poll and media contract, additive  [owner: architect (contract), backend-developer (generate)] [size: XS] [depends: Amendment 1 merged]  Status: Done (#548)
 - **Description.** The A6 table:
   - `PostView.viewer_poll_vote_blocked = 9`;
   - `VotePollRequest.expected_choice = 4`;
@@ -1222,7 +1226,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Cost.** 0.
 - **Seam.** The wire fields only; behaviour is W6-36.
 
-#### W6-36 — VotePoll: block either way and vote changes (one PR)  [owner: backend-developer] [size: M] [depends: W6-35]  Status: In review (PR W6-36; W6-42 security review must pass before merge)
+#### W6-36 — VotePoll: block either way and vote changes (one PR)  [owner: backend-developer] [size: M] [depends: W6-35]  Status: Done (#555; dev change-batch check passed 2026-11-01, recorded in #568)
 - **Description.**
   - **A1:**
     - step 5e `snap.Blocked[target.AuthorID]` → `TARGET_BLOCKED`, after the closed and range checks, replays included;
@@ -1261,7 +1265,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** `StagePollChange`, `PollVoteChanged`, `ViewerSet.WithBlockedAuthors`.
 - **Flag.** `polls` (no new flag).
 
-#### W6-37 — Poll card: change vote, blocked state  [owner: frontend-developer] [size: S] [depends: W6-35 (Dart), W6-36 for the dev check]  Status: Open
+#### W6-37 — Poll card: change vote, blocked state  [owner: frontend-developer] [size: S] [depends: W6-35 (Dart), W6-36 for the dev check]  Status: Done (#559)
 - **Description.** Amendment 1 A1.5 and A2.8:
   - "Change vote" in the footer while open, voted, not the author and not blocked;
   - the pills with the current check, and "Cancel";
@@ -1281,7 +1285,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** `PollCubit`, `PollRepository`.
 - **Flag.** `polls`, with `engagement` in `enabled_features`.
 
-#### W6-38 — Drafts duplicate-publication verification  [owner: tester] [size: S] [depends: —]  Status: Open
+#### W6-38 — Drafts duplicate-publication verification  [owner: tester] [size: S] [depends: —]  Status: Done (#547)
 - **Description.** Client tests over `ComposerCubit` and `DraftsRepository`, with a fake repository that commits and
   then drops the answer:
   - S1 double tap;
@@ -1300,7 +1304,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   - A short report in `docs/reviews/`.
 - **Cost.** 0.
 
-#### W6-39 — Drafts: persist the send key  [owner: frontend-developer] [size: M] [depends: W6-38]  Status: In review
+#### W6-39 — Drafts: persist the send key  [owner: frontend-developer] [size: M] [depends: W6-38]  Status: Done (#560)
 - **Description.** Amendment 1 A4, "The fix":
   - drift schema v10 adds `sendKey`, `sendKind`, `sendPublishAt` and `sendStartedAt` (nullable), with the migration
     test;
@@ -1328,7 +1332,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** `DraftsRepository`, the only reader and writer.
 - **Flag.** `drafts`.
 
-#### W6-40 — Media: the attempt cap revision  [owner: backend-developer + frontend-developer] [size: M] [depends: Amendment 1 merged, W6-25 (#536); W6-42 before merge]  Status: In review (#554; W6-42 before merge)
+#### W6-40 — Media: the attempt cap revision  [owner: backend-developer + frontend-developer] [size: M] [depends: Amendment 1 merged, W6-25 (#536); W6-42 before merge]  Status: Done (#554; W6-42 part 1 CLEAR)
 - **Description.** Amendment 1 A5:
   - `screenAssessed` written in the release write;
   - the pre-check against `MEDIA_MAX_SCREEN_ATTEMPTS` and `MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES`;
@@ -1359,7 +1363,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Seam.** The `visionUnits` limiter interface; `Moderator` unchanged.
 - **Flag.** `media` and `gif` (no new flag).
 
-#### W6-41 — Tests for Amendment 1  [owner: tester] [size: M] [depends: W6-36, W6-37, W6-40]  Status: Open
+#### W6-41 — Tests for Amendment 1  [owner: tester] [size: M] [depends: W6-36, W6-37, W6-40]  Status: Done (#575)
 - **Description.**
   - Emulator and unit tests for the A1 matrix (each block direction × cast, change, replay, closed; REPOST id; the
     signal on every producer).
@@ -1379,6 +1383,20 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Acceptance criteria.** A dated section in `docs/reviews/security-w6-composer-extras.md` with no open Critical or
   High; W6-40 merges only after it.
 - **Cost.** 0.
+
+### W6-57 — Deflake `TestW617_ConcurrencyManyVotersRacingThemselves`  [owner: tester] [size: S] [depends: W6-41]  Status: Done (#555): no code change; the only CI failure (run 41202663587, 2026-10-31, cached author view on instance 2 = 0) was a test expectation already corrected in #555 (034c1c06, w617_polls_chain_integration_test.go:560-566); 20/20 local passes on the emulators 2026-11-01
+- **Description.** The W6-17 poll race test failed in CI. Find the root cause first. No skip, quarantine, retry wrapper
+  or relaxed assertion. If it is a prod defect, a backend ticket follows.
+- **Acceptance criteria.**
+  - The root cause is named, with the CI run it came from.
+  - The test passes 20 times in a row on the emulators with its assertions unchanged.
+  - If the cause is in product code, a backend ticket exists for it.
+- **If it fails again.** If W617 fails in CI again, check whether the message is new; no post-#555 failure seen.
+- **Test notes.** 20 runs on the emulators; read the CI job log of any new failure.
+- **Observability.** —
+- **Budget.** 0 (emulators).
+- **Seam.** —
+- **Runs alongside W3/W4/W5:** yes (tests only).
 
 ## Rollout plan
 - **Dev:** allowlist (3 uids) for `drafts` first (client only, no server risk), then `polls`, then `gif`, each after its security and cost tickets.
