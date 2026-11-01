@@ -58,18 +58,18 @@ at or above the floor. Dev is safe because `deploy-dev.yml` rolls back only to t
 flag leaves `off` only after the enforcing revision serves 100% (rule L-1 in `docs/runbooks/posts.md`).
 
 **Forward-only floor for media (W6-20 re-review C-2).** While `FEATURE_MEDIA` is not `off` in prod, route traffic only to a
-revision whose env has `FEATURE_MEDIA` `off`, or whose image is built from `b0c783b3642f187d0fa1bee88eb53f47754eb369` (#577)
-or a later commit. Otherwise fix forward. An older image with media on reopens the photo and GIF fixes: H-1 publish swap (#536),
-H-2 animated WebP (#541), H-3 uncounted Vision spend (#535, #554, #563, #565), M-1 and M-2 GIF frame sampling (#521, #545) and
-L-4 GIF metadata (#577); see `docs/reviews/security-w6-composer-extras.md`. A Cloud Run revision keeps the env it was created
+revision whose env has `FEATURE_MEDIA` `off`, or whose image is built from `9ec07c59c14ceef20e33e6d5ad429303ec5b83b3` (#586,
+W6-58) or a later commit. Otherwise fix forward. An older image with media on reopens the photo and GIF fixes: H-1 publish swap (#536),
+H-2 animated WebP (#541), H-3 uncounted Vision spend (#535, #554, #563, #565), M-1 and M-2 GIF frame sampling (#521, #545),
+L-4 GIF metadata (#577) and N-1 GIF loop block data (#586); see `docs/reviews/security-w6-composer-extras.md`. A Cloud Run revision keeps the env it was created
 with, so read the target's own env (`gcloud run revisions describe <revision> --project=dzeroth-prod --region=asia-south1
 --format='value(spec.containers[0].env)'`). For its image, the commit is the 40-hex Artifact Registry tag (as in "Private
-accounts" below); exit 0 from `git merge-base --is-ancestor b0c783b3642f187d0fa1bee88eb53f47754eb369 <image commit>; echo $?`
+accounts" below); exit 0 from `git merge-base --is-ancestor 9ec07c59c14ceef20e33e6d5ad429303ec5b83b3 <image commit>; echo $?`
 means it is at or after the floor. Prod rollback is a manual `update-traffic` and the prod workflows do not run
 `scripts/promotion/resolve-rollback.sh`, so this check is by hand; a `rollback_floors.MEDIA` guard is the founder's call (W6-33
 option C+). No prod revision has had `FEATURE_MEDIA` on so far, so every revision that exists today is safe; the floor matters
-from the first media-on revision. When W6-58 (N-1, GIF loop block) merges, raise this floor to its merge commit before `gif`
-leaves `off` in prod.
+from the first media-on revision. The floor was raised on 2026-11-01 from `b0c783b3` (#577) to W6-58's merge commit, which
+contains it.
 
 ## Firestore data changes
 Data changes are expand/contract only (CLAUDE.md rule) — never a destructive migration in place:
