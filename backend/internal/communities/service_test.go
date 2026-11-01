@@ -139,11 +139,14 @@ type fakeDirectory struct {
 	profiles map[string]identity.Profile
 	// free makes a lookup cost 0 reads, like the production directory behind the account-status interceptor (it has just loaded the caller).
 	free  bool
+	mu    sync.Mutex // the join/leave race tests call it from many goroutines
 	asked int
 	err   error
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.asked += len(uids)
 	if !d.free {
 		budget.FromContext(ctx).AddReads(int64(len(uids)))
@@ -160,10 +163,13 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 type fakeGraph struct {
 	snap  graph.Snapshot
 	err   error
+	mu    sync.Mutex
 	calls int
 }
 
 func (g *fakeGraph) Snapshot(ctx context.Context, _ string) (graph.Snapshot, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.calls++
 	budget.FromContext(ctx).AddReads(1)
 	return g.snap, g.err
