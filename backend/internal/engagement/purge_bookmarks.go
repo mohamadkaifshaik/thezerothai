@@ -80,7 +80,7 @@ func (r *FirestoreRepo) PurgeBookmarksPage(ctx context.Context, uid string) (int
 	}
 	if err := b.Commit(ctx); err != nil {
 		// The commit error names the deleted documents' paths: redact the uid and the bookmarked post ids (W2-14 I-4).
-		return 0, logger.RedactErr(fmt.Errorf("engagement: purge bookmarks %s: %w", logger.HashUID(uid), err), append([]string{uid}, ids...)...)
+		return 0, logger.RedactErrPosts(fmt.Errorf("engagement: purge bookmarks %s: %w", logger.HashUID(uid), err), ids, uid)
 	}
 	return len(docs), nil
 }
@@ -117,13 +117,13 @@ func (r *FirestoreRepo) pageBookmarks(ctx context.Context, op, uid string, after
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		// The query error names the collection path and the StartAfter document (a post id): redact both (W2-14 I-4).
-		return nil, logger.RedactErr(fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err), uid, afterID(after))
+		return nil, logger.RedactErrPosts(fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err), []string{afterID(after)}, uid)
 	}
 	out := make([]ExportedBookmark, 0, len(docs))
 	for _, s := range docs {
 		var d bookmarkDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, logger.RedactErr(fmt.Errorf("engagement: %s decode bookmark %s: %w", op, s.Ref.ID, err), uid, s.Ref.ID)
+			return nil, logger.RedactErrPosts(fmt.Errorf("engagement: %s decode bookmark %s: %w", op, s.Ref.ID, err), []string{s.Ref.ID}, uid)
 		}
 		out = append(out, ExportedBookmark{PostID: s.Ref.ID, BookmarkedAt: d.CreatedAt.UTC()})
 	}

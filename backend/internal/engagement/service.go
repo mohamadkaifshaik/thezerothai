@@ -428,7 +428,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 			}
 			return Result{}, err
 		}
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: like: %w", err), uid)
+		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: like: %w", err), []string{postID}, uid)
 	}
 	likeDelta := int64(1)
 	if replayed {
@@ -525,7 +525,7 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	}
 	removed, err := s.d.Repo.Unlike(ctx, uid, id)
 	if err != nil {
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: unlike: %w", err), uid)
+		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: unlike: %w", err), []string{postID, id}, uid)
 	}
 	delta := int64(0)
 	if removed {
@@ -595,7 +595,7 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 		if errors.As(err, &ae) {
 			return Result{}, err
 		}
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: repost: %w", err), uid)
+		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: repost: %w", err), []string{postID, target.ID}, uid)
 	}
 	repostID := res.ReplayPostID
 	repostDelta := int64(0)
@@ -642,7 +642,7 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 	}
 	res, err := s.d.Repo.UndoRepost(ctx, uid, id)
 	if err != nil {
-		return Result{}, logger.RedactErr(fmt.Errorf("engagement: undo repost: %w", err), uid)
+		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: undo repost: %w", err), []string{postID, id}, uid)
 	}
 	if res.Removed {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeDone)

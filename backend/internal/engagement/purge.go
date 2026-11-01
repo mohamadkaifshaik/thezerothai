@@ -123,7 +123,7 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 		c.AddDeletes(scratch.Deletes())
 		return len(rows), len(docs) >= purgePage, nil
 	case !store.IsPreconditionFailed(err):
-		return 0, false, fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err)
+		return 0, false, redactLikeDocErr(fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err), uid, docs)
 	}
 	// A post in the page is gone (its job removes the likes, but may not have run yet), or a doc was deleted by
 	// a concurrent run: one batch per doc, with the counter first and without it second.
@@ -145,7 +145,7 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 				break
 			}
 			if !store.IsPreconditionFailed(err) {
-				return done, false, fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err)
+				return done, false, redactLikeDocErr(fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err), uid, docs)
 			}
 		}
 	}
@@ -206,7 +206,7 @@ func (r *FirestoreRepo) exportCollection(ctx context.Context, uid, collection st
 		for _, s := range docs {
 			var e exportedEntry
 			if err := s.DataTo(&e); err != nil {
-				return fmt.Errorf("engagement: export decode %s: %w", s.Ref.ID, err)
+				return logger.RedactErrPostDocs(fmt.Errorf("engagement: export decode %s: %w", s.Ref.ID, err), uid, s.Ref.ID)
 			}
 			e.CreatedAt = e.CreatedAt.UTC()
 			if !first {
@@ -224,4 +224,14 @@ func (r *FirestoreRepo) exportCollection(ctx context.Context, uid, collection st
 		}
 		last = docs[len(docs)-1]
 	}
+}
+
+// redactLikeDocErr redacts a purge error that may name the page's likes/reposts documents (<postId>_<uid>) through
+// logger.RedactErrPostDocs (W6-56): keyed HashPost for the post id, HashUID for the uid, never a plain id.
+func redactLikeDocErr(err error, uid string, docs []*firestore.DocumentSnapshot) error {
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.Ref.ID
+	}
+	return logger.RedactErrPostDocs(err, uid, ids...)
 }

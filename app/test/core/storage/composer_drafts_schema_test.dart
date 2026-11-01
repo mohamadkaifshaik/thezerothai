@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart';
@@ -120,7 +121,7 @@ void main() {
   });
 
   test(
-    'a v8 database reaches v10 with the columns once (no duplicate)',
+    'a v8 database reaches v11 with the columns once (no duplicate)',
     () async {
       final executor = NativeDatabase.memory(
         setup: (raw) => raw.execute('PRAGMA user_version = 8'),
@@ -149,9 +150,128 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 10', () async {
+  test('a fresh database is at schema version 11', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 10);
+    expect(db.schemaVersion, 11);
+  });
+
+  test('migrates a v10 database to v11: same rows and send-key values, key '
+      'becomes {uid, draftId}', () async {
+    final s = kBase.millisecondsSinceEpoch ~/ 1000;
+    final executor = NativeDatabase.memory(
+      setup: (raw) {
+        // The v10 shape (W6-39 send-key columns), key {draft_id}, one row
+        // with every column set and a pending send key, one with none.
+        raw.execute('''
+          CREATE TABLE composer_draft_entries (
+            draft_id TEXT NOT NULL, uid TEXT NOT NULL,
+            draft_text TEXT NOT NULL,
+            poll_json TEXT NOT NULL DEFAULT '',
+            reply_policy TEXT NOT NULL DEFAULT 'everyone',
+            paid_partnership INTEGER NOT NULL DEFAULT 0,
+            made_with_ai INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            send_key TEXT NULL, send_kind TEXT NULL,
+            send_publish_at INTEGER NULL, send_started_at INTEGER NULL,
+            PRIMARY KEY (draft_id)
+          )''');
+        raw.execute(
+          "INSERT INTO composer_draft_entries VALUES "
+          "('a', 'u1', 'one', '{\"o\":1}', 'following', 1, 1, $s, ${s + 5}, "
+          "'key-1', 'schedule', ${s + 600}, ${s + 7}), "
+          "('b', 'u2', 'two', '', 'everyone', 0, 0, $s, $s, NULL, NULL, "
+          "NULL, NULL)",
+        );
+        raw.execute('PRAGMA user_version = 10');
+      },
+    );
+    final db = AppDatabase.forTesting(executor);
+    addTearDown(db.close);
+
+    final rows = await (db.select(
+      db.composerDraftEntries,
+    )..orderBy([(t) => OrderingTerm.asc(t.draftId)])).get();
+    expect(rows, hasLength(2));
+    final a = rows[0];
+    expect(a.draftId, 'a');
+    expect(a.uid, 'u1');
+    expect(a.draftText, 'one');
+    expect(a.pollJson, '{"o":1}');
+    expect(a.replyPolicy, 'following');
+    expect(a.paidPartnership, isTrue);
+    expect(a.madeWithAi, isTrue);
+    expect(a.createdAt.millisecondsSinceEpoch ~/ 1000, s);
+    expect(a.updatedAt.millisecondsSinceEpoch ~/ 1000, s + 5);
+    expect(a.sendKey, 'key-1');
+    expect(a.sendKind, 'schedule');
+    expect(a.sendPublishAt!.millisecondsSinceEpoch ~/ 1000, s + 600);
+    expect(a.sendStartedAt!.millisecondsSinceEpoch ~/ 1000, s + 7);
+    final b = rows[1];
+    expect(b.uid, 'u2');
+    expect(b.draftText, 'two');
+    expect(b.sendKey, isNull);
+    expect(b.sendKind, isNull);
+    expect(b.sendPublishAt, isNull);
+    expect(b.sendStartedAt, isNull);
+
+    // The key is now {uid, draftId}.
+    final pk = await db
+        .customSelect(
+          "SELECT name FROM pragma_table_info('composer_draft_entries') "
+          'WHERE pk > 0 ORDER BY pk',
+        )
+        .get();
+    expect(pk.map((r) => r.read<String>('name')).toSet(), {'uid', 'draft_id'});
+    final repo = DraftsRepository(db);
+    await repo.upsert(
+      ComposerDraft(
+        id: 'a',
+        uid: 'u2',
+        text: 'other account, same id',
+        createdAt: kBase,
+        updatedAt: kBase,
+      ),
+    );
+    expect((await repo.read('u1', 'a'))!.text, 'one');
+    expect((await repo.read('u2', 'a'))!.text, 'other account, same id');
+    // The pending send key survived the rebuild and is reused.
+    final claim = await repo.claimSend(
+      draft: (await repo.read('u1', 'a'))!,
+      kind: SendKind.schedule,
+      publishAt: kBase,
+      newKey: () => 'unused',
+    );
+    expect(claim.key, 'key-1');
+  });
+
+  test('a v9 database reaches v11 with its rows and the new key', () async {
+    final s = kBase.millisecondsSinceEpoch ~/ 1000;
+    final executor = NativeDatabase.memory(
+      setup: (raw) {
+        raw.execute('''
+          CREATE TABLE composer_draft_entries (
+            draft_id TEXT NOT NULL, uid TEXT NOT NULL,
+            draft_text TEXT NOT NULL,
+            poll_json TEXT NOT NULL DEFAULT '',
+            reply_policy TEXT NOT NULL DEFAULT 'everyone',
+            paid_partnership INTEGER NOT NULL DEFAULT 0,
+            made_with_ai INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            PRIMARY KEY (draft_id)
+          )''');
+        raw.execute(
+          "INSERT INTO composer_draft_entries (draft_id, uid, draft_text, "
+          "created_at, updated_at) VALUES ('a', 'u1', 'kept', $s, $s)",
+        );
+        raw.execute('PRAGMA user_version = 9');
+      },
+    );
+    final db = AppDatabase.forTesting(executor);
+    addTearDown(db.close);
+    final repo = DraftsRepository(db);
+    expect((await repo.read('u1', 'a'))!.text, 'kept');
+    expect(await repo.count('u1'), 1);
+    expect(await repo.count('u2'), 0);
   });
 }

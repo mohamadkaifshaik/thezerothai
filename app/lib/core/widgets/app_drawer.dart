@@ -1,11 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/auth/presentation/bloc/auth_bloc.dart';
-import '../../features/auth/presentation/bloc/auth_event.dart';
+import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
@@ -120,11 +120,8 @@ class AppDrawer extends StatelessWidget {
             _DrawerRow(
               icon: Icons.logout,
               label: 'Sign out',
-              onTap: () => _go(
-                context,
-                () =>
-                    context.read<AuthBloc>().add(const AuthSignOutRequested()),
-              ),
+              onTap: () =>
+                  _go(context, () => unawaited(requestSignOut(context))),
             ),
           ],
         ),

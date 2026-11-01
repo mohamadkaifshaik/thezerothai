@@ -83,6 +83,13 @@ firebase hosting:clone <project-id>:<previous-version-or-channel> <project-id>:l
 
 Or use the Firebase console → Hosting → release history → "Rollback" on the previous release. Instant, no rebuild.
 
+**Floor while media is on (W6-33 check 4).** While `FEATURE_MEDIA` is not `off` in prod, never roll Hosting back to a release built
+from a commit that contains `a3455ef533aa1cc7737fac19cf4e2a24e5792d30` (the uploader) but not
+`13b5080fc5950b6cbcc52cfe2c9d56ae9d491915` (the W6-25 fix): that client treats a 412 on a retried PUT as a refusal and never
+recovers. Safe today: the releases of 2026-09-28, 2026-10-11 and 2026-10-21, none with upload code. Hosting is never deployed by
+hand (`firebase deploy` from a checkout). Prove a target with the commands in `docs/runbooks/media.md`, "Before `FEATURE_MEDIA`
+leaves `off` in prod".
+
 ### Web app blank or sign-in broken after a deploy: CSP
 
 The CSP in `firebase.json` is enforced (`Content-Security-Policy`). Symptom: the page loads blank, or sign-in
