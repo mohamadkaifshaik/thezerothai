@@ -1,14 +1,19 @@
 <!DOCTYPE html>
-<!-- Draft — last updated 2026-10-31 (Polls, Drafts and Lists sections: W6-46, founder approval of the text required;
-     retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07;
+<!-- Draft — last updated 2026-11-01 (W6-55 full refresh: founder approval of the text required;
+     Polls, Drafts and Lists sections: W6-46, founder-approved in #564 and kept word for word;
+     retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07, plus the entries accepted later in
+     ADR-0016 (D5, implementation notes, notes of 2026-10-28 with its 2026-10-29 addendum and of 2026-10-30) and
+     ADR-0017 (Consequences), indexed in the ADR-0011 note of 2026-11-01;
      any new entry needs an ADR-0011 amendment and an update here in the same PR) -->
 <!--
   MAINTAINERS: this policy is still a DRAFT. Do not remove the Draft marker until ALL of these are resolved:
-  1. Legal/privacy review of the whole text (not done; this is not legal advice).
-  2. T27 (remove a deleted user's uid from other users' muted[] lists) shipped, or the bounded deferral is
-     confirmed by the founder (proposed: owner backend-developer, ship before `percent` rollout and before
-     in-app deletion / store submission, target 2026-10-31).
-  3. Age: no age check exists today; legal review must decide what wording/mechanism DPDP needs for under-18s.
+  1. Legal/privacy review of the whole text (not done; this is not legal advice). No legal basis, transfer mechanism
+     or jurisdiction is stated on purpose (founder decisions, W6-55 PR).
+  2. Done: T27 (a deleted uid leaves other users' blocked[]/muted[] when the owner next opens the list) is built
+     (docs/runbooks/account-deletion.md 3b). The "until cleaned up" bullet below describes it.
+  3. Age: no age check exists. The sign-up screen says "By signing up you confirm you're 18 or older"
+     (sign_up_screen.dart), but Google/Apple sign-in from the sign-in screen does not show it, so the policy keeps
+     "does not currently check your age". Legal review must decide what DPDP needs for under-18s.
   4. DPDP Grievance Officer: name and contact of the responsible person (none named here).
   5. Governing law / jurisdiction wording (none here).
   6. ImprovMX terms and retention, and Gmail retention for privacy@ mail: obtain and verify.
@@ -16,16 +21,49 @@
      from gstatic.com (static inspection of the prod bundle only so far).
   8. Confirm the Firebase / Google Cloud data processing terms linked below apply to our accounts
      (accepted/incorporated), and re-check the links.
-  9. Graph rollout decision (FEATURE_GRAPH stage) and deploy this policy before any real user is allowlisted.
-  10. In-app deletion/export are not built; store submission needs them. No dates promised here on purpose.
-  11. Polls, Drafts and Lists (W6-46, 2026-10-31). The drafts "Deleting your account" bullet describes the app before
-      W6-31 (drafts on shared devices): re-check it, and the "only things that can outlast" sentence below, when W6-31
-      lands. The poll retention bullet assumes the `poll_votes_expire_at` TTL policy is applied and the
-      daily-maintenance Scheduler job runs in the project (both before FEATURE_POLLS leaves off there). Vote changes
-      and the voter-blocks-author rule ship in W6-36 (#555). The poll-vote and list sentences about export and
-      deletion are true of the in-app path (RequestAccountExport / DeleteAccount, steps and sections `poll_votes` and
-      `lists`); the manual path in docs/runbooks/account-deletion.md sections 3a and 3b covers neither, so
-      FEATURE_ACCOUNT_LIFECYCLE must be on in prod (or that runbook extended) before polls or lists leave off there.
+  9. Deploy this policy before any real user is allowlisted on any flag.
+  10. Export and deletion paths. Every export and deletion sentence describes the in-app path
+      (FEATURE_ACCOUNT_LIFECYCLE: RequestAccountExport / DeleteAccount and every registered section and step). Prod
+      had the flag off at v0.4.0 (docs/releases/v0.4.0.md; prod tfvars are not in the repo, so re-check). The
+      manual email path (docs/runbooks/account-deletion.md 3a/3b) covers only the profile, the Auth record, the
+      graph and posts (media by hand); it misses likes, reposts, bookmarks, poll votes, lists, follow requests,
+      messages, reports, notifications' other-user rows, deviceTokens and exports. So before ANY flag that creates
+      such data leaves off in prod, FEATURE_ACCOUNT_LIFECYCLE must be on in prod for those users, or 3a/3b must be
+      extended to every section and step. Otherwise the "Your rights" and deletion text is untrue for email requests.
+  11. Every feature section describes code merged on main; prod flags were all off at v0.4.0. Before a feature
+      leaves off in prod, the Firestore TTL policies its retention sentence relies on must be applied there
+      (Terraform modules/firestore ttl_fields: idempotency, notifications, media, exports, reports, report
+      evidence, postRemovals, scheduled, poll votes), and the daily-maintenance Scheduler job must run.
+  12. Drafts (W6-46): re-checked against W6-31 (#574, drafts on shared devices) and W6-45 (30-day expiry), both on
+      main. The #564 sentences stay true and word for word; the "Signing out" bullet gains the sign-out prompt
+      (Delete them / Keep / Cancel, request_sign_out.dart) and the Settings row "Delete unsent posts on this
+      device" (unsent_posts_row.dart, shown while the account has drafts here, whatever the drafts flag says).
+      In-app account deletion still deletes this uid's drafts (delete_account_screen.dart, deleteAll).
+  13. Replaced profile photos and header images: the text says "at the latest when you delete your account",
+      which holds whatever PROFILE_MEDIA_RETIRE is (default off). When prod runs PROFILE_MEDIA_RETIRE=all, change
+      it to "within about 2 days" (ADR-0024 Amendment 1 A4).
+  14. Images in caches: public objects carry Cache-Control "public, max-age=31536000, immutable"
+      (backend/internal/media/gcs.go). How long a deleted public image can still be served from a browser or
+      Google's cache is not measured; "for a while" stays until it is (W6-55 PR, security follow-up).
+  15. The ADR-0017 notification race row is listed under "What can remain after deletion" but is not a T11
+      allowlist entry (lifecycle_collections_guard_test.go: the sweep cannot see a race); ADR-0017 Consequences
+      accepts it and the ADR-0011 note of 2026-11-01 indexes it with the other later Q10 entries.
+  16. iPhone: the app activates App Check with Apple App Attest (bootstrap.dart), and push registration is
+      supported on iOS (push_messaging.dart) though the opt-in card is Android only (push_opt_in.dart). Add Apple
+      to the App Check sentence, and iPhone push, before any iOS build reaches users (founder question, W6-55 PR).
+  17. Web bot protection: bootstrap.dart activates App Check with reCAPTCHA Enterprise on the web whenever the
+      build gets RECAPTCHA_SITE_KEY (GitHub variables DEV_/PROD_RECAPTCHA_SITE_KEY). "Not switched on" holds only
+      while PROD_RECAPTCHA_SITE_KEY is empty (founder question, W6-55 PR); free-tier-budget says $8/month past 10k.
+  18. GIFs: the "Photos and GIFs" sentence describes W6-30 (#577): the client strips comment, plain-text and
+      non-loop application blocks (XMP, ICC) and trailing bytes without re-encoding (image_processor.dart
+      stripGifBytes), and the server refuses a GIF that still has them (media/gifscan.go).
+  19. "Hard-to-guess web addresses" is true of uploads since W3-39 (128-bit random name suffix, media/service.go).
+      Images uploaded before W3-39 keep "m/{mediaId}.{ext}", which is derived from a time-ordered id. Re-check if
+      any such image exists in prod (founder question, W6-55 PR).
+  20. W6-53 (open; founder approved adding `changes` on 2026-11-01) adds the vote's change count to the poll_votes
+      export. When it merges, the #564 Polls "Your export" sentence ("which poll, your choice, when you voted and,
+      if you changed it, when you last did") must add "and how many times", in the same PR, with the founder's
+      approval of that wording.
 -->
 <html lang="en">
 <head>
@@ -115,7 +153,7 @@
     <a class="home-link" href="/">&larr; dzeroth.com</a>
 
     <h1>Dzeroth Privacy Policy</h1>
-    <p class="updated">Last updated: 31 October 2026</p>
+    <p class="updated">Last updated: 1 November 2026</p>
 
     <p>
       Dzeroth ("Dzeroth", "we", "us") is a text-first social app at
@@ -123,6 +161,10 @@
       information we collect when you use it, why, where it's stored and how
       you can control it. We've tried to write it in plain language rather
       than legal boilerplate — if anything is unclear, email us.
+    </p>
+    <p>
+      We switch features on gradually, so some of the features described
+      below may not be available on your account yet.
     </p>
 
     <h2>Who we are</h2>
@@ -147,29 +189,76 @@
       </li>
       <li>
         <strong>Profile data.</strong> Your handle, display name and bio, once
-        you create a profile. Your profile is visible to other signed-in
-        users. Avatar images are planned but not available yet.
+        you create a profile, and anything else you add to it: a profile
+        photo, a header image, a location and a website (as you type them;
+        the app doesn't use your device's location) and a post you pin. We
+        also store whether your account is protected, when you joined, counts
+        of your posts, followers and following, and your settings, such as
+        the lists you pinned as tabs on your Home screen. Your profile is
+        visible to other signed-in users, also when your account is
+        protected.
       </li>
       <li>
         <strong>Social graph.</strong> The accounts you follow and the
         accounts that follow you, the accounts you block, and the accounts
         you mute. For each follow we store when it happened. We also keep a
         follower count and a following count on each profile. Your
-        follower and following counts, and your follower and following
-        lists, are visible to other signed-in users. Your blocked and muted
+        follower and following counts are visible to other signed-in users.
+        Your follower and following lists are too, unless your account is
+        protected (see "Protected accounts" below). Your blocked and muted
         lists are not: only you can see them. Blocks and mutes are stored as
         lists of account IDs without a separate time for each entry. When
         you block someone, we also record on their side of the graph that
         you blocked them, so the block can be enforced. That record is
-        never shown to them and never included in an export. We also keep
-        small per-day counters of how many follows, blocks and mutes you
-        made, to enforce daily limits that prevent abuse.
+        never shown to them and never included in an export. If you ask to
+        follow a protected account, or someone asks to follow yours, we
+        store the request (who asked whom, and when) until it is accepted,
+        declined or withdrawn. We also keep small per-day counters of how
+        many follows, blocks and mutes you made, and of other actions such
+        as posts, likes, uploads, reports and new message conversations, to
+        enforce daily limits that prevent abuse.
       </li>
       <li>
-        <strong>Posts and activity.</strong> Posts, image uploads, likes and
-        notifications are planned and don't exist yet. When they ship,
-        we'll store what you write, upload and like, and update this policy
-        first.
+        <strong>Posts and activity.</strong> The posts you write, including
+        replies, quotes and reposts: their text, when you posted them, the
+        hashtags and @mentions in them, who can reply, and any labels you
+        add (paid partnership, made with AI). Posts you schedule are stored
+        until they are published or you cancel them. We also store which
+        posts you like and which you bookmark.
+      </li>
+      <li>
+        <strong>Photos and GIFs.</strong> Images you add to posts, and your
+        profile photo and header image, with each image's size, type and
+        upload time, and any image description (alt text) you write. The app
+        resizes and re-encodes photos on your device before uploading them,
+        which removes details embedded in the file, such as the camera model
+        and the location where the photo was taken. GIFs are not re-encoded,
+        so that their animation is kept, but the app removes the comments, embedded
+        text and other metadata blocks a GIF file can carry before uploading
+        it, and our servers refuse a GIF that still contains them. See
+        "Photos and GIFs" below.
+      </li>
+      <li>
+        <strong>Direct messages.</strong> The messages you send and receive,
+        who they are between and when they were sent, whether a conversation
+        is a message request, and when you last read each conversation. See
+        "Direct messages" below.
+      </li>
+      <li>
+        <strong>Notifications.</strong> A list of notifications about
+        activity that involves you (for example new followers, likes,
+        replies, mentions and reposts), each with the account that caused
+        it. If you allow push notifications on Android, we store a push
+        token for each of your devices (up to 5) so that we can send them.
+      </li>
+      <li>
+        <strong>Reports.</strong> If you report a post, an account, a list
+        or a message, we store your report: what you reported, the reason
+        and any note you add. See "Reports and moderation" below.
+      </li>
+      <li>
+        <strong>Searches.</strong> We don't store what you search for on our
+        servers. See "Search and trends" below.
       </li>
       <li>
         <strong>Poll votes and lists.</strong> If you vote in a poll, we
@@ -180,10 +269,14 @@
       </li>
       <li>
         <strong>On your device.</strong> Your browser or phone keeps your
-        sign-in session and a local cache of your profile and social graph,
+        sign-in session and a local cache of what you've recently seen in
+        the app (profiles, the accounts you follow, your timeline,
+        notifications, conversations and messages),
         so the app loads faster. Drafts of posts you haven't sent are also
         kept only on your device (see "Drafts" below). We do not use
         advertising or analytics cookies.
+        The cache and your recent searches are deleted from the device when
+        you sign out.
       </li>
       <li>
         <strong>Technical data.</strong> Our servers keep operational logs
@@ -201,8 +294,8 @@
     <h2>Why we collect it</h2>
     <ul>
       <li>To create and secure your account, and verify it's really you.</li>
-      <li>To run the core features of the app: profiles, following, blocking and muting, and (as they ship) posts and a timeline.</li>
-      <li>To keep the service safe — detecting spam, abuse and rate-limit violations.</li>
+      <li>To run the features of the app: profiles, following, blocking and muting, posts and timelines, likes, reposts and bookmarks, photos and GIFs, direct messages, notifications, search, polls and lists.</li>
+      <li>To keep the service safe — detecting spam, abuse and rate-limit violations, checking uploaded images for unsafe content and reviewing reports.</li>
       <li>To debug problems and keep the app reliable.</li>
       <li>To meet legal obligations, such as responding to valid legal requests.</li>
     </ul>
@@ -213,11 +306,14 @@
       <li>
         <strong>Follows are public.</strong> Other signed-in users can see who
         you follow and who follows you. People who aren't signed in can't.
+        If your account is protected, only you and the followers you have
+        approved can see these lists.
       </li>
       <li>
         <strong>Blocking.</strong> If you block someone, they can no longer
-        view your profile or follow you, and any follow between the two of
-        you is removed in both directions.
+        view your profile, follow you or send you messages, and any follow or
+        pending follow request between the two of you is removed in both
+        directions.
       </li>
       <li>
         <strong>Blocks and mutes are not disclosed.</strong> We don't tell
@@ -230,6 +326,183 @@
         can never work out they've been blocked. For example, they will
         notice that any follow between you disappeared, and that your
         profile no longer loads for them.
+      </li>
+    </ul>
+
+    <h2>Protected accounts</h2>
+    <ul>
+      <li>
+        <strong>Who sees what.</strong> If you protect your account, your
+        posts, your follower and following lists and your lists are shown
+        only to you and the followers you have approved. Your profile
+        (including your name, handle, photo and bio) stays visible to
+        signed-in users, and your account can still be found by its
+        @handle.
+      </li>
+      <li>
+        <strong>Follow requests.</strong> People who want to follow you send
+        a request. They become a follower only if you accept it. If you
+        switch your account back to public, every pending request is
+        accepted and those people start following you.
+      </li>
+      <li>
+        <strong>Limits.</strong> Protecting your account doesn't take back
+        what people have already seen or saved, and images in your posts
+        are files that anyone with their web address can open (see "Photos
+        and GIFs" below).
+      </li>
+    </ul>
+
+    <h2>Posts, likes and bookmarks</h2>
+    <ul>
+      <li>
+        <strong>Posts.</strong> Your posts, replies, quotes and reposts can be
+        seen by other signed-in users, except people you have blocked or who
+        have blocked you, and, if your account is protected, anyone you
+        haven't approved. For each post you choose who can reply.
+      </li>
+      <li>
+        <strong>Likes.</strong> The number of likes on a post is visible to
+        anyone who can see the post, and the person who wrote it can be told
+        in their notifications that you liked it. The list of posts you have
+        liked is visible only to you.
+      </li>
+      <li>
+        <strong>Reposts.</strong> A repost appears on your profile and in your
+        followers' timelines, and the person who wrote the original post
+        can be notified.
+      </li>
+      <li>
+        <strong>Bookmarks.</strong> Only you can see your bookmarks. The
+        person who wrote a post isn't told that you bookmarked it.
+      </li>
+      <li>
+        <strong>Scheduled posts.</strong> A post you schedule is stored on our
+        servers until it is published or you cancel it. After that we keep
+        a short record of it, without its text, for 7 days.
+      </li>
+      <li>
+        <strong>Deleting a post.</strong> When you delete a post, we delete it
+        and, in the background, its images, likes and reposts. Replies and
+        quotes that other people wrote belong to them and stay; a quote then
+        shows that your post is no longer available.
+      </li>
+    </ul>
+
+    <h2>Photos and GIFs</h2>
+    <ul>
+      <li>
+        <strong>Checking images.</strong> To keep unsafe images off Dzeroth,
+        we send the images you upload to Google Cloud Vision's SafeSearch
+        feature, which rates how likely an image is to contain adult,
+        violent or other unsafe content. For a GIF, we send a few of its
+        frames and its preview image. We use only that rating: we don't ask
+        Cloud Vision to recognise faces or read text. An image that fails
+        the check is not published.
+      </li>
+      <li>
+        <strong>Who can see images.</strong> Images are stored as files with
+        hard-to-guess web addresses. The app shows an image only to people
+        who can see the post or profile it belongs to, but anyone who has an
+        image's web address can open it, even without signing in. This
+        includes images in posts from protected accounts.
+      </li>
+      <li>
+        <strong>Deleting images.</strong> When you delete a post, its images
+        are deleted. An upload that never completes is deleted within about
+        2 days. An image you added to a post but then didn't post may be
+        kept until you delete your account. If you replace or remove your
+        profile photo or header image, the old file is deleted later, at the
+        latest when you delete your account. A browser or a network cache
+        that already holds a copy of an image may keep showing it for a
+        while after we delete it.
+      </li>
+    </ul>
+
+    <h2>Direct messages</h2>
+    <ul>
+      <li>
+        <strong>Not end-to-end encrypted.</strong> Direct messages are stored
+        on our servers in Google Cloud's Mumbai region, protected by Google's
+        standard encryption at rest, but they are not end-to-end encrypted.
+        People with access to our database can technically read them; we do
+        so only for safety or legal reasons. Messages can be disclosed when
+        the law requires it, for example under a valid court order.
+      </li>
+      <li>
+        <strong>Who can message you.</strong> If you and another person
+        follow each other, their messages go to your inbox. Anyone else can
+        send you up to 3 messages as a message request, which you can accept
+        or ignore. People you have blocked, and people who have blocked
+        you, can't message you. Messages from people you have muted arrive
+        without a notification.
+      </li>
+      <li>
+        <strong>No read receipts or typing indicators.</strong> We store when
+        you last read a conversation, to show your unread count, but we never
+        show it to the other person.
+      </li>
+      <li>
+        <strong>Notifications.</strong> A push notification for a message
+        says only that you have a new message: it contains no sender and no
+        text.
+      </li>
+      <li>
+        <strong>How long we keep messages.</strong> There is no time limit. A
+        message's text is kept until the account that sent it is deleted,
+        or until we remove the message after a report. You can't delete a
+        single message. Deleting a conversation removes it from your inbox
+        only; the other person keeps their copy.
+      </li>
+      <li>
+        <strong>If you delete your account.</strong> The text of every message
+        you sent is erased. The other person sees "Message deleted" in its
+        place and "Deleted account" instead of your name, and keeps the
+        messages they sent you.
+      </li>
+      <li>
+        <strong>Your export.</strong> Your data export includes the messages
+        you sent, in full, and the messages you received only as the time
+        they arrived, not their text.
+      </li>
+    </ul>
+
+    <h2>Notifications and push</h2>
+    <ul>
+      <li>
+        <strong>Your notifications</strong> are kept for 90 days, then deleted
+        automatically.
+      </li>
+      <li>
+        <strong>Push notifications</strong> are sent only on Android, through
+        Firebase Cloud Messaging (Google), and only if you allow them. A
+        push shows a short general text, such as "New follower", and
+        carries internal IDs that the app uses to open the right screen. It
+        never contains the text of a post or a message, or anyone's handle.
+        When you sign out, the app asks our servers to remove that device's
+        push token. There are no push notifications on the web or on iPhone
+        yet.
+      </li>
+    </ul>
+
+    <h2>Search and trends</h2>
+    <ul>
+      <li>
+        <strong>Search.</strong> Search looks up accounts by their @handle and
+        posts by hashtag. We do not store what you search for on our
+        servers. Your recent searches stay on your device and are deleted
+        when you sign out. On the web, the browser history may keep the
+        search page address.
+      </li>
+      <li>
+        <strong>Being found.</strong> Every account, including protected
+        accounts, can be found by @handle. A protected account shows only
+        its public profile in search.
+      </li>
+      <li>
+        <strong>Trends.</strong> Trends are computed from public posts. Posts
+        by protected accounts are never counted, and no personal data is
+        stored with a trend.
       </li>
     </ul>
 
@@ -313,6 +586,9 @@
         accounts used on that device can't see them in the app, but someone
         with access to the device or browser could read them with technical
         tools. On a shared device, delete your drafts before you sign out.
+        If your account has drafts on the device when you sign out, the app
+        asks whether to keep them or delete them first. While it has drafts
+        there, Settings also shows "Delete unsent posts on this device".
       </li>
       <li>
         <strong>30-day limit.</strong> A draft you haven't edited for 30
@@ -368,6 +644,44 @@
       </li>
     </ul>
 
+    <h2>Reports and moderation</h2>
+    <ul>
+      <li>
+        <strong>Reporting.</strong> You can report a post, an account, a list
+        or a message. We never tell the person you reported who reported
+        them.
+      </li>
+      <li>
+        <strong>What a report keeps.</strong> A report keeps a copy of what was
+        reported as it was at the time (for example a post's text and its
+        author's handle, or an account's profile details), so we can review
+        it even if it is changed or deleted. Reports are kept until we have
+        dealt with them and then for 90 days, after which they are deleted
+        automatically.
+      </li>
+      <li>
+        <strong>Reported messages.</strong> If someone reports a message you
+        sent them, we keep a copy of that one message (its text, your handle
+        and when it was sent) so we can review it. The copy is kept for at
+        most 180 days after the report, and no longer than 90 days after we
+        resolve it, even if you delete your account in the meantime.
+      </li>
+      <li>
+        <strong>What we can do.</strong> If something breaks our
+        <a href="/rules.html">community rules</a>, we can remove a post or a
+        message, hide a list, clear parts of a profile (such as a website or
+        a photo), or suspend an account. When we remove a post, we keep a
+        short record of it (the post's ID and its author's account ID) for
+        32 days, so that it disappears from everyone's timelines.
+      </li>
+      <li>
+        <strong>Reports you made</strong> are kept as safety evidence. If you
+        delete your account, they are kept without your account ID. A note
+        you added to a report we hadn't dealt with yet stays with that
+        report until it is deleted, 90 days after we resolve it.
+      </li>
+    </ul>
+
     <h2>Who we share it with</h2>
     <p>
       We don't sell your data and we don't use it for advertising. We use
@@ -378,9 +692,14 @@
       <li>
         <strong>Google Cloud and Firebase (Google LLC).</strong> Firebase
         Authentication (sign-in, including Google sign-in), Cloud Firestore
-        (our database), Cloud Run (our servers), Cloud Logging (server logs)
-        and Firebase Hosting (serves the website and passes app requests to
-        our servers). We use Google as a processor. Under Google's
+        (our database), Cloud Run (our servers), Cloud Storage (images and
+        data export files), Pub/Sub and Cloud Scheduler (background tasks),
+        Cloud Logging (server logs), Firebase Hosting (serves the website
+        and passes app requests to our servers), Cloud Vision (checks
+        uploaded images, see "Photos and GIFs"), Firebase Cloud Messaging
+        (push notifications on Android) and Firebase App Check (in the
+        Android app, it uses Google Play Integrity to confirm that requests
+        come from our genuine app). We use Google as a processor. Under Google's
         <a href="https://firebase.google.com/terms/data-processing-terms">Firebase Data Processing and Security Terms</a>
         and <a href="https://cloud.google.com/terms/data-processing-addendum">Cloud Data Processing Addendum</a>,
         Google processes customer data to provide, secure and monitor the
@@ -394,7 +713,9 @@
         Google sign-in window. When that happens Google may see your IP
         address and standard request details such as your browser type. This
         is based on inspecting our published web app; we have not yet
-        confirmed it with a browser network trace.
+        confirmed it with a browser network trace. Images are loaded
+        straight from Google Cloud Storage, in the web app and in the mobile
+        app, so Google sees the same request details when an image is shown.
       </li>
       <li>
         <strong>Apple.</strong> Only if you choose Sign in with Apple. Apple
@@ -411,14 +732,11 @@
       </li>
     </ul>
     <p>
-      Not in use yet, and will be added here before they are: image
-      storage and automated image moderation with Google Cloud Vision
-      (uploaded images will be sent to Google to be checked), push
-      notifications, crash reporting and analytics. Today the app has no
-      analytics, no crash-reporting service, no push notifications and no
-      image uploads. Web sign-in bot protection (Firebase App Check with
-      reCAPTCHA) is also not switched on; if it is, this section will say
-      so.
+      We don't use analytics or a crash-reporting service, and the app shows
+      no advertising. If we add analytics or crash reporting, we will
+      describe it here before we switch it on. Web bot protection (Firebase
+      App Check with reCAPTCHA) is not switched on; if it is, this section
+      will say so.
     </p>
 
     <h2>Where your data is stored</h2>
@@ -427,20 +745,40 @@
       Cloud's <strong>Mumbai (asia-south1)</strong> region, and our servers
       run there too. Drafts stay on your device. Sign-in records are held by
       Firebase Authentication, which does not
-      let us choose a region. Google may process them in other countries. When
-      image uploads ship, images will be stored in the
-      <strong>United States</strong>, because that's where Google Cloud's free
-      storage tier is available. All of it is protected by Google's standard
-      encryption at rest.
+      let us choose a region. Google may process them in other countries.
+      The rest of our database is in Mumbai too, including your posts,
+      likes, bookmarks, direct messages, notifications and reports. Images
+      you upload, and the data export files you request, are stored in
+      Google Cloud's <strong>United States (us-central1, Iowa)</strong>
+      region, because that's where Google Cloud's free storage tier is
+      available. We use Cloud Vision's global service, and Firebase Cloud
+      Messaging does not let us choose a region, so images being checked
+      and push notifications may be processed in other countries. All of
+      it is protected by Google's standard encryption at rest.
     </p>
 
     <h2>How long we keep it</h2>
+    <p>
+      Where a time is given below, the automatic deletion usually
+      finishes within a day after it.
+    </p>
     <ul>
       <li>Account and profile data: for as long as your account exists.</li>
       <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
+      <li>Follow requests: until they are accepted, declined or withdrawn, or either account is deleted.</li>
+      <li>Posts, replies, quotes and reposts: until you delete them or your account.</li>
+      <li>Likes and bookmarks: until you undo them or delete your account.</li>
+      <li>Scheduled posts: until they are published or you cancel them; then a record without the post's text for 7 days.</li>
+      <li>Images: as long as the post or profile they belong to. See "Photos and GIFs" above for uploads you don't post and for replaced profile images.</li>
+      <li>Direct messages: no time limit. See "Direct messages" above.</li>
+      <li>Notifications: 90 days, then deleted automatically.</li>
+      <li>Push tokens: until you sign out on that device, the token stops working or you delete your account. We keep tokens for at most 5 devices per account.</li>
       <li>Poll votes: until 30 days after the poll closes, then usually deleted within a day; sooner if you delete your account. See "Polls" above.</li>
       <li>Lists you make: until you delete them or your account.</li>
       <li>Drafts: only on your device. See "Drafts" above for when they are deleted.</li>
+      <li>Reports: until we have dealt with them, then 90 days; a copy of a reported message at most 180 days. See "Reports and moderation" above.</li>
+      <li>Duplicate-request records (see below): 24 hours, then deleted automatically, usually within a day.</li>
+      <li>Data export files: 7 days, then deleted.</li>
       <li>Server logs: kept for about 30 days (Google Cloud Logging's default), then deleted.</li>
       <li>Database backups: weekly, each kept for 14 days, then deleted.</li>
       <li>Mail to privacy@dzeroth.com: kept in the founder's Gmail inbox. We have not set a fixed retention period for these emails yet.</li>
@@ -452,22 +790,37 @@
       <li><strong>Access</strong> the personal data we hold about you.</li>
       <li><strong>Correct</strong> inaccurate data.</li>
       <li><strong>Delete</strong> your account and associated data.</li>
-      <li><strong>Export</strong> your data in a portable format (JSON). Today an export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles). It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. It also includes your poll votes, the lists you made and the lists made by other people that include you, as described in "Polls" and "Lists" above; drafts are not included, because they are kept only on your device. We prepare it by hand with an internal tool (there is no in-app export yet) and send it to the email address on the account.</li>
+      <li><strong>Export</strong> your data in a portable format (JSON). An export contains your profile, your sign-in record (email, sign-in method, account creation and last sign-in times) and your social graph: the accounts you follow, your followers, the accounts you blocked and the accounts you muted (IDs and handles), and your pending follow requests. It also contains your posts (including replies, quotes, reposts and scheduled posts), a list of your images with their web addresses (not the image files), the posts you liked, reposted and bookmarked, your notifications, the devices registered for push (platform and dates, never the push token), the reports you made, and your direct messages as described in "Direct messages" above. It never includes who has blocked you, because that is information about other people and revealing it would defeat blocking. It also includes your poll votes, the lists you made and the lists made by other people that include you, as described in "Polls" and "Lists" above; drafts are not included, because they are kept only on your device.</li>
       <li><strong>Withdraw consent</strong> where we rely on it, or raise a grievance about how we've handled your data.</li>
     </ul>
     <p>
       To do any of these, email
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a> from the
-      email address on your account, so we can confirm it is you. Until
-      in-app deletion and export tools ship, we handle these requests
-      manually and will get back to you within 30 days.
+      email address on your account, so we can confirm it is you. We handle
+      email requests by hand and will get back to you within 30 days; an
+      export is sent to the email address on your account.
+    </p>
+    <p>
+      If <strong>Download my data</strong> and <strong>Delete account</strong>
+      appear in the app's Settings, you can also do those two things
+      yourself. An export you request in the app is usually ready within
+      minutes. Its download link works for 15 minutes (you can get a new
+      link while the file exists), you can request one export a day, and
+      the file is deleted after 7 days. Deleting your account in the app
+      asks you to sign in again first if you haven't signed in recently.
     </p>
     <p>
       When your account is deleted, we delete your profile, your handle
-      (which frees it for others), your sign-in account, your posts, your
-      follows and followers, your blocked and muted lists, any data exports
-      you requested and your daily limit counters. You are also removed from
-      other people's follower, following and block lists, and their counts
+      (which frees it for others), your sign-in account, your posts
+      (including replies, quotes, reposts and scheduled posts) and their
+      images, your profile photo and header image, your likes and
+      bookmarks, your notifications and push tokens, your follows and
+      followers, your pending follow requests, your blocked and muted
+      lists, any data exports you requested and your daily limit counters.
+      You are also removed from other people's follower, following and
+      block lists and from the notifications you caused in their lists,
+      and the follower, following, like and repost counts on their
+      profiles and posts
       are corrected. We also delete your poll votes and the lists you made,
       and remove you from lists made by other people. Drafts are kept on
       your devices, not by us (see "Drafts" above). Once deletion starts it
@@ -475,16 +828,24 @@
       account is disabled within seconds, and for a typical account the rest
       is done within minutes.
     </p>
+    <p>
+      In your direct messages, the text of every message you sent is
+      erased, as described in "Direct messages" above. Reports you made are
+      kept without your account ID.
+    </p>
     <p id="retained-after-deletion">
       <strong>What can remain after deletion, and for how long.</strong>
-      These are the only things that can outlast the deletion of your
-      account:
+      Where a time is given in the list below, the automatic deletion
+      usually finishes within a day after it.
+      These are the only records in our systems (including the services
+      Google runs for us) that can still contain your account ID, your
+      handle or something you wrote after your account is deleted:
     </p>
     <ul>
       <li>
-        <strong>Duplicate-request records, up to 24 hours.</strong> To avoid
-        acting twice on the same request, our database keeps a short record
-        of recent actions that contains your account ID (an internal
+        <strong>Duplicate-request records, up to 24 hours.</strong> To
+        avoid acting twice on the same request, our database keeps a short
+        record of recent actions that contains your account ID (an internal
         identifier, not your name or handle). Each record is deleted
         automatically 24 hours after it was made.
       </li>
@@ -498,9 +859,46 @@
         not part of any profile.
       </li>
       <li>
-        <strong>Mentions in other people's posts.</strong> If someone else
-        mentioned your handle in their post, that post belongs to them and
-        stays as they wrote it.
+        <strong>Mentions and replies in other people's posts.</strong> If
+        someone else mentioned your handle in their post, or replied to one
+        of your posts (a reply keeps the handle it replied to), that post
+        belongs to them and stays as they wrote it.
+      </li>
+      <li>
+        <strong>Reports about you, until 90 days after they are
+        resolved.</strong> If someone reported you or something you posted,
+        the report, with its copy of what was reported and your handle at
+        the time, is kept as safety evidence until 90 days after we resolve
+        it, then deleted automatically.
+      </li>
+      <li>
+        <strong>A reported message, at most 180 days.</strong> If someone
+        reported a message you sent, our copy of that one message is kept
+        for at most 180 days after the report and no longer than 90 days
+        after we resolve it.
+      </li>
+      <li>
+        <strong>A note on a report you made, until 90 days after it is
+        resolved.</strong> If we hadn't dealt with a report you made when
+        your account was deleted, the note you wrote stays with that report
+        (without your account ID) until it is deleted, 90 days after we
+        resolve it.
+      </li>
+      <li>
+        <strong>Identifiers derived from your account ID.</strong> Some
+        internal record IDs, for example those of a conversation you were in
+        or of a report you made, are one-way hashes that include your account
+        ID. They can't be turned back into your account ID, but someone who
+        already knows it could check it against them. They last as long as
+        those records: a conversation until the other person's account is
+        deleted too, a report until 90 days after we resolve it.
+      </li>
+      <li>
+        <strong>A notification created at the moment of deletion, up to 90
+        days.</strong> In rare cases, a notification about something you did
+        (for example a like) can be added to someone's list at the very
+        moment your deletion runs. It then stays until it expires, 90 days
+        after it was made.
       </li>
       <li>
         <strong>Database backups, up to 14 days.</strong> Backups are taken
@@ -508,11 +906,12 @@
         accounts from them.
       </li>
       <li>
-        <strong>Internal deletion task messages, up to 7 days.</strong> The
-        deletion runs as a background task. The messages that drive it
-        contain your account ID and are kept by Google Cloud for at most 1
-        day, or at most 7 days if a message has to be set aside after
-        repeated failures.
+        <strong>Internal background task messages, up to 7 days.</strong> The
+        deletion, like other background work such as notifications, runs as
+        background tasks. The messages that drive them can contain your
+        account ID and are kept by Google Cloud for at most 1 day, or at
+        most 7 days if a message has to be set aside after repeated
+        failures.
       </li>
       <li>
         <strong>Device-level diagnostics.</strong> The app has no crash
@@ -525,6 +924,39 @@
         <strong>Server logs, about 30 days.</strong> Our logs contain only a
         hashed version of your user ID, never the ID itself or your email,
         and expire after about 30 days.
+      </li>
+      <li>
+        <strong>Email you sent us, with no fixed limit yet.</strong> Mail you
+        sent to privacy@dzeroth.com stays in the founder's Gmail inbox after
+        your account is deleted, with your email address and what you wrote
+        (see "Who we share it with" and "How long we keep it" above).
+      </li>
+    </ul>
+    <p>
+      <strong>Not in that list</strong>, for the reason given with each:
+    </p>
+    <ul>
+      <li>
+        <strong>Drafts on your devices.</strong> Drafts are stored only on
+        your devices, and deleting your account in the app deletes them only
+        on that device (see "Drafts" above). We never hold them.
+      </li>
+      <li>
+        <strong>Poll totals.</strong> Your vote stays counted in the totals of
+        the polls you voted in, but once your votes are deleted nothing we
+        keep links it to you (apart from the database backups listed above).
+      </li>
+      <li>
+        <strong>The other person's side of a conversation.</strong> The
+        messages other people sent you stay in their copy of the
+        conversation (see "Direct messages" above). They are theirs and
+        contain nothing you wrote.
+      </li>
+      <li>
+        <strong>Copies outside our systems.</strong> Anything someone else
+        saved, copied or took a screenshot of, and images still held in a
+        browser or network cache (see "Photos and GIFs" above). We don't
+        hold these copies.
       </li>
     </ul>
 
@@ -542,15 +974,18 @@
       infrastructure security, encryption at rest and access controls. Every
       request to our servers needs a valid sign-in, and the database can't
       be read directly from the app or browser. This means people who aren't
-      signed in can't see profiles or follower lists. No
+      signed in can't see profiles or follower lists. The exception is
+      images: anyone who has an image's web address can open it (see
+      "Photos and GIFs" above). Direct messages are not end-to-end
+      encrypted (see "Direct messages" above). No
       system is perfectly secure, but we keep access to production data
       restricted and monitor for unusual activity.
     </p>
 
     <h2>Changes to this policy</h2>
     <p>
-      We may update this policy as Dzeroth adds features (posts, media,
-      likes, notifications and beyond). We'll update the "Last updated" date above
+      We may update this policy as Dzeroth adds or changes features. We'll
+      update the "Last updated" date above
       when we do. If a change is significant, we'll try to let you know
       in-app.
     </p>
