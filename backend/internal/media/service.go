@@ -375,7 +375,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	now := s.Now().UTC()
 	maxFull, maxThumb := capsFor(in.Purpose)
 	limit := s.MediaPerDay
-	if !createdAt.IsZero() && now.Sub(createdAt) < s.NewAccountWindow {
+	if s.isNewAccountAt(createdAt, now) { // zero createdAt is new, as for the units cap (W6-50)
 		limit = s.NewAccountMediaPerDay
 	}
 
