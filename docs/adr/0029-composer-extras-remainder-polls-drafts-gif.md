@@ -1379,3 +1379,230 @@ Appended; no decision above is rewritten. This is how D3 and D8 are met for the 
 - **Retention as built, in one sentence (for W6-46 and W6-47).** A poll vote and the copy on your account are kept until the poll closes plus 30 days; both are removed within about a day of that time (the copy sooner when you open the app; the vote record by Firestore's TTL, the copy by the daily cleanup run), and both go at once when you delete your account.
 - **Residuals.** A dormant account's copy can outlive the expiry by the cleanup lag above; a cron outage over 30 days leaves older entries to the lazy prune; a cached copy shows the check mark up to 60 s after expiry. The TTL change on `pollVotes.expireAt` itself (Terraform `poll_votes_expire_at`) is not part of this change and must be applied in a project for the vote docs to expire.
 - **Cost and ordering notes (W6-29).** Every RPC that loads `userLikes` (GetPost, the timelines, the lists) now has a worst case of +1 write, once, on the load that finds an expired poll entry; it is charged to that request. The sweep runs before the trends refresh under a 3 s cap with its own panic recovery and Error Reporting op, so the trends window is 10 s minus the sweep time (never skipped by a sweep failure). The `firestore-data-model` skill (`userLikes` row: entry format and `pollVotesDueDays`; cost table: sweep and export rows) is a `.claude/` follow-up for the founder. Architect: acknowledge the D3 entry-shape change and the new field.
+
+## As-built notes, 2026-11-01: Amendment 1 A5 refunds and A2 change batch (W6-49, W6-50, W6-32, W6-36, W6-52)
+
+These notes record what shipped. They are notes only: the decision text, Amendment 1 and its status, F1 to F12 and N1 to
+N6 stay as written, and nothing here is a new decision. Sources, all merged on `main`:
+- W6-49: #563 (`9bf487ab`). W6-50: #565 (`4c00cdbf`). W6-32: #567 (`6c932917`).
+- W6-36: #555 (`034c1c06`). W6-52: #566 (`79084e6e`). The dev check: runbook `engagement.md` §10, #568 (`0c77fb8e`).
+
+Numbering continues from N6. Two earlier headings are both numbered N5. They are left as they are, and "N5 (W6-36)" below
+means the 2026-10-31 note on block and change.
+
+### N7. A5.5 and A5.7: Vision refunds after W6-49 (#563; security W6-42 L-1 and L-3)
+
+**The rule as built.** One classifier, `unbilled(err)` in `media/screencap.go`, decides each failed Vision call. It decides
+for **both** counters: the per-uid `media_vision_units_daily` cap and `VISION_MONTHLY_CAP` (`admin/vision-{yyyymm}`).
+It runs in this order:
+1. **`*googleapi.Error`** (Google returned an HTTP status): refunded when it is **429 or >= 500**. Charged for every
+   other status (400, 403, ...).
+2. **A context error** (`DeadlineExceeded` or `Canceled`: our 10 s Vision timeout, the 20 s `finalizeDeadline`, or a
+   client that hung up): **charged**. This is decided before 3 and 4, so a connect that ran into the deadline is charged.
+3. **`errNotSent`** (the Vision client could not be built: no credentials, a metadata-server failure): **refunded**.
+4. **A `*net.OpError` with Op `"dial"`** (a DNS failure, a refused or unreachable host): **refunded**.
+5. **Anything else: charged.** This covers a connection reset or unexpected EOF after the request was written, a TLS or
+   token failure, and any error the classifier does not recognise.
+
+A Vision response is always charged, as before. That means a verdict or a `VisionAnsweredError` (a per-image error, an
+empty response, a response with no annotation). In A5.5, "never refunded: every answered call" means such a response,
+not an HTTP 429 or 5xx (the A5.7 implementation note already reads it that way).
+
+**Whole-attempt refunds (no call was sent).** The per-uid charge is taken after verify and before the claim, and the
+refund starts at the whole charge. So these return the units in full:
+- a busy GIF slot;
+- a lost claim race, or a claim write error;
+- a Vision-counter reserve error;
+- the monthly cap already spent (no reserve is taken);
+- a GIF the sampler refused, or whose object read failed;
+- `no_time` (below).
+
+Where the monthly counter had reserved the units, the same calls are released from it.
+
+**`no_time` (L-3).**
+- Before starting the calls, `screenAll` reads the request's deadline (`ctx.Deadline()`, wall clock).
+- With less than `minVisionBudget` (3 s) left, it sends nothing. Every call is refundable, so neither counter keeps a
+  unit.
+- `assessed` is false, so the attempt consumes a **retry, not an attempt** (A5.3 row 5). One claim and one release are
+  written, as for any retry.
+- The answer is UNAVAILABLE with `retry_after` 5 s, and the request line carries `screen_outcome=no_time`.
+- A context with no deadline (tests, background callers) skips the check.
+- It applies to every finalize, but in practice to a GIF, where it runs after the slot wait, the object read and the
+  decode.
+- `GifQueueWait` (5 s) and `finalizeDeadline` (20 s) are unchanged (N4, founder decision 2).
+
+**What this changes against the text above.**
+- **A5.5 "Refunds" is narrowed.** "Or when the call failed before any response" is now "before the request was sent"
+  (classes 3 and 4), plus HTTP 429 and 5xx.
+  - A reset or EOF after the write is charged, like a timeout.
+  - A TLS or token failure is charged too, although it may come before any request byte: the classifier cannot tell,
+    so it charges.
+  - The W6-40 review (item 1) treats this as a refinement of A5.5, not one of the founder's binding points.
+- **A5.7's "unit accounting is unchanged from #535" no longer holds exactly.** Before W6-49, `neverSent` released every
+  non-context transport failure from both counters. Now only classes 1 (429 or 5xx), 3 and 4 are released. So
+  `VISION_MONTHLY_CAP` counts more possibly billed calls than before. It over-counts by at most one call's own unit for
+  each such failure and never under-counts. That is the safe direction: the cap is reached sooner and never overspent.
+- **N1 ("Request deadline") and N4 option 3 are superseded on one point.** They say the counter "can run up to 2 units
+  under the real spend". Since #554 (W6-42 H-1: deadlines are charged) and W6-49 (no call is started in the last 3 s),
+  the counter can over-count but never under-count. N4 founder decision 2 stands as decided (accept the rare retryable
+  failure; deadline and slot wait unchanged). Only its stated side effect moved, in the safe direction.
+- **The bounds are unchanged.** Every failed call still takes one of the document's 8 claims, so the bounds stay:
+  - 16 units per document;
+  - for an established account, about INR 780 a month nominal and about INR 1,390 durable;
+  - for a new account, about INR 156 nominal and about INR 347 durable (A5.7).
+- **Effect on honest users.**
+  - In an outage that shows as resets, rather than 5xx, 429 or dial failures, each failed attempt now charges the
+    per-uid cap 1 or 2 units.
+  - The honest headroom of 20 units (60 − 40) covers about 10 such attempts per instance per day. Runbook `media.md`
+    says to raise `MEDIA_VISION_UNITS_PER_DAY` (max 200) if honest users hit the cap in an outage.
+  - Attempts are still not consumed. The founder's acceptance point ("outages, timeouts and busy responses must not
+    consume attempts") holds.
+- **Residual.** Whether Google bills an HTTP 429 or 5xx is unverified (W6-40 review, item 1). A refunded call still
+  takes a claim, so if it is billed, the durable per-document bound still holds.
+- **Tests and runbook.**
+  - Tests: `TestW649_RefundClassification`, `TestW649_FinalizeRefundsOnlyUnbilledErrors`,
+    `TestW649_MixedFailuresRefundOnlyTheUnbilledCall`, `TestW649_VisionHTTPFailuresClassify`,
+    `TestW649_VisionBuildFailureIsNotSent`, `TestW649_VisionNotStartedWithLessThanTheMinimumBudgetLeft`,
+    `TestW649_VisionStartsWithEnoughBudget`.
+  - Runbook `media.md`: "Refunds", "Accounting" and "Too little request time left for Vision".
+
+### N8. A5.5 tiers: a zero `createdAt` is a new account in both (W6-50, #565; security W6-42 L-4)
+- **One predicate.** `isNewAccountAt(created, now)` = `created.IsZero() || now − created < NewAccountWindow`, in
+  `media/screencap.go`. Both the CreateUpload upload quota and the units cap (`chargeUnits`) call it.
+- **What changed.** A zero `createdAt` was established for uploads (20 a day) but new for units (12 a day per instance).
+  It is now new in both: 5 uploads (`QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY`) and 12 units per instance (36 effective),
+  together.
+- **Unchanged:**
+  - an age that cannot be read fails CreateUpload, and counts as new for the units cap;
+  - a zero age is not "established" for the unscreened publish once `VISION_MONTHLY_CAP` is spent (`establishedAccount`).
+- **Who it affects.** Signup always writes `createdAt`, so only a hand-written or imported `users` doc. The runbook says
+  to fix that doc's `createdAt` rather than raise the limits.
+- **Cost.** +0 reads: the age comes cache-first from the identity directory. Such an account gets the new-account abuse
+  bound (N7).
+- **Tests.** `TestW650_UploadQuotaAndUnitsCapUseTheSameTier`, `TestW650_UnreadableAgeBehaviourIsUnchanged`,
+  `TestW650_ZeroCreatedAtIsNotEstablishedWhenTheMonthlyCapIsSpent`.
+
+### N9. Every winning REJECTED finalize sweeps the public names (W6-32, #567; W6-25 review L-3)
+Not an Amendment 1 point. Recorded here because it changes what every media reject does.
+- **What it does.** `reject` writes REJECTED with an `UpdateTime` precondition. When that write wins, it deletes the
+  private uploads, then `dropPublicNames` deletes both deterministic public objects (the full image and the thumbnail,
+  named from the media id and `NameSuffix`).
+  - This runs for every reason: `policy`, `attempts`, `invalid` (including `changed_after_verify`), `capacity` and the
+    GIF refusals. It is not limited to the changed-thumbnail case.
+  - A reject that loses its write does not sweep: it reloads the document and returns the winner's result.
+  - A publisher that copies after the sweep loses its Resolve and drops its own copies (`dropOrphanedCopies` sees
+    REJECTED).
+- **Why.** A call that copied the full image public, then lost its changed-thumbnail reject to a retaken claim, could
+  leave a public copy that no document points at.
+- **Cost.** 2 GCS DELETE requests per REJECTED finalize. These are free operations, and a missing object counts as
+  success. 0 Firestore operations.
+- **Residual.** A failed delete is logged (`media_public_delete_failed`). It leaves one public object under an unlisted
+  name until an operator removes it (runbook `media.md`).
+- **Test.** `TestW632_RejectSweepsAPublicCopyLeftByAnEarlierCall`.
+
+### N10. A2 vote changes as built, and verified on dev Firestore (W6-36, #555; runbook check #568)
+This supersedes N5 (W6-36)'s first bullet ("proven on the emulator, not yet on dev Firestore").
+
+**The write: one blind batch, not a transaction (A2.3, Option C kept).** `FirestoreRepo.ChangeVote` stages 4 writes in one
+batch, committed by `store.CommitWithRetry`, with no read inside:
+1. `pollVotes/{postId}_{uid}`: `Update` with a **`LastUpdateTime` precondition** equal to the `UpdateTime` the service
+   just read. It sets `choice`, `changes` (`Increment(1)`) and `changedAt`.
+2. `StagePollChange`: on the post, `poll.counts.<from>` −1 and `poll.counts.<to>` +1, with an `Exists` precondition.
+   `poll.total` is not touched.
+3. `userLikes/{uid}`, `Set` + `MergeAll`: `ArrayRemove` of the old entry in both forms (the three-part
+   `<postId>:<from>:<closesAtUnix>` and the legacy two-part form), plus `updatedAt`.
+4. `userLikes/{uid}`, `Set` + `MergeAll`: `ArrayUnion` of the new three-part entry, `updatedAt`, and `ArrayUnion` of the
+   due day into `pollVotesDueDays` (a no-op when the day is already there).
+
+So the batch makes **two field-level writes to one `userLikes` document in one commit**, applied in order. N5 (W6-36)'s
+forward note on W6-29 landed as written.
+
+**The read side and retries, as A2.3 says:**
+- With `e != 0` the service reads the vote doc first (+1 read).
+- With `e == 0` it tries the blind Create first, and reads the doc only on `AlreadyExists`.
+- A failed precondition is followed by a re-read:
+  - if the doc moved, the A2.2 table decides again;
+  - if it did not move, the post is gone: NOT_FOUND, 0 writes.
+- At most 4 rounds (`pollWriteAttempts`), then UNAVAILABLE with `contention=true`.
+- `closesAt` is re-checked before every retried round. The first round relies on the step-5 check made just before it.
+- Two edge cases:
+  - `e != 0` with no vote doc is a new vote (A2.2 row 1);
+  - a doc that disappears after an `AlreadyExists` with `e == 0` answers UNAVAILABLE (retry).
+
+**Verified on dev Firestore on 2026-11-01** (runbook `engagement.md` §10, #568).
+- Revision `api-00959-yel` (the W6-36 merge `034c1c06`). Author `w7smoke1`, voter `w7smoke2`, a poll with 3 choices.
+- Request lines:
+  - vote for choice 0: `voted`, `fs_reads=4`, `fs_writes=3`;
+  - change to choice 1 with `expected_choice=1`: `changed`, `fs_reads=1`, `fs_writes=4`, no error;
+  - a stale `expected_choice=1` for choice 2: `stale_expected`, `fs_reads=1`, `fs_writes=0`, FAILED_PRECONDITION
+    `ALREADY_VOTED`.
+- After the change:
+  - `poll.counts` was `[0, 1, 0]` with `poll.total` 1;
+  - the vote doc had `choice=1`, `changes=1`, and `changedAt` and `expireAt` set;
+  - `userLikes/{uid}.pollVotes` held exactly one entry for the post, three-part, with choice 1.
+
+**The A2.3 transaction fallback was not built and is not needed.**
+- If a later Firestore change ever rejects the two-write commit, the commit is atomic and fails closed: every change
+  becomes an internal error and nothing is written.
+- The remedy is a swap inside `FirestoreRepo.ChangeVote`: +1 read and 3 writes.
+- The runbook asks for the check to be repeated before `polls` widens in prod.
+
+**Budgets.** On dev (warm), a change cost 1 read and 4 writes. The Amendment 1 Cost impact rows stand: 9 reads worst,
+4 typical, 4 writes. No INR row moves.
+
+### N11. VotePoll error lines use the keyed `HashPost` (W6-52, #566; W6-42 part 2 L-2)
+- **What changed.** Two VotePoll lines now go through `logger.RedactErrPosts`, which turns post ids into `HashPost` and
+  uids into `HashUID`:
+  - `mapVoteErr`'s internal-error line;
+  - the `engagement_poll_vote_viewer_degraded` WARN.
+- **Already keyed before W6-52:** the request line's `post_hash` and the `poll_vote_contention` WARN.
+- **Author uid dropped.** The graph-error text of `voterBlocksAuthor` no longer names the author's uid at all.
+- **The hash.** `HashPost` = the first 16 hex of HMAC-SHA256(key, `"post|" + id`).
+  - The key is the conversation-hash key, derived from `CURSOR_HMAC_KEY` by HKDF.
+  - Without a key, a random per-process key is used, never the plain hash.
+  - `opsctl polls loghash POST_ID` reproduces it.
+- **Test.** `TestMapVoteErr_RedactsPostIDKeyed`.
+- **Found while writing (Low, not a decision; W6-52 did not cover it).** The `poll_votes` eraser and export error lines
+  in `engagement/purge_polls.go` still use plain `RedactErr`.
+  - Lines 83, 98 and 104 pass the uid **before** the vote doc ids (`<postId>_<uid>`), and `RedactErr` replaces in the
+    order given.
+  - So once the uid is hashed, the doc id no longer matches, and if the Firestore error text names the document, the
+    **plain post id** stays in the line next to `HashUID(uid)`. The eraser's commit error (line 83) names the deleted
+    documents, according to the code's own comment.
+  - `HashUID` is unkeyed, so anyone who knows the uid can recompute it. A log reader could therefore link an account to
+    the polls it voted in, though not to its choices. This happens only on an error path of the account's own deletion
+    or export.
+  - The fix: pass the doc ids before the uid, or split them and use `RedactErrPosts`.
+  - `ScrubErr`'s edge-id pattern does not catch these ids. It needs 20 or more characters on each side of the `_`, and a
+    Snowflake post id has at most 19 digits.
+
+### N12. Security review W6-42 part 2, I-9: `changes` in the `poll_votes` export. Recommendation: yes
+- **The finding.** The export lists `postId`, `choice`, `createdAt` and `changedAt` (A2.6), and W6-29 added
+  `current_choices`. It leaves out `changes`, the stored count of changes.
+- **Recommendation: add it.** The reasons:
+  - It is the account's own data, stored on a document keyed by its uid, and the export already reads that document and
+    exports `changedAt` from it. Leaving out one field of a document the export already reads is hard to defend under
+    GDPR Art. 15 and DPDP s.11.
+  - The user meets this number as a limit ("You can't change your vote again", `POLL_VOTE_CHANGES_MAX`), so the export
+    should explain it.
+  - It holds no other user's data, and it is a count, not a history. A2.6's rule that no earlier choice is stored or
+    exported still holds.
+  - Cost: 0 reads, 0 writes, a few bytes per row.
+- **Shape.** `changes` (int), JSON `omitempty`, present exactly when `changedAt` is (`changes > 0` ⇔ `changedAt` set). A
+  vote that never changed keeps its current bytes.
+- **Ticket.** W6-53 (backend-developer, XS) in `docs/plans/ui-w6-composer-extras.md`. When it lands it adds one field
+  to A2.6's export list. The founder confirms that addition with W6-53's PR.
+
+### N13. Not edited here, and cost
+- **Not edited here:**
+  - The `firestore-data-model` skill. FU-7 is still owed (`pollVotes.changes` and `changedAt`, `media.screenAssessed`,
+    the revised `media.screenAttempts`).
+  - `docs/reviews/cost-model.md`, which belongs to sre-performance. No row moves.
+  - The runbooks. `media.md` and `engagement.md` §10 already state everything above.
+- **Cost impact of these notes: INR 0 fixed, and no INR row of Amendment 1 or of the Cost impact section changes.**
+  - Firestore reads and writes per RPC are unchanged. W6-49, W6-50 and W6-52 add 0, and W6-32 adds 0 Firestore
+    operations.
+  - Vision on the honest path is unchanged. `no_time` avoids up to 2 possibly billed units per slow-tail event. Resets
+    are now counted, an over-count of at most one unit per such call.
+  - GCS: +2 DELETE requests per REJECTED finalize. These are free operations.
+  - No free-quota crossover moves.
