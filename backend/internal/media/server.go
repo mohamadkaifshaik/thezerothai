@@ -23,7 +23,8 @@ const (
 	// createDeadline bounds CreateUpload (one transaction plus local signing).
 	createDeadline = 8 * time.Second
 	// finalizeDeadline bounds FinalizeUpload: up to 4 images, each 4 object reads, 2 Vision calls and 2 copies,
-	// run concurrently; inside Cloud Run's 30 s request timeout.
+	// run concurrently; inside Cloud Run's 30 s request timeout. A GIF (one image) spends part of it before Vision (the slot wait, the object read,
+	// the decode); the Vision calls get what is left and are not started under minVisionBudget (see screeningClaimTTL).
 	finalizeDeadline = 20 * time.Second
 )
 

@@ -434,6 +434,9 @@ type ViewerSet struct {
 	pollChoice map[string]int
 	// pollsOff is true when FEATURE_POLLS is globally off: nobody can vote, so every poll shows its results (ADR-0029 D4).
 	pollsOff bool
+	// blockedAuthors is the viewer's outgoing block set (graph snapshot.Blocked), set by the producers that show a post by an author the viewer
+	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked (ADR-0029 A1.5). Read-only.
+	blockedAuthors map[string]bool
 }
 
 // NewViewerSet builds a ViewerSet from post-id lists (no bookmarks).
@@ -487,6 +490,20 @@ func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 	}
 	v.pollChoice = m
 	return v
+}
+
+// WithBlockedAuthors returns v plus the viewer's blocked authors (graph.Snapshot.Blocked, already in hand at the producer: 0 reads). ToViewAt reads it
+// for PostView.viewer_poll_vote_blocked and nothing else (ADR-0029 Amendment 1 A1.5). v itself is not changed; the map is shared and never written.
+func (v ViewerSet) WithBlockedAuthors(blocked map[string]bool) ViewerSet {
+	v.blockedAuthors = blocked
+	return v
+}
+
+// PollVoteBlocked reports whether p carries a live poll the viewer cannot vote in because they block its author: the poll is open at now, the
+// viewer is not the author and the author is in the blocked set. A REPOST or QUOTE row has no poll of its own (embedded polls are frozen, D5),
+// so it is false there.
+func (v ViewerSet) PollVoteBlocked(p *Post, viewer string, now time.Time) bool {
+	return p.Poll != nil && !p.Poll.Closed(now) && viewer != p.AuthorID && v.blockedAuthors[p.AuthorID]
 }
 
 // WithPollsGloballyOff returns v marked so that every poll shows its results (FEATURE_POLLS is off for everyone, ADR-0029 D4).
@@ -600,6 +617,9 @@ type Engagement interface {
 	// PollVoted applies one committed vote for choice (0-based) to the instance copy of the poll post (copy on write, a new Poll
 	// with fresh counts) and returns the updated post, or nil when the post is not cached (ADR-0029 D6 step 8).
 	PollVoted(postID string, choice int) *Post
+	// PollVoteChanged applies one committed vote change from choice from to choice to (both 0-based) to the instance copy: Post.VoteChanged, a
+	// new Poll, each count clamped at 0, total unchanged. nil when the post is not cached (ADR-0029 Amendment 1 A2.7).
+	PollVoteChanged(postID string, from, to int) *Post
 	// RepostCreated caches a REPOST this instance just committed: posts cache, author-recent, and the author's
 	// postsCount via identity.Directory.Forget.
 	RepostCreated(p *Post)

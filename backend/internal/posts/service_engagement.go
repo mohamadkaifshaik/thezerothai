@@ -35,6 +35,11 @@ func (s *service) PollVoted(postID string, choice int) *Post {
 	return s.cache.AdjustPoll(postID, choice)
 }
 
+// PollVoteChanged implements Engagement.
+func (s *service) PollVoteChanged(postID string, from, to int) *Post {
+	return s.cache.AdjustPollChange(postID, from, to)
+}
+
 // RepostCreated implements Engagement.
 func (s *service) RepostCreated(p *Post) {
 	s.cache.SetPost(p)

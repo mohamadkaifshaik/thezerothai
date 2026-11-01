@@ -75,6 +75,8 @@ Accounts cost nothing (Google sign-in); web App Check is still an open ADR; the 
 
 `finalize.go:612-615`, `screencap.go:105`: every error that is not a `VisionAnsweredError` and not a context error is refunded. An error after the request was written (connection reset, unexpected EOF) is as ambiguous as a timeout. Not attacker-triggerable (server-to-Google path) and bounded by the 16-unit per-doc ceiling. **Fix:** refund only a `*googleapi.Error` with HTTP 429 or ≥ 500, errors before any request was sent (building the service, a dial failure) and the existing pre-call paths; treat other transport errors like timeouts.
 
+**Fixed in #563 (W6-49).** `unbilled()` (`screencap.go`) refunds, to both the per-uid cap and `VISION_MONTHLY_CAP`, only a `*googleapi.Error` with HTTP 429 or >= 500, a failure before the request was sent (the Vision service could not be built, wrapped with `errNotSent`) and a dial `*net.OpError`; a context error is decided first and stays charged; everything else, including any error it does not recognise, stays charged. Tests: `TestW649_FinalizeRefundsOnlyUnbilledErrors`, `TestW649_MixedFailuresRefundOnlyTheUnbilledCall`, `TestW649_RefundClassification`, `TestW649_VisionHTTPFailuresClassify`, `TestW649_VisionBuildFailureIsNotSent`.
+
 ### L-2 (Low, required doc fix): the cost statement gives only the in-memory bound
 
 `docs/runbooks/media.md` ("about INR 780 per account-month"), the PR text and ADR-0029 A5.7. The units cap lives in memory per instance and resets on a new instance (scale to zero, a deploy, an idled service); the durable bound is the claims ceiling times the uploads quota. **Fix:** state both: established accounts about INR 780 nominal / about INR 1,390 durable; new accounts about INR 156 nominal / about INR 347 durable.
@@ -82,6 +84,8 @@ Accounts cost nothing (Google sign-in); web App Check is still an open ADR; the 
 ### L-3 (Low): the GIF slot wait still counts against the 20 s `finalizeDeadline`
 
 `finalize.go:221-235`, `server.go:117`; the comment at `finalize.go:136-139` ("about 17 s") leaves out the 5 s wait. Worst case (5 s wait, 5 s read, 2 s decode, verify and claim round trips) leaves Vision about 8 s; under GIF load an honest GIF can hit `DeadlineExceeded` mid-call, costing a retry and 2 units on the per-uid cap (and, until H-1, uncounted monthly units). Pre-existing (W6-10). **Fix:** the cheaper of shortening `GifQueueWait` to 2–3 s, giving the Vision calls the remaining time and refusing to start them below about 3 s left, or correcting the comment.
+
+**Fixed in #563 (W6-49).** The Vision calls already get the lesser of their own 10 s and what is left of the request; `screenAll` now also refuses to start them with under `minVisionBudget` (3 s) left (`screen_outcome=no_time`, UNAVAILABLE with `retry_after` 5 s, no Vision call, no units on either counter, a retry and not an attempt). `GifQueueWait` (5 s) and `finalizeDeadline` (20 s) are unchanged: ADR-0029 N4, founder decision 2, accepts the rare failure and names a raised GIF deadline as the first lever if the W6-22 smoke shows it. The `screeningClaimTTL` comment now gives the real numbers (claim window about 17 s plus ordinary calls; request worst case about 22 s or more, cut by the 20 s deadline, Vision about 8 s at most). Tests: `TestW649_VisionNotStartedWithLessThanTheMinimumBudgetLeft`, `TestW649_VisionStartsWithEnoughBudget`.
 
 ### L-4 (Low): a zero `createdAt` gets different tiers for uploads and for units
 

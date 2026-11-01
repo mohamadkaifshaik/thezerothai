@@ -39,7 +39,7 @@ const (
 	fieldConverged         = "finalize_converged"  // a lost finalize race answered with the winner's result
 	fieldBusy              = "finalize_busy"       // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
 	fieldJoined            = "finalize_joined"     // answered with the result of a same-instance call already finalizing this image
-	fieldScreenOutcome     = "screen_outcome"      // ready, rejected_policy, rejected_invalid, assessed (an attempt consumed) or unassessed (a retry consumed)
+	fieldScreenOutcome     = "screen_outcome"      // ready, rejected_policy, rejected_invalid, assessed (an attempt consumed), unassessed (a retry consumed) or no_time (a retry consumed: under minVisionBudget of the request was left, W6-49)
 	fieldScreenClaims      = "screen_claims"       // the doc's screenAttempts after this call's claim
 	fieldScreenAssessed    = "screen_assessed"     // the doc's screenAssessed after this call
 	fieldUnitsRefused      = "units_daily_refused" // media_vision_units_daily refused the call before the claim (A5.5)

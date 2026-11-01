@@ -140,7 +140,7 @@ func (s *Server) listTimeline(ctx context.Context, uid string, req *timelinev1.G
 		return nil, err
 	}
 
-	out.Posts, out.RemovedIds = s.toViews(ctx, uid, snap.Following, page.Items, af.embed), removed
+	out.Posts, out.RemovedIds = s.toViews(ctx, uid, snap.Following, nil, page.Items, af.embed), removed
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)

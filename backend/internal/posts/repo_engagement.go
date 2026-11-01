@@ -42,6 +42,10 @@ type EngagementWriter interface {
 	// with NotFound (0 writes). The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
 	// strings (ADR-0029 D1). The one counter helper of polls: sharding replaces its body, not its callers.
 	StagePollVote(b store.Batch, postID string, choice int)
+	// StagePollChange appends the blind counter move of one vote change (ADR-0029 Amendment 1 A2.3): Increment(poll.counts.<from>, -1) and
+	// Increment(poll.counts.<to>, +1) on posts/{id} in ONE Update (one write); poll.total is not touched. Same Exists precondition and field-path
+	// rule as StagePollVote. With StagePollVote, the only poll counter writers: sharding replaces both bodies, not their callers.
+	StagePollChange(b store.Batch, postID string, from, to int)
 	// StageRepost appends the Create of a REPOST post doc.
 	StageRepost(b store.Batch, p *Post)
 	// StageDelete appends the delete of posts/{id}; mustExist adds the Exists precondition.
@@ -96,6 +100,14 @@ func (r *FirestoreRepo) StagePollVote(b store.Batch, postID string, choice int) 
 	b.Update(r.ref(postID), []firestore.Update{
 		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(choice)}, Value: firestore.Increment(1)},
 		{FieldPath: firestore.FieldPath{"poll", "total"}, Value: firestore.Increment(1)},
+	})
+}
+
+// StagePollChange implements EngagementWriter.
+func (r *FirestoreRepo) StagePollChange(b store.Batch, postID string, from, to int) {
+	b.Update(r.ref(postID), []firestore.Update{
+		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(from)}, Value: firestore.Increment(-1)},
+		{FieldPath: firestore.FieldPath{"poll", "counts", strconv.Itoa(to)}, Value: firestore.Increment(1)},
 	})
 }
 
