@@ -149,7 +149,10 @@ void main() {
     stubMine([]);
     stubDirectory([]);
     await open(tester);
-    expect(find.textContaining("haven't joined any Communities"), findsOneWidget);
+    expect(
+      find.textContaining("haven't joined any Communities"),
+      findsOneWidget,
+    );
     expect(find.text('No Communities to explore yet.'), findsOneWidget);
   });
 
@@ -265,9 +268,7 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
         communityId: 'c2',
       ),
-    ).thenThrow(
-      CommunityForbiddenException(CommunityForbiddenReason.banned),
-    );
+    ).thenThrow(CommunityForbiddenException(CommunityForbiddenReason.banned));
     await open(tester);
 
     await tester.tap(find.text('Join'));

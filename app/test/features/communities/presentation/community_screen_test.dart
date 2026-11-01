@@ -168,22 +168,24 @@ void main() {
     textScales: kMatrixTextScalesLarge,
   );
 
-  forEachThemeAndWidth('About: description, numbered rules, moderators', (
-    tester,
-    env,
-  ) async {
-    await open(tester, env: env);
-    await tester.tap(find.text('About'));
-    await tester.pumpAndSettle();
+  forEachThemeAndWidth(
+    'About: description, numbered rules, moderators',
+    (tester, env) async {
+      await open(tester, env: env);
+      await tester.tap(find.text('About'));
+      await tester.pumpAndSettle();
 
-    expectNoOverflow(tester);
-    expect(find.text('Openings, endgames and puzzles'), findsOneWidget);
-    expect(find.text('1.'), findsOneWidget);
-    expect(find.text('Be kind'), findsOneWidget);
-    expect(find.text('Stay on topic'), findsOneWidget);
-    expect(find.text('Olivia'), findsOneWidget);
-    expect(find.text('Mo'), findsOneWidget);
-  }, textScales: kMatrixTextScalesLarge, height: 3000);
+      expectNoOverflow(tester);
+      expect(find.text('Openings, endgames and puzzles'), findsOneWidget);
+      expect(find.text('1.'), findsOneWidget);
+      expect(find.text('Be kind'), findsOneWidget);
+      expect(find.text('Stay on topic'), findsOneWidget);
+      expect(find.text('Olivia'), findsOneWidget);
+      expect(find.text('Mo'), findsOneWidget);
+    },
+    textScales: kMatrixTextScalesLarge,
+    height: 3000,
+  );
 
   testWidgets('one GetCommunity and one timeline refresh per open', (
     tester,
@@ -305,7 +307,9 @@ void main() {
     full = true;
     await open(tester);
 
-    final pin = tester.widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Pin to Home'));
+    final pin = tester.widget<AppPillButton>(
+      find.widgetWithText(AppPillButton, 'Pin to Home'),
+    );
     expect(pin.onPressed, isNull);
     expect(find.textContaining('Unpin one first'), findsOneWidget);
   });

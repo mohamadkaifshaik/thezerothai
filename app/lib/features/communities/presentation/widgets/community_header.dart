@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
-import '../../../lists/domain/lists_feature_flag.dart' show kMaxPinnedHomeTabs;
 import '../../domain/community_role.dart';
 import '../bloc/community_detail_state.dart';
 import 'community_join_control.dart';
@@ -76,17 +75,13 @@ class CommunityHeader extends StatelessWidget {
     final badge = communityRoleBadge(role);
     final join = joinStateOf(state);
     final banned = join == CommunityJoinState.banned;
-    final pinDisabled =
-        !state.pinned &&
-        (state.pinFull || state.pinWriteUnavailable || state.pinBusy);
-    final hint = state.pinned || banned
+    final hint = banned
         ? null
-        : state.pinFull
-        ? 'You can pin up to $kMaxPinnedHomeTabs timelines to Home. Unpin one '
-              'first.'
-        : state.pinWriteUnavailable
-        ? "Pinning isn't available yet."
-        : null;
+        : pinToHomeHint(
+            pinned: state.pinned,
+            full: state.pinFull,
+            writeUnavailable: state.pinWriteUnavailable,
+          );
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.md),
       child: Column(
@@ -138,17 +133,13 @@ class CommunityHeader extends StatelessWidget {
                 onLeave: role.isOwner ? null : onLeave,
               ),
               if (!banned)
-                if (state.pinned)
-                  OutlinedButton(
-                    onPressed: state.pinBusy ? null : onTogglePin,
-                    child: const Text('Unpin from Home'),
-                  )
-                else
-                  AppPillButton(
-                    label: 'Pin to Home',
-                    compact: true,
-                    onPressed: pinDisabled ? null : onTogglePin,
-                  ),
+                PinToHomeButton(
+                  pinned: state.pinned,
+                  full: state.pinFull,
+                  writeUnavailable: state.pinWriteUnavailable,
+                  busy: state.pinBusy,
+                  onToggle: onTogglePin,
+                ),
             ],
           ),
           if (hint != null)
