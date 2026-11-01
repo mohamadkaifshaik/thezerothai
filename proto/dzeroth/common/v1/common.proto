@@ -75,7 +75,9 @@ message HomeTab {
   // Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
   // the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
   // users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
-  // for that id, and calls GetList once for a tab it has no label for.
+  // for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab (ADR-0031 D6):
+  // the client labels it from the last GetCommunityTimeline or GetCommunity header it holds, and calls GetCommunity
+  // once for a tab it has no label for.
   string title = 3;
 }
 
@@ -84,8 +86,11 @@ enum HomeTabKind {
   HOME_TAB_KIND_UNSPECIFIED = 0;
   // A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
   HOME_TAB_KIND_LIST = 1;
-  // A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
-  // SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+  // A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
+  // TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
+  // are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
+  // caller and keeps them in storage. Until GetCommunityTimeline ships (plan W5-27), SetHomeTabs answers VALIDATION
+  // "tabs" for it and GetMe never returns it.
   HOME_TAB_KIND_COMMUNITY = 2;
 }
 
@@ -170,4 +175,17 @@ enum ErrorReason {
   // metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
   // that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
   ERROR_REASON_ALREADY_VOTED = 20;
+  // PERMISSION_DENIED: the caller's role does not allow this action (ADR-0031 D4; communities.v1 header). Never sent for
+  // an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",
+  // "not_moderator", "not_owner" or "not_creator". Do not retry; show a fixed message per reason ("not_member" on a
+  // reply: "Only members can reply"). A client built before this value sees UNSPECIFIED and falls back to the
+  // PERMISSION_DENIED code mapping, a generic "restricted" message. The only path an older client can reach is a reply
+  // in a community conversation (CreatePost), since that gate runs whenever communities is not globally off.
+  ERROR_REASON_FORBIDDEN = 21;
+  // FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (ADR-0031 D4; communities.v1
+  // header). metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
+  // or "community_archived" (an ARCHIVED community is read-only). Do not retry. A client built before this value sees
+  // UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
+  // ARCHIVED community's conversation (CreatePost).
+  ERROR_REASON_COMMUNITY_STATE = 22;
 }
