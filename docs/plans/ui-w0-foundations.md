@@ -57,7 +57,7 @@ Branches/PRs: one ticket per PR, `feat/ui-w0-<slug>` (e.g. `feat/ui-w0-colour-sy
 **Risks.** Wide blast radius (every screen's colours); mitigated by tests 1–3 and goldens. Light-theme values for disabled and selected rows are NOT VERIFIED on X: marked as "to confirm" and isolated in one place.
 
 ## W0-2 Typography tokens
-**Files.** `app_theme.dart` (`textTheme`), `shared/widgets/post_card.dart` (`PostRichText` uses `bodyLarge`), `post_action_bar.dart` (count style), nav label style in `responsive_scaffold.dart`.
+**Files.** `app_theme.dart` (`textTheme`), `shared/widgets/post/post_card.dart` (`PostRichText` uses `bodyLarge`), `post_action_bar.dart` (count style), nav label style in `responsive_scaffold.dart`.
 **Design.** `bodyLarge` 15 / height 1.33 (20 dp pitch); `bodyMedium` 14 → keep, counts 13 via `copyWith`; `titleSmall` 15 w700; `titleMedium` 15 w700 (news/settings titles) — check call sites; `titleLarge` 20 **w700** (was w800); `headlineSmall` capped 22 for profile name; drawer/nav labels 20 (`titleLarge`-based, w700 when selected, w400 otherwise). Font family unchanged (platform default).
 **Acceptance.** `app_theme_test.dart` asserts the scale; PostCard geometry test shows body line pitch 20 ± 0.5 dp; no overflow at text scale 1.3 in the goldens of W0-7; no existing test regresses (update only intentional ones).
 **Risk.** Changing `bodyLarge` affects composer, bios and others: review all `bodyLarge` uses (grep) and list them in the PR.
@@ -68,7 +68,7 @@ Branches/PRs: one ticket per PR, `feat/ui-w0-<slug>` (e.g. `feat/ui-w0-colour-sy
 **Acceptance.** Tokens exist with doc comments citing `docs/x_research/04_spacing_and_layout.md`; unit test asserts values; no duplicates of existing constants (reuse-first review).
 
 ## W0-4 `AppTabBar`
-**File.** new `app/lib/shared/widgets/app_tab_bar.dart` (no package).
+**File.** new `app/lib/shared/widgets/primitives/app_tab_bar.dart` (no package).
 **Spec (from `screens/_shared.md`, `explore.md`, `notifications.md`).** Row height 53 dp; label 15 dp, active `onSurface` w700, inactive `onSurfaceVariant` w400; indicator **4 dp `primary`, width = label width, flush with the 1 px bottom hairline**; two modes: **content-sized** (label gap ≈ 43 dp mobile / 61 dp wide, i.e. horizontal padding ≈ 22 / 30 dp per side; overflows with horizontal scroll and an edge cut) and **equal-width**; optional icon before label (History tabs); optional trailing "+" slot; selected index + `onChanged`; supports **one** tab (Home = "Following" only per decision 2).
 **Semantics.** `Semantics(selected, button/tab)` per tab, container labelled; keyboard arrow navigation on web; minimum 48 dp tap height.
 **Acceptance.** Widget tests: selection change, single tab, overflow scroll, equal-width distribution, indicator width equals label width (±1 dp), semantics selected flag; goldens light/dark. No `TabController` requirement (usable inside slivers/pinned headers).

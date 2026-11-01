@@ -8,7 +8,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/format/scheduled_time.dart';
-import '../../../../shared/widgets/browser_context_menu_guard.dart';
+import '../../../../shared/widgets/primitives/browser_context_menu_guard.dart';
 import '../../../posts/domain/post_text_parser.dart';
 import 'conversation_row.dart';
 

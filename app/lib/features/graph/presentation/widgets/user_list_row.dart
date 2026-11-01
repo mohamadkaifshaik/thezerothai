@@ -6,9 +6,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
-import '../../../../shared/widgets/app_avatar.dart';
-import '../../../../shared/widgets/follow_button.dart';
-import '../../../../shared/widgets/protected_badge.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../../shared/widgets/user/follow_button.dart';
+import '../../../../shared/widgets/user/protected_badge.dart';
 import '../../data/graph_repository.dart';
 import '../bloc/relationship_cubit.dart';
 import '../bloc/relationship_state.dart';

@@ -14,7 +14,7 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
 import '../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import '../../shared/widgets/app_avatar.dart';
+import '../../shared/widgets/primitives/app_avatar.dart';
 import '../feature_flags/feature_flags.dart';
 import '../router/app_router.dart';
 import '../theme/app_theme.dart';

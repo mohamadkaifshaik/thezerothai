@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 
 /// The entry row under the Home tab bar: the viewer's avatar and a "Write a

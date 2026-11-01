@@ -10,7 +10,7 @@ import 'package:dzeroth/features/posts/presentation/scheduled_posts_screen.dart'
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/format/scheduled_time.dart';
-import 'package:dzeroth/shared/widgets/app_notice_banner.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_notice_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

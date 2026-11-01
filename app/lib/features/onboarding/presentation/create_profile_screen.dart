@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/request_sign_out.dart';
 import '../../auth/presentation/widgets/auth_form_layout.dart';

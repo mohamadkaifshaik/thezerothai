@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_surface.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../bloc/suggestions_cubit.dart';
 import '../bloc/suggestions_state.dart';

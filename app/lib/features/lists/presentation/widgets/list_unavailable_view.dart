@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_empty_view.dart';
+import '../../../../shared/widgets/primitives/app_empty_view.dart';
 
 /// "This List is unavailable" (W5-12): the one calm state for a List the
 /// server answers NOT_FOUND for. The server uses the same answer for private,

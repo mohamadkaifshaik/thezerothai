@@ -68,16 +68,16 @@ const Map<String, String> _allowlist = {
   'shared/format/relative_time_test.dart':
       'now is a parameter of every formatter call; the real clock is not '
       'read',
-  'shared/widgets/pending_posts_section_test.dart':
+  'shared/widgets/post/pending_posts_section_test.dart':
       'createdAt and the row\'s now are both fixed and passed in; the real '
       'clock is not read',
-  'shared/widgets/post_card_engagement_test.dart':
+  'shared/widgets/post/post_card_engagement_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
-  'shared/widgets/post_card_repost_actions_test.dart':
+  'shared/widgets/post/post_card_repost_actions_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
-  'shared/widgets/post_card_test.dart':
+  'shared/widgets/post/post_card_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
 };

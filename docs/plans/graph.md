@@ -956,7 +956,7 @@ Added by the planner, 2026-09-30.
     - `app/lib/features/graph/presentation/graph_error_messages.dart:20`:
       `NotFoundException() => "This account doesn't exist anymore."`.
     - The snackbar listeners are `app/lib/features/profile/presentation/widgets/profile_header.dart:57-67` (the
-      overflow-menu Mute at `:274-275`) and `app/lib/shared/widgets/follow_button.dart:28-36`.
+      overflow-menu Mute at `:274-275`) and `app/lib/shared/widgets/user/follow_button.dart:28-36`.
     - The Muted-accounts Undo (re-mute) is `app/lib/features/graph/presentation/managed_accounts_screen.dart:106-125`.
       On any error it leaves the row out and shows `relationshipErrorMessage`, the same as the Block undo.
   - So this ticket is **mostly verification and tests**, with one small gap fix. It adds no new pattern.

@@ -297,7 +297,7 @@ Effect on the quotas (additive):
 - **Terraform:** `envs/{dev,prod}` variables and env, and `modules/firestore/variables.tf` `ttl_fields`.
 - **Client:**
   - `app/lib/features/posts/presentation/composer_screen.dart` and `bloc/composer_cubit.dart`;
-  - `app/lib/shared/widgets/post_card.dart` (W3 pinned label, W4 hashtag tap);
+  - `app/lib/shared/widgets/post/post_card.dart` (W3 pinned label, W4 hashtag tap);
   - `app/lib/core/storage/app_database.dart` (schema version: any wave adding a table);
   - `app/lib/core/router/app_router.dart`;
   - the media `attachments_cubit.dart`, `image_picker_service.dart` and `image_processor.dart`.

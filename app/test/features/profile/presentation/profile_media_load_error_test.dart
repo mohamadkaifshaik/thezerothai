@@ -3,7 +3,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/shared/widgets/app_avatar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

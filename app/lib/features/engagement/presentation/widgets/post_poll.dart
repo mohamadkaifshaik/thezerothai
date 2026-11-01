@@ -5,7 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import '../../../../shared/widgets/poll_card.dart';
+import '../../../../shared/widgets/post/poll_card.dart';
 import '../../domain/engagement_feature_flag.dart';
 import '../../domain/poll_display.dart';
 import '../bloc/poll_cubit.dart';

@@ -28,7 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:dzeroth/shared/widgets/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart';
 
 import '../../../../support/fake_transport.dart';
 import '../../../../support/posts_fixtures.dart';

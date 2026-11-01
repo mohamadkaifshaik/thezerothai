@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_pill_button.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 
 /// Shared email + password input used by both the sign-in and sign-up
 /// screens (see the `reuse-first` skill: one form, not two near-copies).

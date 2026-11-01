@@ -4,9 +4,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_back_header.dart';
-import '../../../shared/widgets/app_empty_view.dart';
-import '../../../shared/widgets/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 
 /// The address the "Email us" button writes to; `null` hides the whole
 /// contact affordance (plan W8, decision F4).

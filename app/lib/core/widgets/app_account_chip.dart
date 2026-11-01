@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
-import '../../shared/widgets/app_avatar.dart';
+import '../../shared/widgets/primitives/app_avatar.dart';
 import '../router/app_router.dart';
 import 'app_drawer.dart'
     show
