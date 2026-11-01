@@ -185,7 +185,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Done (#598) |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Done (#608) |
-| TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Open |
+| TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#609) |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Open |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Open |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Open |
@@ -194,7 +194,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-11 | Cost and performance note: INR 0 line, AAB and web bundle deltas, cold start on a low-end Android; `cost-model.md` section | sre-performance | XS | TEL-3, TEL-4 | yes | Open |
 | TEL-12 | Privacy Policy update (sentence list in the ticket) | architect (draft) + founder (approval) | S | TEL-1 Accepted; F1–F6, F8, F11 | yes (`privacy.html`: one PR at a time) | Open |
 | TEL-13 | Store forms and console settings: Play Data safety, App Store label text (prepared for the Apple launch), GA property settings (F5) in dev and prod, the `measurementId` check | production-deployer (prepares) + founder (consoles) | XS | TEL-12 text | yes | Open |
-| TEL-14 | Prod Android builds use dzeroth-prod's `google-services.json` (`release-prod.yml`, gate file) | production-deployer | S | — | **yes, start now** | In review (#593) |
+| TEL-14 | Prod Android builds use dzeroth-prod's `google-services.json` (`release-prod.yml`, gate file) | production-deployer | S | — | **yes, start now** | Done (#593; device check 2026-11-01) |
 | TEL-15 | Dev rollout (targeted Terraform plan, allowlist, dev Android build, smoke with network trace); prod change prepared, not applied | production-deployer | S | TEL-9, TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings | serialise dev applies | Open |
 | TEL-16 | *(conditional: Apple launch)* iOS: Podfile without AdId support, dSYM upload, privacy manifest, `TelemetryPlatforms` adds iOS, App Store label, policy note 16 | frontend-developer + founder | S | Apple launch, TEL-15 | — | Open (conditional) |
 
@@ -292,7 +292,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** `crash_reporting`, `analytics`.
 - **Seam.** `CrashReporter` / `UsageAnalytics`. A web `ReportClientError` implementation or another vendor replaces an adapter with no caller change.
 
-### TEL-5 — Crash payload rules and scrubber  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Open
+### TEL-5 — Crash payload rules and scrubber  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Done (#609)
 - **Description.** `CrashScrubber` and the F6 rules inside `FirebaseCrashReporter`:
   - type and stack always;
   - the message only for allowlisted types, scrubbed and cut to 200 characters;
@@ -465,8 +465,12 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** —
 - **Seam.** —
 
-### TEL-14 — Prod Android Firebase config  [owner: production-deployer] [size: S] [depends: —]  Status: In review (#593)
-Owed by the founder: the device check (Google Sign-In on a prod build) and registering the signing SHA on the prod Android app (none registered; see #593). The AAB `project_id` check runs on the first staged tag.
+### TEL-14 — Prod Android Firebase config  [owner: production-deployer] [size: S] [depends: —]  Status: Done (#593; device check 2026-11-01)
+**Device check, 2026-11-01: PASS.** A release APK built with `release-prod.yml`'s defines and the checked-in `google-services.prod.json` (aapt2: `project_id` dzeroth-prod) was re-signed with a throwaway key whose SHA-1 was registered on the dzeroth-prod Android app only. On a Redmi K20 Pro (Android 11), "Continue with Google" reached Create your profile, and logcat showed the Google flow completing and FirebaseAuth signing in on prod. The throwaway SHA was removed from prod and the key deleted the same evening; prod again has no SHAs. Two findings:
+- **One key, one project.** dev and prod share `com.dzeroth.dzeroth`, and Google allows one Android OAuth client per package + SHA-1. This PC's debug SHA was already on dev, so adding it to prod stored the SHA but created no OAuth client, and sign-in failed with `28444: Developer console is not set up correctly`. The real upload and app-signing keys (roadmap 3.24) go on prod only; the debug key stays on dev.
+- The prod json lists only the web OAuth client and sign-in still worked, so roadmap 3.24 step (d)'s json refresh is housekeeping, not a sign-in fix.
+
+The AAB `project_id` check runs on the first staged tag; the re-check with the real key is roadmap 3.24.
 - **Description.** Make prod Android builds use dzeroth-prod's `google-services.json`, either with a build-time swap in `release-prod.yml` from a checked-in prod copy (client config, known-public per `security-checklist`) or per-flavor `flutterfire configure`. The default is the swap: it is the smallest change. **The workflow is a gate file: your review.** Remove the "founder follow-up" note.
 - **Acceptance criteria.**
   - Given the prod AAB, then its merged resources carry `project_id` dzeroth-prod.

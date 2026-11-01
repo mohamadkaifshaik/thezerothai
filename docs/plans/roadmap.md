@@ -113,9 +113,11 @@ Items with no home in a wave plan. Wave status lives in the plans listed in sect
   - (a) Founder: create an upload keystore offline and keep a backup; store it base64 and its passwords as `prod` environment secrets.
   - (b) production-deployer: a `release` signing config in `build.gradle.kts` that reads the keystore from the environment (debug signing stays for local `flutter run --release`), and a `release-prod.yml` step that decodes it and fails the build when it is missing. The workflow is a gate file, so the PR needs the founder's review.
   - (c) Founder: the Play Console app with Play App Signing (the one-time Play Console fee in `release-rollout`; no monthly cost). Then add the SHA-1 and SHA-256 of the app signing key and the upload key to the dzeroth-prod Android app in Firebase, which creates the Android OAuth client.
-  - (d) Refresh `app/android/google-services.prod.json` read-only (`docs/runbooks/cloud-bootstrap.md` section 4), then the TEL-14 device check (Google Sign-In on a prod build).
+  - (d) Refresh `app/android/google-services.prod.json` read-only (`docs/runbooks/cloud-bootstrap.md` section 4), then repeat the TEL-14 device check with the real key (Google Sign-In on a Play-signed prod build).
 
-  Blocks any prod Android distribution (Play internal track onward), the TEL-14 device check and the prod Android step of TEL-15. It does not block web or dev.
+  Register the upload and app-signing keys on **dzeroth-prod only**. dev and prod share `com.dzeroth.dzeroth`, and Google allows one Android OAuth client per package + SHA-1, so a key already on dev gets no OAuth client on prod (sign-in fails with `28444`). The debug key stays on dev. The TEL-14 device check passed on 2026-11-01 with a throwaway key registered on prod only (removed afterwards), so prod's Firebase and Auth config is proven; only the real keys are missing.
+
+  Blocks any prod Android distribution (Play internal track onward) and the prod Android step of TEL-15. It does not block web or dev.
 - **3.25, Both, AFTER MVP.** Web Analytics (founder 2026-11-01: "keep android only now, after MVP plan for web analytics"). ADR-0032 stays Android only for the MVP (F2, D10); the web keeps `flutterfire_ignore_scripts = ['analytics']` and Crashlytics stays off the web. After the MVP, the planner writes a plan and the architect an ADR-0032 amendment covering:
   - a cookie consent banner applied before collection starts, with collection off when consent is denied and the app unaffected when Analytics is blocked;
   - the Privacy Policy cookie sentence ("We do not use advertising or analytics cookies") and the analytics section;
