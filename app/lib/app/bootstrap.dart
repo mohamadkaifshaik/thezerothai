@@ -22,6 +22,8 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../features/communities/data/communities_repository.dart';
+import '../features/communities/domain/communities_feature_flag.dart';
 import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
 import '../features/lists/domain/lists_feature_flag.dart';
@@ -240,9 +242,18 @@ Future<void> bootstrap() async {
   // RPCs) and every ListInfo seen refreshes a tab title; both end with the
   // shared SessionEpoch (sign-out).
   final listsGate = buildServiceGate(onboardingBloc, kFeatureLists);
+  // Communities (ADR-0031): one gate for CommunityService and COMMUNITY Home
+  // tabs (0 RPCs while `communities` is off). The repository holds no session
+  // state, so nothing of it needs wiping on sign-out.
+  final communitiesGate = buildServiceGate(onboardingBloc, kFeatureCommunities);
+  final communitiesRepository = CommunitiesRepository(
+    apiClient: apiClient,
+    gate: communitiesGate,
+  );
   final homeTabsRepository = HomeTabsRepository(
     apiClient: apiClient,
     gate: listsGate,
+    communitiesGate: communitiesGate,
     epoch: database.sessionEpoch,
   );
   identityRepository.addGetMeListener(
@@ -334,6 +345,7 @@ Future<void> bootstrap() async {
       likesRepository: likesRepository,
       listsRepository: listsRepository,
       homeTabsRepository: homeTabsRepository,
+      communitiesRepository: communitiesRepository,
       pushCubit: pushCubit,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,

@@ -2,6 +2,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:connectrpc/protobuf.dart' show ProtoCodec;
 import 'package:connectrpc/protocol/connect.dart' as protocol_connect;
 
+import '../../gen/dzeroth/communities/v1/communities.connect.client.dart';
 import '../../gen/dzeroth/engagement/v1/engagement.connect.client.dart';
 import '../../gen/dzeroth/graph/v1/graph.connect.client.dart';
 import '../../gen/dzeroth/identity/v1/identity.connect.client.dart';
@@ -69,6 +70,9 @@ class ApiClient {
 
   /// Lists (ADR-0030). Only `ListsRepository` calls it.
   late final lists = ListServiceClient(_transport);
+
+  /// Communities (ADR-0031). Only `CommunitiesRepository` calls it.
+  late final communities = CommunityServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].

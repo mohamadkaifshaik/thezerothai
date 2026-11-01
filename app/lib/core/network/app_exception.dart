@@ -266,3 +266,100 @@ final class ServicePausedException extends AppException {
 final class UnknownApiException extends AppException {
   const UnknownApiException(super.message);
 }
+
+/// Why a role-gated community action was refused (PERMISSION_DENIED +
+/// FORBIDDEN, ADR-0031 D4; the server's `metadata["reason"]`).
+enum CommunityForbiddenReason {
+  /// A BANNED user joins or posts.
+  banned('banned', "You're banned from this community."),
+
+  /// A non-member (or banned user) posts or replies.
+  notMember('not_member', 'Only members of this community can do that.'),
+
+  /// Hide, restore, ban, unban or read the moderation log without being a
+  /// moderator.
+  notModerator('not_moderator', 'Only moderators can do that.'),
+
+  /// Edit the community, appoint moderators, or act on the owner or on a
+  /// moderator without being the owner.
+  notOwner('not_owner', 'Only the community owner can do that.'),
+
+  /// CreateCommunity by a caller outside the creators list.
+  notCreator(
+    'not_creator',
+    "Creating communities isn't available for your account yet.",
+  ),
+
+  /// A reason this build does not know (a newer server). Safe generic text;
+  /// never "restricted".
+  unknown('', "You can't do that in this community.");
+
+  const CommunityForbiddenReason(this.wire, this.userMessage);
+
+  /// The `metadata["reason"]` value.
+  final String wire;
+
+  /// The only text ever shown for this reason (fixed; never the server's).
+  final String userMessage;
+
+  static CommunityForbiddenReason fromWire(String? reason) {
+    for (final r in values) {
+      if (r != unknown && r.wire == reason) return r;
+    }
+    return unknown;
+  }
+}
+
+/// A community action the caller's role does not allow (PERMISSION_DENIED +
+/// `ERROR_REASON_FORBIDDEN`, ADR-0031 N1). Never an account suspension (that
+/// is [AccountRestrictedException]). Do not retry; the text is fixed per
+/// [reason].
+final class CommunityForbiddenException extends AppException {
+  CommunityForbiddenException(this.reason) : super(reason.userMessage);
+  final CommunityForbiddenReason reason;
+}
+
+/// Why a community write conflicts with the community's state or a held role
+/// (FAILED_PRECONDITION + COMMUNITY_STATE, ADR-0031 D4; `metadata["reason"]`).
+enum CommunityStateReason {
+  /// The owner leaves (the owner cannot leave).
+  owner('owner', "The owner can't leave their community."),
+
+  /// The owner bans a moderator (remove the role first).
+  moderator(
+    'moderator',
+    'Remove their moderator role before banning them.',
+  ),
+
+  /// A write to an ARCHIVED community.
+  communityArchived(
+    'community_archived',
+    'This community is archived, so it is read-only.',
+  ),
+
+  /// A reason this build does not know. Safe generic text; never the
+  /// profile-required flow.
+  unknown('', "This community can't be changed right now.");
+
+  const CommunityStateReason(this.wire, this.userMessage);
+
+  final String wire;
+
+  /// The only text ever shown for this reason.
+  final String userMessage;
+
+  static CommunityStateReason fromWire(String? reason) {
+    for (final r in values) {
+      if (r != unknown && r.wire == reason) return r;
+    }
+    return unknown;
+  }
+}
+
+/// A write that conflicts with the community's state or a role held in it
+/// (FAILED_PRECONDITION + `ERROR_REASON_COMMUNITY_STATE`, ADR-0031 N1). Never
+/// a missing profile ([ProfileRequiredException]). Do not retry.
+final class CommunityStateException extends AppException {
+  CommunityStateException(this.reason) : super(reason.userMessage);
+  final CommunityStateReason reason;
+}

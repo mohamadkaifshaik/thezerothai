@@ -363,7 +363,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
-| W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Open |
+| W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Open |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Open |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Open |
@@ -1216,7 +1216,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - New lever: `opsctl community archive` (an owner's support request).
   - `suspend-user`'s hide loop also appends to `recentRemovals`, once per community per page, through `communities.PlatformRemovals`.
 
-### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Open
+### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Done (#599)
 - **Description.**
   - `CommunitiesRepository` with friendly mapping (FORBIDDEN reasons, caps, quota, FEATURE_DISABLED). FORBIDDEN and COMMUNITY_STATE are their own `ErrorReason` values, mapped by `metadata["reason"]` (#590, ADR-0031 N1); roles come only from `viewer_role` and `CommunityMember.role`.
   - `FeedKey.community(id)`.
@@ -1230,6 +1230,10 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities`.
 - **Seam.** The repository is the only RPC caller.
 - **Parallel with W3 Part A / W4:** after W5-10 (`feed_key.dart`).
+- **As built (W5-30).**
+  - FORBIDDEN and COMMUNITY_STATE map to `CommunityForbiddenException` and `CommunityStateException` (one fixed text per `metadata["reason"]`; an unknown reason is a generic text, never AccountRestricted or ProfileRequired). The other refusals ride the existing mapper cases; `communitiesErrorMessage` gives their text.
+  - `CommunitiesRepository` has no session state (no headers cached yet), so it takes no `SessionEpoch`. `FeedKey.community` is wired in `TimelineRepository` as "not available" until W5-32 adds `GetCommunityTimeline`.
+  - `HomeTabsRepository` shows and writes COMMUNITY tabs only while `communities` is on; a VALIDATION `tabs` refusal of a write that holds a community tab (the server before W5-27) rolls back and reads as FEATURE_DISABLED `communities`.
 
 ### W5-31 — Communities screen and Create  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
 - **Description.** `/communities`:

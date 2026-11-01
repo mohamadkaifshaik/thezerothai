@@ -10,6 +10,7 @@ import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
+import '../../communities/domain/communities_feature_flag.dart';
 import '../domain/home_tab_entry.dart';
 import '../domain/lists_feature_flag.dart';
 
@@ -46,15 +47,21 @@ class HomeTabsRepository {
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
     required SessionEpoch epoch,
+    ServiceFeatureGate? communitiesGate,
     Uuid? uuid,
   }) : _apiClient = apiClient,
        _gate = gate,
+       _communitiesGate = communitiesGate,
        _epoch = epoch,
        _seenEpoch = epoch.value,
        _uuid = uuid ?? const Uuid();
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
+
+  /// The `communities` gate: COMMUNITY tabs are shown and written only while
+  /// it is on. Null = communities are not wired, such tabs stay hidden.
+  final ServiceFeatureGate? _communitiesGate;
   final SessionEpoch _epoch;
   final Uuid _uuid;
   final StreamController<List<HomeTabEntry>> _changes =
@@ -69,6 +76,7 @@ class HomeTabsRepository {
   String? _key;
   String? _keyFor;
   bool _writeUnavailable = false;
+  bool _communityTabsRefused = false;
   int _generation = 0;
 
   /// The tabs to show now (optimistic while a write is in flight), in order,
@@ -107,6 +115,7 @@ class HomeTabsRepository {
     _sync();
     if (!_epoch.allows(epoch)) return;
     _writeUnavailable = false;
+    _communityTabsRefused = false;
     if (_inFlight != null) return;
     _confirmed = _fromWire(wire);
     _setCurrent(_confirmed);
@@ -196,6 +205,10 @@ class HomeTabsRepository {
         ),
       );
     }
+    if (next.any((t) => t.kind == HomeTabKind.community) &&
+        (_communityTabsRefused || !(_communitiesGate?.enabled ?? false))) {
+      return Future.error(_communitiesNotYet());
+    }
     _wanted = List.of(next);
     _setCurrent(next);
     return _inFlight ??= _drain();
@@ -235,10 +248,13 @@ class HomeTabsRepository {
           _writeUnavailable = true;
           _wanted = null;
           _setCurrent(_confirmed);
-          throw const FeatureDisabledException(
-            "Lists aren't available yet.",
-            feature: kFeatureLists,
-          );
+          if (want.any((t) => t.kind == HomeTabKind.list)) {
+            throw const FeatureDisabledException(
+              "Lists aren't available yet.",
+              feature: kFeatureLists,
+            );
+          }
+          throw _communitiesNotYet();
         }
         _confirmed = sent.tabs;
         if (_wanted == null) _setCurrent(_confirmed);
@@ -251,10 +267,7 @@ class HomeTabsRepository {
   Future<_Sent> _send(List<HomeTabEntry> want, String key) {
     // Unpinning everything is always accepted by the server (even with `lists`
     // off), so it skips the client flag gate.
-    final Future<_Sent> Function(Future<_Sent> Function()) run = want.isEmpty
-        ? guardApiCall<_Sent>
-        : _gate.run<_Sent>;
-    return run(() async {
+    Future<_Sent> call() async {
       try {
         final r = await _apiClient.timeline.setHomeTabs(
           tl.SetHomeTabsRequest(
@@ -269,8 +282,52 @@ class HomeTabsRepository {
         }
         rethrow;
       }
-    });
+    }
+
+    // Each kind of tab goes through the gate of its own flag. A mixed write
+    // goes through both.
+    final hasList = want.any((t) => t.kind == HomeTabKind.list);
+    final communitiesGate = _communitiesGate;
+    final hasCommunity =
+        communitiesGate != null &&
+        want.any((t) => t.kind == HomeTabKind.community);
+    Future<_Sent> Function() run = call;
+    if (hasCommunity) {
+      final inner = run;
+      run = () => communitiesGate.run<_Sent>(inner);
+    }
+    if (hasList) {
+      final inner = run;
+      run = () => _gate.run<_Sent>(inner);
+    }
+    return _guarded(run, want);
   }
+
+  Future<_Sent> _guarded(
+    Future<_Sent> Function() run,
+    List<HomeTabEntry> want,
+  ) async {
+    try {
+      return await guardApiCall<_Sent>(run);
+    } on ValidationException catch (error) {
+      // Until the server serves COMMUNITY tabs (plan W5-27) it refuses them
+      // with VALIDATION `tabs`. With a community tab in the write, that
+      // reads as "not available yet", not as a malformed list: roll back and
+      // stop offering the write until the next GetMe.
+      if (error.field == 'tabs' &&
+          want.any((t) => t.kind == HomeTabKind.community)) {
+        _communityTabsRefused = true;
+        throw _communitiesNotYet();
+      }
+      rethrow;
+    }
+  }
+
+  FeatureDisabledException _communitiesNotYet() =>
+      const FeatureDisabledException(
+        "Communities aren't available yet.",
+        feature: kFeatureCommunities,
+      );
 
   List<HomeTabEntry> _fromWire(Iterable<common.HomeTab> wire) {
     final out = <HomeTabEntry>[];
@@ -284,8 +341,14 @@ class HomeTabsRepository {
     return out;
   }
 
-  List<HomeTabEntry> _visible(List<HomeTabEntry> all) =>
-      all.where((t) => t.kind != HomeTabKind.list || _gate.enabled).toList();
+  List<HomeTabEntry> _visible(List<HomeTabEntry> all) => all
+      .where(
+        (t) => switch (t.kind) {
+          HomeTabKind.list => _gate.enabled,
+          HomeTabKind.community => _communitiesGate?.enabled ?? false,
+        },
+      )
+      .toList();
 
   bool _sameOrder(List<HomeTabEntry> a, List<HomeTabEntry> b) {
     if (a.length != b.length) return false;
@@ -335,6 +398,7 @@ class HomeTabsRepository {
     _keyFor = null;
     _titleOverrides.clear();
     _writeUnavailable = false;
+    _communityTabsRefused = false;
     if (had) _emit();
   }
 }

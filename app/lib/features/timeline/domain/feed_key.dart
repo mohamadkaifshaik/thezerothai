@@ -29,7 +29,13 @@ enum UserFeedTab {
 /// or tabs: every tab has its own cached rows, tokens and refresh clock.
 @immutable
 class FeedKey {
-  const FeedKey._(this.value, {this.userId, this.tab, this.listId});
+  const FeedKey._(
+    this.value, {
+    this.userId,
+    this.tab,
+    this.listId,
+    this.communityId,
+  });
 
   /// The caller's home timeline (followees + self).
   const FeedKey.home() : this._('home');
@@ -40,6 +46,14 @@ class FeedKey {
   /// a profile. Not user-scoped: [userId] and [tab] stay null.
   factory FeedKey.list(String listId) =>
       FeedKey._('list:$listId', listId: listId);
+
+  /// The timeline of community [communityId] (ADR-0031, `GetCommunityTimeline`).
+  /// The drift `feed_key` is `community:<id>`, and the server binds its tokens
+  /// to the same feed, so a community never shares rows, tokens or a refresh
+  /// clock with Home, a list or a profile. Not user-scoped: [userId] and [tab]
+  /// stay null.
+  factory FeedKey.community(String communityId) =>
+      FeedKey._('community:$communityId', communityId: communityId);
 
   /// [tab] of [userId]'s timeline. Without [tab], [includeReplies] picks the
   /// Posts (false) or Replies (true) tab, so every caller written before the
@@ -63,7 +77,7 @@ class FeedKey {
 
   final String value;
 
-  /// Null for the home feed and a list feed.
+  /// Null for the home feed, a list feed and a community feed.
   final String? userId;
 
   /// Which tab of [userId]'s timeline; null for the home feed.
@@ -72,10 +86,16 @@ class FeedKey {
   /// The list of a [FeedKey.list]; null for every other feed.
   final String? listId;
 
+  /// The community of a [FeedKey.community]; null for every other feed.
+  final String? communityId;
+
   bool get isHome => value == 'home';
 
   /// Whether this is a list timeline (`list:<id>`).
   bool get isList => listId != null;
+
+  /// Whether this is a community timeline (`community:<id>`).
+  bool get isCommunity => communityId != null;
 
   /// True only for the Replies tab (what `include_replies` meant).
   bool get includeReplies => tab == UserFeedTab.replies;
