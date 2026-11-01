@@ -162,3 +162,85 @@ class DiscardDraftsDialog extends StatelessWidget {
     );
   }
 }
+
+/// The answer to "Sign out?" when this device holds the account's unsent
+/// posts (W6-31).
+enum SignOutDraftsChoice {
+  /// Sign out and delete the unsent posts from this device.
+  delete,
+
+  /// Sign out and keep them (the owner gets them back on the next sign-in).
+  keep,
+}
+
+/// The sign-out notice (W6-31, security L-5): said once, plainly, because on a
+/// shared computer the rows stay readable in the browser profile.
+const kSignOutDraftsBody = 'Your unsent posts stay on this device.';
+
+/// "Sign out?" for an account that has unsent posts on this device (W6-31).
+/// Resolves to [SignOutDraftsChoice.delete] or [SignOutDraftsChoice.keep], or
+/// null for "Cancel" and a dismissed dialog (the user stays signed in).
+Future<SignOutDraftsChoice?> showSignOutDraftsDialog(BuildContext context) =>
+    showDialog<SignOutDraftsChoice>(
+      context: context,
+      builder: (_) => const SignOutDraftsDialog(),
+    );
+
+class SignOutDraftsDialog extends StatelessWidget {
+  const SignOutDraftsDialog({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    const shape = StadiumBorder();
+    const size = Size.fromHeight(AppSpacing.minTapTarget);
+    return AlertDialog(
+      title: Text(
+        'Sign out?',
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              kSignOutDraftsBody,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.error,
+                foregroundColor: colors.onError,
+                minimumSize: size,
+                shape: shape,
+              ),
+              onPressed: () =>
+                  Navigator.of(context).pop(SignOutDraftsChoice.delete),
+              child: const Text('Delete them'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(minimumSize: size, shape: shape),
+              onPressed: () =>
+                  Navigator.of(context).pop(SignOutDraftsChoice.keep),
+              child: const Text('Keep'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: size, shape: shape),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

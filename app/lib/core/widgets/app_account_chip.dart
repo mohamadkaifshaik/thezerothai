@@ -1,9 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/auth/presentation/bloc/auth_bloc.dart';
-import '../../features/auth/presentation/bloc/auth_event.dart';
+import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/app_avatar.dart';
@@ -129,7 +130,7 @@ class AppAccountChip extends StatelessWidget {
       case _AccountAction.settings:
         context.go(AppRouter.settingsPath);
       case _AccountAction.signOut:
-        context.read<AuthBloc>().add(const AuthSignOutRequested());
+        unawaited(requestSignOut(context));
     }
   }
 }
