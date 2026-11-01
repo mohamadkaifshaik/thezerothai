@@ -837,7 +837,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - The step "turn the flag off" was replaced by keeping the allowlist, as the Flag line plans (turning it off needs an apply).
     - Order of the dependencies against the allowlist apply (the Terraform revision `api-00429-lcx`, 12:42 UTC): W5-18 (#538, 12:14 UTC) and W5-17 (#540, 12:27 UTC) were merged before it; W5-15 (#539) merged at 13:03 UTC, 21 minutes after it and well before the smoke (18:00 UTC). The smoke ran on `api-00953-giw`, which also carries the W5-41 to W5-44 fixes merged after the apply. The status cells of W5-15, W5-17 and W5-18 in the table above are stale (owned by those tickets).
     - The first smoke was API-only: the Lists screen, the Home tab bar and Manage pinned (W5-11 to W5-14) were not driven in the app, and no Android or web client check was made.
-  - **Owed.** The `memberIds array-contains uid` query (the eraser `RemoveMemberPage` and the `lists_member_of` export page) is served by the automatic array index (no override in `firestore.indexes.json`), but only an account deletion or an export calls it, so this smoke did not exercise it on real Firestore. Prove it with an erase or export of a throwaway dev test account that is a list member, before `lists` leaves the dev allowlist for prod. The latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
+  - **Proven 2026-11-01** (was owed): the `memberIds array-contains uid` query, used by the eraser `RemoveMemberPage` and the `lists_member_of` export page, works on dev Firestore with the automatic array index (no override in `firestore.indexes.json`).
+    - w7smoke1 created a private list and added w7smoke2.
+    - w7smoke2's export was READY on the first poll, with `lists_member_of` `{public: [], redactedCount: 1}`.
+    - The export's exact query, ordered by document id, also ran by REST with no index error.
+    - The proof list was deleted afterwards.
+  - **Still owed:** the latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
   - Prod: no change (held release).
 
 ### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
