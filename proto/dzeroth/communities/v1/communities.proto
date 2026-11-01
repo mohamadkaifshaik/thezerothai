@@ -1,0 +1,598 @@
+syntax = "proto3";
+
+// Communities (ADR-0031, W5 Part B): a public place where people who need not follow each other post about one
+// interest, under rules that the community's own owner and moderators enforce inside the community view only. The
+// platform keeps every global lever (ADR-0016: takedown, suspension, reports). Owner module: backend/internal/communities.
+// Collections owned: communities/{cid} (name, description, rules[], ownerId, moderatorIds[], memberCount, status,
+// visibility, recentRemovals[], removalsTruncatedAt, modlog[], modlogSeq, createdAt, updatedAt),
+// communities/{cid}/communityMembers/{uid} (uid, state JOINED | BANNED, joinedAt or bannedAt) and
+// communityMemberships/{uid} (joined[], owned[], banned[], modlogged[], updatedAt). Only communities.Service reads or
+// writes them; firestore.rules stay deny-all to clients. Other modules read a community only through
+// communities.Reader; posts never imports this module (posts.CommunityGate and posts.CommunityModerator are seams
+// declared in posts). The feed is dzeroth.timeline.v1.TimelineService.GetCommunityTimeline. A community post is an
+// ordinary public post created with dzeroth.posts.v1.CreatePostRequest.community_id and labelled by
+// dzeroth.posts.v1.Post.community.
+//
+// Ids: community_id is a 64-bit Snowflake rendered as a 19-digit decimal string, like a post id (rule 1). It is
+// time-ordered and therefore guessable, so authorization never relies on it. A community_id that is not 19 digits =>
+// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "community_id", 0 reads.
+//
+// Visibility (F6): every community is PUBLIC (CommunityVisibility holds PUBLIC only). Any signed-in user reads a
+// community, its feed, its members and the directory; only members post into it and reply in its conversations (F8).
+// Community posts are ordinary public posts: they also show on the author's profile and in followers' Home (F7). A
+// protected account may join and read a community but not post into one (CreatePost: PROTECTED_ACCOUNT).
+//
+// Status (ADR-0031 D2, D14, F12):
+// - ACTIVE.
+// - ARCHIVED: read-only and out of the directory, but readable by everyone. A community is archived when its owner
+//   deletes the account and no ACTIVE moderator can take over (owner_id is cleared), or by `opsctl community archive`
+//   on the owner's request. Every write to it except LeaveCommunity (posting and replying included) => FAILED_PRECONDITION
+//   + COMMUNITY_STATE, metadata["reason"] = "community_archived", 0 writes.
+// - SUSPENDED (opsctl only): ONE NOT_FOUND "community not found" on every RPC here, in CreatePost and in
+//   GetCommunityTimeline, to everyone, byte-identical to a community id that never existed. The only exceptions are
+//   GetCommunity and ListMyCommunities, which show a SUSPENDED community to its owner (status SUSPENDED), so the owner
+//   learns why it is gone. The same NOT_FOUND bytes answer a missing community.
+//
+// Roles (ADR-0031 D4). viewer_role and CommunityMember.role are computed by the server; the client never infers a role.
+// OWNER and MODERATOR come from the community doc, MEMBER and BANNED from the member doc.
+// - Everyone (members, banned users and outsiders): read the community, its feed, its members and its About.
+// - Members: post (root posts and quotes) and reply in its conversations.
+// - Owner and moderators: hide and restore posts in this community's view (HideCommunityPost, RestoreCommunityPost);
+//   ban and unban plain members and non-members (SetMemberRole); read the BANNED member page and the moderation log.
+// - Owner only: appoint and remove moderators (at most COMMUNITY_MAX_MODERATORS, 10), edit the name, description and
+//   rules. The owner cannot leave (no transfer at Stage 0).
+// - Nobody in a community deletes posts, acts outside the community, sees reports, or suspends or archives it: those are
+//   platform (opsctl) levers. A hide never takes a post down: the post stays on the author's profile, in Home and in
+//   search, with its thread and counters. A ban never hides earlier posts.
+//
+// Blocks (ADR-0031 D7, F14; NOT_FOUND bytes as ADR-0008 D9):
+// - A block never refuses Join, posting into a community, a report of it, or a moderation action. Refusing would be a
+//   block oracle, and moderators must reach raiders.
+// - GetCommunity shows every role holder to every viewer, whatever the blocks.
+// - Feed (GetCommunityTimeline): rows by an author who blocks the viewer, or whom the viewer blocks or mutes, are
+//   dropped; for the community's OWNER or a MODERATOR the "blocks the viewer" drop is waived (F14), and their own
+//   blocks and mutes still drop rows.
+// - Member page (ListCommunityMembers): a member who blocks the viewer or whom the viewer blocks is dropped, and a
+//   muted member is shown; the OWNER and MODERATORs see every member either way, so they can ban.
+// - Replies keep the existing reply rules (a block either way => NOT_FOUND) before the members-only check.
+//
+// Flag FEATURE_COMMUNITIES (wire name "communities", default off; ADR-0031 D10): every RPC here needs it on for the
+// caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads beyond the
+// account-status interceptor. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
+// flag: CreateCommunity also needs the caller in the COMMUNITY_CREATORS config (at most 10 uids); clients learn it
+// from ListMyCommunitiesResponse.can_create.
+//
+// Idempotency (rule 4, ADR-0031 D8): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
+// LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole) take idempotency_key (16-64 characters of
+// [A-Za-z0-9_-], else VALIDATION "idempotency_key", 0 reads) and store the standard TTL'd
+// idempotency/{sha256(uid|rpc|key)} document (24 h) in the same transaction as their effect. A retry with the same key
+// returns the stored outcome with 0 writes, whatever happened since; the record holds ids only, so a replay re-reads
+// the community for its current header. The same key with a different request body => INVALID_ARGUMENT +
+// IDEMPOTENCY_KEY_REUSED. A mutation that changes nothing (Join by a member, Leave by a non-member, a repeated hide or
+// ban) still stores the idempotency document (1 write), so a late retry can never undo a newer change.
+//
+// Text rules (ADR-0031 D2), after NFC and trim:
+// - name: 1-30 code points, single line (no control or bidi formatting characters, at least one visible character;
+//   the list-name rules, ADR-0030 L-2);
+// - description: 0-160 code points, the bio rules (ADR-0010 D9);
+// - rules: at most COMMUNITY_MAX_RULES (10); each title 1-60 code points, single line; each text 0-300 code points, the
+//   bio rules.
+// Otherwise VALIDATION "name" / "description" / "rules", 0 reads beyond the interceptor.
+//
+// Errors (clients branch on ErrorDetail.reason, then its metadata):
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in community_id | name | description | rules | post_id |
+//   user_id | action | filter | page_token | idempotency_key; 0 reads beyond the interceptor unless stated.
+// - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities" (above).
+// - NOT_FOUND "community not found": one message for every cause in Status above. Two other NOT_FOUNDs keep the bytes
+//   of their own RPCs: a post that is missing or not in this community => "post not found" (GetPost's), and a
+//   SetMemberRole target that is missing or not ACTIVE => "user not found" (GetProfile's).
+// - PERMISSION_DENIED + FORBIDDEN (ADR-0031 D4), metadata["reason"]:
+//   - "banned": a BANNED user joins or posts;
+//   - "not_member": a non-member or BANNED user posts or replies;
+//   - "not_moderator": a member, a banned user or an outsider hides, restores, bans, unbans, asks for the BANNED member
+//     page or reads the moderation log;
+//   - "not_owner": anyone but the owner updates the community or appoints or removes a moderator, or a moderator acts
+//     on the owner or on a moderator;
+//   - "not_creator": CreateCommunity by a caller outside COMMUNITY_CREATORS (0 reads beyond the interceptor).
+//   Do not retry. Show a fixed message per reason.
+// - FAILED_PRECONDITION + COMMUNITY_STATE (ADR-0031 D4), metadata["reason"]:
+//   - "owner": the owner leaves (the owner cannot leave);
+//   - "moderator": the owner bans a moderator (remove the role first);
+//   - "community_archived": a write to an ARCHIVED community (Status above).
+//   0 writes.
+// - FAILED_PRECONDITION + PROTECTED_ACCOUNT: a protected caller posts into a community (CreatePost, F6), 0 reads.
+// - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"]:
+//   - "communities_owned": COMMUNITIES_MAX_OWNED, 2 owned communities per creator, lifetime, exact;
+//   - "communities_joined": COMMUNITIES_MAX_JOINED, 50 joined communities per user, exact;
+//   - "community_moderators": COMMUNITY_MAX_MODERATORS, 10 per community.
+//   0 writes.
+// - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"]:
+//   - "community_joins": QUOTA_COMMUNITY_JOINS_PER_DAY, 20 per IST day, 5 for accounts younger than 24 h;
+//   - "community_posts": QUOTA_COMMUNITY_POSTS_PER_DAY, CreatePost into a community, 50 per IST day, 10 for new accounts,
+//     on top of the posts quota.
+//   Both are exact, in the transaction.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED, honour retry_after. Limits are per uid per instance (x 3 instances):
+//   - RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN (20): the seven mutations;
+//   - RATE_LIMIT_COMMUNITIES_READ_PER_MIN (30): GetCommunity, ListCommunities, ListMyCommunities,
+//     ListCommunityMembers, ListModerationLog;
+//   - daily caps, metadata["limit"]: "community_mutation_daily" (COMMUNITY_MUTATIONS_PER_DAY 200: Create, Update,
+//     Join, Leave), "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per actor: Hide, Restore,
+//     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
+//     community, CreatePost);
+//   - the per-uid daily read budget (ADR-0010 D5).
+// - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
+//
+// Firestore budgets below are ADR-0031 "Cost impact" (per RPC). Worst-case reads include the account-status
+// interceptor. Every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
+// call can exceed config.ReadBudgetMaxCallReads (269); the worst here is 103. Keep them in sync with
+// docs/reviews/cost-model.md.
+package dzeroth.communities.v1;
+
+import "dzeroth/common/v1/common.proto";
+import "dzeroth/graph/v1/graph.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1;communitiesv1";
+
+service CommunityService {
+  // Create a community owned by the caller, who becomes its first member. Needs the caller in COMMUNITY_CREATORS,
+  // checked first (FORBIDDEN "not_creator", 0 reads beyond the interceptor), then the text rules. No daily quota: the
+  // owned cap is exact and lifetime (there is no delete).
+  // One transaction: idempotency doc, the caller's communityMemberships (the owned and joined caps), then Create
+  // communities/{id} with a fresh Snowflake id (status ACTIVE, visibility PUBLIC, memberCount 1), the owner's member
+  // doc (JOINED) and the memberships doc (owned and joined += id). At COMMUNITIES_MAX_OWNED (2) => LIMIT_REACHED
+  // "communities_owned"; at COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined"; both 0 writes.
+  // Firestore: reads 3 cold (interceptor, idempotency, memberships) / 2 warm; writes 4 (community, owner member doc,
+  // memberships, idempotency) + 1 TTL delete of the idempotency doc 24 h later; replay reads 3 (interceptor,
+  // idempotency, the community), writes 0; refused 0 writes.
+  rpc CreateCommunity(CreateCommunityRequest) returns (CreateCommunityResponse);
+
+  // Change a community's name, description or rules. Owner only: anyone else => FORBIDDEN "not_owner"; ARCHIVED =>
+  // COMMUNITY_STATE "community_archived". Only the fields that are set change; the text rules are CreateCommunity's.
+  // A rename does not rewrite the label of earlier posts (Post.community is a snapshot at post time); the community's
+  // own page and feed header show the current name.
+  // One transaction: idempotency doc, the community (fresh), the owner's memberships (modlogged), then the community
+  // with an EDIT moderation-log entry. A request that changes nothing writes only the idempotency doc.
+  // Firestore: reads 4 cold (interceptor, idempotency, community, owner memberships) / 3 warm; writes 2 (community,
+  // idempotency), +1 for the first log entry that names the owner in this community (memberships modlogged), 1 when
+  // nothing changes, + 1 TTL delete later; replay 0 writes.
+  rpc UpdateCommunity(UpdateCommunityRequest) returns (UpdateCommunityResponse);
+
+  // One community: the header, its rules, its owner and its moderators. NOT_FOUND for every cause in Status (a SUSPENDED
+  // community is shown to its owner only). viewer_role comes from the community doc and the caller's member doc.
+  // owner and moderators are live rows (identity.Directory, up to 60 s stale) with the caller's relationship to each
+  // (0 extra reads, from the caller's graph); every role holder is shown to every viewer whatever the blocks (D7).
+  // A role holder whose account is not ACTIVE is left out for every viewer.
+  // Cached: the community doc 60 s per instance (CACHE_COMMUNITIES_ENTRIES), the member doc 60 s
+  // (CACHE_COMMUNITY_MEMBERS_ENTRIES), profiles through identity.Directory.
+  // Firestore: reads 15 cold (interceptor, community, caller member doc, caller graph, owner + <= 10 moderator
+  // profiles) / 0 warm, planning 4; writes 0.
+  rpc GetCommunity(GetCommunityRequest) returns (GetCommunityResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // The directory (F10): the ACTIVE communities with the most members, at most 50, by member_count descending (ties
+  // by id descending). Query `communities ORDER BY memberCount DESC, __name__ DESC LIMIT 50` on the automatic index;
+  // non-ACTIVE rows are dropped in memory, so the list may hold fewer than 50. No categories, no search. No block
+  // filtering (D7). viewer_role per row comes from the caller's communityMemberships and each doc's moderatorIds.
+  // Not paged at Stage 0: every row comes back in one response, whatever page_size is, and next_page_token is "". A
+  // non-empty page_token => VALIDATION "page_token", 0 reads beyond the interceptor.
+  // Cached: one shared directory entry per instance, 5 min; the caller's memberships 60 s.
+  // Firestore: reads 52 cold (interceptor, <= 50 for the shared refill, caller memberships), <= 22 at Stage 0
+  // (<= 20 communities) / 0-2 warm, planning 22; writes 0.
+  rpc ListCommunities(ListCommunitiesRequest) returns (ListCommunitiesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // The caller's communities: every community the caller is a JOINED member of (owned and moderated ones included),
+  // most recently joined first, read from communityMemberships/{caller} and the community docs (cache-first). ARCHIVED
+  // ones are included with status ARCHIVED. SUSPENDED ones are left out, except the caller's own (status SUSPENDED).
+  // Communities the caller is banned from are not listed. can_create: the caller is in COMMUNITY_CREATORS (config,
+  // 0 reads); the owned cap is CreateCommunity's to answer.
+  // Not paged at Stage 0 (at most COMMUNITIES_MAX_JOINED, 50): one response, next_page_token "", whatever page_size
+  // is; a non-empty page_token => VALIDATION "page_token".
+  // Firestore: reads 52 cold (interceptor, memberships, <= 50 community docs) / 1 warm, planning 4; writes 0.
+  rpc ListMyCommunities(ListMyCommunitiesRequest) returns (ListMyCommunitiesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Join a community. A block in either direction with the owner or a moderator does not refuse it (D7). A protected
+  // account may join (F6). BANNED => FORBIDDEN "banned", 0 writes; ARCHIVED => COMMUNITY_STATE "community_archived".
+  // Already a member (owner and moderators included) => success, the idempotency doc only (1 write), no quota spent.
+  // One transaction: idempotency doc, the caller's member doc, the caller's communityMemberships (the joined cap,
+  // exact), quotas/{uid} (community_joins), then the member doc (JOINED), memberships (joined += id), a blind Increment
+  // of memberCount and quotas. The transaction never reads the community doc (its status comes from the 60 s cache),
+  // so a join burst cannot abort other joins on a read lock; member_count in the response may lag by up to 60 s.
+  // At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined"; over the quota => QUOTA_EXCEEDED
+  // "community_joins".
+  // Firestore: reads 6 cold (interceptor, community via the cache, idempotency, member doc, memberships, quotas) /
+  // 4 warm; writes 5 (member doc, memberships, memberCount, quotas, idempotency), 1 when already a member, + 1 TTL
+  // delete later; replay 0 writes; refused 0 writes.
+  rpc JoinCommunity(JoinCommunityRequest) returns (JoinCommunityResponse);
+
+  // Leave a community. The owner => COMMUNITY_STATE "owner", 0 writes. A moderator also leaves moderator_ids, logged as
+  // MODERATOR_LEFT. Not a member (a banned user included: the ban stays) => success, the idempotency doc only (1
+  // write). Allowed in an ARCHIVED community. Leaving does not unpin a Home tab of the community.
+  // One transaction: idempotency doc, the member doc, the caller's memberships (+ the community fresh for a moderator),
+  // then delete the member doc, memberships (joined -= id), memberCount -1 (for a moderator the community write that
+  // also removes the id and appends the log entry), idempotency.
+  // Firestore: reads 5 cold, 6 for a moderator / 3 warm; writes 3 (memberships, the community, idempotency), 1 when
+  // not a member; deletes 1 (member doc) + 1 TTL later; replay 0 writes.
+  rpc LeaveCommunity(LeaveCommunityRequest) returns (LeaveCommunityResponse);
+
+  // A community's member page. filter JOINED (or UNSPECIFIED): its members, owner and moderators included, most recently
+  // joined first (`communityMembers ORDER BY joinedAt DESC, __name__ DESC`, the presence of joinedAt is the filter).
+  // filter BANNED: its banned users, most recently banned first (`ORDER BY bannedAt DESC, __name__ DESC`), for the
+  // owner and moderators only, else FORBIDDEN "not_moderator" after the community read. Both run on the automatic
+  // index (D3). Each row carries the user's role and UserListItem.since = joinedAt (JOINED) or bannedAt (BANNED).
+  // Rows whose account is not ACTIVE are left out, and so are the D7 drops for the caller (header comment: a block
+  // either way drops the row unless the caller is the owner or a moderator, who see every member; a muted member is
+  // shown), so a page may be short while next_page_token is set: keep following it. user.is_private is set (live row).
+  // Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, the community and the
+  // effective filter (UNSPECIFIED and JOINED bind the same), and expires after 24 h (expired, foreign or tampered =>
+  // VALIDATION "page_token", 0 reads).
+  // Firestore: reads 43 cold at page 20 / 103 at page 50 (interceptor, community, query <= page, profiles <= page via
+  // identity.Directory, caller graph) / 21 / 51 warm, planning 30; writes 0.
+  rpc ListCommunityMembers(ListCommunityMembersRequest) returns (ListCommunityMembersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Hide a post from this community's view (A12). Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED =>
+  // COMMUNITY_STATE "community_archived". post_id must be a post created into this community (Post.community.id ==
+  // community_id), else NOT_FOUND "post not found". The post leaves the community's feed and loses its label on every
+  // surface. It stays on the author's profile, in Home and in search, with its thread, likes and reposts, and it is
+  // never a takedown (ADR-0016). Already hidden => success, the idempotency doc only. A block either way does not
+  // refuse it (F14).
+  // One transaction (posts.CommunityModerator): idempotency doc, the community (fresh), the post (fresh), the actor's
+  // memberships, then the post (field-level: communityId deleted, communityHidden set), the community (recentRemovals
+  // += {post, now}, at most 50 kept; a HIDE log entry, at most 100 kept) and idempotency. Feeds on this instance drop
+  // it at once; other devices drop it at their next refresh (GetCommunityTimeline removed_ids, within 60 s).
+  // Firestore: reads 5 cold (interceptor, idempotency, community, post, actor memberships) / 4 warm; writes 3 (post,
+  // community, idempotency), +1 for the actor's first log entry in this community (memberships modlogged), 1 when
+  // already hidden, + 1 TTL delete later; replay 0 writes.
+  rpc HideCommunityPost(HideCommunityPostRequest) returns (HideCommunityPostResponse);
+
+  // Restore a post a moderator hid in this community: the reverse of HideCommunityPost, with the same roles, rules,
+  // errors and budget. The post re-enters the community's feed and gets its label back; its recentRemovals entry is
+  // deleted, so it is never listed in removed_ids (a device that dropped it gets it back at its next cold open). A post
+  // that is not hidden => success, the idempotency doc only. A RESTORE log entry is appended.
+  // Firestore: reads 5 cold / 4 warm; writes 3 (+1 for the actor's first log entry in this community), 1 when not
+  // hidden, + 1 TTL delete later; replay 0 writes.
+  rpc RestoreCommunityPost(RestoreCommunityPostRequest) returns (RestoreCommunityPostResponse);
+
+  // Change one user's standing in a community (ADR-0031 D4). user_id: [A-Za-z0-9-]{1,128}; a target that is missing or
+  // not ACTIVE => NOT_FOUND "user not found", whatever the blocks (F14). ARCHIVED => COMMUNITY_STATE
+  // "community_archived".
+  // - BAN, UNBAN: owner or moderator, else FORBIDDEN "not_moderator". The target must be a plain member or a non-member
+  //   (a ban of a raider who already left is allowed): a moderator target => COMMUNITY_STATE "moderator" for the owner
+  //   (remove the role first) and FORBIDDEN "not_owner" for a moderator; the owner as target => FORBIDDEN "not_owner"
+  //   for a moderator and VALIDATION "user_id" for the owner (themselves). A ban makes the member doc BANNED, moves the
+  //   community from the target's joined to banned and lowers memberCount by 1 if the target was JOINED; it never hides
+  //   earlier posts. UNBAN deletes the record; the user may join again.
+  // - MAKE_MODERATOR, REMOVE_MODERATOR: the owner only, else FORBIDDEN "not_owner". The target must be a JOINED member
+  //   other than the owner, else VALIDATION "user_id". At COMMUNITY_MAX_MODERATORS (10) => LIMIT_REACHED
+  //   "community_moderators". Moderators are kept in appointment order (the first is the longest serving, F12).
+  // A request that changes nothing (a repeated ban, an unban of a user not banned, appointing a moderator again)
+  // writes the idempotency doc only. Every change appends one log entry (BAN, UNBAN, MAKE_MODERATOR,
+  // REMOVE_MODERATOR) naming the actor and the target, and adds the community to both users' memberships modlogged.
+  // action UNSPECIFIED => VALIDATION "action".
+  // One transaction: idempotency doc, the community (fresh), the target's member doc and memberships, the actor's
+  // memberships; the target's profile through identity.Directory.
+  // Firestore: reads 7 cold (interceptor, idempotency, community, target member doc, target memberships, actor
+  // memberships, target profile) / 6 warm; writes BAN 4, UNBAN 3 (+1 delete), MAKE_MODERATOR or REMOVE_MODERATOR 2-3,
+  // +1 for the actor's first log entry in this community, worst 5; 1 when nothing changes; deletes <= 1 + 1 TTL later;
+  // replay 0 writes; refused 0 writes.
+  rpc SetMemberRole(SetMemberRoleRequest) returns (SetMemberRoleResponse);
+
+  // The community's moderation log, newest first: what the owner and moderators did (ADR-0031 D2). Owner and moderators
+  // only, else FORBIDDEN "not_moderator". The community keeps its newest COMMUNITY_MODLOG_MAX (100) entries, so older
+  // ones are gone. Entries never name a post's author; a user who deleted the account reads as actor_deleted or
+  // target_deleted (the action and time stay).
+  // Paging: page_size 0 => 25, max 25 (clamped); page_token is sealed, bound to the caller and the community, carries
+  // the last seq returned, and expires after 24 h (expired, foreign or tampered => VALIDATION "page_token", 0 reads).
+  // Firestore: reads 52 cold (interceptor, community, <= 50 actor and target profiles via identity.Directory) / 0 warm;
+  // writes 0.
+  rpc ListModerationLog(ListModerationLogRequest) returns (ListModerationLogResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+// The caller's role in a community (ADR-0031 D4). Returned as viewer_role and CommunityMember.role; the client never
+// infers one. A new value is additive: a client that does not know a value treats it as NONE.
+enum CommunityRole {
+  // Not computed (an older server): treat as NONE.
+  COMMUNITY_ROLE_UNSPECIFIED = 0;
+  // The community's owner (always a JOINED member).
+  COMMUNITY_ROLE_OWNER = 1;
+  // An appointed moderator (always a JOINED member, never the owner).
+  COMMUNITY_ROLE_MODERATOR = 2;
+  // A JOINED member who holds no role.
+  COMMUNITY_ROLE_MEMBER = 3;
+  // Banned from this community: may read it, may not join, post or reply.
+  COMMUNITY_ROLE_BANNED = 4;
+  // Anyone else (not a member, not banned).
+  COMMUNITY_ROLE_NONE = 5;
+}
+
+enum CommunityStatus {
+  COMMUNITY_STATUS_UNSPECIFIED = 0;
+  COMMUNITY_STATUS_ACTIVE = 1;
+  // Read-only, out of the directory, still readable (header comment).
+  COMMUNITY_STATUS_ARCHIVED = 2;
+  // Taken offline by the platform. Only its owner ever receives it (GetCommunity, ListMyCommunities).
+  COMMUNITY_STATUS_SUSPENDED = 3;
+}
+
+// Who may read a community (F6). PUBLIC is the only value at Stage 0; restricted or private communities need their own
+// ADR (a members-only filter on every read path) and would add a value here.
+enum CommunityVisibility {
+  COMMUNITY_VISIBILITY_UNSPECIFIED = 0;
+  COMMUNITY_VISIBILITY_PUBLIC = 1;
+}
+
+// Which rows ListCommunityMembers returns. Named after the member doc's state, not a role (ADR-0031 D2).
+enum CommunityMemberFilter {
+  // Same as JOINED.
+  COMMUNITY_MEMBER_FILTER_UNSPECIFIED = 0;
+  // JOINED members, the owner and moderators included.
+  COMMUNITY_MEMBER_FILTER_JOINED = 1;
+  // Banned users. Owner and moderators only.
+  COMMUNITY_MEMBER_FILTER_BANNED = 2;
+}
+
+// What SetMemberRole does to its target (ADR-0031 D4).
+enum MemberRoleAction {
+  MEMBER_ROLE_ACTION_UNSPECIFIED = 0;
+  // Owner or moderator; the target is a plain member or a non-member.
+  MEMBER_ROLE_ACTION_BAN = 1;
+  // Owner or moderator; deletes the ban record.
+  MEMBER_ROLE_ACTION_UNBAN = 2;
+  // Owner only; the target is a JOINED member.
+  MEMBER_ROLE_ACTION_MAKE_MODERATOR = 3;
+  // Owner only; the moderator stays a member.
+  MEMBER_ROLE_ACTION_REMOVE_MODERATOR = 4;
+}
+
+// One moderation-log action (ADR-0031 D2). A new value is additive: a client that does not know one shows a generic
+// "Moderation action".
+enum ModerationLogAction {
+  MODERATION_LOG_ACTION_UNSPECIFIED = 0;
+  // A post was hidden from the community view (post_id set).
+  MODERATION_LOG_ACTION_HIDE = 1;
+  // A hidden post was restored (post_id set).
+  MODERATION_LOG_ACTION_RESTORE = 2;
+  // target was banned.
+  MODERATION_LOG_ACTION_BAN = 3;
+  // target was unbanned.
+  MODERATION_LOG_ACTION_UNBAN = 4;
+  // target was made a moderator.
+  MODERATION_LOG_ACTION_MAKE_MODERATOR = 5;
+  // target's moderator role was removed.
+  MODERATION_LOG_ACTION_REMOVE_MODERATOR = 6;
+  // The owner edited the name, description or rules.
+  MODERATION_LOG_ACTION_EDIT = 7;
+  // The actor, a moderator, left the community.
+  MODERATION_LOG_ACTION_MODERATOR_LEFT = 8;
+  // Ownership moved to target after the owner deleted the account (actor_deleted), or the community was archived on
+  // the owner's request with no new owner (target unset, target_deleted false).
+  MODERATION_LOG_ACTION_OWNER_HANDOVER = 9;
+}
+
+// One community rule, shown numbered in the community's About.
+message CommunityRule {
+  // 1-60 code points, single line.
+  string title = 1;
+  // 0-300 code points, the bio rules.
+  string text = 2;
+}
+
+// A full replacement set of rules for UpdateCommunity. A message, so "leave the rules unchanged" (unset) differs from
+// "remove every rule" (set, empty).
+message CommunityRuleList {
+  repeated CommunityRule rules = 1;
+}
+
+// A community's header, built from the community doc and the caller's role at 0 extra reads, so every surface returns
+// the same shape: GetCommunity, ListCommunities, ListMyCommunities, the mutations and the GetCommunityTimeline header.
+// Rules, the owner and the moderators cost more (profile reads, egress) and come only with GetCommunity (and the rules
+// with CreateCommunity and UpdateCommunity).
+message Community {
+  // 19-digit Snowflake.
+  string community_id = 1;
+  // The current name (1-30 code points). Post labels keep the name the post was created with.
+  string name = 2;
+  // 0-160 code points.
+  string description = 3;
+  // JOINED members, the owner and moderators included; banned users never count. Up to 60 s stale (the community
+  // instance cache; JoinCommunity never reads the doc).
+  int64 member_count = 4;
+  CommunityStatus status = 5;
+  CommunityVisibility visibility = 6;
+  // The caller's role in this community.
+  CommunityRole viewer_role = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+// One row of a community's member page.
+message CommunityMember {
+  // Live row (identity.Directory, up to 60 s stale) with the caller's relationship; since = joinedAt for a JOINED
+  // member, bannedAt for a banned user.
+  dzeroth.graph.v1.UserListItem user = 1;
+  // OWNER, MODERATOR or MEMBER on the JOINED page; BANNED on the BANNED page.
+  CommunityRole role = 2;
+}
+
+// One moderation-log entry (ADR-0031 D2). Never names a post's author.
+message ModerationLogEntry {
+  // Increases by one per entry in this community; the page cursor carries it.
+  int64 seq = 1;
+  // Server time of the action.
+  google.protobuf.Timestamp at = 2;
+  ModerationLogAction action = 3;
+  // Who acted: a live row (identity.Directory, up to 60 s stale; is_private unset). Unset when actor_deleted.
+  dzeroth.common.v1.AuthorSnapshot actor = 4;
+  // True when the actor deleted the account: render "Deleted account".
+  bool actor_deleted = 5;
+  // The user acted on: set for BAN, UNBAN, MAKE_MODERATOR, REMOVE_MODERATOR and OWNER_HANDOVER (the new owner); a live
+  // row like actor. Unset when target_deleted, and for an OWNER_HANDOVER that archived the community.
+  dzeroth.common.v1.AuthorSnapshot target = 6;
+  // True when the target deleted the account: render "Deleted account".
+  bool target_deleted = 7;
+  // The post hidden or restored (HIDE, RESTORE); "" otherwise.
+  string post_id = 8;
+}
+
+message CreateCommunityRequest {
+  string idempotency_key = 1;
+  // 1-30 code points after NFC and trim.
+  string name = 2;
+  // 0-160 code points after NFC and trim.
+  string description = 3;
+  // At most 10, in display order.
+  repeated CommunityRule rules = 4;
+}
+
+message CreateCommunityResponse {
+  Community community = 1;
+  // The stored rules, after the text rules.
+  repeated CommunityRule rules = 2;
+}
+
+message UpdateCommunityRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+  // Only the fields that are set change. name cannot be cleared ("" => VALIDATION "name").
+  optional string name = 3;
+  // "" clears the description.
+  optional string description = 4;
+  // Set => replaces every rule (an empty list removes them all); unset => the rules stay.
+  CommunityRuleList rules = 5;
+}
+
+message UpdateCommunityResponse {
+  Community community = 1;
+  // The stored rules after the update.
+  repeated CommunityRule rules = 2;
+}
+
+message GetCommunityRequest {
+  string community_id = 1;
+}
+
+message GetCommunityResponse {
+  Community community = 1;
+  // In display order; the community's About numbers them.
+  repeated CommunityRule rules = 2;
+  // Unset when the community has no owner (ARCHIVED, F12) or the owner is not ACTIVE. since is unset.
+  dzeroth.graph.v1.UserListItem owner = 3;
+  // At most 10, in appointment order (the first is the longest serving); never the owner. since is unset.
+  repeated dzeroth.graph.v1.UserListItem moderators = 4;
+}
+
+message ListCommunitiesRequest {
+  // Ignored at Stage 0 (the directory is one response of at most 50).
+  int32 page_size = 1;
+  // Must be "" at Stage 0.
+  string page_token = 2;
+}
+
+message ListCommunitiesResponse {
+  repeated Community communities = 1;
+  // Always "" at Stage 0.
+  string next_page_token = 2;
+}
+
+message ListMyCommunitiesRequest {
+  // Ignored at Stage 0 (one response of at most 50).
+  int32 page_size = 1;
+  // Must be "" at Stage 0.
+  string page_token = 2;
+}
+
+message ListMyCommunitiesResponse {
+  repeated Community communities = 1;
+  // True when the caller may call CreateCommunity (COMMUNITY_CREATORS, F1). Show "Create a Community" only then.
+  bool can_create = 2;
+  // Always "" at Stage 0.
+  string next_page_token = 3;
+}
+
+message JoinCommunityRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+}
+
+message JoinCommunityResponse {
+  Community community = 1;
+}
+
+message LeaveCommunityRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+}
+
+message LeaveCommunityResponse {
+  Community community = 1;
+}
+
+message ListCommunityMembersRequest {
+  string community_id = 1;
+  // UNSPECIFIED => JOINED.
+  CommunityMemberFilter filter = 2;
+  // 0 => 20; max 50 (clamped).
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListCommunityMembersResponse {
+  repeated CommunityMember members = 1;
+  // "" => no more.
+  string next_page_token = 2;
+}
+
+message HideCommunityPostRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+  // 19-digit post id of a root post or quote created into this community.
+  string post_id = 3;
+}
+
+message HideCommunityPostResponse {}
+
+message RestoreCommunityPostRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+  // 19-digit post id.
+  string post_id = 3;
+}
+
+message RestoreCommunityPostResponse {}
+
+message SetMemberRoleRequest {
+  string idempotency_key = 1;
+  string community_id = 2;
+  // The target user.
+  string user_id = 3;
+  MemberRoleAction action = 4;
+}
+
+message SetMemberRoleResponse {
+  // The target's role after the call (BANNED, NONE after an unban, MODERATOR or MEMBER).
+  CommunityRole role = 1;
+  // The header after the call (member_count changes on a ban).
+  Community community = 2;
+}
+
+message ListModerationLogRequest {
+  string community_id = 1;
+  // 0 => 25; max 25 (clamped).
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListModerationLogResponse {
+  // Newest first.
+  repeated ModerationLogEntry entries = 1;
+  // "" => no more.
+  string next_page_token = 2;
+}

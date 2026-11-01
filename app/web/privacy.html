@@ -30,6 +30,8 @@
       messages, reports, notifications' other-user rows, deviceTokens and exports. So before ANY flag that creates
       such data leaves off in prod, FEATURE_ACCOUNT_LIFECYCLE must be on in prod for those users, or 3a/3b must be
       extended to every section and step. Otherwise the "Your rights" and deletion text is untrue for email requests.
+      Decided 2026-11-01 (founder delegated the default): FEATURE_ACCOUNT_LIFECYCLE goes on in prod before any such
+      flag leaves off there; 3a/3b stay the fallback for email requests (docs/runbooks/account-deletion.md).
   11. Every feature section describes code merged on main; prod flags were all off at v0.4.0. Before a feature
       leaves off in prod, the Firestore TTL policies its retention sentence relies on must be applied there
       (Terraform modules/firestore ttl_fields: idempotency, notifications, media, exports, reports, report
@@ -50,20 +52,28 @@
       accepts it and the ADR-0011 note of 2026-11-01 indexes it with the other later Q10 entries.
   16. iPhone: the app activates App Check with Apple App Attest (bootstrap.dart), and push registration is
       supported on iOS (push_messaging.dart) though the opt-in card is Android only (push_opt_in.dart). Add Apple
-      to the App Check sentence, and iPhone push, before any iOS build reaches users (founder question, W6-55 PR).
+      to the App Check sentence, and iPhone push, before any iOS build reaches users. Founder 2026-11-01: no iOS
+      build has reached anyone outside the team.
   17. Web bot protection: bootstrap.dart activates App Check with reCAPTCHA Enterprise on the web whenever the
       build gets RECAPTCHA_SITE_KEY (GitHub variables DEV_/PROD_RECAPTCHA_SITE_KEY). "Not switched on" holds only
-      while PROD_RECAPTCHA_SITE_KEY is empty (founder question, W6-55 PR); free-tier-budget says $8/month past 10k.
+      while PROD_RECAPTCHA_SITE_KEY is empty; free-tier-budget says $8/month past 10k. Founder 2026-11-01: it is not
+      set.
   18. GIFs: the "Photos and GIFs" sentence describes W6-30 (#577): the client strips comment, plain-text and
       non-loop application blocks (XMP, ICC) and trailing bytes without re-encoding (image_processor.dart
-      stripGifBytes), and the server refuses a GIF that still has them (media/gifscan.go).
+      stripGifBytes), and the server refuses a GIF that still has them (media/gifscan.go). Since W6-58 (#586) the
+      client also reduces the loop block to its loop count and the server refuses any other loop block; the text
+      stays true without naming it.
   19. "Hard-to-guess web addresses" is true of uploads since W3-39 (128-bit random name suffix, media/service.go).
       Images uploaded before W3-39 keep "m/{mediaId}.{ext}", which is derived from a time-ordered id. Re-check if
-      any such image exists in prod (founder question, W6-55 PR).
-  20. W6-53 (open; founder approved adding `changes` on 2026-11-01) adds the vote's change count to the poll_votes
-      export. When it merges, the #564 Polls "Your export" sentence ("which poll, your choice, when you voted and,
-      if you changed it, when you last did") must add "and how many times", in the same PR, with the founder's
-      approval of that wording.
+      any such image exists in prod. Checked 2026-11-01: none can exist. FEATURE_MEDIA has never been on in prod,
+      and the three prod Hosting releases (2026-09-28, 2026-10-11, 2026-10-21, confirmed by the founder from the
+      console) carry no upload code.
+  20. W6-53 (#581, merged 2026-11-01) adds the vote's change count to the poll_votes export, so the Polls "Your
+      export" sentence ends "when you last did, and how many times" (wording chosen 2026-11-01; the founder
+      delegated it).
+  21. Analytics and crash reporting: the app ships neither firebase_analytics nor firebase_crashlytics
+      (app/pubspec.yaml). Founder 2026-11-01: neither Google Analytics nor Crashlytics is on for dzeroth-prod in the
+      Firebase console. Keep both off there while the text says we use neither.
 -->
 <html lang="en">
 <head>
@@ -555,7 +565,7 @@
       <li>
         <strong>Your export.</strong> Your data export lists the poll votes
         we still hold: which poll, your choice, when you voted and, if you
-        changed it, when you last did.
+        changed it, when you last did, and how many times.
       </li>
       <li>
         <strong>No polls about sensitive personal information.</strong>
