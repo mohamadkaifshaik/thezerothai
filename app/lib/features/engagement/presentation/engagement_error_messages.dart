@@ -1,6 +1,7 @@
 import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/bookmarks_feature_flag.dart';
+import '../domain/poll_display.dart';
 import 'bloc/engagement_state.dart';
 import 'bloc/poll_state.dart';
 
@@ -61,6 +62,10 @@ String engagementErrorMessage(
   };
 }
 
+/// Why the vote buttons are off when the viewer blocks the author (TARGET_BLOCKED
+/// and `viewer_poll_vote_blocked`, ADR-0029 Amendment 1 A1.5).
+const kPollBlockedReason = "You blocked this account. Unblock to vote.";
+
 /// Friendly, typed messages for a failed vote or a failed "See final results"
 /// read (W6-13, ADR-0029). Fixed text, never the server's; ALREADY_VOTED and
 /// POLL_CLOSED are normally resolved by a refresh and only reach here as a
@@ -72,7 +77,12 @@ String pollErrorMessage(
   return switch (error) {
     FeatureDisabledException() => "Voting isn't available right now.",
     PollClosedException() => PollClosedException.userMessage,
+    AlreadyVotedException() when action == PollAction.change =>
+      "Your vote didn't change. Showing your current choice.",
     AlreadyVotedException() => AlreadyVotedException.userMessage,
+    LimitReachedException(quota: kPollVoteChangesLimit) =>
+      "You've changed your vote the most times allowed.",
+    TargetBlockedException() => kPollBlockedReason,
     final RateLimitedException e => rateLimitedMessage(e),
     QuotaExceededException() =>
       "You've reached today's limit for votes. It resets tomorrow.",
@@ -81,10 +91,11 @@ String pollErrorMessage(
           'Please try again shortly.',
     NotFoundException() => "This post isn't available any more.",
     NetworkException() => 'No connection. Check your network and try again.',
-    _ =>
-      action == PollAction.refresh
-          ? "Couldn't load the results. Please try again."
-          : "Couldn't register your vote. Please try again.",
+    _ => switch (action) {
+      PollAction.refresh => "Couldn't load the results. Please try again.",
+      PollAction.change => "Couldn't change your vote. Please try again.",
+      PollAction.vote => "Couldn't register your vote. Please try again.",
+    },
   };
 }
 

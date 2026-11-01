@@ -1334,6 +1334,32 @@ Numbers marked **corrected** replace the figure in the section named.
 
 **Cost impact of these notes.** Fixed cost INR 0. No INR row of the Cost impact section changes.
 
+## As-built notes, 2026-10-31: block and change (W6-36)
+
+### N5. Amendment 1 A1 and A2 as built (W6-36)
+- **Two writes to one document in one commit: proven on the emulator, not yet on dev Firestore.** `ChangeVote` stages two field-level
+  merges of `userLikes/{uid}` (`ArrayRemove` of the old entry, `ArrayUnion` of the new one) in the same `WriteBatch` as the vote doc
+  `Update` and the post counters. `TestRepoChangeVote_BatchBudgetAndEffects` shows it commits (4 writes, 0 reads, one entry left, the other
+  arrays kept), so the transaction fallback of A2.3 was **not** built. Check it once on dev with a test account before `polls` widens
+  (runbook `engagement.md` section 10); if dev rejects it, the fallback is a swap of `FirestoreRepo.ChangeVote`.
+- **`userLikes` is written with `Set` + `MergeAll`, not `Update`.** A missing `userLikes` doc therefore never fails the commit, and the only
+  preconditions are the vote doc's `LastUpdateTime` and the post's `Exists`. That keeps "the vote doc did not move after a failed
+  precondition" a sound proof that the post is gone.
+- **The block rule fails closed.** `VotePoll` returns an internal error, never "not blocked", when no graph reader is wired or its snapshot
+  errors. It reads the caller's snapshot that `Viewable` just cached (+0 reads).
+- **`viewer_poll_vote_blocked` producers.** GetPost (a `PollBlockHinter` on the service, called only for a live poll by another author),
+  GetThread (`Thread.BlockedAuthors`, from the snapshot the service already holds) and GetUserTimeline (`checkVisible` returns the blocked
+  set). Home and lists pass nil. `TestPollConverterGuard_Repo` now pins which files may call `WithBlockedAuthors`.
+- **Outcomes.** `poll_vote` gains `changed`, `change_limit`, `stale_expected` and `voter_blocks_author`; `already_voted` is renamed
+  `stale_expected` (it is now only the stale-`expected_choice` row). Runbook section 10 is updated.
+- **Config.** `POLL_VOTE_CHANGES_MAX` (default 5, 0..20) in `ComposerConfig`; env only (no Terraform variable exists for the poll keys).
+- **Measured on the emulator chain** (`TestW636_ChangeBudgetCapAndClose`, request line, warm instance): a change costs 1 read (the vote doc) and 4
+  writes; the documented ceiling stays 9 reads cold (`budgettest.Assert`). `TARGET_BLOCKED` is asserted at the existing 7-read refusal ceiling and 0
+  writes.
+- **W6-29 (`userLikes.pollVotes` retention, #552).** It changes the entry to `<postId>:<choice>:<closesAtUnix>`. `closesAt` is immutable, so a
+  change can rebuild the old entry from the post; whichever PR merges second adapts `ChangeVote` (`ChangeParams` gains `ClosesAt`, and the
+  `ArrayRemove` names both the new form and the legacy two-part form so a dev leftover is removed too).
+
 ### N5. D11 point 4 as built after W6-28 (security M-2): the last frame is always sampled
 
 Appended, not a rewrite: D11 point 4 above stays as decided; this is what the code does now.

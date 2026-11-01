@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -40,6 +41,8 @@ type envOpts struct {
 	perDay      int64
 	newPerDay   int64
 	dirErr      error
+	// W6-50: the directory knows the account but its createdAt is zero (a users doc written without it).
+	accountUnknown bool
 	// W6-10 GIF screen: wrap the object store, override the guard values (0 = defaults).
 	objects      func(*fakeObjects) Objects
 	gifWait      time.Duration
@@ -75,7 +78,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
 		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
-		Directory: fakeDirectory{created: testNow.Add(-o.accountAge), err: o.dirErr}, IDs: &seqIDs{},
+		Directory: fakeDirectory{created: createdFor(o), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
 		Now: func() time.Time { return testNow },
@@ -85,6 +88,14 @@ func newEnv(t *testing.T, o envOpts) *env {
 	}
 	e.svc = svc
 	return e
+}
+
+// createdFor is the createdAt the fake directory reports: testNow minus the age, or the zero time for an account of unknown age.
+func createdFor(o envOpts) time.Time {
+	if o.accountUnknown {
+		return time.Time{}
+	}
+	return testNow.Add(-o.accountAge)
 }
 
 func item(full, thumb []byte, ct string) UploadItem {
@@ -443,7 +454,7 @@ func TestFinalize_Validation(t *testing.T) {
 func TestFinalize_ModerationOutageFailsClosed(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.upload(t, uidA, PurposePost, "a")
-	e.mod.err = errors.New("vision 503")
+	e.mod.err = &googleapi.Error{Code: 503}
 	_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if len(e.obj.public) != 0 || e.repo.docs[tg.MediaID].Status != string(StatusPending) {
@@ -719,8 +730,9 @@ func TestFinalize_LostRaceDuringScreeningConvergesOnReady(t *testing.T) {
 		return errors.New("vision: gs object not found")
 	}
 	got, spent, err := e.finalizeStale(t, tg.MediaID)
-	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 0 {
-		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and no units", got, spent, err)
+	// spent is 1 since W6-49: an error unbilled() does not recognise (this one is a plain error) may have been billed, so it stays counted.
+	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 1 {
+		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and the 1 unit of the unrecognised failure", got, spent, err)
 	}
 }
 

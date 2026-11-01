@@ -4,7 +4,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
 /// Which step failed (picks the wording of the snackbar).
-enum PollAction { vote, refresh }
+enum PollAction { vote, change, refresh }
 
 /// One failed vote or refresh, shown once by the card of [postId].
 @immutable
@@ -33,6 +33,10 @@ class PollEntry {
     this.knownChoice,
     this.refreshing = false,
     this.closed = false,
+    this.changing = false,
+    this.limitReached = false,
+    this.blocked = false,
+    this.freshWins = false,
   });
 
   /// The 0-based choice being sent (optimistic), or null.
@@ -52,6 +56,21 @@ class PollEntry {
   /// The server said POLL_CLOSED (the clock of this device was behind).
   final bool closed;
 
+  /// "Change vote" was tapped: the card shows the choice pills again.
+  final bool changing;
+
+  /// The server refused another change (LIMIT_REACHED `poll_vote_changes`):
+  /// the control is gone for this poll.
+  final bool limitReached;
+
+  /// The server said TARGET_BLOCKED (the viewer blocks the author) before the
+  /// row said so.
+  final bool blocked;
+
+  /// [fresh] came from a vote change or a refusal of one: it beats a row that
+  /// already carried counts.
+  final bool freshWins;
+
   PollEntry copyWith({
     int? pendingChoice,
     bool clearPending = false,
@@ -59,12 +78,21 @@ class PollEntry {
     int? knownChoice,
     bool? refreshing,
     bool? closed,
+    bool? changing,
+    bool? limitReached,
+    bool? blocked,
+    bool? freshWins,
+    bool clearKnown = false,
   }) => PollEntry(
     pendingChoice: clearPending ? null : (pendingChoice ?? this.pendingChoice),
     fresh: fresh ?? this.fresh,
-    knownChoice: knownChoice ?? this.knownChoice,
+    knownChoice: clearKnown ? null : (knownChoice ?? this.knownChoice),
     refreshing: refreshing ?? this.refreshing,
     closed: closed ?? this.closed,
+    changing: changing ?? this.changing,
+    limitReached: limitReached ?? this.limitReached,
+    blocked: blocked ?? this.blocked,
+    freshWins: freshWins ?? this.freshWins,
   );
 }
 

@@ -288,6 +288,7 @@ func ApplyWithheld(v *postsv1.PostView) {
 	v.Post = &postsv1.Post{PostId: v.Post.PostId, Kind: v.Post.Kind, Author: v.Post.Author}
 	v.EmbedViewerState = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 	v.ViewerPollChoice = 0 // the placeholder carries no poll, so no choice either (ADR-0029 D4)
+	v.ViewerPollVoteBlocked = false
 	v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_UNSPECIFIED
 	v.Withheld = true
 }

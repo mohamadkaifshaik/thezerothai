@@ -20,7 +20,8 @@ import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dar
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/engagement/v1/engagement.pb.dart' as eng;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPolicy;
 import 'package:dzeroth/shared/widgets/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -44,7 +45,6 @@ class _MockGraph extends Mock implements GraphRepository {}
 class _MockPosts extends Mock implements PostsRepository {}
 
 class _MockEngagement extends Mock implements EngagementRepository {}
-
 
 /// W6-19: the poll card inside real feed rows (`FeedPostRow` -> `PostCard` ->
 /// `PostPoll` -> `PollCubit` -> `PollRepository` -> transport), the error
@@ -212,6 +212,11 @@ void main() {
       expect(find.text('post detail page'), findsNothing);
       expect(find.text('6 votes · 2 days left'), findsOneWidget);
       expect(find.byIcon(Icons.check_circle), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('poll-change-vote')),
+        findsOneWidget,
+        reason: 'a vote is no longer final (Amendment 1)',
+      );
       expect(find.text('plain above'), findsOneWidget);
       expect(find.text('plain below'), findsOneWidget);
     });
@@ -253,6 +258,11 @@ void main() {
       expect(votes, hasLength(1));
       expect(find.text('9 votes · 2 days left'), findsNWidgets(2));
       expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+      expect(
+        find.byKey(const ValueKey('poll-change-vote')),
+        findsNWidgets(2),
+        reason: 'a vote is no longer final: both cards offer Change vote',
+      );
     });
   });
 

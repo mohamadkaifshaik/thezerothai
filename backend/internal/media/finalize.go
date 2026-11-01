@@ -136,10 +136,15 @@ func validateFinalize(items []FinalizeItem) error {
 // second call may claim and screen again, and the first one's Resolve then loses its UpdateTime precondition and
 // converges on the second's result (the pre-fix behaviour, now the rare case).
 //
-// A GIF (W6-10) takes longer: the 5 s wait for the instance's GIF slot now comes BEFORE the claim (W6-40), so the claim covers a 5 s object read,
-// a 2 s sampling deadline, the Vision calls (10 s each, in parallel) and the two copies, so its bounded worst case is
-// about 17 s plus the ordinary calls, still under this TTL and under the 30 s Cloud Run request timeout. A GIF that
-// runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
+// A GIF (W6-10) takes longer. The claim window (from the claim write to the release or the resolve) covers a 5 s object read, a 2 s sampling
+// deadline, the Vision calls (10 s each, in parallel) and the two copies, resolve and deletes: about 17 s of timeouts plus those ordinary calls.
+// The request is longer than the claim window by what comes BEFORE the claim (W6-40 moved the GIF slot wait there): verify's four object calls, the
+// units charge and the slot wait of up to 5 s. Adding those up, a GIF whose every step ran to its timeout would need about 22 s or more, but the
+// request's own deadline is the 20 s finalizeDeadline (server.go), and that binds first: it ends the request, and with it the claim window, at 20 s
+// from the start, well under this 30 s TTL and under Cloud Run's 30 s request timeout. What the slot wait takes is taken from the Vision calls,
+// which get the lesser of their own 10 s and what is left (about 8 s in that worst case): screenAll does not start them with under minVisionBudget (3 s)
+// left, so the tail costs a retry, not units (W6-49, W6-42 L-3; the shape of the worst case is ADR-0029 N4, the founder's decision to measure it
+// before raising the deadline). A GIF that runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
 const screeningClaimTTL = 30 * time.Second
 
 // claimReleaseTimeout bounds the best-effort release of a claim after a failed attempt. It runs on a context cut off
@@ -210,7 +215,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 
 	// 1a. The per-uid Vision-units cap (media_vision_units_daily, A5.5) is charged with this screening's units BEFORE the claim, so a refusal writes
-	// nothing. What was never sent to Vision is refunded when the call ends (refundUnits); timeouts and answered calls are not.
+	// nothing. What is known not to have been billed (unbilled: never sent, or a 429 or 5xx answer) is refunded when the call ends (refundUnits); timeouts, resets and answered calls are not.
 	units := s.screenUnits(d)
 	unitsCap, err := s.chargeUnits(ctx, uid, units)
 	if err != nil {
@@ -275,12 +280,12 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	if ok {
 		res, err := s.screen(ctx, d, gens, releaseSlot)
-		// One "possibly billed" definition for both counters (W6-42 H-1): every call that was not provably never sent counts, answered or not,
+		// One "possibly billed" definition for both counters (W6-42 H-1, W6-49 L-1): every call that is not known to be unbilled counts, answered or not,
 		// so a deadline or a hung-up client (a call that may have been billed) stays in VISION_MONTHLY_CAP, as it does in the per-uid cap.
-		// Only calls that never reached Vision (res.refundable) are returned. Over-counts by at most 2 units per honest timeout.
+		// Only calls unbilled() recognises (res.refundable: never sent, or a 429 or 5xx answer) are returned. Over-counts by at most 2 units per honest timeout or reset.
 		spent = units - res.refundable
 		s.vision.release(res.refundable)
-		refundUnits = res.refundable // the per-uid cap refunds only calls that never went out (not timeouts, not answers)
+		refundUnits = res.refundable // the per-uid cap refunds the same calls (not timeouts, not resets, not answers)
 		assessed = res.valid > 0     // at least one valid assessment: if the doc does not end, this attempt is consumed (A5.2)
 		// A blocking verdict is final even when the other call failed (A5.3 row 2): the image is REJECTED, not retried.
 		if res.blocked {
@@ -307,7 +312,11 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 			if r, ok := s.resolvedElsewhere(ctx, d); ok {
 				return r, spent, nil
 			}
-			logger.SetRequestField(ctx, fieldScreenOutcome, map[bool]string{true: "assessed", false: "unassessed"}[assessed])
+			outcome := map[bool]string{true: "assessed", false: "unassessed"}[assessed]
+			if errors.Is(err, errNoVisionTime) {
+				outcome = fieldOutcomeNoTime
+			}
+			logger.SetRequestField(ctx, fieldScreenOutcome, outcome)
 			return Result{}, spent, screeningUnavailable(logger.RedactErr(err, uid))
 		}
 		logger.SetRequestField(ctx, fieldScreenOutcome, "ready")
@@ -578,13 +587,19 @@ type screenResult struct {
 	answered int64
 	// valid is the number of calls that returned a SafeSearchAnnotation (a verdict, blocking or not): a valid assessment (A5.2).
 	valid int64
-	// refundable is the number of calls that never reached Vision, which the per-uid units cap gets back (A5.5): not a timeout, not an answer.
+	// refundable is the number of calls known not to have been billed (unbilled: never sent, or answered 429 or 5xx), which BOTH counters get back
+	// (A5.5): not a timeout, not a reset or EOF after the request was written, not an answer.
 	refundable int64
 }
 
 // screenAll runs the Vision calls in parallel (a bounded 1 or 2). err is the first failure, preferring an answered INVALID_ARGUMENT, so a
 // broken image is not mistaken for a retryable outage. The result is meaningful even when err is non-nil.
 func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Context) (SafeSearch, error)) (screenResult, error) {
+	// W6-49 (W6-42 L-3): each call gets the lesser of visionTimeout and what is left of the request, so with under minVisionBudget left it could
+	// only time out. Not started: nothing is sent, both counters keep their units (refundable = all calls) and the attempt is a retry.
+	if left, ok := visionTimeLeft(ctx); ok && left < minVisionBudget {
+		return screenResult{refundable: int64(len(calls))}, errNoVisionTime
+	}
 	type out struct {
 		ss  SafeSearch
 		err error
@@ -618,7 +633,7 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 				err = o.err
 			}
 		default:
-			if neverSent(o.err) {
+			if unbilled(o.err) {
 				res.refundable++
 			}
 			if err == nil {
@@ -667,6 +682,13 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 		return Result{}, logger.RedactErr(fmt.Errorf("media: reject: %w", err), d.OwnerID)
 	}
 	s.deleteUploads(ctx, d)
+	// W6-32: this call won the REJECTED write, so nothing can publish this document any more. A public copy may still
+	// exist from an earlier call that copied the full image and then lost its changed-thumbnail reject to a retaken
+	// claim (rejectChanged returned PENDING, so dropOrphanedCopies could not delete safely: the claim holder may be
+	// about to publish the same names). The names are deterministic, so sweep both: 2 idempotent DELETEs (free, a
+	// missing object is success), 0 Firestore reads or writes. A publisher that copies after this point loses its
+	// Resolve and drops its own copies (dropOrphanedCopies sees REJECTED).
+	s.dropPublicNames(ctx, d)
 	return Result{MediaID: d.ID, Status: StatusRejected, RejectionReason: reason}, nil
 }
 
@@ -693,4 +715,16 @@ func finalizeContentType(docs map[string]*Doc, ids []string) string {
 		}
 	}
 	return t
+}
+
+// dropPublicNames deletes the deterministic public full and thumbnail objects of a document this call just REJECTED
+// (W6-32). Best effort and only logged on failure, like dropOrphanedCopies.
+func (s *service) dropPublicNames(ctx context.Context, d *Doc) {
+	pub := publicObject(d.ID, d.NameSuffix, extension(d.ContentType))
+	pubThumb := publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))
+	for _, o := range []string{pub, pubThumb} {
+		if err := s.Objects.DeletePublic(ctx, o); err != nil {
+			s.Log.WarnContext(ctx, "media_public_delete_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, d.OwnerID))}, logger.TraceAttrs(ctx)...)...)
+		}
+	}
 }

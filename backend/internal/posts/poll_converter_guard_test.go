@@ -4,8 +4,8 @@ package posts
 // viewer's choice. This source scan fails the day a PostView producer builds a view (or a Poll) without it. It names the
 // producers by file:
 //
-//	GetPost, GetThread         posts/server.go             ToView + HydrateViewer (viewerSet)
-//	home and user timelines    timeline/service.go         ToView + HydrateViewer (every tab shares the page builder)
+//	GetPost, GetThread         posts/server.go             ToView + HydrateViewer (viewerSet) + WithBlockedAuthors (W6-36)
+//	home and user timelines    timeline/service.go         ToView + HydrateViewer (every tab shares the page builder); WithBlockedAuthors (user timeline only)
 //	SearchPosts                search/service_posts.go     ToView + HydrateViewer
 //	ListBookmarks              engagement/server_bookmarks.go (ToView) with service_bookmarks_list.go (HydrateViewer)
 //	ListLikedPosts (W3-10)     engagement/server_likes_list.go (ToView) with service_likes_list.go (HydrateViewer)
@@ -28,8 +28,8 @@ import (
 
 // pollProducerCalls maps each producer file to the calls it must make (ToView builds the view, HydrateViewer fills the set).
 var pollProducerCalls = map[string][]string{
-	"posts/server.go":                      {"ToView", "HydrateViewer", "ToProtoForViewer"},
-	"timeline/service.go":                  {"ToView", "HydrateViewer"},
+	"posts/server.go":                      {"ToView", "HydrateViewer", "ToProtoForViewer", "WithBlockedAuthors"},
+	"timeline/service.go":                  {"ToView", "HydrateViewer", "WithBlockedAuthors"},
 	"search/service_posts.go":              {"ToView", "HydrateViewer"},
 	"engagement/server_bookmarks.go":       {"ToView"},
 	"engagement/service_bookmarks_list.go": {"HydrateViewer"},
@@ -37,6 +37,11 @@ var pollProducerCalls = map[string][]string{
 	"engagement/server_likes_list.go":      {"ToView"},
 	"engagement/service_likes_list.go":     {"HydrateViewer"},
 }
+
+// pollBlockedSetters are the only producers that may call ViewerSet.WithBlockedAuthors (ADR-0029 Amendment 1 A1.5, W6-36): the surfaces that show
+// a post by an author the viewer blocks (SurfaceDirect: GetPost, GetThread, the author's profile timeline). Every list surface drops such rows, so a
+// list producer setting it would be a bug. The Home and lists builders in timeline/service.go pass nil.
+var pollBlockedSetters = map[string]bool{"posts/server.go": true, "timeline/service.go": true}
 
 // pollBuilders are the files allowed to build the wire shapes themselves, with why.
 var pollBuilders = map[string]string{
@@ -83,6 +88,9 @@ func scanPollProducers(t *testing.T, root string, files map[string]string) []pol
 					}
 				}
 				seen[name] = true
+				if name == "WithBlockedAuthors" && !pollBlockedSetters[rel] && rel != "posts/api.go" {
+					out = append(out, pollFinding{rel, "calls WithBlockedAuthors outside GetPost, GetThread and the profile timeline (list surfaces drop a blocked author's rows)"})
+				}
 				plain := name == "ToProto" && (qual == "posts" || (qual == "" && pkg == "posts"))
 				if plain && rel != "posts/convert.go" {
 					out = append(out, pollFinding{rel, "calls plain posts.ToProto, which hides every poll count even from the author"})
@@ -177,6 +185,8 @@ func TestPollConverterGuard_SelfTest(t *testing.T) {
 		{"ToProtoForViewer elsewhere", bad("lists/x.go", "package lists\nfunc f() { _ = posts.ToProtoForViewer(nil, \"\") }\n")},
 		{"producer stops calling ToView", bad("timeline/service.go", "package timeline\nfunc f() { x.HydrateViewer() }\n")},
 		{"producer stops hydrating", bad("search/service_posts.go", "package search\nfunc f() { x.ToView() }\n")},
+		{"a list producer sets the blocked authors", bad("search/service_posts.go", "package search\nfunc f() { x.ToView(); x.HydrateViewer(); x.WithBlockedAuthors(nil) }\n")},
+		{"GetPost stops setting the blocked authors", bad("posts/server.go", "package posts\nfunc f() { x.ToView(); x.HydrateViewer(); x.ToProtoForViewer() }\n")},
 	}
 	for _, tt := range tests {
 		if got := scanPollProducers(t, "", tt.in); len(got) == 0 {

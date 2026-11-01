@@ -74,6 +74,7 @@ void main() {
       PollDisplay d, {
       ValueChanged<int>? onVote,
       VoidCallback? onSee,
+      VoidCallback? onChange,
     }) => pumpThemed(
       tester,
       PollCard(
@@ -81,6 +82,7 @@ void main() {
         now: kPollNow,
         onVote: onVote,
         onSeeFinalResults: onSee,
+        onChangeVote: onChange,
       ),
     );
 
@@ -109,6 +111,7 @@ void main() {
           ),
           viewerChoice: 3,
         ),
+        onChange: () {},
       );
       expect(find.text('34%'), findsOneWidget);
       expect(find.text('33%'), findsNWidgets(2));
@@ -117,6 +120,9 @@ void main() {
         find.bySemanticsLabel('Blue, 33 percent, your vote'),
         findsOneWidget,
       );
+      // A vote is no longer final (ADR-0029 Amendment 1): the card offers Change vote.
+      expect(find.text('Change vote'), findsOneWidget);
+      expect(find.bySemanticsLabel('Change your vote'), findsOneWidget);
     });
 
     testWidgets('closed with counts reads "Final results"', (tester) async {

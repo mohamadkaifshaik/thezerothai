@@ -1028,3 +1028,23 @@ func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*po
 func (f *fakePosts) CreatedAfter(context.Context, posts.Position, int) ([]*posts.Post, error) {
 	return nil, nil
 }
+
+// PollVoteChanged fakes posts.Engagement.PollVoteChanged: copy on write like PollVoted, recorded as "<postId>:<from>><to>".
+func (f *fakePosts) PollVoteChanged(id string, from, to int) *posts.Post {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	base, ok := f.cached[id]
+	if !ok {
+		base, ok = f.docs[id]
+	}
+	if !ok || base.Poll == nil {
+		return nil
+	}
+	f.pollVotes = append(f.pollVotes, fmt.Sprintf("%s:%d>%d", id, from, to))
+	np := base.VoteChanged(from, to)
+	if f.cached == nil {
+		f.cached = map[string]*posts.Post{}
+	}
+	f.cached[id] = np
+	return np
+}
