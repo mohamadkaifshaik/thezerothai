@@ -32,11 +32,13 @@ void main() {
   late List<tl.SetHomeTabsRequest> sent;
   late Future<Object> Function(tl.SetHomeTabsRequest) answer;
   var enabled = true;
+  var communitiesEnabled = true;
   var reported = 0;
   var n = 0;
 
   setUp(() {
     enabled = true;
+    communitiesEnabled = true;
     reported = 0;
     n = 0;
     sent = [];
@@ -57,6 +59,10 @@ void main() {
         onUnexpectedError: (_, _) => reported++,
       ),
       epoch: epoch,
+      communitiesGate: ServiceFeatureGate(
+        isEnabled: () => communitiesEnabled,
+        onUnexpectedError: (_, _) => reported++,
+      ),
       uuid: null,
     );
     repo.adoptFromMe([wire('1', 'A'), wire('2', 'B')], epoch: epoch.value);
@@ -298,4 +304,150 @@ void main() {
       expect(n, 0);
     },
   );
+
+  group('COMMUNITY tabs (W5-30)', () {
+    common.HomeTab cwire(String id, [String title = '']) => common.HomeTab(
+      kind: common.HomeTabKind.HOME_TAB_KIND_COMMUNITY,
+      id: id,
+      title: title,
+    );
+    const community = HomeTabEntry(kind: HomeTabKind.community, id: '55');
+
+    test('pinning a community sends a COMMUNITY tab and keeps it', () async {
+      answer = (r) async => tl.SetHomeTabsResponse(
+        tabs: [for (final t in r.tabs) cwire(t.id, 'Gardeners')],
+      );
+      repo.adoptFromMe([], epoch: epoch.value);
+
+      await repo.pin(HomeTabKind.community, '55');
+
+      expect(sent.single.tabs.single.kind, common.HomeTabKind.HOME_TAB_KIND_COMMUNITY);
+      expect(sent.single.tabs.single.id, '55');
+      expect(repo.isPinned(HomeTabKind.community, '55'), isTrue);
+      expect(repo.tabs.single.title, 'Gardeners');
+      expect(repo.labelFor(repo.tabs.single), 'Gardeners');
+    });
+
+    test('a mix of list and community tabs keeps their order', () async {
+      await repo.pin(HomeTabKind.community, '55');
+
+      expect(repo.tabs.map((t) => t.key), ['list:1', 'list:2', 'community:55']);
+      expect(sent.single.tabs.map((t) => t.id), ['1', '2', '55']);
+    });
+
+    test('with communities off the tab is hidden and a write is refused '
+        'with 0 RPCs', () async {
+      repo.adoptFromMe([wire('1'), cwire('55')], epoch: epoch.value);
+      expect(repo.tabs.map((t) => t.key), ['list:1', 'community:55']);
+      communitiesEnabled = false;
+
+      expect(repo.tabs.map((t) => t.key), ['list:1']);
+      await expectLater(
+        repo.pin(HomeTabKind.community, '56'),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'communities',
+          ),
+        ),
+      );
+      expect(sent, isEmpty);
+    });
+
+    test('without a communities gate the tab is hidden', () {
+      final bare = HomeTabsRepository(
+        apiClient: ApiClient.withTransport(
+          FakeTransport((procedure, input) async => throw StateError('rpc')),
+        ),
+        gate: ServiceFeatureGate(isEnabled: () => true),
+        epoch: epoch,
+      )..adoptFromMe([wire('1'), cwire('55')], epoch: epoch.value);
+
+      expect(bare.tabs.map((t) => t.key), ['list:1']);
+    });
+
+    test('the server still refusing COMMUNITY tabs (until W5-27) rolls back '
+        'to "not available yet" and stops further writes until a GetMe',
+        () async {
+      answer = (_) async => serverError(
+        connect.Code.invalidArgument,
+        common.ErrorReason.ERROR_REASON_VALIDATION,
+        metadata: {'field': 'tabs'},
+      );
+
+      await expectLater(
+        repo.pin(HomeTabKind.community, '55'),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'communities',
+          ),
+        ),
+      );
+      expect(ids(repo.tabs), ['1', '2']);
+      expect(repo.isPinned(HomeTabKind.community, '55'), isFalse);
+      expect(sent, hasLength(1));
+      expect(reported, 0);
+
+      // The next attempt is not sent; a list write still goes through.
+      await expectLater(
+        repo.pin(HomeTabKind.community, '55'),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      expect(sent, hasLength(1));
+      answer = (r) async => tl.SetHomeTabsResponse(tabs: r.tabs);
+      await repo.pin(HomeTabKind.list, '3');
+      expect(sent, hasLength(2));
+
+      // A fresh GetMe lifts the stop.
+      repo.adoptFromMe([wire('1')], epoch: epoch.value);
+      await repo.pin(HomeTabKind.community, '55');
+      expect(sent, hasLength(3));
+    });
+
+    test('a VALIDATION tabs refusal of a list-only write stays a '
+        'ValidationException', () async {
+      answer = (_) async => serverError(
+        connect.Code.invalidArgument,
+        common.ErrorReason.ERROR_REASON_VALIDATION,
+        metadata: {'field': 'tabs'},
+      );
+
+      await expectLater(
+        repo.pin(HomeTabKind.list, '3'),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(ids(repo.tabs), ['1', '2']);
+    });
+
+    test('UNIMPLEMENTED of a community-only write says communities', () async {
+      answer = (_) async =>
+          connect.ConnectException(connect.Code.unimplemented, 'nope');
+      repo.adoptFromMe([], epoch: epoch.value);
+
+      await expectLater(
+        repo.pin(HomeTabKind.community, '55'),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            'communities',
+          ),
+        ),
+      );
+      expect(repo.tabs, isEmpty);
+    });
+
+    test('a duplicate community tab is refused locally', () async {
+      repo.adoptFromMe([cwire('55')], epoch: epoch.value);
+
+      await expectLater(
+        repo.setTabs([community, community]),
+        throwsA(isA<ValidationException>()),
+      );
+      expect(sent, isEmpty);
+    });
+  });
 }

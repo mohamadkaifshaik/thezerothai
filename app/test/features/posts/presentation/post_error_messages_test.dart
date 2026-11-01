@@ -82,4 +82,54 @@ void main() {
       isNot(contains('stack trace')),
     );
   });
+
+  group('community refusals (W5-30, ADR-0031 N8)', () {
+    test('a reply by a non-member says members only, not "restricted"', () {
+      final text = replyErrorMessage(
+        CommunityForbiddenException(CommunityForbiddenReason.notMember),
+      );
+      expect(text, 'Only members of this community can reply.');
+    });
+
+    test('a banned member and an archived community have their own text', () {
+      expect(
+        replyErrorMessage(
+          CommunityForbiddenException(CommunityForbiddenReason.banned),
+        ),
+        "You're banned from this community.",
+      );
+      expect(
+        replyErrorMessage(
+          CommunityStateException(CommunityStateReason.communityArchived),
+        ),
+        'This community is archived, so it is read-only.',
+      );
+    });
+
+    test('a post into a community: member-only, archived, protected', () {
+      expect(
+        createPostErrorMessage(
+          CommunityForbiddenException(CommunityForbiddenReason.notMember),
+        ),
+        'Only members of this community can do that.',
+      );
+      expect(
+        createPostErrorMessage(
+          CommunityStateException(CommunityStateReason.communityArchived),
+        ),
+        'This community is archived, so it is read-only.',
+      );
+      expect(
+        createPostErrorMessage(const ProtectedAccountException()),
+        "Protected accounts can't post in communities.",
+      );
+    });
+
+    test('quotes keep their own protected-account text', () {
+      expect(
+        quoteErrorMessage(const ProtectedAccountException()),
+        ProtectedAccountException.userMessage,
+      );
+    });
+  });
 }

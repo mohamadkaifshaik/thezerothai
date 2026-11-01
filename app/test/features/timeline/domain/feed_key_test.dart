@@ -20,6 +20,28 @@ void main() {
     expect(FeedKey.user('7').isList, isFalse);
   });
 
+  test('W5-30: FeedKey.community is the drift key community:<id>, apart from '
+      'Home, lists and users', () {
+    final key = FeedKey.community('7');
+    expect(key.value, 'community:7');
+    expect(key.communityId, '7');
+    expect(key.isCommunity, isTrue);
+    expect(key.isHome, isFalse);
+    expect(key.isList, isFalse);
+    expect(key.userId, isNull);
+    expect(key.tab, isNull);
+    expect(key.listId, isNull);
+    expect(key, FeedKey.community('7'));
+    expect(key.hashCode, FeedKey.community('7').hashCode);
+    expect(key, isNot(FeedKey.community('8')));
+    expect(key, isNot(FeedKey.list('7')));
+    expect(key, isNot(FeedKey.user('7')));
+    expect(const FeedKey.home().isCommunity, isFalse);
+    expect(FeedKey.list('7').isCommunity, isFalse);
+    expect(FeedKey.user('7').isCommunity, isFalse);
+    expect(FeedKey.list('7').value, isNot(key.value));
+  });
+
   test('Posts and Replies keep the drift keys written before the tab field '
       '(cached feeds and their tokens survive the upgrade)', () {
     expect(FeedKey.user('u1').value, 'user:u1:posts');

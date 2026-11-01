@@ -20,6 +20,7 @@ import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
+import '../features/communities/data/communities_repository.dart';
 import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
@@ -89,6 +90,7 @@ class AppWidget extends StatefulWidget {
     required this.likesRepository,
     this.listsRepository,
     this.homeTabsRepository,
+    this.communitiesRepository,
     required this.pushCubit,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
@@ -138,6 +140,10 @@ class AppWidget extends StatefulWidget {
   /// need them; screens arrive with W5-11 to W5-14.
   final ListsRepository? listsRepository;
   final HomeTabsRepository? homeTabsRepository;
+
+  /// Communities (ADR-0031, W5-30): the only `CommunityService` caller. Null in
+  /// tests that do not need it; screens arrive with W5-31 onwards.
+  final CommunitiesRepository? communitiesRepository;
 
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
@@ -475,6 +481,8 @@ class _AppWidgetState extends State<AppWidget> {
           RepositoryProvider.value(value: widget.listsRepository!),
         if (widget.homeTabsRepository != null)
           RepositoryProvider.value(value: widget.homeTabsRepository!),
+        if (widget.communitiesRepository != null)
+          RepositoryProvider.value(value: widget.communitiesRepository!),
       ],
       child: MultiBlocProvider(
         providers: [
