@@ -127,8 +127,8 @@ service cloud.firestore { match /databases/{db}/documents { match /{d=**} { allo
 | ListModerationLog (ADR-0031; ≤ 25 entries a page, owner and moderators) | 52 cold (interceptor, community, ≤ 50 profiles), 0 warm | 0 |
 | ReportContent, COMMUNITY target (ADR-0031 D14, W5-29) | 5 cold / 2 warm (interceptor, community, owner profile, report doc, `quotas`) | 2 |
 | opsctl `community suspend` / `restore` / `archive` (ADR-0031 D14; operator, not an RPC) | 1 / 1 / 3 (+1 `--report` check, +1 resolve); `takedown-post` of a community post and `suspend-user` per page +1 per community | 1 / 1 / 2 (+1 resolve); the appends +1 per community; a repeat 0 |
-| Account deletion, `communities` step (ADR-0031 D9; BeforeIdentity, after `lists`) | 1 (memberships) + 2 per community (community and member doc fresh) + ≤ 10 profiles per owned community (the hand-over); reference account (2 joined) 5 | 1 per community (+1 per hand-over); 1 delete per member doc + 1 (memberships); a rerun 0 writes |
-| Account export, `communities` section (ADR-0031 D9; `{joined, owned, banned, moderationActions, redactedCount}`, no other user's uid) | 1 + the communities (cache-first); reference account 3 | 0 |
+| Account deletion, `communities` step (ADR-0031 D9; BeforeIdentity, after `poll_votes`) | 1 (memberships) + 2 per community (community and member doc fresh) + ≤ 10 profiles and ≤ 10 memberships per owned community with moderators (the hand-over); reference account (2 joined) 5 | 1 per community (+1 per hand-over); 1 delete per member doc + 1 (memberships); a rerun 0 writes |
+| Account export, `communities` section (ADR-0031 D9; `{joined, owned, banned, moderationActions, redactedCount}`, no other user's uid) | 1 (memberships) + 1 per community in joined ∪ owned ∪ banned ∪ modlogged + 1 per joined or banned community (the user's member doc); reference account 5 | 0 |
 
 ## Indexes (`firebase/firestore.indexes.json`)
 - posts: `authorId ASC, isReply ASC, createdAt DESC` (home `in` chunks + profile Posts tab, `isReply == false`)
