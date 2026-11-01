@@ -4480,7 +4480,7 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
   }
 
   @override
-  Set<GeneratedColumn> get $primaryKey => {draftId};
+  Set<GeneratedColumn> get $primaryKey => {uid, draftId};
   @override
   ComposerDraftRow map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
@@ -4548,7 +4548,8 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
 
 class ComposerDraftRow extends DataClass
     implements Insertable<ComposerDraftRow> {
-  /// Opaque random id, unique per device.
+  /// Opaque random id, unique per account on the device (the key is
+  /// `{uid, draftId}`).
   final String draftId;
 
   /// Firebase uid of the author.

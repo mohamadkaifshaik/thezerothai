@@ -744,6 +744,16 @@ func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
 	}
 	_, err = e.vote(voter, "w617-rp-vote-key-00004", repostID, 2)
 	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
+
+	// W6-41, security review I-7: a change through the REPOST id leaves exactly one userLikes entry, for the ORIGINAL post, in the three-part form
+	// with the new choice (no entry for the REPOST id, none for the old choice), also after the refused call above.
+	ul, err := e.fs.Doc("userLikes/" + voter.uid).Get(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ul.DataAt("pollVotes"); !onePollEntry(got, pid, 0) {
+		t.Errorf("userLikes.pollVotes after the REPOST-id change = %v, want the one entry %s:0:<closesAtUnix>", got, pid)
+	}
 }
 
 // Polls add no Firestore read to the read path: GetPost and the user timeline cost the same reads for a poll post as for a plain post,
