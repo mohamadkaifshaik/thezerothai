@@ -12,6 +12,7 @@ import (
 	"time"
 
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -233,11 +234,15 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "identity", "auth_delete", "users_doc"}
+	communitiesRepo := communities.NewFirestoreRepo(nil, nil)
+	if err := registerCommunitiesLifecycle(l, communitiesRepo, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantSteps := []string{"auth_disable", "posts", "graph", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messaging", "lists", "poll_votes", "communities", "identity", "auth_delete", "users_doc"}
 	if got := l.StepNames(); !slices.Equal(got, wantSteps) {
 		t.Errorf("deletion steps = %v, want %v", got, wantSteps)
 	}
-	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes"}
+	wantSections := []string{"graph", "posts", "media", "notifications", "engagement", "reports", "scheduled", "bookmarks", "follow_requests", "messages", "lists", "poll_votes", "communities"}
 	if got := l.ExportSectionNames(); !slices.Equal(got, wantSections) {
 		t.Errorf("export sections = %v, want %v", got, wantSections)
 	}
@@ -258,6 +263,9 @@ func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	}
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err == nil {
 		t.Error("registering the poll_votes step twice was accepted")
+	}
+	if err := registerCommunitiesLifecycle(l, communitiesRepo, nil); err == nil {
+		t.Error("registering the communities step twice was accepted")
 	}
 }
 
@@ -447,6 +455,53 @@ func TestListsAdapters(t *testing.T) {
 	var buf bytes.Buffer
 	sec := listsSection{lists.NewExporter(fakeListsSource{})}
 	if sec.Name() != "lists" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != "{\"lists\":[]}\n" {
+		t.Errorf("section %q = %q", sec.Name(), buf.String())
+	}
+}
+
+type fakeCommunitiesPurger struct{ gotUID string }
+
+func (f *fakeCommunitiesPurger) LoadMemberships(_ context.Context, uid string) (communities.Memberships, bool, error) {
+	f.gotUID = uid
+	return communities.Memberships{Joined: []string{"c1", "c2", "c3"}}, true, nil
+}
+
+func (f *fakeCommunitiesPurger) PurgeCommunity(context.Context, string, string, communities.PurgeParams) (communities.PurgeResult, error) {
+	return communities.PurgeResult{}, nil
+}
+
+func (f *fakeCommunitiesPurger) DeleteMemberships(context.Context, string) error { return nil }
+
+type fakeCommunitiesSource struct{}
+
+func (fakeCommunitiesSource) LoadMemberships(context.Context, string) (communities.Memberships, bool, error) {
+	return communities.Memberships{}, false, nil
+}
+
+func (fakeCommunitiesSource) ExportRows(context.Context, string, []string, []string) ([]communities.ExportRow, error) {
+	return nil, nil
+}
+
+// TestCommunitiesAdapters: the step is named `communities` (the name is persisted in deletionJob.step), decodes and re-encodes its own
+// checkpoint type, and the section is named `communities` and streams what communities.Exporter writes.
+func TestCommunitiesAdapters(t *testing.T) {
+	p := &fakeCommunitiesPurger{}
+	step := communitiesEraserStep(communities.NewEraser(p, nil, communities.WithChunk(2)))
+	next, done, err := step.Run(context.Background(), "u1", nil)
+	if step.Name() != "communities" || err != nil || done || string(next) != `{"after":"c2","communities":2}` || p.gotUID != "u1" {
+		t.Errorf("step %q: next %s done %v err %v; purger saw %q", step.Name(), next, done, err, p.gotUID)
+	}
+	next, done, err = step.Run(context.Background(), "u1", next)
+	if err != nil || !done || string(next) != `{"after":"c3","communities":3}` {
+		t.Errorf("resume: next %s done %v err %v", next, done, err)
+	}
+	if _, _, err := step.Run(context.Background(), "u1", []byte(`{not json`)); err == nil {
+		t.Error("a corrupt checkpoint was accepted")
+	}
+	var buf bytes.Buffer
+	sec := communitiesSection{communities.NewExporter(fakeCommunitiesSource{})}
+	want := `{"joined":[],"owned":[],"banned":[],"moderationActions":[],"redactedCount":0}` + "\n"
+	if sec.Name() != "communities" || sec.WriteSection(context.Background(), "u1", &buf) != nil || buf.String() != want {
 		t.Errorf("section %q = %q", sec.Name(), buf.String())
 	}
 }

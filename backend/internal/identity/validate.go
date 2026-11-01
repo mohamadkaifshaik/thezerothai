@@ -150,19 +150,8 @@ func normalizeBio(s string) string {
 // a control character other than "\n", a line or paragraph separator, or a bidi formatting control. "\n" is the one
 // line break a bio keeps ("\r" is rejected, not folded: the clients send "\n").
 func bioIssue(s string) bool {
-	if !utf8.ValidString(s) {
-		return true
-	}
-	n := normalizeBio(s)
-	if utf8.RuneCountInString(n) > 160 {
-		return true
-	}
-	for _, r := range n {
-		if r != '\n' && (unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r)) {
-			return true
-		}
-	}
-	return false
+	_, ok := BioText(s, 160)
+	return !ok
 }
 
 // userIDIssue reports whether id is not an acceptable uid (see ids.ValidUID).

@@ -1,6 +1,9 @@
 package identity
 
-import "unicode/utf8"
+import (
+	"unicode"
+	"unicode/utf8"
+)
 
 // SingleLineText applies the profile text rules (ADR-0024 D2, W3-22 L-2) for a one-line field of another module: trim
 // (Unicode White_Space plus U+FEFF), NFC, then at least minRunes and at most maxRunes code points, valid UTF-8, and no
@@ -18,6 +21,27 @@ func SingleLineText(s string, minRunes, maxRunes int) (string, bool) {
 	}
 	if singleLineIssue(n) {
 		return "", false
+	}
+	return n, true
+}
+
+// BioText applies the profile bio rules (ADR-0010 D9) for a multi-line text field of another module, with the length bound as a
+// parameter: trim, NFC, at most maxRunes code points, valid UTF-8, and no control character other than "\n", line or paragraph
+// separator, or bidi formatting control. It returns the form to store and whether s is acceptable. An empty result is
+// acceptable. bioIssue is this rule at 160, so community descriptions and rule texts (ADR-0031 D2) cannot drift from the bio's.
+// Pure: no Firestore access.
+func BioText(s string, maxRunes int) (string, bool) {
+	if !utf8.ValidString(s) {
+		return "", false
+	}
+	n := normalizeBio(s)
+	if utf8.RuneCountInString(n) > maxRunes {
+		return "", false
+	}
+	for _, r := range n {
+		if r != '\n' && (unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r)) {
+			return "", false
+		}
 	}
 	return n, true
 }

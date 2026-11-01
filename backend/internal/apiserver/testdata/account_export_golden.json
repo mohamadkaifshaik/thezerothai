@@ -20,6 +20,13 @@
       }
     ]
   },
+  "communities": {
+    "banned": [],
+    "joined": [],
+    "moderationActions": [],
+    "owned": [],
+    "redactedCount": 0
+  },
   "engagement": {
     "likes": [],
     "reposts": []

@@ -2,6 +2,8 @@ package communities
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -10,19 +12,24 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// Server is the W5-22 skeleton of the CommunityService handler. It mounts every route so the interceptor chain (App Check, ID
-// token, account status, rate limits, read budget, degraded mode) covers them from the first revision that links the generated
-// code, and runs the flag gate (FEATURE_COMMUNITIES, ADR-0031 D10) before anything else: a caller outside the flag gets
-// FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate each method is still the
-// generated Unimplemented answer; W5-23 (write path), W5-25 (join and the lists) and W5-28 (moderation) replace the methods one
-// by one with the real service.
+// rpcDeadline bounds one community call (<= 10 s, go-service skill); the transaction itself has 5 s.
+const rpcDeadline = 8 * time.Second
+
+// Server is the CommunityService handler. It mounts every route so the interceptor chain (App Check, ID token, account status, rate
+// limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES, ADR-0031 D10) before anything else: a
+// caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate
+// CreateCommunity, UpdateCommunity and GetCommunity (W5-23) call the Service; the other nine methods are still the generated
+// Unimplemented answer until W5-25 (join and the lists) and W5-28 (moderation) replace them one by one. A Server built without a
+// Service answers Unimplemented for the three as well.
 type Server struct {
 	communitiesv1connect.UnimplementedCommunityServiceHandler
 	flags FlagChecker
+	svc   Service
 }
 
-// NewServer builds the skeleton handler. Use with communitiesv1connect.NewCommunityServiceHandler.
-func NewServer(fc FlagChecker) *Server { return &Server{flags: fc} }
+// NewServer builds the handler. svc may be nil (a wiring without the write path): the gated RPCs then answer Unimplemented. Use with
+// communitiesv1connect.NewCommunityServiceHandler.
+func NewServer(fc FlagChecker, svc Service) *Server { return &Server{flags: fc, svc: svc} }
 
 var _ communitiesv1connect.CommunityServiceHandler = (*Server)(nil)
 
@@ -36,28 +43,17 @@ func (s *Server) gate(ctx context.Context) error {
 	return Guard(ctx, s.flags, uid)
 }
 
-// CreateCommunity is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) CreateCommunity(ctx context.Context, req *connect.Request[communitiesv1.CreateCommunityRequest]) (*connect.Response[communitiesv1.CreateCommunityResponse], error) {
+// entry is the shared front of the implemented handlers: the flag gate (0 reads), the wiring check and the RPC deadline.
+func (s *Server) entry(ctx context.Context, rpc string) (context.Context, context.CancelFunc, string, error) {
 	if err := s.gate(ctx); err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
-	return s.UnimplementedCommunityServiceHandler.CreateCommunity(ctx, req)
-}
-
-// UpdateCommunity is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) UpdateCommunity(ctx context.Context, req *connect.Request[communitiesv1.UpdateCommunityRequest]) (*connect.Response[communitiesv1.UpdateCommunityResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
+	if s.svc == nil {
+		return nil, nil, "", connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
 	}
-	return s.UnimplementedCommunityServiceHandler.UpdateCommunity(ctx, req)
-}
-
-// GetCommunity is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) GetCommunity(ctx context.Context, req *connect.Request[communitiesv1.GetCommunityRequest]) (*connect.Response[communitiesv1.GetCommunityResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.GetCommunity(ctx, req)
+	uid, _ := authn.UIDFromContext(ctx) // gate proved it is set
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	return ctx, cancel, uid, nil
 }
 
 // ListCommunities is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).

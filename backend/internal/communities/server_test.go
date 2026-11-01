@@ -22,7 +22,7 @@ func call[Q, R any](m func(*Server, context.Context, *connect.Request[Q]) (*conn
 }
 
 // TestServer_FlagGateOnEveryRPC: all twelve CommunityService methods run the FEATURE_COMMUNITIES gate first, in every flag mode.
-// Outside the flag the answer is FEATURE_DISABLED feature=communities (0 reads: the skeleton holds no repository); inside it the
+// Outside the flag the answer is FEATURE_DISABLED feature=communities (0 reads: the skeleton holds no repository); inside it with no Service wired the
 // skeleton answers Unimplemented (the real service is W5-23 to W5-28); a request with no uid is Unauthenticated.
 func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
@@ -45,7 +45,7 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	for rpc, c := range calls {
 		for _, m := range flagModes() {
 			t.Run(rpc+"/"+m.name, func(t *testing.T) {
-				s := NewServer(flags.NewRegistry(m.spec))
+				s := NewServer(flags.NewRegistry(m.spec), nil)
 				ctx := authn.WithClaims(context.Background(), authn.Claims{UID: m.uid})
 				err := c(s, ctx)
 				if m.wantOff {
@@ -58,7 +58,7 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 			})
 		}
 		t.Run(rpc+"/no uid", func(t *testing.T) {
-			s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}))
+			s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), nil)
 			err := c(s, context.Background())
 			var ce *connect.Error
 			if !errors.As(err, &ce) || ce.Code() != connect.CodeUnauthenticated {
@@ -66,7 +66,7 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 			}
 		})
 		t.Run(rpc+"/nil checker", func(t *testing.T) {
-			s := NewServer(nil)
+			s := NewServer(nil, nil)
 			assertDisabled(t, c(s, authn.WithClaims(context.Background(), authn.Claims{UID: "in"})))
 		})
 	}

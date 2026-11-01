@@ -408,6 +408,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 	})
 	listsReader := listsSvc.(lists.Reader)
+	// Communities (ADR-0031, W5-23): the repo is built here because the account-lifecycle registration below needs it (the eraser step
+	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
+	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient))
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
@@ -491,6 +494,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// messaging and lists, before identity (appended, never inserted: step names are persisted).
 	if err := registerPollVoteLifecycle(lifecycle, engagementRepo, cfg.Composer.PollVoteTTLAfterClose); err != nil {
 		return nil, nil, fmt.Errorf("poll_votes lifecycle registry: %w", err)
+	}
+	// communities (ADR-0031 D9, W5-24): the erase step and export section are registered whether or not FEATURE_COMMUNITIES is on; the
+	// step runs after poll_votes, before identity (appended, never inserted: step names are persisted).
+	if err := registerCommunitiesLifecycle(lifecycle, communitiesRepo, identitySvc.(identity.Directory)); err != nil {
+		return nil, nil, fmt.Errorf("communities lifecycle registry: %w", err)
 	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
@@ -645,9 +653,18 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
 
-	// Communities (ADR-0031, W5-22): the skeleton mounts all twelve CommunityService routes behind FEATURE_COMMUNITIES (FEATURE_DISABLED
-	// feature=communities, 0 reads) so the interceptor chain covers them; W5-23 to W5-28 replace the methods with the real service.
-	communitiesServer := communities.NewServer(featureFlags)
+	// Communities (ADR-0031, W5-22/W5-23): all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
+	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity (W5-23) run the
+	// service; W5-25 to W5-28 replace the other nine methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
+	communitiesSvc := communities.New(communities.Deps{
+		Repo: communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
+		Creators: cfg.Communities.Creators,
+		Limits: communities.Limits{
+			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
+			ModlogMax: cfg.Communities.ModlogMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
+		},
+	})
+	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
 	})

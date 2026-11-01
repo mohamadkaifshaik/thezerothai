@@ -38,6 +38,7 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -254,6 +255,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	idRepo := identity.NewFirestoreRepo(e.fs, graphRepo)
 	graphRepo.SetCounters(idRepo)
 	graphRepo.SetProfiles(idRepo)
+	idSvc := identity.New(idRepo, identity.NewCache(time.Second), time.Hour) // the Directory the communities step asks whether a moderator may take over
 	postsRepo := posts.NewFirestoreRepo(e.fs)
 	// The purge copy phase and the engagement step need the same collaborators as Build wires (P5).
 	postsRepo.SetWriters(posts.WriteDeps{Counters: idRepo})
@@ -275,7 +277,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo)), messagingEraserStep(messaging.NewFirestoreRepo(e.fs, nil), nil), listsEraserStep(lists.NewEraser(lists.NewFirestoreRepo(e.fs, nil, nil)))} {
+	for _, s := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), engagementEraserStep(engRepo), scheduledEraserStep(posts.NewScheduledEraser(postsRepo)), bookmarkEraserStep(engagement.NewBookmarkEraser(engRepo)), messagingEraserStep(messaging.NewFirestoreRepo(e.fs, nil), nil), listsEraserStep(lists.NewEraser(lists.NewFirestoreRepo(e.fs, nil, nil))), communitiesEraserStep(communities.NewEraser(communities.NewFirestoreRepo(e.fs, nil), idSvc.(identity.Directory), communities.WithChunk(1)))} {
 		if err := l.RegisterEraser(identity.BeforeIdentity, crashStep{s, plan}); err != nil {
 			t.Fatal(err)
 		}
