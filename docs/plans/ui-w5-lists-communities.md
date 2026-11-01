@@ -4,6 +4,7 @@ Source: `docs/plans/roadmap.md` (W5 row "Lists and Communities, custom Home tabs
 Branches: `feat/ui-w5-N-<slug>` off `main` (not stacked); one ticket per PR except where a ticket says "same PR as" (the T11 lifecycle guard); merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
+Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-30); F1 and F6 to F14 for communities at the defaults with ADR-0031 (Accepted 2026-11-01, #583).
 - **F1. Who may create a community at Stage 0?** `FEATURE_COMMUNITIES` cannot express this alone. Its allowlist gates the whole feature per uid, so the flag cannot be on for readers and allowlist-only for creators at the same time. **Default: a config list `COMMUNITY_CREATORS` (at most 10 uids, a Terraform variable like `SUGGESTED_USER_IDS`, not a secret).** CreateCommunity checks the caller is in the list (0 reads), and the client learns it from `ListMyCommunitiesResponse.can_create` (0 reads). Each creator owns at most 2 communities. Open creation later is its own decision, made with a security review: an account-age gate, a creation quota and the moderation load. Alternative: a third flag `FEATURE_COMMUNITY_CREATE` (the `quotes` sub-flag precedent), which adds a founder-gated ceiling row.
 - **F2. Members per list (`LIST_MAX_MEMBERS`).** **150.** The list timeline is Home's pull-merge over the members, and each refresh pays one read per 30 members even when nothing is new (table in Non-functional targets). At 150 a list is at most 5 chunks. Raising the cap later is a config change and is safe; lowering it would strand lists that are already larger, so start low. Alternatives: 500 (17 chunks) or 5,000 (X's limit), which fails the per-call read hold of 269.
 - **F3. Lists per user and the default visibility.** **At most 20 lists per user, created private.** The owner can make a list public. X creates lists public by default, but a public list of people is a harassment surface, so we default to private.
@@ -305,7 +306,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
   - **A9 (lists part).** Cache sizes, `CACHE_LISTS_ENTRIES`, staleness as in the table above.
   - **A10.** The `keep` hook for ADR-0025.
   - **A11.** The `stage-ladder` "List timeline" row.
-- **ADR-0028 or the next free number (Part B, W5-20):**
+- **ADR-0031 (Part B, W5-20; answered there, see the ADR for each item; A1 was proven on the dev Firestore, ADR-0031 D3):**
   - **A1. The community feed query** is `posts where communityId == X` with `ORDER BY __name__ DESC` and the window expressed as post-id bounds. Post ids are fixed-width 19-digit Snowflakes, so id order is time order.
     - This is expected to run on the **automatic single-field index** on `communityId`. **Verify it against the real dev Firestore before the ADR is final**, including the `since` (`__name__ >`) and page (`__name__ <`) forms. **The emulator cannot settle this:** it runs every query without requiring an index, so an emulator pass proves nothing. Only a dev query that succeeds (or fails with "requires an index") counts. The architect runs it if they have dev access; otherwise production-deployer runs a direct dev query (a throwaway `opsctl`/`gcloud` read, no data written) and records the result in the ADR PR before W5-21's index decision is final.
     - Only **root** community posts carry `communityId`; replies inherit nothing, so a single equality suffices.
@@ -350,7 +351,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security-w5-lists.md`) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Done (#538) |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
-| W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
+| W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Done (#583; ADR-0031 Accepted 2026-11-01, F1 and F6 to F14 at the defaults) |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Open |
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Open |
@@ -372,7 +373,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
-| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0028 merged | serialise dev applies | Open |
+| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
 | W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | Done (#556; gate: before percent) |
 | W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Done (#542) |
@@ -429,7 +430,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 ## Tickets
 
 ### W5-1 — ADR "Lists and custom Home tabs at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #485)
-- **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Proposed). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
+- **Description.** `docs/adr/0030-lists-and-custom-home-tabs.md` (Accepted 2026-10-30). 0024 and 0025 went to W3, 0026 to W8, 0027 to W7, 0028 to W4 and 0029 to W6, so Part A is 0030. It decides:
   - the `lists` collection and doc shape (A5);
   - the member cap (F2) with the chunk arithmetic above, and the per-user caps and quotas;
   - the visibility and block rules (F3, F4);
@@ -845,8 +846,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - **Still owed:** the latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
   - Prod: no change (held release).
 
-### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
-- **Description.** `docs/adr/0028-communities-and-moderation-scope.md` (Proposed), or the next free number. It decides:
+### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #583)
+- **Description.** `docs/adr/0031-communities-and-moderation-scope.md` (Accepted 2026-11-01, #583). 0028 went to W4, 0029 to W6 and 0030 to Part A, so Part B is 0031. It decides:
   - F1 and F6 to F13;
   - the collections (`communities/{cid}`, `communities/{cid}/communityMembers/{uid}`, `communityMemberships/{uid}`) and doc shapes;
   - the feed query (A1, **with the dev Firestore check recorded**; an emulator run does not count);
@@ -866,6 +867,19 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** None (docs); it names `FEATURE_COMMUNITIES`, its ceiling and `COMMUNITY_CREATORS`.
 - **Seam.** It defines `communities.Service`, `communities.Reader`, `communities.Moderation`, `posts.CommunityGate`, `posts.Reader.ByCommunity` and `posts.CommunityModerator` (the `communityHidden` writer).
 - **Parallel with W3 Part A / W4:** yes.
+- **A1 dev check (recorded in ADR-0031 D3).**
+  - Run by the architect agent with the local `gcloud` user credential on 2026-11-01, 04:34:00 to 04:34:09 UTC.
+  - Method: Firestore REST `runQuery` on `dzeroth-dev` (not the emulator), read-only, `limit` 5, about 13 billed reads.
+  - Results, all on `posts where communityId == <probe> ORDER BY __name__ DESC`:
+    - page 1: HTTP 200;
+    - `since` (`__name__ >`, and the `EndBefore` cursor): HTTP 200;
+    - older page (`__name__ <`, and the `StartAfter` cursor): HTTP 200.
+  - The gap window, the member and banned pages and the directory also pass.
+  - The controls fail as they must, with HTTP 400 FAILED_PRECONDITION "The query requires an index":
+    - `ORDER BY createdAt DESC, __name__ DESC`;
+    - `state == BANNED ORDER BY joinedAt`.
+  - **No composite index is needed, so W5-21 does not touch `firebase/firestore.indexes.json`.**
+  - W5-40 re-runs the forms on real data before the flag leaves `off`.
 
 ### W5-21 — Part B protos  [owner: architect] [size: S] [depends: W5-20 drafted]  Status: Open
 - **Description.** All additive.
@@ -894,6 +908,15 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** None (contract).
 - **Seam.** Role and action enums are additive; cursors are opaque; the community `visibility` enum holds PUBLIC only.
 - **Parallel with W3 Part A / W4:** `timeline.proto` after W5-2 and W3-2; the index file only if needed, one index PR at a time.
+- **ADR-0031 changes.**
+  - A1 passed on the dev Firestore (D3). **No index-file change and no fieldOverride.**
+  - A7: **no new `ReplyPermission` value.** Add a comment on `NOT_ALLOWED`: on a post carrying `community` it means members only.
+  - `REPORT_TARGET_TYPE_LIST` shipped in W5-44, so only COMMUNITY is added.
+  - `idempotency_key` goes on all seven mutations (D8).
+  - `viewer_role` is OWNER / MODERATOR / MEMBER / BANNED / NONE (D4).
+  - ListModerationLog is paged, at most 25 entries, with a `seq` token.
+  - Errors gain FORBIDDEN `reason=not_owner`, FAILED_PRECONDITION `reason=owner|moderator|community_archived` and `PROTECTED_ACCOUNT` (change item 20).
+  - `CreatePost.community_id` with a `reply_policy` other than EVERYONE is VALIDATION (F8).
 
 ### W5-22 — Generate, `FEATURE_COMMUNITIES`, config, module skeleton  [owner: backend-developer] [size: M] [depends: W5-21]  Status: Open
 - **Description.** As W5-3, for:
@@ -916,6 +939,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** Adds `FEATURE_COMMUNITIES`.
 - **Seam.** `communities.Service`.
 - **Parallel with W3 Part A / W4:** shared plumbing files one PR at a time (after W5-3).
+- **ADR-0031 changes (D10, D11, D12).**
+  - The dev ceiling `COMMUNITIES` is **allowlist 3**, not 6: the Flags table and the LISTS precedent (#546).
+  - Cache sizes: `CACHE_COMMUNITIES_ENTRIES` **200** and `CACHE_COMMUNITY_FEED_ENTRIES` **100**. Also `CACHE_COMMUNITY_MEMBERS_ENTRIES` 5,000.
+  - Add the `community_mutation_daily` (`COMMUNITY_MUTATIONS_PER_DAY` 200) and `COMMUNITY_MOD_ACTIONS_PER_DAY` (200) `DailyCap`s.
+  - Add the `uid|cid` `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY` (20) `DailyCap`.
+  - Rate-limit buckets: write 20, read 30 and timeline 12 per minute.
 
 ### W5-23 — Communities write path  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Open  (**ships in one PR with W5-24**)
 - **Description.** `communities.FirestoreRepo` owns:
@@ -940,6 +969,14 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES`.
 - **Seam.** `communities.Service`; only `communities` touches its collections.
 - **Parallel with W3 Part A / W4:** yes (new package).
+- **ADR-0031 changes (D2, D8, Cost impact).**
+  - The member doc stores `state` (JOINED / BANNED) with `joinedAt` or `bannedAt`, **never a role**. OWNER and MODERATOR come from the community doc.
+  - The community doc also has `removalsTruncatedAt` and `modlogSeq`.
+  - CreateCommunity has **no daily quota**: the owned cap of 2 is exact and lifetime.
+  - Budgets:
+    - Create: 3 / 2 reads, 4 writes.
+    - Update: 4 / 3 reads, 2 writes (1 when unchanged); it stores the idempotency doc too.
+    - Get: 15 cold (owner + ≤ 10 moderator profiles), 0 warm, planning 4.
 
 ### W5-24 — Communities lifecycle  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Open  (**ships in one PR with W5-23**)
 - **Description.**
@@ -965,6 +1002,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** None (never flag-gated).
 - **Seam.** `communities.Eraser` / `Exporter` through identity's adapters.
 - **Parallel with W3 Part A / W4:** lifecycle wiring files serialise (after W5-5).
+- **ADR-0031 changes (D9, F12).**
+  - `modlogged` holds every community whose modlog names the uid as actor **or target** (I-L). That covers a member who was banned, unbanned, then deleted.
+  - The hand-over goes to the first ACTIVE uid in `moderatorIds` (appointment order).
+  - An archive keeps the name, description and rules.
+  - The export is `{joined, owned, banned, moderationActions, redactedCount}`, with no other user's uid.
+  - Budget: 1 read + 2 per community (+ ≤ 10 profiles per owned community).
 
 ### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Open
 - **Description.**
@@ -984,6 +1027,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES`.
 - **Seam.** Counters through the one helper; the member cache sits behind `communities.Reader`.
 - **Parallel with W3 Part A / W4:** yes.
+- **ADR-0031 changes (D2, D8).**
+  - The Join transaction **never reads the community doc**: `memberCount` is a blind `Increment`, and the status comes from the 60 s cache.
+  - "Already a member" writes **1** (the idempotency doc), not 0. So does Leave by a non-member.
+  - Budgets:
+    - Join: 6 / 4 reads, 5 writes.
+    - Leave: 5 (6 for a moderator) / 3 reads, 3 writes + 1 delete.
 
 ### W5-25b — Directory and member list  [owner: backend-developer] [size: S] [depends: W5-25]  Status: Open
 - **Description.**
@@ -1001,6 +1050,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES`.
 - **Seam.** `communities.Directory` behind an interface (the W4 engine replaces it later).
 - **Parallel with W3 Part A / W4:** yes.
+- **ADR-0031 changes (D3, D7, F14).**
+  - The banned page orders by `bannedAt`: **field presence is the filter**, not a `role == BANNED` equality. That shape needs a composite index (dev control C2 failed).
+  - Budgets:
+    - directory: 52 cold (≤ 22 at Stage 0) / 0–2 warm;
+    - members: 43 / 103 cold at page 20 / 50, counting the profile hydration and the caller graph.
+  - An owner or moderator also sees the members who block them (F14).
 
 ### W5-26 — Posting into a community  [owner: backend-developer] [size: M] [depends: W5-23, W5-25]  Status: Open
 - **Description.**
@@ -1024,6 +1079,14 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES` (with `posts`).
 - **Seam.** `posts.CommunityGate` and `posts.Reader.ByCommunity`; posts never imports communities.
 - **Parallel with W3 Part A / W4:** **after W3-7** (`hasMedia` on every create path).
+- **ADR-0031 changes (D3, D5, F6).**
+  - `ByCommunity` is its own query, `communityId == C ORDER BY __name__ DESC` with id-bound windows. **Never `FirestoreRepo.run()`**: its `createdAt DESC` order needs a composite index (dev control C1).
+  - Unit-test the settle sentinel: `EndAt` of the smallest Snowflake of millisecond W.
+  - Refusals:
+    - a protected caller: FAILED_PRECONDITION `PROTECTED_ACCOUNT`;
+    - an ARCHIVED community: `community_archived`;
+    - a `reply_policy` other than EVERYONE with `community_id`: VALIDATION.
+  - The post also gets `conversationCommunityId`.
 
 ### W5-26b — Members-only replies and the label kill switch  [owner: backend-developer] [size: S] [depends: W5-26]  Status: Open
 - **Description.**
@@ -1040,6 +1103,13 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES` + `replies`.
 - **Seam.** `posts.CommunityGate.CanReply`; the label decision lives only in `ToView`.
 - **Parallel with W3 Part A / W4:** the reply path after W3-7; `ToView` is shared with W3 builders, so rebase.
+- **ADR-0031 changes (D5, A7).**
+  - The rule keys on the parent's **`conversationCommunityId`**, which every reply inherits, not on the root's `communityId`. A reply to a reply never reads the root, and a hidden root has no `communityId`.
+  - **No new enum value:** `NOT_ALLOWED` on a post carrying `community`.
+    - GetCommunityTimeline: +0.
+    - GetPost and GetThread: +1 cold, +0 warm.
+    - Home, profile, list and search timelines: UNKNOWN.
+  - Reply budget: +2 cold (community status and member doc, both cached) / +0 warm.
 
 ### W5-27 — `GetCommunityTimeline` and community tabs  [owner: backend-developer] [size: M] [depends: W5-26, W5-9]  Status: Open
 - **Description.** A new `backend/internal/timeline/service_community.go`:
@@ -1064,6 +1134,13 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES` + `posts`.
 - **Seam.** Behind the `timeline` interface; `posts.Reader.ByCommunity`; the Stage 2 feed store replaces the query with no client change.
 - **Parallel with W3 Part A / W4:** timeline files after W5-8.
+- **ADR-0031 changes (D6, A3, A12, F14).**
+  - `keep` does not test `communityHidden`: a hidden post has already left the query. It drops ids in `recentRemovals` instead.
+  - F14: an owner or moderator keeps the rows of members who block them.
+  - Cold budget: **25 / 55**, which adds the viewer's member doc for `viewer_role`.
+  - Every shared-entry fill reads at most `page_size`.
+  - Truncation is detected with `removalsTruncatedAt`, not with "the array is full".
+  - SetHomeTabs accepts any ACTIVE or ARCHIVED community. Membership is not required.
 
 ### W5-28 — Community moderation  [owner: backend-developer] [size: M] [depends: W5-26]  Status: Open
 - **Description.** `communities.Moderation`:
@@ -1091,6 +1168,16 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `FEATURE_COMMUNITIES`.
 - **Seam.** `communities.Moderation` and `posts.CommunityModerator`; the capped arrays sit behind the interface, so a later `modlog` collection changes no caller.
 - **Parallel with W3 Part A / W4:** yes.
+- **ADR-0031 changes (D2, D4, D5, D8).**
+  - A hide **deletes `communityId`** and sets `communityHidden`; a restore reverses both (A12, through `SetCommunityListing`).
+  - Every mutation stores the **standard idempotency doc**, not a "state-setting" replay. Otherwise a late retry of a hide after a restore would re-hide the post.
+  - `modlogged` also gets the target (I-L).
+  - BAN accepts a non-member.
+  - The owner bans a moderator only after removing the role: FAILED_PRECONDITION `moderator`.
+  - ListModerationLog is paged at ≤ 25.
+  - Budgets:
+    - Hide / Restore: 5 / 4 reads, 3 writes (+1 on the actor's first entry);
+    - SetMemberRole: 7 / 6 reads, ≤ 5 writes.
 
 ### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: Open
 - **Description.**
@@ -1109,6 +1196,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `reports` for the new target (plus `communities`).
 - **Seam.** `moderation` reaches communities and lists only through their `Reader` interfaces.
 - **Parallel with W3 Part A / W4:** moderation module only.
+- **ADR-0031 changes (D14).**
+  - The COMMUNITY evidence is `authorHandle` (the owner's), `communityName`, `communityDescription`, `communityRules` and `postCreatedAt`.
+  - ReportContent COMMUNITY: 5 / 2 reads, 2 writes.
+  - New lever: `opsctl community archive` (an owner's support request).
+  - `suspend-user`'s hide loop also appends to `recentRemovals`, once per community per page, through `communities.PlatformRemovals`.
 
 ### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Open
 - **Description.**
@@ -1191,6 +1283,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities`.
 - **Seam.** The audience is a value on the composer state (`ComposeAudience`), so a later audience kind adds no widget branch.
 - **Parallel with W3 Part A / W4:** composer files serialise with W1.5 / W6 composer tickets.
+- **ADR-0031 changes (D5, F6, F8).**
+  - When a community is chosen, hide the reply-audience control: a community post takes no `reply_policy`.
+  - A protected account gets `PROTECTED_ACCOUNT` from the server, so no pill is shown while `is_private`.
+  - A draft keeps the community id (ADR-0029 F8). Reset it to Everyone if the user is no longer a member.
+  - Show "Only members of <name> can reply" for `NOT_ALLOWED` on a labelled post.
 
 ### W5-35 — Moderation UI and reports  [owner: frontend-developer] [size: M] [depends: W5-32, W5-33]  Status: Open
 - **Description.**
@@ -1279,8 +1376,14 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** n/a.
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
+- **ADR-0031 changes (Cost impact).**
+  - The Part B rows are **+20.3 reads, +0.15 writes, +0.05 deletes and +2.0 requests per DAU**, not +16.0 / +0.11.
+  - That is about INR 6 / 36 / 114 at 300 / 1,000 / 3,000 DAU.
+  - Free reads now run out at about 123 DAU.
+  - Measure the cold open both all-cold and with a warm entry.
+  - Watch `community_txn_attempts`.
 
-### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0028 merged]  Status: Open
+### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0031 merged]  Status: Open
 - **Description.**
   - Show the founder a targeted dev Terraform plan for `feature_communities*`, `community_creators` (the founder's dev uid) and the community config.
   - If W5-21 added the A1 fallback index: it deploys with the dev workflow's `firebase deploy --only firestore:indexes` after merge and must show READY before the flag leaves `off`.
@@ -1294,6 +1397,10 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** Dev: `feature_communities` set to allowlist (3 uids); prod `off`.
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** serialise dev applies.
+- **ADR-0031 changes (D3, D10).**
+  - A1 passed on dev, so there is **no fallback index** to deploy.
+  - The smoke **first re-runs ADR-0031 D3's F1, F2b, F3b and M1 on real data**. A "requires an index" error means stop and ask the founder.
+  - `COMMUNITY_CREATORS` holds the founder's dev uid.
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids): `lists` first (W5-19), then `communities` (W5-40).
@@ -1322,6 +1429,6 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 | `recentRemovals` overflow (> 50 hides between refreshes) resets cached feeds | the documented ADR-0016 D10 contract (cold open); the moderation-log trigger |
 | Private accounts (W3 Part B) leak through the new feeds | the `keep` hook point named in W5-8 / W5-27; ADR-0025's matrix includes both feeds |
 | Merge conflicts with W3 and W4 in shared files | the shared-files table; one PR at a time; new logic in new files |
-| ADR number clash | Part A took ADR-0030 (W5-1); Part B: "ADR-0028 or the next free number" |
+| ADR number clash | Part A took ADR-0030 (W5-1); Part B took ADR-0031 (W5-20) |
 | Uncaptured visuals (list detail, community page, create flows, Manage timelines, moderator tools) | X-like defaults stated per ticket; a founder capture adjusts them in a follow-up PR |
 | Home tab titles go stale after a rename | the timeline response carries the current header and the device updates its label; storage is refreshed on the next SetHomeTabs |
