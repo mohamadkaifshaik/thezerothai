@@ -12,6 +12,7 @@ Sources:
 Branches: `feat/tel-N-<slug>` (docs: `docs/tel-N-<slug>`) off `main`, not stacked; one ticket per PR; merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks TEL-1, TEL-2 or TEL-14)
+**Answered 2026-11-01, all at the defaults** (founder, verbatim: "TEL plan defaults all ok, go ahead"); recorded as decided in ADR-0032 ("Founder decisions").
 - **F1. Consent.** India's DPDP Act treats consent as the main basis for processing. Consent must follow a notice, be a clear affirmative action, and be as easy to withdraw as to give. (How the DPDP Rules phase this in is for legal advice; this is not legal advice.)
   - **Default (A): opt-in for both.** The card is shown once per account on each Android device, at the top of Home, using the push opt-in card pattern. It has two switches, "Send crash reports" and "Share usage statistics", **both off**. "Save" keeps what you switched on; "Not now" keeps both off and is not asked again. Settings › Privacy & safety has the same two switches at any time.
   - (B) Crash reports on by default with an opt-out switch in Settings and a one-time notice; analytics opt-in. Near-full crash coverage, but on-by-default is not a "clear affirmative action", so the policy would have to name another basis. Legal review would decide.
