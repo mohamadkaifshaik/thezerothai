@@ -71,7 +71,7 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 	limit := limits.ClampPageSize(pageSize)
 	rows, err := repo.ListPage(ctx, uid, after, limit)
 	if err != nil {
-		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: %w", err), uid, afterID(after))
+		return BookmarkPage{}, logger.RedactErrPosts(fmt.Errorf("engagement: list bookmarks: %w", err), []string{afterID(after)}, uid)
 	}
 	var page BookmarkPage
 	if len(rows) >= limit {
@@ -88,7 +88,7 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 	}
 	live, err := s.d.Reader.GetMany(ctx, postIDs)
 	if err != nil {
-		return BookmarkPage{}, logger.RedactErr(fmt.Errorf("engagement: list bookmarks: load posts: %w", err), append([]string{uid}, postIDs...)...)
+		return BookmarkPage{}, logger.RedactErrPosts(fmt.Errorf("engagement: list bookmarks: load posts: %w", err), postIDs, uid)
 	}
 	res, err := s.dropRows(ctx, uid, postIDs, live)
 	if err != nil {
@@ -127,7 +127,7 @@ func (s *service) prune(ctx context.Context, repo BookmarkRepo, uid string, gone
 	defer cancel()
 	if err := repo.Prune(pctx, uid, gone); err != nil {
 		slog.WarnContext(ctx, "engagement_bookmark_prune_failed", "count", len(gone), "uid_hash", logger.HashUID(uid),
-			"error", logger.RedactErr(err, append([]string{uid}, gone...)...).Error())
+			"error", logger.RedactErrPosts(err, gone, uid).Error())
 		return 0
 	}
 	s.cache.updateBookmarks(uid, func(b []string) []string { return withoutIDs(b, gone) })

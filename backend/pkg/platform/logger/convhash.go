@@ -126,3 +126,18 @@ func RedactErrPosts(err error, postIDs []string, ids ...string) error {
 	}
 	return &redactedError{msg: msg, cause: err}
 }
+
+// RedactErrPostDocs is RedactErrPosts for an error that names documents with the composite id <postId>_<uid> (likes, reposts,
+// pollVotes; W6-56): the post part of each id is mapped through the keyed HashPost and the uid through HashUID, so a document id
+// renders as HashPost(postId)_HashUID(uid). Redacting the uid first breaks the id apart and leaves the plain post id next to the
+// uid hash. A uid never contains "_" (ADR-0008 A3), so the post id is everything before the last "_"; an id without one is
+// skipped (it is not a composite id).
+func RedactErrPostDocs(err error, uid string, docIDs ...string) error {
+	postIDs := make([]string, 0, len(docIDs))
+	for _, id := range docIDs {
+		if i := strings.LastIndex(id, "_"); i > 0 {
+			postIDs = append(postIDs, id[:i])
+		}
+	}
+	return RedactErrPosts(err, postIDs, uid)
+}

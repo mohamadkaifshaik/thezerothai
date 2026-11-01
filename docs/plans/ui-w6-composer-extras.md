@@ -408,6 +408,7 @@ Effect on the quotas (additive):
 | W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | In review (#553) |
 | W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | In review (#566) |
 | W6-54 | *(ADR-0029 as-built review, 2026-11-01)* Poll erase/export error lines: redact vote doc ids before the uid (keyed HashPost), no plain post id | backend-developer | XS | W6-52 | yes | In review (#576) |
+| W6-56 | *(W6-54 follow-up, 2026-11-01)* Bookmarks and likes erase/export error lines: post ids keyed (HashPost), never next to a uid hash in plain | backend-developer | XS | W6-52 | yes | In review (#578) |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
