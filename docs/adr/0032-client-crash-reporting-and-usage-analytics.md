@@ -80,7 +80,7 @@ criteria or a TEL-12 sentence, listed per item.
     - `deleteUnsentReports()` again at **every bootstrap whose decision is off**, which is when it works.
   - An "on" decision calls `deleteUnsentReports()` **before** `setCrashlyticsCollectionEnabled(true)`. That way
     nothing recorded before consent, including another account's session on the same device, is ever sent.
-  - **Residual, accepted:** after an opt-out, a flag `off` or a sign-out, a *native* (Java or Kotlin) fatal crash later
+  - **Residual, accepted:** after an opt-out, a flag `off`, a sign-out or a switch to an account that did not opt in, a *native* (Java or Kotlin) fatal crash later
     in the same process run can still be uploaded. Dart errors cannot. The window is the rest of that run. TEL-9
     measures it.
   - What this rewrites in the plan:
@@ -88,6 +88,10 @@ criteria or a TEL-12 sentence, listed per item.
       "on the next `GetMe`, Dart-side reports stop at once; native capture stops at the next launch, where unsent
       reports are deleted".
     - TEL-4 AC 3: unchanged for `record`. Add "and again at the next bootstrap".
+    - TEL-4 AC 4 (switch from opted-in account A to account B, not opted in) holds for **Dart-side** reports only. A
+      native fatal crash during B's session in the same run can still upload under A's native setting until the next
+      launch. This is the same residual as above, now also for an account switch. The AC reads: "no Dart-side report
+      is passed to the SDK after the switch; native capture stops at the next launch".
     - TEL-7 AC 2 "collection stops immediately" becomes "no Dart-side report is passed to the SDK after the switch;
       native capture stops at the next launch".
     - TEL-8: delete is the off decision above.
@@ -562,6 +566,7 @@ Optional, same gating (not needed for acceptance):
       `firebase.json` change.
   - **TEL-4:**
     - D3's order of calls, including `deleteUnsentReports` before enabling and at every off bootstrap;
+    - AC 3 and AC 4 rewritten per C1 (Dart-side immediate, native at the next launch, also on an account switch);
     - the Dart-side gate;
     - the C3 consent order;
     - the D12 seam.
