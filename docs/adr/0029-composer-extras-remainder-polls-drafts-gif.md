@@ -1437,9 +1437,12 @@ Where the monthly counter had reserved the units, the same calls are released fr
   - A reset or EOF after the write is charged, like a timeout.
   - A TLS or token failure is charged too, although it may come before any request byte: the classifier cannot tell,
     so it charges.
+  - An HTTP status other than 429 or 5xx (400, 403) is now charged. Before W6-49 it was refunded: `annotate` wraps the
+    error as a plain error, not a `VisionAnsweredError`, so it reached `neverSent`.
   - The W6-40 review (item 1) treats this as a refinement of A5.5, not one of the founder's binding points.
 - **A5.7's "unit accounting is unchanged from #535" no longer holds exactly.** Before W6-49, `neverSent` released every
-  non-context transport failure from both counters. Now only classes 1 (429 or 5xx), 3 and 4 are released. So
+  non-context failure that was not a Vision response from both counters, including a 400 or 403. Now only classes 1
+  (429 or 5xx), 3 and 4 are released. So
   `VISION_MONTHLY_CAP` counts more possibly billed calls than before. It over-counts by at most one call's own unit for
   each such failure and never under-counts. That is the safe direction: the cap is reached sooner and never overspent.
 - **N1 ("Request deadline") and N4 option 3 are superseded on one point.** They say the counter "can run up to 2 units
