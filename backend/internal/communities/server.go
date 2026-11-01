@@ -18,9 +18,9 @@ const rpcDeadline = 8 * time.Second
 // Server is the CommunityService handler. It mounts every route so the interceptor chain (App Check, ID token, account status, rate
 // limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES, ADR-0031 D10) before anything else: a
 // caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate
-// CreateCommunity, UpdateCommunity and GetCommunity (W5-23) call the Service; the other nine methods are still the generated
-// Unimplemented answer until W5-25 (join and the lists) and W5-28 (moderation) replace them one by one. A Server built without a
-// Service answers Unimplemented for the three as well.
+// CreateCommunity, UpdateCommunity and GetCommunity (W5-23) and JoinCommunity, LeaveCommunity and ListMyCommunities (W5-25) call the
+// Service; the other six methods are still the generated Unimplemented answer until W5-25b (the directory and member list) and W5-28
+// (moderation) replace them one by one. A Server built without a Service answers Unimplemented for the six as well.
 type Server struct {
 	communitiesv1connect.UnimplementedCommunityServiceHandler
 	flags FlagChecker
@@ -62,30 +62,6 @@ func (s *Server) ListCommunities(ctx context.Context, req *connect.Request[commu
 		return nil, err
 	}
 	return s.UnimplementedCommunityServiceHandler.ListCommunities(ctx, req)
-}
-
-// ListMyCommunities is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) ListMyCommunities(ctx context.Context, req *connect.Request[communitiesv1.ListMyCommunitiesRequest]) (*connect.Response[communitiesv1.ListMyCommunitiesResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.ListMyCommunities(ctx, req)
-}
-
-// JoinCommunity is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) JoinCommunity(ctx context.Context, req *connect.Request[communitiesv1.JoinCommunityRequest]) (*connect.Response[communitiesv1.JoinCommunityResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.JoinCommunity(ctx, req)
-}
-
-// LeaveCommunity is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) LeaveCommunity(ctx context.Context, req *connect.Request[communitiesv1.LeaveCommunityRequest]) (*connect.Response[communitiesv1.LeaveCommunityResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.LeaveCommunity(ctx, req)
 }
 
 // ListCommunityMembers is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).

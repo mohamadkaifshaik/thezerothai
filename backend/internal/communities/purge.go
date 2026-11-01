@@ -179,7 +179,7 @@ func (r *FirestoreRepo) PurgeCommunity(ctx context.Context, uid, cid string, p P
 		if !missing {
 			var updates []firestore.Update
 			if memberState == MemberJoined {
-				updates = append(updates, firestore.Update{Path: "memberCount", Value: firestore.Increment(-1)})
+				updates = append(updates, memberCountDelta(-1))
 			}
 			mods := slices.Clone(c.ModeratorIDs)
 			modsChanged := false

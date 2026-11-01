@@ -654,14 +654,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Communities (ADR-0031, W5-22/W5-23): all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
-	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity (W5-23) run the
-	// service; W5-25 to W5-28 replace the other nine methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
+	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity (W5-23) and JoinCommunity,
+	// LeaveCommunity and ListMyCommunities (W5-25) run the service; W5-25b and W5-28 replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
 	communitiesSvc := communities.New(communities.Deps{
 		Repo: communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
 		Creators: cfg.Communities.Creators,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
 			ModlogMax: cfg.Communities.ModlogMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
+			JoinsPerDay: int64(cfg.Quota.CommunityJoinsPerDay), NewAccountJoinsPerDay: int64(cfg.Quota.NewAccountCommunityJoinsPerDay),
+			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},
 	})
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
