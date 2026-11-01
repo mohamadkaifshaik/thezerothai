@@ -39,8 +39,10 @@ Constraints:
   either "before we switch it on" (`app/web/privacy.html`, maintainer note 21).
 - **Right to delete.** Q10 (f) already allows device-keyed Crashlytics and Analytics data to remain after an account is
   deleted, on the condition that the app never sets a user identifier.
-- **Prod Android config.** Prod Android builds still read dzeroth-dev's `google-services.json` (`release-prod.yml`), so
-  native SDKs would report to the dev project until TEL-14 lands.
+- **Prod Android config.** Until TEL-14, prod Android builds read dzeroth-dev's `google-services.json`, so native SDKs
+  would have reported to the dev project. TEL-14 merged as #593 on 2026-11-01 (`release-prod.yml` swaps in
+  `app/android/google-services.prod.json`). Its AAB `project_id` check runs on the first staged tag, and the founder
+  owes the on-device Google Sign-In check. Until both pass, D13's "TEL-14 blocks any prod raise" still applies.
 
 ## Founder decisions (2026-11-01)
 The founder answered all eleven on 2026-11-01, verbatim: **"TEL plan defaults all ok, go ahead"**. Each is the plan's
