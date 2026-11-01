@@ -10,6 +10,8 @@ import '../core/router/app_router.dart';
 import '../core/session/account_session_reset.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
+import '../core/telemetry/telemetry_consent_cubit.dart';
+import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/widgets/service_paused_view.dart';
@@ -92,6 +94,7 @@ class AppWidget extends StatefulWidget {
     this.homeTabsRepository,
     this.communitiesRepository,
     required this.pushCubit,
+    this.telemetryConsent,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
     this.shareLinks,
@@ -148,6 +151,9 @@ class AppWidget extends StatefulWidget {
   /// Push registration and tap handling (P6); built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
   final PushCubit pushCubit;
+
+  /// The telemetry consent answers (TEL-7); null hides the card and the rows.
+  final TelemetryConsentStore? telemetryConsent;
 
   /// The unread badge, seeded from `GetMe` (P6).
   final UnreadBadgeCubit unreadBadgeCubit;
@@ -219,6 +225,12 @@ class _AppWidgetState extends State<AppWidget> {
   late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
     widget.database,
   );
+  // The consent card and Settings switches (TEL-7); null in tests that do not
+  // exercise telemetry (then no card and no rows).
+  late final TelemetryConsentCubit? _telemetryConsentCubit =
+      widget.telemetryConsent == null
+      ? null
+      : TelemetryConsentCubit(store: widget.telemetryConsent!);
   late final PushOptInCubit _pushOptIn = PushOptInCubit(
     store: _pushOptInStore,
     push: widget.pushCubit,
@@ -300,6 +312,7 @@ class _AppWidgetState extends State<AppWidget> {
     unawaited(_themeMode.load());
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
+      unawaited(_telemetryConsentCubit?.load(state.user?.uid));
       if (state.user?.uid != _purgedDraftsUid) {
         _purgedDraftsUid = state.user?.uid;
         _purgeExpiredDrafts(_purgedDraftsUid);
@@ -314,6 +327,7 @@ class _AppWidgetState extends State<AppWidget> {
       }
     });
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
+    unawaited(_telemetryConsentCubit?.load(widget.authBloc.state.user?.uid));
     _purgedDraftsUid = widget.authBloc.state.user?.uid;
     _purgeExpiredDrafts(_purgedDraftsUid);
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
@@ -435,6 +449,7 @@ class _AppWidgetState extends State<AppWidget> {
     _trends?.close();
     _themeMode.close();
     _pushOptIn.close();
+    _telemetryConsentCubit?.close();
     _messagesBadge.close();
     super.dispose();
   }
@@ -496,6 +511,8 @@ class _AppWidgetState extends State<AppWidget> {
           if (_trends case final trends?) BlocProvider.value(value: trends),
           BlocProvider.value(value: widget.pushCubit),
           BlocProvider.value(value: _pushOptIn),
+          if (_telemetryConsentCubit case final consent?)
+            BlocProvider.value(value: consent),
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _messagesBadge),
           BlocProvider.value(value: _themeMode),

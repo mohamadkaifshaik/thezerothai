@@ -14,6 +14,7 @@ import '../core/network/service_paused_cubit.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_bootstrap.dart';
+import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/telemetry/telemetry_inputs.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -50,6 +51,7 @@ import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
+import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/composer_attachment_rules.dart'
     show kFeatureGif;
@@ -86,6 +88,9 @@ Future<void> bootstrap() async {
   late final AuthRepository authRepository;
   late final String? restoredUid;
   final database = AppDatabase();
+  // TEL-7: the person's answers per account; the controller reads it and the
+  // consent card and Settings switches write it.
+  final telemetryConsent = TelemetryConsentStore(database);
   final telemetry = await startTelemetry(
     initializeFirebase: () async {
       await Firebase.initializeApp(
@@ -109,9 +114,13 @@ Future<void> bootstrap() async {
         appleServiceId: config.appleServiceId,
         appleRedirectUri: config.appleRedirectUri,
       );
-      return restoredUid = await _restoredUid(authRepository);
+      final uid = restoredUid = await _restoredUid(authRepository);
+      // Read before the first decision, so a stored "on" applies at launch.
+      if (uid != null) await telemetryConsent.load(uid);
+      return uid;
     },
     memory: DatabaseTelemetryFlagMemory(database),
+    consent: telemetryConsent,
   );
 
   await _activateAppCheck(config);
@@ -169,6 +178,12 @@ Future<void> bootstrap() async {
     }
   });
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
+  // Every fresh GetMe re-applies the decision with its flags (0 extra reads).
+  onboardingBloc.stream.listen((state) {
+    if (state.status == OnboardingStatus.ready) {
+      telemetry.onEnabledFeatures(state.enabledFeatures);
+    }
+  });
 
   // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
@@ -371,6 +386,7 @@ Future<void> bootstrap() async {
       homeTabsRepository: homeTabsRepository,
       communitiesRepository: communitiesRepository,
       pushCubit: pushCubit,
+      telemetryConsent: telemetryConsent,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,
       shareLinks: ShareLinks(origin: config.shareOrigin),

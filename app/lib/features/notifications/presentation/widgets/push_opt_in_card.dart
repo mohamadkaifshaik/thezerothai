@@ -15,6 +15,28 @@ import '../bloc/push_opt_in_cubit.dart';
 /// denial shows on [notifications] only.
 enum PushOptInPlacement { home, notifications }
 
+/// Whether the "Turn on notifications" card is on screen on Home right now
+/// (the same conditions as [PushOptInCard] for [PushPermission.notDetermined]).
+/// The telemetry consent card waits on it: one card at a time, push first
+/// (TEL-7). False when the cubits are not in scope.
+bool isPushOptInOffered(BuildContext context) {
+  if (!PushOptIn.supportedOnThisPlatform ||
+      !isFeatureEnabled(context, kFeatureNotifications)) {
+    return false;
+  }
+  final pushOffered = context.select<PushCubit?, bool>(
+    (push) =>
+        push != null &&
+        push.state.supported &&
+        push.state.permissionKnown &&
+        push.state.permission == PushPermission.notDetermined,
+  );
+  if (!pushOffered) return false;
+  return context.select<PushOptInCubit?, bool>(
+    (optIn) => optIn != null && optIn.state.canOffer,
+  );
+}
+
 /// The "Turn on notifications" card (W2-12): an [AppSurface] with the title,
 /// one line of copy, a "Turn on" pill and a "Not now" text action. Not a
 /// sliver: wrap it in a `SliverToBoxAdapter`.

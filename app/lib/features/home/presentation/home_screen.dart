@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../../lists/data/home_tabs_repository.dart';
@@ -145,6 +146,9 @@ class _FollowingFeed extends StatelessWidget {
             const SliverToBoxAdapter(
               child: PushOptInCard(placement: PushOptInPlacement.home),
             ),
+            // The telemetry consent card (TEL-7): same slot, push first; draws
+            // nothing unless a telemetry flag is on, on Android, unasked.
+            const SliverToBoxAdapter(child: TelemetryConsentCard()),
             // "Who to follow" (W3-19): once, under the opt-in card; draws
             // nothing unless `follow_suggestions` + `graph` are on and the
             // shared list has rows.
