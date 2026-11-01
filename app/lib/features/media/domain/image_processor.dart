@@ -222,7 +222,7 @@ const _kGifLoopIds = {'NETSCAPE2.0', 'ANIMEXTS1.0'};
 /// extensions, every application extension (0xFF) except `NETSCAPE2.0` and
 /// `ANIMEXTS1.0` (XMP, ICC, ...), any extension label other than the graphic
 /// control (0xF9), and every byte after the first trailer (0x3B). Frames,
-/// palettes, timing and looping are copied byte for byte. The server's
+/// palettes and timing are copied byte for byte; the first loop block is rewritten to `03 01 LL LL 00` (W6-58, below). The server's
 /// `scanGIF` refuses exactly these, so the output of this function passes it.
 ///
 /// Returns [bytes] itself when there is nothing to remove. Throws
@@ -246,6 +246,7 @@ Uint8List stripGifBytes(Uint8List bytes) {
 
   final out = BytesBuilder(copy: false)
     ..add(Uint8List.sublistView(bytes, 0, pos));
+  var seenLoop = false;
   while (true) {
     if (pos >= n) throw GifRefusedException.notGif;
     switch (bytes[pos]) {
@@ -257,8 +258,16 @@ Uint8List stripGifBytes(Uint8List bytes) {
         if (pos + 2 > n) throw GifRefusedException.notGif;
         final label = bytes[pos + 1];
         final end = endOfSubBlocks(pos + 2);
-        if (label == 0xF9 || (label == 0xFF && _isLoopBlock(bytes, pos + 2))) {
+        if (label == 0xF9) {
           out.add(Uint8List.sublistView(bytes, pos, end));
+        } else if (label == 0xFF && _isLoopBlock(bytes, pos + 2)) {
+          // W6-58: only the FIRST loop block is considered; it is rewritten
+          // to the canonical form, or dropped when it has no valid loop count.
+          if (!seenLoop) {
+            seenLoop = true;
+            final canonical = _canonicalLoopBlock(bytes, pos, end);
+            if (canonical != null) out.add(canonical);
+          }
         }
         pos = end;
       case 0x2C:
@@ -275,6 +284,32 @@ Uint8List stripGifBytes(Uint8List bytes) {
         throw GifRefusedException.notGif;
     }
   }
+}
+
+/// W6-58 (W6-20 re-review N-1): the loop block at [pos, end) (extension
+/// introducer at [pos], identifier at [pos + 3, pos + 14)) rewritten to
+/// `21 FF 0B <id> 03 01 LL LL 00`, byte level, with the loop count `LL LL` of
+/// its first sub-block that is 3 bytes long with sub-block id 1 (what browsers
+/// read); every other sub-block is dropped, because they are free space for
+/// smuggled data. A block with no such sub-block is DROPPED (null): browsers
+/// then play the GIF once, exactly as they treat the unreadable block, whereas
+/// writing loop count 0 would make it loop forever. Returns null for a drop.
+Uint8List? _canonicalLoopBlock(Uint8List bytes, int pos, int end) {
+  var p = pos + 14; // first sub-block after the 11-byte identifier
+  while (p < end) {
+    final size = bytes[p];
+    if (size == 0) return null;
+    if (size == 3 && p + 4 <= end && bytes[p + 1] == 1) {
+      final out = Uint8List(19)..setRange(0, 14, bytes, pos);
+      out[14] = 3;
+      out[15] = 1;
+      out[16] = bytes[p + 2];
+      out[17] = bytes[p + 3];
+      return out; // out[18] is the 0 terminator
+    }
+    p += size + 1;
+  }
+  return null;
 }
 
 bool _isLoopBlock(Uint8List bytes, int at) {
