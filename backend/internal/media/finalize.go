@@ -682,6 +682,13 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 		return Result{}, logger.RedactErr(fmt.Errorf("media: reject: %w", err), d.OwnerID)
 	}
 	s.deleteUploads(ctx, d)
+	// W6-32: this call won the REJECTED write, so nothing can publish this document any more. A public copy may still
+	// exist from an earlier call that copied the full image and then lost its changed-thumbnail reject to a retaken
+	// claim (rejectChanged returned PENDING, so dropOrphanedCopies could not delete safely: the claim holder may be
+	// about to publish the same names). The names are deterministic, so sweep both: 2 idempotent DELETEs (free, a
+	// missing object is success), 0 Firestore reads or writes. A publisher that copies after this point loses its
+	// Resolve and drops its own copies (dropOrphanedCopies sees REJECTED).
+	s.dropPublicNames(ctx, d)
 	return Result{MediaID: d.ID, Status: StatusRejected, RejectionReason: reason}, nil
 }
 
@@ -708,4 +715,16 @@ func finalizeContentType(docs map[string]*Doc, ids []string) string {
 		}
 	}
 	return t
+}
+
+// dropPublicNames deletes the deterministic public full and thumbnail objects of a document this call just REJECTED
+// (W6-32). Best effort and only logged on failure, like dropOrphanedCopies.
+func (s *service) dropPublicNames(ctx context.Context, d *Doc) {
+	pub := publicObject(d.ID, d.NameSuffix, extension(d.ContentType))
+	pubThumb := publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))
+	for _, o := range []string{pub, pubThumb} {
+		if err := s.Objects.DeletePublic(ctx, o); err != nil {
+			s.Log.WarnContext(ctx, "media_public_delete_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, d.OwnerID))}, logger.TraceAttrs(ctx)...)...)
+		}
+	}
 }
