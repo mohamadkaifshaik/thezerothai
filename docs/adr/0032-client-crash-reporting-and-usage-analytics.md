@@ -209,7 +209,7 @@ github.com/firebase for SDK source). **UNVERIFIED** = no primary statement found
 | A7a | Automatic events on Android | `first_open`, `session_start`, `user_engagement`, `screen_view` (automatic reporting off by key; we log it from TEL-6), `app_update`, `os_update`, `app_remove`, `app_clear_data`, `app_exception` (with Crashlytics), `notification_receive`, `notification_open`, `notification_dismiss`, `notification_foreground` (with FCM), `firebase_campaign` (only with campaign parameters), `error` (replaces an invalid event, not reported). Not applicable to us: `in_app_purchase` and `app_store_*` (no Play billing), `dynamic_link_*`, `fiam_*`, `ad_*` (no Mobile Ads SDK) [S23] | VERIFIED |
 | A7b | Automatic user dimensions | App store, app version, device brand, category and model, language, operating system and version, platform, new or established, and city, region, country, continent and subcontinent (coarse, from the masked IP). Age, gender and interests need Google signals (off by F5) [S24]. F5's "granular location and device data off" stops city, device brand, model and name, minor OS versions and screen resolution [S10] | VERIFIED |
 | A7c | Crashlytics and Analytics integration | Breadcrumbs: `screen_view` (with `firebase_screen_class`) and custom events with their parameters, attached to crash reports [S18]. `app_exception` "is sent when Firebase Crashlytics is integrated" [S23] (C8) | VERIFIED; the analytics-on, crash-off case: **TEL-9** |
-| A8 | Gate-file lines | Proposed text in "Proposed gate-file text" below, **not applied in this PR** | n/a |
+| A8 | Gate-file lines | Text in "Gate-file text" below, **applied in this PR** at the founder's request (2026-11-01) | n/a |
 
 ## Data inventory per SDK (Android)
 | | Firebase Crashlytics | Firebase Sessions (comes with Crashlytics) | Google Analytics for Firebase |
@@ -486,16 +486,17 @@ At 3,000 DAU that is 900 × 40 KB × 4.3 ≈ 0.155 GB, which is $0.023, which is
   - cold start p50 delta (measure; target under 100 ms).
 
 ## Stage ladder
-Proposed row for the `stage-ladder` skill (text below, **not applied in this PR**). The trigger is measured over 30
+Row for the `stage-ladder` skill (text below, **applied in this PR**, see "Gate-file text"). The trigger is measured over 30
 days, as in the plan, because client error volume is too sparse at Stage 0 for 7 days to mean anything.
 
 | Concern | Stage 0 (this ADR) | Seam to protect now | Stage 2/3 target (ADR) | Trigger |
 |---|---|---|---|---|
 | Client errors and usage | Crashlytics and Google Analytics for Firebase on Android only, opt-in per account on each device, device-level (no user id), a fixed event list, 2-month GA retention, no BigQuery link; web and iPhone collect nothing (web errors stay console-only; server errors in Error Reporting) | `CrashReporter` / `UsageAnalytics` in `app/lib/core/telemetry/`, with the SDKs imported only by the two adapter files; `UnexpectedErrorReporter` stays the only hook callers use; `AnalyticsEvent` is a sealed list; `TelemetryPlatforms.supportedOn` | **Web:** a `ReportClientError` RPC writing a scrubbed `severity=ERROR` line into Error Reporting (a new public write: quota, rate limit, security review), and/or web Analytics with a consent banner, the CSP hosts and the cookie text in the policy. **iPhone:** TEL-16. **Product analytics:** GA4 batch export to BigQuery (no streaming), its own ADR | web above 50 % of DAU, or 3 or more user-reported web-only failures in a month that server logs cannot explain (web rung); product questions the free GA reports cannot answer, at Stage 2 (20k DAU) (export rung); the Apple launch (iPhone) |
 
-## Proposed gate-file text (not applied in this PR)
-Both files are founder-gated (`.github/CODEOWNERS`). This ADR proposes the text and does not apply it. The founder
-applies it, or tells the architect directly to apply it in a follow-up commit.
+## Gate-file text (applied in this PR)
+Both files are founder-gated (`.github/CODEOWNERS`). The founder told the main session on 2026-11-01 to apply this
+text, so it is applied in this PR exactly as below; the founder's code-owner review and merge accept it together with
+this ADR.
 
 **`CLAUDE.md`, "Reference architecture (Stage 0)" table.** Replace the "Crash reporting" row and add one row under it:
 
