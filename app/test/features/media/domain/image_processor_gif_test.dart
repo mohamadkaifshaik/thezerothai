@@ -29,37 +29,44 @@ void main() {
     expect(out.thumbMd5, isNot(out.fullMd5));
   });
 
-  test('1.8 MiB is accepted, 3 MiB is refused with the size message', () {
-    final base = realGifBytes();
-    Uint8List padded(int size) {
-      final out = Uint8List(size)..setAll(0, base);
-      // Trailing bytes after the GIF trailer are ignored by decoders.
-      return out;
-    }
+  test(
+    '1.8 MiB passes the size check, 3 MiB is refused with the size message',
+    () {
+      final base = realGifBytes();
+      Uint8List padded(int size) {
+        final out = Uint8List(size)..setAll(0, base);
+        // Padding after the trailer: decoders ignore it, W6-30 strips it.
+        return out;
+      }
 
-    expect(
-      () => checkGifBytes(padded((1.8 * 1024 * 1024).round())),
-      returnsNormally,
-    );
-    final ok = prepareGifSync(padded((1.8 * 1024 * 1024).round()));
-    expect(ok.isGif, isTrue);
-    expect(ok.fullBytes.length, (1.8 * 1024 * 1024).round());
-    expect(
-      () => prepareGifSync(padded(3 * 1024 * 1024)),
-      throwsA(
-        isA<GifRefusedException>().having(
-          (e) => e.message,
-          'message',
-          'GIFs can be up to 2 MB.',
+      expect(
+        () => checkGifBytes(padded((1.8 * 1024 * 1024).round())),
+        returnsNormally,
+      );
+      final ok = prepareGifSync(padded((1.8 * 1024 * 1024).round()));
+      expect(ok.isGif, isTrue);
+      expect(
+        ok.fullBytes,
+        base,
+        reason: 'padding after the trailer is stripped',
+      );
+      expect(
+        () => prepareGifSync(padded(3 * 1024 * 1024)),
+        throwsA(
+          isA<GifRefusedException>().having(
+            (e) => e.message,
+            'message',
+            'GIFs can be up to 2 MB.',
+          ),
         ),
-      ),
-    );
-    expect(() => checkGifBytes(padded(kMaxGifBytes)), returnsNormally);
-    expect(
-      () => checkGifBytes(padded(kMaxGifBytes + 1)),
-      throwsA(isA<GifRefusedException>()),
-    );
-  });
+      );
+      expect(() => checkGifBytes(padded(kMaxGifBytes)), returnsNormally);
+      expect(
+        () => checkGifBytes(padded(kMaxGifBytes + 1)),
+        throwsA(isA<GifRefusedException>()),
+      );
+    },
+  );
 
   test('a logical screen over 1,280 px on either side is refused', () {
     expect(

@@ -1,0 +1,68 @@
+{
+  "cases": [
+    {
+      "name": "netscape_clean",
+      "note": "animated, NETSCAPE2.0 loop block: untouched",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": false
+    },
+    {
+      "name": "animexts_clean",
+      "note": "ANIMEXTS1.0 loop block: untouched",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C0FOSU1FWFRTMS4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C0FOSU1FWFRTMS4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": false
+    },
+    {
+      "name": "comment",
+      "note": "comment extension 0xFE between the frames",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH+D21hZGUgYnkgc29tZW9uZQAh+QQACgAAACwAAAAAAgACAAACAoxTADs=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "xmp",
+      "note": "XMP Data application block between the frames",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH/C1hNUCBEYXRhWE1QHjx4OnhtcG1ldGEgY3JlYXRvcj0ic29tZW9uZSIvPgAh+QQACgAAACwAAAAAAgACAAACAoxTADs=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "plain_text",
+      "note": "plain text extension 0x01 between the frames",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACEBDAAAAAACAAIAAQEAAAJoaQAh+QQACgAAACwAAAAAAgACAAACAoxTADs=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "trailing_bytes",
+      "note": "bytes after the trailer",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAO1NFQ1JFVC1QQVlMT0FEAAE=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "unknown_application",
+      "note": "an application block that is not a loop block",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH/C0lDQ1JHQkcxMDEyAwECAwAh+QQACgAAACwAAAAAAgACAAACAoxTADs=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "unknown_extension",
+      "note": "an extension label nobody defines",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACGrAnp6ACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "combined",
+      "note": "comment and XMP together",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH+D21hZGUgYnkgc29tZW9uZQAh/wtYTVAgRGF0YVhNUB48eDp4bXBtZXRhIGNyZWF0b3I9InNvbWVvbmUiLz4AIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    }
+  ],
+  "description": "W6-30 (security L-4): GIF fixtures shared by Go (scanGIF refuses every dirty input, accepts every stripped output) and Dart (stripGifBytes maps input to stripped). Two 2x2 frames. Regenerate: see the W6-30 PR; do not edit by hand."
+}

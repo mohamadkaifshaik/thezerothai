@@ -1,9 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_event.dart';
+import '../../../auth/presentation/request_sign_out.dart';
 
 /// Full-screen state for the signed-in account being suspended (or pending
 /// deletion): every RPC but DeleteAccount answers ACCOUNT_RESTRICTED, so the
@@ -52,9 +52,7 @@ class AccountRestrictedView extends StatelessWidget {
                       style: FilledButton.styleFrom(
                         minimumSize: const Size(0, AppSpacing.minTapTarget),
                       ),
-                      onPressed: () => context.read<AuthBloc>().add(
-                        const AuthSignOutRequested(),
-                      ),
+                      onPressed: () => unawaited(requestSignOut(context)),
                       child: const Text('Sign out'),
                     ),
                   ],

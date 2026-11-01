@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
@@ -11,19 +14,22 @@ import '../../../core/widgets/privacy_policy_link.dart';
 import '../../../shared/widgets/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
-import '../../auth/presentation/bloc/auth_event.dart';
+import '../../auth/presentation/request_sign_out.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
 import '../../messages/presentation/widgets/messaging_access_builder.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../posts/data/drafts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
+import '../../posts/presentation/bloc/unsent_posts_cubit.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
 import '../domain/private_accounts_feature_flag.dart';
 import 'bloc/protect_posts_cubit.dart';
 import 'widgets/appearance_sheet.dart';
 import 'widgets/protect_posts_row.dart';
+import 'widgets/unsent_posts_row.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
@@ -76,9 +82,26 @@ class SettingsList extends StatelessWidget {
   final String? selectedPath;
 
   @override
-  Widget build(BuildContext context) => MessagingAccessBuilder(
-    builder: (context, access) => _withProtect(context, access),
-  );
+  Widget build(BuildContext context) {
+    final list = MessagingAccessBuilder(
+      builder: (context, access) => _withProtect(context, access),
+    );
+    // W6-31: the count of this account's unsent posts on the device, so the
+    // delete entry shows only while there are some (and stays reachable with
+    // `drafts` off). No repository in the tree (a test harness) = no entry.
+    final drafts = context.read<DraftsRepository?>();
+    final uid = context.select((AuthBloc bloc) => bloc.state.user?.uid);
+    if (drafts == null || uid == null || uid.isEmpty) return list;
+    return BlocProvider<UnsentPostsCubit>(
+      key: ValueKey(uid),
+      create: (context) => UnsentPostsCubit(
+        repository: drafts,
+        uid: uid,
+        onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
+      ),
+      child: list,
+    );
+  }
 
   Widget _withProtect(BuildContext context, MessagingAccess access) {
     // The protect switch's cubit exists only when the row can show, so a
@@ -125,6 +148,10 @@ class SettingsList extends StatelessWidget {
     final graphEnabled = isGraphEnabled(context);
     final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
     final lifecycleEnabled = isAccountLifecycleEnabled(context);
+    // 0 without the cubit (no repository, nobody signed in).
+    final unsentPosts = context.select<UnsentPostsCubit?, int>(
+      (cubit) => cubit?.state ?? 0,
+    );
     // CMP-D6: the ROUTE needs only `posts` (a user dropped from the allowlist
     // may still list and cancel, ADR-0021 L-A option b), but this ENTRY shows
     // only with both flags for now: the client cannot tell "globally off" from
@@ -238,6 +265,8 @@ class SettingsList extends StatelessWidget {
               selected: selected(AppRouter.exportDataPath),
               onTap: () => open(AppRouter.exportDataPath),
             ),
+          // W6-31: whatever the `drafts` flag says, while rows are here.
+          if (unsentPosts > 0) UnsentPostsRow(count: unsentPosts),
         ],
       ),
       (
@@ -280,8 +309,7 @@ class SettingsList extends StatelessWidget {
             icon: Icons.logout,
             title: 'Sign out',
             showChevron: false,
-            onTap: () =>
-                context.read<AuthBloc>().add(const AuthSignOutRequested()),
+            onTap: () => unawaited(requestSignOut(context)),
           ),
         ],
       ),
