@@ -183,7 +183,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | --- | --- | --- | --- | --- | --- | --- |
 | TEL-1 | ADR: client crash reporting and usage analytics (data inventory, terms, consent, rule 10, Q10 (f), A1–A8, proposed `CLAUDE.md` and `stage-ladder` lines, prod ceiling) | architect | M | — | **yes, start now** | Done (#595) |
 | TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
-| TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Open |
+| TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Done (#598) |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Open |
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Open |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Open |
@@ -243,7 +243,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** Adds both.
 - **Seam.** The flags are client gates only; the server stays authoritative through `GetMe`.
 
-### TEL-3 — Packages and native off-switches  [owner: frontend-developer] [size: S] [depends: TEL-1 drafted]  Status: Open
+### TEL-3 — Packages and native off-switches  [owner: frontend-developer] [size: S] [depends: TEL-1 drafted]  Status: Done (#598)
 - **Description.**
   - `firebase_crashlytics` and `firebase_analytics` in `app/pubspec.yaml`, at versions matching the current FlutterFire BoM.
   - `AndroidManifest.xml` `<application>` meta-data:

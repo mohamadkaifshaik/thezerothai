@@ -22,13 +22,59 @@ declare -A module_of=(
   [firebase_messaging]=messaging
 )
 
+# FlutterFire plugins that inject no loader script on web, so script-src carries no hash for them (ADR-0032 D10).
+# Each exception is re-proven on every run; when its condition fails the plugin needs a module_of entry instead.
+#   no-web-plugin:   the resolved plugin's own pubspec (flutter.plugin.platforms) declares no web platform, and the
+#                    app resolves no <name>_web package.
+#   ignored:<svc>:   web/flutterfire_config.js lists <svc> in window.flutterfire_ignore_scripts and index.html loads
+#                    that file as a plain blocking <script> (no async, defer or type="module") before
+#                    flutter_bootstrap.js, so firebase_core_web never injects the loader.
+# Anything that cannot be read or verified fails.
+declare -A no_loader=(
+  [firebase_crashlytics]=no-web-plugin
+  [firebase_analytics]=ignored:analytics
+)
+
 pkgcfg=$app/.dart_tool/package_config.json
 [ -f "$pkgcfg" ] || { echo "FAIL: $pkgcfg missing (run 'flutter pub get' in $app)" >&2; exit 2; }
 
-# Every direct firebase_* dependency (not *_platform_interface / *_web) must be a known module.
-mapfile -t plugins < <(sed -nE 's/^  (firebase_[a-z_]+):.*/\1/p' "$app/pubspec.yaml" | grep -vE '_(web|platform_interface)$' | sort -u)
-for p in "${plugins[@]}"; do
-  [ -n "${module_of[$p]:-}" ] || { echo "FAIL: $app/pubspec.yaml depends on $p, which is not in the module map of $0" >&2; exit 1; }
+# Every direct firebase_* dependency (not *_platform_interface / *_web) must be a known module or a proven exception.
+mapfile -t all_plugins < <(sed -nE 's/^  (firebase_[a-z_]+):.*/\1/p' "$app/pubspec.yaml" | grep -vE '_(web|platform_interface)$' | sort -u)
+plugins=()
+for p in "${all_plugins[@]}"; do
+  if [ -n "${module_of[$p]:-}" ]; then plugins+=("$p"); continue; fi
+  case ${no_loader[$p]:-} in
+    no-web-plugin)
+      proot=$(jq -r --arg n "$p" '.packages[] | select(.name == $n) | .rootUri' "$pkgcfg")
+      proot=${proot#file://}
+      case $proot in /[A-Za-z]:*) proot=${proot#/} ;; esac # file:///C:/... on Windows
+      [ -n "$proot" ] && [ -f "$proot/pubspec.yaml" ] \
+        || { echo "FAIL: cannot read the resolved pubspec of $p to verify it has no web plugin" >&2; exit 2; }
+      # The flutter.plugin.platforms block: from "    platforms:" to the next line indented 4 spaces or less.
+      platforms=$(awk '/^flutter:/ {f=1; next} f && /^[^ #]/ {f=0} f && /^  plugin:/ {pl=1; next} pl && /^  [^ ]/ {pl=0}
+        pl && /^    platforms:/ {pf=1; next} pf && /[^ ]/ && match($0, /^ */) && RLENGTH <= 4 {pf=0} pf {print}' \
+        "$proot/pubspec.yaml")
+      [ -n "$platforms" ] || { echo "FAIL: $proot/pubspec.yaml has no flutter.plugin.platforms to verify $p" >&2; exit 2; }
+      if printf '%s\n' "$platforms" | grep -qE '^      web:'; then
+        echo "FAIL: $p now declares a web plugin, so it injects a loader on web; add it to the module map of $0" >&2; exit 1
+      fi
+      if jq -e --arg n "${p}_web" '.packages[] | select(.name == $n)' "$pkgcfg" >/dev/null; then
+        echo "FAIL: $p now resolves ${p}_web, so it injects a loader on web; add it to the module map of $0" >&2; exit 1
+      fi ;;
+    ignored:*)
+      svc=${no_loader[$p]#ignored:} ffcfg=$app/web/flutterfire_config.js index=$app/web/index.html
+      grep -qE "flutterfire_ignore_scripts *= *\[[^]]*['\"]$svc['\"]" "$ffcfg" 2>/dev/null \
+        || { echo "FAIL: $p is exempt only while $ffcfg ignores '$svc' (window.flutterfire_ignore_scripts)" >&2; exit 1; }
+      cfg_tag=$(grep -nE '<script[^>]*src="(/)?flutterfire_config\.js"' "$index" | head -n1)
+      boot_line=$(grep -nE '<script[^>]*src="(/)?flutter_bootstrap\.js"' "$index" | head -n1 | cut -d: -f1)
+      cfg_line=${cfg_tag%%:*}
+      [ -n "$cfg_tag" ] && [ -n "$boot_line" ] && [ "$cfg_line" -lt "$boot_line" ] \
+        || { echo "FAIL: $p is exempt only while $index loads flutterfire_config.js before flutter_bootstrap.js" >&2; exit 1; }
+      if printf '%s' "$cfg_tag" | grep -qiE '<script[^>]*( async| defer|type="module")'; then
+        echo "FAIL: $p is exempt only while $index loads flutterfire_config.js as a plain blocking script" >&2; exit 1
+      fi ;;
+    *) echo "FAIL: $app/pubspec.yaml depends on $p, which is not in the module map of $0" >&2; exit 1 ;;
+  esac
 done
 
 root=$(jq -r '.packages[] | select(.name == "firebase_core_web") | .rootUri' "$pkgcfg")
