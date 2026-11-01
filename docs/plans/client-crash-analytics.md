@@ -12,6 +12,7 @@ Sources:
 Branches: `feat/tel-N-<slug>` (docs: `docs/tel-N-<slug>`) off `main`, not stacked; one ticket per PR; merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks TEL-1, TEL-2 or TEL-14)
+**Answered 2026-11-01, all at the defaults** (founder, verbatim: "TEL plan defaults all ok, go ahead"); recorded as decided in ADR-0032 ("Founder decisions").
 - **F1. Consent.** India's DPDP Act treats consent as the main basis for processing. Consent must follow a notice, be a clear affirmative action, and be as easy to withdraw as to give. (How the DPDP Rules phase this in is for legal advice; this is not legal advice.)
   - **Default (A): opt-in for both.** The card is shown once per account on each Android device, at the top of Home, using the push opt-in card pattern. It has two switches, "Send crash reports" and "Share usage statistics", **both off**. "Save" keeps what you switched on; "Not now" keeps both off and is not asked again. Settings › Privacy & safety has the same two switches at any time.
   - (B) Crash reports on by default with an opt-out switch in Settings and a one-time notice; analytics opt-in. Near-full crash coverage, but on-by-default is not a "clear affirmative action", so the policy would have to name another basis. Legal review would decide.
@@ -180,7 +181,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 
 | ID | Ticket | Owner | Size | Depends | Parallel | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| TEL-1 | ADR: client crash reporting and usage analytics (data inventory, terms, consent, rule 10, Q10 (f), A1–A8, proposed `CLAUDE.md` and `stage-ladder` lines, prod ceiling) | architect | M | — | **yes, start now** | Open |
+| TEL-1 | ADR: client crash reporting and usage analytics (data inventory, terms, consent, rule 10, Q10 (f), A1–A8, proposed `CLAUDE.md` and `stage-ladder` lines, prod ceiling) | architect | M | — | **yes, start now** | Done (#595) |
 | TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Open |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Open |
@@ -201,7 +202,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 
 ## Tickets
 
-### TEL-1 — ADR: client crash reporting and usage analytics  [owner: architect] [size: M] [depends: —]  Status: Open
+### TEL-1 — ADR: client crash reporting and usage analytics  [owner: architect] [size: M] [depends: —]  Status: Done (#595)
 - **Description.** A Proposed ADR, the next free number. It contains:
   - a data inventory per SDK: what is sent, which identifiers (Crashlytics installation UUID, Firebase installation ID, GA app-instance ID), to which hosts, and retention;
   - answers to A1–A8 from Google's documentation, cited with dates;
