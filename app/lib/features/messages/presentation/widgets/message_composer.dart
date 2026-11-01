@@ -7,9 +7,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_notice_banner.dart';
-import '../../../../shared/widgets/app_surface.dart';
-import '../../../../shared/widgets/character_counter.dart';
+import '../../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
+import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../../posts/domain/post_text_rules.dart' show PostDraftProblem;
 import '../../../posts/presentation/composer_screen.dart'
     show kComposerInputCap;

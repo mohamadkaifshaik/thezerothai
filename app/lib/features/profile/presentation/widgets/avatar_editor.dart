@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
 
 /// The profile photo on Edit profile. With [onChange] it is a tap target
 /// (48dp minimum, camera badge) that opens the picker; without it (media

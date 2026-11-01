@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
-import '../../../shared/widgets/app_tab_bar.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../domain/search_feature_flags.dart';

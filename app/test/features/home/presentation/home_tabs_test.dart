@@ -28,7 +28,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
-import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';

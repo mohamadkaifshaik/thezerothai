@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_pill_button.dart';
-import '../../../../shared/widgets/app_surface.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../data/push_messaging.dart';
 import '../../domain/notifications_feature_flag.dart';
 import '../../domain/push_opt_in.dart';

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/sheet_option_row.dart';
+import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 
 /// What the user picked in the repost sheet.
 enum RepostChoice { repost, undoRepost, quote }

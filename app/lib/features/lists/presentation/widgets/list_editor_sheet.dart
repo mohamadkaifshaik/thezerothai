@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
-import '../../../../shared/widgets/app_form_header.dart';
-import '../../../../shared/widgets/character_counter.dart';
+import '../../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../data/lists_repository.dart';
 import '../../domain/list_text_rules.dart';
 import '../../domain/lists_feature_flag.dart';

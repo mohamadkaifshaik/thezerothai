@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
-import '../../shared/widgets/app_avatar.dart';
+import '../../shared/widgets/primitives/app_avatar.dart';
 import '../theme/app_theme.dart';
 import 'app_shell_scope.dart';
 

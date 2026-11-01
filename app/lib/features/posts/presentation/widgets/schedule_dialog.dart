@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/format/scheduled_time.dart';
-import '../../../../shared/widgets/app_form_header.dart';
+import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../domain/schedule_rules.dart';
 import '../bloc/schedule_dialog_cubit.dart';
 

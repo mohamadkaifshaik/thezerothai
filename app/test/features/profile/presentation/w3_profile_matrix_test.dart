@@ -6,8 +6,8 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dar
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/format/joined_date.dart';
-import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
-import 'package:dzeroth/shared/widgets/post_card.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

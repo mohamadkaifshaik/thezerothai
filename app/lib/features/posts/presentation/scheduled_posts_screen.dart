@@ -13,11 +13,11 @@ import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostStatus;
-import '../../../shared/widgets/app_back_header.dart';
-import '../../../shared/widgets/app_main_column.dart';
-import '../../../shared/widgets/app_notice_banner.dart';
-import '../../../shared/widgets/headline_message.dart';
-import '../../../shared/widgets/post_list_skeleton.dart';
+import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/headline_message.dart';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../data/posts_repository.dart';
 import 'bloc/scheduled_posts_cubit.dart';
 import 'bloc/scheduled_posts_state.dart';

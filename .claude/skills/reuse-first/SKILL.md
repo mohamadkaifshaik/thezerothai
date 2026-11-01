@@ -98,8 +98,8 @@ For each new function, type, query or widget in the diff: search for an existing
 # UI catalog (Flutter). One line per reusable widget/bloc/helper.
 | Item | Location | Use it for |
 |---|---|---|
-| AppAvatar | app/lib/shared/widgets/app_avatar.dart | user avatar, all sizes |
-| PostCard | app/lib/shared/widgets/post_card.dart | any post row |
+| AppAvatar | app/lib/shared/widgets/primitives/app_avatar.dart | user avatar, all sizes |
+| PostCard | app/lib/shared/widgets/post/post_card.dart | any post row |
 | AppErrorView | app/lib/core/widgets/app_error_view.dart | typed, friendly error state |
 | ApiClient | app/lib/core/network/api_client.dart | the one Connect-RPC client |
 ```

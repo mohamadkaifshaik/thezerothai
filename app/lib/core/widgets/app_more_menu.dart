@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/shells/domain/shell_entries.dart';
-import '../../shared/widgets/app_menu_item_row.dart';
+import '../../shared/widgets/primitives/app_menu_item_row.dart';
 
 /// The menu behind the rail's "More" item (600 dp and up): the [entries] as
 /// `AppMenuItemRow`s in a popup anchored at the More icon. Choosing one opens

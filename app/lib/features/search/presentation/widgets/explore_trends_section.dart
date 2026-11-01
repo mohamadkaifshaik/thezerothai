@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_empty_view.dart';
+import '../../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../data/search_repository.dart' show Trend;
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';

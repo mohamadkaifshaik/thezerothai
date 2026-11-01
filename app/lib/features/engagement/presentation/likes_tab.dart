@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../data/likes_repository.dart';
 import 'bloc/engagement_cubit.dart';
 import 'bloc/engagement_state.dart';

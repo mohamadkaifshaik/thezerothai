@@ -1,6 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
-import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';

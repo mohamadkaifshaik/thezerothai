@@ -4,7 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/notifications/v1/notifications.pb.dart' as pb;
 import '../../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
-import '../../../../shared/widgets/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../domain/notification_location.dart';
 
 /// "Alice followed you", "Alice and 2 others liked your post": the action

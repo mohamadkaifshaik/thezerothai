@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_tab_bar.dart';
+import '../../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
 import '../../../lists/presentation/bloc/home_tabs_state.dart';
 

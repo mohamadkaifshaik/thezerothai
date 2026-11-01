@@ -16,7 +16,7 @@ import 'package:dzeroth/features/messages/presentation/widgets/outgoing_bubble.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
-import 'package:dzeroth/shared/widgets/character_counter.dart';
+import 'package:dzeroth/shared/widgets/primitives/character_counter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

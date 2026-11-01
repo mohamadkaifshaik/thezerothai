@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_surface.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
 
 /// The shared frame of the sign-in and sign-up screens: a [title] heading
 /// above [children], scrollable (so the primary action stays reachable at

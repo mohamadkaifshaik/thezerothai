@@ -281,11 +281,11 @@ Order:
 
 ### W8-3 — Shared grouped rows and status pill  [owner: frontend-developer] [size: S] [depends: —]  Status: Done (merged in #392, 2026-10-28)
 - **Description.** `reuse-first` step 3, generalise and move:
-  - `SettingsGroup` and `SettingsRow` move from `features/settings/presentation/widgets/settings_group.dart` to `app/lib/shared/widgets/settings_group.dart`, names unchanged. The Settings screen's imports are updated, and the old file is deleted (no re-export shim).
+  - `SettingsGroup` and `SettingsRow` move from `features/settings/presentation/widgets/settings_group.dart` to `app/lib/shared/widgets/primitives/settings_group.dart`, names unchanged. The Settings screen's imports are updated, and the old file is deleted (no re-export shim).
   - Two backward-compatible extensions:
     - a static row (no `onTap`) may show an optional `value` widget at the end (a count or a pill); today `trailing` is ignored without `onTap`, and that stays so;
     - at text scale ≥ 1.3, or when the value does not fit, it moves under the subtitle instead of clipping.
-  - A new `AppStatusPill` (`app/lib/shared/widgets/app_status_pill.dart`), because nothing in the catalog fits: X's "Ineligible" / "New" pill (`creator-studio.md` §3: full-round, about 22 dp tall, a tinted fill, a short label). Tokens only: a raised-surface fill with the muted label, or `accentText` for an "info" tone. It meets 4.5:1 in both themes, carries no semantics of its own, and the row's label includes its text. W8 uses it with the label "Coming soon" (F3).
+  - A new `AppStatusPill` (`app/lib/shared/widgets/primitives/app_status_pill.dart`), because nothing in the catalog fits: X's "Ineligible" / "New" pill (`creator-studio.md` §3: full-round, about 22 dp tall, a tinted fill, a short label). Tokens only: a raised-surface fill with the muted label, or `accentText` for an "info" tone. It meets 4.5:1 in both themes, carries no semantics of its own, and the row's label includes its text. W8 uses it with the label "Coming soon" (F3).
   - Catalog: the `SettingsList` line points at the new location, plus new lines for `SettingsGroup` / `SettingsRow` (shared) and `AppStatusPill`.
 - **Acceptance criteria.**
   - Given the Settings screen, then its existing widget tests pass unchanged (same rows, same semantics, same master-detail selection).

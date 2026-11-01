@@ -11,7 +11,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_mode_cubit.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
-import '../../../shared/widgets/settings_group.dart';
+import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/request_sign_out.dart';

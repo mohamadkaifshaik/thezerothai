@@ -1035,7 +1035,7 @@ zero (≤ 90 lifetimes a day, ceiling 270; ADR-0010 D5).
   - L1, L4 and the remaining L6 test gaps from the review: pick them up with T17's repository use.
 
 ### T15 — Flutter: shared `PostCard` with rich text  [owner: frontend-developer] [size: M] [depends: T14]
-- **Description.** `app/lib/shared/widgets/post_card.dart`:
+- **Description.** `app/lib/shared/widgets/post/post_card.dart`:
   - author avatar/name/@handle from the snapshot (tap → profile by **user_id**);
   - relative time;
   - text with tappable mentions and hashtags (a no-op/"coming soon" until Phase 2). Mention spans match

@@ -13,7 +13,7 @@ import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/presentation/drafts_screen.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_row.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

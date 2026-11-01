@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_form_header.dart';
-import '../../../../shared/widgets/character_counter.dart';
+import '../../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../domain/media_feature_flag.dart';
 
 /// Opens the image description (alt text) editor: a full-screen route below

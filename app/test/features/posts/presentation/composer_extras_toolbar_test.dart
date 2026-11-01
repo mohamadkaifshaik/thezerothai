@@ -23,7 +23,7 @@ import 'package:dzeroth/features/posts/presentation/composer_screen.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/composer_extras_buttons.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/composer_poll_builder.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/schedule_controls.dart';
-import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_problem_hint.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/features/posts/domain/poll_rules.dart';
