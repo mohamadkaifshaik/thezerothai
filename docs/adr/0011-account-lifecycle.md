@@ -521,6 +521,34 @@ note records the composition; **the decision below is unchanged** and takes effe
 - The Scheduler job and its 30 s attempt deadline are unchanged. ADR-0028 W4-9b implements this and keeps this ADR's
   backstop tests green. Implemented in `apiserver/daily_maintenance.go` (W4-9b); the backstop's own tests are untouched.
 
+## Note 2026-11-01 (W6-55): Q10 entries accepted in later ADRs, and the policy wording
+Q10 says a new residue entry needs an ADR amendment and a policy update in the same PR. The entries below were accepted
+in later ADRs; the W6-55 PR publishes them in `app/web/privacy.html` ("What can remain after deletion"). This note only
+indexes them. **Q10's decision and the T11 allowlist are unchanged** (`lifecycle_collections_guard_test.go` still pins
+7 entries).
+- (g) Reports about the user, with their evidence copy and the handle at report time: until resolved + 90 days
+  (ADR-0016 D5; T11 entries `reports.targetOwnerId` and `reports.targetId`).
+- (h) The copied text of a reported message: at most 180 days after filing and at most resolved + 90 days, also after
+  the sender's erasure (ADR-0016 note 2026-10-30; T11 `notPersonal` row `evidence`).
+- (i) A deleted reporter's note on a report still OPEN at erasure: kept with the anonymised report until it is deleted,
+  resolved + 90 days (ADR-0016 "Implementation notes (P7 backend PR)", deleted reporters' notes;
+  `moderation` `PurgeReporter` clears `note` on RESOLVED reports only).
+- (j) A notification row written in the race between the fan-out's ACTIVE check and the purge: until its 90-day TTL
+  (ADR-0017 Consequences). Not a T11 entry: the sweep cannot see a race.
+- (k) One-way hashes that include the uid: report document ids and a MESSAGE report's conversation id (ADR-0016 note
+  2026-10-28, addendum 2026-10-29, founder-accepted), and the conversation document id and the peer's entry id, kept
+  until both participants are gone (ADR-0027 D8). Not T11 entries: the sweep looks for the raw uid. Publishing the
+  conversation-id line is a founder decision in the W6-55 PR.
+- (l) Other users' replies keep `replyToHandle` (the parent author's handle at reply time): the third-party-content
+  stance of (c) (`docs/runbooks/account-deletion.md` 3b, "Mentions of the deleted user"). A handle, not a uid, so not a
+  T11 entry.
+- Wording, for the founder's approval in the W6-55 PR: (a) is published as "up to about 2 days" (the 24 h TTL plus
+  Firestore's typical deletion within 24 hours of expiry, firebase.google.com/docs/firestore/ttl); (e) now names every
+  background message that can carry a uid (every topic of `infra/terraform/modules/pubsub`: jobs, notifications fan-out,
+  media processing), all with the same 1-day topic and 7-day dead-letter retention; the list header reads "the only records in our
+  systems (including the services Google runs for us) that can still contain your account ID, your handle or something
+  you wrote after your account is deleted".
+
 ## Decision (Accepted 2026-10-07)
 - **D-A: option D with A.** A shared `jobs` Pub/Sub topic with push to `/internal/pubsub/jobs`. Its subscription has
   `minimum_backoff = 60s` and `max_delivery_attempts = 10`. Each invocation self-chains, saves the seq-deduped state

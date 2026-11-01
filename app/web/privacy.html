@@ -2,7 +2,8 @@
 <!-- Draft — last updated 2026-11-01 (W6-55 full refresh: founder approval of the text required;
      Polls, Drafts and Lists sections: W6-46, founder-approved in #564 and kept word for word;
      retained-after-deletion list: ADR-0011 Q10, founder-accepted 2026-10-07, plus the entries accepted later in
-     ADR-0016 D5, the ADR-0016 note of 2026-10-30 and ADR-0017 (Consequences);
+     ADR-0016 (D5, implementation notes, notes of 2026-10-28 with its 2026-10-29 addendum and of 2026-10-30) and
+     ADR-0017 (Consequences), indexed in the ADR-0011 note of 2026-11-01;
      any new entry needs an ADR-0011 amendment and an update here in the same PR) -->
 <!--
   MAINTAINERS: this policy is still a DRAFT. Do not remove the Draft marker until ALL of these are resolved:
@@ -10,8 +11,9 @@
      or jurisdiction is stated on purpose (founder decisions, W6-55 PR).
   2. Done: T27 (a deleted uid leaves other users' blocked[]/muted[] when the owner next opens the list) is built
      (docs/runbooks/account-deletion.md 3b). The "until cleaned up" bullet below describes it.
-  3. Age: the 18+ line is on the email sign-up screen only (sign_up_screen.dart); Google/Apple sign-in from the
-     sign-in screen does not show it. Legal review must decide what DPDP needs for under-18s.
+  3. Age: no age check exists. The sign-up screen says "By signing up you confirm you're 18 or older"
+     (sign_up_screen.dart), but Google/Apple sign-in from the sign-in screen does not show it, so the policy keeps
+     "does not currently check your age". Legal review must decide what DPDP needs for under-18s.
   4. DPDP Grievance Officer: name and contact of the responsible person (none named here).
   5. Governing law / jurisdiction wording (none here).
   6. ImprovMX terms and retention, and Gmail retention for privacy@ mail: obtain and verify.
@@ -32,9 +34,11 @@
       leaves off in prod, the Firestore TTL policies its retention sentence relies on must be applied there
       (Terraform modules/firestore ttl_fields: idempotency, notifications, media, exports, reports, report
       evidence, postRemovals, scheduled, poll votes), and the daily-maintenance Scheduler job must run.
-  12. Drafts (W6-46): the "Deleting your account" and "Signing out" bullets describe the app before W6-31
-      (drafts on shared devices, still Open): re-check them, and the drafts line under "What can remain after
-      deletion", when W6-31 lands.
+  12. Drafts (W6-46): re-checked against W6-31 (#574, drafts on shared devices) and W6-45 (30-day expiry), both on
+      main. The #564 sentences stay true and word for word; the "Signing out" bullet gains the sign-out prompt
+      (Delete them / Keep / Cancel, request_sign_out.dart) and the Settings row "Delete unsent posts on this
+      device" (unsent_posts_row.dart, shown while the account has drafts here, whatever the drafts flag says).
+      In-app account deletion still deletes this uid's drafts (delete_account_screen.dart, deleteAll).
   13. Replaced profile photos and header images: the text says "at the latest when you delete your account",
       which holds whatever PROFILE_MEDIA_RETIRE is (default off). When prod runs PROFILE_MEDIA_RETIRE=all, change
       it to "within about 2 days" (ADR-0024 Amendment 1 A4).
@@ -42,9 +46,20 @@
       (backend/internal/media/gcs.go). How long a deleted public image can still be served from a browser or
       Google's cache is not measured; "for a while" stays until it is (W6-55 PR, security follow-up).
   15. The ADR-0017 notification race row is listed under "What can remain after deletion" but is not a T11
-      allowlist entry (lifecycle_collections_guard_test.go); record it with a dated ADR-0011 Q10 pointer note.
-  16. iPhone: the app activates App Check with Apple App Attest (bootstrap.dart). Add Apple to that bullet, and
-      iPhone push, before any iOS release.
+      allowlist entry (lifecycle_collections_guard_test.go: the sweep cannot see a race); ADR-0017 Consequences
+      accepts it and the ADR-0011 note of 2026-11-01 indexes it with the other later Q10 entries.
+  16. iPhone: the app activates App Check with Apple App Attest (bootstrap.dart), and push registration is
+      supported on iOS (push_messaging.dart) though the opt-in card is Android only (push_opt_in.dart). Add Apple
+      to the App Check sentence, and iPhone push, before any iOS build reaches users (founder question, W6-55 PR).
+  17. Web bot protection: bootstrap.dart activates App Check with reCAPTCHA Enterprise on the web whenever the
+      build gets RECAPTCHA_SITE_KEY (GitHub variables DEV_/PROD_RECAPTCHA_SITE_KEY). "Not switched on" holds only
+      while PROD_RECAPTCHA_SITE_KEY is empty (founder question, W6-55 PR); free-tier-budget says $8/month past 10k.
+  18. GIFs: the "Photos and GIFs" sentence describes W6-30 (#577): the client strips comment, plain-text and
+      non-loop application blocks (XMP, ICC) and trailing bytes without re-encoding (image_processor.dart
+      stripGifBytes), and the server refuses a GIF that still has them (media/gifscan.go).
+  19. "Hard-to-guess web addresses" is true of uploads since W3-39 (128-bit random name suffix, media/service.go).
+      Images uploaded before W3-39 keep "m/{mediaId}.{ext}", which is derived from a time-ordered id. Re-check if
+      any such image exists in prod (founder question, W6-55 PR).
 -->
 <html lang="en">
 <head>
@@ -210,10 +225,14 @@
       <li>
         <strong>Photos and GIFs.</strong> Images you add to posts, and your
         profile photo and header image, with each image's size, type and
-        upload time. The app resizes and re-encodes photos on your device
-        before uploading them, which removes details embedded in the file,
-        such as the camera model and the location where the photo was taken.
-        GIFs are uploaded as they are. See "Photos and GIFs" below.
+        upload time, and any image description (alt text) you write. The app
+        resizes and re-encodes photos on your device before uploading them,
+        which removes details embedded in the file, such as the camera model
+        and the location where the photo was taken. GIFs are not re-encoded,
+        so that their animation is kept, but the app removes the comments, embedded
+        text and other metadata blocks a GIF file can carry before uploading
+        it, and our servers refuse a GIF that still contains them. See
+        "Photos and GIFs" below.
       </li>
       <li>
         <strong>Direct messages.</strong> The messages you send and receive,
@@ -563,6 +582,9 @@
         accounts used on that device can't see them in the app, but someone
         with access to the device or browser could read them with technical
         tools. On a shared device, delete your drafts before you sign out.
+        If your account has drafts on the device when you sign out, the app
+        asks whether to keep them or delete them first. While it has drafts
+        there, Settings also shows "Delete unsent posts on this device".
       </li>
       <li>
         <strong>30-day limit.</strong> A draft you haven't edited for 30
@@ -643,13 +665,16 @@
       <li>
         <strong>What we can do.</strong> If something breaks our
         <a href="/rules.html">community rules</a>, we can remove a post or a
-        message, or suspend an account. When we remove a post, we keep a
+        message, hide a list, clear parts of a profile (such as a website or
+        a photo), or suspend an account. When we remove a post, we keep a
         short record of it (the post's ID and its author's account ID) for
         32 days, so that it disappears from everyone's timelines.
       </li>
       <li>
         <strong>Reports you made</strong> are kept as safety evidence. If you
-        delete your account, they are kept without your account ID.
+        delete your account, they are kept without your account ID. A note
+        you added to a report we hadn't dealt with yet stays with that
+        report until it is deleted, 90 days after we resolve it.
       </li>
     </ul>
 
@@ -844,6 +869,22 @@
         after we resolve it.
       </li>
       <li>
+        <strong>A note on a report you made, until 90 days after it is
+        resolved.</strong> If we hadn't dealt with a report you made when
+        your account was deleted, the note you wrote stays with that report
+        (without your account ID) until it is deleted, 90 days after we
+        resolve it.
+      </li>
+      <li>
+        <strong>Identifiers derived from your account ID.</strong> Some
+        internal record IDs, for example those of a conversation you were in
+        or of a report you made, are one-way hashes that include your account
+        ID. They can't be turned back into your account ID, but someone who
+        already knows it could check it against them. They last as long as
+        those records: a conversation until the other person's account is
+        deleted too, a report until 90 days after we resolve it.
+      </li>
+      <li>
         <strong>A notification created at the moment of deletion, up to 90
         days.</strong> In rare cases, a notification about something you did
         (for example a like) can be added to someone's list at the very
@@ -888,7 +929,8 @@
       </li>
       <li>
         <strong>Poll totals.</strong> Your vote stays counted in the totals of
-        the polls you voted in, but nothing we keep links it to you.
+        the polls you voted in, but once your votes are deleted nothing we
+        keep links it to you (apart from the database backups listed above).
       </li>
       <li>
         <strong>The other person's side of a conversation.</strong> The
@@ -909,8 +951,7 @@
     <h2>Age requirement</h2>
     <p>
       Dzeroth is intended for people aged <strong>18 and over</strong>.
-      The sign-up screen asks you to confirm that you're 18 or older, but we
-      don't verify your age. If you believe
+      The app does not currently check your age at sign-up. If you believe
       someone under 18 has created an account, email us at
       <a href="mailto:privacy@dzeroth.com">privacy@dzeroth.com</a>.
     </p>
