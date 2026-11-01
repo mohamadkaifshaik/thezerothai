@@ -428,7 +428,7 @@ the founder answers F1 to F8 differently; or when an offensive tag needs the den
 
 ## Note (2026-10-31): trends hide list and established authors, SearchPosts windows, GetTrends daily cap, wording fixes (security review W4-22)
 
-This dated note amends D2, D3, D4, D5, D6 and D9, following the security review W4-22 (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical or High finding). Tickets W4-25 to W4-28 are in `docs/plans/ui-w4-discovery-search.md`.
+This dated note amends D2, D3, D4, D5, D6 and D9, following the security review W4-22 (`docs/reviews/security/security-w4-search.md`: SECURITY: CLEAR, no Critical or High finding). Tickets W4-25 to W4-28 are in `docs/plans/ui-w4-discovery-search.md`.
 - **Acceptance.** The founder accepts the note by merging its PR (`docs/ui-w4-25-28-tickets`). The Status line above is unchanged. Where this note and the text above disagree, the note wins.
 - **No new ADR.** No new GCP service, no Scheduler job, no composite index, no gate-file change and no fixed cost.
 - **No proto field or semantic change.**

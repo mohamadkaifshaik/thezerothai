@@ -63,7 +63,7 @@ Two consequences you should check at the same time:
 - Code: `engagement/{service_polls,repo_polls,service}.go`; `posts/{convert,audience,service_delete,poll}.go`;
   `media/{finalize,vision,gifscreen,repo_firestore}.go`, with #535 (W6-27) and #536 (W6-25) merged; the client files
   `drafts_repository.dart`, `composer_cubit.dart` and `drafts_screen.dart`.
-- Reviews: `docs/reviews/test-report-w6-polls.md` O-1 and O-2; `docs/reviews/security-w6-composer-extras.md` H-3, L-3,
+- Reviews: `docs/reviews/tests/test-report-w6-polls.md` O-1 and O-2; `docs/reviews/security/security-w6-composer-extras.md` H-3, L-3,
   L-5 and section 4.
 
 Tickets W6-35 to W6-42 (the plan; W6-32 to W6-34 went to the W6-25 review follow-ups in #536). No proto, code,

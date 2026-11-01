@@ -266,7 +266,7 @@ The who-to-follow card's reads are W3's line (one call per Explore open). The pr
 | W4-19 | Who-to-follow card on Explore and in the side column (renders W3's data) | frontend-developer | S | W4-17, W3 suggestion RPC + widget | **depends on W3** | Done (#472) |
 | W4-20 | Backend tests: flag matrix, grammar, budgets, block oracle, cursors, trends sweep | tester | M | W4-5, W4-8, W4-10 | yes | Done (#500; D-1 Low fixed in #501) |
 | W4-21 | Client tests: responsive matrix and flows across the new screens | tester | S | W4-14 to W4-18 | yes | Done (#493; D-1 Low overflow fixed in #509) |
-| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
+| W4-22 | Security review: enumeration, oracle, trends abuse, logging, local history | security-auditor | S | W4-5, W4-8, W4-10, W4-14 | yes | Done (`docs/reviews/security/security-w4-search.md`: SECURITY: CLEAR, no Critical/High; follow-ups ticketed as W4-25 to W4-28) |
 | W4-23 | Cost report: `cost-model.md` rows, emulator load smoke, trigger | sre-performance | S | W4-8, W4-10 | yes | Done (#492) |
 | W4-24 | Dev rollout: Terraform plan, allowlist, smoke incl. direct trends-refresh call | production-deployer | S | W4-20, W4-22, W4-23, ADR merged, W4-25 to W4-28 ticketed (PR `docs/ui-w4-25-28-tickets`) | serialise dev applies with W3's | Done in dev 2026-10-31 (allowlist 6 test accounts; smoke passed; grant removed) |
 | W4-25 | Trends fast removal: `trends/hidden` + `opsctl trends hide\|unhide\|list`, serve-time denylist and hidden filter in GetTrends, skeleton matching, `trends_denylist` Terraform variable, runbook 4.3 | backend-developer (+ production-deployer: Terraform variable) | S | W4-10 merged | yes (search module, `cmd/opsctl`) | Done (#508: `trends/hidden`, `opsctl trends` hide, unhide, list, serve-time denylist and hide filter with renumbered ranks, `search.TrendKey`, `trends_denylist` Terraform variable in `envs/dev` and `envs/prod` (not applied), runbook 4.3, proto comments) |
@@ -739,7 +739,7 @@ Order:
 - **Seam.** —
 - **Parallel with W3:** yes.
 
-### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Done (`docs/reviews/security-w4-search.md`, SECURITY: CLEAR; M-1, M-2, L-1, L-4 ticketed as W4-25 to W4-28, gated before prod percent)
+### W4-22 — Security review  [owner: security-auditor] [size: S] [depends: W4-5, W4-8, W4-10, W4-14]  Status: Done (`docs/reviews/security/security-w4-search.md`, SECURITY: CLEAR; M-1, M-2, L-1, L-4 ticketed as W4-25 to W4-28, gated before prod percent)
 - **Description.** A threat model for the new public reads:
   - handle enumeration (cap 20, no pagination, 2-character minimum, 30/min × 3 instances, `search_daily` 300 × 3, read budget);
   - hashtag scraping (sealed cursors, page ≤ 50);
@@ -801,7 +801,7 @@ Order:
   - Prod: unchanged (held release).
 
 ### W4-25 — Trends fast removal: hide list, serve-time filter, skeleton matching  [owner: backend-developer; production-deployer for the Terraform variable] [size: S] [depends: W4-10 merged]  Status: Open
-Source: security review W4-22 M-1 (`docs/reviews/security-w4-search.md`); ADR-0028 note 2026-10-31, part 1. Gate: **before `trends` leaves the allowlist in prod** (prod percent). It does not gate the dev or prod allowlist.
+Source: security review W4-22 M-1 (`docs/reviews/security/security-w4-search.md`); ADR-0028 note 2026-10-31, part 1. Gate: **before `trends` leaves the allowlist in prod** (prod percent). It does not gate the dev or prod allowlist.
 - **Description.**
   1. **Skeleton key.** Add `search.TrendKey(s string) string` (new `internal/search/trend_key.go`). Steps, in order:
      - trim, and drop one leading `#`;

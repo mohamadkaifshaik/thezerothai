@@ -370,10 +370,10 @@ Effect on the quotas (additive):
 | W6-14 | Drafts store: drift table (schema v9), `DraftsRepository`, autosave, account-deletion wipe | frontend-developer | M | — | **yes, start now**; `app_database.dart` schema bump: one PR at a time | Done (#487) |
 | W6-15 | Drafts UI: Drafts button, "Save post?", Drafts screen (Unsent posts \| Scheduled), Edit mode | frontend-developer | M | W6-14, W6-4 | `app_router.dart`, `composer_screen.dart` | Done (#525) |
 | W6-16 | GIF from the device: pick, check, thumbnail, upload; GIF badge and tap to play | frontend-developer | M | W6-9 | media client files | Done (#525; #522 closed as merged via #525) |
-| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Done (#532; report `docs/reviews/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
-| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in #521; report docs/reviews/test-report-w6-gif.md) |
-| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Done (#534; report `docs/reviews/test-report-w6-client.md`; D1 Low fixed in W6-48 #553) |
-| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Done: re-review 2026-11-01 CLEAR WITH CONDITIONS (C-1 to C-6, all prod gates; `docs/reviews/security-w6-composer-extras.md` section 7). Report #533; fixes H-1 #536, H-2 #541, H-3 #535 (revised #554), M-2 #545. New Low N-1 is W6-58; the media rollback floor is W6-59 |
+| W6-17 | Backend tests: polls (flag matrix, vote matrix, concurrency, redaction, budgets, lifecycle) | tester | M | W6-8 | yes | Done (#532; report `docs/reviews/tests/test-report-w6-polls.md`, 12 tests added, VERDICT PASS) |
+| W6-18 | Backend tests: GIF (sniffing, caps, guards, bombs, Vision units, flag) | tester | S | W6-10 | yes | Done (#519; D-1 Medium fixed in #521; report docs/reviews/tests/test-report-w6-gif.md) |
+| W6-19 | Client tests: composer, poll card, drafts and GIF across the responsive matrix | tester | M | W6-12 to W6-16 | yes | Done (#534; report `docs/reviews/tests/test-report-w6-client.md`; D1 Low fixed in W6-48 #553) |
+| W6-20 | Security review: vote integrity, result oracle, GIF moderation and bombs, drafts on shared devices | security-auditor | S | W6-7, W6-10, W6-15 | yes | Done: re-review 2026-11-01 CLEAR WITH CONDITIONS (C-1 to C-6, all prod gates; `docs/reviews/security/security-w6-composer-extras.md` section 7). Report #533; fixes H-1 #536, H-2 #541, H-3 #535 (revised #554), M-2 #545. New Low N-1 is W6-58; the media rollback floor is W6-59 |
 | W6-21 | Cost report: `cost-model.md` rows, emulator load smoke (hot poll, GIF finalize) | sre-performance | S | W6-7, W6-10 | yes | Done (#528; `cost-model.md` §16, BUDGET: HOLDS) |
 | W6-22 | Dev rollout: targeted Terraform plan, fieldOverride and TTL, allowlist, smoke | production-deployer | S | W6-17 to W6-21, ADR merged | serialise dev applies with W3/W4/W5 | Done in dev (smoke passed 2026-11-01: polls, drafts, GIF); prod stays `off` until the held release |
 | W6-23 | *(conditional on F9: terms verified in writing)* GIF picker ADR addendum: provider seam, key handling, cache, attribution | architect | S | F9 | yes | Open (conditional) |
@@ -855,7 +855,7 @@ Order:
     - There is no data-saver setting in the app, so nothing reads one; playback is tap-only everywhere (list and detail), which also satisfies reduced motion.
     - FinalizeUpload's MEDIA_NOT_READY carries no discriminator between "slot busy" and "object missing", so a lone GIF repeats the same finalize (same key, no re-PUT) after 2, 4 and 8 s (jittered) before falling back to the re-PUT path.
 
-### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Done (#532; report `docs/reviews/test-report-w6-polls.md`, VERDICT PASS)
+### W6-17 — Backend tests: polls  [owner: tester] [size: M] [depends: W6-8]  Status: Done (#532; report `docs/reviews/tests/test-report-w6-polls.md`, VERDICT PASS)
 - **Description.** Emulator integration and unit:
   - flag modes for `polls` and `engagement` (create per caller; vote with `engagement` per caller and `polls` not globally off; the globally-off reveal);
   - the F4 validation table;
@@ -875,7 +875,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Done (#519; report `docs/reviews/test-report-w6-gif.md`; D-1 Medium fixed in #521: the sampler now counts delays under 2 cs as 10 cs)
+### W6-18 — Backend tests: GIF  [owner: tester] [size: S] [depends: W6-10]  Status: Done (#519; report `docs/reviews/tests/test-report-w6-gif.md`; D-1 Medium fixed in #521: the sampler now counts delays under 2 cs as 10 cs)
 - **Description.**
   - The sniffer and content-type matrix;
   - size and edge caps;
@@ -894,7 +894,7 @@ Order:
 - **Seam.** —
 - **Runs alongside W3/W4/W5:** yes.
 
-### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: Done (#534; report `docs/reviews/test-report-w6-client.md`; D1 Low fixed in W6-48 #553)
+### W6-19 — Client tests  [owner: tester] [size: M] [depends: W6-12 to W6-16]  Status: Done (#534; report `docs/reviews/tests/test-report-w6-client.md`; D1 Low fixed in W6-48 #553)
 - **Description.** The cross-feature matrix:
   - composer exclusions (poll × photo × GIF × schedule × reply / quote);
   - poll builder → post → card states;
@@ -997,7 +997,7 @@ Order:
 - **Runs alongside W3/W4/W5:** yes.
 
 ### W6-25 to W6-31 — W6-20 security follow-ups  Status: Done (W6-25 #536, W6-26 #541, W6-27 #535 revised by W6-40 #554, W6-28 #545, W6-29 #552, W6-30 #577, W6-31 #574); prod: the upload-bucket CORS apply from #536 pending (founder plan-then-OK)
-Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
+Scope, findings and evidence are in `docs/reviews/security/security-w6-composer-extras.md` (one ticket per finding, rows above). Gates:
 - **W6-25 (H-1), W6-26 (H-2), W6-27 (H-3):** before `gif` or `media` leaves the dev allowlist, and before `FEATURE_MEDIA` leaves off in prod. Until then `gif` and `media` stay on team and test accounts only.
 - **W6-28 (M-2):** before `gif` leaves the dev allowlist (with #521, M-1).
 - **W6-29 (L-2, L-6):** before `polls` leaves off in prod.
@@ -1331,7 +1331,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   - A key is cleared only when it was freshly minted for this send and the answer is VALIDATION, FEATURE_DISABLED or
     EMAIL_NOT_VERIFIED (on a reused key even these may follow a send that landed).
   - Residuals: web tabs without a SharedWorker (G4), a draft emptied by the user drops its pending key, the
-    `kMaxDrafts` eviction can drop a row that holds one. See `docs/reviews/test-report-w6-drafts-dup.md`.
+    `kMaxDrafts` eviction can drop a row that holds one. See `docs/reviews/tests/test-report-w6-drafts-dup.md`.
 - **Seam.** `DraftsRepository`, the only reader and writer.
 - **Flag.** `drafts`.
 
@@ -1377,13 +1377,13 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   ≥ 70 %; no test deleted.
 - **Cost.** 0 (emulators). The real `OPTIMISTIC` contention of a change race goes in W6-22's dev smoke.
 
-#### W6-42 — Security review of Amendment 1  [owner: security-auditor] [size: S] [depends: W6-36 and W6-40 PRs open]  Status: Done (part 1: `docs/reviews/security-w6-40-attempt-cap.md`, CLEAR after 9490702a; part 2: `docs/reviews/security-w6-36-poll-changes.md`, CLEAR, 4 Low: L-1 and I-7 to W6-41, L-2 to W6-52, L-3 to W6-51, L-4 to W6-46)
+#### W6-42 — Security review of Amendment 1  [owner: security-auditor] [size: S] [depends: W6-36 and W6-40 PRs open]  Status: Done (part 1: `docs/reviews/security/security-w6-40-attempt-cap.md`, CLEAR after 9490702a; part 2: `docs/reviews/security/security-w6-36-poll-changes.md`, CLEAR, 4 Low: L-1 and I-7 to W6-41, L-2 to W6-52, L-3 to W6-51, L-4 to W6-46)
 - **Description.**
   - **W6-36:** `TARGET_BLOCKED` reveals only the caller's own block; NOT_FOUND byte identity; `expected_choice`
     tells nothing about other voters; logs never carry a choice; the L-3 widening.
   - **W6-40:** the H-3 bound with the new counters (per doc 16 units, per account 180 a day effective); refunds never
     hide a billed call; the bucket split.
-- **Acceptance criteria.** A dated section in `docs/reviews/security-w6-composer-extras.md` with no open Critical or
+- **Acceptance criteria.** A dated section in `docs/reviews/security/security-w6-composer-extras.md` with no open Critical or
   High; W6-40 merges only after it.
 - **Cost.** 0.
 

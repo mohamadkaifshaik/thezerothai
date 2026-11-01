@@ -42,7 +42,7 @@ func w320LikesChain(c *config.Config) {
 	c.FeatureQuotes = flags.Spec{Name: "quotes", Mode: flags.On}
 }
 
-// w320LikesRepeatsAfterLastGoneAndNextRelike is a finding of this ticket (defect D-1 in docs/reviews/test-report-w3.md),
+// w320LikesRepeatsAfterLastGoneAndNextRelike is a finding of this ticket (defect D-1 in docs/reviews/tests/test-report-w3.md),
 // not a W3-22 item. Pre-fix (true): when the last returned row is unliked AND the next row is unliked and liked again
 // between two pages, the resume rule 1 of ADR-0024 D6 ("Next, when it is in recent and Last is gone: resume at it") puts
 // the re-liked Next at the NEWEST end, so the walk restarts from the top and repeats every row of the earlier pages -

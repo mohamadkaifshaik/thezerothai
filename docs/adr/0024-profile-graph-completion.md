@@ -25,7 +25,7 @@ ADR-0025 fills it.
 **Status: Accepted** (founder, 2026-10-27, by merging PR #349, which accepted A1 to A5). A4 records the founder's answer to question 2 of the W3-22
 review: **Option 5B** (founder decision, 2026-10-27, relayed to the architect by the coordinator; the founder's merge of
 this PR is the acceptance). It amends D1. Source: the W3-22 security review (merged #348,
-`docs/reviews/security-review-w3.md`), findings M-1 and M-2 and its "Questions for the founder". Gate: A1 to A3 are
+`docs/reviews/security/security-review-w3.md`), findings M-1 and M-2 and its "Questions for the founder". Gate: A1 to A3 are
 built before `profile_extras` leaves the dev allowlist in any project (the M-1 gate); A4 has its own rollout order
 (below). There is no proto contract change, no new flag, index or Terraform resource (A4 adds one lifecycle rule to the
 existing media bucket, free), and no fixed cost.

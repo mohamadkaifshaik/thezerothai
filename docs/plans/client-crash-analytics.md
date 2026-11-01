@@ -377,7 +377,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
     - the `firebase.json` CSP has no `googletagmanager.com` or `google-analytics.com`.
   - The TEL-4 matrix end to end; the TEL-5 canaries through `reportUnexpectedError`.
   - **Evidence:** a release-mode dev Android build with network traces in three states (no consent; consent with flag off; consent with flag on). The first two show no Crashlytics, Sessions or Analytics traffic. The third shows a forced test crash in the dzeroth-dev Crashlytics console and DebugView events with no id, handle or text.
-  - Report in `docs/reviews/test-report-client-telemetry.md`.
+  - Report in `docs/reviews/tests/test-report-client-telemetry.md`.
 - **Acceptance criteria.** VERDICT PASS with the three traces attached; every guard fails when its rule is broken (mutation check).
 - **Test notes.** Includes the Q10 (f) check ("the app never sets a user identifier").
 - **Observability.** —
@@ -394,7 +394,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
   - the terms (A2);
   - fake-data abuse.
 
-  Report in `docs/reviews/security-client-telemetry.md`.
+  Report in `docs/reviews/security/security-client-telemetry.md`.
 - **Acceptance criteria.** SECURITY CLEAR, with 0 Critical or High open and an explicit line: "no identifier sent to Google is keyed to or joinable with a uid".
 - **Test notes.** —
 - **Observability.** —

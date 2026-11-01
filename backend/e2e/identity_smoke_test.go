@@ -375,7 +375,7 @@ func TestE2E_RateLimitRunsBeforeAccountStatus(t *testing.T) {
 	assertCode(t, err, connect.CodeResourceExhausted)
 }
 
-// TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected (H1, docs/reviews/security-audit-v0.1.0.md): the
+// TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected (H1, docs/reviews/security/security-audit-v0.1.0.md): the
 // Firebase Auth emulator mints unverified email/password users by default, exactly like real Firebase —
 // real end-to-end proof that CreateProfile rejects such a caller with EMAIL_NOT_VERIFIED before ever
 // reaching Firestore, over the real Connect interceptor chain and real Admin-SDK token verification.
@@ -420,7 +420,7 @@ func doXFFRequest(t *testing.T, method, url, xff string, body []byte) *http.Resp
 	return resp
 }
 
-// TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth (M1, docs/reviews/security-audit-v0.1.0.md): a flood of
+// TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth (M1, docs/reviews/security/security-audit-v0.1.0.md): a flood of
 // completely unauthenticated requests (no Authorization header at all) to a real RPC path must be rejected
 // once the caller's IP exceeds the pre-auth budget — proof the rejection happens as plain net/http
 // middleware in front of the Connect handler chain, not the post-auth ratelimit.Interceptor. /health must
@@ -452,7 +452,7 @@ func TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth(t *testing.T) {
 	}
 }
 
-// TestE2E_MaxRequestBodyRejected (hardening, docs/reviews/security-audit-v0.1.0.md informational finding):
+// TestE2E_MaxRequestBodyRejected (hardening, docs/reviews/security/security-audit-v0.1.0.md informational finding):
 // a body over limits.MaxRequestBytes must never reach the handler/service layer — http.MaxBytesHandler
 // wraps the whole mux in apiserver.Build.
 func TestE2E_MaxRequestBodyRejected(t *testing.T) {

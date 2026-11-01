@@ -3,7 +3,7 @@ Plan owner: planner · Date: 2026-09-30 · Target release: **v0.3.0** (web publi
 Stage: 0 (0 – ~300 DAU, $0)
 Inputs: CLAUDE.md, ADR-0002/0003/0004/0006/0008/0009, `proto/dzeroth/{posts,timeline,common,identity}/v1/*.proto`,
 `backend/internal/{identity,graph,apiserver}`, `backend/pkg/platform/*`, `firebase/firestore.indexes.json`,
-`docs/reviews/cost-model.md`, `docs/reviews/security-audit-v0.1.0.md`, `docs/plans/graph.md` (format and patterns).
+`docs/reviews/cost-model.md`, `docs/reviews/security/security-audit-v0.1.0.md`, `docs/plans/graph.md` (format and patterns).
 
 > **Design decisions: ADR-0010 (`docs/adr/0010-posts-and-timelines-slice.md`) answers Q1–Q12.** This plan follows the
 > ADR. Where the ADR overrides a plan default, the ticket text below already uses the ADR's version:

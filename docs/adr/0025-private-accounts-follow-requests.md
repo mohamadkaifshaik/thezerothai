@@ -51,7 +51,7 @@ to know whether an arbitrary author is protected:
 - GetThread replies, ListBookmarks, ListLikedPosts, the Reposts tab and W4 search show posts by authors the viewer
   does not follow.
 
-The pending security review of W2 (`docs/reviews/security-review-w2.md`, finding L-2, on another branch) asks for
+The pending security review of W2 (`docs/reviews/security/security-review-w2.md`, finding L-2, on another branch) asks for
 exactly this. ListBookmarks must drop a post that is not public unless the viewer follows its author, once private
 accounts exist.
 

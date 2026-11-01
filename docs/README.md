@@ -19,6 +19,8 @@ Start here. Binding rules are in `/CLAUDE.md`; decisions in `adr/` win over ever
 code, security, test and cost reports of the shipped graph, posts/timeline, account-lifecycle and modern-UI slices (plans and ADRs still
 cite them by their `docs/archive/reviews/` path), plus the phase 0 and p0 reviews and old post-release notes.
 
-`reviews/` keeps what is still used: `cost-model.md` (read by `make cost`), the ADR-0021 security review (that work is in progress) and the
-`release-<tag>-readiness.md` files. Keep the release files in place: `release-prod.yml` and `promote-prod.yml` require
-`docs/reviews/release-<tag>-readiness.md` with a `VERDICT: GO` line for the tag being released.
+`reviews/` keeps what is still used: `cost-model.md` (read by `make cost`), the `release-<tag>-readiness.md` files, `security/`
+(security reviews and threat models, `security-*.md`) and `tests/` (test reports, `test-report-*.md`). Keep the release files and
+`cost-model.md` at the top of `reviews/`: `release-prod.yml` and `promote-prod.yml` require
+`docs/reviews/release-<tag>-readiness.md` with a `VERDICT: GO` line for the tag being released, and the cost model is cited from protos,
+Terraform and the Makefile.

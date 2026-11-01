@@ -112,7 +112,7 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 	// numbers: an accept calls Directory.Forget(requester, caller) (the follower counters moved), which evicts the CALLER's
 	// own profile too, so the next call on that instance pays the account-status interceptor's read again. That is why a
 	// decline measured after an accept on the same instance reads 3, not 2 (production behaviour, W3-35d D-1 in
-	// docs/reviews/test-report-w3-partb.md), and why every row below starts a new instance.
+	// docs/reviews/tests/test-report-w3-partb.md), and why every row below starts a new instance.
 	respond := func(r *w320Chain, who bmUser, accept bool) {
 		if _, err := r.w328Respond(w.p, who.uid, accept); err != nil {
 			t.Fatalf("Respond(%v): %v", accept, err)

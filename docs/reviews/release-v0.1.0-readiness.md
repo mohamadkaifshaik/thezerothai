@@ -18,7 +18,7 @@ release-prod stages the new revision under the `candidate` tag; a pass/fail gate
 | ADRs for design changes | PASS | ADR-0001…0007 Accepted. ADR-0006 amendments 2026-09-27 (web App Check deferred) and 2026-09-28 (pre-auth IP limit, ClientIP, H1) |
 | Test report PASS, incl. budget assertions | PASS (R-N6) | CI run 36369005999 (same code as `c19c112`): `make ci` green, `pkg/platform` 82.3%, golangci-lint 0, 80 Flutter tests; `make test-int` `internal/` 87.7% with `budgettest.Assert` read/write budgets |
 | Code review APPROVE | PASS | `docs/archive/reviews/phase0-code-review.md`: all blockers and majors fixed and re-reviewed. PRs #13–#15 spot-checked (§2) |
-| Security: no open Critical/High | PASS | `docs/reviews/security-audit-v0.1.0.md`: 0 Critical, H1 fixed; the rest fixed or accepted in §4 |
+| Security: no open Critical/High | PASS | `docs/reviews/security/security-audit-v0.1.0.md`: 0 Critical, H1 fixed; the rest fixed or accepted in §4 |
 | Cost: free quotas hold with ≥ 20% headroom | PASS | §3. Prices in `cost-model.md` §7 are unverified (R-N6) |
 | No unapproved fixed-cost resource | PASS | No `cost-guard`-forbidden resources; `min_instance_count = 0`, max 3 |
 | Green CI on the release commit, image digest | PASS / GATED | CI as above; deploy-dev run 36369902661 green. Digest recorded at P2.1 |

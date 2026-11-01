@@ -1,6 +1,6 @@
 # Test report: UI wave W4 (search and trends), backend (W4-20), 2026-10-31
 
-Plan: `docs/plans/ui-w4-discovery-search.md` (W4-20). Design: ADR-0028. The client half is `docs/reviews/test-report-w4-client.md` (W4-21).
+Plan: `docs/plans/ui-w4-discovery-search.md` (W4-20). Design: ADR-0028. The client half is `docs/reviews/tests/test-report-w4-client.md` (W4-21).
 Tester: tester agent. Branch `test/ui-w4-20-search-tests` on `main@be90d1bd` (W4-4 to W4-10 merged: #469, #467, #478, #481 and the SearchPeople PR #479).
 The load shapes (a hot tag at 50 posts a minute, a 600-entry typeahead burst) are W4-23 and are not run here.
 

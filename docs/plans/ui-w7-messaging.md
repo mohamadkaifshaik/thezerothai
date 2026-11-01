@@ -856,7 +856,7 @@ Order:
 - **Budget.** 0 (emulators).
 - **Flag.** Under test: `messaging` (caller × recipient) × `notifications` × `reports`.
 - **Seam.** —
-- **Built (W7-20, PR #453, 2026-10-29).** A traceability audit first: all 45 explicit acceptance criteria of W7-4 to W7-12 already had a named test; the traceability table (criterion to `file:TestName`) is `docs/reviews/test-report-w7.md` section 3, with the budgets per RPC in section 4. Added 18 tests for 13 gaps (the read RPCs' budgets, NOT_FOUND bytes, flag classes, limiter and badge through the interceptor chain; a mid-range percent; degraded mode for MarkConversationRead; the send caps of an established account; suspended recipient and the caller's own mute; blockedByOverflow on send; concurrent first messages; the reference-account eraser and export budgets). Coverage on `internal/messaging` 93.7 %. Two Low defects are filed as skipped tests (`W720_RUN_DEFECTS=1` reproduces): D-1, a `blockedByOverflow` caller's list and thread ignore the blockers that dropped out of `blockedBy` (a blocker's request stays listed, `can_reply` true); D-2, `ListMessages` on a conversation whose participant list is not a pair answers INTERNAL, not the unknown-id NOT_FOUND. Measured against the plan: the eraser for the reference account costs 381 reads, 360 writes, 20 deletes (the plan says about 340 / 340 / 20; the code matches its per-call documentation, so the plan figure and `cost-model.md` need correcting in W7-23). The load shapes stay with W7-23.
+- **Built (W7-20, PR #453, 2026-10-29).** A traceability audit first: all 45 explicit acceptance criteria of W7-4 to W7-12 already had a named test; the traceability table (criterion to `file:TestName`) is `docs/reviews/tests/test-report-w7.md` section 3, with the budgets per RPC in section 4. Added 18 tests for 13 gaps (the read RPCs' budgets, NOT_FOUND bytes, flag classes, limiter and badge through the interceptor chain; a mid-range percent; degraded mode for MarkConversationRead; the send caps of an established account; suspended recipient and the caller's own mute; blockedByOverflow on send; concurrent first messages; the reference-account eraser and export budgets). Coverage on `internal/messaging` 93.7 %. Two Low defects are filed as skipped tests (`W720_RUN_DEFECTS=1` reproduces): D-1, a `blockedByOverflow` caller's list and thread ignore the blockers that dropped out of `blockedBy` (a blocker's request stays listed, `can_reply` true); D-2, `ListMessages` on a conversation whose participant list is not a pair answers INTERNAL, not the unknown-id NOT_FOUND. Measured against the plan: the eraser for the reference account costs 381 reads, 360 writes, 20 deletes (the plan says about 340 / 340 / 20; the code matches its per-call documentation, so the plan figure and `cost-model.md` need correcting in W7-23). The load shapes stay with W7-23.
 
 ### W7-21 — Client tests  [owner: tester] [size: S] [depends: W7-14 to W7-19]  Status: Done (#447)
 - **Description.** The cross-screen matrix:
@@ -1072,7 +1072,7 @@ Order:
 
 
 ### W7-28 to W7-36 — Security-review follow-ups (W7-22)  Status: W7-28 to W7-33 and W7-35 Done (W7-30 header #459, export #488); W7-36 In review (PR #482); W7-34 In review (PR #511, the last prod blocker; all prod blockers, see "Prod blockers and order")
-Source: `docs/reviews/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
+Source: `docs/reviews/security/security-w7-messaging.md` (2026-10-29). Each ticket's description, attack scenario, fix and gate are
 in that report (finding ids in brackets); acceptance is "the finding's fix is in place with a test, and the report's
 scenario no longer works".
 - **W7-28 (done, #448) [H-1]** non-participant cache isolation. Gate: before any user outside the 3 team uids. Budget: a
@@ -1276,7 +1276,7 @@ A **lane** is one implementer doing one ticket at a time in their own worktree u
     - request links shown as plain text (W7-35 L-9).
 
 **C. Founder decisions and prod prerequisites**
-15. **Privacy Policy lines** (`docs/reviews/security-w7-messaging.md` section 4 item 1; roadmap section 9 item 3.18) and **Terms of Service** (section 4 item 2; roadmap item 3.9). Before any non-team user.
+15. **Privacy Policy lines** (`docs/reviews/security/security-w7-messaging.md` section 4 item 1; roadmap section 9 item 3.18) and **Terms of Service** (section 4 item 2; roadmap item 3.9). Before any non-team user.
 16. **The 6-uid dev allowlist**: CONFIRMED by the founder 2026-10-30 (PR #463, requested by the founder), so the security review's dev condition (2) is met at 6.
 17. **Hidden requests in `request_count`** (W7-37 "Known"): the count includes requests the Requests folder hides (blocked or muted peers).
     - **DECIDED (founder 2026-10-30): accept for v1.** The Requests empty state gets one line ("Requests from accounts you blocked or muted are hidden.", our copy), which rides with W7-37b.

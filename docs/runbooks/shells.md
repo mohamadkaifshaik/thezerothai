@@ -97,4 +97,4 @@ Only after **both** `ui_shell` is on in prod (otherwise nobody sees an entry, F6
 1. **Allowlist first:** in your prod `terraform.tfvars`, `feature_shells = "allowlist"` and `feature_shells_allowlist = "<the prod testers' uids>"`. Run the targeted prod plan (the same two `-target`s; expect only the three `FEATURE_SHELLS*` env entries), give your OK, apply. It ships through a `v*` tag, a production-reviewer GO and `promote-prod` (ADR-0019, `docs/runbooks/release.md`).
 2. **Then `on`:** `feature_shells = "on"` (the allowlist line can go), by the same path.
 
-Before step 1, recheck the store guidelines quoted in `docs/reviews/security-review-w8.md` for the store builds that will carry the pages.
+Before step 1, recheck the store guidelines quoted in `docs/reviews/security/security-review-w8.md` for the store builds that will carry the pages.

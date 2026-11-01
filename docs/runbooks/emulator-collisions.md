@@ -2,7 +2,7 @@
 
 Applies to local development and agent test runs: `make emulators`, `make test-int`, `make dev` and any raw
 `firebase emulators:*` command. Not a production failure mode. Found by the W3-20 tester (defect D-2 in
-`docs/reviews/test-report-w3.md`, which lands with PR #355).
+`docs/reviews/tests/test-report-w3.md`, which lands with PR #355).
 
 ## 1. Symptom
 

@@ -2,7 +2,7 @@
 
 Tester: tester agent. Branch `feat/ui-w3-20` on `main@9b3f9fb` (W3-2 to W3-12 merged, plus the W3-22 fixes L-1 to L-5 and M-3,
 #350 and #351, and M-1, #354). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-20). Design: ADR-0024 (D1 to D9,
-Amendment 1). Security input: `docs/reviews/security-review-w3.md`.
+Amendment 1). Security input: `docs/reviews/security/security-review-w3.md`.
 
 **VERDICT: PASS for W3-20 as specified** (every ticket bullet is covered by a test that passes on the emulators; every measured
 budget is at or under its ADR-0024 ceiling; combined `internal/` coverage in section 4). W3-22 M-1 is verified on `main`

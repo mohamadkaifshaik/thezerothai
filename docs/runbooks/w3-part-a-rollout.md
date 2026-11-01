@@ -105,7 +105,7 @@ dry-run: scanned=74 missing=73 would_update=73 runs_needed=1 (nothing written)
   (`gcloud storage buckets describe gs://dzeroth-dev-media --format="default(lifecycle_config)"` shows the `Delete` rule; the targeted plan of that module reads `No changes`). Raising
   `profile_media_retire` past `off` is A4's own switch order (`docs/runbooks/media.md`) and is not part of this rollout: until then a replaced banner stays public by URL until account deletion
   (D10 "keep"), accepted for a 3-uid dev cohort.
-- No security finding blocks the dev allowlist (`docs/reviews/security-review-w3.md`, W3-24 criterion).
+- No security finding blocks the dev allowlist (`docs/reviews/security/security-review-w3.md`, W3-24 criterion).
 
 ## 2. The targeted dev Terraform plan
 

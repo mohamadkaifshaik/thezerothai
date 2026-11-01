@@ -348,7 +348,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Done (#537) |
 | W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Done (#539) |
 | W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Done (#551) |
-| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security-w5-lists.md`) |
+| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security/security-w5-lists.md`) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Done (#538) |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
 | W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Done (#583; ADR-0031 Accepted 2026-11-01, F1 and F6 to F14 at the defaults) |
@@ -746,7 +746,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Not built: the communities rows (arrive with W5-30).
 - **Parallel with W3 Part A / W4:** `home_screen.dart` serialises with W3-19.
 
-### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: In review (PR #539; report `docs/reviews/test-report-w5-lists.md`)
+### W5-15 — Part A backend tests  [owner: tester] [size: M] [depends: W5-6 to W5-9]  Status: In review (PR #539; report `docs/reviews/tests/test-report-w5-lists.md`)
 - **Description.** Emulator integration:
   - flag modes for `lists`;
   - the authz matrix (owner / other / private / hidden / blocked both ways / overflow);
@@ -777,7 +777,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: In review (report `docs/reviews/security-w5-lists.md`)
+### W5-17 — Part A security review  [owner: security-auditor] [size: S] [depends: W5-6 to W5-9, W5-13]  Status: In review (report `docs/reviews/security/security-w5-lists.md`)
 - **Description.** A threat model for:
   - private-list confidentiality (NOT_FOUND identity, caches keyed safely, the export);
   - id guessing;
@@ -825,7 +825,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Parallel with W3 Part A / W4:** serialise dev applies with W3-24 / W4-24.
 - **Dev rollout result (2026-10-31).**
   - **State.** `feature_lists = allowlist` with 3 uids (the founder's account and two dev test accounts; dev ceiling 3, #546) was applied earlier on 2026-10-31, so this ticket needed no apply. Serving revision `api-00953-giw` (100%, fallback `api-00950-kuh`); all 15 list env vars (`FEATURE_LISTS*`, `LISTS_MAX_PER_USER` 20, `LIST_MAX_MEMBERS` 150, `HOME_TABS_MAX_PINNED` 5, the quotas, rate limits and `CACHE_LISTS_ENTRIES`) are live with the values in `envs/dev/main.tf`. Prod: untouched.
-  - **Targeted plan** (from the main checkout's `envs/dev`, `-target` the `api` service and the `billing_alerts` topic, no plan file): 0 to add, 1 to change, 0 to destroy. **0 changes for lists.** The one change is a non-lists env add pending from #554, `RATE_LIMIT_MEDIA_FINALIZE_PER_MIN=10` (equal to the code default, so no behaviour change; accepted in `docs/reviews/security-w6-40-attempt-cap.md`), plus the known `template.revision -> null` line. Not applied. The 3.10 drift items stay outside the plan.
+  - **Targeted plan** (from the main checkout's `envs/dev`, `-target` the `api` service and the `billing_alerts` topic, no plan file): 0 to add, 1 to change, 0 to destroy. **0 changes for lists.** The one change is a non-lists env add pending from #554, `RATE_LIMIT_MEDIA_FINALIZE_PER_MIN=10` (equal to the code default, so no behaviour change; accepted in `docs/reviews/security/security-w6-40-attempt-cap.md`), plus the known `template.revision -> null` line. Not applied. The 3.10 drift items stay outside the plan.
   - **Smoke as dev test accounts (API only), 18:00 to 18:02 UTC:**
     - Owner (allowlisted) created a public and a private list; the cap count (`ownerId ==` with `Limit(21)`, a transaction aggregation inside CreateList) ran twice on real Firestore with no "requires an index" error. `ListUserLists` by `owner_id`, by `owner_id` plus `contains_user_id`, and by `contains_user_id` alone (the Lists screen and "Add to Lists" queries) all answered 200.
     - Added 3 members (the two other test accounts and the owner itself: the lists module sends no notification, and a self-add is always allowed, so no founder account was touched); the member page showed 3 and `GetList` `member_count` 3; a member removal gave 2; a rename worked.

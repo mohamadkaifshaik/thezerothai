@@ -5,7 +5,7 @@
 **Inputs:**
 - ADR-0029 Amendment 1: A1, A2, A6, A7, Observability, "Tests to flip", and the as-built notes N5 (W6-36) and N6 (W6-29).
 - Plan rows W6-36 and W6-42 in `docs/plans/ui-w6-composer-extras.md`.
-- `docs/reviews/security-w6-composer-extras.md`: L-1, L-2, L-3, L-6 and "Founder decisions, 2026-10-31".
+- `docs/reviews/security/security-w6-composer-extras.md`: L-1, L-2, L-3, L-6 and "Founder decisions, 2026-10-31".
 - The PR #555 body.
 - The tester's results do not exist yet (W6-41 is open), so this review reads the developer's tests.
 

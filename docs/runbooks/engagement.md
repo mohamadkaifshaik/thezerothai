@@ -152,7 +152,7 @@ One vote per account per poll, changeable until the poll closes (Amendment 1 A2,
   - The stale request answered `FAILED_PRECONDITION` ALREADY_VOTED with one detail.
   - `posts/{id}.poll.counts` read [0, 1, 0] with `poll.total` 1 after the vote and the change. That is -1 on choice 0 and +1 on choice 1, with the total unchanged.
   - The vote doc has `choice=1`, `changes=1`, and `changedAt` and `expireAt` set.
-  - `userLikes/{uid}.pollVotes` holds exactly one entry for the post, three-part, with choice 1 (W6-42 part 2, `docs/reviews/security-w6-36-poll-changes.md`).
+  - `userLikes/{uid}.pollVotes` holds exactly one entry for the post, three-part, with choice 1 (W6-42 part 2, `docs/reviews/security/security-w6-36-poll-changes.md`).
 
   No fallback is needed. If a later Firestore change ever rejects the commit, switch `FirestoreRepo.ChangeVote` to the transaction fallback: read `userLikes`, then rewrite `pollVotes` with the entry replaced (+1 read, 3 writes). Repeat the check above before `polls` widens in prod.
 

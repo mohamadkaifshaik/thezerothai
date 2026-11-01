@@ -2,7 +2,7 @@
 
 **Ticket:** W6-42, part 1 (part 2, the review of #555 / W6-36, comes later) · **Date:** 2026-10-31 · **Reviewer:** security-auditor (read only; committed by the orchestrating session) · **Branch:** `fix/media-w6-40-attempt-cap` (006c73e4, 5f119cfb, 0706da68, ed1d6083), CI green (`make ci`, `make test-int`, the plans, the promotion scripts).
 
-**Inputs:** ADR-0029 Amendment 1 A5 (accepted in principle 2026-10-31); H-3 in `docs/reviews/security-w6-composer-extras.md`; plan row W6-42 in `docs/plans/ui-w6-composer-extras.md`. The tester's results do not exist yet (W6-41 is open); this review reads the developer's tests in `attempt_cap_w640_test.go`. **Method:** read only: the diff, the code paths around it on the branch, the Terraform and the client. No cloud calls.
+**Inputs:** ADR-0029 Amendment 1 A5 (accepted in principle 2026-10-31); H-3 in `docs/reviews/security/security-w6-composer-extras.md`; plan row W6-42 in `docs/plans/ui-w6-composer-extras.md`. The tester's results do not exist yet (W6-41 is open); this review reads the developer's tests in `attempt_cap_w640_test.go`. **Method:** read only: the diff, the code paths around it on the branch, the Terraform and the client. No cloud calls.
 
 ## Scope and the founder's binding points
 

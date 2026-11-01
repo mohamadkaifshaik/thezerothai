@@ -5,7 +5,7 @@ Status (2026-10-29): **PREPARED, NOT APPLIED.** Nothing was applied, routed, dep
 **APPLIED IN DEV 2026-10-29 (founder OK "apply w3-38").** The hold for the W7 lines was lifted: the W7 session has no dev credentials, and all 15 W7 messaging and `SHELLS` env entries were checked against the code (both flags `off`, empty allowlists, percent 0, every limit equal to its code default), so they changed no behaviour. They were applied with this rollout; the W7 work does not need to apply them again. Results: section 9.
 Prod: no change (on hold, `docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2). Plan: `docs/plans/ui-w3-profile-graph-completion.md` (W3-38). Decisions: ADR-0025 and the founder's answer B4 (the same 3 test uids as Part A).
 Related: `docs/runbooks/w3-part-a-rollout.md` (the precedent: helpers, targeted-plan method), `docs/runbooks/private-accounts.md` (sections 1, 6, 8), `docs/runbooks/graph.md`,
-`docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).
+`docs/runbooks/rollback.md` ("Private accounts: never roll back past enforcement"), `docs/reviews/security/security-review-w3b.md`, `docs/reviews/cost-model.md` (Part B).
 
 ## Decision for the founder
 
