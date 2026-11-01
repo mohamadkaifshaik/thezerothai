@@ -90,6 +90,7 @@ Data: `users/{uid}/bookmarks/{postId}` = `{createdAt}` (a thin doc, no copy of t
 complete set, at most `BOOKMARKS_MAX_PER_USER` = 1,000), `quotas/{uid}.bookmarks`, `idempotency/{hash}` (24 h TTL). Nothing
 is emitted or notified; a bookmark is private to its owner. **Kill switch: `FEATURE_BOOKMARKS=off` and deploy** (Add and
 Remove then answer `FEATURE_DISABLED feature=bookmarks`, 0 reads); no data migration is needed and existing bookmarks stay.
+Error lines of the bookmark and like paths (write, list, purge, export) redact each post id as the keyed `HashPost(postId)` and the uid as `HashUID(uid)`, a likes or reposts document id `<postId>_<uid>` as `HashPost(postId)_HashUID(uid)` (`logger.RedactErrPosts`, `RedactErrPostDocs`; keyed with `CURSOR_HMAC_KEY`, `opsctl polls loghash` reproduces the post part): a log reader cannot rebuild who bookmarked or liked which post (W6-56).
 Taking a user off the allowlist stops their Add only, they can still Remove. The request line carries `engagement_op`
 (`add_bookmark` / `remove_bookmark`), `outcome` (`done`, `replay`, `noop`, `not_found`, `rejected:limit_reached`,
 `rejected:quota_exceeded`, `rejected:key_reused`, `contention`), `fs_reads`, `fs_writes`, `fs_deletes` and `txn_attempts`.

@@ -90,7 +90,7 @@ func mapBookmarkErr(ctx context.Context, op, uid, postID string, err error) erro
 		slog.WarnContext(ctx, "engagement_bookmark_contention", "op", op, "uid_hash", logger.HashUID(uid))
 		return bookmarkBusyErr()
 	}
-	return logger.RedactErr(fmt.Errorf("engagement: %s: %w", op, err), uid, postID)
+	return logger.RedactErrPosts(fmt.Errorf("engagement: %s: %w", op, err), []string{postID}, uid)
 }
 
 // noteBookmarkOutcome records the request-line outcome of a BookmarkRepo result.

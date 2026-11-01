@@ -84,3 +84,47 @@ func TestHashPost(t *testing.T) {
 		t.Error("hash does not depend on the key")
 	}
 }
+
+// W6-56: composite <postId>_<uid> document ids render as HashPost(postId)_HashUID(uid); no plain id, no unkeyed post hash.
+func TestRedactErrPostDocs(t *testing.T) {
+	t.Parallel()
+	const uid = "uidAbc123"
+	cases := []struct {
+		name string
+		docs []string
+	}{
+		{"one", []string{"7300000000000000001_" + uid}},
+		{"two", []string{"7300000000000000001_" + uid, "7300000000000000002_" + uid}},
+		{"id without separator is skipped", []string{"nounderscore"}},
+		{"empty", []string{""}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var named string
+			for _, d := range tc.docs {
+				named += " documents/likes/" + d
+			}
+			msg := RedactErrPostDocs(errors.New("rpc error:"+named), uid, tc.docs...).Error()
+			if strings.Contains(msg, uid) {
+				t.Fatalf("plain uid in %q", msg)
+			}
+			for _, d := range tc.docs {
+				i := strings.LastIndex(d, "_")
+				if i <= 0 {
+					continue
+				}
+				p := d[:i]
+				if strings.Contains(msg, p) || strings.Contains(msg, HashUID(p)) {
+					t.Fatalf("plain or unkeyed post id in %q", msg)
+				}
+				if !strings.Contains(msg, HashPost(p)+"_"+HashUID(uid)) {
+					t.Fatalf("want HashPost_HashUID in %q", msg)
+				}
+			}
+			if RedactErrPostDocs(nil, uid, tc.docs...) != nil {
+				t.Fatal("nil in, nil out")
+			}
+		})
+	}
+}

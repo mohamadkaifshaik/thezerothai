@@ -68,7 +68,8 @@ type gifScan struct {
 func le16(b []byte) int { return int(b[0]) | int(b[1])<<8 }
 
 // scanGIF parses the container of data without decoding pixels. It refuses (a *gifRefusal) above lim, a frame
-// outside the logical screen, and anything it cannot parse to the trailer. The work is linear in len(data) (at most
+// outside the logical screen, a comment / plain-text / non-loop application block,
+// bytes after the trailer (W6-30), and anything it cannot parse to the trailer. The work is linear in len(data) (at most
 // 2 MiB) and allocates one gifFrame per frame, at most lim.maxFrames.
 func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 	if len(data) < 13 || (string(data[:6]) != "GIF87a" && string(data[:6]) != "GIF89a") {
@@ -103,6 +104,9 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			if len(sc.frames) == 0 {
 				return nil, refuseInvalid("no_frames")
 			}
+			if pos+1 != len(data) { // W6-30 (security L-4): nothing may follow the trailer
+				return nil, refuseInvalid("trailing_bytes")
+			}
 			return sc, nil
 		case 0x21: // extension
 			if pos+2 > len(data) {
@@ -110,6 +114,22 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			}
 			label := data[pos+1]
 			pos += 2
+			// W6-30 (security L-4): only the graphic control extension and the two loop blocks render anything. A
+			// comment (0xFE), plain text (0x01), any other application block (XMP, ICC, ...) and any undefined label are
+			// refused: they are where metadata and smuggled data live, and the client strips them byte-level (no re-encode).
+			switch label {
+			case 0xF9:
+			case 0xFF:
+				if !isLoopBlock(data, pos) {
+					return nil, refuseInvalid("application_block")
+				}
+			case 0xFE:
+				return nil, refuseInvalid("comment")
+			case 0x01:
+				return nil, refuseInvalid("plain_text")
+			default:
+				return nil, refuseInvalid("extension_label")
+			}
 			if label == 0xF9 { // graphic control: block size 4, packed, delay (2), transparent index
 				if pos+6 > len(data) || data[pos] != 4 {
 					return nil, refuseInvalid("graphic_control")
@@ -159,6 +179,16 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			return nil, refuseInvalid("block")
 		}
 	}
+}
+
+// isLoopBlock reports whether the application extension whose block size byte is at pos is the NETSCAPE2.0 or
+// ANIMEXTS1.0 loop block (block size 11: 8-byte identifier + 3-byte authentication code). The client keeps exactly these.
+func isLoopBlock(data []byte, pos int) bool {
+	if pos+12 > len(data) || data[pos] != 11 {
+		return false
+	}
+	id := string(data[pos+1 : pos+12])
+	return id == "NETSCAPE2.0" || id == "ANIMEXTS1.0"
 }
 
 // skipSubBlocks returns the position after the sub-block run starting at pos (up to and including the zero terminator).
