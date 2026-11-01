@@ -118,7 +118,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | W3-40a | W3-36 L-1, L-3, L-5 and W3-35a D-2: undo RPCs answer the missing-post shape, the loader's stale copy, the startup wiring assertion, the deletion-budget test flake | backend-developer | M | Done (PR #417) |
 | W3-40b | W3-36 L-4 and W3-35b O-1: `ProtectedAuthor` skips own and followed authors and reports once per request; a stuck `privacy_public` delivery acks | backend-developer | S | Done (PR #424) |
 | W3-41a | W3-36 L-2 backend: the owner's own REPOST, like and bookmark rows of a protected author kept as stripped placeholders (ADR-0025 note W3-36 L-2) | architect (proto) then backend-developer | M | Done (proto PR #427, backend PR #430) |
-| W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | In review (PR #444); the e2e flows need W3-41a and W3-40a serving dev |
+| W3-41b | W3-36 L-2 client: the placeholder rows with Undo, Unlike and Remove | frontend-developer | S | Done (#444) |
 | W3-41c | W3-41b follow-up: remove an undone REPOST row locally (own profile tabs) | frontend-developer | S | Done (this PR) |
 | W3-42 | W3-36 M-1(b): the `PRIVATE_ACCOUNTS` rollback floor in `flag-ceiling.json`, enforced by `resolve-rollback.sh` | production-deployer | S | Done (PR #428, founder-reviewed and merged 2026-10-29; the first dev deploy after it ran the floor check against a flagged last-good and passed) (depends: none; gates any prod ramp) |
 

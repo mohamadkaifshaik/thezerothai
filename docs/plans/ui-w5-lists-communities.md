@@ -331,24 +331,24 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 
 | ID | Ticket | Owner | Size | Depends | Parallel with W3 Part A / W4? | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #485) |
-| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | In review (PR #485) |
-| W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | In review (PR #495) |
-| W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | In review |
-| W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | In review |
-| W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | In review |
-| W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | In review (PR #518) |
+| W5-1 | ADR-0030 "Lists and custom Home tabs at Stage 0" | architect | M | — | **yes, start now** (new file) | Done (#485) |
+| W5-2 | Part A protos: new `lists.proto`; `common.proto` `HomeTab`; `timeline.proto` GetListTimeline + SetHomeTabs; `identity.proto` `GetMeResponse.home_tabs` | architect | S | W5-1 drafted | `timeline.proto` and `identity.proto` serialise with W3-2 | Done (#485) |
+| W5-3 | `make proto`; `FEATURE_LISTS`, list config, quota fields, rate limits, ceiling, Terraform vars; `internal/lists` skeleton (no collection constant yet) | backend-developer | M | W5-2 | shared plumbing files: merge one at a time with W3-4 / W4-3 | Done (#495) |
+| W5-4 | Lists write path: CreateList / UpdateList / DeleteList (**same PR as W5-5**) | backend-developer | M | W5-3 | yes (new module) | Done (#506) |
+| W5-5 | Lists lifecycle: `lists` eraser step, export section, T11 rows, runbook (**same PR as W5-4**) | backend-developer | M | W5-3 | lifecycle wiring files serialise with W3-32 / W4-9 | Done (#506) |
+| W5-6 | AddListMember / RemoveListMember | backend-developer | S | W5-4 | yes | Done (#512) |
+| W5-7 | GetList, ListUserLists, ListListMembers + `lists.Reader` | backend-developer | M | W5-4 | yes | Done (#518) |
 | W5-8 | `GetListTimeline` (reuse `homeSources`, `Merge`, `removedIDs`; `listFeed` token) | backend-developer | M | W5-7 | timeline `server.go` / `tokens.go` serialise with W3-9 | Done (#524) |
-| W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | In review |
+| W5-9 | SetHomeTabs + `users.homeTabs` through identity + `GetMe.home_tabs` | backend-developer | M | W5-3, W5-7 | identity files: after W3-6 | Done (#526) |
 | W5-10 | Client data layer A: `ListsRepository`, `HomeTabsRepository`, `FeedKey.list`, `kFeatureLists` | frontend-developer | S | W5-3 | `feed_key.dart` serialises with W3-16 | Done (#517) |
 | W5-11 | Lists screen `/lists`, create/edit sheet, drawer row and rail destination | frontend-developer | M | W5-10 | shell nav files serialise with W4-17 | Done |
-| W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | In review (#531) |
+| W5-13 | "Add to Lists" from a profile; "Lists" of another user | frontend-developer | S | W5-11, W3-14 | **after W3-13 / W3-14** (`profile_header.dart`) | Done (#531) |
 | W5-12 | List detail `/lists/:id`: header, list timeline, members page, Pin | frontend-developer | M | W5-10 | yes | Done (#527) |
-| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | In review (#537) |
-| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | In review (PR #539) |
-| W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Open |
-| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | In review (PR: docs/ui-w5-17-lists-security; report `docs/reviews/security-w5-lists.md`, SECURITY: CLEAR, 4 Medium) |
-| W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Open |
+| W5-14 | Home tab bar (Following + pinned) and Manage pinned | frontend-developer | M | W5-10, W5-12 | `home_screen.dart` serialises with W3-19 | Done (#537) |
+| W5-15 | Part A backend tests | tester | M | W5-6 to W5-9 | yes | Done (#539) |
+| W5-16 | Part A client tests | tester | S | W5-11 to W5-14 | yes | Done (#551) |
+| W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security-w5-lists.md`) |
+| W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Done (#538) |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
 | W5-20 | ADR-0028 (or next free) "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
@@ -373,16 +373,16 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0028 merged | serialise dev applies | Open |
-| W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | In review (#542) |
-| W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | In review (#556; gate: before percent) |
-| W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | In review (#542) |
-| W5-44 | *(W5-17 M-4)* opsctl `lists hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | In review (PR #543; additive proto enum `REPORT_TARGET_TYPE_LIST = 4`; gate: before percent) |
-| W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | In review (PR #549) |
-| W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public rows: list id, owner handle, name; private, hidden and unreadable lists only as a `redactedCount`; no other member) | backend-developer | S | founder answer (yes, redacted, 2026-10-31) | lifecycle export files serialise | In review (#556; gate: before prod on) |
-| W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | In review (PR #549) |
-| W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | In review |
-| W5-49 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | In review |
-| W5-50 | *(W5-16 D2, D3)* ListsRepository session epoch and reset on account switch: `ListsRepository` takes the shared `SessionEpoch` (a `GetList` / `ListUserLists` / mutation answer and a `GetListTimeline` header that land after sign-out or a switch are dropped); one `AccountSessionReset` run by `AppWidget` for sign-out and for a direct A to B switch; inventory of every per-account cache | frontend-developer | S | W5-16 | yes | In review (#553) |
+| W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
+| W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | Done (#556; gate: before percent) |
+| W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Done (#542) |
+| W5-44 | *(W5-17 M-4)* opsctl `lists hide` / `restore` (field-level Update, never Set) and the LIST report target with a name/description snapshot, split from W5-29 to depend on W5-4 only; correct runbook `lists.md` §7 | backend-developer | S | W5-4 | moderation module + opsctl | Done (#543) |
+| W5-45 | *(W5-17 L-1..L-4)* Negative cache for missing list ids; visible-rune rule in the shared single-line text helper (also display names); id-only idempotency result or T11 note; fresh target status on AddListMember | backend-developer | S | W5-6, W5-7 | yes | Done (#549) |
+| W5-46 | *(W5-17 L-7, founder question)* Export section `lists_member_of` (public rows: list id, owner handle, name; private, hidden and unreadable lists only as a `redactedCount`; no other member) | backend-developer | S | founder answer (yes, redacted, 2026-10-31) | lifecycle export files serialise | Done (#556; gate: before prod on) |
+| W5-47 | *(W5-18 cost L-1)* Startup bound `LIST_MAX_MEMBERS <= 500` (`pkg/platform/config/lists.go:26`; above 500 breaks the ADR-0030 trigger, above about 4,890 the 269-read hold) | backend-developer | XS | — | yes | Done (#549) |
+| W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | Done (#557) |
+| W5-49 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | Done (#557) |
+| W5-50 | *(W5-16 D2, D3)* ListsRepository session epoch and reset on account switch: `ListsRepository` takes the shared `SessionEpoch` (a `GetList` / `ListUserLists` / mutation answer and a `GetListTimeline` header that land after sign-out or a switch are dropped); one `AccountSessionReset` run by `AppWidget` for sign-out and for a direct A to B switch; inventory of every per-account cache | frontend-developer | S | W5-16 | yes | Done (#553) |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).
@@ -837,7 +837,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - The step "turn the flag off" was replaced by keeping the allowlist, as the Flag line plans (turning it off needs an apply).
     - Order of the dependencies against the allowlist apply (the Terraform revision `api-00429-lcx`, 12:42 UTC): W5-18 (#538, 12:14 UTC) and W5-17 (#540, 12:27 UTC) were merged before it; W5-15 (#539) merged at 13:03 UTC, 21 minutes after it and well before the smoke (18:00 UTC). The smoke ran on `api-00953-giw`, which also carries the W5-41 to W5-44 fixes merged after the apply. The status cells of W5-15, W5-17 and W5-18 in the table above are stale (owned by those tickets).
     - The first smoke was API-only: the Lists screen, the Home tab bar and Manage pinned (W5-11 to W5-14) were not driven in the app, and no Android or web client check was made.
-  - **Owed.** The `memberIds array-contains uid` query (the eraser `RemoveMemberPage` and the `lists_member_of` export page) is served by the automatic array index (no override in `firestore.indexes.json`), but only an account deletion or an export calls it, so this smoke did not exercise it on real Firestore. Prove it with an erase or export of a throwaway dev test account that is a list member, before `lists` leaves the dev allowlist for prod. The latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
+  - **Proven 2026-11-01** (was owed): the `memberIds array-contains uid` query, used by the eraser `RemoveMemberPage` and the `lists_member_of` export page, works on dev Firestore with the automatic array index (no override in `firestore.indexes.json`).
+    - w7smoke1 created a private list and added w7smoke2.
+    - w7smoke2's export was READY on the first poll, with `lists_member_of` `{public: [], redactedCount: 1}`.
+    - The export's exact query, ordered by document id, also ran by REST with no index error.
+    - The proof list was deleted afterwards.
+  - **Still owed:** the latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
   - Prod: no change (held release).
 
 ### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open

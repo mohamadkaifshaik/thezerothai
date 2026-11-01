@@ -658,3 +658,26 @@ func assertPostHash(t *testing.T, fields *logger.RequestInfo, want string) {
 		}
 	}
 }
+
+// W6-52 (security review L-2): an internal poll error names the post through the keyed HashPost, never the raw id and never the
+// unkeyed HashUID of it (which would undo the keyed post_hash of the request line).
+func TestMapVoteErr_RedactsPostIDKeyed(t *testing.T) {
+	e := newPollEnv(t)
+	e.pr.voteErr = errors.New("boom pollVotes/" + pidA + "_viewer")
+	_, got := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
+	if got == nil || connect.CodeOf(got) == connect.CodeUnavailable {
+		t.Fatalf("err = %v, want an internal error", got)
+	}
+	msg := logger.CauseChain(got)
+	for _, raw := range []string{pidA, "viewer", logger.HashUID(pidA)} {
+		if strings.Contains(msg, raw) {
+			t.Errorf("error %q carries %q", msg, raw)
+		}
+	}
+	if want := logger.HashPost(pidA); !strings.Contains(msg, want) {
+		t.Errorf("error %q lacks the keyed post hash %q", msg, want)
+	}
+	if want := logger.HashUID("viewer"); !strings.Contains(msg, want) {
+		t.Errorf("error %q lacks the uid hash %q", msg, want)
+	}
+}
