@@ -66,8 +66,7 @@ Expand → deploy code that handles both → backfill with a throttled job (resp
 - Version `X.Y.Z+build` in `pubspec.yaml`; changelog from conventional commits.
 - Every prod build (web, Android, iOS) passes `--dart-define=FIREBASE_ENV=prod` (selects the prod Firebase project's
   options — dev builds use the default/`dev` value) and `--dart-define=GOOGLE_WEB_CLIENT_ID=$PROD_GOOGLE_WEB_CLIENT_ID`.
-  Known gap: Android's checked-in `google-services.json` is still dev's, so native SDK init (Google Sign-In,
-  Crashlytics) doesn't yet follow `FIREBASE_ENV` — only the Dart-side Firebase options do.
+  Android native SDK init (Google Sign-In, Crashlytics) follows prod because the workflow swaps in `app/android/google-services.prod.json` (TEL-14).
 - Android: AAB → Play internal → closed → production staged (10% → 50% → 100%). Play Console one-time fee applies.
 - iOS: IPA → TestFlight → phased release (7 days). Apple Developer Program annual fee applies.
 - Web: `flutter build web --release` (built inside `promote-prod.yml` at `stage=100`, from the release tag, before
