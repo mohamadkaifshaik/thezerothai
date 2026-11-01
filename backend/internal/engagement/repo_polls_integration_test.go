@@ -376,8 +376,8 @@ func TestPollVoteExporter_ChangedAtFromFirestore(t *testing.T) {
 	var doc struct {
 		Votes []map[string]any `json:"poll_votes"`
 	}
-	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil || len(doc.Votes) != 1 || doc.Votes[0]["choice"] != float64(1) || doc.Votes[0]["changedAt"] == nil {
-		t.Fatalf("export = %v (%v), want the current choice 1 and a changedAt", doc.Votes, err)
+	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil || len(doc.Votes) != 1 || doc.Votes[0]["choice"] != float64(1) || doc.Votes[0]["changedAt"] == nil || doc.Votes[0]["changes"] != float64(1) {
+		t.Fatalf("export = %v (%v), want the current choice 1, a changedAt and changes 1", doc.Votes, err)
 	}
 }
 

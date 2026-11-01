@@ -43,7 +43,10 @@ type raceHooks struct {
 	beforeTakedownRun  func(run int)
 	afterTakedownReads func(run int) error
 	afterTombstoneRead func()
-	takedownRuns       int
+	// commitThenFail runs after a send, accept or delete transaction COMMITTED and returns the error the caller then sees
+	// (W7-38: a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
+	commitThenFail func() error
+	takedownRuns   int
 }
 
 func (h *raceHooks) takedownRunStart() {
@@ -162,6 +165,11 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
 // message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
 // down (state REMOVED, digest cleared) replays as that tombstone.
+//
+// W7-38: an error from Send does NOT prove nothing was written. txTimeout (or the request deadline) can expire while the
+// Commit RPC is in flight; Firestore does not roll a commit back because the client stopped waiting, so the message may be
+// stored while the caller sees DeadlineExceeded (service.failure maps it to UNAVAILABLE busy). The retry is safe by
+// construction: the message id derives from (sender, key), so the same-key retry is AlreadyExists at commit and replays.
 func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if r.quotas == nil {
 		return SendResult{}, errors.New("messaging: repo has no quota store configured")
@@ -170,7 +178,7 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 	// message instead of from the message (the SDK normally serialises that by aborting and re-running the body).
 	for pass := 0; pass < 2; pass++ {
 		var res SendResult
-		attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
+		attempts, err := store.RunTransactionRetry(ctx, r.txRunner(), store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 			func(ctx context.Context, tx *firestore.Transaction) error {
 				var terr error
 				res, terr = r.sendTx(ctx, tx, p)
@@ -512,4 +520,25 @@ func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at tim
 		}
 	}
 	return false, nil
+}
+
+// txRunner is the transaction runner of the send, accept and delete transactions: the client itself, or in a test with the
+// commitThenFail seam the client followed by an error after a successful commit.
+func (r *FirestoreRepo) txRunner() store.TxnRunner {
+	if r.hooks == nil || r.hooks.commitThenFail == nil {
+		return r.client
+	}
+	return commitThenFailRunner{client: r.client, fail: r.hooks.commitThenFail}
+}
+
+type commitThenFailRunner struct {
+	client *firestore.Client
+	fail   func() error
+}
+
+func (c commitThenFailRunner) RunTransaction(ctx context.Context, f func(context.Context, *firestore.Transaction) error, opts ...firestore.TransactionOption) error {
+	if err := c.client.RunTransaction(ctx, f, opts...); err != nil {
+		return err
+	}
+	return c.fail()
 }
