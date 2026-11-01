@@ -275,6 +275,48 @@ if [ -f "$wf" ]; then
   fi
 fi
 
+# --- check-stale-commit.sh: promote a moved-on run only when every change since is in paths-ignore
+S=$p/check-stale-commit.sh
+s1=1111111111111111111111111111111111111111
+s2=2222222222222222222222222222222222222222
+# cmp <file> <status> <path...>: a compare response; "old>new" is a rename
+cmp() {
+  local out=$1 st=$2
+  shift 2
+  printf '%s\n' "$@" | jq -R 'split(">") | if length == 2 then {filename: .[1], previous_filename: .[0], status: "renamed"} else {filename: .[0], status: "modified"} end' |
+    jq -s --arg st "$st" '{status: $st, total_commits: 1, files: .}' >"$out"
+}
+expect_msg "stale: same commit promotes without compare data" 0 "is main's head" "$S" "$s1" "$s1"
+cmp "$tmp/c" ahead docs/plans/x.md README.md app/README.md .claude/skills/a/SKILL.md docs/x_research/shot.png
+expect_msg "stale: docs-only move promotes" 0 "only paths-ignore files" "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" ahead docs/plans/x.md backend/internal/posts/service.go
+expect_msg "stale: one code file refuses" 1 "1 changed path(s) outside paths-ignore" "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" ahead "backend/x.go>docs/x.go"
+expect "stale: a rename out of code refuses (old path counts)" 1 "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" ahead firebase/firestore.rules
+expect "stale: rules are not docs" 1 "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" ahead docs.go
+expect "stale: a docs-like name outside docs/ refuses" 1 "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" diverged docs/x.md
+expect_msg "stale: diverged refuses" 1 "not strictly ahead" "$S" "$s1" "$s2" "$tmp/c"
+cmp "$tmp/c" behind docs/x.md
+expect "stale: behind refuses" 1 "$S" "$s1" "$s2" "$tmp/c"
+jq -n '{status: "ahead", files: [range(300) | {filename: "docs/f\(.).md"}]}' >"$tmp/c"
+expect_msg "stale: 300 files fail closed" 1 "at most 300" "$S" "$s1" "$s2" "$tmp/c"
+jq -n '{status: "ahead"}' >"$tmp/c"
+expect_msg "stale: no file list refuses" 1 "no file list" "$S" "$s1" "$s2" "$tmp/c"
+printf 'not json' >"$tmp/c"
+expect "stale: unreadable compare data refuses" 1 "$S" "$s1" "$s2" "$tmp/c"
+expect_msg "stale: moved without compare data refuses" 1 "no compare data" "$S" "$s1" "$s2"
+expect "stale: a short sha is a usage error" 2 "$S" 1111 "$s2"
+expect "stale: no arguments is a usage error" 2 "$S"
+if [ -f "$wf" ]; then
+  # the script's patterns must be exactly the workflow's on.push.paths-ignore list
+  wf_pat=$(tr -d '\r' <"$wf" | awk '/^    paths-ignore:/ { on = 1; next } on && /^      - / { sub(/^      - /, ""); gsub(/"/, ""); print; next } on { exit }')
+  if [ -n "$wf_pat" ] && [ "$wf_pat" = "$(bash "$S" --print-patterns)" ]; then pass=$((pass+1)); else echo "FAIL check-stale-commit.sh PATTERNS differ from deploy-dev.yml paths-ignore"; failed=$((failed+1)); fi
+  if grep -v '^[[:space:]]*#' "$wf" | grep -q 'check-stale-commit.sh "\$SHA" "\$head"'; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-stale-commit.sh in the stale-commit step"; failed=$((failed+1)); fi
+fi
+
 # --- authenticated-smoke.sh and prod-smoke.sh: their own fixture file (fake curl), run here so the required CI step covers it
 expect "authenticated smoke tests" 0 "$here/smoke-test.sh"
 expect "bookmarks smoke tests (dev-only, W2-16)" 0 "$here/bookmarks-smoke-test.sh"
