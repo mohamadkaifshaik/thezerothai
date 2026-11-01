@@ -71,8 +71,8 @@ type stubPolls struct {
 	call string
 }
 
-func (s *stubPolls) VotePoll(_ context.Context, uid, key, postID string, choice int32) (PollVote, error) {
-	s.call = fmt.Sprintf("%s:%s:%s:%d", uid, key, postID, choice)
+func (s *stubPolls) VotePoll(_ context.Context, uid, key, postID string, choice, expected int32) (PollVote, error) {
+	s.call = fmt.Sprintf("%s:%s:%s:%d:%d", uid, key, postID, choice, expected)
 	return s.res, s.err
 }
 
@@ -88,11 +88,11 @@ func TestVotePoll_Handler(t *testing.T) {
 	t.Run("renders the voter's view", func(t *testing.T) {
 		sp := &stubPolls{res: PollVote{Post: post, Viewer: vs}}
 		srv := NewServer(&stubSvc{}, reg, WithPolls(sp))
-		resp, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{IdempotencyKey: keyOK, PostId: pidA, ChoiceIndex: 1}))
+		resp, err := srv.VotePoll(uidCtx("u"), connect.NewRequest(&engagementv1.VotePollRequest{IdempotencyKey: keyOK, PostId: pidA, ChoiceIndex: 1, ExpectedChoice: 2}))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if sp.call != "u:"+keyOK+":"+pidA+":1" {
+		if sp.call != "u:"+keyOK+":"+pidA+":1:2" { // expected_choice reaches the seam
 			t.Errorf("call = %q", sp.call)
 		}
 		v := resp.Msg.GetPost()

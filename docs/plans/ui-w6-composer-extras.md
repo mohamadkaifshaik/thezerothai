@@ -389,13 +389,13 @@ Effect on the quotas (additive):
 | W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Open |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
-| W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Open |
+| W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | In review |
 | W6-37 | *(Amendment 1 A1.5 + A2.8)* Poll card: "Change vote", disabled when the viewer blocks the author, the new error answers, fresh key per tap | frontend-developer | S | W6-35 (generated Dart), W6-36 for the dev check | `poll_card.dart`, `poll_cubit.dart` | Open |
 | W6-38 | *(Amendment 1 A4)* Tests: drafts duplicate-publication matrix (double tap, lost response, kill after send, kill after success, edit after a lost response, two composers, scheduled path, attached photo or GIF) | tester | S | — | yes (tests only) | Open |
 | W6-39 | *(Amendment 1 A4, the gap W6-38 pins)* Drafts: persist the send key on the draft row (schema v10), reuse it on reopen and after an ambiguous failure, and the IDEMPOTENCY_KEY_REUSED and 23 h answers | frontend-developer | M | W6-38 (its failing tests) | `app_database.dart` schema bump: serialise with W6-31 | In review (fix/ui-w6-39-drafts-send-key) |
 | W6-40 | *(Amendment 1 A5; revises W6-27)* media: count only assessed attempts, a separate retry counter, the GIF slot before the claim, a blocking verdict terminal, a units `DailyCap`, FinalizeUpload's own bucket, `retry_after`; the client retry tile | backend-developer + frontend-developer | M | Amendment 1 merged, W6-25 (#536); **W6-42 before merge** | media files: serialise with W6-26, W6-28, W6-30, W6-32 | In review (#554, W6-42 before merge) |
-| W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters | tester | M | W6-36, W6-37, W6-40 | yes | Open |
-| W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Open |
+| W6-41 | *(Amendment 1)* Tests: the A1, A2 and A5 matrices and budgets, the flips (never delete), the 60 × 3 race in two arms, the H-3 loop shapes under the new counters; W6-42 part 2 L-1 (NOT_FOUND bytes after a vote, with `expected_choice`) and I-7 (one `userLikes` entry after a REPOST-id change) | tester | M | W6-36, W6-37, W6-40 | yes | Open |
+| W6-42 | *(Amendment 1)* Security review of W6-36 (oracle, `expected_choice`, logs) and W6-40 (H-3 bound, units cap and refunds), before W6-40 merges | security-auditor | S | W6-36, W6-40 (PRs open) | yes | Done (part 1 #554, part 2 #555: both SECURITY CLEAR) |
 | W6-43 | *(founder 2026-10-31, Art. 9)* No polls soliciting sensitive personal information: a Terms / community-rules line, a short composer hint under the poll builder, a report reason (or the existing "other" reason with a sensitive-data note) and a moderation runbook entry; no automated detection at Stage 0 | architect (rule text) + frontend-developer + backend-developer | S | Amendment 1 merged | yes | In review (this PR) |
 | W6-44 | *(founder 2026-10-31, L-3)* In-app copy "Individual choices are hidden from other users" near the poll results / in Help; never "anonymous" | frontend-developer | XS | W6-37 | poll card files serialise with W6-37 | Open (gate: before release) |
 | W6-45 | *(founder 2026-10-31, L-5)* Drafts expire 30 days after the user's last edit: client purge on app start and Drafts open, `updatedAt` = last user edit (not autosave of an unchanged draft), tests incl. the boundary | frontend-developer | S | — | serialise with W6-31 and W6-39 (drafts table) | In review (gate: before release) |
@@ -405,6 +405,7 @@ Effect on the quotas (additive):
 | W6-50 | *(W6-42 L-4, #554)* media: align the zero-`createdAt` tier between the upload quota and the units cap | backend-developer | XS | W6-40 | after W6-40 | Open |
 | W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | Open |
 | W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | In review (#553) |
+| W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | Open |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
@@ -1019,7 +1020,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
 - **Cost.** 0.
 - **Seam.** The wire fields only; behaviour is W6-36.
 
-#### W6-36 — VotePoll: block either way and vote changes (one PR)  [owner: backend-developer] [size: M] [depends: W6-35]  Status: Open
+#### W6-36 — VotePoll: block either way and vote changes (one PR)  [owner: backend-developer] [size: M] [depends: W6-35]  Status: In review (PR W6-36; W6-42 security review must pass before merge)
 - **Description.**
   - **A1:**
     - step 5e `snap.Blocked[target.AuthorID]` → `TARGET_BLOCKED`, after the closed and range checks, replays included;
@@ -1167,7 +1168,7 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   ≥ 70 %; no test deleted.
 - **Cost.** 0 (emulators). The real `OPTIMISTIC` contention of a change race goes in W6-22's dev smoke.
 
-#### W6-42 — Security review of Amendment 1  [owner: security-auditor] [size: S] [depends: W6-36 and W6-40 PRs open]  Status: Open
+#### W6-42 — Security review of Amendment 1  [owner: security-auditor] [size: S] [depends: W6-36 and W6-40 PRs open]  Status: Done (part 1: `docs/reviews/security-w6-40-attempt-cap.md`, CLEAR after 9490702a; part 2: `docs/reviews/security-w6-36-poll-changes.md`, CLEAR, 4 Low: L-1 and I-7 to W6-41, L-2 to W6-52, L-3 to W6-51, L-4 to W6-46)
 - **Description.**
   - **W6-36:** `TARGET_BLOCKED` reveals only the caller's own block; NOT_FOUND byte identity; `expected_choice`
     tells nothing about other voters; logs never carry a choice; the L-3 widening.
