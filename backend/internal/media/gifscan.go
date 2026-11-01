@@ -63,6 +63,7 @@ type gifScan struct {
 	width, height int
 	header        []byte // signature, logical screen descriptor and global colour table
 	frames        []gifFrame
+	loops         int // loop blocks seen (W6-58: at most one)
 }
 
 func le16(b []byte) int { return int(b[0]) | int(b[1])<<8 }
@@ -122,6 +123,11 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			case 0xFF:
 				if !isLoopBlock(data, pos) {
 					return nil, refuseInvalid("application_block")
+				}
+				// W6-58 (W6-20 re-review N-1): a loop block carries only its loop count, once. Extra sub-blocks are free
+				// space for smuggled data that Go's image/gif and browsers skip; the client rewrites the block to this form.
+				if sc.loops++; sc.loops > 1 || !isCanonicalLoopData(data, pos) {
+					return nil, refuseInvalid("loop_block")
 				}
 			case 0xFE:
 				return nil, refuseInvalid("comment")
@@ -403,4 +409,12 @@ func encodeSheet(tiles []*image.RGBA) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// isCanonicalLoopData reports whether the loop block whose block size byte is at pos continues, after its 11-byte
+// identifier, with exactly one 3-byte sub-block with sub-block id 1 (the loop count) and the zero terminator:
+// 03 01 LL LL 00 (W6-58).
+func isCanonicalLoopData(data []byte, pos int) bool {
+	p := pos + 12
+	return p+5 <= len(data) && data[p] == 3 && data[p+1] == 1 && data[p+4] == 0
 }

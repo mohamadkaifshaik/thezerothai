@@ -308,6 +308,13 @@ func TestGIF_FinalizeRejections(t *testing.T) {
 			f.contentType = ContentTypeGIF
 			e.obj.upload[o] = f
 		}},
+		{"loop block with extra sub-blocks (W6-58)", func(e *env, id string) {
+			o := uploadObject(uidA, id, "gif")
+			f := e.obj.upload[o]
+			f.data = loopBlockWithExtra(f.data)
+			e.obj.upload[o] = f
+			e.repo.docs[id].Bytes, e.repo.docs[id].FullMD5 = int64(len(f.data)), md5b64(f.data)
+		}},
 		{"oversize gif", func(e *env, id string) {
 			o := uploadObject(uidA, id, "gif")
 			f := e.obj.upload[o]
