@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:blurhash_dart/blurhash_dart.dart';
 import 'package:crypto/crypto.dart';
@@ -181,8 +182,9 @@ class GifRefusedException implements Exception {
   String toString() => message;
 }
 
-/// Checks a picked GIF and makes its upload: the picked bytes **unchanged**
-/// (re-encoding would drop the animation) plus a still first-frame JPEG
+/// Checks a picked GIF and makes its upload: the picked bytes with only the
+/// non-rendering blocks stripped (W6-30; re-encoding would drop the animation)
+/// plus a still first-frame JPEG
 /// thumbnail. An interface so widget and cubit tests never decode pixels.
 /// Throws [GifRefusedException] for a file the server would refuse.
 abstract interface class GifPreparer {
@@ -211,11 +213,84 @@ void checkGifBytes(Uint8List bytes) {
   if (bytes.length > kMaxGifBytes) throw GifRefusedException.tooBig;
 }
 
+/// The loop blocks that make a GIF repeat; the only application extensions
+/// kept (their sub-blocks stay intact, so looping still works).
+const _kGifLoopIds = {'NETSCAPE2.0', 'ANIMEXTS1.0'};
+
+/// Removes everything from a GIF that renders nothing, **without re-encoding**
+/// (ADR-0029 F10; W6-30, security L-4): comment (0xFE) and plain-text (0x01)
+/// extensions, every application extension (0xFF) except `NETSCAPE2.0` and
+/// `ANIMEXTS1.0` (XMP, ICC, ...), any extension label other than the graphic
+/// control (0xF9), and every byte after the first trailer (0x3B). Frames,
+/// palettes, timing and looping are copied byte for byte. The server's
+/// `scanGIF` refuses exactly these, so the output of this function passes it.
+///
+/// Returns [bytes] itself when there is nothing to remove. Throws
+/// [GifRefusedException.notGif] for a file that does not parse to a trailer.
+Uint8List stripGifBytes(Uint8List bytes) {
+  final n = bytes.length;
+  if (n < 13) throw GifRefusedException.notGif;
+  var pos = 13;
+  if (bytes[10] & 0x80 != 0) pos += 3 << ((bytes[10] & 7) + 1);
+  if (pos > n) throw GifRefusedException.notGif;
+
+  // Position after the sub-block run that starts at p (its zero terminator).
+  int endOfSubBlocks(int p) {
+    while (true) {
+      if (p >= n) throw GifRefusedException.notGif;
+      final size = bytes[p++];
+      if (size == 0) return p;
+      p += size;
+    }
+  }
+
+  final out = BytesBuilder(copy: false)
+    ..add(Uint8List.sublistView(bytes, 0, pos));
+  while (true) {
+    if (pos >= n) throw GifRefusedException.notGif;
+    switch (bytes[pos]) {
+      case 0x3B:
+        out.addByte(0x3B);
+        // Identity (same instance) when nothing was dropped.
+        return out.length == pos + 1 && pos + 1 == n ? bytes : out.takeBytes();
+      case 0x21:
+        if (pos + 2 > n) throw GifRefusedException.notGif;
+        final label = bytes[pos + 1];
+        final end = endOfSubBlocks(pos + 2);
+        if (label == 0xF9 || (label == 0xFF && _isLoopBlock(bytes, pos + 2))) {
+          out.add(Uint8List.sublistView(bytes, pos, end));
+        }
+        pos = end;
+      case 0x2C:
+        var p = pos + 10;
+        if (p > n) throw GifRefusedException.notGif;
+        final packed = bytes[pos + 9];
+        if (packed & 0x80 != 0) p += 3 << ((packed & 7) + 1);
+        p++; // LZW minimum code size
+        if (p > n) throw GifRefusedException.notGif;
+        final end = endOfSubBlocks(p);
+        out.add(Uint8List.sublistView(bytes, pos, end));
+        pos = end;
+      default:
+        throw GifRefusedException.notGif;
+    }
+  }
+}
+
+bool _isLoopBlock(Uint8List bytes, int at) {
+  if (at + 12 > bytes.length || bytes[at] != 11) return false;
+  return _kGifLoopIds.contains(String.fromCharCodes(bytes, at + 1, at + 12));
+}
+
 /// Synchronous core of [IsolateGifPreparer], exported for tests: signature,
-/// size, logical screen (<= 1,280 each side) and frame count (<= 300) are
-/// read from the headers; only the first frame is decoded.
-ProcessedImage prepareGifSync(Uint8List bytes) {
-  checkGifBytes(bytes);
+/// size, [stripGifBytes], logical screen (<= 1,280 each side) and frame count
+/// (<= 300) are read from the headers; only the first frame is decoded.
+ProcessedImage prepareGifSync(Uint8List picked) {
+  checkGifBytes(picked);
+  // W6-30 (security L-4): drop the non-rendering blocks and trailing bytes
+  // byte-level BEFORE anything else reads the file, so the frame count and
+  // the MD5 below describe the bytes that are uploaded and published.
+  final bytes = stripGifBytes(picked);
   final decoder = img.GifDecoder();
   final img.GifInfo? info;
   try {

@@ -175,6 +175,7 @@ FinalizeUpload, `vision_units`. To see banner Vision spend, filter FinalizeUploa
     (config, no code change); do not raise the deadline.
   - Users see "the upload is not complete yet" on GIFs while nobody else is uploading: the slot is contended (one GIF at a time per
     instance, 5 s wait). The client retries. Persistent contention at Stage 0 means the allowlist is larger than planned.
+  - A spike of `REJECTED` with reason `invalid` on GIFs (`gif_screen` `refused_reason` `comment`, `plain_text`, `application_block`, `extension_label` or `trailing_bytes`) after a client release means that client is not stripping (W6-30, security L-4): `scanGIF` hard-refuses comment, plain-text and non-loop application blocks and any byte after the trailer, and the client's `stripGifBytes` removes them before the MD5. Check the app version of the affected users; do not loosen the scan.
   - A report of an explicit GIF that got through: set `FEATURE_GIF=off`, then take the post down with `opsctl` (ADR-0016). This is the
     F11 rollback trigger.
   - Error Reporting entry `media/gif_screen` with a panic type: a malformed GIF crashed the decoder and was rejected. Keep the bytes
