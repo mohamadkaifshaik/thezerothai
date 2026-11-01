@@ -22,13 +22,39 @@ declare -A module_of=(
   [firebase_messaging]=messaging
 )
 
+# FlutterFire plugins that inject no loader script on web, so script-src carries no hash for them (ADR-0032 D10).
+# Each exception is re-proven on every run; when its condition fails the plugin needs a module_of entry instead.
+#   no-web-plugin:   the plugin has no <name>_web package in the resolved app.
+#   ignored:<svc>:   web/flutterfire_config.js lists <svc> in window.flutterfire_ignore_scripts and index.html loads
+#                    that file before flutter_bootstrap.js, so firebase_core_web never injects the loader.
+declare -A no_loader=(
+  [firebase_crashlytics]=no-web-plugin
+  [firebase_analytics]=ignored:analytics
+)
+
 pkgcfg=$app/.dart_tool/package_config.json
 [ -f "$pkgcfg" ] || { echo "FAIL: $pkgcfg missing (run 'flutter pub get' in $app)" >&2; exit 2; }
 
-# Every direct firebase_* dependency (not *_platform_interface / *_web) must be a known module.
-mapfile -t plugins < <(sed -nE 's/^  (firebase_[a-z_]+):.*/\1/p' "$app/pubspec.yaml" | grep -vE '_(web|platform_interface)$' | sort -u)
-for p in "${plugins[@]}"; do
-  [ -n "${module_of[$p]:-}" ] || { echo "FAIL: $app/pubspec.yaml depends on $p, which is not in the module map of $0" >&2; exit 1; }
+# Every direct firebase_* dependency (not *_platform_interface / *_web) must be a known module or a proven exception.
+mapfile -t all_plugins < <(sed -nE 's/^  (firebase_[a-z_]+):.*/\1/p' "$app/pubspec.yaml" | grep -vE '_(web|platform_interface)$' | sort -u)
+plugins=()
+for p in "${all_plugins[@]}"; do
+  if [ -n "${module_of[$p]:-}" ]; then plugins+=("$p"); continue; fi
+  case ${no_loader[$p]:-} in
+    no-web-plugin)
+      if jq -e --arg n "${p}_web" '.packages[] | select(.name == $n)' "$pkgcfg" >/dev/null; then
+        echo "FAIL: $p now resolves ${p}_web, so it injects a loader on web; add it to the module map of $0" >&2; exit 1
+      fi ;;
+    ignored:*)
+      svc=${no_loader[$p]#ignored:} ffcfg=$app/web/flutterfire_config.js index=$app/web/index.html
+      grep -qE "flutterfire_ignore_scripts *= *\[[^]]*['\"]$svc['\"]" "$ffcfg" 2>/dev/null \
+        || { echo "FAIL: $p is exempt only while $ffcfg ignores '$svc' (window.flutterfire_ignore_scripts)" >&2; exit 1; }
+      cfg_line=$(grep -nE 'src="(/)?flutterfire_config\.js"' "$index" | head -n1 | cut -d: -f1)
+      boot_line=$(grep -nE 'src="(/)?flutter_bootstrap\.js"' "$index" | head -n1 | cut -d: -f1)
+      [ -n "$cfg_line" ] && [ -n "$boot_line" ] && [ "$cfg_line" -lt "$boot_line" ] \
+        || { echo "FAIL: $p is exempt only while $index loads flutterfire_config.js before flutter_bootstrap.js" >&2; exit 1; } ;;
+    *) echo "FAIL: $app/pubspec.yaml depends on $p, which is not in the module map of $0" >&2; exit 1 ;;
+  esac
 done
 
 root=$(jq -r '.packages[] | select(.name == "firebase_core_web") | .rootUri' "$pkgcfg")
