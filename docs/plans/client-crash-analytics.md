@@ -184,7 +184,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-1 | ADR: client crash reporting and usage analytics (data inventory, terms, consent, rule 10, Q10 (f), A1–A8, proposed `CLAUDE.md` and `stage-ladder` lines, prod ceiling) | architect | M | — | **yes, start now** | Done (#595) |
 | TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Done (#598) |
-| TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Open |
+| TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Done (#608) |
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Open |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Open |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Open |
@@ -267,7 +267,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** None yet; collection is off by construction.
 - **Seam.** The SDKs exist only behind TEL-4's adapters.
 
-### TEL-4 — `core/telemetry` seam and decision  [owner: frontend-developer] [size: M] [depends: TEL-3]  Status: Open
+### TEL-4 — `core/telemetry` seam and decision  [owner: frontend-developer] [size: M] [depends: TEL-3]  Status: Done (#608)
 - **Description.** `app/lib/core/telemetry/`, the `analytics/` slot of the `flutter-feature` blueprint, named for both concerns:
   - **Interfaces:** `CrashReporter` (`record(error, stack, {fatal})`, `setCollecting(bool)`) and `UsageAnalytics` (`log(AnalyticsEvent)`, `screen(String name)`, `setCollecting(bool)`, `resetDevice()`).
   - **Implementations:** Firebase implementations in `firebase_crash_reporter.dart` and `firebase_usage_analytics.dart`, the **only** files importing the SDKs; `Noop` implementations for web, iOS (until TEL-16) and tests; `TelemetryPlatforms.supportedOn = {android}`.
