@@ -510,7 +510,7 @@ class PostCard extends StatelessWidget {
   }
 
   void _openCommunity(BuildContext context, String communityId) {
-    context.push(communityContextPath(communityId));
+    context.push(AppRouter.communityPath(communityId));
   }
 
   void _openPost(BuildContext context, String postId) {

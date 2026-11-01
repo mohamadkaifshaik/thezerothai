@@ -3,11 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
-/// The `/communities/:id` path. W5-31+32 owns the route and will add an
-/// `AppRouter` constant; this string is replaced by it once that merges.
-String communityContextPath(String communityId) =>
-    '/communities/${Uri.encodeComponent(communityId)}';
-
 /// The one context line above a post: a muted icon in the avatar column and
 /// muted text (W5-33, `communities.md` §3). There is exactly one row per post,
 /// so a caller picks the variant: [PostContextLabel.repost] wins over
