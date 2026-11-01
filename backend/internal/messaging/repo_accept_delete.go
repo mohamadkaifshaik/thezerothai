@@ -36,7 +36,7 @@ import (
 // loser re-reads the winner's state, so the entry ends in exactly one place or none.
 func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResult, error) {
 	var res AcceptResult
-	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
+	attempts, err := store.RunTransactionRetry(ctx, r.txRunner(), store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			res = AcceptResult{}
 			c := budget.FromContext(ctx)
@@ -126,7 +126,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 // success, nothing written, 2 reads. An entry gone but no clearedAt (an anomaly) still sets clearedAt: 1 write, 0 deletes.
 func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResult, error) {
 	var res DeleteResult
-	attempts, err := store.RunTransactionRetry(ctx, r.client, store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
+	attempts, err := store.RunTransactionRetry(ctx, r.txRunner(), store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			res = DeleteResult{}
 			c := budget.FromContext(ctx)
