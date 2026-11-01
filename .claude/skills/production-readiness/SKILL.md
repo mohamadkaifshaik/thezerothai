@@ -25,6 +25,7 @@ description: The GO/NO-GO production readiness checklist used by the production-
 - [ ] Firestore indexes deployed and **READY** before traffic shift
 - [ ] Pub/Sub handlers idempotent; DLQ configured
 - [ ] Data changes are expand/contract
+- [ ] Every TTL policy in `infra/terraform/modules/firestore` `ttl_fields` (9 today) is ACTIVE in prod (`gcloud firestore fields ttls list --project=dzeroth-prod`) and the `daily-maintenance` Scheduler job runs (last attempt succeeded), before any feature whose retention text relies on them leaves `off` (founder 2026-11-01; W6-20 re-review C-3)
 ### Operability
 - [ ] Error Reporting clean for the `candidate` revision; uptime check on `/health` green
 - [ ] Runbooks updated; release notes written
@@ -36,6 +37,7 @@ description: The GO/NO-GO production readiness checklist used by the production-
 - [ ] Founder approvals recorded for this release, **3 expected**: `release-prod` `build-and-stage`, `promote-prod` `stage=10`, `promote-prod` `stage=100`. Link each run; the first was approved only after comparing the tag's commit with the commit this review covers (a release is not complete with fewer)
 ### Compliance
 - [ ] Privacy review for new PII; delete/export covers new collections (DPDP Act / GDPR)
+- [ ] `FEATURE_ACCOUNT_LIFECYCLE` is on in prod before any flag that creates likes, reposts, bookmarks, poll votes, lists, follow requests, messages or reports leaves `off` there; the email path (`account-deletion.md` 3a/3b) is a fallback only (founder 2026-11-01; W6-20 re-review C-4)
 - [ ] Store policies: UGC report + block present; privacy policy + account deletion in-app (required by App Store/Play)
 
 `VERDICT: GO` only if every box is ✅ or an explicit, human-approved risk acceptance is recorded.

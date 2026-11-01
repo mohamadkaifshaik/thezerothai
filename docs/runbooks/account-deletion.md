@@ -28,6 +28,9 @@ curl -s "${H[@]}" "https://firestore.googleapis.com/v1/projects/$P/databases/(de
 ```
 
 ## 3a. Export (a right-to-access / portability request)
+This manual path covers the profile, the Auth record, the graph and posts only. For everything else prod relies on the
+in-app path (section 6, "Prod ordering").
+
 Send the user their data as JSON: the `users/<uid>` document from step 2, plus the Auth record (email, provider,
 created and last-login times) from `accounts:lookup`, plus the graph export and the posts export below. Phase 1 will
 add likes here as those modules ship. Don't include internal fields such as `status`.
@@ -364,10 +367,18 @@ sign-up (no profile yet). Replays for an existing profile make no Auth call.
 
 ### Rollout and rollback
 Dev is `allowlist` (founder uid). Prod is `off`. Ramp with the `flag-rollout` skill (off, allowlist, percent, on).
-Before the prod flag leaves `off`: the privacy policy rights section is reworded and reviewed, the security review
+Before the prod flag leaves `off`: the privacy policy rights section is reworded and reviewed (done: W6-55, #584,
+approved by the founder 2026-11-01), the security review
 items for prod are closed (see `docs/archive/reviews/security-review-account-lifecycle.md`), and `production-reviewer` says GO.
 Rollback of a bad deploy is the usual Cloud Run traffic shift to the previous revision (the code is backward
 compatible with in-flight `deletionJob` documents as long as step names are unchanged).
+
+**Prod ordering (founder decision 2026-11-01; W6-20 re-review C-4).** `FEATURE_ACCOUNT_LIFECYCLE` is on in prod, for every
+account that can use the feature, before any flag that creates likes, reposts, bookmarks, poll votes, lists, follow
+requests, messages or reports leaves `off` there. Sections 3a and 3b cover only the profile, the Auth record, the graph
+and posts, so they stay the fallback for email requests and for one stuck account; they are not extended to every
+collection. Turning the prod flag on is a founder plan-then-OK Terraform change, checked by `production-reviewer`
+(production-readiness checklist, Compliance).
 
 ## 7. Answering a request that arrives by email (client-facing wording)
 1. Verify the sender (section 1). Then check whether the in-app flow is available to them: it is only visible when the
