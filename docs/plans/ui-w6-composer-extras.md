@@ -387,7 +387,7 @@ Effect on the quotas (additive):
 | W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
 | W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
 | W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | In review (#571) |
-| W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (tag contains 13b5080f, prod upload CORS, W6-34 Done, Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Open |
+| W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (two-sided tag check: 13b5080f, or no uploader a3455ef5; prod upload CORS; W6-34 Done; Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Open |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
 | W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Done (#555) |
@@ -1021,14 +1021,17 @@ now W6-33a (production-deployer) plus the existing W6-34 (frontend-developer): n
    - None of the three tags has an upload client. `git grep` for `createUpload|finalizeUpload|putObject` outside
      `app/lib/gen` finds nothing in v0.1.0, v0.4.0 or v0.4.1. `ApiClient.media` is constructed and never called, and
      `PostCard` only displays media.
-   - `MediaUploader` first appears on main in a3455ef5 (2026-10-15). No `v*` tag lies between it and 13b5080f
-     (2026-10-31).
+   - `MediaUploader` first appears on `main` in a3455ef5 (2026-10-15). No `v*` tag contains it.
+   - v0.4.1 is dated 2026-10-21, between a3455ef5 and 13b5080f (2026-10-31). It is a hotfix line off v0.4.0 (two
+     commits: the Go toolchain pin and its readiness record), not on `main`. That is why it has no uploader despite its
+     date. Release lines cut from older commits therefore already happen in this repo.
    - So no prod web bundle, served or kept as a Hosting rollback target, can upload at all.
 2. **Web caching.**
    - Flutter 3.47.5 ships a `flutter_service_worker.js` that unregisters itself on activate and reloads its tabs
      (verified live on dev and prod). No service worker caches the app.
    - `firebase.json` sets `Cache-Control: no-cache` on `index.html`, `main.dart.js`, `flutter.js`,
-     `flutter_bootstrap.js`, the service worker and `canvaskit/**`. Only images are cached, for one day.
+     `flutter_bootstrap.js`, the service worker and `canvaskit/**`. Images get one day. Files with no rule
+     (`sqlite3.wasm`, `drift_worker.js`) get Hosting's default `max-age=3600` (checked on prod).
    - So an old bundle lives on only in a tab that stays open, without a reload, across a Hosting deploy. That can last
      indefinitely on a desktop. It only matters for bundles that were once live, and fact 1 shows none of those can
      upload.
@@ -1050,8 +1053,9 @@ now W6-33a (production-deployer) plus the existing W6-34 (frontend-developer): n
    - So nothing today tells the API which build is calling.
 
 **What the facts mean.** On the day prod `FEATURE_MEDIA` leaves `off`, no pre-#536 build that can upload is in prod
-users' hands, provided the first prod release with upload code is cut at or after 13b5080f. Every tag cut from `main`
-from now on satisfies that.
+users' hands. This holds as long as no prod tag contains a3455ef5 (the uploader) without also containing 13b5080f (the
+412 fix). Every tag cut from `main` from now on satisfies that. A hotfix line off v0.4.x has no uploader, so it does
+too.
 
 **Options.**
 
@@ -1063,21 +1067,30 @@ from now on satisfies that.
 | C+ | C plus a fail-closed script: `client_floors` in `flag-ceiling.json`, and an ancestry check in `release-prod.yml` and in `promote-prod.yml` before the web build (the W3-42 `rollback_floors` pattern) | none | Gate files (workflows, ceiling) and a new validator with fixtures | 0; a full-history checkout in two jobs |
 | D | General forced upgrade: a minimum supported build served as server config and compared at app start | n/a | The store-launch item in the `release-rollout` and `production-readiness` skills; needs its own ADR | 0 reads |
 
-**Decision (proposed; the founder accepts by merging this PR).**
+**Decision: Proposed. Founder confirmation: pending.**
+- Hold this PR for the founder. Do not merge it under the standing merge-when-green rule.
+- The decision rests on one part of fact 3 that the repo cannot prove: that no prod-configured mobile build
+  (`FIREBASE_ENV=prod`, from any commit) was ever installed outside the team.
 - **C.**
 - A and B add a cross-cutting contract and an ADR only to refuse a set of builds that is empty. A also cannot work until
   builds carry real numbers.
 - C costs nothing and closes the gap by construction, as long as clients reach prod users only through tagged releases.
-- C+ is the escalation if that stops being obviously true, for example a release line cut from an older commit.
+- C+ is the escalation if a prod release line is ever cut from a commit that contains a3455ef5 but not 13b5080f.
+  Checks 1(b) and 4 catch that case by hand today.
 - D is a separate store-launch concern. It is cross-referenced here, not designed.
 
 **The rule (a checkable invariant).** `FEATURE_MEDIA` leaves `off` in prod only when all four checks hold, and they
 must keep holding while it is not `off`. The same applies to `gif`, which never runs ahead of `media`.
-1. **Tag.**
-   - The serving prod revision and the live Hosting release are built from a `v*` tag that contains 13b5080f:
+1. **Tag (two-sided).**
+   - (a) The release that first moves `FEATURE_MEDIA` past `off` serves both the prod revision and the live Hosting
+     release from a `v*` tag that contains 13b5080f:
      `git merge-base --is-ancestor 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 <tag>` exits 0.
-   - promote-prod `stage=100` has completed for that tag; that is the step that deploys Hosting.
-   - Every mobile build given to anyone outside the team comes from a `release-prod` run of such a tag.
+     promote-prod `stage=100` has completed for that tag; that is the step that deploys Hosting.
+   - (b) Every later prod tag released while `FEATURE_MEDIA` is not `off` either has no uploader or has the fix:
+     - no uploader: `git merge-base --is-ancestor a3455ef533aa1cc7737fac19cf4e2a24e5792d30 <tag>` fails (for example
+       a hotfix line off v0.4.x);
+     - the fix: the 13b5080f check above exits 0.
+   - Every mobile build given to anyone outside the team comes from a `release-prod` run of a tag that passes (b).
 2. **CORS.**
    - The prod upload bucket's CORS `responseHeader` list holds `x-goog-if-generation-match`
      (`gcloud storage buckets describe gs://<prod project>-media-upload --format='json(cors_config)'`).
@@ -1088,15 +1101,18 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
 4. **Hosting floor.**
    - While `FEATURE_MEDIA` is not `off` in prod, no Hosting rollback may target a release that has upload code and was
      built before 13b5080f.
-   - None exists today (fact 1), and check 1 keeps it that way.
+   - None exists today (fact 1).
+   - Check 1(b) applies only while `FEATURE_MEDIA` is not `off`. A release with the uploader but without the fix, deployed
+     while `FEATURE_MEDIA` is still `off`, would remain a rollback target. So check 4 is run again at rollback time,
+     against the Hosting release list and each release's tag.
    - Two things would break it: a hand deploy of Hosting (`firebase deploy` from a local checkout), or a hand-built
      prod-configured mobile build given to anyone outside the team.
 
 **Reopen trigger.**
 - What reopens W6-33: any client with upload code built before 13b5080f reaches prod users. Examples:
   - a prod-configured APK sideloaded outside the team;
-  - a store track with external testers built from an older commit;
-  - a release line cut from a commit before 13b5080f.
+  - a store track with external testers built from a commit with the uploader but without the fix;
+  - a prod release line cut from a commit that contains a3455ef5 but not 13b5080f.
 - Then W6-33 moves to C+, or to A (an ADR, with build numbering first).
 - Signals:
   - a pre-#536 build reports `StorageRefusedException(412)` through `reportUnexpectedError`;
@@ -1154,7 +1170,7 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
 - **Description.**
   - `docs/runbooks/media.md`: a section "Before `FEATURE_MEDIA` leaves `off` in prod (W6-33)". It lists checks 1 to 4
     above, each with the read-only command that proves it:
-    - `git merge-base --is-ancestor` on the tag;
+    - both ancestry checks on the tag (13b5080f, and a3455ef5 for a tag without the uploader);
     - the CORS describe;
     - the promote-prod `stage=100` run for the tag;
     - the Hosting release list (the Firebase Hosting API `GET v1beta1/sites/<site>/releases`, read-only).
@@ -1165,7 +1181,7 @@ must keep holding while it is not `off`. The same applies to `gif`, which never 
     three releases that are safe today (2026-09-28, 2026-10-11, 2026-10-21, none with upload code), and says Hosting is
     never deployed by hand.
 - **Acceptance criteria.**
-  - Both runbook sections exist and name 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915.
+  - Both runbook sections exist and name 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 and a3455ef533aa1cc7737fac19cf4e2a24e5792d30 in full.
   - The CORS describe and the Hosting release list were run read-only against prod, and their output is quoted with the
     date (the prod CORS check may still show the header missing; record that, do not apply).
   - The reopen query runs on dev logs.
