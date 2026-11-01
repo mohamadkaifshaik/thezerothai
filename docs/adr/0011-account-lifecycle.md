@@ -542,8 +542,13 @@ indexes them. **Q10's decision and the T11 allowlist are unchanged** (`lifecycle
 - (l) Other users' replies keep `replyToHandle` (the parent author's handle at reply time): the third-party-content
   stance of (c) (`docs/runbooks/account-deletion.md` 3b, "Mentions of the deleted user"). A handle, not a uid, so not a
   T11 entry.
-- Wording, for the founder's approval in the W6-55 PR: (a) is published as "up to about 2 days" (the 24 h TTL plus
-  Firestore's typical deletion within 24 hours of expiry, firebase.google.com/docs/firestore/ttl); (e) now names every
+- (m) Mail the user sent to privacy@dzeroth.com: kept in the founder's Gmail inbox with no fixed retention period yet
+  (the policy's retention list already said so; it now also appears in the after-deletion list). Not in Firestore, so
+  not a T11 entry.
+- Wording, for the founder's approval in the W6-55 PR: (a) keeps "up to 24 hours", and one sentence at the top of the
+  list says that where a time is given, the automatic deletion usually finishes within a day after it (Firestore TTL
+  deletes typically within 24 hours of expiry, firebase.google.com/docs/firestore/ttl; GCS lifecycle actions are
+  asynchronous too); (e) now names every
   background message that can carry a uid (every topic of `infra/terraform/modules/pubsub`: jobs, notifications fan-out,
   media processing), all with the same 1-day topic and 7-day dead-letter retention; the list header reads "the only records in our
   systems (including the services Google runs for us) that can still contain your account ID, your handle or something

@@ -754,6 +754,10 @@
     </p>
 
     <h2>How long we keep it</h2>
+    <p>
+      Where a time is given below, the automatic deletion usually
+      finishes within a day after it.
+    </p>
     <ul>
       <li>Account and profile data: for as long as your account exists.</li>
       <li>Follows, blocks and mutes: for as long as your account exists, or until you unfollow, unblock or unmute. They are deleted when your account is deleted (see below).</li>
@@ -799,7 +803,7 @@
       minutes. Its download link works for 15 minutes (you can get a new
       link while the file exists), you can request one export a day, and
       the file is deleted after 7 days. Deleting your account in the app
-      asks you to sign in again first.
+      asks you to sign in again first if you haven't signed in recently.
     </p>
     <p>
       When your account is deleted, we delete your profile, your handle
@@ -827,18 +831,19 @@
     </p>
     <p id="retained-after-deletion">
       <strong>What can remain after deletion, and for how long.</strong>
+      Where a time is given in the list below, the automatic deletion
+      usually finishes within a day after it.
       These are the only records in our systems (including the services
       Google runs for us) that can still contain your account ID, your
       handle or something you wrote after your account is deleted:
     </p>
     <ul>
       <li>
-        <strong>Duplicate-request records, up to about 2 days.</strong> To
+        <strong>Duplicate-request records, up to 24 hours.</strong> To
         avoid acting twice on the same request, our database keeps a short
         record of recent actions that contains your account ID (an internal
-        identifier, not your name or handle). Each record expires 24 hours
-        after it was made and is then deleted automatically, usually within
-        a day.
+        identifier, not your name or handle). Each record is deleted
+        automatically 24 hours after it was made.
       </li>
       <li>
         <strong>Other people's private block and mute lists, until cleaned
@@ -916,16 +921,21 @@
         hashed version of your user ID, never the ID itself or your email,
         and expire after about 30 days.
       </li>
+      <li>
+        <strong>Email you sent us, with no fixed limit yet.</strong> Mail you
+        sent to privacy@dzeroth.com stays in the founder's Gmail inbox after
+        your account is deleted, with your email address and what you wrote
+        (see "Who we share it with" and "How long we keep it" above).
+      </li>
     </ul>
     <p>
-      <strong>Not covered by that list</strong>, because we don't hold it or
-      it no longer identifies you:
+      <strong>Not in that list</strong>, for the reason given with each:
     </p>
     <ul>
       <li>
         <strong>Drafts on your devices.</strong> Drafts are stored only on
         your devices, and deleting your account in the app deletes them only
-        on that device (see "Drafts" above).
+        on that device (see "Drafts" above). We never hold them.
       </li>
       <li>
         <strong>Poll totals.</strong> Your vote stays counted in the totals of
@@ -935,16 +945,14 @@
       <li>
         <strong>The other person's side of a conversation.</strong> The
         messages other people sent you stay in their copy of the
-        conversation (see "Direct messages" above).
+        conversation (see "Direct messages" above). They are theirs and
+        contain nothing you wrote.
       </li>
       <li>
         <strong>Copies outside our systems.</strong> Anything someone else
         saved, copied or took a screenshot of, and images still held in a
-        browser or network cache (see "Photos and GIFs" above).
-      </li>
-      <li>
-        <strong>Email you sent to privacy@dzeroth.com</strong> (see "How long
-        we keep it" above).
+        browser or network cache (see "Photos and GIFs" above). We don't
+        hold these copies.
       </li>
     </ul>
 
