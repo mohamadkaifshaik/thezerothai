@@ -999,3 +999,53 @@ sustained 7 days.
   - The smoke **re-runs D3's F1, F2b, F3b and M1 on real data first**. Then: create, join from a second account,
     post, see the label in Home, pin the tab, hide, ban, report, `opsctl community suspend`, flag state restored.
   - Prod: nothing until the held release (ADR-0019).
+
+## As-built notes, 2026-11-01: the W5-21 protos (#590)
+
+These notes record what the protos fixed where this ADR is silent or cannot be expressed on the wire. They are notes
+only: the decision text, F1 to F14 and the architect's calls stay as written. The proto comments are the contract;
+source: #590 (`87b046b0`), `proto/dzeroth/communities/v1/communities.proto` and the `posts`, `common`, `moderation` and
+`timeline` changes in the same PR.
+
+### N1. FORBIDDEN and COMMUNITY_STATE on the wire
+Two new `ErrorReason` values in `common.proto`: `ERROR_REASON_FORBIDDEN = 21` (PERMISSION_DENIED) and
+`ERROR_REASON_COMMUNITY_STATE = 22` (FAILED_PRECONDITION), both with `metadata["reason"]`. Without them the client's
+mapper turns PERMISSION_DENIED into AccountRestricted and FAILED_PRECONDITION into ProfileRequired. CreateCommunity by
+a caller outside `COMMUNITY_CREATORS` is FORBIDDEN `reason=not_creator`.
+
+### N2. The `Community` header is light
+`Community` carries no rules, owner or moderators (0 extra reads), so the timeline, directory and My Communities budgets
+are unchanged. Rules, owner and moderators come only in `GetCommunityResponse`; rules also in the Create and Update
+responses. GetCommunity leaves out a role holder whose account is not ACTIVE, for every viewer.
+
+### N3. Status rules
+- ARCHIVED is read-only: every write except LeaveCommunity answers COMMUNITY_STATE `community_archived`, Join and the
+  moderator actions included.
+- SUSPENDED is the one NOT_FOUND "community not found" for everyone, its owner included, except in GetCommunity and
+  ListMyCommunities, which show it to its owner with status SUSPENDED.
+
+### N4. SetMemberRole
+MAKE_MODERATOR or REMOVE_MODERATOR on a target who has not joined is VALIDATION `user_id`; a target that is missing or
+not ACTIVE is NOT_FOUND "user not found". The "VALIDATION `target`" of the owner banning themselves is field `user_id`,
+the request field's name.
+
+### N5. Paging
+ListModerationLog: `page_size` 0 means 25, max 25. ListCommunities and ListMyCommunities carry `page_size` and
+`page_token` by the common list convention; `next_page_token` is always "" at Stage 0.
+
+### N6. Limit, quota and reason names
+- RATE_LIMITED `metadata["limit"]`: `community_mutation_daily`, `community_mod_actions_daily`,
+  `community_posts_per_community_daily`.
+- QUOTA_EXCEEDED `metadata["quota"]` (the key every other quota uses): `community_joins`, `community_posts`. The plan's
+  `limit_name` spelling was stale and is corrected there.
+- LIMIT_REACHED: `communities_owned`, `communities_joined`, `community_moderators`.
+- CreatePost checks FEATURE_DISABLED `communities` after `polls`.
+
+### N7. D5's SchedulePost refusal has no field to refuse
+`SchedulePostRequest` has no `community_id` (a comment only, as ADR-0029 F5 did for polls), so the "VALIDATION
+`community_id`" in D5 cannot happen: a scheduled post is always an ordinary post. W5-26 tests nothing for it.
+
+### N8. Older clients
+A build without W5-30 shows FORBIDDEN as the generic "restricted" message and COMMUNITY_STATE as the profile-required
+flow. The reply gate runs whenever `communities` is not globally off, so W5-30 is in every served or distributed build
+before the flag leaves `off` anywhere (plan W5-30).
