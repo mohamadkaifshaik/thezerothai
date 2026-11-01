@@ -3,6 +3,8 @@ syntax = "proto3";
 // Moderation: user reports (App Store 1.2 / Play UGC requirement). Owner module: backend/internal/moderation.
 // Collections owned: reports/{reportId}. Moderator actions (list, resolve, takedown, suspend) are NOT RPCs at
 // Stage 0: they are `opsctl` commands run by the founder (ADR-0016, no admin console), so this service has one RPC.
+// A community's own moderators (ADR-0031) act only in that community's view, through dzeroth.communities.v1, and never
+// see reports.
 // Every ModerationService RPC is behind the FEATURE_REPORTS server flag (wire name `reports`): when it is off for the
 // caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads.
 // Privacy: the reporter's identity is never returned to, or derivable by, the reported user.
@@ -17,7 +19,8 @@ service ModerationService {
   // defines (missing, deleted, taken-down, blocked-author or non-ACTIVE-author => NOT_FOUND, one message for every
   // cause). target_type ACCOUNT: target_id is a user id; visible exactly as GetProfile defines (missing, non-ACTIVE
   // or blocked-the-caller => NOT_FOUND).
-  // Reporting your own post, account, message or list => INVALID_ARGUMENT + VALIDATION field "target_id".
+  // Reporting your own post, account, message, list or community (one you own) => INVALID_ARGUMENT + VALIDATION field
+  // "target_id".
   // note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
   // The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
   // delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
@@ -30,7 +33,8 @@ service ModerationService {
   // idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
   // Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
   // target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target (plan W5-44) reads the
-  // list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. Writes 2 (report
+  // list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. A COMMUNITY target
+  // (ADR-0031 D14) reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
   // create, quotas); replay 0. No async work. Nothing here loops over documents.
   rpc ReportContent(ReportContentRequest) returns (ReportContentResponse);
 }
@@ -51,6 +55,17 @@ enum ReportTargetType {
   // off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
   // owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
   REPORT_TARGET_TYPE_LIST = 4;
+  // A community (ADR-0031 D14). target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
+  // SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
+  // community (the caller is its owner) => VALIDATION "target_id". A block with the owner does not refuse it (the
+  // community is public). The evidence is the owner's handle (empty for an ownerless ARCHIVED community), the
+  // community's name, description and rules and its creation time (no member id, no child doc), kept in the report
+  // document with the post evidence's retention. Reports of posts in a community use REPORT_TARGET_TYPE_POST; they go to
+  // the platform only, never to the community's moderators. Needs FEATURE_COMMUNITIES not globally off (else
+  // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads); the existing reports quota
+  // applies. Firestore: reads cold 5 (interceptor 1, community 1, owner users 1, report doc 1, quotas 1), warm 2;
+  // writes 2.
+  REPORT_TARGET_TYPE_COMMUNITY = 5;
 }
 
 // Reasons shown in the client sheet. Values are never renumbered or reused (buf breaking).
