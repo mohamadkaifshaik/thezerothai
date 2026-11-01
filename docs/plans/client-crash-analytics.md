@@ -185,7 +185,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-2 | `FEATURE_CRASH_REPORTING` + `FEATURE_ANALYTICS` registration, ceilings (gate), Terraform vars, runbook `client-telemetry.md` | backend-developer | S | — | **yes, start now**; shared flag files: one PR at a time | Done (#597) |
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Done (#598) |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Done (#608) |
-| TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#PR) |
+| TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#609) |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Open |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Open |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Open |
@@ -292,7 +292,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** `crash_reporting`, `analytics`.
 - **Seam.** `CrashReporter` / `UsageAnalytics`. A web `ReportClientError` implementation or another vendor replaces an adapter with no caller change.
 
-### TEL-5 — Crash payload rules and scrubber  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Done (#PR)
+### TEL-5 — Crash payload rules and scrubber  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Done (#609)
 - **Description.** `CrashScrubber` and the F6 rules inside `FirebaseCrashReporter`:
   - type and stack always;
   - the message only for allowlisted types, scrubbed and cut to 200 characters;
