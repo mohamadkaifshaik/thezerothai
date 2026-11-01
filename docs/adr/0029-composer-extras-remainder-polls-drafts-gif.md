@@ -1380,6 +1380,17 @@ Appended; no decision above is rewritten. This is how D3 and D8 are met for the 
 - **Residuals.** A dormant account's copy can outlive the expiry by the cleanup lag above; a cron outage over 30 days leaves older entries to the lazy prune; a cached copy shows the check mark up to 60 s after expiry. The TTL change on `pollVotes.expireAt` itself (Terraform `poll_votes_expire_at`) is not part of this change and must be applied in a project for the vote docs to expire.
 - **Cost and ordering notes (W6-29).** Every RPC that loads `userLikes` (GetPost, the timelines, the lists) now has a worst case of +1 write, once, on the load that finds an expired poll entry; it is charged to that request. The sweep runs before the trends refresh under a 3 s cap with its own panic recovery and Error Reporting op, so the trends window is 10 s minus the sweep time (never skipped by a sweep failure). The `firestore-data-model` skill (`userLikes` row: entry format and `pollVotesDueDays`; cost table: sweep and export rows) is a `.claude/` follow-up for the founder. Architect: acknowledge the D3 entry-shape change and the new field.
 
+### Founder decision 2026-10-31: retention 30 days after close (W6-47)
+Recorded here; no decision above changes and the status line is unchanged. The founder approved the retention period
+that Amendment 1 "Founder decisions on the open items" item 4 left open: a poll vote (`pollVotes/{postId}_{uid}`) and
+the per-account copy (`userLikes.pollVotes`) are kept until **30 days after the poll closes**
+(`POLL_VOTE_TTL_AFTER_CLOSE` default 720h, as built in W6-29 and N6 above), then removed, usually within a day
+(Firestore TTL on the vote doc, typically within 24 hours and not guaranteed; the lazy prune or the daily sweep for the
+copy). Both are deleted with the account. The Privacy Policy states it in its "Polls" section (W6-46) and runbook
+`engagement.md` section 10 records it; a different period needs a new founder decision and a policy update in the same
+change. Release preconditions are unchanged: the `poll_votes_expire_at` TTL policy applied and the `daily-maintenance`
+Scheduler job running in the project before `polls` leaves off there. Cost impact: none (INR 0; no new resource).
+
 ## As-built notes, 2026-11-01: Amendment 1 A5 refunds and A2 change batch (W6-49, W6-50, W6-32, W6-36, W6-52)
 
 These notes record what shipped. They are notes only: the decision text, Amendment 1 and its status, F1 to F12 and N1 to
