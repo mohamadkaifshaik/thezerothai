@@ -186,7 +186,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-3 | Packages and native off-switches (pubspec, AndroidManifest incl. `AD_ID` removal, `Info.plist`, web scripts) | frontend-developer | S | TEL-1 drafted (A4, A5) | yes | Done (#598) |
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Done (#608) |
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#609) |
-| TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Open |
+| TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Done (#611) |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Open |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Open |
 | TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Open |
@@ -316,7 +316,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** `crash_reporting`.
 - **Seam.** The scrubber is one function, shared by any future web reporter.
 
-### TEL-6 — Analytics events and screen names  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Open
+### TEL-6 — Analytics events and screen names  [owner: frontend-developer] [size: S] [depends: TEL-4]  Status: Done (#611)
 - **Description.**
   - `sealed class AnalyticsEvent` with `PostCreated`, `FollowMade` and `SearchUsed` (F4). The parameters are Dart enums and bools, so free text cannot compile.
   - `screenNameFor(GoRouterState)` maps `state.fullPath` (the template) through a fixed table; unmapped → `other`; never `uri` or `matchedLocation`. A router listener calls `UsageAnalytics.screen`.
