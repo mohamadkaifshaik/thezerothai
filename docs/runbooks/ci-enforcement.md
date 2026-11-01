@@ -179,9 +179,16 @@ Test 11 (the owner's credentials are not reachable from the assistant's process)
 - **Required status checks** of the main ruleset (24070946): `make ci (lint, vet, unit tests, buf breaking, flutter analyze/test)` and
   `promotion scripts (shellcheck, actionlint, fixture tests, flag registry)`, both reported by GitHub Actions. (Section 6 shows the original
   proposal, which listed only the second.)
+- **`make ci (...)` and `make test-int (Firebase emulators)` are summary jobs** (2026-11-01). `ci.yml` runs `make ci` as parallel jobs
+  (go checks, go unit, flutter analyze, `flutter test (shard i of n)`) and `make test-int` as `make test-int (shard i of n)` jobs; shards
+  come from `scripts/ci/shard.sh`, the count is the length of each job's `matrix.shard` list. Each summary job keeps the old check name,
+  runs with `if: always()` and fails unless every job it needs succeeded, because GitHub counts a **skipped** required check as passed.
+  Never change that condition to `!cancelled()` or `success()`, and keep both names as they are: renaming `make ci (...)` leaves the
+  required check unreported and blocks every merge. The test-int summary also merges the shard coverage profiles and applies the
+  internal/ 70% gate (`make test-int-cover`), which refuses a missing shard.
 - **`make test-int (Firebase emulators)` runs on every PR but is not a required check**: a red `make test-int` does not block a merge by
-  itself, so read it. It can flake on an App Check key fetch in CI: rerun **only the failed job**, and say so in the PR (do not silently
-  retry or ignore it).
+  itself, so read it. It can flake on an App Check key fetch in CI: rerun **only the failed jobs** (that re-runs the failed shard and the
+  summary job that needs it), and say so in the PR (do not silently retry or ignore it).
 - **Tags:** `v*` tags are covered by the separate tag ruleset `protect-version-tags` (Admin-role bypass only), see ADR-0019
   (`docs/adr/0019-prod-release-gate-required-reviewers-and-tag-ruleset.md`); the assistant's App cannot create, move or delete them.
 - **Promotion ceilings:** raising a ceiling in `scripts/promotion/flag-ceiling.json` is a reviewed PR (CODEOWNERS-protected) and must merge

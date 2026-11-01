@@ -37,10 +37,10 @@ under the caller's `TMPDIR` or `/tmp`; on Windows Git Bash that is the user's Te
 Ctrl+C or SIGTERM). The caller's own environment is not changed. On Windows `TEMP` and `TMP` get the native `C:\...`
 form (Node's `os.tmpdir()` reads them there); on Linux CI, Node reads `TMPDIR`.
 
-The Makefile targets that start emulators (`emulators`, `test-int`, `dev`) run behind it, and CI's
-`make test-int (Firebase emulators)` job goes through the same target, so Linux CI and local runs behave the same
-(the workflow file is unchanged). `make loadtest` starts no emulator (it runs k6 against ones you started with
-`make emulators`), so it needs nothing. `go test` and `go run` started by the emulator script inherit the private
+The Makefile targets that start emulators (`emulators`, `test-int`, `test-int-shard`, `dev`) run behind it, and CI's
+`make test-int (shard i of n)` jobs go through `make test-int-shard`, so Linux CI and local runs behave the same (each
+CI shard also has a runner, and so emulators, of its own). `make loadtest` starts no emulator (it runs k6 against ones
+you started with `make emulators`), so it needs nothing. `go test` and `go run` started by the emulator script inherit the private
 directory too, so `t.TempDir()` and Go's build work directory also land there.
 
 **Raw `firebase` calls must use the wrapper**, otherwise they share the machine's Temp again:
