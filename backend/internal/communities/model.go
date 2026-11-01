@@ -200,6 +200,19 @@ type Service interface {
 	// member doc (skipped for the owner and moderators) + 1 caller graph + owner and <= 10 moderator profiles (the interceptor's 1 on
 	// top = 15); warm 0; writes 0.
 	GetCommunity(ctx context.Context, uid, communityID string) (Detail, error)
+	// JoinCommunity makes uid a JOINED member (ADR-0031 D2, D4, D8). One transaction that never reads the community document: memberCount is a
+	// blind Increment and the status comes from the 60 s cache. Firestore (interceptor excluded): reads 5 cold (community 1, idempotency, member
+	// doc, memberships, quotas) / 4 warm; writes 5 (member doc, memberships, memberCount, quotas, idempotency); already a member 2 reads, 1 write
+	// (the idempotency doc), no quota; banned, at the cap or over the quota 0 writes; replay 0 writes.
+	JoinCommunity(ctx context.Context, uid string, in MembershipInput) (View, error)
+	// LeaveCommunity removes uid's membership. The owner cannot leave. A moderator also leaves moderatorIds in the same transaction (logged
+	// MODERATOR_LEFT). Firestore (interceptor excluded): reads 4 cold (community 1, idempotency, member doc, memberships) / 3 warm, +1 when the
+	// community is read fresh for a moderator; writes 3 (memberships, community, idempotency) + 1 delete (member doc); not a member 2 reads,
+	// 1 write; the owner 3 reads, 0 writes; replay 0 writes.
+	LeaveCommunity(ctx context.Context, uid string, in MembershipInput) (View, error)
+	// ListMyCommunities lists the communities uid is JOINED in, newest join first (not paged at Stage 0). Firestore (interceptor excluded):
+	// reads 1 (memberships) + one per community document that is not cached, at most 51; warm 1; writes 0.
+	ListMyCommunities(ctx context.Context, uid, pageToken string) (MyCommunities, error)
 }
 
 // IDSource issues community ids (a Snowflake node, rule 1). *snowflake.Node satisfies it.
@@ -233,6 +246,10 @@ var (
 	ErrNotOwner = errors.New("communities: not the owner")
 	// ErrArchived: the community is ARCHIVED.
 	ErrArchived = errors.New("communities: community archived")
+	// ErrBanned: the caller is BANNED from the community (JoinCommunity).
+	ErrBanned = errors.New("communities: banned from the community")
+	// ErrOwnerLeave: the caller owns the community and so cannot leave it (LeaveCommunity).
+	ErrOwnerLeave = errors.New("communities: the owner cannot leave")
 )
 
 // CreateParams is one CreateCommunity write.
@@ -263,6 +280,51 @@ type UpdateResult struct {
 	Community Community
 }
 
+// MembershipInput is a JoinCommunity or LeaveCommunity request after the transport layer.
+type MembershipInput struct {
+	Key         string
+	CommunityID string
+}
+
+// MyCommunities is what ListMyCommunities answers: the caller's communities newest join first, each with the caller's role, and whether
+// the caller may call CreateCommunity.
+type MyCommunities struct {
+	Items     []View
+	CanCreate bool
+}
+
+// JoinParams is one JoinCommunity write. QuotaLimit is the daily quota.CommunityJoins limit for this caller (the new-account tier
+// already applied by the service).
+type JoinParams struct {
+	UID, ID, IdemKey, RequestHash string
+	MaxJoined                     int
+	QuotaLimit                    int64
+}
+
+// JoinResult is what Repo.Join answers. State is the caller's member state after the call (JOINED).
+type JoinResult struct {
+	Outcome Outcome
+	State   MemberState
+}
+
+// LeaveParams is one LeaveCommunity write. ModeratorHint is the service's guess from the cached community that the caller may be a
+// moderator; the repository also treats a community in the caller's modlogged as a hint (a promotion logs the target, I-L) and then
+// reads the community fresh in the transaction.
+type LeaveParams struct {
+	UID, ID, IdemKey, RequestHash string
+	ModeratorHint                 bool
+	ModlogMax                     int
+}
+
+// LeaveResult is what Repo.Leave answers. State is the caller's member state after the call (none, or BANNED when the ban stays).
+// Community is set only when the transaction read the community document (the moderator path): the freshly written document, which
+// the service may cache.
+type LeaveResult struct {
+	Outcome   Outcome
+	State     MemberState
+	Community *Community
+}
+
 // Repo is the storage of the module (FirestoreRepo in production). Create and Update are one transaction each that reads the
 // idempotency document first (a replay returns there) and writes it last.
 type Repo interface {
@@ -273,4 +335,13 @@ type Repo interface {
 	Get(ctx context.Context, id string) (Community, error)
 	// Member reads the member doc (1 read, charged even when missing): MemberNone when there is none.
 	Member(ctx context.Context, communityID, uid string) (MemberState, error)
+	// Join is one transaction (see JoinCommunity): ErrBanned, ErrJoinedLimit, ErrNotFound (the community document is gone) or a quota
+	// error leave nothing written.
+	Join(ctx context.Context, p JoinParams) (JoinResult, error)
+	// Leave is one transaction (see LeaveCommunity): ErrOwnerLeave and ErrNotFound leave nothing written.
+	Leave(ctx context.Context, p LeaveParams) (LeaveResult, error)
+	// Memberships reads communityMemberships/{uid} outside any transaction (1 read, charged when missing too): empty when there is none.
+	Memberships(ctx context.Context, uid string) (Memberships, error)
+	// GetMany reads the community documents with one GetAll (1 read per id, charged when missing too). Missing ids are absent from the map.
+	GetMany(ctx context.Context, ids []string) (map[string]Community, error)
 }

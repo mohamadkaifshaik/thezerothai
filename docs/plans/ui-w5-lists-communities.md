@@ -356,7 +356,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Done (#596) |
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Done (#601) |
 | W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Done (#601) |
-| W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Open |
+| W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Done (#613) |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
@@ -1024,7 +1024,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Export reads **1 + 2 per community** (the community doc and the user's own member doc, which alone carries `joinedAt` and `bannedAt`), not the ADR's 1 + 1: the reference account's section is 5 reads, not 3. A SUSPENDED community the user does not own, and a community whose doc is gone, count once in `redactedCount` and emit no row (`moderationActions` included). Reference-account lifecycle budgets: +1 read for the step and +1 for the section on an account with no memberships.
   - `.claude/skills/firestore-data-model/SKILL.md` (code-owner gated) still says "after `lists`" and "1 + the communities" for the export, and omits the extra memberships read per hand-over candidate; stored field names match.
 
-### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Open
+### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Done (#613)
 - **Description.**
   - **JoinCommunity:** one transaction. ACTIVE community, not BANNED, joined cap 50, `quotas.communityJoins`; it writes the member doc, memberships, `memberCount` Increment and quotas. Already a member → 0 writes.
   - **LeaveCommunity:** not the owner; it deletes the member doc, removes the community from `joined` (it stays in `modlogged` if present), decrements `memberCount` and, **when the leaver is a moderator, removes the uid from `moderatorIds`** in the same transaction, with a modlog entry.

@@ -7,11 +7,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/network/service_paused_cubit.dart';
 import '../core/router/app_router.dart';
+import '../core/router/screen_names.dart';
 import '../core/session/account_session_reset.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_mode_cubit.dart';
+import '../core/telemetry/usage_reporter.dart';
 import '../core/widgets/service_paused_view.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -95,6 +97,7 @@ class AppWidget extends StatefulWidget {
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
     this.shareLinks,
+    this.usage = const UsageReporter.none(),
   });
 
   final AuthBloc authBloc;
@@ -159,6 +162,10 @@ class AppWidget extends StatefulWidget {
   /// The share origin and native share sheet for the post Share action (W2-8),
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
   final ShareLinks? shareLinks;
+
+  /// Reports usage events and screen views (TEL-6); drops everything while
+  /// collection is off. Defaults to none (tests).
+  final UsageReporter usage;
 
   /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
@@ -316,6 +323,7 @@ class _AppWidgetState extends State<AppWidget> {
     unawaited(_pushOptIn.load(widget.authBloc.state.user?.uid));
     _purgedDraftsUid = widget.authBloc.state.user?.uid;
     _purgeExpiredDrafts(_purgedDraftsUid);
+    _screenViews = ScreenViewTracker(_appRouter.router, widget.usage);
     widget.pushCubit.onOpen = (location) => _appRouter.router.push(location);
     widget.pushCubit.onForeground = _onForegroundPush;
     widget.pushCubit.onMessagePush = _onMessagePush;
@@ -425,6 +433,7 @@ class _AppWidgetState extends State<AppWidget> {
 
   @override
   void dispose() {
+    _screenViews.dispose();
     _authSub.cancel();
     _onboardingSub.cancel();
     _pendingPosts.close();
@@ -438,6 +447,8 @@ class _AppWidgetState extends State<AppWidget> {
     _messagesBadge.close();
     super.dispose();
   }
+
+  late final ScreenViewTracker _screenViews;
 
   late final AppRouter _appRouter = AppRouter(
     authBloc: widget.authBloc,
@@ -530,8 +541,11 @@ class _AppWidgetState extends State<AppWidget> {
                           ? Brightness.dark
                           : Brightness.light,
                     ),
-                    child: _PausedOverlay(
-                      child: child ?? const SizedBox.shrink(),
+                    child: UsageScope(
+                      reporter: widget.usage,
+                      child: _PausedOverlay(
+                        child: child ?? const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 );
