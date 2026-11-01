@@ -2,6 +2,8 @@
 
 **Reviewer:** security-auditor · **Date:** 2026-10-31 · **Reviewed:** `origin/main` at `57d86828`, read only. It includes W6-5 #497, W6-6 #504, W6-7/8 #515, W6-9 #496, W6-10 #505, W6-18 #519 and W6-15 + W6-16 #525 (branch head `ff3582d9`, merged as `7e3f5855`). Two open PRs were read as diffs: #521 (D-1 delay clamp) and #530 (`post_hash` on the VotePoll line).
 
+**Status:** CLEAR WITH CONDITIONS since the re-review of 2026-11-01 (`origin/main` at `fe2e3d1f`; section 7, "Re-review 2026-11-01"). H-1, H-2, H-3, M-1 and M-2 are fixed. L-4 is partly fixed (new N-1, Low). C-1 to C-6 are prod gates. The "In review" markers in section 2 and the per-flag table in section 6 describe 2026-10-31; the re-review supersedes them.
+
 **Design:** ADR-0029 (Accepted 2026-10-30), with its as-built notes N1 to N4 and the founder decisions of 2026-11-01. Plan `docs/plans/ui-w6-composer-extras.md`, W6-20.
 
 **Code read:**
@@ -449,7 +451,7 @@ These are worked out in ADR-0029 Amendment 1, accepted in principle by the found
 | `drafts` | **GO** | **GO** | **GO** once W6-31 (1) and (2) are done and the policy line exists |
 | `gif` | **GO**, on condition that W6-25 to W6-28 are ticketed and `gif` and `media` stay on team and test accounts only | **BLOCKED** until H-1, H-2, H-3 (W6-25 to W6-27), M-1 (#521) and M-2 (W6-28) are fixed. The same holds for `media` | **BLOCKED** until all of the above plus W6-30. H-1 to H-3 also block `FEATURE_MEDIA` in prod |
 
-SECURITY: BLOCKED — H-1, H-2, H-3
+Verdict of 2026-10-31: BLOCKED (H-1, H-2, H-3). Superseded by "Re-review 2026-11-01" in section 7.
 
 ## 7. Re-reviews
 
@@ -466,3 +468,148 @@ SECURITY: BLOCKED — H-1, H-2, H-3
 - **This review's L-2:** a change leaves exactly one `userLikes.pollVotes` entry per post, from both the three-part and the legacy state, so the export and retention hold.
 - **`polls` beyond the dev allowlist:** GO from security once the runbook §10 dev check (extended to assert exactly one entry after a change) passes on dev Firestore, W6-37 and W6-41 are done, and the 100 % rule holds. Prod adds W6-44, W6-46 and W6-47.
 - **W6-42 overall:** with part 1 (`security-w6-40-attempt-cap.md`, CLEAR after 9490702a), W6-42 has no open Critical or High.
+
+### Re-review 2026-11-01: verdict re-issued after the fixes (W6-20)
+
+**Reviewer:** security-auditor · **Reviewed:** `origin/main` at `fe2e3d1f`, read only.
+- Fix PRs read: #521, #530, #535, #536, #541, #545, #552, #554, #562, #563, #565, #566, #567, #569, #570, #571, #574, #575, #576, #577, #578, #579, #581.
+- Scope is unchanged: polls, drafts, GIFs and the shared photo pipeline.
+- Scheduled posts and reply audience are ADR-0021 surfaces with their own review (`security-review-adr-0021.md`). They are not reopened here.
+
+**Run:**
+- `GOWORK=off go test` on an export of `fe2e3d1f`, green: `internal/{media,engagement,posts,apiserver}` and `pkg/platform/{objstore,logger,config}`.
+- Every Go test named in the table ran and passed, none skipped, except the ones listed as not run.
+
+**Not run:**
+- Integration tests: `TestGenerationPin_Integration` (the emulator ignores generations, so the wire tests are the proof), `TestRepoSweepPollVotes`, `TestPollVoteExporter_ChangedAtFromFirestore`, `TestW641_L1_AuthorBlocksAVoterWhoVoted_NotFoundBytes`.
+- `-race`.
+- Flutter tests: the Dart tests named below were read, not run.
+- `govulncheck` and `osv-scanner`: not installed. There is no `go.mod` or `pubspec` change since `57d86828`.
+- No cloud calls by the reviewer. The live prod CORS, TTL policy, Scheduler jobs and revision env are unchecked. One dev fact was checked afterwards (C-3).
+
+**Paths:** `media/`, `engagement/`, `posts/` and `apiserver/` are under `backend/internal/`. `objstore/` and `logger/` are under `backend/pkg/platform/`. `lib/` and `web/` are under `app/`.
+
+| Finding | State | Fix (file:line) | Proving test (file) |
+|---|---|---|---|
+| H-1 publish swap | Fixed (#536) | Create-only PUT: `objstore/objstore.go:34, 257, 263`. Pinned sniff: `media/finalize.go:518`. Pinned GIF read: `media/gifscreen.go:101`. Pinned copy: `objstore/objstore.go:190`, and `media/gcs.go:63` refuses generation 0. REJECTED `changed_after_verify`: `media/finalize.go:349-366`. Client treats 412 as stored: `lib/features/media/data/media_repository.dart:174`. CORS: `infra/terraform/modules/media-buckets/main.tf:34` | `TestW625_SignedPutHeadersAreCreateOnly`, `TestW625_PublishRefusesAReplacedObject` (photo, thumbnail, avatar, banner), `TestW625_GIFReadIsPinnedToTheVerifiedGeneration` (`media/create_only_w625_test.go`); `TestW618_PublishSwapAfterScreeningIsRefused` (`media/gif_w618_test.go`); `TestCopyTo_SendsIfSourceGenerationMatch`, `TestReadHead_PinnedReadCarriesTheGenerationPrecondition` (`objstore/objstore_wire_test.go`); `TestSignedPutURL_HeadersAreInUploadBucketCORS` (`objstore/objstore_cors_test.go`); Dart `media_uploader_create_only_put_test.dart` |
+| H-2 animated WebP | Fixed (#541) | `media/webpscan.go:30` (`webpIsStill`); `media/finalize.go:530` checks both objects before any Vision unit | `TestW626_WebpIsStill`, `TestW626_FinalizeRefusesAnimatedWebP`, `TestW626_FinalizeRefusesAnimatedGIFThumbnail`, `TestW626_StillWebPStillPasses` (`media/webp_w626_test.go`) |
+| H-3 uncounted Vision spend | Fixed (#535, revised by #554, #563, #565; W6-42 part 1 CLEAR) | In `media/finalize.go`: `:199` attempt cap before verify; `:217-224` per-uid units cap before the claim; `:284-288` one "possibly billed" rule for both counters; `:70-72` monthly units written on a detached context; `:600` no call with under 3 s left. Also `media/screencap.go:74, 95` and `media/repo_firestore.go:317` | `TestW627_VisionUnitAccounting`, `TestW627_AttemptCapStopsTheLoop` (`media/vision_accounting_test.go`); `TestW640_PerDocBillableUnitsAreAtMost16`, `TestW640_CancelledMidCallIsCountedAndNotRefunded` (`media/attempt_cap_w640_test.go`); `TestW641_H3_LoopOnAnOutageStopsAtTheClaimsCeiling`, `TestW641_H3_LoopAcrossDocumentsStopsAtTheUnitsCap` (`media/loops_w641_test.go`); `TestW649_FinalizeRefundsOnlyUnbilledErrors` (`media/refunds_w649_test.go`); `TestW650_UploadQuotaAndUnitsCapUseTheSameTier` (`media/age_tier_w650_test.go`) |
+| M-1 delay clamp | Fixed (#521) | `media/gifscan.go:224` | `TestW618_BrowserDelayClampIsModelled` (`media/gif_w618_test.go`); `TestSampleIndices` (`media/gifscreen_test.go`) |
+| M-2 resting last frame | Fixed (#545) | `media/gifscan.go:245` | `TestW628_OnlyTheLastFrameIsExplicit`, `TestW628_HarmlessLongGIFStaysReady` (`media/gif_w628_test.go`) |
+| L-1 voter list in logs | Fixed (#530 shipped keyed; error lines fixed in #566, #576, #578) | `logger/convhash.go:81` (`HashPost`), `:112` (`RedactErrPosts`), `:135` (`RedactErrPostDocs`); `engagement/service_polls.go:82, 316, 319`; `engagement/purge_polls.go:85, 100, 106` | `TestHashPost` (`logger/convhash_test.go`); `TestVotePoll_PostHashOnRequestLineAndContentionWarn`, `TestMapVoteErr_RedactsPostIDKeyed` (`engagement/service_polls_test.go`); `TestPurgePollVotes_RedactsDocIDsKeyed` (`engagement/purge_polls_test.go`); `TestRedactLikeDocErr_Keyed` (`engagement/redact_keyed_test.go`) |
+| L-2 `userLikes.pollVotes` retention and export | Fixed in code (#552; #581 adds `changes`). Retention in prod needs C-3 | `current_choices`: `engagement/purge_polls.go:166-202`. Expiry: `engagement/poll_retention.go` (`pollEntryExpiry`, `splitPollVotes`). Lazy prune: `engagement/service_polls.go:340-356`. Daily sweep: `apiserver/poll_vote_sweep.go:52` | `TestPollVoteExporter_CurrentChoices`, `TestState_ExpiredPollEntryNotReturnedAndPruned`, `TestSplitPollVotes` (`engagement/poll_retention_test.go`); `TestPollVoteExporter_ChangedAt` (`engagement/purge_polls_test.go`); `TestPollVoteSweepStep` (`apiserver/poll_vote_sweep_test.go`). The sweep query itself (`TestRepoSweepPollVotes`, emulator) was not run |
+| L-3 count deltas | Accepted risk (founder 2026-10-31), with copy (#570) and policy (#564) | `lib/shared/widgets/poll_card.dart:10`; `web/privacy.html:246-262`. The policy names vote changes, which closes W6-42 part 2 L-4 | `poll_privacy_note_test.dart` (`app/test/shared/widgets/`), not run |
+| L-4 GIF metadata and trailing bytes | **Partly fixed** (#577). Metadata blocks and trailing bytes are closed. Data inside loop blocks is still accepted (N-1) | `media/gifscan.go:103-130`; `lib/features/media/domain/image_processor.dart:230` (`stripGifBytes`) | `TestW630_SharedFixture` (`media/gif_w630_test.go`) and `gif_strip_test.dart`, both over `testdata/gif_strip.json`. **No test covers N-1** |
+| L-5 drafts on shared devices | Fixed. Items (1) and (2) in #574. Item (3) decided as a 30-day expiry (#550) | `lib/features/auth/presentation/request_sign_out.dart:37`; `lib/features/settings/presentation/settings_screen.dart:269` (shown whatever the flag); `lib/features/posts/data/drafts_repository.dart:125` (`purgeExpired`) | `settings_unsent_posts_test.dart` groups "sign-out notice" and "Delete unsent posts on this device (drafts flag off)" (`app/test/features/settings/presentation/`); `drafts_repository_test.dart` group "expiry (30 days after the last user edit)". Not run |
+| L-6 look-alike choices | Fixed (#552) | `posts/poll.go:138` (`foldKey`); `posts/text/text.go:394`; `testdata/poll_rules.json:26, 28` | `TestPollRules_SharedFixture` (`posts/poll_test.go`); Dart `poll_rules_test.dart`, not run |
+| I-1 `draftId`-only key | Fixed (#574) | `lib/core/storage/app_database.dart:314` (`{uid, draftId}`, schema v11) | `drafts_repository_test.dart` "a draft id shared by two accounts is two rows (W6-31, I-1)"; `composer_drafts_schema_test.dart` v10 to v11 migration. Not run |
+| W6-25 review L-3, L-4, L-5 | Fixed. L-3 in #567. L-5 in #569. L-4 by the rule C runbook (#571, #579), which leaves a prod check (C-1) | `media/finalize.go:691` (`dropPublicNames`) | `TestW632_RejectSweepsAPublicCopyLeftByAnEarlierCall` (`media/create_only_w625_test.go`); Dart `media_uploader_create_only_put_test.dart` |
+| W6-42 Lows (parts 1 and 2) | Fixed. Part 1: L-1 and L-3 in #563, L-4 in #565, L-5 in #562, I-5 in #575. Part 2: L-1 in #575, L-2 in #566, L-3 in #562, L-4 in #564 | See the PRs | `TestW649_*`, `TestW650_*`, `TestW641_I5_LostClaimRaceRefundsTheWholeCharge`, `TestMapVoteErr_RedactsPostIDKeyed`; `TestW641_L1_AuthorBlocksAVoterWhoVoted_NotFoundBytes` (integration, not run) |
+
+#### Regressions from the fix PRs
+
+None found except N-1.
+
+**Authz:** unchanged.
+- VotePoll still returns one NOT_FOUND, visibility first.
+- FinalizeUpload still checks ownership first.
+- The sign-out flow and the delete row read and delete only the signed-in uid.
+
+**Effective limits** (per instance × 3 instances):
+
+| Limit | Per instance | Effective |
+|---|---|---|
+| FinalizeUpload bucket | 10/min | 30/min |
+| `media_vision_units_daily` | 60/day (new accounts 12) | 180/day (new accounts 36); durable across restarts 320/80 |
+| Claims per media doc | — | 8, so at most 16 units per doc |
+
+- `VISION_MONTHLY_CAP` with `reject` now counts every call that may have been billed.
+- VotePoll is unchanged: 90/min and 900/day effective, and at most 5 vote changes per voter per poll.
+
+**Cost (H-3 bound):**
+- Per abusive account-month: about INR 780 while instances live, about INR 1,390 durable. It was about INR 13,000.
+- Service-wide Vision spend is capped again: about INR 1,425 a month at 10,000 units, about INR 5,700 at 40,000. It was about INR 93,600 and uncapped.
+
+**Quotas:** the upload quota and the units cap now use one new-account tier (#565).
+
+**PII in logs:**
+- Post ids are keyed wherever they sit next to a uid hash: poll, like and bookmark error lines (#566, #576, #578).
+- The new media fields are counts and enums only.
+- Client storage errors are reported as fixed `StateError`s, never with draft text.
+
+**GIF byte stripping:**
+- Client and server agree through `testdata/gif_strip.json`.
+- The client computes the MD5 after the strip, so the signed MD5 matches the stored bytes.
+- The one gap is N-1.
+
+**Signed URL scope:**
+- Bound to the object, Content-Type, Content-MD5, the length range and create-only. TTL is 10 minutes (`media/api.go:83`).
+- `objstore_cors_test.go` keeps the CORS list equal to the signed headers.
+
+**Idempotency:**
+- A 412 on a retried PUT means "stored" only for that same signed object. FinalizeUpload still re-verifies size, type and MD5 against the doc.
+- W6-32's reject sweep is 2 free DELETEs on names that only the winning REJECTED doc owns.
+
+#### New finding
+
+**N-1 (Low): a GIF loop block can carry arbitrary data.** Ticket W6-58.
+- **Where:**
+  - `isLoopBlock` (`media/gifscan.go:186`, used at `:123`) checks only the 11-byte identifier, and `skipSubBlocks` then accepts any number of sub-blocks.
+  - The client keeps loop blocks with their sub-blocks intact (`image_processor.dart:217-218, 258-260`).
+  - Go's `image/gif` skips extra sub-blocks after `NETSCAPE2.0`, so the sampler decodes the file normally. `ANIMEXTS1.0` is handled the same way.
+- **Test run by the reviewer (scratch copy, not committed):** a 5-frame GIF with 25,300 bytes of extra sub-blocks inside its `NETSCAPE2.0` block passed `scanGIF` and `sampleGIF`. The only limit is the 2 MiB object cap.
+- **Impact:**
+  - A hand-built upload can host data on the public bucket.
+  - Photoshop/GIMP XMP lives in its own application block, which is now refused, so the metadata leak is closed.
+  - It renders nothing, so moderation is unaffected.
+  - No H-1 impact: the create-only PUT and the generation pin do not depend on MD5.
+  - Pixel data can carry arbitrary bytes too, so a fix only removes the easiest channel.
+- **Cost:** no amplification. Egress is the same as any hot-linked 2 MiB GIF, and uploads stay at 20 a day per account. INR: unchanged.
+- **Fix:**
+  - Server: refuse a loop block whose data is not exactly one 3-byte sub-block (`03 01 LL LL`) followed by `00`, and refuse a second loop block.
+  - Client: rewrite the loop block in that form, byte-level with no re-encode.
+  - Tests: add rows to `testdata/gif_strip.json` so that `TestW630_SharedFixture` and `gif_strip_test.dart` prove it.
+  - Owner and size: backend-developer + frontend-developer, XS.
+- **Gate:** L-4's gate, before `gif` leaves `off` in prod (C-6).
+
+#### Decision on the media rollback floor (W6-33 design, "Related, not in this ticket")
+
+- **Decision:** yes, a forward-only floor is needed, written as a runbook rule. A `rollback_floors.MEDIA` entry is not needed yet. Ticket W6-59.
+- **Why:**
+  - Prod rollback is a manual `update-traffic` (`docs/runbooks/rollback.md:18-45`), and the prod workflows do not run `resolve-rollback.sh`.
+  - A revision with `FEATURE_MEDIA` not off and an image older than the fixes would reopen H-1 to H-3, plus M-1, M-2 and L-4.
+- **Bound:**
+  - A Cloud Run revision keeps the env it was created with.
+  - Every repo signal says no prod revision has had `FEATURE_MEDIA` on, so routing back to any revision that exists today turns media off.
+  - The risk starts with the first media-on revision.
+- **Floor commit:** `b0c783b3` (#577). `git merge-base --is-ancestor` confirms it contains #521, #535, #536, #541, #545, #554, #563, #565 and #567.
+- **Enforcement:** a CI check (C+) is the founder's call.
+
+#### Conditions
+
+| ID | Condition | Owner | Must hold |
+|---|---|---|---|
+| C-1 | The checks in `docs/runbooks/media.md` "Before `FEATURE_MEDIA` leaves `off` in prod" (checks 1 to 4) hold. That includes check 2: the prod upload bucket's CORS `responseHeader` lists `x-goog-if-generation-match` (Terraform `media-buckets/main.tf:34`; applied in dev 2026-10-31 per #536; prod unchecked). Without it every web upload fails the preflight, and the quick workaround (dropping the create-only header) would reopen H-1 | production-deployer (plan, checks); founder (plan-then-OK apply); production-reviewer (records the output) | CORS: before any `v*` tag that contains `13b5080f`, which is every tag cut from main now (`media.md:457`, #536 "Deploy ordering"). Checks 1 to 4: at the release that first moves `media` or `gif` past `off`, and while they stay on |
+| C-2 | Add a "Forward-only floor for media" line to `rollback.md` under "Backend (Cloud Run) — prod", in the same form as the reply-audience floor. While `FEATURE_MEDIA` is not off, route only to a revision with `FEATURE_MEDIA` off or an image at or after `b0c783b3`; otherwise roll forward. In `media.md` check 1(a), use `b0c783b3` in place of `13b5080f`, so that tag check covers H-2, H-3, M-1, M-2 and L-4 too (W6-59) | production-deployer; founder (whether to add C+) | Before `FEATURE_MEDIA` leaves `off` in prod |
+| C-3 | The TTL policy `poll_votes_expire_at` (`infra/terraform/modules/firestore/variables.tf:66`) is applied in prod. The `daily-maintenance` Scheduler job (`envs/prod/main.tf:448`) runs there and logs `poll_vote_sweep` (`docs/runbooks/engagement.md:169-176`, W6-47 row). In dev the `pollVotes.expireAt` TTL is ACTIVE (checked 2026-11-01 with `gcloud firestore fields ttls list`, read only). Dev has no Scheduler job by design, so an expired copy for a dormant dev account is removed only by the lazy prune | production-deployer (plan); founder (apply) | Prod: before `polls` leaves `off`. Dev: met |
+| C-4 | Export and deletion reach poll votes in prod (rule 10). Either `FEATURE_ACCOUNT_LIFECYCLE` is on in prod for every account that can see polls, or `docs/runbooks/account-deletion.md` 3a and 3b are extended to `pollVotes/{postId}_{uid}` and `userLikes.pollVotes`; today they cover the graph and posts only (W6-46 row) | founder + production-deployer (or architect for the runbook) | Before `polls` leaves `off` in prod |
+| C-5 | The W6-46 "Before release" Privacy Policy refresh (W6-55, PR #584) is merged with the founder's approval | architect + founder | Before `polls` or `drafts` leave `off` in prod |
+| C-6 | N-1 is fixed with its fixture rows (W6-58), or the founder accepts it as a residual | backend-developer + frontend-developer, or founder | Before `gif` leaves `off` in prod |
+
+**Not conditions (corrected):**
+- **W6-51 env entries:** applying them in prod is not a security gate.
+  - They are fixed values in `envs/prod/main.tf:161-165`, equal to the code defaults in `config/composer.go:97-112` and `config/config.go:492`. A prod apply changes nothing at runtime.
+  - It is a rule-11 visibility item. The `POLL_VOTE_CHANGES_MAX` kill switch needs a Terraform edit and an apply either way (`engagement.md:147`).
+  - Let them ride the next prod plan.
+- **`posts.poll` and `userLikes.pollVotes` fieldOverrides:** `release-prod.yml:120` deploys them with the tag. No separate step is needed.
+
+**Per flag.** "Dev beyond the allowlist" still needs the founder's ceiling raise: `max_percent` is 0 for all four flags in `flag-ceiling.json`.
+
+| Flag | Dev beyond the allowlist | Prod |
+|---|---|---|
+| `polls` | GO from security (the dev part of C-3 is met) | After C-3, C-4 and C-5. Never ahead of `engagement` |
+| `drafts` | GO | After C-5 |
+| `media` | GO from security | After C-1 and C-2 |
+| `gif` | GO from security | After C-1, C-2 and C-6. Never ahead of `media` |
+
+SECURITY: CLEAR WITH CONDITIONS — C-1, C-2, C-3, C-4, C-5, C-6
