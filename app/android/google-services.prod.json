@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "1053765609011",
+    "project_id": "dzeroth-prod",
+    "storage_bucket": "dzeroth-prod.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1053765609011:android:13592d83796f6ed7a7a546",
+        "android_client_info": {
+          "package_name": "com.dzeroth.dzeroth"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1053765609011-i2uslphpn1v88hvk5jdvefobm2eqtpdu.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCnlOwNeGQJW2fpUHGaF7IipVG8aQ2xZeU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1053765609011-i2uslphpn1v88hvk5jdvefobm2eqtpdu.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1053765609011-eq8m7ft9f20guehbqeekc56v3dh08hf0.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.dzeroth.dzeroth"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

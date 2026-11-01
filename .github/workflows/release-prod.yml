@@ -184,6 +184,19 @@ jobs:
           version: "3.47.5"
           sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
+      # TEL-14: the google-services Gradle plugin reads app/android/app/google-services.json
+      # (dzeroth-dev's, used by every other build). Swap in the checked-in prod copy for this
+      # job's build only; FIREBASE_ENV=prod alone switches just the Dart-side options. The file
+      # is client config (public). Refresh: docs/runbooks/cloud-bootstrap.md section 4.
+      - name: Use dzeroth-prod google-services.json
+        run: |
+          set -euo pipefail
+          cp app/android/google-services.prod.json app/android/app/google-services.json
+          grep -q '"project_id": "dzeroth-prod"' app/android/app/google-services.json \
+            || { echo "::error::swapped google-services.json is not dzeroth-prod's"; exit 1; }
+          grep -q '"package_name": "com.dzeroth.dzeroth"' app/android/app/google-services.json \
+            || { echo "::error::swapped google-services.json has an unexpected package name"; exit 1; }
+
       - name: flutter build appbundle
         working-directory: app
         env:
@@ -191,12 +204,6 @@ jobs:
           API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
-        # NOTE (founder follow-up): app/android's checked-in google-services.json
-        # is still dev's — FIREBASE_ENV=prod only switches the Dart-side
-        # Firebase options (lib/firebase_options_prod.dart). Native Android
-        # SDK init (Google Sign-In, Crashlytics) still reads the dev
-        # google-services.json until a prod one is added (flutterfire
-        # configure per flavor, or a build-time swap step).
         run: |
           flutter build appbundle --release \
             --dart-define=USE_EMULATORS=false \
