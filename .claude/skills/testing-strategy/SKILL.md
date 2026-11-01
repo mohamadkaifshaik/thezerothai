@@ -42,6 +42,8 @@ description: Test conventions, tooling and commands for Go and Flutter using the
 
 ## CI cost
 GitHub Actions: cache Go modules, pub cache and the emulator JARs; run Flutter iOS builds only on release tags.
+`flutter test` and `test-int` run in parallel shards (`scripts/ci/shard.sh`: Flutter by file, Go by top-level test name);
+each test-int shard has its own emulators, so a test must not depend on another test having run first in its package.
 
 ## Flakiness policy
 No `time.Sleep` for sync — use `eventually` helpers with timeout. Flaky test = bug, quarantine with ticket.

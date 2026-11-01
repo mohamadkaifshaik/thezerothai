@@ -44,10 +44,12 @@ EMULATOR_PROJECT := demo-dzeroth-local
 # docs/runbooks/emulator-collisions.md. `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
 EMULATOR_TMP := bash scripts/with-private-tmp.sh
 
-.PHONY: proto ci emulators test-int dev cost loadtest fmt vet test flutter-analyze flutter-test help
+.PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test buf-check lint flutter-analyze flutter-test help
 
 help:
 	@echo "Targets: proto ci emulators test-int dev cost loadtest fmt vet test"
+	@echo "  ci = fmt vet test buf-check lint flutter-analyze flutter-test (CI runs them as parallel jobs)"
+	@echo "  make flutter-test SHARD=0/3 | make test-int-shard SHARD=0/3 + make test-int-cover   # CI shards (scripts/ci/shard.sh)"
 	@echo "  make loadtest SCENARIO=identity_getme   # runs loadtest/<scenario>.js with k6 (see loadtest/README.md)"
 	@echo "  make cost PROJECT_ID=dzeroth-dev        # also queries live Cloud Logging usage"
 
@@ -88,13 +90,15 @@ COVERAGE_THRESHOLD := 70
 test:
 	cd $(BACKEND_DIR) && go test $(RACE_FLAG) -shuffle=on -coverprofile=cover.out -coverpkg=./pkg/platform/... ./...
 	@echo "==> pkg/platform coverage gate ($(COVERAGE_THRESHOLD)%)"
-	@cd $(BACKEND_DIR) && go tool cover -func=cover.out | tail -1
-	@cd $(BACKEND_DIR) && pct=$$(go tool cover -func=cover.out | tail -1 | awk '{print $$NF}' | tr -d '%'); \
-		awk -v p="$$pct" -v t="$(COVERAGE_THRESHOLD)" 'BEGIN { exit !(p+0 >= t+0) }' || \
-		{ echo "pkg/platform coverage $${pct}% < $(COVERAGE_THRESHOLD)% threshold"; exit 1; }
+	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover.out $(COVERAGE_THRESHOLD) pkg/platform
 
-## ci: everything make ci must pass before any agent declares work done (CLAUDE.md).
-ci: fmt vet test
+## ci: everything make ci must pass before any agent declares work done (CLAUDE.md). Prerequisites run left to right.
+## .github/workflows/ci.yml runs the same targets as parallel jobs (flutter-test in shards) and reports them together
+## under the required check "make ci (...)".
+ci: fmt vet test buf-check lint flutter-analyze flutter-test
+
+## buf-check: buf lint + buf breaking against origin/main (needs full git history for the baseline).
+buf-check:
 	@echo "==> buf lint"
 	"$(BUF)" lint $(PROTO_DIR)
 	@echo "==> buf breaking (against origin/main, tolerant of a missing ref/baseline e.g. first commit / no remote / proto not pushed yet)"
@@ -103,18 +107,34 @@ ci: fmt vet test
 	else \
 		echo "no $(PROTO_DIR)/ found at origin/main - skipping buf breaking"; \
 	fi
+
+## lint: golangci-lint when it is installed (CI runs it through golangci-lint-action instead).
+lint:
 	@echo "==> golangci-lint"
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		cd $(BACKEND_DIR) && golangci-lint run ./...; \
 	else \
 		echo "golangci-lint not installed locally; skipping (CI installs and runs it)"; \
 	fi
+
+## flutter-analyze: flutter analyze, then the check that the CSP script-src carries the FlutterFire loader hashes.
+flutter-analyze:
 	@echo "==> flutter analyze"
 	cd $(APP_DIR) && flutter analyze
 	@echo "==> CSP script-src carries the FlutterFire loader hashes"
 	bash scripts/csp/check-firebase-loader-hashes.sh firebase.json $(APP_DIR)
-	@echo "==> flutter test"
-	cd $(APP_DIR) && flutter test
+
+## flutter-test: flutter test. SHARD=<index>/<total> (0-based) runs only that shard's test files (scripts/ci/shard.sh),
+## as CI does with one job per shard. An empty or invalid shard fails; it never falls back to the whole suite.
+flutter-test:
+	@echo "==> flutter test$(if $(SHARD), (shard $(SHARD)))"
+	@if [ -z "$(SHARD)" ]; then \
+		cd $(APP_DIR) && flutter test; \
+	else \
+		files=$$(bash scripts/ci/shard.sh flutter-files "$(SHARD)") || exit 1; \
+		echo "$$(echo "$$files" | wc -l | tr -d ' ') test files"; \
+		cd $(APP_DIR) && flutter test $$files; \
+	fi
 
 ## emulators: Firebase Emulator Suite only (Firestore, Auth, Pub/Sub, Storage). $0, local dev/test.
 emulators:
@@ -138,10 +158,22 @@ test-int:
 	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
 		'cd $(BACKEND_DIR) && go test -tags=integration $(RACE_FLAG) -coverprofile=cover-internal.out -coverpkg=./internal/... ./...'
 	@echo "==> internal/ coverage gate (combined unit + integration, $(COVERAGE_THRESHOLD)%)"
-	@cd $(BACKEND_DIR) && go tool cover -func=cover-internal.out | tail -1
-	@cd $(BACKEND_DIR) && pct=$$(go tool cover -func=cover-internal.out | tail -1 | awk '{print $$NF}' | tr -d '%'); \
-		awk -v p="$$pct" -v t="$(COVERAGE_THRESHOLD)" 'BEGIN { exit !(p+0 >= t+0) }' || \
-		{ echo "internal/ coverage $${pct}% < $(COVERAGE_THRESHOLD)% threshold"; exit 1; }
+	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover-internal.out $(COVERAGE_THRESHOLD) internal/
+
+## test-int-shard: one CI shard of test-int, SHARD=<index>/<total> (0-based): the tests scripts/ci/shard.sh puts in that
+## shard, against this shard's own emulators, writing backend/cover-internal-shard-<index>-of-<total>.out. No gate here:
+## test-int-cover gates the merged profiles of all shards. The script runs as `bash ...`, cmd.exe-safe like dev below.
+test-int-shard:
+	@[ -n "$(SHARD)" ] || { echo "usage: make test-int-shard SHARD=<index>/<total>"; exit 2; }
+	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
+		'bash scripts/ci/test-int-shard.sh $(SHARD) $(RACE_FLAG)'
+
+## test-int-cover: merges every test-int-shard profile of one run (all <total> of them, or it fails) into
+## backend/cover-internal.out and applies test-int's internal/ coverage gate to it.
+test-int-cover:
+	bash scripts/ci/cover.sh merge $(BACKEND_DIR)/cover-internal.out $(BACKEND_DIR)/cover-internal-shard-*-of-*.out
+	@echo "==> internal/ coverage gate (combined unit + integration, all shards, $(COVERAGE_THRESHOLD)%)"
+	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover-internal.out $(COVERAGE_THRESHOLD) internal/
 
 ## dev: emulators + API + Flutter web, all torn down together (Ctrl+C in the flutter run session).
 ## Same reasoning as test-int for FIREBASE_PROJECT_ID; FIRESTORE_EMULATOR_HOST etc. are read by the
