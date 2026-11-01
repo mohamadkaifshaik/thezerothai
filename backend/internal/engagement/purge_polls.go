@@ -58,6 +58,8 @@ type ExportedPollVote struct {
 	CreatedAt time.Time `json:"createdAt"`
 	// ChangedAt is the time of the last vote change, present only once the vote was changed (ADR-0029 Amendment 1 A2.6). No earlier choice is kept.
 	ChangedAt *time.Time `json:"changedAt,omitempty"`
+	// Changes is the stored change count of the vote (W6-53, ADR-0029 N12); present exactly when ChangedAt is, so a never-changed vote exports byte-identically to before.
+	Changes *int `json:"changes,omitempty"`
 	// id is the document id, the page cursor (not exported).
 	id string
 }
@@ -80,7 +82,7 @@ func (r *FirestoreRepo) PurgePollVotesPage(ctx context.Context, uid string) (int
 	}
 	if err := b.Commit(ctx); err != nil {
 		// The commit error names the deleted documents' paths (post id and uid): redact both.
-		return 0, redactPollVoteErr(fmt.Errorf("engagement: purge poll votes %s: %w", logger.HashUID(uid), err), uid, ids...)
+		return 0, logger.RedactErrPostDocs(fmt.Errorf("engagement: purge poll votes %s: %w", logger.HashUID(uid), err), uid, ids...)
 	}
 	return len(docs), nil
 }
@@ -95,18 +97,20 @@ func (r *FirestoreRepo) ExportPollVotesPage(ctx context.Context, uid, afterID st
 	docs, err := q.Limit(min(max(limit, 1), pollVotePage)).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		return nil, redactPollVoteErr(fmt.Errorf("engagement: export poll votes %s: query: %w", logger.HashUID(uid), err), uid, afterID)
+		return nil, logger.RedactErrPostDocs(fmt.Errorf("engagement: export poll votes %s: query: %w", logger.HashUID(uid), err), uid, afterID)
 	}
 	out := make([]ExportedPollVote, 0, len(docs))
 	for _, s := range docs {
 		var d pollVoteDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, redactPollVoteErr(fmt.Errorf("engagement: export decode poll vote: %w", err), uid, s.Ref.ID)
+			return nil, logger.RedactErrPostDocs(fmt.Errorf("engagement: export decode poll vote: %w", err), uid, s.Ref.ID)
 		}
 		row := ExportedPollVote{PostID: d.PostID, Choice: d.Choice, CreatedAt: d.CreatedAt.UTC(), id: s.Ref.ID}
 		if !d.ChangedAt.IsZero() {
 			at := d.ChangedAt.UTC()
 			row.ChangedAt = &at
+			changes := d.Changes
+			row.Changes = &changes
 		}
 		out = append(out, row)
 	}
@@ -251,19 +255,4 @@ func (x *PollVoteExporter) ExportUser(ctx context.Context, uid string, w io.Writ
 		return fmt.Errorf("engagement: write poll votes export: %w", err)
 	}
 	return nil
-}
-
-// redactPollVoteErr redacts an error that may name vote documents (pollVotes/<postId>_<uid>) for uid (W6-54, security review
-// L-2 follow-up). The post id of each document id is replaced first, by the keyed logger.HashPost, then the uid by HashUID,
-// so a document id renders as HashPost(postId)_HashUID(uid) and no plain post id, plain uid or unkeyed hash of a post id is left.
-// Redacting the uid first would break the document id apart and leave the plain post id next to the uid hash. A uid never
-// contains "_" (ADR-0008 A3), so the post id is everything before the last "_"; an id without one (an empty cursor) is skipped.
-func redactPollVoteErr(err error, uid string, docIDs ...string) error {
-	postIDs := make([]string, 0, len(docIDs))
-	for _, id := range docIDs {
-		if i := strings.LastIndex(id, "_"); i > 0 {
-			postIDs = append(postIDs, id[:i])
-		}
-	}
-	return logger.RedactErrPosts(err, postIDs, uid)
 }
