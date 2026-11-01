@@ -364,8 +364,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
-| W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Open |
-| W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Open |
+| W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
+| W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Open |
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Open |
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
@@ -1235,7 +1235,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `CommunitiesRepository` has no session state (no headers cached yet), so it takes no `SessionEpoch`. `FeedKey.community` is wired in `TimelineRepository` as "not available" until W5-32 adds `GetCommunityTimeline`.
   - `HomeTabsRepository` shows and writes COMMUNITY tabs only while `communities` is on; a VALIDATION `tabs` refusal of a write that holds a community tab (the server before W5-27) rolls back and reads as FEATURE_DISABLED `communities`.
 
-### W5-31 — Communities screen and Create  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
+### W5-31 — Communities screen and Create  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Done (#616)
 - **Description.** `/communities`:
   - an `AppBackHeader` "Communities";
   - "My Communities" rows (default tile, name, "N members", role badge);
@@ -1255,8 +1255,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities` (+ `ui_shell` for nav).
 - **Seam.** It reuses W5-11's `AppTileIcon`, `AppSectionHeader` and `UserListRow` patterns.
 - **Parallel with W3 Part A / W4:** shell nav files after W5-11 and W4-17.
+- **As built (W5-31).**
+  - Routes `/communities`, `/communities/new`, `/communities/:id`, `/communities/:id/members` share one `communities` flag redirect (Home when off). `/communities/new` is flag-gated only: the Create entry needs `can_create`, and a non-creator who opens the URL gets the server's FORBIDDEN `not_creator` text.
+  - Drawer row and rail destination (rail only, like Lists) need `communities` and `ui_shell`.
+  - My Communities and the directory load, fail and retry independently (an RPC not served yet reads as a calm note inside its section).
 
-### W5-32 — Community page  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
+### W5-32 — Community page  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Done (#616)
 - **Description.** `/communities/:id`:
   - a header (name, "N members" → members page, Join / Joined / Banned, Pin to Home);
   - `AppTabBar` Posts · About;
@@ -1275,6 +1279,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** `communities`.
 - **Seam.** Feed reuse unchanged except `FeedKey`.
 - **Parallel with W3 Part A / W4:** yes.
+- **As built (W5-32).**
+  - `TimelineRepository` fetches `FeedKey.community` through a `communitiesGate` (`GetCommunityTimeline`, like the list path); `onCommunitySeen` is an optional hook, not wired in `bootstrap.dart` (the page reads its header from its one `GetCommunity`).
+  - No compose-to-community from the page: W5-34 owns posting, including preselect from `/communities/:id`.
+  - The members page has no moderation actions (ban, roles): W5-35.
+  - Pin / Unpin reuses the new shared `PinToHomeButton` (extracted from the List header).
 
 ### W5-33 — Context label row on `PostCard`  [owner: frontend-developer] [size: S] [depends: W5-30]  Status: Open
 - **Description.** Generalise the private `_RepostedBy` into one context-label row: an icon over the avatar column plus muted text (`communities.md` §3, MEASURED). Its variants are "<name> reposted" (existing behaviour, unchanged) and "<community name>" (people icon; tap → `/communities/:id`, only with `communities`). There is one row; when both apply, the repost label wins. Semantics: the article label starts with the community name (`communities.md` §4).

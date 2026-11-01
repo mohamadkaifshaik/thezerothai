@@ -9,6 +9,7 @@ import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
+import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
@@ -97,6 +98,15 @@ class AppDrawer extends StatelessWidget {
                 label: 'Lists',
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.listsPath)),
+              ),
+            // W5-31: needs `communities` (the drawer only exists with `ui_shell`).
+            if (isFeatureEnabled(context, kFeatureCommunities))
+              _DrawerRow(
+                key: const ValueKey('drawer-communities'),
+                icon: Icons.groups_outlined,
+                label: 'Communities',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.communitiesPath)),
               ),
             // The read-only shells (W8-2): after every feature row, before
             // Settings, under a hairline. Needs `shells` and `ui_shell`.
