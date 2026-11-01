@@ -354,8 +354,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Done (#583; ADR-0031 Accepted 2026-11-01, F1 and F6 to F14 at the defaults) |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Done (#590) |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Done (#596) |
-| W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Open |
-| W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Open |
+| W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Done (#601) |
+| W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Done (#601) |
 | W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Open |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
@@ -947,7 +947,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Add the `uid|cid` `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY` (20) `DailyCap`.
   - Rate-limit buckets: write 20, read 30 and timeline 12 per minute.
 
-### W5-23 — Communities write path  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Open  (**ships in one PR with W5-24**)
+### W5-23 — Communities write path  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Done (#601)  (**ships in one PR with W5-24**)
 - **Description.** `communities.FirestoreRepo` owns:
   - `communities/{cid}` (Snowflake): `name`, `description`, `rules[]`, `ownerId`, `moderatorIds[]`, `memberCount`, `status` (ACTIVE / ARCHIVED / SUSPENDED), `visibility` (PUBLIC), `recentRemovals[]`, `modlog[]`, `createdAt`, `updatedAt`;
   - `communities/{cid}/communityMembers/{uid}`: `uid`, `role`, `joinedAt`;
@@ -978,8 +978,15 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Create: 3 / 2 reads, 4 writes.
     - Update: 4 / 3 reads, 2 writes (1 when unchanged); it stores the idempotency doc too.
     - Get: 15 cold (owner + ≤ 10 moderator profiles), 0 warm, planning 4.
+- **As built (#601).**
+  - Measured by the emulator `budgettest`, without the interceptor's 1: Create 2 reads and 4 writes (replay 2 reads, 0 writes); Update 3 reads and 3 writes for an owner's first edit, 2 writes after that, 2 reads and 1 write when nothing changes, replay 0 writes; Get 14 cold with an owner and 10 moderators, 0 repository reads warm.
+  - Check order: the creators check first (0 reads, before the key and the text), then the key, then the text. Update: NOT_FOUND (missing or SUSPENDED, the owner included, N3), then `not_owner`, then `community_archived`; an ownerless ARCHIVED community therefore answers `not_owner` to everyone.
+  - A replay of Create or Update on a community that is SUSPENDED since answers the one NOT_FOUND. The idempotency record holds the community id only; a replay re-reads the community.
+  - Caches: the community doc and the member doc 60 s (absence cached, so an outsider's repeat Get reads nothing); a missing community id is remembered 60 s too (the lists precedent; not in D12). A write fills the writing instance from the written data.
+  - `GetCommunity` skips the member-doc read for the owner and moderators (the community doc decides their role). SUSPENDED answers right after the community read, before the member doc, the graph or any profile, so its cost and bytes match a missing id.
+  - `identity.BioText(s, maxRunes)` is the exported bio rule (`bioIssue` is BioText at 160).
 
-### W5-24 — Communities lifecycle  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Open  (**ships in one PR with W5-23**)
+### W5-24 — Communities lifecycle  [owner: backend-developer] [size: M] [depends: W5-22]  Status: Done (#601)  (**ships in one PR with W5-23**)
 - **Description.**
   - **Eraser step `communities`** (BeforeIdentity, resumable, never flag-gated). For each community in the user's memberships doc (`joined`, `banned`, `owned`, `modlogged`, de-duplicated):
     - delete the member doc and decrement `memberCount` (only for a `joined` entry);
@@ -1009,6 +1016,13 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - An archive keeps the name, description and rules.
   - The export is `{joined, owned, banned, moderationActions, redactedCount}`, with no other user's uid.
   - Budget: 1 read + 2 per community (+ ≤ 10 profiles per owned community).
+- **As built (#601).**
+  - Step placement: appended **after `poll_votes`** (the ADR said "after `lists`", but `poll_votes` was registered since); step names are persisted, so it is never inserted earlier. Wired in `apiserver/lifecycle_communities.go`.
+  - The checkpoint is `{after: <last finished community id>, communities, handovers, archived}`, not an index into the sorted list, so a late change to the list cannot shift the resume point. One invocation handles up to 10 communities (each in its own transaction) and deletes the memberships doc in the same call when it finishes; a rerun is 1 read and 0 writes. Reference account (2 joined): 5 reads, 2 writes, 3 deletes, measured.
+  - A hand-over candidate must be ACTIVE (`identity.Directory`, cache-first) and still have a memberships doc, read inside the transaction (+1 read per ACTIVE candidate tried, at most 10). The new owner's memberships get an `Update` with `ArrayUnion` on `owned` and `modlogged`, never a `Set`, so a moderator who is mid-deletion is skipped and never recreated as residue.
+  - Archive on the owner's deletion writes **no** modlog entry (D9). A SUSPENDED community whose owner leaves with no successor stays SUSPENDED with `ownerId ""` (the eraser must not un-suspend it).
+  - Export reads **1 + 2 per community** (the community doc and the user's own member doc, which alone carries `joinedAt` and `bannedAt`), not the ADR's 1 + 1: the reference account's section is 5 reads, not 3. A SUSPENDED community the user does not own, and a community whose doc is gone, count once in `redactedCount` and emit no row (`moderationActions` included). Reference-account lifecycle budgets: +1 read for the step and +1 for the section on an account with no memberships.
+  - `.claude/skills/firestore-data-model/SKILL.md` (code-owner gated) still says "after `lists`" and "1 + the communities" for the export, and omits the extra memberships read per hand-over candidate; stored field names match.
 
 ### W5-25 — Join, leave and My Communities  [owner: backend-developer] [size: M] [depends: W5-23]  Status: Open
 - **Description.**

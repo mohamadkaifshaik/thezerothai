@@ -1,16 +1,16 @@
 // Package communities is the Communities module (ADR-0031): public places where people who need not follow each other post about
-// one interest, under rules that the community's own owner and moderators enforce inside the community view only. It will own
-// the communities/{cid} collection, its communityMembers subcollection and communityMemberships/{uid}, and
-// dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in this file only (ADR-0031 D1):
+// one interest, under rules that the community's own owner and moderators enforce inside the community view only. It owns the
+// communities/{cid} collection, its communityMembers subcollection and communityMemberships/{uid}, and
+// dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in model.go and this file (ADR-0031 D1):
 // communities.Reader for reads, added by the tickets that need it; posts never imports this module (posts.CommunityGate and
 // posts.CommunityModerator are seams declared in posts).
 //
-// W5-22 ships the skeleton only: the flag name and its gate (FEATURE_COMMUNITIES, D10), the Service seam, the error and limit names
-// fixed by the proto (errors.go, limits.go) and a handler that mounts every CommunityService route behind the gate. It names no
-// collection constant on purpose: the T11 guard (internal/apiserver/lifecycle_collections_guard_test.go) fails the build for a
-// collection constant without an erasure row, so the constants, the eraser step and the guard rows arrive together in
-// W5-23 + W5-24. Later tickets add the write path (W5-23), the lifecycle (W5-24), join and the directory (W5-25), posting and
-// the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
+// What exists: the flag gate (W5-22, FEATURE_COMMUNITIES, D10), the error and limit names fixed by the proto (errors.go, limits.go);
+// the write path CreateCommunity, UpdateCommunity and GetCommunity (W5-23: model.go, service.go, repo_firestore.go, cache.go,
+// server_rpcs.go); and the lifecycle (W5-24: purge.go, the `communities` eraser step and export section, registered in
+// apiserver/lifecycle_communities.go, with the T11 rows). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go)
+// fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR. Still to come: join,
+// leave and the lists (W5-25), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
 package communities
 
 import (
@@ -32,11 +32,6 @@ type FlagChecker interface {
 	Enabled(uid, name string) bool
 	GloballyOff(name string) bool
 }
-
-// Service is the module's seam (ADR-0031 D1): the business rules behind CommunityService, depending on interfaces only. It has no
-// methods yet; W5-23 adds Create, Update and Get, W5-25 Join, Leave and the lists, W5-28 the moderation calls, and the handler
-// then stops answering Unimplemented past the gate.
-type Service interface{}
 
 // Guard is the flag gate every CommunityService method (and timeline's GetCommunityTimeline) runs before any Firestore access
 // (ADR-0031 D10: one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with

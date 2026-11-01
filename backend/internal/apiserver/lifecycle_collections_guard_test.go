@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -136,6 +137,18 @@ var lifecycleCollections = []collectionRow{
 	// residue and needs no allowlist entry. The `lists` section exports the user's own lists with member ids; lists the user is a member
 	// of belong to their owners and are not exported. quotas.listCreates and listAdds are covered by the `quotas` row.
 	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
+	// ADR-0031 D9 (W5-23 + W5-24): communities/{cid} (ownerId, moderatorIds[], modlog[] with actor and target uids), its communityMembers
+	// subcollection (uid, state) and communityMemberships/{uid} (doc id = uid; joined, owned, banned, modlogged). Deleting users/{uid} removes
+	// none of it. The `communities` step (communities.Eraser, BeforeIdentity after poll_votes) reads the memberships doc and, per community
+	// of joined, owned, banned and modlogged, in one transaction deletes the member doc (memberCount -1 when it was JOINED), removes the uid
+	// from moderatorIds, hands an owned community to the first ACTIVE moderator (or archives it and clears ownerId) and replaces the uid in
+	// every modlog entry by `_deleted`; then it deletes the memberships doc. So the sweep finds no ownerId, moderatorIds, modlog (actor,
+	// target) or uid residue and needs no allowlist entry. The `communities` section exports the user's memberships, owned communities and
+	// own moderation actions, and no other user's uid. communityMembers is a subcollection of communities (not of users/{uid}): the sweep
+	// scans it as a collection group, keyed on the collection id, which is why it is not named `members`.
+	{Name: "communities", Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
+	{Name: "communityMembers", Sub: true, Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
+	{Name: "communityMemberships", Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// ADR-0028 D6 (W4-9): trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), and trends/hidden (W4-25) holds the operator hide list as folded tag keys: no uid, no actor. So there is
@@ -339,6 +352,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	if err := registerPollVoteLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{}), 720*time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	if err := registerCommunitiesLifecycle(l, communities.NewFirestoreRepo(nil, nil), nil); err != nil {
+		t.Fatal(err)
+	}
 	return l.StepNames(), l.ExportSectionNames()
 }
 
@@ -415,6 +431,32 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 	}
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "lists")), "\n"); !strings.Contains(p, `export section "lists" is not registered`) {
 		t.Errorf("dropping the lists section went unnoticed: %q", p)
+	}
+	// W5-23 + W5-24: the three communities rows are only green while the communities step and section are registered, and the guard names
+	// each collection when its row is removed.
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "communities"), sections), "\n"); !strings.Contains(p, `step "communities" is not registered`) {
+		t.Errorf("dropping the communities step went unnoticed: %q", p)
+	}
+	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "communities")), "\n"); !strings.Contains(p, `export section "communities" is not registered`) {
+		t.Errorf("dropping the communities section went unnoticed: %q", p)
+	}
+	for _, name := range []string{"communities", "communityMembers", "communityMemberships"} {
+		t.Run("without the "+name+" row", func(t *testing.T) {
+			rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == name })
+			if len(rows) != len(lifecycleCollections)-1 {
+				t.Fatalf("the table has no %q row to remove", name)
+			}
+			if p := strings.Join(coverageProblems(real, rows, steps, sections), "\n"); !strings.Contains(p, `collection "`+name+`"`) || !strings.Contains(p, "has no row in lifecycleCollections") {
+				t.Errorf("removing the %s row went unnoticed: %q", name, p)
+			}
+			found := false
+			for _, r := range real {
+				found = found || r.Name == name
+			}
+			if !found {
+				t.Errorf("the scan did not find the %s collection in internal/communities", name)
+			}
+		})
 	}
 	t.Run("without the lists row", func(t *testing.T) {
 		rows := slices.DeleteFunc(slices.Clone(lifecycleCollections), func(r collectionRow) bool { return r.Name == "lists" })
