@@ -28,6 +28,11 @@ void main() {
         'xmp',
         'plain_text',
         'trailing_bytes',
+        'loop_extra_subblocks',
+        'second_loop_block',
+        'loop_wrong_id',
+        'loop_wrong_length',
+        'animexts_extra_subblocks',
       ]),
     );
   });
@@ -69,6 +74,27 @@ void main() {
       expect(String.fromCharCodes(out), contains(id));
     }
   });
+
+  test(
+    'W6-58: the loop block keeps only its count; a second one is dropped',
+    () {
+      Map<String, dynamic> byName(String n) =>
+          cases.cast<Map<String, dynamic>>().firstWhere((c) => c['name'] == n);
+      final extra = stripGifBytes(
+        base64.decode(byName('loop_extra_subblocks')['gif'] as String),
+      );
+      final at = String.fromCharCodes(extra).indexOf('NETSCAPE2.0') + 11;
+      expect(extra.sublist(at, at + 5), [3, 1, 5, 0, 0]);
+      final second = stripGifBytes(
+        base64.decode(byName('second_loop_block')['gif'] as String),
+      );
+      expect('NETSCAPE2.0'.allMatches(String.fromCharCodes(second)).length, 1);
+      final dropped = stripGifBytes(
+        base64.decode(byName('loop_wrong_id')['gif'] as String),
+      );
+      expect(String.fromCharCodes(dropped), isNot(contains('NETSCAPE')));
+    },
+  );
 
   test('a generated multi-frame GIF with a comment loses only the comment', () {
     final clean = realGifBytes(width: 8, height: 8, frames: 4);

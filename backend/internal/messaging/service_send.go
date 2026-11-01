@@ -323,6 +323,11 @@ func isTxOp(op string) bool { return op == "send" || op == "accept" || op == "de
 // a path names a uid and a conversation. A read-path timeout stays INTERNAL on purpose: it is not contention, Error
 // Reporting must see it, and the client's RetryInterceptor retries a read-only RPC on UNAVAILABLE, which would multiply
 // the polls against an already degraded Firestore.
+//
+// W7-38: "busy" means "outcome unknown, retry with the same idempotency key", not "nothing was written". A lost transaction
+// (ErrContended, Aborted) wrote nothing, but a DeadlineExceeded may come from a commit that was already applied; the retry
+// replays it (send: deterministic message id; accept and delete: idempotent by state). A replay pushes nothing, so the
+// recipient's FCM push for a message whose sender saw busy is not sent; the recipient's next poll shows it.
 func (s *service) failure(ctx context.Context, op, uid, convID string, err error, redact ...string) error {
 	var ae *apierr.Error
 	switch {

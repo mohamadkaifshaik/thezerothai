@@ -130,8 +130,9 @@ func TestPollVoteExporter_ExportUser(t *testing.T) {
 // The export row gains changedAt only for a vote that was changed (ADR-0029 Amendment 1 A2.6); the current choice is exported, never an earlier one.
 func TestPollVoteExporter_ChangedAt(t *testing.T) {
 	at := time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC)
+	two := 2
 	src := &fakePollVoteSource{rows: []ExportedPollVote{
-		{PostID: "p1", Choice: 2, CreatedAt: at.Add(-time.Hour), ChangedAt: &at, id: "p1_u1"},
+		{PostID: "p1", Choice: 2, CreatedAt: at.Add(-time.Hour), ChangedAt: &at, Changes: &two, id: "p1_u1"},
 		{PostID: "p2", Choice: 0, CreatedAt: at.Add(-time.Hour), id: "p2_u1"},
 	}}
 	var buf bytes.Buffer
@@ -144,11 +145,15 @@ func TestPollVoteExporter_ChangedAt(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Votes) != 2 || len(doc.Votes[0]) != 4 || doc.Votes[0]["changedAt"] != "2026-10-02T03:04:05Z" || doc.Votes[0]["choice"] != float64(2) {
+	if len(doc.Votes) != 2 || len(doc.Votes[0]) != 5 || doc.Votes[0]["changes"] != float64(2) || doc.Votes[0]["changedAt"] != "2026-10-02T03:04:05Z" || doc.Votes[0]["choice"] != float64(2) {
 		t.Fatalf("changed row = %v, want postId, choice 2, createdAt and changedAt", doc.Votes[0])
 	}
-	if len(doc.Votes[1]) != 3 || doc.Votes[1]["changedAt"] != nil {
+	if len(doc.Votes[1]) != 3 || doc.Votes[1]["changedAt"] != nil || doc.Votes[1]["changes"] != nil {
 		t.Fatalf("unchanged row = %v, want no changedAt", doc.Votes[1])
+	}
+	// Byte-identical to the pre-W6-53 output: the never-changed row carries exactly postId, choice and createdAt.
+	if want := `{"postId":"p2","choice":0,"createdAt":"2026-10-02T02:04:05Z"}`; !bytes.Contains(buf.Bytes(), []byte(want)) {
+		t.Fatalf("unchanged row bytes changed: %s, want %s", buf.String(), want)
 	}
 }
 
@@ -176,7 +181,7 @@ func TestPurgePollVotes_RedactsDocIDsKeyed(t *testing.T) {
 					named += " documents/pollVotes/" + id
 				}
 			}
-			err := redactPollVoteErr(fmt.Errorf("engagement: purge poll votes %s: rpc error:%s", logger.HashUID(uid), named), uid, tc.ids...)
+			err := logger.RedactErrPostDocs(fmt.Errorf("engagement: purge poll votes %s: rpc error:%s", logger.HashUID(uid), named), uid, tc.ids...)
 			msg := err.Error()
 			if strings.Contains(msg, uid) {
 				t.Fatalf("plain uid in %q", msg)

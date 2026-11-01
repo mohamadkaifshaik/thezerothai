@@ -374,6 +374,7 @@ Prices (§7):
 | W7-35 | L-4 owner-stamped drift wipe, L-5 Android backup exclusion, L-9 links in request threads | frontend-developer | S | — | yes | Done (#483; leg 5 must re-check on a build with it) |
 | W7-36 | L-6: the copied text of a MESSAGE report is deleted after 180 days even if untriaged (the report is kept) (founder decision 2026-10-29) | backend-developer | S | — | moderation only | Done (PR #482) |
 | W7-37 | `request_count` on every INBOX refresh, so a request that arrives after the Inbox was first opened shows "Message requests (N)" (found in the W7-24 dev smoke, leg 2, 2026-10-30; founder decision 2026-10-30). **Gate: before prod** | architect (ticket + ADR-0027 note), then W7-37a backend-developer and W7-37b frontend-developer | S | W7-7, W7-14 | yes (messaging module, the proto comment, the messages client); **W7-37b merges only after W7-37a serves dev** | Done (W7-37a #477, W7-37b #476) |
+| W7-38 | A SendMessage answered `UNAVAILABLE busy` although the message committed (CI failure of `TestSend_ConcurrentRequestCapHolds`, "stored 3 messages for 2 successes"): `txTimeout` expired during the Commit RPC. Busy now means "outcome unknown, retry with the same idempotency key"; tests, doc comments and the runbook say so | backend-developer | S | W7-20 | messaging only | Done (#580) |
 
 Order:
 1. W7-1, then W7-2 ‖ W7-3.
