@@ -406,7 +406,7 @@ Effect on the quotas (additive):
 | W6-50 | *(W6-42 L-4, #554)* media: align the zero-`createdAt` tier between the upload quota and the units cap | backend-developer | XS | W6-40 | after W6-40 | In review (#565) |
 | W6-51 | *(W6-42 L-5, #554)* Terraform env entries for `MEDIA_MAX_SCREEN_RETRIES`, `MEDIA_VISION_UNITS_PER_DAY`, `MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT` (rule 11), and `POLL_VOTE_CHANGES_MAX` (W6-42 part 2 L-3, #555), dev and prod, not applied | production-deployer | XS | W6-40 | after W6-40 | Done (#562; dev apply pending) |
 | W6-48 | *(W6-19 D1)* PollCubit reset on a direct account switch: the poll vote overlay is reset by the same `AccountSessionReset` run as W5-50, not only on `unauthenticated` | frontend-developer | XS | W6-19, W5-50 | yes | In review (#553) |
-| W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | Open |
+| W6-52 | *(W6-42 part 2 L-2, #555)* Poll error lines: a `RedactErr` variant that maps post ids through the keyed `HashPost` (as `RedactErrKeyed` does for conversations), used by `mapVoteErr` and the `engagement_poll_vote_viewer_degraded` WARN; drop `authorID` from the `voterBlocksAuthor` error text; test `TestMapVoteErr_RedactsPostIDKeyed` | backend-developer | XS | W6-36 | yes (recommended before `polls` leaves the dev allowlist) | In review (#566) |
 
 Order:
 1. W6-1, with W6-14 in parallel (no backend dependency).
