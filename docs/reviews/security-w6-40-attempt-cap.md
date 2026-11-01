@@ -31,7 +31,7 @@
 | L-2 | Low | The cost statement gives only the in-memory bound (INR 780), not the durable one (INR 1,390) | **yes: fixed in 9490702a** |
 | L-3 | Low | The GIF slot wait still counts against the 20 s `finalizeDeadline` | no |
 | L-4 | Low | A zero `createdAt` is "established" for the upload quota but "new" for the units cap | no |
-| L-5 | Low | The new caps are env-only and do not show in a Terraform plan (rule 11) | no |
+| L-5 | Low | The new caps are env-only and do not show in a Terraform plan (rule 11) | **yes: fixed in #562** (edited, not applied) |
 | I-1 | Info | `finalizeOne` never checks `expireAt` | no |
 | I-2 | Info | A refund landing after IST midnight is subtracted from the new day's count | no |
 | I-3 | Info | An account leaving the new-account window mid-day gets 12 + 60 units that day | no |
