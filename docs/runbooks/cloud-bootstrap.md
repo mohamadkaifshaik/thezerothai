@@ -69,6 +69,7 @@ Pre-apply checklist (prod):
 3. Run `flutterfire configure --project=dzeroth-dev` from `app/`. This overwrites `lib/firebase_options.dart`. Repeat for prod when you release.
 4. Android: `keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android`,
    then add the SHA-1 and SHA-256 to the Android app (`com.dzeroth.dzeroth`). Add the release/Play signing keys later.
+   **Prod Android native config (TEL-14):** `app/android/google-services.prod.json` is dzeroth-prod's client config (public). `release-prod.yml` copies it over `app/android/app/google-services.json` in the `build-android` job only (and fails if `project_id` is not `dzeroth-prod`); dev and local builds keep dzeroth-dev's. If the prod Android app's config changes (new SHA, new OAuth client, new key), refresh it read-only: `firebase apps:sdkconfig ANDROID 1:1053765609011:android:13592d83796f6ed7a7a546 --project dzeroth-prod > app/android/google-services.prod.json`, strip any CLI preamble lines before the `{`, and review the diff in a PR.
 5. Web Google sign-in: copy the Web OAuth client ID (Auth → Google provider) and pass it as `--dart-define=GOOGLE_WEB_CLIENT_ID=...`.
 6. App Check: **web is deferred at Stage 0** (ADR-0006 amendment: reCAPTCHA Classic is gone, and reCAPTCHA
    Enterprise / Fraud Defense is a flat $8/month past 10k assessments). Don't create reCAPTCHA keys. When the
