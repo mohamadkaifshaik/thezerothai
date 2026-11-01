@@ -384,9 +384,10 @@ Effect on the quotas (additive):
 | W6-28 | *(W6-20 M-2)* Always sample the last GIF frame (plus an ADR-0029 as-built note) | backend-developer | S | W6-20, #521 | after W6-27 | In review (#545) |
 | W6-29 | *(W6-20 L-2, L-6)* `userLikes.pollVotes` in the export and TTL'd with the vote docs; ignore zero-width characters when comparing poll choices | backend-developer | S | W6-20 | yes | In review (#552; required before release: retention, W6-47) |
 | W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | In review (#577) |
-| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
+| W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | In review (#574) |
 | W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
-| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Open |
+| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | Done (#571; rule C accepted by the founder 2026-11-01; runbook text is W6-33a) |
+| W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (two-sided tag check: 13b5080f, or no uploader a3455ef5; prod upload CORS; W6-34 Done; Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | In review (#569) |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
 | W6-36 | *(Amendment 1 A1 + A2, one PR)* engagement + posts: block either way in `VotePoll` (`TARGET_BLOCKED`) and `viewer_poll_vote_blocked` through the converter; one vote, changeable until close (`expected_choice`, the change batch, `POLL_VOTE_CHANGES_MAX`, `changes` and `changedAt`, the export field, `PollVoteChanged`); flip the named tests | backend-developer | M | W6-35 | `service_polls.go`, `repo_polls.go`, `convert.go`: after W6-29 or rebase | Done (#555) |
@@ -994,6 +995,203 @@ Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md
 - **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
 - Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
 
+### W6-33 — Client minimum-version gate before prod `FEATURE_MEDIA` (design)  Status: In review (#571)
+Architect design, 2026-11-01, for the W6-25 review's L-4. **No ADR:** the decision adds no header, no error reason, no
+proto and no client contract. The row's owner cell still names frontend-developer and production-deployer. The work is
+now W6-33a (production-deployer) plus the existing W6-34 (frontend-developer): no new frontend code.
+
+**The problem.**
+- W6-25 (#536, merge commit 13b5080f) made the signed PUT create-only.
+- A build from before #536 sends the server's signed headers verbatim (`headers.addAll(target.headers)`), so its first
+  PUT works. Its `putObject` maps a 412 to `StorageRefusedException`. The uploader then marks the URLs dead, replays the
+  same CreateUpload key, gets the same media id with a fresh create-only URL, and the next PUT answers 412 again.
+- The loop starts whenever the first PUT landed but its answer was lost: a client timeout on a slow network, or the thumb
+  PUT failing after the full one landed.
+- It ends only when the user removes the image (a new key, a new media id, one more upload from the daily quota) or the
+  PENDING doc expires (48 h).
+- No security impact. The cost is a stuck tile and one wasted upload.
+
+**Facts (checked 2026-11-01).**
+1. **Prod web.**
+   - Prod Hosting has one site (`dzeroth-prod`), one channel (`live`) and exactly three releases, all deployed by
+     `ci-deploy@dzeroth-prod` (promote-prod; read-only Hosting API list):
+     - 2026-09-28 (v0.1.0);
+     - 2026-10-11 (v0.4.0);
+     - 2026-10-21 (v0.4.1, serving; `flutter_bootstrap.js` `Last-Modified` 07:37 UTC).
+   - None of the three tags has an upload client. `git grep` for `createUpload|finalizeUpload|putObject` outside
+     `app/lib/gen` finds nothing in v0.1.0, v0.4.0 or v0.4.1. `ApiClient.media` is constructed and never called, and
+     `PostCard` only displays media.
+   - `MediaUploader` first appears on `main` in a3455ef5 (2026-10-15). No `v*` tag contains it.
+   - v0.4.1 is dated 2026-10-21, between a3455ef5 and 13b5080f (2026-10-31). It is a hotfix line off v0.4.0 (two
+     commits: the Go toolchain pin and its readiness record), not on `main`. That is why it has no uploader despite its
+     date. Release lines cut from older commits therefore already happen in this repo.
+   - So no prod web bundle, served or kept as a Hosting rollback target, can upload at all.
+2. **Web caching.**
+   - Flutter 3.47.5 ships a `flutter_service_worker.js` that unregisters itself on activate and reloads its tabs
+     (verified live on dev and prod). No service worker caches the app.
+   - `firebase.json` sets `Cache-Control: no-cache` on `index.html`, `main.dart.js`, `flutter.js`,
+     `flutter_bootstrap.js`, the service worker and `canvaskit/**`. Images get one day. Files with no rule
+     (`sqlite3.wasm`, `drift_worker.js`) get Hosting's default `max-age=3600` (checked on prod).
+   - So an old bundle lives on only in a tab that stays open, without a reload, across a Hosting deploy. That can last
+     indefinitely on a desktop. It only matters for bundles that were once live, and fact 1 shows none of those can
+     upload.
+3. **Android and iOS.**
+   - `release-prod.yml` builds an AAB (a 30-day workflow artifact, not directly installable) and an unsigned iOS build.
+     Neither is distributed: the v0.4.0 release notes say "Not distributed", and readiness F14 carries that into v0.4.1.
+   - Prod has no Play listing (`envs/prod/main.tf`: no Play signing certificate; `cloud-bootstrap.md` section 9), and
+     there is no TestFlight step.
+   - Dev Android builds exist on team handsets (W7-24's push leg). They are configured for `dzeroth-dev`
+     (`FIREBASE_ENV`, `API_BASE_URL`), so they never call the prod API.
+   - `app/pubspec.yaml` is `1.0.0+1` and has never been bumped, and no workflow passes `--build-number`. Every build
+     ever made reports the same version.
+4. **What reaches the API.**
+   - The client sends `authorization`, `x-firebase-appcheck` (mobile; web defers App Check, ADR-0006 amendment) and
+     `x-request-id` (`app/lib/core/network/interceptors.dart`).
+   - The backend reads only the first two (`backend/pkg/platform/authn/interceptor.go`). The App Check token names the
+     Firebase app (the platform), not a build.
+   - A post-#536 build sends nothing distinctive to the API: `x-goog-if-generation-match` goes to Cloud Storage only.
+   - So nothing today tells the API which build is calling.
+
+**What the facts mean.** On the day prod `FEATURE_MEDIA` leaves `off`, no pre-#536 build that can upload is in prod
+users' hands. This holds as long as no prod tag contains a3455ef5 (the uploader) without also containing 13b5080f (the
+412 fix). Every tag cut from `main` from now on satisfies that. A hotfix line off v0.4.x has no uploader, so it does
+too.
+
+**Options.**
+
+| Option | Mechanism | Prod users it would refuse today | Contract and process | Runtime cost |
+| --- | --- | --- | --- | --- |
+| A | A build-number header on every call; CreateUpload and FinalizeUpload refuse builds below a minimum with FAILED_PRECONDITION and a new reason the client shows as "Update the app" | none | Needs CI build numbering first (every build is `1.0.0+1`), the header, a new `ErrorReason`, an update screen, the smoke and k6 scripts updated, and an ADR. A pre-#536 build sends no header and does not know the new reason, so for the only builds that matter A works like B: a refusal keyed on absence, shown as a generic error | 0 reads; a header parse |
+| B | Refuse CreateUpload when a capability header is absent | none in prod; every current dev build until it is rebuilt | A client release must start sending the header first, since no current build does. Same reason, scripts and ADR as A | 0 reads |
+| **C** | **Release-order rule: the four checks below, run by the release that first moves `FEATURE_MEDIA` past `off`, plus a Hosting rollback floor** | none (no such build exists) | **None**: no header, no reason, no proto, no ADR; runbook text | **0** |
+| C+ | C plus a fail-closed script: `client_floors` in `flag-ceiling.json`, and an ancestry check in `release-prod.yml` and in `promote-prod.yml` before the web build (the W3-42 `rollback_floors` pattern) | none | Gate files (workflows, ceiling) and a new validator with fixtures | 0; a full-history checkout in two jobs |
+| D | General forced upgrade: a minimum supported build served as server config and compared at app start | n/a | The store-launch item in the `release-rollout` and `production-readiness` skills; needs its own ADR | 0 reads |
+
+**Decision: C, accepted by the founder 2026-11-01.**
+- The decision rests on one part of fact 3 that the repo cannot prove: that no prod-configured mobile build
+  (`FIREBASE_ENV=prod`, from any commit) was ever installed outside the team.
+- The founder confirmed it on 2026-11-01: never. If that ever turns out wrong, reopen W6-33 at C+ or A (A needs an ADR).
+- **C.**
+- A and B add a cross-cutting contract and an ADR only to refuse a set of builds that is empty. A also cannot work until
+  builds carry real numbers.
+- C costs nothing and closes the gap by construction, as long as clients reach prod users only through tagged releases.
+- C+ is the escalation if a prod release line is ever cut from a commit that contains a3455ef5 but not 13b5080f.
+  Checks 1(b) and 4 catch that case by hand today.
+- D is a separate store-launch concern. It is cross-referenced here, not designed.
+
+**The rule (a checkable invariant).** `FEATURE_MEDIA` leaves `off` in prod only when all four checks hold, and they
+must keep holding while it is not `off`. The same applies to `gif`, which never runs ahead of `media`.
+1. **Tag (two-sided).**
+   - (a) The release that first moves `FEATURE_MEDIA` past `off` serves both the prod revision and the live Hosting
+     release from a `v*` tag that contains 13b5080f:
+     `git merge-base --is-ancestor 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 <tag>` exits 0.
+     promote-prod `stage=100` has completed for that tag; that is the step that deploys Hosting.
+   - (b) Every later prod tag released while `FEATURE_MEDIA` is not `off` either has no uploader or has the fix:
+     - no uploader: `git merge-base --is-ancestor a3455ef533aa1cc7737fac19cf4e2a24e5792d30 <tag>` fails (for example
+       a hotfix line off v0.4.x);
+     - the fix: the 13b5080f check above exits 0.
+   - Every mobile build given to anyone outside the team comes from a `release-prod` run of a tag that passes (b).
+2. **CORS.**
+   - The prod upload bucket's CORS `responseHeader` list holds `x-goog-if-generation-match`
+     (`gcloud storage buckets describe gs://<prod project>-media-upload --format='json(cors_config)'`).
+   - Without it every web upload fails the preflight (`docs/runbooks/media.md`).
+   - #536's deploy note asks for this apply (founder plan-then-OK) before any `v*` tag that contains #536.
+3. **W6-34 is Done.** A `MediaUploader` test proves that a 412 on a retried PUT leads to `putDone` and then
+   FinalizeUpload. The rule relies on that behaviour.
+4. **Hosting floor.**
+   - While `FEATURE_MEDIA` is not `off` in prod, no Hosting rollback may target a release that has upload code and was
+     built before 13b5080f.
+   - None exists today (fact 1).
+   - Check 1(b) applies only while `FEATURE_MEDIA` is not `off`. A release with the uploader but without the fix, deployed
+     while `FEATURE_MEDIA` is still `off`, would remain a rollback target. So check 4 is run again at rollback time,
+     against the Hosting release list and each release's tag.
+   - Two things would break it: a hand deploy of Hosting (`firebase deploy` from a local checkout), or a hand-built
+     prod-configured mobile build given to anyone outside the team.
+
+**Reopen trigger.**
+- What reopens W6-33: any client with upload code built before 13b5080f reaches prod users. Examples:
+  - a prod-configured APK sideloaded outside the team;
+  - a store track with external testers built from a commit with the uploader but without the fix;
+  - a prod release line cut from a commit that contains a3455ef5 but not 13b5080f.
+- Then W6-33 moves to C+, or to A (an ADR, with build numbering first).
+- Signals:
+  - a pre-#536 build reports `StorageRefusedException(412)` through `reportUnexpectedError`;
+  - on the server, one uid repeats CreateUpload with `outcome=replay` and no FinalizeUpload follows. W6-33a writes this
+    Logs Explorer query.
+
+**Dev (not a prod blocker).**
+- Allowlisted dev accounts can still hold a pre-#536 build: a web tab open since before the 2026-10-31 dev deploy, or an
+  Android dev build installed before it.
+- Reload the tab, and reinstall the Android dev build from `main` at or after 13b5080f, before W6-22's media and GIF
+  legs.
+- A stranded upload costs a stuck tile and one upload from the account's daily quota. Remove and re-add the image.
+
+**Stage ladder.**
+- **Stage 0:** the release-order rule. Web bundles refresh on reload (`no-cache`, a self-unregistering service worker).
+- **Seam:** clients reach prod users only through `release-prod.yml` and `promote-prod.yml` from a `v*` tag.
+  `MediaRepository.putObject` is the one place that interprets a storage status.
+- **Stage 2/3 target:** D, a minimum-supported-build gate: CI-stamped build numbers, an app-start check and a server
+  refusal reason (its own ADR).
+- **Trigger:** the first build distributed outside the team through a store track (Play internal, closed or production
+  testing with external testers; TestFlight external testing), or the reopen trigger above.
+
+**Cost.**
+- Firestore: 0 reads, writes and deletes (no RPC changes).
+- Cloud Run requests, GCS operations, egress and GitHub Actions minutes: 0 (C changes no workflow).
+- INR 0 at 300, 1,000 and 3,000 DAU, and at 2× and 10× those. No quota's DAU crossover moves. No fixed cost.
+
+**Abuse and security.**
+- No new public read or write, quota or rate limit.
+- The 412 is the H-1 fix itself. The rule only keeps the old builds that mishandle it out of users' hands.
+
+**Flags.**
+- No new flag.
+- The rule gates `media` and `gif` leaving `off` in prod.
+- No ceiling change: `flag-ceiling.json` holds dev only.
+
+**Related, not in this ticket.**
+- The API side of H-1 has its own floor. Once `FEATURE_MEDIA` is not `off` in prod, routing the API back to a revision
+  older than #536 signs non-create-only URLs again and reopens the publish swap.
+- `rollback_floors` covers only `PRIVATE_ACCOUNTS`, and the prod workflows do not run `resolve-rollback.sh`.
+- Whether `media` needs a rollback floor (at the latest of W6-25 to W6-27 and W6-40) is for security-auditor and the
+  founder.
+
+**Handoff.**
+- backend-developer: nothing for W6-33 (no header, no reason, no RPC change).
+- frontend-developer: nothing beyond W6-34, which is already a ticket.
+- production-deployer: W6-33a.
+- production-reviewer: copy checks 1 to 4, with the command output, into the readiness record of the release that first
+  moves `FEATURE_MEDIA` past `off` in prod.
+- sre-performance: no budget row (0 at every DAU).
+- security-auditor: no new surface. Confirm that the rule closes the W6-25 review's L-4, and decide the related API
+  floor above.
+
+#### W6-33a — Release-order checks and the Hosting floor for media  [owner: production-deployer] [size: XS] [depends: the W6-33 design merged]  Status: Open
+- **Description.**
+  - `docs/runbooks/media.md`: a section "Before `FEATURE_MEDIA` leaves `off` in prod (W6-33)". It lists checks 1 to 4
+    above, each with the read-only command that proves it:
+    - both ancestry checks on the tag (13b5080f, and a3455ef5 for a tag without the uploader);
+    - the CORS describe;
+    - the promote-prod `stage=100` run for the tag;
+    - the Hosting release list (the Firebase Hosting API `GET v1beta1/sites/<site>/releases`, read-only).
+
+    It also gives the Logs Explorer query for the reopen signal: CreateUpload lines with `outcome=replay` grouped by
+    `uid_hash`, where one uid replays several times within an hour. A current build finalizes after a single replay.
+  - `docs/runbooks/rollback.md`, "Web (Firebase Hosting)": the floor line from check 4. It names 13b5080f in full and the
+    three releases that are safe today (2026-09-28, 2026-10-11, 2026-10-21, none with upload code), and says Hosting is
+    never deployed by hand.
+- **Acceptance criteria.**
+  - Both runbook sections exist and name 13b5080fc5950b6cbcc52cfe2c9d56ae9d491915 and a3455ef533aa1cc7737fac19cf4e2a24e5792d30 in full.
+  - The CORS describe and the Hosting release list were run read-only against prod, and their output is quoted with the
+    date (the prod CORS check may still show the header missing; record that, do not apply).
+  - The reopen query runs on dev logs.
+- **Test notes.** None (runbooks only).
+- **Observability.** The reopen query in `media.md`; no new metric or alert policy.
+- **Budget.** 0.
+- **Flag.** No new flag. It gates `media` and `gif` leaving `off` in prod.
+- **Seam.** Clients reach prod users only through tagged releases (W6-33 stage ladder).
+- **Runs alongside W3/W4/W5:** yes. Edits to `media.md` serialise with any open media PR that edits the same section.
+
 ### W6-35 to W6-42 — ADR-0029 Amendment 1 (founder decisions 2026-10-31)  Status: Open (Amendment 1 Proposed)
 Design, numbers and the founder's open items are in ADR-0029 Amendment 1 (A1 to A7). Numbering: W6-32 to W6-34 went to
 the W6-25 review follow-ups (#536), so this batch starts at W6-35.
@@ -1184,7 +1382,8 @@ the W6-25 review follow-ups (#536), so this batch starts at W6-35.
   - check the `cost-model.md` headroom and the error rate;
   - honour the 100 % rule (L-1) for `polls` and `gif`;
   - `polls` never ahead of `engagement`, `gif` never ahead of `media`;
-  - the `pollVotes` TTL field and the `posts.poll` fieldOverride are deployed before `polls` leaves `off`.
+  - the `pollVotes` TTL field and the `posts.poll` fieldOverride are deployed before `polls` leaves `off`;
+  - W6-33's four release-order checks pass before `media` (and so `gif`) leaves `off` (section W6-33, runbook W6-33a).
 - **Rollback triggers:**
   - `VotePoll` error rate above 2 % for 15 minutes;
   - sustained `poll_vote_contention` on any post (the sharding trigger: kill the hot poll's voting with the flag only if users are hurt, then write the sharding ADR);

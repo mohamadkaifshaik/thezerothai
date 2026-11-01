@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -6,6 +8,7 @@ import '../../../account/presentation/widgets/delete_account_link.dart';
 import '../../domain/auth_failure.dart';
 import '../bloc/auth_bloc.dart';
 import '../bloc/auth_event.dart';
+import '../request_sign_out.dart';
 
 /// Shown instead of the app once the user has signed up with email/password
 /// but not yet verified their address (ADR-0006: posting/following/uploading
@@ -39,8 +42,7 @@ class VerifyEmailView extends StatelessWidget {
           IconButton(
             tooltip: 'Sign out',
             icon: const Icon(Icons.logout),
-            onPressed: () =>
-                context.read<AuthBloc>().add(const AuthSignOutRequested()),
+            onPressed: () => unawaited(requestSignOut(context)),
           ),
         ],
       ),

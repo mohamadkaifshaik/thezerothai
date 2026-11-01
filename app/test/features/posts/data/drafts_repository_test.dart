@@ -349,4 +349,36 @@ void main() {
       isNull,
     );
   });
+
+  test(
+    'count and watchCount are per uid, and follow deleteAll (W6-31)',
+    () async {
+      await repo.upsert(draft('a'));
+      await repo.upsert(draft('b'));
+      await repo.upsert(draft('a', uid: 'u2'));
+      expect(await repo.count('u1'), 2);
+      expect(await repo.count('u2'), 1);
+      expect(await repo.count('nobody'), 0);
+
+      final seen = <int>[];
+      final sub = repo.watchCount('u1').listen(seen.add);
+      addTearDown(sub.cancel);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await repo.deleteAll('u1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(seen.first, 2);
+      expect(seen.last, 0);
+      expect(await repo.count('u2'), 1);
+    },
+  );
+
+  test('a draft id shared by two accounts is two rows (W6-31, I-1)', () async {
+    await repo.upsert(draft('same', text: 'mine'));
+    await repo.upsert(draft('same', uid: 'u2', text: 'theirs'));
+    expect((await repo.read('u1', 'same'))!.text, 'mine');
+    expect((await repo.read('u2', 'same'))!.text, 'theirs');
+    await repo.deleteAll('u2');
+    expect((await repo.read('u1', 'same'))!.text, 'mine');
+    expect(await repo.read('u2', 'same'), isNull);
+  });
 }
