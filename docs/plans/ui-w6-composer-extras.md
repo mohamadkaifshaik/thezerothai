@@ -386,7 +386,7 @@ Effect on the quotas (additive):
 | W6-30 | *(W6-20 L-4)* Strip GIF comment, XMP and trailing bytes before publish | frontend-developer + backend-developer | S | W6-20 | after W6-28 | Open |
 | W6-31 | *(W6-20 L-5)* Drafts on shared devices: sign-out notice, rows kept usable with the flag off, purge on account deletion, table keyed `{uid, draftId}` | frontend-developer | S | W6-20 | yes | Open |
 | W6-32 | *(W6-25 review L-3)* Orphaned public copy when the thumbnail-changed reject loses to a retaken claim (`finalize.go` `rejectChanged` then `dropOrphanedCopies`, a REJECTED winner keeps no public path): sweep the public object or document the bound | backend-developer | XS | W6-25 | yes | Open |
-| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | In review (#PRNUM) |
+| W6-33 | *(W6-25 review L-4)* Client minimum-version gate before `FEATURE_MEDIA` goes on in prod: old builds treat 412 as a refusal and never recover from a lost PUT response | frontend-developer + production-deployer | S | W6-25 | before prod `FEATURE_MEDIA` | In review (#571) |
 | W6-33a | *(W6-33 design)* Release-order checks before prod `FEATURE_MEDIA`: a `media.md` section (tag contains 13b5080f, prod upload CORS, W6-34 Done, Hosting floor) with the proving commands and the reopen query; the Hosting floor line in `rollback.md` | production-deployer | XS | W6-33 design merged | yes (runbooks only) | Open |
 | W6-34 | *(W6-25 review L-5, Dart)* A `MediaUploader`-level test that a 412 on retry leads to `putDone` and then `FinalizeUpload` | frontend-developer | XS | W6-25 | yes | Open |
 | W6-35 | *(ADR-0029 Amendment 1 A6)* Proto, additive: `PostView.viewer_poll_vote_blocked = 9`, `VotePollRequest.expected_choice = 4`, and the comments on `TARGET_BLOCKED`, `ALREADY_VOTED`, `LIMIT_REACHED`, `VotePoll` and FinalizeUpload; `make proto` | architect (contract) + backend-developer (generate) | XS | Amendment 1 merged | `posts.proto`, `engagement.proto`, `common.proto`: one PR at a time | Open |
@@ -995,7 +995,7 @@ Scope, findings and evidence are in `docs/reviews/security-w6-composer-extras.md
 - **W6-31 (L-5):** before `drafts` goes past the allowlist in prod.
 - Acceptance for each: the finding's failing case is a named test that passes, and the review row is marked fixed with the PR number.
 
-### W6-33 — Client minimum-version gate before prod `FEATURE_MEDIA` (design)  Status: In review (#PRNUM)
+### W6-33 — Client minimum-version gate before prod `FEATURE_MEDIA` (design)  Status: In review (#571)
 Architect design, 2026-11-01, for the W6-25 review's L-4. **No ADR:** the decision adds no header, no error reason, no
 proto and no client contract. The row's owner cell still names frontend-developer and production-deployer. The work is
 now W6-33a (production-deployer) plus the existing W6-34 (frontend-developer): no new frontend code.
