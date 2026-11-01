@@ -433,7 +433,7 @@ These are worked out in ADR-0029 Amendment 1, accepted in principle by the found
 | W6-27 | H-3: count billed Vision units per call, INVALID_ARGUMENT → REJECTED, a `screenAttempts` cap per doc, optional `media_finalize_daily` cap | backend-developer | S | As W6-25 |
 | W6-28 | M-2: always sample the final frame (with #521 for M-1), ADR-0029 D11 note and runbook | backend-developer + architect | S | Before `gif` leaves the dev allowlist |
 | W6-29 | L-2: export `userLikes.pollVotes` and age-prune it on the trim path; L-6: `foldKey` ignores default-ignorables | backend-developer | S | Before `polls` leaves `off` in prod |
-| W6-30 | L-4: strip non-rendering GIF blocks and trailing bytes on the client; the server pre-scan refuses them | frontend-developer + backend-developer | S | Before `gif` leaves `off` in prod |
+| W6-30 | L-4: strip non-rendering GIF blocks and trailing bytes on the client; the server pre-scan refuses them | frontend-developer + backend-developer | S | Before `gif` leaves `off` in prod (fixed in #577) |
 | W6-31 | L-5 (1) and (2): sign-out notice and a delete path while `drafts` is off; I-1: `{uid, draftId}` key | frontend-developer | S | Before `drafts` goes beyond the dev allowlist in prod |
 | — | L-1: keyed `post_hash` | backend-developer | XS | In PR #530 before it merges |
 | — | M-1: D-1 delay clamp | backend-developer | — | Merge PR #521 before `gif` leaves the dev allowlist |
