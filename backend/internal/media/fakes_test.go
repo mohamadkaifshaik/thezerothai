@@ -35,6 +35,7 @@ type fakeRepo struct {
 	visionErr error // VisionUsed fails (the Vision-counter read: an internal error before any call)
 	retireErr error
 	resolveFn func(id string) error
+	claimFn   func(id string) error // W6-41: ClaimScreening answers this error first (a lost claim race), counted in claims
 }
 
 type fakeIdem struct {
@@ -118,6 +119,11 @@ func (r *fakeRepo) ClaimScreening(_ context.Context, id string, updateTime, unti
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.claims++
+	if r.claimFn != nil {
+		if err := r.claimFn(id); err != nil {
+			return time.Time{}, err
+		}
+	}
 	d, ok := r.docs[id]
 	if !ok || !d.UpdateTime.Equal(updateTime) {
 		return time.Time{}, ErrConflict
