@@ -113,6 +113,11 @@ AppException mapConnectError(Object error) {
         return AlreadyVotedException(
           choiceIndex: int.tryParse(detail.metadata['choice'] ?? ''),
         );
+      // ADR-0031 N1 (W5-22): FORBIDDEN and COMMUNITY_STATE exist in the regenerated enum but no client code maps them yet; they fall
+      // through to the code-based mapping, exactly what an older build does with an unknown reason. W5-30 maps them
+      // (`metadata["reason"]`, one fixed message per reason).
+      case common.ErrorReason.ERROR_REASON_FORBIDDEN:
+      case common.ErrorReason.ERROR_REASON_COMMUNITY_STATE:
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         break;
     }

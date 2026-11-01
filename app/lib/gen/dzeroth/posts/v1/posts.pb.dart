@@ -349,6 +349,7 @@ class PollDraft extends $pb.GeneratedMessage {
 /// author snapshot is not refreshed by the profile-snapshot job). Replaced by a tombstone (unavailable = true, only
 /// post_id set) by the post-delete job when the original is deleted, and when its author deletes their account.
 /// A REPOST whose original is deleted is removed outright instead.
+/// It carries no community label at Stage 0 (ADR-0031 D5): a REPOST row shows "reposted", never the original's community.
 class EmbeddedPost extends $pb.GeneratedMessage {
   factory EmbeddedPost({
     $core.String? postId,
@@ -548,6 +549,7 @@ class Post extends $pb.GeneratedMessage {
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
     Poll? poll,
+    CommunityRef? community,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -571,6 +573,7 @@ class Post extends $pb.GeneratedMessage {
     if (paidPartnership != null) result.paidPartnership = paidPartnership;
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (poll != null) result.poll = poll;
+    if (community != null) result.community = community;
     return result;
   }
 
@@ -618,6 +621,8 @@ class Post extends $pb.GeneratedMessage {
     ..aOB(20, _omitFieldNames ? '' : 'madeWithAi')
     ..aOM<Poll>(21, _omitFieldNames ? '' : 'poll',
         subBuilder: Poll.$_createMessage)
+    ..aOM<CommunityRef>(22, _omitFieldNames ? '' : 'community',
+        subBuilder: CommunityRef.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -829,6 +834,98 @@ class Post extends $pb.GeneratedMessage {
   void clearPoll() => $_clearField(21);
   @$pb.TagNumber(21)
   Poll ensurePoll() => $_ensure(20);
+
+  /// The community the post was created in, for the label row (ADR-0031 D5). Set only on a root post or quote created
+  /// with CreatePostRequest.community_id, while a community moderator has not hidden it and FEATURE_COMMUNITIES is not
+  /// globally off (with it globally off community posts render as ordinary posts). Never on a reply, a REPOST row or an
+  /// embed. Set on every surface that returns the post (Home, profile, lists, search, GetPost, GetThread, bookmarks),
+  /// whatever the viewer's own flag. Unset on a withheld row. The label is not an access boundary: the post is public.
+  @$pb.TagNumber(22)
+  CommunityRef get community => $_getN(21);
+  @$pb.TagNumber(22)
+  set community(CommunityRef value) => $_setField(22, value);
+  @$pb.TagNumber(22)
+  $core.bool hasCommunity() => $_has(21);
+  @$pb.TagNumber(22)
+  void clearCommunity() => $_clearField(22);
+  @$pb.TagNumber(22)
+  CommunityRef ensureCommunity() => $_ensure(21);
+}
+
+/// The community a post was created in (ADR-0031 D2, D5). A snapshot taken at post time: a rename does not rewrite old
+/// posts, while the community's own page and feed header show the current name. A tap opens the community
+/// (dzeroth.communities.v1.CommunityService.GetCommunity, dzeroth.timeline.v1.TimelineService.GetCommunityTimeline),
+/// only when GetMe.enabled_features lists "communities".
+class CommunityRef extends $pb.GeneratedMessage {
+  factory CommunityRef({
+    $core.String? id,
+    $core.String? name,
+  }) {
+    final result = CommunityRef._();
+    if (id != null) result.id = id;
+    if (name != null) result.name = name;
+    return result;
+  }
+
+  CommunityRef._();
+
+  factory CommunityRef.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CommunityRef()..mergeFromBuffer(data, registry);
+  factory CommunityRef.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      CommunityRef()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'CommunityRef',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: CommunityRef.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'id')
+    ..aOS(2, _omitFieldNames ? '' : 'name')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CommunityRef clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  CommunityRef copyWith(void Function(CommunityRef) updates) =>
+      super.copyWith((message) => updates(message as CommunityRef))
+          as CommunityRef;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use CommunityRef() / CommunityRef.new instead')
+  static CommunityRef create() => CommunityRef._();
+  static $pb.GeneratedMessage $_createMessage() => CommunityRef._();
+  @$core.override
+  CommunityRef createEmptyInstance() => CommunityRef._();
+  @$core.pragma('dart2js:noInline')
+  static CommunityRef getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<CommunityRef>(
+          CommunityRef.$_createMessage);
+  static CommunityRef? _defaultInstance;
+
+  /// 19-digit Snowflake.
+  @$pb.TagNumber(1)
+  $core.String get id => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set id($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearId() => $_clearField(1);
+
+  /// The community's name when the post was created (1-30 code points).
+  @$pb.TagNumber(2)
+  $core.String get name => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set name($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasName() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearName() => $_clearField(2);
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
@@ -941,6 +1038,9 @@ class PostView extends $pb.GeneratedMessage {
 
   /// Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
   /// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
+  /// A post in a community conversation (ADR-0031 D5): GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
+  /// viewer's role (+0 reads); GetPost and GetThread decide it from the caller's member doc; Home, profile, list and
+  /// search timelines answer UNKNOWN (CreatePost decides).
   @$pb.TagNumber(4)
   ReplyPermission get viewerReplyPermission => $_getN(3);
   @$pb.TagNumber(4)
@@ -1036,6 +1136,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     $core.bool? paidPartnership,
     $core.bool? madeWithAi,
     PollDraft? poll,
+    $core.String? communityId,
   }) {
     final result = CreatePostRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -1048,6 +1149,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     if (paidPartnership != null) result.paidPartnership = paidPartnership;
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (poll != null) result.poll = poll;
+    if (communityId != null) result.communityId = communityId;
     return result;
   }
 
@@ -1077,6 +1179,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     ..aOB(9, _omitFieldNames ? '' : 'madeWithAi')
     ..aOM<PollDraft>(10, _omitFieldNames ? '' : 'poll',
         subBuilder: PollDraft.$_createMessage)
+    ..aOS(11, _omitFieldNames ? '' : 'communityId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1185,6 +1288,17 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   void clearPoll() => $_clearField(10);
   @$pb.TagNumber(10)
   PollDraft ensurePoll() => $_ensure(9);
+
+  /// Post into this community (ADR-0031 D5): a 19-digit community id; root posts and quotes only, members only, no
+  /// reply_policy other than EVERYONE; FEATURE_COMMUNITIES. "" => an ordinary post. Rules in the CreatePost comment.
+  @$pb.TagNumber(11)
+  $core.String get communityId => $_getSZ(10);
+  @$pb.TagNumber(11)
+  set communityId($core.String value) => $_setString(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasCommunityId() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearCommunityId() => $_clearField(11);
 }
 
 class CreatePostResponse extends $pb.GeneratedMessage {
@@ -2474,6 +2588,39 @@ class PostServiceApi {
   /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
   /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
   /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
+  /// Communities (ADR-0031 D5; FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
+  /// - community_id posts a root post or a quote into that community. A set community_id while communities is off for
+  ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", 0 reads beyond the
+  ///   interceptor, checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
+  ///   reply_to_post_id => VALIDATION field "community_id" (a reply belongs to its root's conversation). With a
+  ///   reply_policy other than UNSPECIFIED or EVERYONE => VALIDATION field "reply_policy" (F8: a community conversation
+  ///   is members only and takes no policy of its own). 0 writes.
+  /// - Then, in this order (posts.CommunityGate): a protected caller => FAILED_PRECONDITION + PROTECTED_ACCOUNT, 0 reads
+  ///   (F6; the interceptor's profile is held); a missing or SUSPENDED community => NOT_FOUND "community not found"
+  ///   (byte-identical for both); an ARCHIVED one => FAILED_PRECONDITION + COMMUNITY_STATE metadata["reason"] =
+  ///   "community_archived" (status from the 60 s community cache); inside the transaction the caller's member doc, read
+  ///   fresh: BANNED => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "banned", not a member => "not_member" (a ban
+  ///   made on another instance stops the next post at once); quotas.communityPosts (50 per IST day, 10 for new accounts,
+  ///   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
+  ///   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
+  ///   "community_posts_per_community_daily". Every refusal writes 0.
+  /// - Blocks with the community's owner or moderators never refuse a post (ADR-0031 D7). The post is an ordinary public
+  ///   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
+  /// - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
+  ///   community in the same write: +0 writes. The request hash covers community_id only when it is set, so a request
+  ///   without one replays exactly as before; the same key with another community_id => IDEMPOTENCY_KEY_REUSED.
+  /// - Extra over CreatePost: reads +2 cold (community via the cache, member doc fresh in the transaction) / +1 warm,
+  ///   planning +1.5; writes +0.
+  /// - Clients send community_id only when GetMe.enabled_features lists "communities", and check that the returned post
+  ///   carries `community` (an older server drops the field): if not, warn and offer delete.
+  /// Replies in a community conversation (ADR-0031 D5, F8): members only. Every reply inherits its parent's conversation
+  /// community (+0 reads: the parent is already read). While communities is not globally off, and after the existing
+  /// reply rules (a block either way => NOT_FOUND, ADR-0021 policies): a SUSPENDED community => NOT_FOUND "community not
+  /// found"; an ARCHIVED one => COMMUNITY_STATE "community_archived"; a caller who is not a JOINED member (banned
+  /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", 0 writes. The member doc is cached
+  /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. Extra reads +2 cold (community, member
+  /// doc, both cached) / +0 warm. With communities globally off, community posts behave as ordinary posts: no label and
+  /// no reply gate (the kill switch).
   $async.Future<CreatePostResponse> createPost(
           $pb.ClientContext? ctx, CreatePostRequest request) =>
       _client.invoke<CreatePostResponse>(
@@ -2514,7 +2661,9 @@ class PostServiceApi {
   /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
   /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
-  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0).
+  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0). In a community
+  /// conversation (ADR-0031 D5) it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
+  /// member doc, cached 60 s), +0 warm.
   $async.Future<GetPostResponse> getPost(
           $pb.ClientContext? ctx, GetPostRequest request) =>
       _client.invoke<GetPostResponse>(
@@ -2537,7 +2686,8 @@ class PostServiceApi {
   /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   /// (one conversation query, minimum 1); writes 0.
   /// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
-  /// read for a FOLLOWING conversation (the root author's graph), +0 warm.
+  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation (ADR-0031 D5)
+  /// ALLOWED for a JOINED member and NOT_ALLOWED otherwise, +1 cold read (the caller's member doc), +0 warm.
   $async.Future<GetThreadResponse> getThread(
           $pb.ClientContext? ctx, GetThreadRequest request) =>
       _client.invoke<GetThreadResponse>(
@@ -2553,6 +2703,9 @@ class PostServiceApi {
   ///
   /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
   /// here: VALIDATION field "media_ids" (ADR-0029 D10).
+  /// Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
+  /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode
+  /// (plan W5-34).
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
   /// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION

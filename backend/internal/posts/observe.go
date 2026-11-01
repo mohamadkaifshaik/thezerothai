@@ -25,6 +25,7 @@ const (
 	fieldTxnAttempts      = "txn_attempts"
 	fieldFeature          = "feature"
 	fieldHasPoll          = "has_poll"
+	fieldCommunityRefused = "community_refused" // flag_off or not_built (W5-22); a set community_id only, never the id
 )
 
 // outcomes of CreatePost (posts_op=create).

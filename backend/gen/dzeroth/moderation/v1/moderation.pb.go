@@ -7,6 +7,8 @@
 // Moderation: user reports (App Store 1.2 / Play UGC requirement). Owner module: backend/internal/moderation.
 // Collections owned: reports/{reportId}. Moderator actions (list, resolve, takedown, suspend) are NOT RPCs at
 // Stage 0: they are `opsctl` commands run by the founder (ADR-0016, no admin console), so this service has one RPC.
+// A community's own moderators (ADR-0031) act only in that community's view, through dzeroth.communities.v1, and never
+// see reports.
 // Every ModerationService RPC is behind the FEATURE_REPORTS server flag (wire name `reports`): when it is off for the
 // caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads.
 // Privacy: the reporter's identity is never returned to, or derivable by, the reported user.
@@ -46,6 +48,17 @@ const (
 	// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
 	// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
 	ReportTargetType_REPORT_TARGET_TYPE_LIST ReportTargetType = 4
+	// A community (ADR-0031 D14). target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
+	// SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
+	// community (the caller is its owner) => VALIDATION "target_id". A block with the owner does not refuse it (the
+	// community is public). The evidence is the owner's handle (empty for an ownerless ARCHIVED community), the
+	// community's name, description and rules and its creation time (no member id, no child doc), kept in the report
+	// document with the post evidence's retention. Reports of posts in a community use REPORT_TARGET_TYPE_POST; they go to
+	// the platform only, never to the community's moderators. Needs FEATURE_COMMUNITIES not globally off (else
+	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads); the existing reports quota
+	// applies. Firestore: reads cold 5 (interceptor 1, community 1, owner users 1, report doc 1, quotas 1), warm 2;
+	// writes 2.
+	ReportTargetType_REPORT_TARGET_TYPE_COMMUNITY ReportTargetType = 5
 )
 
 // Enum value maps for ReportTargetType.
@@ -56,6 +69,7 @@ var (
 		2: "REPORT_TARGET_TYPE_ACCOUNT",
 		3: "REPORT_TARGET_TYPE_MESSAGE",
 		4: "REPORT_TARGET_TYPE_LIST",
+		5: "REPORT_TARGET_TYPE_COMMUNITY",
 	}
 	ReportTargetType_value = map[string]int32{
 		"REPORT_TARGET_TYPE_UNSPECIFIED": 0,
@@ -63,6 +77,7 @@ var (
 		"REPORT_TARGET_TYPE_ACCOUNT":     2,
 		"REPORT_TARGET_TYPE_MESSAGE":     3,
 		"REPORT_TARGET_TYPE_LIST":        4,
+		"REPORT_TARGET_TYPE_COMMUNITY":   5,
 	}
 )
 
@@ -307,13 +322,14 @@ const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12)\n" +
-	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xb0\x01\n" +
+	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xd2\x01\n" +
 	"\x10ReportTargetType\x12\"\n" +
 	"\x1eREPORT_TARGET_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17REPORT_TARGET_TYPE_POST\x10\x01\x12\x1e\n" +
 	"\x1aREPORT_TARGET_TYPE_ACCOUNT\x10\x02\x12\x1e\n" +
 	"\x1aREPORT_TARGET_TYPE_MESSAGE\x10\x03\x12\x1b\n" +
-	"\x17REPORT_TARGET_TYPE_LIST\x10\x04*\xa3\x02\n" +
+	"\x17REPORT_TARGET_TYPE_LIST\x10\x04\x12 \n" +
+	"\x1cREPORT_TARGET_TYPE_COMMUNITY\x10\x05*\xa3\x02\n" +
 	"\fReportReason\x12\x1d\n" +
 	"\x19REPORT_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12REPORT_REASON_SPAM\x10\x01\x12\x1c\n" +

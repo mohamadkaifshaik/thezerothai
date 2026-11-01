@@ -4,10 +4,10 @@
 
 // Timelines: pull-on-read with incremental refresh (ADR-0004). Owner module: backend/internal/timeline.
 // Owns no collections; reads posts through the posts module interface, graph/{uid} through the graph module, lists
-// through lists.Reader (ADR-0030), and writes users/{uid}.homeTabs only through the timeline.HomeTabsStore seam that
-// identity implements (SetHomeTabs).
+// through lists.Reader (ADR-0030), communities through communities.Reader (ADR-0031), and writes users/{uid}.homeTabs
+// only through the timeline.HomeTabsStore seam that identity implements (SetHomeTabs).
 //
-// Token contract (identical for every feed RPC: Home, user and list timelines; all opaque):
+// Token contract (identical for every feed RPC: Home, user, list and community timelines; all opaque):
 //   - First open, no local cache: send neither token.
 //   - Pull-to-refresh / app resume: send since_token from the last response. Only posts newer than it are read.
 //     since_token trails the newest returned item by a short settle window (ADR-0010 D13), so a refresh may
@@ -20,8 +20,8 @@
 //     Pages inside a gap keep that lower bound; next_page_token is "" once the gap is closed.
 //   - Cold-open and since_token refresh responses return a fresh since_token; persist it with the cached items.
 //     Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
-//   - Tokens are bound to the caller, the feed (for user timelines the target and tab, for list timelines the list) and
-//     the token kind,
+//   - Tokens are bound to the caller, the feed (for user timelines the target and tab, for list timelines the list, for
+//     community timelines the community) and the token kind,
 //     and expire after 30 days (ADR-0010 D14). For user timelines "tab" is the EFFECTIVE tab (ADR-0024 D5): POSTS
 //     and UNSPECIFIED + include_replies=false bind the same feed, as do REPLIES and UNSPECIFIED + true, so every
 //     pre-W3 token stays valid; a token used on another tab is rejected like a foreign one. An expired, foreign or
@@ -39,7 +39,10 @@
 //     2026-10-18 (b) removed_ids is scoped to the feed it answers (Home: the posts of the caller and the accounts the
 //     caller follows; a user timeline: that account's posts), so a suspension lists ids and rejects tokens only for
 //     the feeds that show the suspended account. The client contract is unchanged: drop each id from every cached
-//     feed that holds it, and replace the feed on a rejected since_token.
+//     feed that holds it, and replace the feed on a rejected since_token. A community feed's removed_ids (ADR-0031 D6)
+//     also list the posts its moderators hid, come from the community's own removal list instead of the ADR-0016 log,
+//     and follow FEATURE_COMMUNITIES instead of FEATURE_REMOVED_IDS (GetCommunityTimeline); the client contract is the
+//     same.
 //
 // The Stage 2 Memorystore design keeps this contract unchanged.
 package timelinev1connect
@@ -82,6 +85,9 @@ const (
 	// TimelineServiceGetListTimelineProcedure is the fully-qualified name of the TimelineService's
 	// GetListTimeline RPC.
 	TimelineServiceGetListTimelineProcedure = "/dzeroth.timeline.v1.TimelineService/GetListTimeline"
+	// TimelineServiceGetCommunityTimelineProcedure is the fully-qualified name of the TimelineService's
+	// GetCommunityTimeline RPC.
+	TimelineServiceGetCommunityTimelineProcedure = "/dzeroth.timeline.v1.TimelineService/GetCommunityTimeline"
 	// TimelineServiceSetHomeTabsProcedure is the fully-qualified name of the TimelineService's
 	// SetHomeTabs RPC.
 	TimelineServiceSetHomeTabsProcedure = "/dzeroth.timeline.v1.TimelineService/SetHomeTabs"
@@ -185,17 +191,63 @@ type TimelineServiceClient interface {
 	// cold open or older page 30; an empty since refresh by the owner, cold, 3 + C. Writes 0.
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetListTimeline(context.Context, *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error)
+	// A community's feed (ADR-0031 D6): the root posts and quotes created into the community, newest first. Replies and
+	// reposts are never in it. Query `posts where communityId == C ORDER BY __name__ DESC` with id-bound windows (id
+	// order is time order, ADR-0010 D18), on the automatic single-field index (proven on the dev Firestore, D3). A post a
+	// community moderator hid has left the query. The same token contract as above: tokens bound to the caller and the
+	// community, the settle window, gap_page_token, and next_page_token following the query rather than the filtered count.
+	// A Home, user or list token on a community, or a community token on another community or for another caller =>
+	// VALIDATION "since_token" / "page_token", 0 reads.
+	// NOT_FOUND "community not found" (one message, byte-identical; communities.v1 header) for a missing or SUSPENDED
+	// community, to everyone, its owner included, at <= 2 reads. An ARCHIVED community is readable. A community that
+	// becomes NOT_FOUND between calls answers NOT_FOUND: the client shows the tab as unavailable and offers Unpin.
+	// Rows come from a shared per-instance entry per community (the newest 30 posts, CACHE_COMMUNITY_FEED_ENTRIES), refilled
+	// incrementally once it is older than CACHE_TTL (60 s), then from the query for anything older. Every fill reads at
+	// most page_size posts, so a call never reads more post rows than it could return. A hide, restore or new post on this
+	// instance updates the entry at once.
+	// Filtering, per viewer, after the cache (ADR-0031 D6, D7; ADR-0010 D6):
+	//   - rows the platform removed (takedown, suspended author) and rows in the community's recent removals are dropped;
+	//   - rows by authors the caller blocks or mutes, or who block the caller, are dropped; the caller's own posts are kept;
+	//     for the community's OWNER or a MODERATOR the "blocks the caller" drop is waived (F14: moderators must see
+	//     raiders), and their own blocks and mutes still apply;
+	//   - a caller whose blockedBy overflowed keeps only their own posts and authors they follow (fail closed), unless they
+	//     moderate this community;
+	//   - protected authors as in GetListTimeline (posts.Audience): a row by a protected author who has not approved the
+	//     caller is dropped, moderators included (protection is the author's privacy choice, not a block); a QUOTE of such
+	//     an author's post carries embed_viewer_state = PROTECTED; UNAVAILABLE (retryable) when no protected-author set
+	//     younger than PROTECTED_SET_MAX_STALE can be loaded, never an unfiltered page.
+	//
+	// viewer_reply_permission: ALLOWED or NOT_ALLOWED from community.viewer_role (members-only replies, F8), 0 extra reads.
+	// removed_ids (gated by FEATURE_COMMUNITIES, not FEATURE_REMOVED_IDS): on a since_token refresh, the community's
+	// recent removals newer than the token (moderator hides, platform takedowns and suspensions of community posts; at
+	// most 50, newest first), from the community doc already read: 0 extra reads. A restored post is not listed; the
+	// author's own DeletePost is not listed (as on Home). When the community has dropped a removal newer than the token
+	// (removalsTruncatedAt), the refresh is rejected exactly as an expired token is (above), before any post is read.
+	// community is the header (communities.v1.Community, with viewer_role) on every response, read with the community and
+	// the caller's member doc: the client labels the community's Home tab from it.
+	// Flags: FEATURE_COMMUNITIES (wire name "communities", else FAILED_PRECONDITION + FEATURE_DISABLED,
+	// metadata["feature"] = "communities", 0 reads) and FEATURE_POSTS as for Home.
+	// Rate limit: RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12 calls/min/uid per instance (36 with 3 instances). Deadline 10 s.
+	// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
+	// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
+	// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
+	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
+	GetCommunityTimeline(context.Context, *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error)
 	// Replace the caller's pinned Home tabs (after the fixed Following tab) with tabs, in that order (ADR-0030 D6,
 	// founder decision F5). Read back through IdentityService.GetMe home_tabs.
 	// Rules: at most HOME_TABS_MAX_PINNED (5) tabs, counting stored tabs of a kind whose flag is off for the caller
 	// (those are not in GetMe and are kept after the sent ones), else FAILED_PRECONDITION + LIMIT_REACHED,
-	// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until W5 Part
-	// B ships its timeline) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "tabs", 0 reads.
-	// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads;
-	// an empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read
-	// now (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; a tab
-	// already stored is kept without being re-read, so an unavailable tab can still be moved or removed. title is
-	// ignored on input; the server sets it (common.v1.HomeTab).
+	// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until
+	// GetCommunityTimeline ships, plan W5-27) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
+	// "tabs", 0 reads.
+	// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads; a
+	// COMMUNITY tab needs FEATURE_COMMUNITIES, else FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads; an
+	// empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read now
+	// (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; or an ACTIVE
+	// or ARCHIVED community (ADR-0031 D6; membership is not required, communities are public), else VALIDATION "tabs",
+	// one answer for missing and SUSPENDED communities, +1 read per new community tab through the community instance
+	// cache. A tab already stored is kept without being re-read, so an unavailable tab can still be moved or removed.
+	// title is ignored on input; the server sets it (common.v1.HomeTab), always "" for a COMMUNITY tab.
 	// Idempotency: the standard TTL'd idempotency document, as every lists.v1 mutation (rule 4). One transaction in
 	// identity (the timeline.HomeTabsStore seam): idempotency doc and users/{uid} fresh, then a field-level update of
 	// users/{uid}.homeTabs (no other field). The same tabs again => the idempotency document only. The caller's profile
@@ -203,8 +255,9 @@ type TimelineServiceClient interface {
 	// Rate limits: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance) and the list_mutation_daily cap
 	// (LIST_MUTATIONS_PER_DAY 500 per uid per instance), shared with the list mutations. DEGRADED_MODE=readonly refuses
 	// it.
-	// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list docs, caller graph, and for
-	// another user's list its owner's profile and graph, <= 5 owners, all cache-first), typical 4; writes 2 (users
+	// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list or community docs, caller
+	// graph, and for another user's list its owner's profile and graph, <= 5 owners, all cache-first; a community tab
+	// reads only its community doc), typical 4; writes 2 (users
 	// field-level, idempotency), 1 when nothing changes, + 1 TTL delete later; replay reads 2, writes 0.
 	SetHomeTabs(context.Context, *connect.Request[v1.SetHomeTabsRequest]) (*connect.Response[v1.SetHomeTabsResponse], error)
 }
@@ -241,6 +294,13 @@ func NewTimelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		getCommunityTimeline: connect.NewClient[v1.GetCommunityTimelineRequest, v1.GetCommunityTimelineResponse](
+			httpClient,
+			baseURL+TimelineServiceGetCommunityTimelineProcedure,
+			connect.WithSchema(timelineServiceMethods.ByName("GetCommunityTimeline")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		setHomeTabs: connect.NewClient[v1.SetHomeTabsRequest, v1.SetHomeTabsResponse](
 			httpClient,
 			baseURL+TimelineServiceSetHomeTabsProcedure,
@@ -252,10 +312,11 @@ func NewTimelineServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // timelineServiceClient implements TimelineServiceClient.
 type timelineServiceClient struct {
-	getHomeTimeline *connect.Client[v1.GetHomeTimelineRequest, v1.GetHomeTimelineResponse]
-	getUserTimeline *connect.Client[v1.GetUserTimelineRequest, v1.GetUserTimelineResponse]
-	getListTimeline *connect.Client[v1.GetListTimelineRequest, v1.GetListTimelineResponse]
-	setHomeTabs     *connect.Client[v1.SetHomeTabsRequest, v1.SetHomeTabsResponse]
+	getHomeTimeline      *connect.Client[v1.GetHomeTimelineRequest, v1.GetHomeTimelineResponse]
+	getUserTimeline      *connect.Client[v1.GetUserTimelineRequest, v1.GetUserTimelineResponse]
+	getListTimeline      *connect.Client[v1.GetListTimelineRequest, v1.GetListTimelineResponse]
+	getCommunityTimeline *connect.Client[v1.GetCommunityTimelineRequest, v1.GetCommunityTimelineResponse]
+	setHomeTabs          *connect.Client[v1.SetHomeTabsRequest, v1.SetHomeTabsResponse]
 }
 
 // GetHomeTimeline calls dzeroth.timeline.v1.TimelineService.GetHomeTimeline.
@@ -271,6 +332,11 @@ func (c *timelineServiceClient) GetUserTimeline(ctx context.Context, req *connec
 // GetListTimeline calls dzeroth.timeline.v1.TimelineService.GetListTimeline.
 func (c *timelineServiceClient) GetListTimeline(ctx context.Context, req *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error) {
 	return c.getListTimeline.CallUnary(ctx, req)
+}
+
+// GetCommunityTimeline calls dzeroth.timeline.v1.TimelineService.GetCommunityTimeline.
+func (c *timelineServiceClient) GetCommunityTimeline(ctx context.Context, req *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error) {
+	return c.getCommunityTimeline.CallUnary(ctx, req)
 }
 
 // SetHomeTabs calls dzeroth.timeline.v1.TimelineService.SetHomeTabs.
@@ -376,17 +442,63 @@ type TimelineServiceHandler interface {
 	// cold open or older page 30; an empty since refresh by the owner, cold, 3 + C. Writes 0.
 	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
 	GetListTimeline(context.Context, *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error)
+	// A community's feed (ADR-0031 D6): the root posts and quotes created into the community, newest first. Replies and
+	// reposts are never in it. Query `posts where communityId == C ORDER BY __name__ DESC` with id-bound windows (id
+	// order is time order, ADR-0010 D18), on the automatic single-field index (proven on the dev Firestore, D3). A post a
+	// community moderator hid has left the query. The same token contract as above: tokens bound to the caller and the
+	// community, the settle window, gap_page_token, and next_page_token following the query rather than the filtered count.
+	// A Home, user or list token on a community, or a community token on another community or for another caller =>
+	// VALIDATION "since_token" / "page_token", 0 reads.
+	// NOT_FOUND "community not found" (one message, byte-identical; communities.v1 header) for a missing or SUSPENDED
+	// community, to everyone, its owner included, at <= 2 reads. An ARCHIVED community is readable. A community that
+	// becomes NOT_FOUND between calls answers NOT_FOUND: the client shows the tab as unavailable and offers Unpin.
+	// Rows come from a shared per-instance entry per community (the newest 30 posts, CACHE_COMMUNITY_FEED_ENTRIES), refilled
+	// incrementally once it is older than CACHE_TTL (60 s), then from the query for anything older. Every fill reads at
+	// most page_size posts, so a call never reads more post rows than it could return. A hide, restore or new post on this
+	// instance updates the entry at once.
+	// Filtering, per viewer, after the cache (ADR-0031 D6, D7; ADR-0010 D6):
+	//   - rows the platform removed (takedown, suspended author) and rows in the community's recent removals are dropped;
+	//   - rows by authors the caller blocks or mutes, or who block the caller, are dropped; the caller's own posts are kept;
+	//     for the community's OWNER or a MODERATOR the "blocks the caller" drop is waived (F14: moderators must see
+	//     raiders), and their own blocks and mutes still apply;
+	//   - a caller whose blockedBy overflowed keeps only their own posts and authors they follow (fail closed), unless they
+	//     moderate this community;
+	//   - protected authors as in GetListTimeline (posts.Audience): a row by a protected author who has not approved the
+	//     caller is dropped, moderators included (protection is the author's privacy choice, not a block); a QUOTE of such
+	//     an author's post carries embed_viewer_state = PROTECTED; UNAVAILABLE (retryable) when no protected-author set
+	//     younger than PROTECTED_SET_MAX_STALE can be loaded, never an unfiltered page.
+	//
+	// viewer_reply_permission: ALLOWED or NOT_ALLOWED from community.viewer_role (members-only replies, F8), 0 extra reads.
+	// removed_ids (gated by FEATURE_COMMUNITIES, not FEATURE_REMOVED_IDS): on a since_token refresh, the community's
+	// recent removals newer than the token (moderator hides, platform takedowns and suspensions of community posts; at
+	// most 50, newest first), from the community doc already read: 0 extra reads. A restored post is not listed; the
+	// author's own DeletePost is not listed (as on Home). When the community has dropped a removal newer than the token
+	// (removalsTruncatedAt), the refresh is rejected exactly as an expired token is (above), before any post is read.
+	// community is the header (communities.v1.Community, with viewer_role) on every response, read with the community and
+	// the caller's member doc: the client labels the community's Home tab from it.
+	// Flags: FEATURE_COMMUNITIES (wire name "communities", else FAILED_PRECONDITION + FEATURE_DISABLED,
+	// metadata["feature"] = "communities", 0 reads) and FEATURE_POSTS as for Home.
+	// Rate limit: RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12 calls/min/uid per instance (36 with 3 instances). Deadline 10 s.
+	// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
+	// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
+	// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
+	// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
+	GetCommunityTimeline(context.Context, *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error)
 	// Replace the caller's pinned Home tabs (after the fixed Following tab) with tabs, in that order (ADR-0030 D6,
 	// founder decision F5). Read back through IdentityService.GetMe home_tabs.
 	// Rules: at most HOME_TABS_MAX_PINNED (5) tabs, counting stored tabs of a kind whose flag is off for the caller
 	// (those are not in GetMe and are kept after the sent ones), else FAILED_PRECONDITION + LIMIT_REACHED,
-	// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until W5 Part
-	// B ships its timeline) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "tabs", 0 reads.
-	// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads;
-	// an empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read
-	// now (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; a tab
-	// already stored is kept without being re-read, so an unavailable tab can still be moved or removed. title is
-	// ignored on input; the server sets it (common.v1.HomeTab).
+	// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until
+	// GetCommunityTimeline ships, plan W5-27) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
+	// "tabs", 0 reads.
+	// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads; a
+	// COMMUNITY tab needs FEATURE_COMMUNITIES, else FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads; an
+	// empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read now
+	// (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; or an ACTIVE
+	// or ARCHIVED community (ADR-0031 D6; membership is not required, communities are public), else VALIDATION "tabs",
+	// one answer for missing and SUSPENDED communities, +1 read per new community tab through the community instance
+	// cache. A tab already stored is kept without being re-read, so an unavailable tab can still be moved or removed.
+	// title is ignored on input; the server sets it (common.v1.HomeTab), always "" for a COMMUNITY tab.
 	// Idempotency: the standard TTL'd idempotency document, as every lists.v1 mutation (rule 4). One transaction in
 	// identity (the timeline.HomeTabsStore seam): idempotency doc and users/{uid} fresh, then a field-level update of
 	// users/{uid}.homeTabs (no other field). The same tabs again => the idempotency document only. The caller's profile
@@ -394,8 +506,9 @@ type TimelineServiceHandler interface {
 	// Rate limits: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance) and the list_mutation_daily cap
 	// (LIST_MUTATIONS_PER_DAY 500 per uid per instance), shared with the list mutations. DEGRADED_MODE=readonly refuses
 	// it.
-	// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list docs, caller graph, and for
-	// another user's list its owner's profile and graph, <= 5 owners, all cache-first), typical 4; writes 2 (users
+	// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list or community docs, caller
+	// graph, and for another user's list its owner's profile and graph, <= 5 owners, all cache-first; a community tab
+	// reads only its community doc), typical 4; writes 2 (users
 	// field-level, idempotency), 1 when nothing changes, + 1 TTL delete later; replay reads 2, writes 0.
 	SetHomeTabs(context.Context, *connect.Request[v1.SetHomeTabsRequest]) (*connect.Response[v1.SetHomeTabsResponse], error)
 }
@@ -428,6 +541,13 @@ func NewTimelineServiceHandler(svc TimelineServiceHandler, opts ...connect.Handl
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	timelineServiceGetCommunityTimelineHandler := connect.NewUnaryHandler(
+		TimelineServiceGetCommunityTimelineProcedure,
+		svc.GetCommunityTimeline,
+		connect.WithSchema(timelineServiceMethods.ByName("GetCommunityTimeline")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	timelineServiceSetHomeTabsHandler := connect.NewUnaryHandler(
 		TimelineServiceSetHomeTabsProcedure,
 		svc.SetHomeTabs,
@@ -442,6 +562,8 @@ func NewTimelineServiceHandler(svc TimelineServiceHandler, opts ...connect.Handl
 			timelineServiceGetUserTimelineHandler.ServeHTTP(w, r)
 		case TimelineServiceGetListTimelineProcedure:
 			timelineServiceGetListTimelineHandler.ServeHTTP(w, r)
+		case TimelineServiceGetCommunityTimelineProcedure:
+			timelineServiceGetCommunityTimelineHandler.ServeHTTP(w, r)
 		case TimelineServiceSetHomeTabsProcedure:
 			timelineServiceSetHomeTabsHandler.ServeHTTP(w, r)
 		default:
@@ -463,6 +585,10 @@ func (UnimplementedTimelineServiceHandler) GetUserTimeline(context.Context, *con
 
 func (UnimplementedTimelineServiceHandler) GetListTimeline(context.Context, *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.timeline.v1.TimelineService.GetListTimeline is not implemented"))
+}
+
+func (UnimplementedTimelineServiceHandler) GetCommunityTimeline(context.Context, *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.timeline.v1.TimelineService.GetCommunityTimeline is not implemented"))
 }
 
 func (UnimplementedTimelineServiceHandler) SetHomeTabs(context.Context, *connect.Request[v1.SetHomeTabsRequest]) (*connect.Response[v1.SetHomeTabsResponse], error) {

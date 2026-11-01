@@ -3,6 +3,7 @@ package apiserver
 import (
 	"time"
 
+	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
@@ -14,6 +15,7 @@ import (
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -144,6 +146,20 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
 	listMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ListMutationsPerDay)
 
+	// ADR-0031 D11 (W5-22): the seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
+	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
+	// instance). Two per-uid daily call caps split them by who acts: Create, Update, Join and Leave share "community_mutation_daily"
+	// (COMMUNITY_MUTATIONS_PER_DAY, 200; a replay or a no-op still stores an idempotency doc), and the three moderator actions share
+	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor). GetCommunity, ListCommunities, ListMyCommunities,
+	// ListCommunityMembers and ListModerationLog share a read bucket (RATE_LIMIT_COMMUNITIES_READ_PER_MIN, 30/min);
+	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min). Every read is also covered by the ADR-0010 D5
+	// read budget. The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate (W5-26), not here.
+	rlCommunitiesWrite := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesWritePerUserPerMinute, idleBucketTTL)
+	rlCommunitiesRead := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesReadPerUserPerMinute, idleBucketTTL)
+	rlCommunityTimeline := ratelimit.NewLimiter(cfg.RateLimit.CommunityTimelinePerUserPerMinute, idleBucketTTL)
+	communityMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityMutationsPerDay)
+	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
+
 	// P4: CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Images are bounded per day by
 	// quota.Uploads (20, 5 for new accounts) and Vision spend by VISION_MONTHLY_CAP.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
@@ -154,54 +170,67 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	return ratelimit.Config{
 		Default: rlDefault,
 		PerProcedure: map[string]*ratelimit.Limiter{
-			timelinev1connect.TimelineServiceGetHomeTimelineProcedure:         rlHomeTimeline,
-			timelinev1connect.TimelineServiceGetUserTimelineProcedure:         rlUserTimeline,
-			postsv1connect.PostServiceCreatePostProcedure:                     rlPostCreate,
-			postsv1connect.PostServiceDeletePostProcedure:                     rlPostDelete,
-			postsv1connect.PostServiceSchedulePostProcedure:                   rlPostCreate,
-			postsv1connect.PostServiceCancelScheduledPostProcedure:            rlPostCreate,
-			moderationv1connect.ModerationServiceReportContentProcedure:       rlReport,
-			engagementv1connect.EngagementServiceLikePostProcedure:            rlEngagement,
-			engagementv1connect.EngagementServiceUnlikePostProcedure:          rlEngagement,
-			engagementv1connect.EngagementServiceRepostPostProcedure:          rlEngagement,
-			engagementv1connect.EngagementServiceUndoRepostProcedure:          rlEngagement,
-			engagementv1connect.EngagementServiceVotePollProcedure:            rlPollVote,
-			engagementv1connect.EngagementServiceAddBookmarkProcedure:         rlBookmarks,
-			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:      rlBookmarks,
-			engagementv1connect.EngagementServiceListBookmarksProcedure:       rlBookmarksList,
-			engagementv1connect.EngagementServiceListLikedPostsProcedure:      rlLikesList,
-			mediav1connect.MediaServiceCreateUploadProcedure:                  rlMedia,
-			mediav1connect.MediaServiceFinalizeUploadProcedure:                rlMediaFinalize,
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: rlCheckHandle,
-			graphv1connect.GraphServiceFollowProcedure:                        rlGraphFollow,
-			graphv1connect.GraphServiceUnfollowProcedure:                      rlGraphFollow,
-			graphv1connect.GraphServiceBlockProcedure:                         rlGraphBlock,
-			graphv1connect.GraphServiceUnblockProcedure:                       rlGraphBlock,
-			graphv1connect.GraphServiceMuteProcedure:                          rlGraphBlock,
-			graphv1connect.GraphServiceUnmuteProcedure:                        rlGraphBlock,
-			graphv1connect.GraphServiceListFollowersProcedure:                 rlGraphList,
-			graphv1connect.GraphServiceListFollowingProcedure:                 rlGraphList,
-			graphv1connect.GraphServiceListBlockedUsersProcedure:              rlGraphList,
-			graphv1connect.GraphServiceListMutedUsersProcedure:                rlGraphList,
-			graphv1connect.GraphServiceListFollowRequestsProcedure:            rlGraphList,
-			graphv1connect.GraphServiceRespondToFollowRequestProcedure:        rlFollowRequestsRespond,
-			graphv1connect.GraphServiceGetProfileRelationshipProcedure:        rlProfileRelationship,
-			graphv1connect.GraphServiceListSuggestedUsersProcedure:            rlSuggestions,
-			searchv1connect.SearchServiceSearchPeopleProcedure:                rlSearchPeople,
-			searchv1connect.SearchServiceSearchPostsProcedure:                 rlSearchPosts,
-			messagingv1connect.MessagingServiceSendMessageProcedure:           rlMessagesSend,
-			messagingv1connect.MessagingServiceListConversationsProcedure:     rlMessagesRead,
-			messagingv1connect.MessagingServiceListMessagesProcedure:          rlMessagesRead,
-			listsv1connect.ListServiceCreateListProcedure:                     rlListsWrite,
-			listsv1connect.ListServiceUpdateListProcedure:                     rlListsWrite,
-			listsv1connect.ListServiceDeleteListProcedure:                     rlListsWrite,
-			listsv1connect.ListServiceAddListMemberProcedure:                  rlListsWrite,
-			listsv1connect.ListServiceRemoveListMemberProcedure:               rlListsWrite,
-			timelinev1connect.TimelineServiceSetHomeTabsProcedure:             rlListsWrite,
-			listsv1connect.ListServiceGetListProcedure:                        rlListsRead,
-			listsv1connect.ListServiceListUserListsProcedure:                  rlListsRead,
-			listsv1connect.ListServiceListListMembersProcedure:                rlListsRead,
-			timelinev1connect.TimelineServiceGetListTimelineProcedure:         rlListTimeline,
+			timelinev1connect.TimelineServiceGetHomeTimelineProcedure:          rlHomeTimeline,
+			timelinev1connect.TimelineServiceGetUserTimelineProcedure:          rlUserTimeline,
+			postsv1connect.PostServiceCreatePostProcedure:                      rlPostCreate,
+			postsv1connect.PostServiceDeletePostProcedure:                      rlPostDelete,
+			postsv1connect.PostServiceSchedulePostProcedure:                    rlPostCreate,
+			postsv1connect.PostServiceCancelScheduledPostProcedure:             rlPostCreate,
+			moderationv1connect.ModerationServiceReportContentProcedure:        rlReport,
+			engagementv1connect.EngagementServiceLikePostProcedure:             rlEngagement,
+			engagementv1connect.EngagementServiceUnlikePostProcedure:           rlEngagement,
+			engagementv1connect.EngagementServiceRepostPostProcedure:           rlEngagement,
+			engagementv1connect.EngagementServiceUndoRepostProcedure:           rlEngagement,
+			engagementv1connect.EngagementServiceVotePollProcedure:             rlPollVote,
+			engagementv1connect.EngagementServiceAddBookmarkProcedure:          rlBookmarks,
+			engagementv1connect.EngagementServiceRemoveBookmarkProcedure:       rlBookmarks,
+			engagementv1connect.EngagementServiceListBookmarksProcedure:        rlBookmarksList,
+			engagementv1connect.EngagementServiceListLikedPostsProcedure:       rlLikesList,
+			mediav1connect.MediaServiceCreateUploadProcedure:                   rlMedia,
+			mediav1connect.MediaServiceFinalizeUploadProcedure:                 rlMediaFinalize,
+			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure:  rlCheckHandle,
+			graphv1connect.GraphServiceFollowProcedure:                         rlGraphFollow,
+			graphv1connect.GraphServiceUnfollowProcedure:                       rlGraphFollow,
+			graphv1connect.GraphServiceBlockProcedure:                          rlGraphBlock,
+			graphv1connect.GraphServiceUnblockProcedure:                        rlGraphBlock,
+			graphv1connect.GraphServiceMuteProcedure:                           rlGraphBlock,
+			graphv1connect.GraphServiceUnmuteProcedure:                         rlGraphBlock,
+			graphv1connect.GraphServiceListFollowersProcedure:                  rlGraphList,
+			graphv1connect.GraphServiceListFollowingProcedure:                  rlGraphList,
+			graphv1connect.GraphServiceListBlockedUsersProcedure:               rlGraphList,
+			graphv1connect.GraphServiceListMutedUsersProcedure:                 rlGraphList,
+			graphv1connect.GraphServiceListFollowRequestsProcedure:             rlGraphList,
+			graphv1connect.GraphServiceRespondToFollowRequestProcedure:         rlFollowRequestsRespond,
+			graphv1connect.GraphServiceGetProfileRelationshipProcedure:         rlProfileRelationship,
+			graphv1connect.GraphServiceListSuggestedUsersProcedure:             rlSuggestions,
+			searchv1connect.SearchServiceSearchPeopleProcedure:                 rlSearchPeople,
+			searchv1connect.SearchServiceSearchPostsProcedure:                  rlSearchPosts,
+			messagingv1connect.MessagingServiceSendMessageProcedure:            rlMessagesSend,
+			messagingv1connect.MessagingServiceListConversationsProcedure:      rlMessagesRead,
+			messagingv1connect.MessagingServiceListMessagesProcedure:           rlMessagesRead,
+			listsv1connect.ListServiceCreateListProcedure:                      rlListsWrite,
+			listsv1connect.ListServiceUpdateListProcedure:                      rlListsWrite,
+			listsv1connect.ListServiceDeleteListProcedure:                      rlListsWrite,
+			listsv1connect.ListServiceAddListMemberProcedure:                   rlListsWrite,
+			listsv1connect.ListServiceRemoveListMemberProcedure:                rlListsWrite,
+			timelinev1connect.TimelineServiceSetHomeTabsProcedure:              rlListsWrite,
+			listsv1connect.ListServiceGetListProcedure:                         rlListsRead,
+			listsv1connect.ListServiceListUserListsProcedure:                   rlListsRead,
+			listsv1connect.ListServiceListListMembersProcedure:                 rlListsRead,
+			timelinev1connect.TimelineServiceGetListTimelineProcedure:          rlListTimeline,
+			communitiesv1connect.CommunityServiceCreateCommunityProcedure:      rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceUpdateCommunityProcedure:      rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceJoinCommunityProcedure:        rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceLeaveCommunityProcedure:       rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceHideCommunityPostProcedure:    rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceRestoreCommunityPostProcedure: rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceSetMemberRoleProcedure:        rlCommunitiesWrite,
+			communitiesv1connect.CommunityServiceGetCommunityProcedure:         rlCommunitiesRead,
+			communitiesv1connect.CommunityServiceListCommunitiesProcedure:      rlCommunitiesRead,
+			communitiesv1connect.CommunityServiceListMyCommunitiesProcedure:    rlCommunitiesRead,
+			communitiesv1connect.CommunityServiceListCommunityMembersProcedure: rlCommunitiesRead,
+			communitiesv1connect.CommunityServiceListModerationLogProcedure:    rlCommunitiesRead,
+			timelinev1connect.TimelineServiceGetCommunityTimelineProcedure:     rlCommunityTimeline,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceListFollowersProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
@@ -239,6 +268,14 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			listsv1connect.ListServiceAddListMemberProcedure:      {Name: "list_mutation_daily", Cap: listMutationDailyCap},
 			listsv1connect.ListServiceRemoveListMemberProcedure:   {Name: "list_mutation_daily", Cap: listMutationDailyCap},
 			timelinev1connect.TimelineServiceSetHomeTabsProcedure: {Name: "list_mutation_daily", Cap: listMutationDailyCap},
+
+			communitiesv1connect.CommunityServiceCreateCommunityProcedure:      {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
+			communitiesv1connect.CommunityServiceUpdateCommunityProcedure:      {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
+			communitiesv1connect.CommunityServiceJoinCommunityProcedure:        {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
+			communitiesv1connect.CommunityServiceLeaveCommunityProcedure:       {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
+			communitiesv1connect.CommunityServiceHideCommunityPostProcedure:    {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
+			communitiesv1connect.CommunityServiceRestoreCommunityPostProcedure: {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
+			communitiesv1connect.CommunityServiceSetMemberRoleProcedure:        {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 

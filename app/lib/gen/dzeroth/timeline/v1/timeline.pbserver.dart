@@ -15,31 +15,35 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'timeline.pb.dart' as $4;
+import 'timeline.pb.dart' as $5;
 import 'timeline.pbjson.dart';
 
 export 'timeline.pb.dart';
 
 abstract class TimelineServiceBase extends $pb.GeneratedService {
-  $async.Future<$4.GetHomeTimelineResponse> getHomeTimeline(
-      $pb.ServerContext ctx, $4.GetHomeTimelineRequest request);
-  $async.Future<$4.GetUserTimelineResponse> getUserTimeline(
-      $pb.ServerContext ctx, $4.GetUserTimelineRequest request);
-  $async.Future<$4.GetListTimelineResponse> getListTimeline(
-      $pb.ServerContext ctx, $4.GetListTimelineRequest request);
-  $async.Future<$4.SetHomeTabsResponse> setHomeTabs(
-      $pb.ServerContext ctx, $4.SetHomeTabsRequest request);
+  $async.Future<$5.GetHomeTimelineResponse> getHomeTimeline(
+      $pb.ServerContext ctx, $5.GetHomeTimelineRequest request);
+  $async.Future<$5.GetUserTimelineResponse> getUserTimeline(
+      $pb.ServerContext ctx, $5.GetUserTimelineRequest request);
+  $async.Future<$5.GetListTimelineResponse> getListTimeline(
+      $pb.ServerContext ctx, $5.GetListTimelineRequest request);
+  $async.Future<$5.GetCommunityTimelineResponse> getCommunityTimeline(
+      $pb.ServerContext ctx, $5.GetCommunityTimelineRequest request);
+  $async.Future<$5.SetHomeTabsResponse> setHomeTabs(
+      $pb.ServerContext ctx, $5.SetHomeTabsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'GetHomeTimeline':
-        return $4.GetHomeTimelineRequest();
+        return $5.GetHomeTimelineRequest();
       case 'GetUserTimeline':
-        return $4.GetUserTimelineRequest();
+        return $5.GetUserTimelineRequest();
       case 'GetListTimeline':
-        return $4.GetListTimelineRequest();
+        return $5.GetListTimelineRequest();
+      case 'GetCommunityTimeline':
+        return $5.GetCommunityTimelineRequest();
       case 'SetHomeTabs':
-        return $4.SetHomeTabsRequest();
+        return $5.SetHomeTabsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -49,13 +53,16 @@ abstract class TimelineServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'GetHomeTimeline':
-        return getHomeTimeline(ctx, request as $4.GetHomeTimelineRequest);
+        return getHomeTimeline(ctx, request as $5.GetHomeTimelineRequest);
       case 'GetUserTimeline':
-        return getUserTimeline(ctx, request as $4.GetUserTimelineRequest);
+        return getUserTimeline(ctx, request as $5.GetUserTimelineRequest);
       case 'GetListTimeline':
-        return getListTimeline(ctx, request as $4.GetListTimelineRequest);
+        return getListTimeline(ctx, request as $5.GetListTimelineRequest);
+      case 'GetCommunityTimeline':
+        return getCommunityTimeline(
+            ctx, request as $5.GetCommunityTimelineRequest);
       case 'SetHomeTabs':
-        return setHomeTabs(ctx, request as $4.SetHomeTabsRequest);
+        return setHomeTabs(ctx, request as $5.SetHomeTabsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

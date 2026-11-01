@@ -375,6 +375,12 @@ type CreateInput struct {
 	// feature=polls), 0 reads, checked after content_disclosure. The service validates it (poll.go) against PollLimits.
 	Poll         *PollInput
 	PollsEnabled bool
+	// CommunityID is the request's community_id (ADR-0031 D5), "" for none; CommunitiesEnabled is the FEATURE_COMMUNITIES decision for the
+	// caller, made by server.go (never from the request). A set CommunityID is FEATURE_DISABLED (metadata feature=communities), 0 reads,
+	// checked after polls: with the flag off for the caller, and (until W5-26 builds posts.CommunityGate) with it on too, so the post is
+	// never created as an ordinary one. W5-26 replaces the second refusal with the gate and validates the shape.
+	CommunityID        string
+	CommunitiesEnabled bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST
