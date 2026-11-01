@@ -487,6 +487,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.Poll': $0.Poll$json,
   '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
+  '.dzeroth.posts.v1.CommunityRef': $0.CommunityRef$json,
   '.dzeroth.engagement.v1.ListLikedPostsRequest': ListLikedPostsRequest$json,
   '.dzeroth.engagement.v1.ListLikedPostsResponse': ListLikedPostsResponse$json,
   '.dzeroth.engagement.v1.VotePollRequest': VotePollRequest$json,

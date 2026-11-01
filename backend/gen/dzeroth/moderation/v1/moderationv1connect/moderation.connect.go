@@ -5,6 +5,8 @@
 // Moderation: user reports (App Store 1.2 / Play UGC requirement). Owner module: backend/internal/moderation.
 // Collections owned: reports/{reportId}. Moderator actions (list, resolve, takedown, suspend) are NOT RPCs at
 // Stage 0: they are `opsctl` commands run by the founder (ADR-0016, no admin console), so this service has one RPC.
+// A community's own moderators (ADR-0031) act only in that community's view, through dzeroth.communities.v1, and never
+// see reports.
 // Every ModerationService RPC is behind the FEATURE_REPORTS server flag (wire name `reports`): when it is off for the
 // caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads.
 // Privacy: the reporter's identity is never returned to, or derivable by, the reported user.
@@ -52,7 +54,8 @@ type ModerationServiceClient interface {
 	// defines (missing, deleted, taken-down, blocked-author or non-ACTIVE-author => NOT_FOUND, one message for every
 	// cause). target_type ACCOUNT: target_id is a user id; visible exactly as GetProfile defines (missing, non-ACTIVE
 	// or blocked-the-caller => NOT_FOUND).
-	// Reporting your own post, account, message or list => INVALID_ARGUMENT + VALIDATION field "target_id".
+	// Reporting your own post, account, message, list or community (one you own) => INVALID_ARGUMENT + VALIDATION field
+	// "target_id".
 	// note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
 	// The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
 	// delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
@@ -65,7 +68,8 @@ type ModerationServiceClient interface {
 	// idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
 	// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
 	// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target (plan W5-44) reads the
-	// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. Writes 2 (report
+	// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. A COMMUNITY target
+	// (ADR-0031 D14) reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
 	// create, quotas); replay 0. No async work. Nothing here loops over documents.
 	ReportContent(context.Context, *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error)
 }
@@ -109,7 +113,8 @@ type ModerationServiceHandler interface {
 	// defines (missing, deleted, taken-down, blocked-author or non-ACTIVE-author => NOT_FOUND, one message for every
 	// cause). target_type ACCOUNT: target_id is a user id; visible exactly as GetProfile defines (missing, non-ACTIVE
 	// or blocked-the-caller => NOT_FOUND).
-	// Reporting your own post, account, message or list => INVALID_ARGUMENT + VALIDATION field "target_id".
+	// Reporting your own post, account, message, list or community (one you own) => INVALID_ARGUMENT + VALIDATION field
+	// "target_id".
 	// note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
 	// The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
 	// delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
@@ -122,7 +127,8 @@ type ModerationServiceHandler interface {
 	// idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
 	// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
 	// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target (plan W5-44) reads the
-	// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. Writes 2 (report
+	// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. A COMMUNITY target
+	// (ADR-0031 D14) reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
 	// create, quotas); replay 0. No async work. Nothing here loops over documents.
 	ReportContent(context.Context, *connect.Request[v1.ReportContentRequest]) (*connect.Response[v1.ReportContentResponse], error)
 }

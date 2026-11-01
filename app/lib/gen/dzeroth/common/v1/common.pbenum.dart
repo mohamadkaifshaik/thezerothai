@@ -23,8 +23,11 @@ class HomeTabKind extends $pb.ProtobufEnum {
   static const HomeTabKind HOME_TAB_KIND_LIST =
       HomeTabKind._(1, _omitEnumNames ? '' : 'HOME_TAB_KIND_LIST');
 
-  /// A community (W5 Part B, its own ADR and FEATURE_COMMUNITIES). Reserved: until that ADR's timeline ships,
-  /// SetHomeTabs answers VALIDATION "tabs" for it and GetMe never returns it.
+  /// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
+  /// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
+  /// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
+  /// caller and keeps them in storage. Until GetCommunityTimeline ships (plan W5-27), SetHomeTabs answers VALIDATION
+  /// "tabs" for it and GetMe never returns it.
   static const HomeTabKind HOME_TAB_KIND_COMMUNITY =
       HomeTabKind._(2, _omitEnumNames ? '' : 'HOME_TAB_KIND_COMMUNITY');
 
@@ -153,6 +156,23 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_ALREADY_VOTED =
       ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
 
+  /// PERMISSION_DENIED: the caller's role does not allow this action (ADR-0031 D4; communities.v1 header). Never sent for
+  /// an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",
+  /// "not_moderator", "not_owner" or "not_creator". Do not retry; show a fixed message per reason ("not_member" on a
+  /// reply: "Only members can reply"). A client built before this value sees UNSPECIFIED and falls back to the
+  /// PERMISSION_DENIED code mapping, a generic "restricted" message. The only path an older client can reach is a reply
+  /// in a community conversation (CreatePost), since that gate runs whenever communities is not globally off.
+  static const ErrorReason ERROR_REASON_FORBIDDEN =
+      ErrorReason._(21, _omitEnumNames ? '' : 'ERROR_REASON_FORBIDDEN');
+
+  /// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (ADR-0031 D4; communities.v1
+  /// header). metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
+  /// or "community_archived" (an ARCHIVED community is read-only). Do not retry. A client built before this value sees
+  /// UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
+  /// ARCHIVED community's conversation (CreatePost).
+  static const ErrorReason ERROR_REASON_COMMUNITY_STATE =
+      ErrorReason._(22, _omitEnumNames ? '' : 'ERROR_REASON_COMMUNITY_STATE');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -175,10 +195,12 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_CANNOT_MESSAGE,
     ERROR_REASON_POLL_CLOSED,
     ERROR_REASON_ALREADY_VOTED,
+    ERROR_REASON_FORBIDDEN,
+    ERROR_REASON_COMMUNITY_STATE,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 20);
+      $pb.ProtobufEnum.$_initByValueList(values, 22);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

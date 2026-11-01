@@ -775,9 +775,10 @@ class GetMeResponse extends $pb.GeneratedMessage {
 
   /// The caller's pinned Home tabs in order, after the fixed Following tab (ADR-0030 D6, founder decision F5): at most
   /// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
-  /// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS) are omitted here but kept in storage, so
-  /// they come back with the flag. A tab may name a list that was deleted or made private since: the client learns it
-  /// from GetListTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
+  /// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES, ADR-0031 D6)
+  /// are omitted here but kept in storage, so they come back with the flag. A tab may name a list that was deleted or
+  /// made private since, or a community that was suspended: the client learns it from GetListTimeline's or
+  /// GetCommunityTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
   /// TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
   @$pb.TagNumber(8)
   $pb.PbList<$1.HomeTab> get homeTabs => $_getList(7);

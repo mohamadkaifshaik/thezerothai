@@ -15,7 +15,8 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import '../../common/v1/common.pb.dart' as $2;
+import '../../common/v1/common.pb.dart' as $3;
+import '../../communities/v1/communities.pb.dart' as $2;
 import '../../lists/v1/lists.pb.dart' as $1;
 import '../../posts/v1/posts.pb.dart' as $0;
 import 'timeline.pbenum.dart';
@@ -672,10 +673,239 @@ class GetListTimelineResponse extends $pb.GeneratedMessage {
   $1.ListInfo ensureList() => $_ensure(5);
 }
 
+class GetCommunityTimelineRequest extends $pb.GeneratedMessage {
+  factory GetCommunityTimelineRequest({
+    $core.String? communityId,
+    $core.int? pageSize,
+    $core.String? pageToken,
+    $core.String? sinceToken,
+  }) {
+    final result = GetCommunityTimelineRequest._();
+    if (communityId != null) result.communityId = communityId;
+    if (pageSize != null) result.pageSize = pageSize;
+    if (pageToken != null) result.pageToken = pageToken;
+    if (sinceToken != null) result.sinceToken = sinceToken;
+    return result;
+  }
+
+  GetCommunityTimelineRequest._();
+
+  factory GetCommunityTimelineRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCommunityTimelineRequest()..mergeFromBuffer(data, registry);
+  factory GetCommunityTimelineRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCommunityTimelineRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetCommunityTimelineRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.timeline.v1'),
+      createEmptyInstance: GetCommunityTimelineRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'communityId')
+    ..aI(2, _omitFieldNames ? '' : 'pageSize')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..aOS(4, _omitFieldNames ? '' : 'sinceToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCommunityTimelineRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCommunityTimelineRequest copyWith(
+          void Function(GetCommunityTimelineRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetCommunityTimelineRequest))
+          as GetCommunityTimelineRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetCommunityTimelineRequest() / GetCommunityTimelineRequest.new instead')
+  static GetCommunityTimelineRequest create() =>
+      GetCommunityTimelineRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetCommunityTimelineRequest._();
+  @$core.override
+  GetCommunityTimelineRequest createEmptyInstance() =>
+      GetCommunityTimelineRequest._();
+  @$core.pragma('dart2js:noInline')
+  static GetCommunityTimelineRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetCommunityTimelineRequest>(
+          GetCommunityTimelineRequest.$_createMessage);
+  static GetCommunityTimelineRequest? _defaultInstance;
+
+  /// 19-digit Snowflake; else VALIDATION "community_id", 0 reads.
+  @$pb.TagNumber(1)
+  $core.String get communityId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set communityId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasCommunityId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearCommunityId() => $_clearField(1);
+
+  /// 0 => 20; max 50 (clamped).
+  @$pb.TagNumber(2)
+  $core.int get pageSize => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set pageSize($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPageSize() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPageSize() => $_clearField(2);
+
+  /// Older page (infinite scroll or gap fill).
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+
+  /// Newer-than refresh.
+  @$pb.TagNumber(4)
+  $core.String get sinceToken => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set sinceToken($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSinceToken() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSinceToken() => $_clearField(4);
+}
+
+class GetCommunityTimelineResponse extends $pb.GeneratedMessage {
+  factory GetCommunityTimelineResponse({
+    $core.Iterable<$0.PostView>? posts,
+    $core.String? nextPageToken,
+    $core.String? sinceToken,
+    $core.String? gapPageToken,
+    $core.Iterable<$core.String>? removedIds,
+    $2.Community? community,
+  }) {
+    final result = GetCommunityTimelineResponse._();
+    if (posts != null) result.posts.addAll(posts);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    if (sinceToken != null) result.sinceToken = sinceToken;
+    if (gapPageToken != null) result.gapPageToken = gapPageToken;
+    if (removedIds != null) result.removedIds.addAll(removedIds);
+    if (community != null) result.community = community;
+    return result;
+  }
+
+  GetCommunityTimelineResponse._();
+
+  factory GetCommunityTimelineResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCommunityTimelineResponse()..mergeFromBuffer(data, registry);
+  factory GetCommunityTimelineResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetCommunityTimelineResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetCommunityTimelineResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.timeline.v1'),
+      createEmptyInstance: GetCommunityTimelineResponse.$_createMessage)
+    ..pPM<$0.PostView>(1, _omitFieldNames ? '' : 'posts',
+        subBuilder: $0.PostView.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..aOS(3, _omitFieldNames ? '' : 'sinceToken')
+    ..aOS(4, _omitFieldNames ? '' : 'gapPageToken')
+    ..pPS(5, _omitFieldNames ? '' : 'removedIds')
+    ..aOM<$2.Community>(6, _omitFieldNames ? '' : 'community',
+        subBuilder: $2.Community.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCommunityTimelineResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetCommunityTimelineResponse copyWith(
+          void Function(GetCommunityTimelineResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetCommunityTimelineResponse))
+          as GetCommunityTimelineResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetCommunityTimelineResponse() / GetCommunityTimelineResponse.new instead')
+  static GetCommunityTimelineResponse create() =>
+      GetCommunityTimelineResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetCommunityTimelineResponse._();
+  @$core.override
+  GetCommunityTimelineResponse createEmptyInstance() =>
+      GetCommunityTimelineResponse._();
+  @$core.pragma('dart2js:noInline')
+  static GetCommunityTimelineResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetCommunityTimelineResponse>(
+          GetCommunityTimelineResponse.$_createMessage);
+  static GetCommunityTimelineResponse? _defaultInstance;
+
+  /// Newest first.
+  @$pb.TagNumber(1)
+  $pb.PbList<$0.PostView> get posts => $_getList(0);
+
+  /// "" => no older posts.
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+
+  /// Persist; send on the next refresh.
+  @$pb.TagNumber(3)
+  $core.String get sinceToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set sinceToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasSinceToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSinceToken() => $_clearField(3);
+
+  /// Non-empty => a refresh gap exists below the returned items (see token contract).
+  @$pb.TagNumber(4)
+  $core.String get gapPageToken => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set gapPageToken($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasGapPageToken() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearGapPageToken() => $_clearField(4);
+
+  /// Refresh only (see GetCommunityTimeline): ids of posts removed from this community's view since the since_token was
+  /// issued. At most 50, newest removal first. Empty on every other mode.
+  @$pb.TagNumber(5)
+  $pb.PbList<$core.String> get removedIds => $_getList(4);
+
+  /// The community's header with the caller's viewer_role, current as of this call (member_count up to 60 s stale): the
+  /// client refreshes the tab's label and the Join / Joined state from it. Rules, owner and moderators come from
+  /// CommunityService.GetCommunity.
+  @$pb.TagNumber(6)
+  $2.Community get community => $_getN(5);
+  @$pb.TagNumber(6)
+  set community($2.Community value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasCommunity() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearCommunity() => $_clearField(6);
+  @$pb.TagNumber(6)
+  $2.Community ensureCommunity() => $_ensure(5);
+}
+
 class SetHomeTabsRequest extends $pb.GeneratedMessage {
   factory SetHomeTabsRequest({
     $core.String? idempotencyKey,
-    $core.Iterable<$2.HomeTab>? tabs,
+    $core.Iterable<$3.HomeTab>? tabs,
   }) {
     final result = SetHomeTabsRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -698,8 +928,8 @@ class SetHomeTabsRequest extends $pb.GeneratedMessage {
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.timeline.v1'),
       createEmptyInstance: SetHomeTabsRequest.$_createMessage)
     ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
-    ..pPM<$2.HomeTab>(2, _omitFieldNames ? '' : 'tabs',
-        subBuilder: $2.HomeTab.$_createMessage)
+    ..pPM<$3.HomeTab>(2, _omitFieldNames ? '' : 'tabs',
+        subBuilder: $3.HomeTab.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -735,12 +965,12 @@ class SetHomeTabsRequest extends $pb.GeneratedMessage {
 
   /// The full new order of pinned tabs (Following is implicit and never sent). Only kind and id are read.
   @$pb.TagNumber(2)
-  $pb.PbList<$2.HomeTab> get tabs => $_getList(1);
+  $pb.PbList<$3.HomeTab> get tabs => $_getList(1);
 }
 
 class SetHomeTabsResponse extends $pb.GeneratedMessage {
   factory SetHomeTabsResponse({
-    $core.Iterable<$2.HomeTab>? tabs,
+    $core.Iterable<$3.HomeTab>? tabs,
   }) {
     final result = SetHomeTabsResponse._();
     if (tabs != null) result.tabs.addAll(tabs);
@@ -761,8 +991,8 @@ class SetHomeTabsResponse extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.timeline.v1'),
       createEmptyInstance: SetHomeTabsResponse.$_createMessage)
-    ..pPM<$2.HomeTab>(1, _omitFieldNames ? '' : 'tabs',
-        subBuilder: $2.HomeTab.$_createMessage)
+    ..pPM<$3.HomeTab>(1, _omitFieldNames ? '' : 'tabs',
+        subBuilder: $3.HomeTab.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -790,7 +1020,7 @@ class SetHomeTabsResponse extends $pb.GeneratedMessage {
 
   /// The stored tabs as GetMe will return them (titles set by the server; kinds whose flag is off omitted).
   @$pb.TagNumber(1)
-  $pb.PbList<$2.HomeTab> get tabs => $_getList(0);
+  $pb.PbList<$3.HomeTab> get tabs => $_getList(0);
 }
 
 class TimelineServiceApi {
@@ -904,17 +1134,66 @@ class TimelineServiceApi {
       _client.invoke<GetListTimelineResponse>(ctx, 'TimelineService',
           'GetListTimeline', request, GetListTimelineResponse());
 
+  /// A community's feed (ADR-0031 D6): the root posts and quotes created into the community, newest first. Replies and
+  /// reposts are never in it. Query `posts where communityId == C ORDER BY __name__ DESC` with id-bound windows (id
+  /// order is time order, ADR-0010 D18), on the automatic single-field index (proven on the dev Firestore, D3). A post a
+  /// community moderator hid has left the query. The same token contract as above: tokens bound to the caller and the
+  /// community, the settle window, gap_page_token, and next_page_token following the query rather than the filtered count.
+  /// A Home, user or list token on a community, or a community token on another community or for another caller =>
+  /// VALIDATION "since_token" / "page_token", 0 reads.
+  /// NOT_FOUND "community not found" (one message, byte-identical; communities.v1 header) for a missing or SUSPENDED
+  /// community, to everyone, its owner included, at <= 2 reads. An ARCHIVED community is readable. A community that
+  /// becomes NOT_FOUND between calls answers NOT_FOUND: the client shows the tab as unavailable and offers Unpin.
+  /// Rows come from a shared per-instance entry per community (the newest 30 posts, CACHE_COMMUNITY_FEED_ENTRIES), refilled
+  /// incrementally once it is older than CACHE_TTL (60 s), then from the query for anything older. Every fill reads at
+  /// most page_size posts, so a call never reads more post rows than it could return. A hide, restore or new post on this
+  /// instance updates the entry at once.
+  /// Filtering, per viewer, after the cache (ADR-0031 D6, D7; ADR-0010 D6):
+  /// - rows the platform removed (takedown, suspended author) and rows in the community's recent removals are dropped;
+  /// - rows by authors the caller blocks or mutes, or who block the caller, are dropped; the caller's own posts are kept;
+  ///   for the community's OWNER or a MODERATOR the "blocks the caller" drop is waived (F14: moderators must see
+  ///   raiders), and their own blocks and mutes still apply;
+  /// - a caller whose blockedBy overflowed keeps only their own posts and authors they follow (fail closed), unless they
+  ///   moderate this community;
+  /// - protected authors as in GetListTimeline (posts.Audience): a row by a protected author who has not approved the
+  ///   caller is dropped, moderators included (protection is the author's privacy choice, not a block); a QUOTE of such
+  ///   an author's post carries embed_viewer_state = PROTECTED; UNAVAILABLE (retryable) when no protected-author set
+  ///   younger than PROTECTED_SET_MAX_STALE can be loaded, never an unfiltered page.
+  /// viewer_reply_permission: ALLOWED or NOT_ALLOWED from community.viewer_role (members-only replies, F8), 0 extra reads.
+  /// removed_ids (gated by FEATURE_COMMUNITIES, not FEATURE_REMOVED_IDS): on a since_token refresh, the community's
+  /// recent removals newer than the token (moderator hides, platform takedowns and suspensions of community posts; at
+  /// most 50, newest first), from the community doc already read: 0 extra reads. A restored post is not listed; the
+  /// author's own DeletePost is not listed (as on Home). When the community has dropped a removal newer than the token
+  /// (removalsTruncatedAt), the refresh is rejected exactly as an expired token is (above), before any post is read.
+  /// community is the header (communities.v1.Community, with viewer_role) on every response, read with the community and
+  /// the caller's member doc: the client labels the community's Home tab from it.
+  /// Flags: FEATURE_COMMUNITIES (wire name "communities", else FAILED_PRECONDITION + FEATURE_DISABLED,
+  /// metadata["feature"] = "communities", 0 reads) and FEATURE_POSTS as for Home.
+  /// Rate limit: RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12 calls/min/uid per instance (36 with 3 instances). Deadline 10 s.
+  /// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
+  /// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
+  /// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
+  /// Every call is charged to the per-uid daily Firestore read budget (ADR-0010 D5).
+  $async.Future<GetCommunityTimelineResponse> getCommunityTimeline(
+          $pb.ClientContext? ctx, GetCommunityTimelineRequest request) =>
+      _client.invoke<GetCommunityTimelineResponse>(ctx, 'TimelineService',
+          'GetCommunityTimeline', request, GetCommunityTimelineResponse());
+
   /// Replace the caller's pinned Home tabs (after the fixed Following tab) with tabs, in that order (ADR-0030 D6,
   /// founder decision F5). Read back through IdentityService.GetMe home_tabs.
   /// Rules: at most HOME_TABS_MAX_PINNED (5) tabs, counting stored tabs of a kind whose flag is off for the caller
   /// (those are not in GetMe and are kept after the sent ones), else FAILED_PRECONDITION + LIMIT_REACHED,
-  /// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until W5 Part
-  /// B ships its timeline) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "tabs", 0 reads.
-  /// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads;
-  /// an empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read
-  /// now (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; a tab
-  /// already stored is kept without being re-read, so an unavailable tab can still be moved or removed. title is
-  /// ignored on input; the server sets it (common.v1.HomeTab).
+  /// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until
+  /// GetCommunityTimeline ships, plan W5-27) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
+  /// "tabs", 0 reads.
+  /// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads; a
+  /// COMMUNITY tab needs FEATURE_COMMUNITIES, else FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads; an
+  /// empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read now
+  /// (GetList's rules), else VALIDATION "tabs", one answer for missing, private, hidden and blocked lists; or an ACTIVE
+  /// or ARCHIVED community (ADR-0031 D6; membership is not required, communities are public), else VALIDATION "tabs",
+  /// one answer for missing and SUSPENDED communities, +1 read per new community tab through the community instance
+  /// cache. A tab already stored is kept without being re-read, so an unavailable tab can still be moved or removed.
+  /// title is ignored on input; the server sets it (common.v1.HomeTab), always "" for a COMMUNITY tab.
   /// Idempotency: the standard TTL'd idempotency document, as every lists.v1 mutation (rule 4). One transaction in
   /// identity (the timeline.HomeTabsStore seam): idempotency doc and users/{uid} fresh, then a field-level update of
   /// users/{uid}.homeTabs (no other field). The same tabs again => the idempotency document only. The caller's profile
@@ -922,8 +1201,9 @@ class TimelineServiceApi {
   /// Rate limits: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance) and the list_mutation_daily cap
   /// (LIST_MUTATIONS_PER_DAY 500 per uid per instance), shared with the list mutations. DEGRADED_MODE=readonly refuses
   /// it.
-  /// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list docs, caller graph, and for
-  /// another user's list its owner's profile and graph, <= 5 owners, all cache-first), typical 4; writes 2 (users
+  /// Firestore: reads worst 19 cold (interceptor, idempotency, users/{uid}, <= 5 new list or community docs, caller
+  /// graph, and for another user's list its owner's profile and graph, <= 5 owners, all cache-first; a community tab
+  /// reads only its community doc), typical 4; writes 2 (users
   /// field-level, idempotency), 1 when nothing changes, + 1 TTL delete later; replay reads 2, writes 0.
   $async.Future<SetHomeTabsResponse> setHomeTabs(
           $pb.ClientContext? ctx, SetHomeTabsRequest request) =>

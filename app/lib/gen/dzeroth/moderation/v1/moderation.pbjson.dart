@@ -24,6 +24,7 @@ const ReportTargetType$json = {
     {'1': 'REPORT_TARGET_TYPE_ACCOUNT', '2': 2},
     {'1': 'REPORT_TARGET_TYPE_MESSAGE', '2': 3},
     {'1': 'REPORT_TARGET_TYPE_LIST', '2': 4},
+    {'1': 'REPORT_TARGET_TYPE_COMMUNITY', '2': 5},
   ],
 };
 
@@ -32,7 +33,7 @@ final $typed_data.Uint8List reportTargetTypeDescriptor = $convert.base64Decode(
     'ChBSZXBvcnRUYXJnZXRUeXBlEiIKHlJFUE9SVF9UQVJHRVRfVFlQRV9VTlNQRUNJRklFRBAAEh'
     'sKF1JFUE9SVF9UQVJHRVRfVFlQRV9QT1NUEAESHgoaUkVQT1JUX1RBUkdFVF9UWVBFX0FDQ09V'
     'TlQQAhIeChpSRVBPUlRfVEFSR0VUX1RZUEVfTUVTU0FHRRADEhsKF1JFUE9SVF9UQVJHRVRfVF'
-    'lQRV9MSVNUEAQ=');
+    'lQRV9MSVNUEAQSIAocUkVQT1JUX1RBUkdFVF9UWVBFX0NPTU1VTklUWRAF');
 
 @$core.Deprecated('Use reportReasonDescriptor instead')
 const ReportReason$json = {

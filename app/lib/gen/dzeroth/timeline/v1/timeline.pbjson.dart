@@ -16,9 +16,10 @@ import 'dart:core' as $core;
 import 'dart:typed_data' as $typed_data;
 
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
-    as $3;
+    as $4;
 
-import '../../common/v1/common.pbjson.dart' as $2;
+import '../../common/v1/common.pbjson.dart' as $3;
+import '../../communities/v1/communities.pbjson.dart' as $2;
 import '../../lists/v1/lists.pbjson.dart' as $1;
 import '../../posts/v1/posts.pbjson.dart' as $0;
 
@@ -191,6 +192,60 @@ final $typed_data.Uint8List getListTimelineResponseDescriptor = $convert.base64D
     'gEIAEoCVIMZ2FwUGFnZVRva2VuEh8KC3JlbW92ZWRfaWRzGAUgAygJUgpyZW1vdmVkSWRzEi4K'
     'BGxpc3QYBiABKAsyGi5kemVyb3RoLmxpc3RzLnYxLkxpc3RJbmZvUgRsaXN0');
 
+@$core.Deprecated('Use getCommunityTimelineRequestDescriptor instead')
+const GetCommunityTimelineRequest$json = {
+  '1': 'GetCommunityTimelineRequest',
+  '2': [
+    {'1': 'community_id', '3': 1, '4': 1, '5': 9, '10': 'communityId'},
+    {'1': 'page_size', '3': 2, '4': 1, '5': 5, '10': 'pageSize'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+    {'1': 'since_token', '3': 4, '4': 1, '5': 9, '10': 'sinceToken'},
+  ],
+};
+
+/// Descriptor for `GetCommunityTimelineRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getCommunityTimelineRequestDescriptor =
+    $convert.base64Decode(
+        'ChtHZXRDb21tdW5pdHlUaW1lbGluZVJlcXVlc3QSIQoMY29tbXVuaXR5X2lkGAEgASgJUgtjb2'
+        '1tdW5pdHlJZBIbCglwYWdlX3NpemUYAiABKAVSCHBhZ2VTaXplEh0KCnBhZ2VfdG9rZW4YAyAB'
+        'KAlSCXBhZ2VUb2tlbhIfCgtzaW5jZV90b2tlbhgEIAEoCVIKc2luY2VUb2tlbg==');
+
+@$core.Deprecated('Use getCommunityTimelineResponseDescriptor instead')
+const GetCommunityTimelineResponse$json = {
+  '1': 'GetCommunityTimelineResponse',
+  '2': [
+    {
+      '1': 'posts',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.PostView',
+      '10': 'posts'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+    {'1': 'since_token', '3': 3, '4': 1, '5': 9, '10': 'sinceToken'},
+    {'1': 'gap_page_token', '3': 4, '4': 1, '5': 9, '10': 'gapPageToken'},
+    {'1': 'removed_ids', '3': 5, '4': 3, '5': 9, '10': 'removedIds'},
+    {
+      '1': 'community',
+      '3': 6,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.communities.v1.Community',
+      '10': 'community'
+    },
+  ],
+};
+
+/// Descriptor for `GetCommunityTimelineResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getCommunityTimelineResponseDescriptor = $convert.base64Decode(
+    'ChxHZXRDb21tdW5pdHlUaW1lbGluZVJlc3BvbnNlEjAKBXBvc3RzGAEgAygLMhouZHplcm90aC'
+    '5wb3N0cy52MS5Qb3N0Vmlld1IFcG9zdHMSJgoPbmV4dF9wYWdlX3Rva2VuGAIgASgJUg1uZXh0'
+    'UGFnZVRva2VuEh8KC3NpbmNlX3Rva2VuGAMgASgJUgpzaW5jZVRva2VuEiQKDmdhcF9wYWdlX3'
+    'Rva2VuGAQgASgJUgxnYXBQYWdlVG9rZW4SHwoLcmVtb3ZlZF9pZHMYBSADKAlSCnJlbW92ZWRJ'
+    'ZHMSPwoJY29tbXVuaXR5GAYgASgLMiEuZHplcm90aC5jb21tdW5pdGllcy52MS5Db21tdW5pdH'
+    'lSCWNvbW11bml0eQ==');
+
 @$core.Deprecated('Use setHomeTabsRequestDescriptor instead')
 const SetHomeTabsRequest$json = {
   '1': 'SetHomeTabsRequest',
@@ -254,6 +309,12 @@ const $core.Map<$core.String, $core.dynamic> TimelineServiceBase$json = {
       '4': {'34': 1},
     },
     {
+      '1': 'GetCommunityTimeline',
+      '2': '.dzeroth.timeline.v1.GetCommunityTimelineRequest',
+      '3': '.dzeroth.timeline.v1.GetCommunityTimelineResponse',
+      '4': {'34': 1},
+    },
+    {
       '1': 'SetHomeTabs',
       '2': '.dzeroth.timeline.v1.SetHomeTabsRequest',
       '3': '.dzeroth.timeline.v1.SetHomeTabsResponse'
@@ -268,20 +329,26 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.timeline.v1.GetHomeTimelineResponse': GetHomeTimelineResponse$json,
   '.dzeroth.posts.v1.PostView': $0.PostView$json,
   '.dzeroth.posts.v1.Post': $0.Post$json,
-  '.dzeroth.common.v1.AuthorSnapshot': $2.AuthorSnapshot$json,
-  '.dzeroth.common.v1.MediaRef': $2.MediaRef$json,
+  '.dzeroth.common.v1.AuthorSnapshot': $3.AuthorSnapshot$json,
+  '.dzeroth.common.v1.MediaRef': $3.MediaRef$json,
   '.dzeroth.posts.v1.EmbeddedPost': $0.EmbeddedPost$json,
-  '.google.protobuf.Timestamp': $3.Timestamp$json,
+  '.google.protobuf.Timestamp': $4.Timestamp$json,
   '.dzeroth.posts.v1.Poll': $0.Poll$json,
   '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
+  '.dzeroth.posts.v1.CommunityRef': $0.CommunityRef$json,
   '.dzeroth.timeline.v1.GetUserTimelineRequest': GetUserTimelineRequest$json,
   '.dzeroth.timeline.v1.GetUserTimelineResponse': GetUserTimelineResponse$json,
   '.dzeroth.timeline.v1.GetListTimelineRequest': GetListTimelineRequest$json,
   '.dzeroth.timeline.v1.GetListTimelineResponse': GetListTimelineResponse$json,
   '.dzeroth.lists.v1.ListInfo': $1.ListInfo$json,
+  '.dzeroth.timeline.v1.GetCommunityTimelineRequest':
+      GetCommunityTimelineRequest$json,
+  '.dzeroth.timeline.v1.GetCommunityTimelineResponse':
+      GetCommunityTimelineResponse$json,
+  '.dzeroth.communities.v1.Community': $2.Community$json,
   '.dzeroth.timeline.v1.SetHomeTabsRequest': SetHomeTabsRequest$json,
-  '.dzeroth.common.v1.HomeTab': $2.HomeTab$json,
+  '.dzeroth.common.v1.HomeTab': $3.HomeTab$json,
   '.dzeroth.timeline.v1.SetHomeTabsResponse': SetHomeTabsResponse$json,
 };
 
@@ -293,6 +360,8 @@ final $typed_data.Uint8List timelineServiceDescriptor = $convert.base64Decode(
     'xpbmUudjEuR2V0VXNlclRpbWVsaW5lUmVxdWVzdBosLmR6ZXJvdGgudGltZWxpbmUudjEuR2V0'
     'VXNlclRpbWVsaW5lUmVzcG9uc2UiA5ACARJxCg9HZXRMaXN0VGltZWxpbmUSKy5kemVyb3RoLn'
     'RpbWVsaW5lLnYxLkdldExpc3RUaW1lbGluZVJlcXVlc3QaLC5kemVyb3RoLnRpbWVsaW5lLnYx'
-    'LkdldExpc3RUaW1lbGluZVJlc3BvbnNlIgOQAgESYAoLU2V0SG9tZVRhYnMSJy5kemVyb3RoLn'
-    'RpbWVsaW5lLnYxLlNldEhvbWVUYWJzUmVxdWVzdBooLmR6ZXJvdGgudGltZWxpbmUudjEuU2V0'
-    'SG9tZVRhYnNSZXNwb25zZQ==');
+    'LkdldExpc3RUaW1lbGluZVJlc3BvbnNlIgOQAgESgAEKFEdldENvbW11bml0eVRpbWVsaW5lEj'
+    'AuZHplcm90aC50aW1lbGluZS52MS5HZXRDb21tdW5pdHlUaW1lbGluZVJlcXVlc3QaMS5kemVy'
+    'b3RoLnRpbWVsaW5lLnYxLkdldENvbW11bml0eVRpbWVsaW5lUmVzcG9uc2UiA5ACARJgCgtTZX'
+    'RIb21lVGFicxInLmR6ZXJvdGgudGltZWxpbmUudjEuU2V0SG9tZVRhYnNSZXF1ZXN0GiguZHpl'
+    'cm90aC50aW1lbGluZS52MS5TZXRIb21lVGFic1Jlc3BvbnNl');
