@@ -16,3 +16,14 @@ abstract class RelationshipState with _$RelationshipState {
     AppException? error,
   }) = _RelationshipState;
 }
+
+extension RelationshipFollowConfirmation on RelationshipState {
+  /// The server answered: nothing in flight, no error, and the caller follows
+  /// (or has a pending request to follow). Never true for the optimistic step
+  /// or for a state left behind by a cubit that closed mid-request.
+  bool get isConfirmedFollow =>
+      !isUpdating &&
+      error == null &&
+      (relationship.followState == graph.FollowState.FOLLOW_STATE_FOLLOWING ||
+          relationship.followState == graph.FollowState.FOLLOW_STATE_REQUESTED);
+}

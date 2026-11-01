@@ -8,6 +8,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/router/app_router.dart';
+import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -412,7 +413,12 @@ class _ProfileHeaderBody extends StatelessWidget {
             MessageButton(handle: profile.handle, onPressed: onMessage!),
             const SizedBox(width: AppSpacing.xs),
           ],
-          Flexible(child: FollowButton(followedBy: followedBy)),
+          Flexible(
+            child: FollowButton(
+              followedBy: followedBy,
+              source: FollowSource.profile,
+            ),
+          ),
         ],
       );
     }

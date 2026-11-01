@@ -16,9 +16,8 @@ class FirebaseUsageAnalytics implements UsageAnalytics {
   final FirebaseAnalytics _analytics;
 
   @override
-  Future<void> log(AnalyticsEvent event) async {
-    // TEL-6 maps each AnalyticsEvent to its fixed name and enum parameters.
-  }
+  Future<void> log(AnalyticsEvent event) =>
+      _analytics.logEvent(name: event.name, parameters: event.parameters);
 
   @override
   Future<void> screen(String name) =>
