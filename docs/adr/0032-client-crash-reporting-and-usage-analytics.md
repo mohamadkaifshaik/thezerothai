@@ -1,7 +1,7 @@
 # 0032. Client crash reporting and usage analytics (Crashlytics, Google Analytics for Firebase) at Stage 0
-Status: Proposed
+Status: Accepted (founder, 2026-11-01, by merging #595, with the gate-file text applied; C1 to C10 as written)
 Date: 2026-11-01
-Deciders: architect (proposal); the founder accepts by merging the PR. The plan's founder questions F1 to F11 were
+Deciders: architect (proposal); the founder accepted it by merging #595 on 2026-11-01. The plan's founder questions F1 to F11 were
 answered by the founder on 2026-11-01 ("TEL plan defaults all ok, go ahead"), so every F below is **decided**, not a
 default awaiting acceptance (table "Founder decisions"). The architect's own calls (sections "Changes against the plan"
 and "Decision") can be overridden at acceptance. No decision here bends a `CLAUDE.md` non-negotiable rule (F8 reads
