@@ -101,7 +101,7 @@ All of it is pull-on-read at Stage 0, behind two flags, with hard caps on every 
 - community and list images (F13);
 - ownership transfer while the owner is live;
 - community invites or join approval;
-- scheduled posts into a community (SchedulePost rejects `community_id`);
+- scheduled posts into a community (SchedulePost has no `community_id` field, W5-21);
 - a Top or Media tab inside a community (Latest only);
 - private and restricted communities (F6).
 
@@ -358,7 +358,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Open |
 | W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Open |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
-| W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, SchedulePost reject, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
+| W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
@@ -924,7 +924,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `COMMUNITY_CREATORS` (≤ 10 uids, validated with `ids.ValidUID`);
   - the community caps and rate limits from the abuse section, `CACHE_COMMUNITIES_ENTRIES` 2,000, `CACHE_COMMUNITY_FEED_ENTRIES` 500;
   - `quota.Record` `communityJoins` / `communityPosts` with tiers;
-  - `flag-ceiling.json` `COMMUNITIES` dev allowlist 6 (every flag since #463) (**founder-gated**);
+  - `flag-ceiling.json` `COMMUNITIES` dev `{"mode": "allowlist", "max_allowlist": 3, "max_percent": 0}` (ADR-0031 D10, A14; not the 6 of earlier flags) (**founder-gated**);
+  - the names #590 fixed (ADR-0031 N1, N6): `ERROR_REASON_FORBIDDEN` and `ERROR_REASON_COMMUNITY_STATE` with `metadata["reason"]`, and the RATE_LIMITED, QUOTA_EXCEEDED and LIMIT_REACHED names;
   - Terraform `feature_communities*` and `community_creators`, default `off` / empty;
   - the `internal/communities` skeleton (no collection constant);
   - the timeline handler stub;
@@ -959,7 +960,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
   Text rules as the bio.
 - **Acceptance criteria.**
-  - Given a caller not in `COMMUNITY_CREATORS`, then FORBIDDEN with 0 reads.
+  - Given a caller not in `COMMUNITY_CREATORS`, then FORBIDDEN `reason=not_creator` with 0 reads.
   - Given 2 owned, then LIMIT_REACHED `limit=communities_owned`.
   - Given a replay, then 0 writes.
   - Given 11 rules, then VALIDATION `field=rules`.
@@ -1065,13 +1066,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - `quotas.communityPosts` is reserved in the existing quota write;
     - the per-`(uid, cid)` `DailyCap`.
   - The post doc gets `communityId` and `community {id, name}`.
-  - `community_id` on a reply → VALIDATION (replies follow the root). SchedulePost with `community_id` → VALIDATION.
+  - `community_id` on a reply → VALIDATION (replies follow the root). SchedulePost has no `community_id` field (#590, ADR-0031 N7), so a scheduled post is always an ordinary post.
   - `posts.Reader.ByCommunity(ctx, cid, window, limit)`: A1's query, root posts only, Limit 1..50.
 - **Acceptance criteria.**
   - Given a non-member, then FORBIDDEN `reason=not_member` and 0 writes.
   - Given a ban on another instance a second ago, then the next post is refused (fresh read).
-  - Given 51 community posts in a day, then QUOTA_EXCEEDED `limit_name=community_posts`.
-  - Given SchedulePost with `community_id`, then VALIDATION.
+  - Given 51 community posts in a day, then QUOTA_EXCEEDED `quota=community_posts`.
   - Given `ByCommunity` on 25 posts, then pages of 20 + 5, newest first (functional on the emulator; the index question is settled only by A1's dev check or the W5-21 index).
 - **Test notes.** Emulator `budgettest` (+2 / +1 reads over CreatePost, +0 writes); the A1 query shapes (since, page); the existing CreatePost tests unchanged.
 - **Observability.** The CreatePost log line gains `community_post` (bool) and `community_gate` outcome.
@@ -1159,7 +1159,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Given a member, when they hide, then FORBIDDEN `reason=not_moderator`.
   - Given a moderator banning the owner or another moderator, then FORBIDDEN.
   - Given a hide, then the post stays on the author's profile and Home without its label.
-  - Given 201 actions, then RATE_LIMITED `limit_name=community_mod_actions`.
+  - Given 201 actions, then RATE_LIMITED `limit=community_mod_actions_daily`.
   - Given 101 modlog entries, then the oldest is dropped.
   - Given a moderator's first hide in a community, then that community id is in their `modlogged[]`; a second hide adds no write for it.
 - **Test notes.** The role matrix (owner, moderator, member, banned, outsider × each action); `budgettest`; idempotent replays (state-setting).
@@ -1204,10 +1204,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Open
 - **Description.**
-  - `CommunitiesRepository` with friendly mapping (FORBIDDEN reasons, caps, quota, FEATURE_DISABLED).
+  - `CommunitiesRepository` with friendly mapping (FORBIDDEN reasons, caps, quota, FEATURE_DISABLED). FORBIDDEN and COMMUNITY_STATE are their own `ErrorReason` values, mapped by `metadata["reason"]` (#590, ADR-0031 N1); roles come only from `viewer_role` and `CommunityMember.role`.
   - `FeedKey.community(id)`.
   - `kFeatureCommunities`.
   - `HomeTabsRepository` accepts COMMUNITY.
+- **Order.** In every served or distributed build before `communities` leaves `off` anywhere (ADR-0031 N8): the reply gate runs whenever the flag is not globally off, and a build without this ticket shows FORBIDDEN as the generic "restricted" message and COMMUNITY_STATE as the profile-required flow.
 - **Acceptance criteria.** As W5-10, for communities.
 - **Test notes.** Unit tests.
 - **Observability.** —
