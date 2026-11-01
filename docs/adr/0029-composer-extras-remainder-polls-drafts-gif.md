@@ -244,8 +244,8 @@ index or Terraform file changes in this PR. A6 lists the contract changes for W6
 **A2.6 Lifecycle (D8).**
 - **Eraser:** unchanged. It deletes each vote doc with its current choice, and the counts stay as anonymous totals
   (F6).
-- **Export `poll_votes`:** `postId`, `choice` (the current one), `createdAt`, plus **`changedAt`** once a vote was
-  changed.
+- **Export `poll_votes`:** `postId`, `choice` (the current one), `createdAt`, plus **`changedAt`** and **`changes`** (the
+  stored change count) once a vote was changed. Added `changes`: the founder approved it on 2026-11-01 (N12, W6-53).
 - **No history of earlier choices is kept anywhere.** The vote doc is updated in place and no log line carries a
   choice (Observability), so there is no history to export or erase.
 - **TTL:** unchanged. `expireAt = closesAt + 30 d`, and a change does not move it.
