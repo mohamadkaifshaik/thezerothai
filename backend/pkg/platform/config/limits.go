@@ -82,6 +82,26 @@ type RateLimitConfig struct {
 	// 20k a day free quota, and real work is bounded further by the caps (20 lists, 150 members, 10 creates, 300 adds).
 	ListMutationsPerDay int64
 
+	// CommunitiesWritePerUserPerMinute is the bucket shared by the seven community mutations (CreateCommunity, UpdateCommunity,
+	// JoinCommunity, LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole), env RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN,
+	// default 20; CommunitiesReadPerUserPerMinute is GetCommunity, ListCommunities, ListMyCommunities, ListCommunityMembers and
+	// ListModerationLog, env RATE_LIMIT_COMMUNITIES_READ_PER_MIN, default 30; CommunityTimelinePerUserPerMinute is GetCommunityTimeline, env
+	// RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, default 12. All per instance, so 60, 90 and 36 per minute with 3 instances (ADR-0031 D11).
+	CommunitiesWritePerUserPerMinute  int
+	CommunitiesReadPerUserPerMinute   int
+	CommunityTimelinePerUserPerMinute int
+
+	// CommunityMutationsPerDay is the in-memory daily cap shared by CreateCommunity, UpdateCommunity, JoinCommunity and LeaveCommunity (one
+	// counter per uid per instance), env COMMUNITY_MUTATIONS_PER_DAY, default 200, logged as limit_name "community_mutation_daily".
+	// CommunityModActionsPerDay is the cap per actor over HideCommunityPost, RestoreCommunityPost and SetMemberRole, env
+	// COMMUNITY_MOD_ACTIONS_PER_DAY, default 200, "community_mod_actions_daily". CommunityPostsPerCommunityPerDay is the cap on CreatePost into
+	// one community per uid and community (key uid|cid, built by the posts gate), env COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY, default 20,
+	// "community_posts_per_community_daily". Effective x3 instances (ADR-0031 D11). Without the first, 20/min x 3 x 1,440 UpdateCommunity
+	// calls would be about 86k writes a day.
+	CommunityMutationsPerDay         int64
+	CommunityModActionsPerDay        int64
+	CommunityPostsPerCommunityPerDay int64
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket (ADR-0024 D10), env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the
@@ -286,4 +306,13 @@ type QuotaConfig struct {
 	NewAccountListCreatesPerDay int
 	ListAddsPerDay              int
 	NewAccountListAddsPerDay    int
+
+	// CommunityJoinsPerDay/NewAccountCommunityJoinsPerDay cap JoinCommunity writes per IST day (ADR-0031 D11, quota.CommunityJoins), env
+	// QUOTA_COMMUNITY_JOINS_PER_DAY (20) and QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY (5); CommunityPostsPerDay/NewAccountCommunityPostsPerDay
+	// cap CreatePost into a community (quota.CommunityPosts, on top of the posts quota), env QUOTA_COMMUNITY_POSTS_PER_DAY (50) and
+	// QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY (10). The new-account tier applies to accounts younger than NewAccountWindow.
+	CommunityJoinsPerDay           int
+	NewAccountCommunityJoinsPerDay int
+	CommunityPostsPerDay           int
+	NewAccountCommunityPostsPerDay int
 }

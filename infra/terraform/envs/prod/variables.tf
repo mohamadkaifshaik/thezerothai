@@ -440,6 +440,45 @@ variable "feature_lists_percent" {
   }
 }
 
+variable "feature_communities" {
+  description = "FEATURE_COMMUNITIES rollout mode for Communities (ADR-0031 D10; gates every CommunityService RPC, GetCommunityTimeline, CreatePost.community_id and the COMMUNITY entries of SetHomeTabs and GetMe.home_tabs): off | allowlist | percent | on. Default off; ramp deliberately, never ahead of lists."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_communities)
+    error_message = "feature_communities must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_communities_allowlist" {
+  description = "FEATURE_COMMUNITIES_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_communities_percent" {
+  description = "FEATURE_COMMUNITIES_PERCENT: 0-100, only meaningful when feature_communities = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_communities_percent >= 0 && var.feature_communities_percent <= 100 && floor(var.feature_communities_percent) == var.feature_communities_percent
+    error_message = "feature_communities_percent must be an integer 0-100."
+  }
+}
+
+variable "community_creators" {
+  description = "COMMUNITY_CREATORS: comma-separated Firebase uids allowed to call CreateCommunity (ADR-0031 D10, F1; not a secret). At most 10, each 1-128 characters of [A-Za-z0-9-]; the API refuses to start otherwise. Default empty: nobody can create a community."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = length(compact(split(",", var.community_creators))) <= 10
+    error_message = "community_creators lists at most 10 uids."
+  }
+}
+
 variable "feature_profile_extras" {
   description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

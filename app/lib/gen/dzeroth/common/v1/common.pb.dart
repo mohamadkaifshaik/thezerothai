@@ -385,7 +385,9 @@ class HomeTab extends $pb.GeneratedMessage {
   /// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
   /// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
   /// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
-  /// for that id, and calls GetList once for a tab it has no label for.
+  /// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab (ADR-0031 D6):
+  /// the client labels it from the last GetCommunityTimeline or GetCommunity header it holds, and calls GetCommunity
+  /// once for a tab it has no label for.
   @$pb.TagNumber(3)
   $core.String get title => $_getSZ(2);
   @$pb.TagNumber(3)

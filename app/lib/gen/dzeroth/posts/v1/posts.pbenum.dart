@@ -123,6 +123,12 @@ class ReplyPermission extends $pb.ProtobufEnum {
       0, _omitEnumNames ? '' : 'REPLY_PERMISSION_UNSPECIFIED');
   static const ReplyPermission REPLY_PERMISSION_ALLOWED =
       ReplyPermission._(1, _omitEnumNames ? '' : 'REPLY_PERMISSION_ALLOWED');
+
+  /// The viewer may not reply. On a post that carries `community` (ADR-0031 D5, A7) it means members only: the
+  /// conversation belongs to that community and the viewer is not a JOINED member (or is banned); show "Only members of
+  /// <community.name> can reply". A community conversation takes no reply_policy, so this is unambiguous, and there is no
+  /// separate value: a client that predates communities already hides the reply box for it. On a post without the label
+  /// (a hidden community root, or a reply in a community conversation) show "You can't reply to this conversation".
   static const ReplyPermission REPLY_PERMISSION_NOT_ALLOWED = ReplyPermission._(
       2, _omitEnumNames ? '' : 'REPLY_PERMISSION_NOT_ALLOWED');
 

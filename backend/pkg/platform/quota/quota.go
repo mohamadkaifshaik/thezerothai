@@ -60,6 +60,11 @@ const (
 	// ListAdds counts AddListMember calls that added a member (ADR-0030 D10). A replay and an already-present member are not
 	// charged; RemoveListMember never is.
 	ListAdds Kind = "listAdds"
+	// CommunityJoins counts JoinCommunity calls that added a membership (ADR-0031 D11). A replay and an already-joined community are not
+	// charged; LeaveCommunity never is.
+	CommunityJoins Kind = "communityJoins"
+	// CommunityPosts counts CreatePost calls into a community (ADR-0031 D11), on top of the posts quota; a replay is not charged.
+	CommunityPosts Kind = "communityPosts"
 )
 
 // istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
@@ -114,6 +119,11 @@ type Record struct {
 	ListCreates int64 `firestore:"listCreates"`
 	// ListAdds counts AddListMember writes (ADR-0030 D10); same rule as ListCreates.
 	ListAdds int64 `firestore:"listAdds"`
+	// CommunityJoins counts JoinCommunity writes (ADR-0031 D11). Absent in older docs, so it decodes as 0. It lives in the Record so the
+	// whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	CommunityJoins int64 `firestore:"communityJoins"`
+	// CommunityPosts counts CreatePost calls into a community (ADR-0031 D11); same rule as CommunityJoins.
+	CommunityPosts int64 `firestore:"communityPosts"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
@@ -146,6 +156,10 @@ func (r Record) valueFor(k Kind) int64 {
 		return r.ListCreates
 	case ListAdds:
 		return r.ListAdds
+	case CommunityJoins:
+		return r.CommunityJoins
+	case CommunityPosts:
+		return r.CommunityPosts
 	default:
 		return 0
 	}
@@ -181,6 +195,10 @@ func (r *Record) increment(k Kind, n int64) {
 		r.ListCreates += n
 	case ListAdds:
 		r.ListAdds += n
+	case CommunityJoins:
+		r.CommunityJoins += n
+	case CommunityPosts:
+		r.CommunityPosts += n
 	}
 }
 
@@ -250,7 +268,7 @@ func ExceededError(kind Kind, now time.Time) *apierr.Error {
 }
 
 // metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where the ADR names
-// a snake_case wire value (ADR-0025 D8: privacy_toggles; ADR-0030 D10 and lists.proto: list_creates, list_adds). Existing kinds keep
+// a snake_case wire value (ADR-0025 D8: privacy_toggles; ADR-0030 D10 and lists.proto: list_creates, list_adds; ADR-0031 D11 and communities.proto: community_joins, community_posts). Existing kinds keep
 // their field name.
 func metaName(kind Kind) string {
 	switch kind {
@@ -260,6 +278,10 @@ func metaName(kind Kind) string {
 		return "list_creates"
 	case ListAdds:
 		return "list_adds"
+	case CommunityJoins:
+		return "community_joins"
+	case CommunityPosts:
+		return "community_posts"
 	}
 	return string(kind)
 }
