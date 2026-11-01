@@ -147,7 +147,7 @@ func (s *service) voterBlocksAuthor(ctx context.Context, uid, authorID string) (
 	}
 	snap, err := s.d.Graph.Snapshot(ctx, uid)
 	if err != nil {
-		return false, logger.RedactErr(fmt.Errorf("engagement: poll vote: caller graph: %w", err), uid, authorID)
+		return false, logger.RedactErr(fmt.Errorf("engagement: poll vote: caller graph: %w", err), uid)
 	}
 	return snap.Blocked[authorID], nil
 }
@@ -248,7 +248,7 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 	entry := pollEntry(post.ID, choice, closes)
 	var vs posts.ViewerSet
 	if st, serr := s.state(ctx, uid); serr != nil {
-		slog.WarnContext(ctx, "engagement_poll_vote_viewer_degraded", "error", logger.RedactErr(serr, uid, post.ID).Error())
+		slog.WarnContext(ctx, "engagement_poll_vote_viewer_degraded", "error", logger.RedactErrPosts(serr, []string{post.ID}, uid).Error())
 	} else {
 		vs = st.set
 	}
@@ -316,7 +316,7 @@ func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error)
 		slog.WarnContext(ctx, "poll_vote_contention", "uid_hash", logger.HashUID(uid), "post_hash", logger.HashPost(postID))
 		return pollBusyErr()
 	}
-	return logger.RedactErr(fmt.Errorf("engagement: poll vote: %w", err), uid, postID)
+	return logger.RedactErrPosts(fmt.Errorf("engagement: poll vote: %w", err), []string{postID}, uid)
 }
 
 // withPollVote returns list with entry as the post's one vote: any earlier entry for postID is dropped and entry goes last (ADR-0029 I-V3: one
