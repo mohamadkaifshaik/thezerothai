@@ -23,6 +23,12 @@ String createPostErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
+    // ADR-0031 (W5-30): a post or reply into a community the caller may not
+    // write to. Fixed text per reason; never "restricted" or the profile flow.
+    final CommunityForbiddenException e => e.reason.userMessage,
+    final CommunityStateException e => e.reason.userMessage,
+    ProtectedAccountException() =>
+      "Protected accounts can't post in communities.",
     EmailNotVerifiedException() => 'Please verify your email address to post.',
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now, so posting is paused. '
@@ -65,6 +71,8 @@ String replyErrorMessage(AppException error) {
     NotFoundException() =>
       "The post you're replying to isn't available any more.",
     ReplyNotAllowedException() => ReplyNotAllowedException.userMessage,
+    CommunityForbiddenException(reason: CommunityForbiddenReason.notMember) =>
+      'Only members of this community can reply.',
     FeatureDisabledException() => "Replies aren't available right now.",
     NetworkException() =>
       'No connection. Your reply was not sent; check your network and try '
