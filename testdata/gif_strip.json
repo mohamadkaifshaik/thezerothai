@@ -1,6 +1,62 @@
 {
   "cases": [
     {
+      "name": "loop_extra_subblocks",
+      "note": "loop block with extra sub-blocks after the loop count (W6-58): refused by the server, rewritten to 03 01 LL LL 00 by the client; count 5 kept",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEFAAhTTVVHR0xFRAhTTVVHR0xFRAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEFAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "animexts_extra_subblocks",
+      "note": "the same smuggling inside an ANIMEXTS1.0 loop block",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C0FOSU1FWFRTMS4wAwEFAAhTTVVHR0xFRAhTTVVHR0xFRAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C0FOSU1FWFRTMS4wAwEFAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "loop_leading_subblock",
+      "note": "an id-2 sub-block before the loop count: the count is kept, the rest dropped",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wBQIBAgMEAwEHAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEHAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "second_loop_block",
+      "note": "a second loop block (W6-58): refused by the server; the client keeps only the first",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh/wtORVRTQ0FQRTIuMAMBAAAAIfkEAAoAAAAsAAAAAAIAAgAAAgKEUQAh+QQACgAAACwAAAAAAgACAAACAoxTADs=",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": true
+    },
+    {
+      "name": "loop_wrong_id",
+      "note": "loop sub-block with id 2, no loop count: refused by the server, the client drops the block (plays once, as browsers do)",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwIAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH5BAAKAAAALAAAAAACAAIAAAIChFEAIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "dirty": true
+    },
+    {
+      "name": "loop_wrong_length",
+      "note": "loop sub-block of length 2: refused by the server, the client drops the block",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAgEAACH5BAAKAAAALAAAAAACAAIAAAIChFEAIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH5BAAKAAAALAAAAAACAAIAAAIChFEAIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "dirty": true
+    },
+    {
+      "name": "loop_empty",
+      "note": "loop block with no sub-block at all: refused by the server, the client drops the block",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wACH5BAAKAAAALAAAAAACAAIAAAIChFEAIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH5BAAKAAAALAAAAAACAAIAAAIChFEAIfkEAAoAAAAsAAAAAAIAAgAAAgKMUwA7",
+      "dirty": true
+    },
+    {
+      "name": "loop_count_kept",
+      "note": "canonical loop block with count 3: untouched",
+      "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEDAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "stripped": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEDAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
+      "dirty": false
+    },
+    {
       "name": "netscape_clean",
       "note": "animated, NETSCAPE2.0 loop block: untouched",
       "gif": "R0lGODlhAgACAIAAAP8AAAAA/yH/C05FVFNDQVBFMi4wAwEAAAAh+QQACgAAACwAAAAAAgACAAACAoRRACH5BAAKAAAALAAAAAACAAIAAAICjFMAOw==",
@@ -64,5 +120,5 @@
       "dirty": true
     }
   ],
-  "description": "W6-30 (security L-4): GIF fixtures shared by Go (scanGIF refuses every dirty input, accepts every stripped output) and Dart (stripGifBytes maps input to stripped). Two 2x2 frames. Regenerate: see the W6-30 PR; do not edit by hand."
+  "description": "W6-30 (security L-4): GIF fixtures shared by Go (scanGIF refuses every dirty input, accepts every stripped output) and Dart (stripGifBytes maps input to stripped). Two 2x2 frames. Rows loop_*, animexts_extra_subblocks and second_loop_block are W6-58 (a loop block carries only the loop count, once). Regenerate: see the W6-30 PR; do not edit by hand."
 }
