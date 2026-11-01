@@ -350,7 +350,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-17 | Part A security review | security-auditor | S | W5-6 to W5-9, W5-13 | yes | Done (#540; report `docs/reviews/security-w5-lists.md`) |
 | W5-18 | Part A cost and performance budget: list timeline hot path, load smoke | sre-performance | S | W5-8, W5-9 | yes | Done (#538) |
 | W5-19 | Part A dev rollout | production-deployer | S | W5-15, W5-17, W5-18, ADR-0030 merged | serialise dev applies with W3-24 / W4-24 | Done in dev 2026-10-31 (allowlist 3 uids applied earlier that day; targeted plan 0 changes for lists; API smoke passed incl. the real-Firestore `ownerId ==` count; the eraser and export `memberIds array-contains` query was not exercised, owed; see "Dev rollout result" in the ticket) |
-| W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | Open |
+| W5-20 | ADR-0031 "Communities and their moderation scope at Stage 0" | architect | M | — | **yes, start now** (new file) | In review (PR #583) |
 | W5-21 | Part B protos: new `communities.proto`; `posts.proto` `community_id` / `community`; `moderation.proto` targets; `timeline.proto` GetCommunityTimeline (+ the A1 fallback index if needed) | architect | S | W5-20 drafted | `timeline.proto` after W5-2 and W3-2; the index file (only if needed) serialises with W3-2 / W4-9 | Open |
 | W5-22 | `make proto`; `FEATURE_COMMUNITIES`, `COMMUNITY_CREATORS`, community config, quota fields, rate limits, ceiling, Terraform vars; `internal/communities` skeleton | backend-developer | M | W5-21 | shared plumbing files: one at a time (after W5-3) | Open |
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Open |
@@ -845,7 +845,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - **Still owed:** the latency questions in `docs/reviews/cost-model.md` section 17 (warm p95, cold start on Cloud Run) need real traffic from the allowlist and were not measured here.
   - Prod: no change (held release).
 
-### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: Open
+### W5-20 — ADR "Communities and their moderation scope at Stage 0"  [owner: architect] [size: M] [depends: —]  Status: In review (PR #583)
 - **Description.** `docs/adr/0031-communities-and-moderation-scope.md` (Proposed). 0028 went to W4, 0029 to W6 and 0030 to Part A, so Part B is 0031. It decides:
   - F1 and F6 to F13;
   - the collections (`communities/{cid}`, `communities/{cid}/communityMembers/{uid}`, `communityMemberships/{uid}`) and doc shapes;
