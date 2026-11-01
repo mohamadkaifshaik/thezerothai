@@ -8,6 +8,7 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/telemetry/analytics_event.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
@@ -428,6 +429,7 @@ class _PeopleBodyState extends State<_PeopleBody> {
           return UserListRow(
             key: ValueKey('search-person-${item.user.userId}'),
             item: item,
+            followSource: FollowSource.search,
             // Without the graph flag there is no Follow control to offer.
             trailing: graphOn ? null : const SizedBox.shrink(),
           );

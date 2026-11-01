@@ -5,6 +5,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/telemetry/analytics_event.dart';
+import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
@@ -256,7 +258,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     DraftsRepository? drafts,
     String uid = '',
     ComposerDraft? initialDraft,
+    UsageReporter usage = const UsageReporter.none(),
   }) : replyToPostId = '',
+       _usage = usage,
        _repository = postsRepository,
        _pending = pending,
        _author = author,
@@ -288,7 +292,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     required this.replyToPostId,
     Uuid? uuid,
     DateTime Function()? clock,
+    UsageReporter usage = const UsageReporter.none(),
   }) : quoteOfPostId = '',
+       _usage = usage,
        _repository = postsRepository,
        _pending = null,
        _author = null,
@@ -593,7 +599,20 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   bool get _gifHeld => _attachments?.state.hasGif ?? false;
 
+  PostKind get _postKind => replyToPostId.isNotEmpty
+      ? PostKind.reply
+      : quoteOfPostId.isNotEmpty
+      ? PostKind.quote
+      : PostKind.post;
+
+  PostMedia _mediaKind(List<String> mediaIds) => mediaIds.isEmpty
+      ? PostMedia.none
+      : _gifHeld
+      ? PostMedia.gif
+      : PostMedia.photo;
+
   final PostsRepository _repository;
+  final UsageReporter _usage;
   final PendingPostsCubit? _pending;
   final common.AuthorSnapshot? _author;
   final AttachmentsCubit? _attachments;
@@ -1032,6 +1051,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (uploaded == null) return _releaseClaim();
     final mediaIds = uploaded.mediaIds;
     final altTexts = uploaded.altTexts;
+    final media = _mediaKind(mediaIds);
 
     final policy = _policyToSend;
     final bodyWithPolicy = _bodyKey(text, mediaIds, altTexts, policy, poll);
@@ -1069,6 +1089,15 @@ class ComposerCubit extends Cubit<ComposerState> {
                 choices: analyzePoll(poll).stored,
                 durationMinutes: poll.durationMinutes,
               ),
+      );
+      // The server accepted the post: reported even if the screen closed.
+      _usage.log(
+        PostCreated(
+          kind: _postKind,
+          media: media,
+          poll: poll != null,
+          scheduled: false,
+        ),
       );
       _keys.remove(intent);
       _keyText = null;
@@ -1141,6 +1170,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (claim.refused) return;
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
     if (uploaded == null) return _releaseClaim();
+    final media = _mediaKind(uploaded.mediaIds);
     final policy = _policyToSend;
     final intent =
         's:${publishAt.millisecondsSinceEpoch}\u0001'
@@ -1154,6 +1184,14 @@ class ComposerCubit extends Cubit<ComposerState> {
         mediaIds: uploaded.mediaIds,
         mediaAltTexts: uploaded.altTexts,
         replyPolicy: policy,
+      );
+      _usage.log(
+        PostCreated(
+          kind: _postKind,
+          media: media,
+          poll: false,
+          scheduled: true,
+        ),
       );
       _keys.remove(intent);
       _keyText = null;

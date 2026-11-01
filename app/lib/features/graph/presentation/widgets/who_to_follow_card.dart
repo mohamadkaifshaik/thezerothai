@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -160,6 +161,7 @@ class _CardState extends State<_Card> {
               for (var i = 0; i < shown.length; i++)
                 UserListRow(
                   key: ValueKey(shown[i].user.userId),
+                  followSource: FollowSource.suggestions,
                   item: shown[i],
                   showDivider: collapsed || i < shown.length - 1,
                   onFollowed: () =>

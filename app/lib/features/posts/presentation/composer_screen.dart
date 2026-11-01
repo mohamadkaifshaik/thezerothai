@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -196,6 +197,7 @@ class ComposerScreen extends StatelessWidget {
             drafts: uid.isEmpty ? null : context.read<DraftsRepository>(),
             uid: uid,
             initialDraft: initial,
+            usage: UsageScope.of(context),
           ),
         ),
       ],

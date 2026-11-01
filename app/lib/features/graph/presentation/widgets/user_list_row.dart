@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
@@ -30,7 +31,11 @@ class UserListRow extends StatelessWidget {
     this.onDismiss,
     this.showDivider = true,
     this.extraAction,
+    this.followSource = FollowSource.list,
   });
+
+  /// Where the row is shown, for the `follow` usage event (TEL-6).
+  final FollowSource followSource;
 
   /// A second control after the follow button (or the trailing one), measured
   /// with it (the List members page: Remove for the owner, W5-12).
@@ -84,12 +89,12 @@ class UserListRow extends StatelessWidget {
             ),
           ),
           child: onFollowed == null
-              ? FollowButton(onGone: onGone)
+              ? FollowButton(onGone: onGone, source: followSource)
               : BlocListener<RelationshipCubit, RelationshipState>(
                   listenWhen: (before, after) =>
-                      _isConfirmedFollow(after) && !_isConfirmedFollow(before),
+                      after.isConfirmedFollow && !before.isConfirmedFollow,
                   listener: (context, state) => onFollowed(),
-                  child: FollowButton(onGone: onGone),
+                  child: FollowButton(onGone: onGone, source: followSource),
                 ),
         );
     return Column(
@@ -202,14 +207,6 @@ const double _badgeMinColumnWidth = 48;
 /// it the control moves onto its own line under the name. Equal to the lock's
 /// minimum so a protected name always keeps its badge while it is inline.
 const double _minNameColumnWidth = _badgeMinColumnWidth;
-
-bool _isConfirmedFollow(RelationshipState state) =>
-    !state.isUpdating &&
-    state.error == null &&
-    (state.relationship.followState ==
-            graph.FollowState.FOLLOW_STATE_FOLLOWING ||
-        state.relationship.followState ==
-            graph.FollowState.FOLLOW_STATE_REQUESTED);
 
 /// avatar + name column + actions. Inline when the actions fit at their
 /// natural width with at least [minBodyWidth] left for the name column;
