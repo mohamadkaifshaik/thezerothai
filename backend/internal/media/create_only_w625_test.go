@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
@@ -163,5 +164,38 @@ func TestW625_BucketsPublishRefusesAZeroGeneration(t *testing.T) {
 	}
 	if err := b.Publish(context.Background(), "u/x", 0, "p/x", "image/jpeg"); err == nil {
 		t.Fatal("Publish with generation 0 was attempted")
+	}
+}
+
+// W6-32 (W6-25 review L-3): call A copies the full image public, loses its changed-thumbnail reject to a retaken claim (the
+// reload is PENDING, so A cannot delete: the claim holder may be publishing the same names), and the holder B then REJECTS.
+// B's REJECTED write must sweep A's public copy, which no document points to.
+func TestW632_RejectSweepsAPublicCopyLeftByAnEarlierCall(t *testing.T) {
+	e := newEnv(t, envOpts{})
+	tg := e.upload(t, uidA, PurposePost, "or")
+	up := uploadThumbObject(uidA, tg.MediaID, "jpg")
+	e.obj.publishHook, e.obj.publishOn = func() {
+		e.obj.rePut(up, jpegBytes("EVIL"), "image/jpeg")
+		e.repo.docs[tg.MediaID].UpdateTime = e.repo.docs[tg.MediaID].UpdateTime.Add(time.Second) // B retook the claim
+	}, up
+
+	r, _, err := e.finalizeStale(t, tg.MediaID)
+	if err != nil || r.Status != StatusPending {
+		t.Fatalf("A = %+v err=%v, want PENDING (lost the reject to the retaken claim)", r, err)
+	}
+	if len(e.obj.public) != 1 {
+		t.Fatalf("public after A = %v, want A's full copy kept for the claim holder", e.obj.public)
+	}
+
+	// B screens the new bytes, Vision says unsafe, B REJECTS.
+	e.repo.docs[tg.MediaID].ScreeningUntil = nil
+	e.mod.by[uploadObject(uidA, tg.MediaID, "jpg")] = SafeSearch{Adult: LikelihoodVeryLikely}
+	b := *e.repo.docs[tg.MediaID]
+	rb, _, err := e.svc.(*service).finalizeOne(context.Background(), uidA, &b, "")
+	if err != nil || rb.Status != StatusRejected {
+		t.Fatalf("B = %+v err=%v, want REJECTED", rb, err)
+	}
+	if len(e.obj.public) != 0 {
+		t.Fatalf("public after B = %v, want none: the REJECTED doc has no public path", e.obj.public)
 	}
 }

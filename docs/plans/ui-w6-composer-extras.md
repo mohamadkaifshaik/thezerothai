@@ -1,4 +1,4 @@
-# UI W6: composer extras remainder (polls, drafts on the device, GIFs from the device)
+In review (#567) |# UI W6: composer extras remainder (polls, drafts on the device, GIFs from the device)
 Plan owner: planner · Date: 2026-10-26 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **New backend surface:**
 
 > **Decision (founder, 2026-10-27):** F2 = yes (the natural-key vote doc is the idempotency record). GIFs stay in W6: a same-day deferral was withdrawn; F9 to F11 proceed on their stated defaults, with F11 (server-side frame-sampled SafeSearch, which has the API read the uploaded GIF) to be confirmed in ADR W6-1.
