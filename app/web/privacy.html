@@ -60,6 +60,10 @@
   19. "Hard-to-guess web addresses" is true of uploads since W3-39 (128-bit random name suffix, media/service.go).
       Images uploaded before W3-39 keep "m/{mediaId}.{ext}", which is derived from a time-ordered id. Re-check if
       any such image exists in prod (founder question, W6-55 PR).
+  20. W6-53 (open; founder approved adding `changes` on 2026-11-01) adds the vote's change count to the poll_votes
+      export. When it merges, the #564 Polls "Your export" sentence ("which poll, your choice, when you voted and,
+      if you changed it, when you last did") must add "and how many times", in the same PR, with the founder's
+      approval of that wording.
 -->
 <html lang="en">
 <head>
