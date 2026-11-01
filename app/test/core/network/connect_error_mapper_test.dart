@@ -153,6 +153,23 @@ void main() {
       expect(result.quota, 'scheduled_window');
     });
 
+    test('LIMIT_REACHED poll_vote_changes carries the stored choice', () {
+      final error = _withDetail(
+        connect.Code.resourceExhausted,
+        'fallback',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+          message: 'x',
+          metadata: {'limit': 'poll_vote_changes', 'choice': '2'}.entries,
+        ),
+      );
+
+      final result = mapConnectError(error) as LimitReachedException;
+
+      expect(result.quota, 'poll_vote_changes');
+      expect(result.choiceIndex, 2);
+    });
+
     test('LIMIT_REACHED prefers quota over limit when both are present', () {
       final error = _withDetail(
         connect.Code.failedPrecondition,
