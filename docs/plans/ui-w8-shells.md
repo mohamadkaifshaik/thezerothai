@@ -410,7 +410,7 @@ Order:
 - **Flag.** Under test: `shells` × `ui_shell` × `kVisibleShells`.
 - **Seam.** The structural no-repository test keeps the 0-cost claim true as the shells change.
 
-### W8-9 — Privacy and claims check  [owner: security-auditor] [size: S] [depends: W8-4 to W8-7]  Status: Done (`docs/reviews/security-review-w8.md`; M-1 fixed, L-1 open for the founder)
+### W8-9 — Privacy and claims check  [owner: security-auditor] [size: S] [depends: W8-4 to W8-7]  Status: Done (`docs/reviews/security/security-review-w8.md`; M-1 fixed, L-1 open for the founder)
 - **Description.** A short review, not a threat model (no new surface), covering:
   - no data collection (no field, form, consent, analytics event or Crashlytics key);
   - no RPC and no repository import;

@@ -173,7 +173,7 @@ type RateLimitConfig struct {
 	// interceptor profile, the users doc, a banner resolve, a pin check) = 300 writes and 1,200 reads.
 	ProfileUpdatesPerDay int64
 
-	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security-audit-v0.1.0.md):
+	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1, docs/reviews/security/security-audit-v0.1.0.md):
 	// plain net/http middleware in front of the whole Connect handler chain, so an unauthenticated flood
 	// is rejected before it costs any App Check / ID token JWT-verify CPU. Deliberately generous — this is
 	// a flood backstop, not the fine-grained per-uid/IP limiting PerIPPerMinute already does once a request

@@ -1,7 +1,7 @@
 # Test report: W4 search and discovery, client (W4-21), 2026-10-31
 
 Tester: tester agent. Branch `test/ui-w4-21-search-client-tests` on `main@e3e28c23`. Plan: `docs/plans/ui-w4-discovery-search.md`
-(W4-21; client tickets W4-13 to W4-19). Design: ADR-0028. Backend half: `docs/reviews/test-report-w4.md` (W4-20). No production code was
+(W4-21; client tickets W4-13 to W4-19). Design: ADR-0028. Backend half: `docs/reviews/tests/test-report-w4.md` (W4-20). No production code was
 changed; the one defect found is reported, with a committed and skipped repro.
 
 **Result: one defect, D-1 (Low: layout at the largest text size on a 360 dp phone), now FIXED. Everything else passes.**

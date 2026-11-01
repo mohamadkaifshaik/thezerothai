@@ -1,7 +1,7 @@
 # Test report: UI wave W3 Part B (private accounts and follow requests)
 
 Each ticket owns its own section below; keep an edit to your own section. W3-35a owns "W3-35a"; W3-35b owns the section
-that follows. (The plan names `docs/reviews/test-report-w3b.md` for W3-35b; the task brief chose this Part B file, so the
+that follows. (The plan names `docs/reviews/tests/test-report-w3b.md` for W3-35b; the task brief chose this Part B file, so the
 plan's file name is stale.)
 
 ---
@@ -11,7 +11,7 @@ plan's file name is stale.)
 Tester: tester agent. Branch `test/w3-35a-visibility-matrix` on `main@15975e53` (every Part B backend ticket merged: W3-26a, W3-26b,
 W3-27, W3-28a, W3-28b, W3-28c, W3-29a, W3-29b, W3-30, W3-31, W3-32). Plan: `docs/plans/ui-w3-profile-graph-completion.md`
 (W3-35a and the Part B rules). Design: ADR-0025 (D3 to D13, AQ1 to AQ6, implementation notes). Part A is in
-`docs/reviews/test-report-w3.md`; the lifecycle, races and invariants half of Part B is W3-35b, the client half is W3-35c.
+`docs/reviews/tests/test-report-w3.md`; the lifecycle, races and invariants half of Part B is W3-35b, the client half is W3-35c.
 
 **VERDICT: PASS for W3-35a as specified.** Every row of the D4 visibility matrix holds on the emulators through
 `apiserver.Build`, the refusals are byte-identical to the deleted post's answer, nothing an unapproved viewer receives

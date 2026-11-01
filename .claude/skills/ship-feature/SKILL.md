@@ -15,7 +15,7 @@ Skip stages the plan marks N/A (e.g., no design change → skip 2) — every sub
 | 2 | Design (only if contract/data model changes) | `architect` | ADR + `proto/` + Firestore model/index changes; `make proto` passes |
 | 3 | Build API | `backend-developer` | code + tests; `make ci` green |
 | 3 | Build client (parallel with 3) | `frontend-developer` | screens + widget tests; `flutter analyze` clean |
-| 4 | Test | `tester` | `docs/reviews/test-report-<slug>.md` ends `VERDICT: PASS` (incl. budget assertions and flag modes) |
+| 4 | Test | `tester` | `docs/reviews/tests/test-report-<slug>.md` ends `VERDICT: PASS` (incl. budget assertions and flag modes) |
 | 5 | Review (parallel) | `code-reviewer`, `security-auditor` | `APPROVE`; `SECURITY: CLEAR` (no Critical/High) |
 | 6 | Cost & perf | `sre-performance` | cost-model updated; emulator load smoke; `BUDGET: HOLDS` |
 | 7 | Stage | `production-deployer` | deployed to dev; after the founder's tag, prod `candidate` revision at 0% traffic, smoke passes |

@@ -8,7 +8,7 @@ reports: `test-report-w3-client.md` (Part A client, W3-21; the helpers and the m
 **Result: three open defects, D-1 (low), D-2 (medium) and D-3 (low), each with a committed, skipped repro. Everything else passes.** The last line
 is the verdict.
 
-The plan names `docs/reviews/test-report-w3b-client.md` for this ticket, so this is a new file rather than a Part B section of the
+The plan names `docs/reviews/tests/test-report-w3b-client.md` for this ticket, so this is a new file rather than a Part B section of the
 Part A report.
 
 ---

@@ -42,7 +42,7 @@ module runbook. Reuse fixtures in `testdata/` and helpers listed in `docs/code-m
   `RESOURCE_EXHAUSTED` surfaces to the client.
 
 ## Report
-`docs/reviews/test-report-<feature>.md`: what was tested, coverage, budget results per RPC, failures with repro steps and
+`docs/reviews/tests/test-report-<feature>.md`: what was tested, coverage, budget results per RPC, failures with repro steps and
 exact `file:line`, and the final line `VERDICT: PASS` or `VERDICT: FAIL — <defects>`.
 
 ## Handoff contract

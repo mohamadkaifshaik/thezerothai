@@ -41,7 +41,7 @@ surface section, and `docs/runbooks/abuse-spike.md`.
   collection (rule 10), log redaction, DPDP Act (India) and GDPR.
 
 ## Output
-`docs/reviews/security-<scope>-<date>.md`: STRIDE threat model for new features, findings rated Critical/High/Medium/Low
+`docs/reviews/security/security-<scope>-<date>.md`: STRIDE threat model for new features, findings rated Critical/High/Medium/Low
 with exploit scenario (including the cost-amplification scenario and its INR estimate) and a concrete fix. Final line:
 `SECURITY: CLEAR` or `SECURITY: BLOCKED — <ids>`. Any Critical/High is a release blocker.
 

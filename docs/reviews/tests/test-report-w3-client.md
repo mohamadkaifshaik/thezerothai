@@ -151,6 +151,6 @@ Extended: `test/core/router/app_router_bookmarks_test.dart` (26), `test/core/rou
 - D-1 goes to the **frontend-developer** (W3-14 owner). It does not block the W3-24 dev allowlist: it needs the largest OS text
   size on a phone 360 dp wide or narrower, and nothing is lost (the button still works; it overlaps the name).
 - On a pass of D-1 (or the owner's decision that it is acceptable), hand to `code-reviewer`; the W3 `security-auditor` review is
-  already in `docs/reviews/security-review-w3.md`.
+  already in `docs/reviews/security/security-review-w3.md`.
 
 VERDICT: FAIL — D-1 (minor): at 360 dp and text scale 2.0 the profile header's "Follow back" / "Edit profile" buttons overlap the display name (`profile_header.dart:192-196, 314-319`); skipped repro committed in `w3_profile_matrix_test.dart`; confirm with a real font

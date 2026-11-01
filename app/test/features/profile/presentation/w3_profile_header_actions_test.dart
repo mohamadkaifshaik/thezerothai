@@ -16,7 +16,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 
 class _MockModerationRepository extends Mock implements ModerationRepository {}
 
-/// W3-21 defect D-1 (`docs/reviews/test-report-w3-client.md`): at 360 dp and
+/// W3-21 defect D-1 (`docs/reviews/tests/test-report-w3-client.md`): at 360 dp and
 /// text scale 2.0 the header's action button ("Follow back" or "Edit profile")
 /// grew taller than the 48 dp strip under the banner that held it, wrapped to
 /// two lines and was painted over the display name and the profile menu.

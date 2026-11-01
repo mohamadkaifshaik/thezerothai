@@ -1,7 +1,7 @@
 # Phase 1 (core MVP): remaining work, ordered in slices
 Plan owner: planner · Date: 2026-09-30 · Stage: 0 (0 – ~300 DAU, $0 target) · Source roadmap: `mvp-roadmap` Phase 1
 Inputs: CLAUDE.md, ADR-0001…0009, `proto/dzeroth/**`, `backend/internal/**`, `app/lib/**`, `docs/reviews/cost-model.md`,
-`docs/reviews/security-audit-v0.1.0.md`, `docs/plans/graph.md`, `infra/terraform/**`.
+`docs/reviews/security/security-audit-v0.1.0.md`, `docs/plans/graph.md`, `infra/terraform/**`.
 
 Each slice has its own plan with per-ticket status (as of 2026-10-18, `docs/plans/`): `posts-and-timeline.md` (P0 + P1),
 `profile-edit-snapshot.md` (P2), `replies-and-threads.md` (P3), `media-uploads.md` (P4), `engagement.md` (P5),

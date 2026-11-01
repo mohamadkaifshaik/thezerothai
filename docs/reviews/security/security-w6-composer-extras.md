@@ -23,7 +23,7 @@
 - No cloud calls. The Vision behaviour on animated WebP (H-2) and the billing of per-image Vision errors (H-3) are therefore unverified.
 
 **Test inputs:**
-- `docs/reviews/test-report-w6-gif.md` (W6-18): its D-1 and R-1 are assessed here.
+- `docs/reviews/tests/test-report-w6-gif.md` (W6-18): its D-1 and R-1 are assessed here.
 - The polls test report (W6-17) and the client tests (W6-19) do not exist yet.
 
 **Where these features run today:**
@@ -457,7 +457,7 @@ Verdict of 2026-10-31: BLOCKED (H-1, H-2, H-3). Superseded by "Re-review 2026-11
 
 ### W6-42 part 2, 2026-10-31: W6-36 vote changes and block either way (PR #555)
 
-- **Reviewed:** `feat/polls-w6-36-block-and-change` at `58864230`, CI green. Full review: `docs/reviews/security-w6-36-poll-changes.md`.
+- **Reviewed:** `feat/polls-w6-36-block-and-change` at `58864230`, CI green. Full review: `docs/reviews/security/security-w6-36-poll-changes.md`.
 - **Verdict: SECURITY: CLEAR.** No Critical, High or Medium. #555 may merge.
 - **Lows, all follow-ups:**
   - L-1: the NOT_FOUND byte test covers only a first vote (W6-41).

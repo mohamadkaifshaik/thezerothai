@@ -7,7 +7,7 @@ import (
 
 // PreAuthIPMiddleware is plain net/http middleware (not a Connect interceptor) that rate-limits by client
 // IP *before* the request reaches any Connect interceptor — in particular before authn.AppCheckInterceptor
-// and authn.IDTokenInterceptor, which do real JWT-verification work (M1, docs/reviews/security-audit-v0.1.0.md: "the
+// and authn.IDTokenInterceptor, which do real JWT-verification work (M1, docs/reviews/security/security-audit-v0.1.0.md: "the
 // per-IP rate limit runs after ID-token verification, so it can't throttle unauthenticated floods").
 // Floods of garbage/expired tokens are now rejected here, before they cost any JWT-verify CPU or even reach
 // the Connect handler chain, bounded only before by Cloud Run's own max-instances cap.

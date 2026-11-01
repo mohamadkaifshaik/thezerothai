@@ -61,7 +61,7 @@ flag leaves `off` only after the enforcing revision serves 100% (rule L-1 in `do
 revision whose env has `FEATURE_MEDIA` `off`, or whose image is built from `9ec07c59c14ceef20e33e6d5ad429303ec5b83b3` (#586,
 W6-58) or a later commit. Otherwise fix forward. An older image with media on reopens the photo and GIF fixes: H-1 publish swap (#536),
 H-2 animated WebP (#541), H-3 uncounted Vision spend (#535, #554, #563, #565), M-1 and M-2 GIF frame sampling (#521, #545),
-L-4 GIF metadata (#577) and N-1 GIF loop block data (#586); see `docs/reviews/security-w6-composer-extras.md`. A Cloud Run revision keeps the env it was created
+L-4 GIF metadata (#577) and N-1 GIF loop block data (#586); see `docs/reviews/security/security-w6-composer-extras.md`. A Cloud Run revision keeps the env it was created
 with, so read the target's own env (`gcloud run revisions describe <revision> --project=dzeroth-prod --region=asia-south1
 --format='value(spec.containers[0].env)'`). For its image, the commit is the 40-hex Artifact Registry tag (as in "Private
 accounts" below); exit 0 from `git merge-base --is-ancestor 9ec07c59c14ceef20e33e6d5ad429303ec5b83b3 <image commit>; echo $?`

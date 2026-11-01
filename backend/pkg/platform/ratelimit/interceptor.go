@@ -125,7 +125,7 @@ type NamedDailyCap struct {
 //
 // This is the *inside-the-Connect-chain* limiter (ADR-0006 §2/§3): it still does real JWT-verify work
 // upstream of it (App Check + ID token) before this ever runs. PreAuthIPMiddleware (httpmiddleware.go) is
-// the separate, coarser *pre-auth* limiter added for M1 (docs/reviews/security-audit-v0.1.0.md) that runs as plain
+// the separate, coarser *pre-auth* limiter added for M1 (docs/reviews/security/security-audit-v0.1.0.md) that runs as plain
 // net/http middleware in front of the whole Connect handler, before any of that verification work happens
 // — the two are independent Limiter instances (see apiserver.Build) so a request is never double-charged
 // against the same bucket.

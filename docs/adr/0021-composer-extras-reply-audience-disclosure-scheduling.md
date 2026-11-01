@@ -2,7 +2,7 @@
 Status: Accepted (founder, 2026-10-23; includes the five founder decisions recorded in "Founder decisions" below, and the rule-4 bend in item 3)
 Clarified 2026-10-23 (PR #247): pinned the exact CreatePost `requestHash` suffix bytes and order; reconciled the Stage 0 functional line with D3 (disclosure labels are accepted on any post kind). No decision changed.
 Implementation notes 2026-10-26 (after #291 and #292): "Implementation notes (2026-10-26)" at the end records where the scheduled-posts code as built differs from the text (publish transaction, item log level, Scheduler retries, the 500 rule, the media hold, the exact window cap, smaller details). No decision of this ADR changed: the media hold (note 5) is the founder's decision of 2026-10-26 and the exact window cap (note 6) tightens a cap this text calls soft.
-Date: 2026-10-23 (revised the same day after `docs/reviews/security-review-adr-0021.md`; see §Security review)
+Date: 2026-10-23 (revised the same day after `docs/reviews/security/security-review-adr-0021.md`; see §Security review)
 Deciders: architect (proposal); founder (accepted 2026-10-23). Product defaults below were proposed by the founder's delegate in
 `docs/plans/composer-w15-w6.md` "Answers to the open questions" (2026-10-23).
 
@@ -776,7 +776,7 @@ under request-based billing.
     from an outage, isolating a crash-looping item, and the roll-forward-only rule.
 
 ## Security review
-Source: `docs/reviews/security-review-adr-0021.md` (2026-10-23, APPROVE WITH CHANGES). Every finding:
+Source: `docs/reviews/security/security-review-adr-0021.md` (2026-10-23, APPROVE WITH CHANGES). Every finding:
 | Id | Disposition |
 |---|---|
 | M-1 | applied in D2 "The root R and R usable", "Viewer hint", tests. Applied wider than asked: GetPost's hint on deep restricted replies is UNKNOWN, and the cost rises to +3 / +4 cold |
