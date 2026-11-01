@@ -89,8 +89,10 @@ MessagingFeatureGate buildMessagingGate(
 }
 
 /// Reports an unexpected (non-user) error. One shared hook, wired from
-/// bootstrap into every cubit that wants Crashlytics non-fatals. For now it
-/// goes through [FlutterError.reportError] (the Crashlytics handler hooks it).
+/// bootstrap into every cubit that wants non-fatal reports. It goes through
+/// [FlutterError.reportError], which reaches [FlutterError.onError]: the single
+/// sink installed by `installTelemetryErrorHooks` (core/telemetry), which
+/// records only while collecting is on. Never call a crash reporter from here.
 typedef UnexpectedErrorReporter = void Function(Object error, StackTrace stack);
 
 void reportUnexpectedError(Object error, StackTrace stack) {

@@ -13,10 +13,13 @@ import '../core/network/rate_limit_hold.dart';
 import '../core/network/service_paused_cubit.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
+import '../core/telemetry/telemetry_bootstrap.dart';
+import '../core/telemetry/telemetry_inputs.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
+import '../features/auth/presentation/bloc/auth_state.dart';
 import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
@@ -77,27 +80,42 @@ Future<void> bootstrap() async {
     return;
   }
 
-  await Firebase.initializeApp(
-    options: switch (config.firebaseEnv) {
-      FirebaseEnv.dev => dev_firebase.DefaultFirebaseOptions.currentPlatform,
-      FirebaseEnv.prod => prod_firebase.DefaultFirebaseOptions.currentPlatform,
+  // TEL-4: telemetry starts right after Firebase.initializeApp, with the
+  // decision stored for the uid the auth SDK restored (collection is off by
+  // construction until a flag and the person's consent say otherwise).
+  late final AuthRepository authRepository;
+  late final String? restoredUid;
+  final database = AppDatabase();
+  final telemetry = await startTelemetry(
+    initializeFirebase: () async {
+      await Firebase.initializeApp(
+        options: switch (config.firebaseEnv) {
+          FirebaseEnv.dev =>
+            dev_firebase.DefaultFirebaseOptions.currentPlatform,
+          FirebaseEnv.prod =>
+            prod_firebase.DefaultFirebaseOptions.currentPlatform,
+        },
+      );
+      if (config.useEmulators) {
+        await fb_auth.FirebaseAuth.instance.useAuthEmulator(
+          _emulatorHost(config.authEmulatorHost),
+          _emulatorPort(config.authEmulatorHost),
+        );
+      }
     },
+    restoredUid: () async {
+      authRepository = AuthRepository(
+        googleWebClientId: config.googleWebClientId,
+        appleServiceId: config.appleServiceId,
+        appleRedirectUri: config.appleRedirectUri,
+      );
+      return restoredUid = await _restoredUid(authRepository);
+    },
+    memory: DatabaseTelemetryFlagMemory(database),
   );
-
-  if (config.useEmulators) {
-    await fb_auth.FirebaseAuth.instance.useAuthEmulator(
-      _emulatorHost(config.authEmulatorHost),
-      _emulatorPort(config.authEmulatorHost),
-    );
-  }
 
   await _activateAppCheck(config);
 
-  final authRepository = AuthRepository(
-    googleWebClientId: config.googleWebClientId,
-    appleServiceId: config.appleServiceId,
-    appleRedirectUri: config.appleRedirectUri,
-  );
   // ADR-0022: while the API is paused, Google's front end answers HTTP 403;
   // the interceptor flips this cubit and the root shows the paused screen.
   final servicePaused = ServicePausedCubit(
@@ -109,7 +127,6 @@ Future<void> bootstrap() async {
     appCheckTokens: const FirebaseAppCheckTokenProvider(),
     onServicePaused: servicePaused.markPaused,
   );
-  final database = AppDatabase();
   final identityRepository = IdentityRepository(
     apiClient: apiClient,
     database: database,
@@ -130,7 +147,7 @@ Future<void> bootstrap() async {
   // Whose cache is this? (W7-35, L-4.) Settled before the first cache read
   // below: a wipe that the last run missed is done here, for the uid the auth
   // SDK restored (null when nobody is signed in).
-  await database.claimCacheFor(await _restoredUid(authRepository));
+  await database.claimCacheFor(restoredUid);
   // Warm the in-memory relationship cache from the caller's cached
   // `following` set before the first frame, so FollowButton can render
   // "Following" instantly on a warm start (CLAUDE.md prime directive).
@@ -144,6 +161,13 @@ Future<void> bootstrap() async {
     authRepository: authRepository,
     beforeSignOut: () => pushCubit.unregister(),
   )..add(const AuthSubscriptionRequested());
+  // The auth SDK has not reported yet while the status is unknown: that is no
+  // sign-out, so the bootstrap decision stands.
+  authBloc.stream.listen((state) {
+    if (state.status != AuthStatus.unknown) {
+      telemetry.onAuthChanged(state.user?.uid);
+    }
+  });
   final onboardingBloc = OnboardingBloc(identityRepository: identityRepository);
 
   // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
