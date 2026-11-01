@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
-import '../../../../shared/widgets/app_tile_icon.dart';
+import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 
 /// "1 member" / "N members" (plain digits, no compact form: a list holds at
 /// most 150).

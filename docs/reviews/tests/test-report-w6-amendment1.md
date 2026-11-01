@@ -42,7 +42,7 @@ follow-ups (part 2 L-1 and I-7; part 1 I-5 and the H-3 loop shapes). No producti
 | **H-3 loop shape: timeouts across many documents stop at the units cap (both tiers); refused calls claim and call nothing** | `TestW641_H3_LoopAcrossDocumentsStopsAtTheUnitsCap` | **new** |
 | **H-3 loop shape: alternating outages and assessed attempts end terminal within 8 claims, 3 assessed, 16 units** | `TestW641_H3_AlternatingOutagesAndAssessedAttemptsAreTerminalWithin8Claims` | **new** |
 | **security-w6-40 I-5: a lost claim race (`ErrConflict`) returns the whole charge** | `TestW641_I5_LostClaimRaceRefundsTheWholeCharge` (adds `claimFn` hook to the test fake `fakeRepo`) | **new** |
-| W6-37 client flows (Change vote control, changing mode, blocked state, error answers, `expected_choice`, fresh key, drop retries) | `app/test/shared/widgets/poll_change_vote_card_test.dart`, `post_card_poll_test.dart`, `w6_poll_flow_test.dart`, `poll_display_test.dart`, engagement cubit tests | existing; no Flutter test added, none run |
+| W6-37 client flows (Change vote control, changing mode, blocked state, error answers, `expected_choice`, fresh key, drop retries) | `app/test/shared/widgets/post/poll_change_vote_card_test.dart`, `post_card_poll_test.dart`, `w6_poll_flow_test.dart`, `poll_display_test.dart`, engagement cubit tests | existing; no Flutter test added, none run |
 
 ## Budgets measured (request-line `fs_reads` / `fs_writes`, emulator chain)
 

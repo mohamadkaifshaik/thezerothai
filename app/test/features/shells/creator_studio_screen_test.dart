@@ -7,8 +7,8 @@ import 'package:dzeroth/features/shells/presentation/creator_studio_screen.dart'
 import 'package:dzeroth/features/shells/presentation/widgets/creator_insights_group.dart';
 import 'package:dzeroth/features/shells/presentation/widgets/creator_programs_group.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/shared/widgets/app_status_pill.dart';
-import 'package:dzeroth/shared/widgets/settings_group.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_status_pill.dart';
+import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';

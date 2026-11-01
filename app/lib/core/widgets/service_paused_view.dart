@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../shared/widgets/app_empty_view.dart';
-import '../../shared/widgets/app_pill_button.dart';
+import '../../shared/widgets/primitives/app_empty_view.dart';
+import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../network/app_exception.dart';
 import '../theme/app_theme.dart';
 

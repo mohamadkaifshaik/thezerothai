@@ -4,7 +4,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
-import 'package:dzeroth/shared/widgets/app_avatar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:fixnum/fixnum.dart';

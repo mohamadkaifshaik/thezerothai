@@ -19,8 +19,8 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pb.dart'
     as pb;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
-import 'package:dzeroth/shared/widgets/app_surface.dart';
-import 'package:dzeroth/shared/widgets/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

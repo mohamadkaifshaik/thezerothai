@@ -1,6 +1,6 @@
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/widgets/service_paused_view.dart';
-import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/theme_harness.dart';

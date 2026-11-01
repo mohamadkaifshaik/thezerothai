@@ -4,7 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';

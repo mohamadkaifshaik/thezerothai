@@ -14,7 +14,7 @@
 - `pkg/platform/{degraded,logger}`
 - `app/lib/features/messages/**` and `app/lib/features/notifications/**`
 - `app/lib/core/router/app_router.dart`, `app/lib/core/storage/app_database.dart`, `app/lib/app/{bootstrap,session_wiring}.dart`
-- `app/lib/shared/widgets/browser_context_menu_guard.dart`
+- `app/lib/shared/widgets/primitives/browser_context_menu_guard.dart`
 - `firebase.json`, `infra/terraform/modules/iam/main.tf`, `app/android/app/src/main/AndroidManifest.xml`
 
 **Not run:** tests, `govulncheck` and `osv-scanner`. W7-20 and W7-21 (tester) are still Open, so no authz test results were available to me. Every finding below comes from reading the code.

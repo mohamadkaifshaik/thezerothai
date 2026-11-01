@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../shared/widgets/settings_group.dart';
+import '../../../../shared/widgets/primitives/settings_group.dart';
 import '../../../posts/presentation/bloc/unsent_posts_cubit.dart';
 import '../../../posts/presentation/widgets/draft_dialogs.dart';
 

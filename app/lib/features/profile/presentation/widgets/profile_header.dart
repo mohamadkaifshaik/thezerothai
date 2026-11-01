@@ -15,10 +15,10 @@ import '../../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
     show ReportTargetType;
 import '../../../../shared/format/joined_date.dart';
 import '../../../../shared/format/profile_website.dart';
-import '../../../../shared/widgets/app_avatar.dart';
-import '../../../../shared/widgets/app_surface.dart';
-import '../../../../shared/widgets/follow_button.dart';
-import '../../../../shared/widgets/post_card.dart' show launchPostLink;
+import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
+import '../../../../shared/widgets/user/follow_button.dart';
+import '../../../../shared/widgets/post/post_card.dart' show launchPostLink;
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
@@ -26,7 +26,7 @@ import '../../../graph/presentation/graph_error_messages.dart';
 import '../../../lists/data/lists_repository.dart';
 import '../../../lists/presentation/widgets/add_to_lists_sheet.dart';
 import '../../../moderation/presentation/report_sheet.dart';
-import '../../../../shared/widgets/protected_badge.dart';
+import '../../../../shared/widgets/user/protected_badge.dart';
 import 'block_confirmation_dialog.dart';
 import 'profile_cover_band.dart';
 

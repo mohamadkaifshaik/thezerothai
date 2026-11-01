@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/sheet_option_row.dart';
+import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 import '../../domain/reply_audience.dart';
 
 /// The leading icon of an audience: globe, person with a check, "@".

@@ -14,7 +14,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import 'package:dzeroth/shared/widgets/app_surface.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';

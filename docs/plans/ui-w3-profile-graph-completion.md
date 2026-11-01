@@ -154,7 +154,7 @@ Questions for the architect (W3-1, W3-3): the exact RPC and field shapes below a
 | `firebase/firestore.indexes.json`, `firebase/field-overrides.ack` | W3-2, W3-25a | founder-gated; merge one wave's index PR at a time, the other merges `origin/main` and re-hashes the ack |
 | `scripts/promotion/flag-ceiling.json`, `backend/internal/config/config.go`, the flag registry in `apiserver.go`, `ratelimit_config.go`, Terraform `feature_*` vars | W3-4, W3-25b | serialize the merges with W4's flag ticket |
 | `proto/dzeroth/{common,identity,graph,timeline,posts,notifications}/v1/*.proto` | W3-25a | ADR-0025 D14 fixes `ErrorReason` 17, `GetMeResponse` 6, `NotificationType` 7 and 8, `EmbedViewerState` 3, `GetUserTimelineResponse` 6; W4-2 and later waves take the next free numbers |
-| `app/lib/shared/widgets/app_side_column.dart` | W3-19 | W4 puts "What's happening" in the same column; whoever merges second rebases |
+| `app/lib/shared/widgets/primitives/app_side_column.dart` | W3-19 | W4 puts "What's happening" in the same column; whoever merges second rebases |
 | `app/lib/features/profile/presentation/widgets/profile_header.dart` | W3-13, W3-14 | W4's profile search icon (B-04) waits for W3-14 |
 
 - **Safe to run concurrently with W4:** every other W3 ticket. That covers the identity, media, posts, timeline, engagement and graph tickets W3-5 to W3-12, and the client tickets W3-15 to W3-18. W4 adds a new `search` module and proto, and an Explore screen.

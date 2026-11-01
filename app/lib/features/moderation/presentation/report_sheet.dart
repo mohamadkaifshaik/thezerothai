@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
-import '../../../shared/widgets/character_counter.dart';
+import '../../../shared/widgets/primitives/character_counter.dart';
 import '../data/moderation_repository.dart';
 import '../domain/report_rules.dart';
 import 'bloc/report_cubit.dart';

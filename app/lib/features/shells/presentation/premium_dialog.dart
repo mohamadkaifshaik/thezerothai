@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/app_status_pill.dart';
-import '../../../shared/widgets/app_surface.dart';
+import '../../../shared/widgets/primitives/app_status_pill.dart';
+import '../../../shared/widgets/primitives/app_surface.dart';
 import '../domain/premium_plans.dart';
 
 /// The Premium shell (`/premium`, a shell of plan W8): a modal dialog over the

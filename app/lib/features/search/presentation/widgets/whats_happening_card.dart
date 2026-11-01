@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_surface.dart';
+import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../domain/search_feature_flags.dart';
 import '../bloc/trends_cubit.dart';
 import '../bloc/trends_state.dart';

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
-import '../../../../shared/widgets/app_avatar.dart';
-import '../../../../shared/widgets/app_pill_button.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_detail_state.dart';
 import 'list_unavailable_view.dart';

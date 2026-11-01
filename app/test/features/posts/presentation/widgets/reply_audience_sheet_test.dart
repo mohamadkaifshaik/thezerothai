@@ -1,6 +1,6 @@
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/reply_audience_sheet.dart';
-import 'package:dzeroth/shared/widgets/sheet_option_row.dart';
+import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

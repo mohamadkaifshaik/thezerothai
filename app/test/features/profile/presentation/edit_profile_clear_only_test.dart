@@ -4,7 +4,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/profile_edit_error_messages.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/banner_editor.dart';
-import 'package:dzeroth/shared/widgets/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

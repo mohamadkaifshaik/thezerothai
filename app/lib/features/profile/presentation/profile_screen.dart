@@ -9,14 +9,14 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../shared/widgets/app_pill_button.dart';
-import '../../../shared/widgets/app_tab_bar.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
-import '../../../shared/widgets/post_pin_control.dart';
+import '../../../shared/widgets/post/post_pin_control.dart';
 import '../../graph/data/graph_repository.dart';
 import '../../lists/domain/lists_feature_flag.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
@@ -43,7 +43,7 @@ import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
-import '../../../shared/widgets/protected_posts_view.dart';
+import '../../../shared/widgets/post/protected_posts_view.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts

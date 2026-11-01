@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../data/recent_searches_store.dart';
 import '../../data/search_repository.dart';

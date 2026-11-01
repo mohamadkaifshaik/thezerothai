@@ -12,8 +12,8 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     as pbenum
     show Visibility;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
-import '../../../../shared/widgets/post_action_bar.dart';
-import '../../../../shared/widgets/post_share_menu.dart';
+import '../../../../shared/widgets/post/post_action_bar.dart';
+import '../../../../shared/widgets/post/post_share_menu.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../posts/domain/posts_feature_flag.dart';
 import '../../../posts/domain/reply_audience.dart';

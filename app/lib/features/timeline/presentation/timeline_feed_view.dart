@@ -10,11 +10,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
-import '../../../shared/widgets/app_empty_view.dart';
-import '../../../shared/widgets/app_notice_banner.dart';
-import '../../../shared/widgets/pending_posts_section.dart';
-import '../../../shared/widgets/post_list_skeleton.dart';
-import '../../../shared/widgets/post_pin_control.dart';
+import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/post/pending_posts_section.dart';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
+import '../../../shared/widgets/post/post_pin_control.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
@@ -23,7 +23,7 @@ import 'bloc/timeline_state.dart';
 import 'timeline_error_messages.dart';
 import 'widgets/feed_post_row.dart';
 import 'widgets/new_posts_pill.dart';
-import '../../../shared/widgets/timeline_gap_row.dart';
+import '../../../shared/widgets/post/timeline_gap_row.dart';
 
 /// How often the foreground tick fires: it re-renders relative times
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at

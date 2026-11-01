@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/privacy_policy_link.dart'
     show launchCommunityRules;
-import '../../../../shared/widgets/character_counter.dart';
+import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../domain/composer_draft.dart' show DraftPoll;
 import '../../domain/poll_rules.dart';
 

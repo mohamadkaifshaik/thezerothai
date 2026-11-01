@@ -43,7 +43,7 @@ Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-3
 | Home timeline | `timeline.homeSources(authors, tok, limit, start)` reads author-recent entries first, then chunks of 30 (`posts.MaxByAuthors`) at `k = ceil(2p/C')` with ≤ 4 in flight; `Merge`, `Compare`, `PositionOf`; `allowedAuthor`, `embedAllowed`; `removedIDs(ctx, tok, authors)`; tokens bound by `homeFeed` / `userFeed` in `tokens.go` (`backend/internal/timeline/service.go`, `merge.go`, `tokens.go`, `removed.go`) | **reuse all of it** for the list timeline; a new `listFeed` binding |
 | Post query for a community | `posts.Reader.ByAuthors` (root posts, `isReply == false`), `ByAuthor`, `GetMany`; no community field on posts | `communityId` on root community posts; `Reader.ByCommunity` |
 | Home tabs | `HomeScreen` has a one-tab "Following" `AppTabBar` (W1-5); `AppTabBar` already scrolls content-sized tabs and takes a trailing widget (`docs/ui-catalog.md`) | Following + pinned tabs, "+" → Manage pinned |
-| Post context label | `PostCard` has a private `_RepostedBy` row (`app/lib/shared/widgets/post_card.dart:463`) | generalise it into one context-label row (repost, community) |
+| Post context label | `PostCard` has a private `_RepostedBy` row (`app/lib/shared/widgets/post/post_card.dart:463`) | generalise it into one context-label row (repost, community) |
 | Navigation | `AppDrawer` rows Profile / History / Settings / Sign out ("add Lists here in a later wave"); `MainShell` bar and rail Home, Notifications, Profile (W4-17 adds Explore) | Lists and Communities rows (drawer, desktop rail) |
 | Reports, takedowns | `ReportContent` with `ReportTargetType` POST and ACCOUNT (`moderation.proto`); opsctl `takedown-post`, `suspend-user`; `postRemovals` log for `removed_ids` (ADR-0016) | targets COMMUNITY and LIST (LIST shipped in W5-44); opsctl community suspend and list hide (shipped in W5-44) |
 | Composer | a "Choose audience" pill is captured on X (`composer.md` §3: "Everyone" plus "My Communities") and is not built; `composer-w15-w6.md` lists "Communities audience" as out of its scope | the audience picker (W5-34) |
@@ -416,7 +416,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 | `app/lib/features/timeline/domain/feed_key.dart` (+ drift keys) | W5-10, W5-30 | W3-16 (`FeedKey.user(uid, tab)`) | one at a time |
 | `app/lib/features/home/presentation/home_screen.dart` (Home tab bar) | W5-14 | W3-19 (who-to-follow in `headerSlivers`), W2-12 (merged) | W5-14 after W3-19 or rebases |
 | `app/lib/core/router/main_shell.dart`, `app_router.dart`, `app/lib/core/widgets/app_drawer.dart`, the bottom bar and rail | W5-11, W5-31 | W4-17 (Explore), W3-18 | one nav PR at a time |
-| `app/lib/shared/widgets/post_card.dart` (context label, post menu) | W5-33, W5-35 | W3-17 (pinned label, pin menu), W4-16 (hashtag tap) | one at a time |
+| `app/lib/shared/widgets/post/post_card.dart` (context label, post menu) | W5-33, W5-35 | W3-17 (pinned label, pin menu), W4-16 (hashtag tap) | one at a time |
 | `app/lib/features/profile/presentation/widgets/profile_header.dart` (overflow menu) | W5-13 | W3-13, W3-14 | after W3-14 |
 | composer files (`app/lib/features/compose/...`) | W5-34 | W1.5 composer conformance, W6 | one at a time |
 | `docs/code-map.md`, `docs/ui-catalog.md` | every ticket | every wave | trivial merges |
