@@ -23,6 +23,25 @@ type fakeService struct {
 	detail  Detail
 	err     error
 	gotUser string
+	join    []MembershipInput
+	leave   []MembershipInput
+	my      []string
+	list    MyCommunities
+}
+
+func (s *fakeService) JoinCommunity(_ context.Context, uid string, in MembershipInput) (View, error) {
+	s.join, s.gotUser = append(s.join, in), uid
+	return s.view, s.err
+}
+
+func (s *fakeService) LeaveCommunity(_ context.Context, uid string, in MembershipInput) (View, error) {
+	s.leave, s.gotUser = append(s.leave, in), uid
+	return s.view, s.err
+}
+
+func (s *fakeService) ListMyCommunities(_ context.Context, uid, token string) (MyCommunities, error) {
+	s.my, s.gotUser = append(s.my, token), uid
+	return s.list, s.err
 }
 
 func (s *fakeService) CreateCommunity(_ context.Context, uid string, in CreateInput) (View, error) {
@@ -55,9 +74,12 @@ func sampleView() View {
 // FEATURE_DISABLED), and a caller inside does.
 func TestServer_ImplementedRPCsRunTheGateBeforeTheService(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
-		"CreateCommunity": call((*Server).CreateCommunity),
-		"UpdateCommunity": call((*Server).UpdateCommunity),
-		"GetCommunity":    call((*Server).GetCommunity),
+		"CreateCommunity":   call((*Server).CreateCommunity),
+		"UpdateCommunity":   call((*Server).UpdateCommunity),
+		"GetCommunity":      call((*Server).GetCommunity),
+		"JoinCommunity":     call((*Server).JoinCommunity),
+		"LeaveCommunity":    call((*Server).LeaveCommunity),
+		"ListMyCommunities": call((*Server).ListMyCommunities),
 	}
 	for rpc, c := range calls {
 		for _, m := range flagModes() {
@@ -65,7 +87,7 @@ func TestServer_ImplementedRPCsRunTheGateBeforeTheService(t *testing.T) {
 				svc := &fakeService{view: sampleView()}
 				s := NewServer(flags.NewRegistry(m.spec), svc)
 				err := c(s, authedCtx(m.uid))
-				touched := len(svc.create)+len(svc.update)+len(svc.get) > 0
+				touched := len(svc.create)+len(svc.update)+len(svc.get)+len(svc.join)+len(svc.leave)+len(svc.my) > 0
 				if m.wantOff {
 					assertDisabled(t, err)
 					if touched {
@@ -198,4 +220,65 @@ func TestProtoMapping(t *testing.T) {
 func TestNewWithoutCreatorsRefusesEveryone(t *testing.T) {
 	_, err := New(Deps{Repo: newFakeRepo()}).CreateCommunity(context.Background(), ownerUID, CreateInput{Key: goodKey, Name: "Go"})
 	wantAPIErr(t, err, connect.CodePermissionDenied, 21, map[string]string{"reason": "not_creator"})
+}
+
+func TestServer_JoinAndLeave(t *testing.T) {
+	v := sampleView()
+	v.Role = RoleMember
+	svc := &fakeService{view: v}
+	s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), svc)
+	jr, err := s.JoinCommunity(authedCtx("u1"), connect.NewRequest(&communitiesv1.JoinCommunityRequest{IdempotencyKey: goodKey, CommunityId: testCID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.join[0]; got.Key != goodKey || got.CommunityID != testCID || svc.gotUser != "u1" {
+		t.Errorf("join input = %+v by %q", got, svc.gotUser)
+	}
+	if c := jr.Msg.GetCommunity(); c.GetCommunityId() != testCID || c.GetViewerRole() != communitiesv1.CommunityRole_COMMUNITY_ROLE_MEMBER {
+		t.Errorf("join response = %v", c)
+	}
+	v.Role = RoleNone
+	svc.view = v
+	lr, err := s.LeaveCommunity(authedCtx("u2"), connect.NewRequest(&communitiesv1.LeaveCommunityRequest{IdempotencyKey: goodKey, CommunityId: otherCID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := svc.leave[0]; got.CommunityID != otherCID || svc.gotUser != "u2" {
+		t.Errorf("leave input = %+v by %q", got, svc.gotUser)
+	}
+	if lr.Msg.GetCommunity().GetViewerRole() != communitiesv1.CommunityRole_COMMUNITY_ROLE_NONE {
+		t.Errorf("leave response = %v", lr.Msg)
+	}
+	svc.err = Forbidden(ReasonBanned)
+	if _, err := s.JoinCommunity(authedCtx("u1"), connect.NewRequest(&communitiesv1.JoinCommunityRequest{})); !errors.Is(err, svc.err) {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := s.LeaveCommunity(authedCtx("u1"), connect.NewRequest(&communitiesv1.LeaveCommunityRequest{})); !errors.Is(err, svc.err) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestServer_ListMyCommunities(t *testing.T) {
+	a, b := sampleView(), sampleView()
+	b.Community.ID = otherCID
+	b.Role = RoleMember
+	svc := &fakeService{list: MyCommunities{Items: []View{a, b}, CanCreate: true}}
+	s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), svc)
+	resp, err := s.ListMyCommunities(authedCtx("u1"), connect.NewRequest(&communitiesv1.ListMyCommunitiesRequest{PageSize: 3, PageToken: "x"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.my[0] != "x" || svc.gotUser != "u1" {
+		t.Errorf("service got %q by %q", svc.my, svc.gotUser)
+	}
+	m := resp.Msg
+	if !m.GetCanCreate() || len(m.GetCommunities()) != 2 || m.GetCommunities()[1].GetCommunityId() != otherCID ||
+		m.GetCommunities()[0].GetViewerRole() != communitiesv1.CommunityRole_COMMUNITY_ROLE_OWNER || m.GetNextPageToken() != "" {
+		t.Errorf("response = %v", m)
+	}
+	svc.list = MyCommunities{}
+	resp, err = s.ListMyCommunities(authedCtx("u1"), connect.NewRequest(&communitiesv1.ListMyCommunitiesRequest{}))
+	if err != nil || resp.Msg.GetCanCreate() || len(resp.Msg.GetCommunities()) != 0 {
+		t.Errorf("empty list: %v, %v", resp, err)
+	}
 }

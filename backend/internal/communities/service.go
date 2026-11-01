@@ -45,6 +45,9 @@ const notFoundText = "community not found"
 type Limits struct {
 	MaxOwned, MaxJoined, MaxRules, ModlogMax int
 	CacheEntries, MembersCacheEntries        int
+	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow; ADR-0031 D11).
+	JoinsPerDay, NewAccountJoinsPerDay int64
+	NewAccountWindow                   time.Duration
 }
 
 // Deps is everything New needs.
@@ -65,6 +68,7 @@ type service struct {
 	d        Deps
 	cache    *docCache
 	creators map[string]struct{}
+	now      func() time.Time
 }
 
 // New builds the communities service. It never touches Firestore itself; the flag gate is the handler's (Guard), before this runs.
@@ -73,7 +77,7 @@ func New(d Deps) Service {
 	for _, uid := range d.Creators {
 		c[uid] = struct{}{}
 	}
-	return &service{d: d, cache: newDocCache(d.Limits.CacheEntries, d.Limits.MembersCacheEntries), creators: c}
+	return &service{d: d, cache: newDocCache(d.Limits.CacheEntries, d.Limits.MembersCacheEntries), creators: c, now: time.Now}
 }
 
 var _ Service = (*service)(nil)
@@ -195,6 +199,12 @@ func mapErr(ctx context.Context, op, uid, cid string, err error) error {
 	case errors.Is(err, ErrArchived):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:community_archived")
 		return StateConflict(StateArchived)
+	case errors.Is(err, ErrBanned):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:banned")
+		return Forbidden(ReasonBanned)
+	case errors.Is(err, ErrOwnerLeave):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:owner")
+		return StateConflict(StateOwner)
 	case errors.Is(err, ErrOwnedLimit):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
 		logger.SetRequestField(ctx, "limit", LimitOwned)
