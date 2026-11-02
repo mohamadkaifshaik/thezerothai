@@ -195,7 +195,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | L-1: no delete of unsent reports before crash collection turns on | Low | TEL-18 | C-6: before any prod raise |
 | L-2: gaps in the first-sign-in reset | Low | TEL-18, per F12 | C-6: before any prod raise |
 | L-3: native (Java or Kotlin) crash messages are not scrubbed | Low | TEL-19 (ADR note); TEL-9 Part B trace (b) records a native crash | C-5: TEL-12 item 6 carries the sentence |
-| L-4: forged reports can trip the rollback trigger | Low | TEL-20 (runbook triage); TEL-13 (no Measurement Protocol `api_secret`) | before any prod raise |
+| L-4: forged reports can trip the rollback trigger | Low | TEL-20 (runbook triage, in review; BoM re-check); TEL-13 (no Measurement Protocol `api_secret`; the runbook says never create one) | before any prod raise |
 | I-1: `breadcrumb()` is public and not gated | Info | TEL-18 (deleted until it has a caller) | none |
 | Q-1: DPDP s. 6(10) proof of consent | question | F13, legal review | before any non-team account |
 
@@ -714,7 +714,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 
   Each step is a Terraform change plus a `v*` tag, a production-reviewer GO and `promote-prod`. Consent still applies to every user.
 - **Rollback triggers:**
-  - any crash report or event containing an id, handle, email or user text;
+  - any crash report or event containing an id, handle, email or user text (after the runbook's triage step);
   - SDK traffic seen without consent;
   - a crash-rate or ANR rise attributable to the SDKs;
   - reports from a prod build landing in dzeroth-dev;
