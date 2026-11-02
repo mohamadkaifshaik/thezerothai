@@ -218,7 +218,7 @@ func (s *service) ListModerationLog(ctx context.Context, uid string, in LogInput
 	seen := map[string]bool{}
 	for _, e := range rows {
 		for _, u := range []string{e.Actor, e.Target} {
-			if u != "" && u != DeletedMarker && !seen[u] {
+			if u != "" && u != DeletedMarker && u != PlatformMarker && !seen[u] {
 				seen[u] = true
 				uids = append(uids, u)
 			}
@@ -232,7 +232,7 @@ func (s *service) ListModerationLog(ctx context.Context, uid string, in LogInput
 	}
 	// A person is shown only while the account is ACTIVE; the deleted marker, a missing profile and any other status read as deleted.
 	resolve := func(u string) (*identity.Profile, bool) {
-		if u == "" {
+		if u == "" || u == PlatformMarker { // PlatformMarker: an operator action, unset actor with actor_deleted false (D14a)
 			return nil, false
 		}
 		if p, ok := profiles[u]; ok && p.Status == identity.AccountStatusActive {

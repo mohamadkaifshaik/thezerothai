@@ -39,6 +39,9 @@ import (
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
 	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
+	// ListHidden and RestoreHiddenPage are the platform's side (ADR-0031 D14a, W5-52b); see community_hidden.go.
+	ListHidden(ctx context.Context, cid, after string, limit int, each HiddenRowFunc) (rows int, last string, err error)
+	RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want HiddenRowFunc) (res HiddenPageResult, err error)
 }
 
 // listingDoc is the part of a post document the moderator reads.
@@ -101,20 +104,24 @@ func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firest
 	if isListed == listed {
 		return false, true, reply, nil
 	}
-	var updates []firestore.Update
-	switch {
-	case reply && listed:
-		updates = []firestore.Update{{Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
-	case reply:
-		updates = []firestore.Update{{Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
-	case listed:
-		updates = []firestore.Update{{Path: "communityId", Value: cid}, {Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
-	default:
-		updates = []firestore.Update{{Path: "communityId", Value: firestore.Delete}, {Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
-	}
-	if err := tx.Update(ref, updates); err != nil {
+	if err := tx.Update(ref, listingUpdates(reply, listed, cid)); err != nil {
 		return false, true, reply, fmt.Errorf("posts: set community listing: %w", err)
 	}
 	budget.FromContext(ctx).AddWrites(1)
 	return true, true, reply, nil
+}
+
+// listingUpdates are the field-level updates of one hide (listed=false) or restore (listed=true), shared by SetCommunityListing and the
+// platform's RestoreHiddenPage so the two writers of communityHidden and communityHiddenAt can never drift apart.
+func listingUpdates(reply, listed bool, cid string) []firestore.Update {
+	switch {
+	case reply && listed:
+		return []firestore.Update{{Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
+	case reply:
+		return []firestore.Update{{Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
+	case listed:
+		return []firestore.Update{{Path: "communityId", Value: cid}, {Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
+	default:
+		return []firestore.Update{{Path: "communityId", Value: firestore.Delete}, {Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
+	}
 }

@@ -64,6 +64,8 @@ type modArgs struct {
 	fields string
 	limit  int
 	dryRun bool
+	// since and pageToken are the flags of community restore-hidden and hidden (W5-52b).
+	since, pageToken string
 }
 
 const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED] [--limit N (default 20, max 50)]

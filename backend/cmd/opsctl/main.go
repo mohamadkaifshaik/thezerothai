@@ -92,6 +92,8 @@ type backends struct {
 	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user (ADR-0031 D14, plan W5-29).
 	communities communities.Platform
 	removals    communities.PlatformRemovals
+	// hidden serves `community hidden|restore-hidden` (ADR-0031 D14a, plan W5-52b).
+	hidden communities.HiddenRecovery
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -123,8 +125,9 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})
 	postsRepo.SetRepostLinks(engagement.NewFirestoreRepo(client, engagement.WriteDeps{}))
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
-	communitiesRepo := communities.NewFirestoreRepo(client, nil) // the platform levers need no idempotency or quota store
-	msgRepo := messaging.NewFirestoreRepo(client, nil)           // takedown and the placeholder migration: no quota store needed
+	communitiesRepo := communities.NewFirestoreRepo(client, nil)         // the platform levers need no idempotency or quota store
+	msgRepo := messaging.NewFirestoreRepo(client, nil)                   // takedown and the placeholder migration: no quota store needed
+	communitiesRepo.WithHiddenPosts(posts.NewCommunityModerator(client)) // the platform recovery of hidden posts (W5-52b)
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -166,6 +169,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		lists:         lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
 		communities:   communitiesRepo,
 		removals:      communitiesRepo,
+		hidden:        communitiesRepo,
 		retire:        retire,
 		retireMode:    retireMode,
 		retireErr:     retireErr,
@@ -187,7 +191,7 @@ const usage = `usage:
                           (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md.
                           A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
-` + modUsage + trendsUsage + listsUsage + communityUsage
+` + modUsage + trendsUsage + listsUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -213,6 +217,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, community suspend: resolution note")
 	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
+	fs.StringVar(&ma.since, "since", "", "community restore-hidden: restore only posts hidden at or after this RFC 3339 time")
+	fs.StringVar(&ma.pageToken, "page-token", "", "community hidden, restore-hidden: resume after the token a previous page printed")
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
@@ -261,7 +267,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		listID, rest = rest[0], rest[1:]
 	}
 	var communityID string
-	if cmd == "community" && (sub == "suspend" || sub == "restore" || sub == "archive") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if cmd == "community" && (sub == "suspend" || sub == "restore" || sub == "archive" || isHiddenSub(sub)) && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		communityID, rest = rest[0], rest[1:]
 	}
 	if cmd == "messages" && sub != "takedown" && sub != "loghash" && sub != "migrate-placeholder" { // before the flags: a stray positional would otherwise be reported instead
@@ -278,6 +284,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	ma.dryRun = *dryRun
+	if (ma.since != "" || ma.pageToken != "") && (cmd != "community" || !isHiddenSub(sub)) {
+		fmt.Fprintf(errOut, "--since and --page-token are for community hidden and restore-hidden only\n%s", usage)
+		return 2
+	}
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
 	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "community" {
@@ -323,7 +333,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		}
 	}
 	if cmd == "community" {
-		if err := parseCommunityArgs(sub, communityID, ma); err != nil {
+		parse := parseCommunityArgs
+		if isHiddenSub(sub) {
+			parse = parseHiddenArgs
+		}
+		if err := parse(sub, communityID, ma); err != nil {
 			fmt.Fprintf(errOut, "%v\n%s", err, usage)
 			return 2
 		}
@@ -400,7 +414,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "lists":
 		err = listsCommand(ctx, b, *project, sub, listID, ma, out, now)
 	case "community":
-		err = communityCommand(ctx, b, *project, sub, communityID, ma, out, now)
+		if isHiddenSub(sub) {
+			err = hiddenCommand(ctx, b, *project, sub, communityID, ma, out, now)
+		} else {
+			err = communityCommand(ctx, b, *project, sub, communityID, ma, out, now)
+		}
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":

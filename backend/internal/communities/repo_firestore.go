@@ -150,6 +150,8 @@ type FirestoreRepo struct {
 	now    func() time.Time
 	// moderator is the posts-side seam of Hide and Restore (A12).
 	moderator PostModerator
+	// hidden is the posts-side listing and restore of the platform recovery (D14a, opsctl only).
+	hidden HiddenPosts
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
