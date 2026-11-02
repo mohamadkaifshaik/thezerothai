@@ -62,7 +62,12 @@ func isLineSeparator(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp)
 //     U+2800 alone render blank. "" stays acceptable here (a length rule elsewhere decides whether it may be empty).
 //
 // Applied only to a value being written; nothing validates a stored value on read (W5-45).
-func singleLineIssue(s string) bool {
+func singleLineIssue(s string) bool { return invisibleTextIssue(s, false, true) }
+
+// invisibleTextIssue is the one scanner behind singleLineIssue (allowLF false, visible rune required) and BioText (allowLF true,
+// no visible-rune rule, W5-55): control, separator, bidi, filler and Cf (with the ZWJ/ZWNJ and subdivision-flag exceptions).
+// allowLF lets LF through; it counts as white space for the joiner-neighbour check, so a ZWJ next to a line break is refused.
+func invisibleTextIssue(s string, allowLF, requireVisible bool) bool {
 	rs := []rune(s)
 	visible := false
 	for i := 0; i < len(rs); i++ {
@@ -73,6 +78,8 @@ func singleLineIssue(s string) bool {
 			visible = true
 			i += tagSequenceLen(rs[i+1:])
 
+		case allowLF && r == 0x0A:
+			// the one line break a multi-line field keeps
 		case unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r) || isFiller(r):
 			return true
 		case r == 0x200C || r == 0x200D:
@@ -85,7 +92,7 @@ func singleLineIssue(s string) bool {
 			visible = true
 		}
 	}
-	return s != "" && !visible
+	return requireVisible && s != "" && !visible
 }
 
 // tagSequenceLen returns how many runes after U+1F3F4 form a well-formed emoji tag sequence: one or more tag characters
