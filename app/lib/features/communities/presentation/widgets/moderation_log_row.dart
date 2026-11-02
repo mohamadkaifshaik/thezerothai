@@ -12,11 +12,13 @@ import '../../../lists/presentation/widgets/list_unavailable_view.dart'
 /// reads "Deleted account"; an action this build does not know reads
 /// "Moderation action". The log never names a post's author.
 String moderationLogSentence(pb.ModerationLogEntry e) {
+  // No actor and not deleted: the platform acted (ADR-0031 D14a, the
+  // `_platform` marker). It reads as the platform, never as a person.
   final actor = e.actorDeleted
       ? 'Deleted account'
-      : (e.hasActor() && e.actor.handle.isNotEmpty
-            ? '@${e.actor.handle}'
-            : 'A moderator');
+      : (e.hasActor()
+            ? (e.actor.handle.isNotEmpty ? '@${e.actor.handle}' : 'A moderator')
+            : 'The platform');
   final target = e.targetDeleted
       ? 'Deleted account'
       : (e.hasTarget() && e.target.handle.isNotEmpty

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -21,8 +23,11 @@ import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/pending_post_row.dart';
 import '../../../shared/widgets/post/post_card.dart';
+import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/unavailable_post_box.dart';
+import '../../communities/data/communities_repository.dart';
+import '../../communities/domain/communities_feature_flag.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
@@ -32,6 +37,7 @@ import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/thread_cubit.dart';
+import 'bloc/thread_moderation_cubit.dart';
 import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
@@ -51,6 +57,17 @@ part 'thread_footer.dart';
 ///   [fallbackBuilder], the plain post view, instead of an error.
 /// - A new reply is appended from the CreatePost response (no refetch);
 ///   a failed one keeps its text and shows a snackbar.
+/// The communities repository while `communities` is on (W5-51c), else null:
+/// a thread never reads it for a caller who cannot see Communities.
+CommunitiesRepository? _communitiesRepositoryIfOn(BuildContext context) {
+  if (!featureEnabledSnapshot(context, kFeatureCommunities)) return null;
+  try {
+    return context.read<CommunitiesRepository>();
+  } on ProviderNotFoundException {
+    return null;
+  }
+}
+
 class ThreadScreen extends StatelessWidget {
   const ThreadScreen({
     super.key,
@@ -73,6 +90,11 @@ class ThreadScreen extends StatelessWidget {
             postsRepository: context.read<PostsRepository>(),
             postId: postId,
           )..load(),
+        ),
+        BlocProvider<ThreadModerationCubit>(
+          create: (context) => ThreadModerationCubit(
+            communities: _communitiesRepositoryIfOn(context),
+          ),
         ),
         BlocProvider<ComposerCubit>(
           create: (context) => ComposerCubit.reply(
@@ -104,6 +126,16 @@ class _ThreadView extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiBlocListener(
       listeners: [
+        BlocListener<ThreadCubit, ThreadState>(
+          listenWhen: (before, after) =>
+              before.rootCommunity?.id != after.rootCommunity?.id,
+          listener: (context, state) {
+            final id = state.rootCommunity?.id;
+            if (id != null) {
+              unawaited(context.read<ThreadModerationCubit>().resolve(id));
+            }
+          },
+        ),
         BlocListener<ThreadCubit, ThreadState>(
           listenWhen: (before, after) =>
               after.status == ThreadStatus.deleted &&
@@ -238,11 +270,41 @@ class _ThreadList extends StatelessWidget {
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     final engagementEnabled = isFeatureEnabled(context, kFeatureEngagement);
+    final communitiesEnabled = isFeatureEnabled(context, kFeatureCommunities);
+    final moderation = context.read<ThreadModerationCubit>();
+    final moderationState = context.watch<ThreadModerationCubit>().state;
     final viewerUserId = context.read<OnboardingBloc>().state.profile?.userId;
     return BlocBuilder<ThreadCubit, ThreadState>(
       builder: (context, state) {
         final focal = state.focal;
         if (focal == null) return const SizedBox.shrink();
+        // "Remove from Community" on replies (W5-51c): the root carries the
+        // label, the role is the server's `viewer_role`; null = no row.
+        final community = state.rootCommunity;
+        final PostModerationControl? replyModeration =
+            communitiesEnabled &&
+                community != null &&
+                moderationState.canModerate &&
+                moderationState.communityId == community.id
+            ? PostModerationControl(
+                communityId: community.id,
+                communityName: community.name,
+                repliesOnly: true,
+                onHide: (replyId) async {
+                  cubit.hideReplyLocally(replyId);
+                  final error = await moderation.hide(replyId);
+                  if (error != null) {
+                    cubit.showReplyAgain(replyId);
+                    throw error;
+                  }
+                },
+                onRestore: (replyId) async {
+                  final error = await moderation.restore(replyId);
+                  if (error != null) throw error;
+                  cubit.showReplyAgain(replyId);
+                },
+              )
+            : null;
         final replies = state.visibleReplies;
         void onRelationship(graph.Relationship r) =>
             cubit.setAuthorHidden(r.userId, hidden: r.blocking || r.muting);
@@ -357,6 +419,7 @@ class _ThreadList extends StatelessWidget {
                             graphActionsEnabled: graphEnabled,
                             reportsEnabled: reportsEnabled,
                             engagementEnabled: engagementEnabled,
+                            moderationControl: replyModeration,
                             onDelete: cubit.deletePost,
                             onRelationshipChanged: onRelationship,
                           ),

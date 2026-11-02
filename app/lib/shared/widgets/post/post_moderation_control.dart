@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 
 /// What a post's overflow menu needs to offer "Remove from Community" to a
 /// community moderator (W5-35, ADR-0031 D2). The community screen builds one
@@ -17,6 +18,7 @@ class PostModerationControl {
     required this.communityName,
     required this.onHide,
     required this.onRestore,
+    this.repliesOnly = false,
   });
 
   /// The community whose feed this is. Only its own posts get the row.
@@ -29,7 +31,16 @@ class PostModerationControl {
   /// Restores [postId] (the snackbar's Undo); throws on failure.
   final Future<void> Function(String postId) onRestore;
 
-  /// The menu of [post] has the row: the post is labelled with this community.
-  bool offersRowFor(pb.Post post) =>
-      post.hasCommunity() && post.community.id == communityId;
+  /// W5-51c (ADR-0031 D4a): the control of a community conversation's open
+  /// thread. A reply carries no community label of its own, so the row goes to
+  /// every reply instead. The thread screen builds one only for the root's
+  /// community and a `viewer_role` of owner or moderator; the server still
+  /// refuses what the role may not do (F16 `not_owner`).
+  final bool repliesOnly;
+
+  /// The menu of [post] has the row: a reply (replies-only control), or a post
+  /// labelled with this community.
+  bool offersRowFor(pb.Post post) => repliesOnly
+      ? post.kind == PostKind.POST_KIND_REPLY || post.replyToPostId.isNotEmpty
+      : post.hasCommunity() && post.community.id == communityId;
 }
