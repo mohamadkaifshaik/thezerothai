@@ -34,6 +34,7 @@ Each step is a Terraform change plus the ADR-0019 release flow (a `v*` tag, a `p
   - Before the first dev allowlist: TEL-1 Accepted, TEL-9 PASS (three traces), TEL-10 CLEAR, TEL-11 HOLDS, TEL-12 on dev Hosting, TEL-13 dev console settings.
   - Before any prod raise or non-team account: TEL-12 served by prod Hosting, TEL-14 (#593, merged) in the release, TEL-13 prod GA settings, the founder's OK on the plan.
 - **Allowlisted testers are few and known, so their reports are pseudonymous but recognisable. Do not try to match allowlisted testers to reports or events.**
+- **Standing rule (TEL-10 M-2 and L-5): never enable a Crashlytics BigQuery export or a Crashlytics Cloud Logging export, and never compare `users/{uid}/devices/{deviceId}.token` (`devices.token`) with console data.** The FCM token prefix equals the Firebase installation ID, and Crashlytics and Sessions send that ID to Google. The ID cannot be joined with a uid only while no export puts per-device events where we can read them. BigQuery is also excluded by ADR-0032 D1.
 
 ## Kill switch
 
@@ -41,7 +42,7 @@ Set the flag to `off` and deploy (a Terraform change; no data migration). Effect
 
 - `crash_reporting` `off`: on the next `GetMe`, **Dart-side reports stop at once; native capture stops at the next launch, which also deletes unsent reports** (ADR-0032 C1). The switch is hidden; the stored choice is kept. Residual, accepted: a native (Java or Kotlin) fatal crash later in the same process run can still be uploaded.
 - `analytics` `off`: on the next `GetMe`, collection is off (Google documents no next-launch delay for Analytics; TEL-9 checks).
-- Staleness: as of the last `GetMe` (about 4 per DAU per day); on a cold start the stored decision for the restored uid applies until then. Only `off` is the kill switch; percent 0 or a shrunk allowlist is a rollout.
+- Staleness: as of the last `GetMe` (about 4 per DAU per day); on a cold start the stored decision for the restored uid applies until then. Native capture and the SDKs' own traffic stop from the launch after the run whose `GetMe` returned `off`; that run still starts with the previous native setting (one Crashlytics settings fetch and one Firebase Sessions start event, which carries the installation ID). A launch that is killed or offline before its `GetMe` returns leaves the next launch the same (ADR-0032 note of 2026-11-02; TEL-10 L-5; TEL-9 F-1). Only `off` is the kill switch; percent 0 or a shrunk allowlist is a rollout.
 - Rollback triggers: any report or event containing an id, handle, email or user text **that passes the triage step under Failure modes** (a report that fails it is forged: delete it, do not roll back); SDK traffic seen without consent; a crash or ANR rise attributable to the SDKs; a prod report landing in dzeroth-dev.
 
 ## Deleting data (ADR-0032 C5)

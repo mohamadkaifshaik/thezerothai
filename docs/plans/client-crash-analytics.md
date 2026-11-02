@@ -229,7 +229,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | Item | Test report | Needs the founder's phone | Needs the founder's dzeroth-dev console | Status |
 |---|---|---|---|---|
 | Merged-manifest permissions (C-2) | §6 step 1, §6b C-2 | no: a local release APK and `aapt2 dump permissions` (TEL-17 does it first) | no | **Ran 2026-11-02: PASS** (§6c) |
-| Network traces, states 1 to 4, incl. `firebase-settings.crashlytics.com` (C-1) | §6 step 2, §6b C-1 | yes | no | **Ran 2026-11-02:** states 1, 3, 4 PASS; state 2 first relaunch FAIL (F-1, open); second relaunch PASS (§6c) |
+| Network traces, states 1 to 4, incl. `firebase-settings.crashlytics.com` (C-1) | §6 step 2, §6b C-1 | yes | no | **Ran 2026-11-02:** states 1, 3, 4 PASS; state 2 PASS under the corrected procedure (second relaunch clean; F-1 closed as a procedure error, ADR-0032 note of 2026-11-02, TEL-10 L-5) (§6c) |
 | Web trace (C-1) | §6b C-1 | no: a desktop browser | no | **Not run** |
 | **M-2 (C-3), part 1:** FCM token prefix versus the FID, from logcat with the debug log tags; record only "equal" or "not equal", never the values; no `getId` call in app code | §6b C-3 / M-2 | yes | no | **Ran 2026-11-02:** token prefix equals the FID |
 | **M-2 (C-3), part 2:** every field of a test crash (device info, keys, logs) checked for the FID | §6b C-3 / M-2 | yes, to raise the crash | yes, read only | **Ran 2026-11-02:** FID not found in the console view; no new TEL ticket |
@@ -263,8 +263,8 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Done (#611) |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Done (#612) |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Done (#635) |
-| TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Code part merged (#640); Part B device session run 2026-11-02 (test report §6c): PASS except state 2 first relaunch (F-1, open), C-4 and web trace not run |
-| TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, conditions C-1 to C-6 open |
+| TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Code part merged (#640); Part B device session run 2026-11-02 (test report §6c): PASS; F-1 closed as a procedure error (ADR-0032 note of 2026-11-02, TEL-10 L-5); C-4 and web trace not run |
+| TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, L-5 added 2026-11-02 (TEL-9 F-1); conditions C-2, C-3, C-6 met; open: C-1 (web trace), C-4, C-5 |
 | TEL-11 | Cost and performance note: INR 0 line, AAB and web bundle deltas, cold start on a low-end Android; `cost-model.md` section | sre-performance | XS | TEL-3, TEL-4 | yes | Open |
 | TEL-12 | Privacy Policy update (sentence list in the ticket) | architect (draft) + founder (approval) | S | TEL-1 Accepted; F1–F6, F8, F11; C-5: TEL-17, TEL-19 and the M-2 result (C-3) | yes (`privacy.html`: one PR at a time) | Open |
 | TEL-13 | Store forms and console settings: Play Data safety, App Store label text (prepared for the Apple launch), GA property settings (F5) in dev and prod, the `measurementId` check | production-deployer (prepares) + founder (consoles) | XS | TEL-12 text | yes | Open |
@@ -446,7 +446,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 - **Flag.** Both.
 - **Seam.** No server eraser step; Q10 (f) unchanged.
 
-### TEL-9 — Tests and evidence  [owner: tester] [size: M] [depends: TEL-5 to TEL-8]  Status: Code part merged (#640); Part B run 2026-11-02, one open finding F-1, C-4 and web trace not run
+### TEL-9 — Tests and evidence  [owner: tester] [size: M] [depends: TEL-5 to TEL-8]  Status: Code part merged (#640); Part B run 2026-11-02, PASS, F-1 closed as a procedure error (ADR-0032 note of 2026-11-02, TEL-10 L-5); C-4 and web trace not run
 - **Description.**
   - Guard tests:
     - only the two adapter files import `firebase_crashlytics` or `firebase_analytics`;
@@ -464,7 +464,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 - **Flag.** Both.
 - **Seam.** The guards pin the seam.
 
-### TEL-10 — Security review  [owner: security-auditor] [size: S] [depends: TEL-5 to TEL-8]  Status: CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, conditions C-1 to C-6 open
+### TEL-10 — Security review  [owner: security-auditor] [size: S] [depends: TEL-5 to TEL-8]  Status: CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, L-5 added 2026-11-02 (TEL-9 F-1); conditions C-2, C-3, C-6 met; open: C-1 (web trace), C-4, C-5
 - **Description.** Against `security-checklist`:
   - the F6 rules and canaries;
   - linkability (custom keys, flag lists, `deviceTokens` versus SDK identifiers, the app-instance ID across accounts);

@@ -202,7 +202,7 @@ github.com/firebase for SDK source). **UNVERIFIED** = no primary statement found
 | A5b | Analytics iOS key | `FIREBASE_ANALYTICS_COLLECTION_ENABLED` `NO` [S15] | VERIFIED |
 | A5c | Other Analytics keys | Android `google_analytics_adid_collection_enabled` `false` [S14]; `google_analytics_default_allow_analytics_storage`, `_ad_storage`, `_ad_user_data`, `_ad_personalization_signals` (`true` or `false`) [S16]; `google_analytics_automatic_screen_reporting_enabled` `false` and iOS `FirebaseAutomaticScreenReportingEnabled` `NO` [S17]; iOS `GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED` `NO` and `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS` `NO` [S15]. `google_analytics_ssaid_collection_enabled`: no Google page found (C7) | VERIFIED except SSAID: **UNVERIFIED**, not a control |
 | A5d | Crashlytics keys | Android `firebase_crashlytics_collection_enabled` `false`; iOS `FirebaseCrashlyticsCollectionEnabled` `false` [S18] | VERIFIED |
-| A5e | Firebase Sessions while Crashlytics is off | Not on the Crashlytics pages. Sessions (a transitive dependency) collects app and device metadata and foreground session starts [S11b]. SDK change "send session event based on data collection and setting config" (firebase-android-sdk #6852, merged 2025-04-09 to a feature branch) [S19] | **UNVERIFIED** as shipped behaviour; **TEL-9 trace** (no Sessions traffic in the no-consent and flag-off states) |
+| A5e | Firebase Sessions while Crashlytics is off | Not on the Crashlytics pages. Sessions (a transitive dependency) collects app and device metadata and foreground session starts [S11b]. SDK change "send session event based on data collection and setting config" (firebase-android-sdk #6852, merged 2025-04-09 to a feature branch) [S19] | **VERIFIED** (Note 2026-11-02, TEL-9 F-1 and L-5): Sessions is gated by Crashlytics data collection at cold start; no Sessions traffic while collection is off natively, one `SESSION_START` per cold start while it is on |
 | A6a | Persistence | Crashlytics: "The override value persists across all subsequent launches of your app"; `false` "takes effect on the next launch" [S18]. Analytics: "The value set by the `setAnalyticsCollectionEnabled` method persists across app executions" [S15] (Android reference wording "persisted across app sessions", seen in an older copy only) | VERIFIED (Android Analytics wording: TEL-9 bootstrap trace) |
 | A6b | Reports recorded while off | "Crashlytics will store crash information locally on the device"; once enabled, "any crash information stored on the device will be sent" [S18]. `deleteUnsentReports` is a no-op while collection is enabled [S20] (C1) | VERIFIED |
 | A6c | Consent mode, `analytics_storage` denied | "cookieless pings are sent"; for apps "Events without device or user identifiers will be sent"; "No IDFA may be collected" [S21]. `appInstanceId` is "null if consent has been denied" [S22] (C3) | VERIFIED |
@@ -214,10 +214,10 @@ github.com/firebase for SDK source). **UNVERIFIED** = no primary statement found
 ## Data inventory per SDK (Android)
 | | Firebase Crashlytics | Firebase Sessions (comes with Crashlytics) | Google Analytics for Firebase |
 |---|---|---|---|
-| What is sent | Error type and stack trace (F6); for a Dart error, the message only for allowlisted types after the scrubber; for an uncaught Java or Kotlin exception in Android's own code, its own message and those of its causes, **not scrubbed** (Note 2026-11-02, TEL-10 L-3); "point-in-time metadata about the device when an application crashes", including OS name and version and the time [S1, S11b]; custom keys (build number, `FIREBASE_ENV`, platform); breadcrumbs (our constants, plus Analytics events when Analytics is also on, C8); up to 8 non-fatals per fatal. Fatal reports are sent at once; non-fatals are written to disk and sent "with the next fatal report or on app restart" [S18] | Package name, OS information, SDK version, network connection type, device manufacturer and model, foreground session start [S11b] | Our 3 events and `screen_view` (F4); the automatic events (A7a); the automatic dimensions (A7b); consent state. No advertising ID (key + `AD_ID` removed), no user ID, no user properties |
-| Identifiers | **Crashlytics installation UUID** (to count affected users; "rotated when the Firebase installation ID changes") and the **Firebase installation ID** [S1, S11b] | none of its own documented | **App-instance ID** ("by default ... not tied to a user identifier", reset by `resetAnalyticsData`) [S11c, S22]; masked IP for coarse location [S11c] |
-| Hosts (device to Google) | Not documented by Google. Candidates from third-party lists: `crashlyticsreports-pa.googleapis.com`, `firebase-settings.crashlytics.com` | Not documented | Not documented |
-| Host status | **UNVERIFIED: TEL-9 records the actual hosts** in the opted-in trace and asserts that none appear in the no-consent and flag-off traces. FCM and Firebase Installations (`firebaseinstallations.googleapis.com`) traffic already exists and is excluded | same | same |
+| What is sent | Error type and stack trace (F6); for a Dart error, the message only for allowlisted types after the scrubber; for an uncaught Java or Kotlin exception in Android's own code, its own message and those of its causes, **not scrubbed** (Note 2026-11-02, TEL-10 L-3); "point-in-time metadata about the device when an application crashes", including OS name and version and the time [S1, S11b]; custom keys (build number, `FIREBASE_ENV`, platform); breadcrumbs (our constants, plus Analytics events when Analytics is also on, C8); up to 8 non-fatals per fatal. Fatal reports are sent at once; non-fatals are written to disk and sent "with the next fatal report or on app restart" [S18] | Package name, OS information, SDK version, network connection type, device manufacturer and model, foreground session start [S11b]; observed and read: one `SESSION_START` per cold start while Crashlytics collection is on natively, with the envelope fields of the Note 2026-11-02 (TEL-9 F-1) | Our 3 events and `screen_view` (F4); the automatic events (A7a); the automatic dimensions (A7b); consent state. No advertising ID (key + `AD_ID` removed), no user ID, no user properties |
+| Identifiers | **Crashlytics installation UUID** (to count affected users; "rotated when the Firebase installation ID changes") and the **Firebase installation ID** [S1, S11b] | none of its own documented; sends the FID and an FIS auth token (Note 2026-11-02, L-5) | **App-instance ID** ("by default ... not tied to a user identifier", reset by `resetAnalyticsData`) [S11c, S22]; masked IP for coarse location [S11c] |
+| Hosts (device to Google) | Not documented by Google. Candidates from third-party lists: `crashlyticsreports-pa.googleapis.com`, `firebase-settings.crashlytics.com` | `firebaselogging-pa.googleapis.com` (DataTransport; Note 2026-11-02) | Not documented |
+| Host status | **UNVERIFIED: TEL-9 records the actual hosts** in the opted-in trace and asserts that none appear in the no-consent and flag-off traces. FCM and Firebase Installations (`firebaseinstallations.googleapis.com`) traffic already exists and is excluded | observed (TEL-9 Part B) | same |
 | Retention | 90 days, then removal from live and backup systems starts [S1] | not documented | Event and user-level data **2 months** (F5); aggregated standard reports are not governed by this setting [S8] |
 | Where | Global, any GCP location [S1] | not documented | not stated |
 | Terms, Google's role | Crashlytics & App Distribution Terms + Firebase DPST; processor (European-law wording) [S2, S3] | Firebase terms | GA Terms + Google Ads Data Processing Terms; Processor Service while data sharing is off [S5, S6, S7] |
@@ -664,6 +664,115 @@ decision, the status and every F, C and D item stay as they are.** No native scr
   - tester (TEL-9 Part B): trace (b), recorded as above.
   - frontend-developer: nothing. L-3's fix names no app change, and the consent card's "it sends the error" includes
     Android's message (TEL-10 section 3.5).
+
+## Note (2026-11-02): what "the next launch" means for the kill switch (TEL-9 Part B F-1; decisions above unchanged)
+Source: TEL-9 Part B device session, finding **F-1** (PR #660, `docs/reviews/tests/test-report-client-telemetry.md`):
+Android 11, Crashlytics 20.1.1, Sessions 3.0.8, dev release build. This note settles a conflict between the TEL-9
+procedure and C1, D11 and D15. **The Accepted decision, the status and every F, C and D item stay as they are.** No
+code change, no new ticket.
+- **What was seen.** Consent was on for crash and usage. With the app not running, `FEATURE_CRASH_REPORTING` and
+  `FEATURE_ANALYTICS` were set to `off` server-side. On the first cold launch after that:
+  - `firebase-settings.crashlytics.com` was contacted before any Dart ran, because Crashlytics had persisted
+    "enabled" natively (A6a);
+  - Crashlytics logged ENABLED, DISABLED, ENABLED, DISABLED and Analytics went from true to false, all within about
+    400 ms. The bootstrap applied the remembered flags (on), then `GetMe` said off. This note does not attribute each of
+    the four transitions;
+  - `firebaselogging-pa.googleapis.com` was contacted about 1 minute after both were disabled.
+
+  The second launch was clean. The procedure expected no fence host on the first launch, on the theory that "the Dart
+  bootstrap re-apply wins over the SDK's persisted enabled".
+- **Which is right: C1 and D15, not the procedure.** The procedure's expectation cannot be met by any Dart change.
+  - **A server flag cannot reach the launch in which the device first learns it.** The native SDK starts from its
+    persisted setting before Dart runs. The device learns "off" only from a `GetMe` in that same run. Waiting for the
+    network before startup would break D3 ("no network wait") and the cold-start target.
+  - **The bootstrap re-apply wins for the rest of that run and from the next launch on, never for native start-up in
+    the same launch.** The re-apply is there for the case where the stored decision is off and native says on (A6a).
+    It cannot undo what the native SDK did before Dart started.
+  - **Not re-applying a remembered "on" was considered and rejected.** It would remove only the Dart-side window and
+    the Analytics true-to-false blip, about 400 ms here. Native capture and the settings call happen either way. The
+    cost would be losing start-up crashes on every normal launch, and all collection on every offline launch, which
+    is what the stored decision (D3, D15) exists for.
+  - **This is not a consent case.** A consent change, an opt-out or a sign-out calls
+    `setCrashlyticsCollectionEnabled(false)` in the same run, so the next launch is clean (C1). The window exists only when the flag changes
+    server-side while the app is not running, or before that run's `GetMe` returns. D13's kill-switch uses (an SDK
+    that raises the crash rate, personal data seen in a report) are met: Dart-side reports stop at that `GetMe`, and
+    native capture stops at the launch after it.
+- **"The next launch", stated exactly.** C1, D11 and D15 mean this: native crash capture, and anything the SDK does
+  before Dart runs, stops from **the first launch after a run in which a `GetMe` returned the flag off** (or in which
+  consent went off). Until that `GetMe` returns, the remembered decision applies (D15), and the bootstrap persists it
+  again. So a launch that is killed or offline before its `GetMe` returns starts the next launch enabled too. Analytics
+  follows D11: off at that `GetMe`. On the first launch it was true from the bootstrap until that `GetMe` (about 400 ms
+  here). This note does not claim that nothing was logged or sent in that window; TEL-9 records it from logcat.
+  Stated as the security review words it (TEL-10 L-5 (1)): native capture and the SDKs' own traffic stop from the
+  launch after the run whose `GetMe` returned `off`; **that run still starts with the previous native setting (one
+  Crashlytics settings fetch and one Firebase Sessions start event, which carries the installation ID).**
+- **The call after disable: Firebase Sessions (TEL-10 L-5, Low).** The security-auditor's F-1 analysis
+  (`docs/reviews/security/security-client-telemetry.md`, L-5) found that the `firebaselogging-pa` call was the
+  Firebase Sessions `SESSION_START` event (log source `FIREBASE_APPQUALITY_SESSION`).
+  - **How it got there.** Sessions queued it natively before Dart ran, because Crashlytics's persisted "enabled" made
+    Sessions see its subscriber as collecting. DataTransport then uploaded it about 1 minute later. DataTransport does
+    not re-check the collection state, and `deleteUnsentReports` does not touch its queue. The same pattern appears in
+    trace (a) (about 35 s) and trace (b) (about 50 s).
+  - **It is part of the same start-up.** It belongs to the launch the native setting already started, not to a
+    decision that was off and persisted. The next relaunch sent nothing. Consent is not affected: a withdrawal on the
+    device persists `false` before the next launch.
+  - **What it carries.** These fields come from the auditor's static read of Sessions 3.0.8 and transport-backend-cct
+    3.1.9, not from a decrypted capture.
+    - Session part: event type, session id, first session id, session index, **the FID, an FIS auth token**,
+      timestamp and data-collection status.
+    - App and device part: app id, device model and manufacturer, OS version, SDK version, package, app version and
+      build, and process details.
+    - DataTransport envelope: build fields (model, hardware, product, fingerprint), locale, country, MCC/MNC, network
+      type and timezone offset.
+    - Google also sees the IP.
+    - No account data: no uid, email, handle, text, custom key or breadcrumb.
+  - **The FID cannot be joined with a uid.** No surface we can read shows a Sessions event per device (M-2 closed).
+    That holds only while no Crashlytics BigQuery or Cloud Logging export is enabled. BigQuery is already excluded by
+    D1. The runbook now carries the standing rule: never enable either export, and never compare `devices.token` with
+    console data.
+  - **What it means for this ADR.**
+    - **A5e is VERIFIED.** Sessions is gated by Crashlytics data collection at cold start. It sends nothing while
+      collection is off natively, and one `SESSION_START` per cold start while it is on.
+    - **The Data inventory's Sessions column** now names the FID and FIS token, the host
+      `firebaselogging-pa.googleapis.com` and these envelope fields. Its cells point to this note; the A-table row
+      A5e does too.
+    - **The remembered-flag bootstrap stays.** It is not the cause. Turning it off until `GetMe` would change neither
+      native call, and might race the SDK's start-up send of the previous run's fatal report (L-5; the stale Dart-side
+      "on" until `GetMe` stays I-7).
+- **What changes.**
+  - TEL-9 procedure, state 2 and step 5, plus the failure sentence of step 2
+    (`docs/reviews/tests/test-report-client-telemetry.md`): the pass criterion is no fence host on any launch after a
+    `GetMe` that returned off. The launch before that may contact `firebase-settings.crashlytics.com`, and that contact
+    is recorded, not failed. State 2 is no longer filed as "nothing before consent".
+  - `docs/runbooks/client-telemetry.md`:
+    - the kill switch's staleness line, worded as L-5 (1) above;
+    - the standing rule: no Crashlytics BigQuery or Cloud Logging export, and no comparing `devices.token` with
+      console data.
+  - This ADR: pointers only, in the Data inventory's Sessions column and row A5e.
+  - C1, D11, D13, D15 and the Consequences text are not edited.
+  - TEL-12 (C-5) carries L-5's wording: the run that learns `off` still starts with the previous native setting, and
+    Sessions sends the installation ID while crash reporting is on.
+- **Stage ladder.** Stage 0: the kill switch is as of the last `GetMe`, plus one launch for native start-up. A possible
+  next rung, **to verify, not planned**: a native gate that reads the stored flag and calls
+  `setCrashlyticsCollectionEnabled(false)` before Crashlytics starts. It is unproven that our code can run first:
+  Firebase starts through its own init provider, which may run before `Application.onCreate`. Even then it would act
+  only on a flag the device already knows, so it shortens nothing in the case F-1 measured. A server-push kill (an FCM
+  data message that sets the flag) is the only way to reach a device before its next `GetMe`; it reaches only devices
+  that are running or can be woken. A third candidate, also **to verify, not planned**: the manifest key
+  `firebase_sessions_enabled=false`, which would stop the Sessions flow (L-5 (5)). Before anyone tickets it, check how
+  the SDK reads the key and what it costs the Crashlytics console's session and crash-free metrics. Trigger for any of
+  them, each needing its own ADR: a kill-switch event in which reports
+  or events sent in that window are themselves the harm (a leak class that a one-launch delay makes worse), measured
+  in a real incident.
+- **Cost.** INR 0. 0 Firestore reads, writes or deletes, 0 requests; a docs change.
+- **Handoff.**
+  - tester (TEL-9 Part B): run state 2 again under the corrected text, or record the 2026-11-02 run against it. The
+    second relaunch already passed. For the first launch, add the logcat check of Analytics between process start and
+    the off decision.
+  - security-auditor: done (L-5). C-1 (web trace), C-4 and C-5 stay open.
+  - architect (TEL-12): L-5's wording, through C-5.
+  - frontend-developer: nothing.
+  - sre-performance: nothing (no budget row).
 
 ## Sources (all read 2026-11-01)
 - [S1] Firebase, Privacy and Security in Firebase (last modified 2026-09-24): https://firebase.google.com/support/privacy
