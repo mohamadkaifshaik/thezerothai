@@ -15,6 +15,7 @@ import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_bootstrap.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
+import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/telemetry_inputs.dart';
 import '../core/telemetry/usage_reporter.dart';
 import '../features/account/data/account_repository.dart';
@@ -122,6 +123,7 @@ Future<void> bootstrap() async {
     },
     memory: DatabaseTelemetryFlagMemory(database),
     consent: telemetryConsent,
+    lastUid: DatabaseTelemetryLastUidStore(database),
   );
 
   await _activateAppCheck(config);
@@ -395,6 +397,10 @@ Future<void> bootstrap() async {
       servicePausedCubit: servicePaused,
       shareLinks: ShareLinks(origin: config.shareOrigin),
       usage: UsageReporter.controller(telemetry),
+      telemetryForget: TelemetryDeviceForget.of(
+        consent: telemetryConsent,
+        controller: telemetry,
+      ),
     ),
   );
 }
