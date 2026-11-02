@@ -53,6 +53,14 @@ void main() {
 
   setUp(() {
     communities = _MockCommunities();
+    when(() => communities.getCommunity(any())).thenAnswer(
+      (_) async => pb.GetCommunityResponse(
+        community: pb.Community(
+          communityId: '77',
+          viewerRole: pb.CommunityRole.COMMUNITY_ROLE_MEMBER,
+        ),
+      ),
+    );
     onboarding = _MockOnboarding();
     whenListen(
       onboarding,

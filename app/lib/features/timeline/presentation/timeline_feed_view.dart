@@ -14,6 +14,7 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/post/pending_posts_section.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
+import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/post/post_pin_control.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
@@ -58,6 +59,7 @@ class TimelineFeedView extends StatefulWidget {
     this.scrollViewKey,
     this.fillViewport = false,
     this.pinControl,
+    this.moderationControl,
     this.hideEmptyState = false,
     this.unavailableView,
     this.active = true,
@@ -124,6 +126,10 @@ class TimelineFeedView extends StatefulWidget {
   /// Pin / Unpin rows on the viewer's own posts (W3-17): the own profile
   /// passes one; every other feed leaves it null.
   final PostPinControl? pinControl;
+
+  /// "Remove from Community" rows for a community moderator (W5-35): only the
+  /// community screen passes one.
+  final PostModerationControl? moderationControl;
 
   /// Show nothing instead of the empty state: the profile's Posts tab when
   /// its only post is the one in the Pinned row above.
@@ -454,6 +460,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
               onDelete: cubit.deletePost,
               onRelationshipChanged: (r) => _onRelationship(cubit, r),
               pinControl: widget.pinControl,
+              moderationControl: widget.moderationControl,
             );
           },
         ),

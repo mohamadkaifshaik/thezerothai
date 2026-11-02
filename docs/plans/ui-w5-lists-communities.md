@@ -368,7 +368,8 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Done (#614) |
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Done (#630) |
-| W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
+| W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report list (already done by W5-48); report community moved to W5-35b | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Done (#PRNUM) |
+| W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. Blocked on W5-29 (the server answers VALIDATION `target_type` for COMMUNITY until then, `community_target_test.go`) | frontend-developer | S | W5-29, W5-35 | yes | Open |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
@@ -1317,7 +1318,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - A draft keeps the community id (ADR-0029 F8). Reset it to Everyone if the user is no longer a member.
   - Show "Only members of <name> can reply" for `NOT_ALLOWED` on a labelled post.
 
-### W5-35 — Moderation UI and reports  [owner: frontend-developer] [size: M] [depends: W5-32, W5-33]  Status: Open
+### W5-35 — Moderation UI and reports  [owner: frontend-developer] [size: M] [depends: W5-32, W5-33]  Status: Done (#PRNUM); "Report Community" moved to W5-35b (backend W5-29); "Report List" was already shipped by W5-48 (#557)
 - **Description.**
   - For moderators and the owner:
     - "Remove from Community" and "Restore" on a community post's overflow menu;

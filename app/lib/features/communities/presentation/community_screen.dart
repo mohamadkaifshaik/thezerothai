@@ -6,6 +6,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
@@ -19,8 +20,10 @@ import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../data/communities_repository.dart';
+import '../domain/community_role.dart';
 import 'bloc/community_detail_cubit.dart';
 import 'bloc/community_detail_state.dart';
+import 'bloc/community_moderation_cubit.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_about.dart';
 import 'widgets/community_header.dart';
@@ -64,18 +67,51 @@ class _CommunityScreenState extends State<CommunityScreen> {
     viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
   );
 
+  late final CommunityModerationCubit _moderation;
+
+  /// "Remove from Community" for the post menus, only while the server's
+  /// `viewer_role` says the caller moderates (W5-35); null otherwise. The
+  /// post leaves the feed at once and comes back if the call fails; other
+  /// devices follow at their next refresh (`removed_ids`).
+  PostModerationControl? _moderationControl(CommunityDetailState state) {
+    final community = state.community;
+    if (community == null || !community.role.canModerate) return null;
+    return PostModerationControl(
+      communityId: widget.communityId,
+      communityName: community.name,
+      onHide: (postId) async {
+        _timeline.hidePostLocally(postId);
+        final error = await _moderation.hidePost(postId);
+        if (error != null) {
+          _timeline.showPostAgain(postId);
+          throw error;
+        }
+      },
+      onRestore: (postId) async {
+        final error = await _moderation.restorePost(postId);
+        if (error != null) throw error;
+        _timeline.showPostAgain(postId);
+      },
+    );
+  }
+
   /// 0 = Posts, 1 = About (ephemeral UI state).
   int _tab = 0;
 
   @override
   void initState() {
     super.initState();
+    _moderation = CommunityModerationCubit(
+      communityId: widget.communityId,
+      communities: context.read<CommunitiesRepository>(),
+    );
     _detail.load();
     _timeline.load();
   }
 
   @override
   void dispose() {
+    _moderation.close();
     _timeline.close();
     _detail.close();
     super.dispose();
@@ -217,6 +253,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                               ),
                             )
                           : null,
+                      onModerationLog: state.community?.role.canModerate == true
+                          ? () => context.push(
+                              AppRouter.communityModerationLogPath(
+                                widget.communityId,
+                              ),
+                            )
+                          : null,
                       onMembers: () => context.push(
                         AppRouter.communityMembersPath(widget.communityId),
                       ),
@@ -263,6 +306,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   newPostsPillTop: AppSize.headerRow + AppSpacing.sm,
                   unavailableView: const CommunityUnavailableView(),
                   headerSlivers: headerSlivers,
+                  moderationControl: _moderationControl(state),
                 );
               },
             ),

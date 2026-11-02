@@ -1,6 +1,6 @@
 part of 'post_card.dart';
 
-enum _MenuAction { delete, block, mute, report, pin }
+enum _MenuAction { delete, block, mute, report, pin, hide }
 
 /// Closes [cubit] now, or once its in-flight Block/Mute settles, so the
 /// awaiting `_run` still sees the real outcome (never an optimistic state).
@@ -56,6 +56,7 @@ class _PostMenu extends StatefulWidget {
     required this.onDelete,
     required this.onRelationshipChanged,
     this.pinControl,
+    this.moderationControl,
   });
 
   /// The row's own post: Delete acts on it (a repost's id for a repost).
@@ -71,6 +72,9 @@ class _PostMenu extends StatefulWidget {
 
   /// Pin / Unpin rows for [post], or null for none.
   final PostPinControl? pinControl;
+
+  /// "Remove from Community" for a moderator (W5-35), or null for none.
+  final PostModerationControl? moderationControl;
 
   @override
   State<_PostMenu> createState() => _PostMenuState();
@@ -123,7 +127,9 @@ class _PostMenuState extends State<_PostMenu> {
         widget.isOwn &&
         _isPinnable(widget.post.kind) &&
         pin.offersRowFor(widget.post.postId);
-    if (!canDelete && !canGraph && !canReport && !showPin) {
+    final mod = widget.moderationControl;
+    final showHide = mod != null && mod.offersRowFor(widget.post);
+    if (!canDelete && !canGraph && !canReport && !showPin && !showHide) {
       return const SizedBox.shrink();
     }
 
@@ -158,6 +164,15 @@ class _PostMenuState extends State<_PostMenu> {
                 label: pin.isPinned(widget.post.postId)
                     ? 'Unpin from profile'
                     : 'Pin to your profile',
+              ),
+            ),
+          if (showHide)
+            const PopupMenuItem(
+              value: _MenuAction.hide,
+              child: AppMenuItemRow(
+                icon: Icons.visibility_off_outlined,
+                label: 'Remove from Community',
+                destructive: true,
               ),
             ),
           if (canReport)
@@ -207,6 +222,8 @@ class _PostMenuState extends State<_PostMenu> {
         await _report(context);
       case _MenuAction.pin:
         await _pin(context);
+      case _MenuAction.hide:
+        await _hide(context);
       case _MenuAction.mute:
         final cubit = _cubitFor(context);
         if (cubit.state.relationship.muting) {
@@ -354,6 +371,95 @@ class _PostMenuState extends State<_PostMenu> {
         retry: () => unawaited(_runPin(messenger, action, done)),
       );
     }
+  }
+
+  /// "Remove from Community" (W5-35): asks first, then the control hides the
+  /// post at once and rolls it back on a failure. The snackbars go through the
+  /// messenger captured now: the hide removes this card from the feed.
+  Future<void> _hide(BuildContext context) async {
+    final control = widget.moderationControl!;
+    final messenger = ScaffoldMessenger.of(context);
+    final postId = widget.post.postId;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Remove this post from ${control.communityName}?'),
+        content: const Text(
+          'It leaves the community feed for everyone. The post stays on its '
+          "author's profile. You can restore it from the moderation log.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _runHide(messenger, control, postId);
+  }
+
+  Future<void> _runHide(
+    ScaffoldMessengerState messenger,
+    PostModerationControl control,
+    String postId,
+  ) async {
+    void say(String text, {String? action, VoidCallback? onAction}) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(text),
+            action: action == null
+                ? null
+                : SnackBarAction(label: action, onPressed: onAction!),
+          ),
+        );
+    }
+
+    try {
+      await control.onHide(postId);
+      say(
+        'Removed from ${control.communityName}.',
+        action: 'Undo',
+        onAction: () => unawaited(_runRestore(messenger, control, postId)),
+      );
+    } on AppException catch (error) {
+      say(
+        communitiesErrorMessage(error),
+        action: 'Retry',
+        onAction: () => unawaited(_runHide(messenger, control, postId)),
+      );
+    } catch (_) {
+      say(
+        "Couldn't remove the post. Please try again.",
+        action: 'Retry',
+        onAction: () => unawaited(_runHide(messenger, control, postId)),
+      );
+    }
+  }
+
+  Future<void> _runRestore(
+    ScaffoldMessengerState messenger,
+    PostModerationControl control,
+    String postId,
+  ) async {
+    String text = 'Restored to ${control.communityName}.';
+    try {
+      await control.onRestore(postId);
+    } on AppException catch (error) {
+      text = communitiesErrorMessage(error);
+    } catch (_) {
+      text = "Couldn't restore the post. Try the moderation log.";
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
   }
 
   Future<void> _delete(BuildContext context) async {

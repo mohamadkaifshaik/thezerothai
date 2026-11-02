@@ -13,6 +13,7 @@ import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/domain/home_tab_entry.dart';
 import 'package:dzeroth/features/communities/presentation/communities_screen.dart';
 import 'package:dzeroth/features/communities/presentation/community_members_screen.dart';
+import 'package:dzeroth/features/communities/presentation/community_moderation_log_screen.dart';
 import 'package:dzeroth/features/communities/presentation/community_screen.dart';
 import 'package:dzeroth/features/communities/presentation/create_community_screen.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
@@ -138,6 +139,13 @@ void main() {
         pageToken: any(named: 'pageToken'),
       ),
     ).thenAnswer((_) async => const CommunityMembersPage(members: []));
+    when(
+      () => communities.listModerationLog(
+        communityId: any(named: 'communityId'),
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => const ModerationLogPage(entries: []));
     when(() => tabs.changes).thenAnswer((_) => const Stream.empty());
     when(() => tabs.isPinned(any(), any())).thenReturn(false);
     when(() => tabs.isFull).thenReturn(false);
@@ -185,6 +193,10 @@ void main() {
     expect(AppRouter.communityPath('12'), '/communities/12');
     expect(AppRouter.communityPath('a b'), '/communities/a%20b');
     expect(AppRouter.communityMembersPath('12'), '/communities/12/members');
+    expect(
+      AppRouter.communityModerationLogPath('12'),
+      '/communities/12/moderation-log',
+    );
   });
 
   testWidgets('communities off: every route redirects Home, no RPC', (
@@ -195,6 +207,7 @@ void main() {
       '/communities/new',
       '/communities/1',
       '/communities/1/members',
+      '/communities/1/moderation-log',
     ]) {
       final (path, communities) = await openAt(tester, const {}, location);
       expect(path, AppRouter.homePath, reason: location);
@@ -241,5 +254,11 @@ void main() {
     }, '/communities/77/members');
     expect(path, '/communities/77/members');
     expect(find.byType(CommunityMembersScreen), findsOneWidget);
+
+    (path, _) = await openAt(tester, const {
+      'communities',
+    }, '/communities/77/moderation-log');
+    expect(path, '/communities/77/moderation-log');
+    expect(find.byType(CommunityModerationLogScreen), findsOneWidget);
   });
 }
