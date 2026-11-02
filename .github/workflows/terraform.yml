@@ -20,11 +20,14 @@ permissions:
 env:
   TF_VERSION: "1.16.2" # must be >= the version that last wrote remote state
   TFLINT_VERSION: "v0.53.0"
-  CHECKOV_VERSION: "3.2.257"
+  # checkov's version is the image tag inside the pinned bridgecrewio/checkov-action SHA (Dependabot bumps it).
 
 jobs:
-  # fmt and tflint need no cloud identity, so they run without the `tf-plan` environment approval and without
-  # id-token, and a red fmt/tflint shows up at once. (They used to be steps of the plan job.)
+  # fmt, tflint and checkov need no cloud identity, so they run without the `tf-plan` environment approval and without
+  # id-token, and a red fmt/tflint shows up at once. (They used to be steps of the plan job.) checkov in particular must
+  # stay here: it is a third-party Docker image pulled by a mutable tag, and in the plan job it would run next to the
+  # plan SA's credentials file and an id-token grant. Here it also runs on Dependabot PRs, so a checkov bump is tested
+  # on its own PR. The job name stays as is because it is a required status check.
   lint:
     name: lint (terraform fmt, tflint)
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -53,6 +56,20 @@ jobs:
             (cd "envs/$env" && tflint --init && tflint --recursive)
             echo "::endgroup::"
           done
+
+      - name: checkov (dev)
+        uses: bridgecrewio/checkov-action@c10e2438743528f9e4549758fad8b7a62052541d # v12.3136.0
+        with:
+          directory: infra/terraform/envs/dev
+          soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
+          framework: terraform
+
+      - name: checkov (prod)
+        uses: bridgecrewio/checkov-action@c10e2438743528f9e4549758fad8b7a62052541d # v12.3136.0
+        with:
+          directory: infra/terraform/envs/prod
+          soft_fail: true
+          framework: terraform
 
   plan:
     name: plan (${{ matrix.env }})
@@ -102,7 +119,7 @@ jobs:
             echo "::notice::Dependabot or fork PR; GCP auth and terraform plan skipped for $ENV_NAME"
             {
               echo "### Terraform plan ($ENV_NAME): skipped"
-              echo "Dependabot and fork runs do not receive GCP credentials. fmt and tflint run in the lint job."
+              echo "Dependabot and fork runs do not receive GCP credentials. fmt, tflint and checkov run in the lint job."
               echo "A maintainer must review the change locally or by pushing it to a branch in this repo."
             } >> "$GITHUB_STEP_SUMMARY"
           elif [ -n "$WIP" ]; then
@@ -158,14 +175,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: terraform validate
 
-      - name: checkov
-        if: steps.gate.outputs.run == 'true'
-        uses: bridgecrewio/checkov-action@c10e2438743528f9e4549758fad8b7a62052541d # v12.3136.0
-        with:
-          directory: infra/terraform/envs/${{ matrix.env }}
-          soft_fail: true # don't block PRs on checkov MEDIUM+ findings yet; surfaced in the PR checks tab
-          framework: terraform
-
+      # No third-party image runs in this job (checkov is in `lint`): it holds id-token and, after auth, a credentials file.
       - name: terraform plan
         if: steps.gate.outputs.run == 'true'
         id: plan
