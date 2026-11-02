@@ -24,6 +24,7 @@ var _ Moderation = (*service)(nil)
 // remove_moderator or log. Never an id.
 const (
 	fieldModAction  = "mod_action"
+	fieldModTarget  = "mod_target" // "post" (a root) or "reply" (ADR-0031 Amendment 1 D4a): a label, never an id
 	logBindingLabel = "community_modlog"
 	userNotFound    = "user not found"
 	postNotFound    = "post not found"
@@ -77,6 +78,12 @@ func (s *service) moderatePost(ctx context.Context, op, uid string, in PostActio
 		RequestHash: postActionHash(in.CommunityID, in.PostID), Restore: restore,
 		RemovalsMax: s.d.Limits.RecentRemovalsMax, ModlogMax: s.d.Limits.ModlogMax,
 	})
+	switch {
+	case res.Reply:
+		logger.SetRequestField(ctx, fieldModTarget, "reply")
+	case err == nil && res.Outcome != Replayed: // a replay never read the post
+		logger.SetRequestField(ctx, fieldModTarget, "post")
+	}
 	if err != nil {
 		return mapErr(ctx, op, uid, in.CommunityID, err)
 	}

@@ -466,3 +466,79 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 		t.Fatalf("root replyCount = %d, want 1 (refused replies are not counted)", got)
 	}
 }
+
+// TestCommunityReply_HiddenReplyInGetThread (W5-51b, ADR-0031 Amendment 1 D4a, R4): a reply a moderator hid through the real seam leaves GetThread for
+// every viewer but its author, as the focal post's parent it is an unavailable parent, the focal reply is still served, replying to it stays allowed,
+// and the thread costs the same reads as before the hide (+0), cold and warm.
+func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
+	client := newTestClient(t)
+	author, _ := newCommunityInstance(t, client, 100)
+	for _, u := range []string{"alice", "bob", "carol"} {
+		author.signUp(t, "uid-"+u, u)
+	}
+	seedCommunityDoc(t, client, commCID, "Go Lang", "ACTIVE")
+	for _, u := range []string{"alice", "bob", "carol"} {
+		seedMember(t, client, commCID, "uid-"+u, "JOINED")
+	}
+	root, _, err := author.postIn(t, "uid-alice", key(1), commCID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bobReply, _, err := author.replyIn(t, "uid-bob", key(2), root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carolReply, _, err := author.replyIn(t, "uid-carol", key(3), bobReply.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread := func(viewer, focal string) (*Thread, *budget.Counter) {
+		t.Helper()
+		in, _ := newCommunityInstance(t, client, 100)
+		ctx := authn.WithClaims(context.Background(), authn.Claims{UID: viewer, SignInProvider: authn.SignInProviderGoogle})
+		ctx, c := budget.WithCounter(ctx)
+		th, err := in.svc.GetThread(ctx, viewer, ThreadInput{PostID: focal})
+		if err != nil {
+			t.Fatalf("GetThread(%s, %s): %v", viewer, focal, err)
+		}
+		return th, c
+	}
+	_, before := thread("uid-carol", root.ID)
+
+	// hide bob's reply through the real seam, as communities does in its transaction
+	m := NewCommunityModerator(client)
+	if err := client.RunTransaction(context.Background(), func(_ context.Context, tx *firestore.Transaction) error {
+		changed, found, reply, err := m.SetCommunityListing(context.Background(), tx, bobReply.ID, commCID, false, nil)
+		if err != nil || !changed || !found || !reply {
+			t.Fatalf("hide = %v %v %v %v", changed, found, reply, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	th, after := thread("uid-carol", root.ID)
+	if got := idsOf(th.Replies); len(got) != 1 || got[0] != carolReply.ID {
+		t.Errorf("replies for another viewer = %v, want only %s (the reply under the hidden one stays)", got, carolReply.ID)
+	}
+	if after.Reads() != before.Reads() || after.Writes() != 0 {
+		t.Errorf("reads %d -> %d, writes %d, want +0 reads and 0 writes", before.Reads(), after.Reads(), after.Writes())
+	}
+	budgettest.Assert(t, "GetThread with a hidden reply, cold", after, budgettest.Budget{Reads: 40})
+	if th, _ := thread("uid-bob", root.ID); len(th.Replies) != 2 {
+		t.Errorf("the author sees %v, want both replies", idsOf(th.Replies))
+	}
+	th, _ = thread("uid-carol", carolReply.ID)
+	if th.Parent != nil || !th.ParentUnavailable {
+		t.Errorf("parent = %+v unavailable=%v, want an unavailable parent", th.Parent, th.ParentUnavailable)
+	}
+	th, _ = thread("uid-carol", bobReply.ID)
+	if th.Focal == nil || th.Focal.ID != bobReply.ID {
+		t.Errorf("a hidden focal reply is not served: %+v", th.Focal)
+	}
+	// replying to the hidden reply stays allowed (R4)
+	in, _ := newCommunityInstance(t, client, 100)
+	if _, _, err := in.replyIn(t, "uid-alice", key(9), bobReply.ID); err != nil {
+		t.Errorf("reply to a hidden reply: %v", err)
+	}
+}
