@@ -116,7 +116,9 @@ func (v *fakeViewer) Viewer(context.Context, string) posts.ViewerSet {
 type flagMap map[string]bool
 
 func (f flagMap) Enabled(_, name string) bool { return f[name] }
-func (f flagMap) GloballyOff(string) bool     { return false }
+
+// GloballyOff is true for a name registered as "off:<name>" (withGloballyOff), else false.
+func (f flagMap) GloballyOff(name string) bool { return f["off:"+name] }
 
 // rig is one service over fakes. clock is advanced by tests.
 type rig struct {
@@ -907,6 +909,48 @@ func TestPosts_FlagModesWithRealRegistry(t *testing.T) {
 				if r.callCount() != 0 || g.calls.Load() != 0 {
 					t.Errorf("%s: a refused caller must read nothing", uid)
 				}
+			}
+		})
+	}
+}
+
+func withGloballyOff(name string) rigOpt {
+	return func(_ *rig, _ *PostsDeps, fl flagMap) { fl["off:"+name] = true }
+}
+
+// W5-26b (ADR-0031 D5): search results are built by posts.ToView, so a community post carries its label, a hidden one and every post while
+// communities is globally off do not, and the row's viewer_reply_permission is never decided by the community rule (UNKNOWN timelines, 0 reads).
+func TestPosts_CommunityLabel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		opts   []rigOpt
+		hidden bool
+		want   bool
+	}{
+		{"community post", nil, false, true},
+		{"hidden", nil, true, false},
+		{"communities globally off", []rigOpt{withGloballyOff("communities")}, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ps := newestFirst(1, func(_ int, p *posts.Post) {
+				p.CommunityID, p.ConversationCommunityID = "1000000000000000042", "1000000000000000042"
+				p.Community = &posts.CommunityLabel{ID: "1000000000000000042", Name: "Go"}
+				p.CommunityHidden = tt.hidden
+			})
+			opts := append([]rigOpt{withFlag(posts.EngagementFlagName)}, tt.opts...)
+			r := newRig(map[string][]*posts.Post{"go": ps}, opts...)
+			resp := doPosts(t, r, "u", "go", latest, 0, "")
+			if len(resp.Posts) != 1 {
+				t.Fatalf("rows = %d", len(resp.Posts))
+			}
+			if got := resp.Posts[0].GetPost().GetCommunity() != nil; got != tt.want {
+				t.Fatalf("label present = %v, want %v", got, tt.want)
+			}
+			if resp.Posts[0].GetViewerReplyPermission() == postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED {
+				t.Fatal("search must not decide the members-only rule")
 			}
 		})
 	}
