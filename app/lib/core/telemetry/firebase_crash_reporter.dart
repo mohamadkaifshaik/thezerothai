@@ -1,7 +1,6 @@
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 
-import 'crash_breadcrumbs.dart';
 import 'crash_payload.dart';
 import 'telemetry_interfaces.dart';
 
@@ -11,7 +10,6 @@ import 'telemetry_interfaces.dart';
 abstract interface class CrashlyticsPort {
   Future<void> recordError(Object exception, StackTrace stack, {bool fatal});
   Future<void> setCustomKey(String key, Object value);
-  Future<void> log(String message);
   Future<void> setCollectionEnabled(bool enabled);
   Future<void> deleteUnsentReports();
 }
@@ -34,9 +32,6 @@ class FirebaseCrashlyticsPort implements CrashlyticsPort {
   @override
   Future<void> setCustomKey(String key, Object value) =>
       _c.setCustomKey(key, value);
-
-  @override
-  Future<void> log(String message) => _c.log(message);
 
   @override
   Future<void> setCollectionEnabled(bool enabled) =>
@@ -106,10 +101,6 @@ class FirebaseCrashReporter implements CrashReporter {
     await _ensureKeys();
     await _crashlytics.recordError(crashPayloadFor(error), stack, fatal: fatal);
   }
-
-  /// Logs a fixed breadcrumb (a constant from `crash_breadcrumbs.dart`).
-  Future<void> breadcrumb(CrashBreadcrumb crumb) =>
-      _crashlytics.log(crumb.label);
 
   @override
   Future<void> setCollecting(bool collecting) async {
