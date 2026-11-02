@@ -42,13 +42,13 @@ Set the flag to `off` and deploy (a Terraform change; no data migration). Effect
 - `crash_reporting` `off`: on the next `GetMe`, **Dart-side reports stop at once; native capture stops at the next launch, which also deletes unsent reports** (ADR-0032 C1). The switch is hidden; the stored choice is kept. Residual, accepted: a native (Java or Kotlin) fatal crash later in the same process run can still be uploaded.
 - `analytics` `off`: on the next `GetMe`, collection is off (Google documents no next-launch delay for Analytics; TEL-9 checks).
 - Staleness: as of the last `GetMe` (about 4 per DAU per day); on a cold start the stored decision for the restored uid applies until then. Only `off` is the kill switch; percent 0 or a shrunk allowlist is a rollout.
-- Rollback triggers: any report or event containing an id, handle, email or user text; SDK traffic seen without consent; a crash or ANR rise attributable to the SDKs; a prod report landing in dzeroth-dev.
+- Rollback triggers: any report or event containing an id, handle, email or user text **that passes the triage step under Failure modes** (a report that fails it is forged: delete it, do not roll back); SDK traffic seen without consent; a crash or ANR rise attributable to the SDKs; a prod report landing in dzeroth-dev.
 
 ## Deleting data (ADR-0032 C5)
 
 Per-person deletion is impossible by construction (nothing is keyed to an account). To remove something that should not be there:
 
-- **Crashlytics.** Turn the flag off and fix the scrubber. Then ask **Firebase support** to remove the affected reports, citing the Crashlytics issue id. Otherwise the reports age out after **90 days**. The API method `deleteCrashReports` needs a user id set through the SDK; we never set one, so there is nothing to target. No console delete is documented: do not promise one.
+- **Crashlytics.** Turn the flag off and fix the cause (see the leak row under Failure modes: Dart error, the scrubber; native message, the crashing code). Then ask **Firebase support** to remove the affected reports, citing the Crashlytics issue id. Otherwise the reports age out after **90 days**. The API method `deleteCrashReports` needs a user id set through the SDK; we never set one, so there is nothing to target. No console delete is documented: do not promise one.
 - **Analytics.** A Google Analytics data-deletion request (Editor role; data must be more than 12 days old; 7 to 63 days to process). Auto-collected parameters can only be deleted with **"Delete all parameters on all events"** for the date range. Retention is otherwise the property's setting (minimum 2 months).
 - Deleting an account in the app stops crash reports from that device, deletes unsent reports at the next start and resets the usage-statistics id. It does not delete data already at Google.
 
@@ -58,12 +58,48 @@ Per-person deletion is impossible by construction (nothing is keyed to an accoun
 | --- | --- | --- |
 | Google endpoints down or slow | SDKs queue on the device; the app and our API are unaffected | none |
 | Crash or ANR rate rises after an SDK update | user-visible | flag `off`; compare the Crashlytics and Play Console rates with the previous build; last resort: drop the SDKs in the next store build |
-| Personal data seen in a crash report or an event (id, handle, email, post text, a path) | privacy incident | flag `off` first; fix the scrubber (`CrashScrubber`) or the event vocabulary; delete per the section above; add a canary test for the leaking type; record the incident |
+| Personal data seen in a crash report or an event (id, handle, email, post text, a path) | **Run "Triage" below first.** Only a report that passes it is a leak | Forged: delete, no rollback (see Triage). Leak, by where the text sits: **Dart error** (an allowlisted type's message): flag `off` first; fix the scrubber (`CrashScrubber`) and add a canary test for the leaking type. **Native (Java or Kotlin) message** carrying anything the policy does not disclose: flag `off`; fix the crashing code, not the scrubber (it cannot see native messages). **Event:** flag `off`; fix the event vocabulary. Then delete per the section above and record the incident |
+| Triage: a report or event looks like a leak (L-4) | The app's Firebase ids and API key are public, so anyone can plant a crash or event that holds an id, handle, email or text. Treating it as a leak forces a kill switch or leaves third-party personal data in our consoles | See "Triage" below |
+| A Firebase BoM bump adds a permission (TEL-10 M-1) | The merged manifest can gain an advertising or other permission with no source change | See "BoM bumps" below |
 | SDK traffic without consent (a trace or a report from a device that did not opt in) | consent breach | flag `off`; this is a rollback trigger; the TEL-9 traces are the regression test |
 | Prod build reports to dzeroth-dev | wrong project | TEL-14 (#593, merged) makes `release-prod.yml` Android builds use dzeroth-prod's `google-services.json` and checks `project_id` in the build. To check: after the first prod allowlist session, open Crashlytics and Analytics (Realtime or DebugView) in **dzeroth-prod** and confirm the test device appears there and not in dzeroth-dev; confirm the staged candidate's AAB `project_id` is `dzeroth-prod`. Any sighting in dzeroth-dev from a prod build blocks every prod raise |
 | Cold start regression | latency | TEL-11 target: added p50 under 100 ms; flag `off` stops collection but the SDK stays in the build |
 | Firestore quota, Pub/Sub backlog or DLQ, `DEGRADED_MODE` | not involved (0 operations) | none; the flag is the switch |
 | Scripted fake events or crashes (measurement id and API keys are public) | console noise; INR 0 to us | the numbers are never used for security, billing or moderation |
+
+## Triage: forged report or leak (TEL-10 L-4)
+
+Run all three checks, in order, before a report or event counts as a leak or trips a rollback trigger. Do not match a report to an allowlisted tester (Ramp section).
+
+1. **Shipped build?**
+   - Crashlytics: open the issue, then an event. Read the app version (version name and code) in the event header, and the custom key `build_number` (also `FIREBASE_ENV` and `platform`) under Keys.
+   - GA: DebugView or Realtime does not show it reliably; use Reports > Tech > Tech details with the dimension App version, or an Explore with App version and Event name.
+   - Compare with the builds we shipped (the `v*` release notes in `docs/releases/` and the Play uploads). A build number never shipped, `unknown`, a version code we never uploaded, a package name that is not ours, or `platform` other than `android` fails the check.
+2. **Our frames?** (Crashlytics only.) Read the stack of the event. The top frames must be `package:dzeroth/...` or one of our plugins (`package:firebase_*`, `package:image_picker`, and so on, the packages in `app/pubspec.yaml`) or the Flutter engine. Frames from code we do not ship fail the check. A GA event has no frames: its check is that the event name and parameter names are in the fixed `AnalyticsEvent` list (ADR-0032); a name outside the list fails.
+3. **Can our code put the text there?**
+   - Dart error: only the allowlisted types carry a message (`TypeError`, `StateError` with our fixed strings, `AssertionError`, `FlutterError` overflow and layout errors), scrubbed and cut at 200 characters. Text in the message of any other Dart type, text over 200 characters, or text in a custom key other than `build_number`, `FIREBASE_ENV` and `platform`, fails the check.
+   - Native (Java or Kotlin) crash: the message is not scrubbed. A file name, path or URI there is behaviour the policy and ADR-0032 Note 2026-11-02 (TEL-19) disclose, not a scrubber failure, and `CrashScrubber` cannot change it. Not a leak. A native message that carries anything the policy does not disclose (post or message text, a uid, a handle or an email) passes the check, and is a leak.
+   - GA event: parameters outside the fixed vocabulary, or a user id or user property (we never set one), fail the check.
+
+**Outcome.**
+- **Any check fails: forged. Delete it and do not roll back.** Crashlytics: ask Firebase support to remove the issue (Section "Deleting data"). GA: a data-deletion request (same section). Note the report in the incident log with the check that failed. Keep the flag as it is.
+- **All three pass: a leak.** Flag `off` as under Kill switch, then follow the leak row under Failure modes (Dart error: fix the scrubber; native message: fix the crashing code), then delete and record.
+- Unsure on any check: treat it as a leak (flag `off`), then re-triage; turning the flag on again is a Terraform change and a release.
+- Never create a Measurement Protocol `api_secret` for either GA property. With none, nobody can post events to the property by HTTP, which removes the easiest forgery route (TEL-13 checks the consoles). The measurement id and API keys stay public, so forged SDK traffic is still possible: that is what this triage is for.
+
+## BoM bumps (TEL-10 M-1)
+
+At every Firebase BoM bump (Dependabot PR for `app/android`, or any manual one), before the release that carries it:
+
+1. Build a release APK with the dev defines of the TEL-9 test report (section 6), from `app/`:
+   `flutter build apk --release --dart-define=FIREBASE_ENV=dev --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=<dev api> --dart-define=BUILD_NUMBER=tel9`
+2. Dump the merged permissions:
+   `%LOCALAPPDATA%/Android/Sdk/build-tools/36.1.0/aapt2.exe dump permissions app/build/app/outputs/flutter-apk/app-release.apk`
+   (In Git Bash: `"$LOCALAPPDATA/Android/Sdk/build-tools/36.1.0/aapt2.exe" dump permissions <apk>`.)
+3. Compare with the baseline: the permission list recorded in TEL-17's PR.
+4. A permission **not in the baseline blocks the release**. Remove it with `<uses-permission android:name="..." tools:node="remove"/>` next to the existing lines in the app manifest, or declare it in TEL-13's forms (Play Data safety, privacy policy) if we mean to keep it. Rebuild and dump again.
+5. Record the new list as the next baseline (in the BoM PR body, and the TEL-9 report's permission line).
+6. A permission that is in the baseline and gone is fine; note it.
 
 ## Before the first release
 
