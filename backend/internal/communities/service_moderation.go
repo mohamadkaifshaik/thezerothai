@@ -1,6 +1,7 @@
 package communities
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -129,7 +130,7 @@ func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (
 	res, err := repo.SetRole(ctx, SetRoleParams{
 		UID: uid, ID: in.CommunityID, Target: in.UserID, Action: in.Action,
 		IdemKey: idempotency.Key(uid, rpcSetMemberRole, in.Key), RequestHash: roleHash(in.CommunityID, in.UserID, in.Action),
-		ModlogMax: s.d.Limits.ModlogMax, MaxModerators: s.d.Limits.MaxModerators,
+		ModlogMax: s.d.Limits.ModlogMax, MaxModerators: cmp.Or(s.d.Limits.MaxModerators, defaultMaxModerators),
 	})
 	if err != nil {
 		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, err)

@@ -275,7 +275,7 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 				return unchanged(st)
 			case p.Action == RoleActionMakeModerator && st != MemberJoined:
 				return ErrBadTarget
-			case p.Action == RoleActionMakeModerator && len(c.ModeratorIDs) >= max(p.MaxModerators, 1):
+			case p.Action == RoleActionMakeModerator && len(c.ModeratorIDs) >= p.MaxModerators:
 				return ErrModeratorCap
 			}
 		}
