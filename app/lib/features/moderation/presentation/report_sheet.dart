@@ -43,6 +43,7 @@ Future<ReportOutcome> showReportSheet(
   required String subject,
   String? blockLabel,
   String? detail,
+  String? notFoundMessage,
 }) async {
   final repository = context.read<ModerationRepository>();
   final onError = context.read<UnexpectedErrorReporter>();
@@ -64,6 +65,7 @@ Future<ReportOutcome> showReportSheet(
           subject: subject,
           blockLabel: blockLabel,
           detail: detail,
+          notFoundMessage: notFoundMessage,
           otherReasonNote:
               targetType == ReportTargetType.REPORT_TARGET_TYPE_POST
               ? kReportOtherPostNote
@@ -93,9 +95,14 @@ class ReportSheet extends StatelessWidget {
     this.blockLabel,
     this.detail,
     this.otherReasonNote,
+    this.notFoundMessage,
   });
 
   final String subject;
+
+  /// The NOT_FOUND text when it should name the target, or null for the
+  /// generic one.
+  final String? notFoundMessage;
 
   /// Shown under "Something else" while it is selected (W6-43), or null.
   final String? otherReasonNote;
@@ -122,6 +129,7 @@ class ReportSheet extends StatelessWidget {
                     subject: subject,
                     detail: detail,
                     otherReasonNote: otherReasonNote,
+                    notFoundMessage: notFoundMessage,
                   );
           },
         ),
@@ -131,9 +139,15 @@ class ReportSheet extends StatelessWidget {
 }
 
 class _Form extends StatelessWidget {
-  const _Form({required this.subject, this.detail, this.otherReasonNote});
+  const _Form({
+    required this.subject,
+    this.detail,
+    this.otherReasonNote,
+    this.notFoundMessage,
+  });
 
   final String subject;
+  final String? notFoundMessage;
   final String? otherReasonNote;
   final String? detail;
 
@@ -225,7 +239,7 @@ class _Form extends StatelessWidget {
                 child: Semantics(
                   liveRegion: true,
                   child: Text(
-                    reportErrorMessage(error),
+                    reportErrorMessage(error, notFoundMessage: notFoundMessage),
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.error,
                     ),

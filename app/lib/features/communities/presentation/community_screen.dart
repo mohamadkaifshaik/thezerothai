@@ -8,9 +8,16 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../lists/data/home_tabs_repository.dart';
+import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart'
+    show ReportTargetType;
+import '../../moderation/domain/reports_feature_flag.dart';
+import '../../moderation/presentation/report_sheet.dart';
+import '../../messages/presentation/report_conversation.dart'
+    show thankForReport;
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../posts/data/posts_repository.dart';
 import '../../posts/domain/posts_feature_flag.dart';
@@ -20,6 +27,7 @@ import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/bloc/timeline_state.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import '../data/communities_repository.dart';
+import '../domain/communities_feature_flag.dart';
 import '../domain/community_role.dart';
 import 'bloc/community_detail_cubit.dart';
 import 'bloc/community_detail_state.dart';
@@ -170,6 +178,21 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (error != null && mounted) _say(communitiesErrorMessage(error));
   }
 
+  /// W5-35b: the shared report sheet with the Community target. The owner is
+  /// refused by the server (VALIDATION `target_id`), so the entry is hidden
+  /// for them; NOT_FOUND shows [kReportCommunityNotFound] in the sheet.
+  Future<void> _report() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final outcome = await showReportSheet(
+      context,
+      targetType: ReportTargetType.REPORT_TARGET_TYPE_COMMUNITY,
+      targetId: widget.communityId,
+      subject: _detail.state.community?.name ?? 'this Community',
+      notFoundMessage: kReportCommunityNotFound,
+    );
+    thankForReport(messenger, outcome);
+  }
+
   Future<void> _togglePin() async {
     final error = await _detail.togglePin();
     if (error != null && mounted) _say(communitiesErrorMessage(error));
@@ -236,11 +259,40 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     ),
                   );
                 }
+                // Both flags, and a role from `viewer_role` that is not the
+                // owner (the server answers VALIDATION to the owner).
+                final showReport =
+                    isFeatureEnabled(context, kFeatureReports) &&
+                    isFeatureEnabled(context, kFeatureCommunities) &&
+                    state.community != null &&
+                    !state.community!.role.isOwner;
                 final headerSlivers = <Widget>[
                   SliverToBoxAdapter(
                     child: AppBackHeader(
                       title: state.community?.name ?? 'Community',
                       onBack: _back,
+                      actions: [
+                        if (showReport)
+                          PopupMenuButton<String>(
+                            tooltip: 'Community options',
+                            icon: const Icon(Icons.more_horiz),
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size.square(
+                                AppSpacing.minTapTarget,
+                              ),
+                            ),
+                            onSelected: (_) => _report(),
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'report',
+                                child: AppMenuItemRow(
+                                  icon: Icons.flag_outlined,
+                                  label: 'Report Community',
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
                   SliverToBoxAdapter(
