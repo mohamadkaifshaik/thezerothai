@@ -25,7 +25,9 @@ const (
 	fieldTxnAttempts      = "txn_attempts"
 	fieldFeature          = "feature"
 	fieldHasPoll          = "has_poll"
-	fieldCommunityRefused = "community_refused" // flag_off or not_built (W5-22); a set community_id only, never the id
+	fieldCommunityRefused = "community_refused" // flag_off or not_wired; a set community_id only, never the id
+	fieldCommunityPost    = "community_post"    // bool: this CreatePost carries a community_id (ADR-0031 D13), never the id
+	fieldCommunityGate    = "community_gate"    // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:quota, rejected:cap
 )
 
 // outcomes of CreatePost (posts_op=create).

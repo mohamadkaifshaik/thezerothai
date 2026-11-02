@@ -41,8 +41,11 @@ import (
 // the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
 // nothing.
 //
-// Community (ADR-0031 D5, W5-22): a set community_id is FEATURE_DISABLED feature=communities, 0 reads and 0 writes, whatever the flag
-// says (see CreateInput.CommunityID); W5-26 replaces the refusal for a caller inside the flag with posts.CommunityGate.
+// Community (ADR-0031 D5, W5-26): a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
+// FEATURE_DISABLED feature=communities, 0 reads, 0 writes. Otherwise the shape is validated (0 reads), a protected caller is refused (0
+// reads), and the gate runs: +2 reads cold (community via the 60 s cache, member doc read fresh inside the transaction) / +1 warm over a
+// plain post, +0 writes (quotas.communityPosts rides the one quota Set). Every refusal (not a member, banned, archived, quota, per-community
+// cap) writes 0; a replay returns before the member read, so it costs a plain replay (+0, plus the cached community read).
 //
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
@@ -85,19 +88,24 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, featureDisabled("polls")
 	}
 	// communities (ADR-0031 D10, D5) comes after polls: a set community_id with FEATURE_COMMUNITIES off for the caller is FEATURE_DISABLED
-	// feature=communities, 0 reads beyond the interceptor. W5-22 builds none of the rest of the gate (shape, protected caller, community,
-	// membership, quota, cap: W5-26), so a set community_id with the flag ON is refused the same way ("not built yet" is one of the
-	// documented meanings of FEATURE_DISABLED) rather than silently creating an ordinary public post outside the community.
+	// feature=communities, 0 reads beyond the interceptor. With the flag on but no CommunityGate wired (SetCommunityGate) it is refused the
+	// same way, so a set community_id can never create an ordinary public post outside the community.
+	logger.SetRequestField(ctx, fieldCommunityPost, in.CommunityID != "")
 	if in.CommunityID != "" {
 		if !in.CommunitiesEnabled {
 			logger.SetRequestField(ctx, fieldCommunityRefused, "flag_off")
-		} else {
-			logger.SetRequestField(ctx, fieldCommunityRefused, "not_built")
+			return nil, featureDisabled("communities")
 		}
-		return nil, featureDisabled("communities")
+		if s.community == nil {
+			logger.SetRequestField(ctx, fieldCommunityRefused, "not_wired")
+			return nil, featureDisabled("communities")
+		}
 	}
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
+	}
+	if err := validateCommunityShape(in); err != nil {
+		return nil, err
 	}
 	// A poll's own and combination rules come first, so a poll with images or a reply is always field=poll (ADR-0029 D1).
 	pollDraft, err := s.checkPoll(in)
@@ -107,6 +115,9 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	policy, err := validateReplyPolicy(in)
 	if err != nil {
 		return nil, err
+	}
+	if in.CommunityID != "" && policy != ReplyPolicyEveryone {
+		return nil, apierr.Validation("reply_policy", "a community post takes no reply setting: only members can reply")
 	}
 	if err := validateMedia(in.MediaIDs, in.MediaAltTexts); err != nil {
 		return nil, err
@@ -135,6 +146,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	author, ok := profiles[uid]
 	if !ok {
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
+	}
+	var label *CommunityLabel
+	if in.CommunityID != "" {
+		if label, err = s.admitCommunity(ctx, author, in.CommunityID); err != nil {
+			return nil, err
+		}
 	}
 	var parent *Post
 	if in.ReplyToPostID != "" {
@@ -169,10 +186,14 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		hashtags = []string{}
 	}
 	snapshot, snapshotVersion := authorSnapshotOf(uid, author)
+	reqHash := requestHashWithPoll(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI, pollDraft)
+	if in.CommunityID != "" { // appended only when set: a request without one hashes byte-for-byte as before (ADR-0031 D5)
+		reqHash = idempotency.HashRequest(requestHashBase(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI) + pollHashSuffix(pollDraft) + "|community=" + in.CommunityID)
+	}
 	params := CreateParams{
 		AuthorID:    uid,
 		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHashWithPoll(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI, pollDraft),
+		RequestHash: reqHash,
 		Poll:        pollDraft,
 		QuotaLimit:  limit,
 		MediaIDs:    in.MediaIDs,
@@ -194,9 +215,15 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if quoted != nil {
 		applyQuote(&params, quoted)
 	}
+	if label != nil {
+		s.applyCommunity(&params, label, author)
+	}
 	res, err := s.repo.Create(ctx, params)
 	noteTxnAttempts(ctx, res.Attempts)
 	if err != nil {
+		if params.Community != nil {
+			noteCommunityGateError(ctx, err)
+		}
 		if errors.Is(err, ErrMediaNotReady) {
 			return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY,
 				"one of the images is not ready; upload it again")

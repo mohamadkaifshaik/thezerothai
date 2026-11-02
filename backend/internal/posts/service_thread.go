@@ -507,6 +507,9 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.ReplyToAuthorID = parent.AuthorID // transient, for PostEvents.Created only (never persisted)
 	p.Draft.ConversationID = conv
 	p.Draft.ReplyPolicy = parent.ReplyPolicy // inherited, 0 reads; never a user id (ADR-0021 D2)
+	// ADR-0031 D5: the conversation's community is inherited like the policy (+0 reads: the parent is read). Only the key is copied here; the
+	// members-only gate on the reply path is W5-26b. A hidden root keeps it (a hide never changes conversationCommunityId).
+	p.Draft.ConversationCommunityID = parent.ConversationCommunityID
 }
 
 // EmbedViewerState implements EmbedHinter (issue #152): whether the viewer blocks or mutes the author of the REPOST or

@@ -89,6 +89,17 @@ func (n *Node) millisSinceEpoch() int64 {
 	return n.now().UTC().UnixMilli() - epochMillis
 }
 
+// MinID is the smallest id of millisecond t: node 0, sequence 0, as a 19-digit string. Every id generated in that millisecond is
+// >= MinID(t) and every id of an earlier millisecond is < it, so an inclusive id bound at MinID(t) is "createdAt >= t" in id order.
+// A time before the epoch gives the all-zero id.
+func MinID(t time.Time) string {
+	ms := t.UnixMilli() - epochMillis
+	if ms < 0 {
+		ms = 0
+	}
+	return fmt.Sprintf("%019d", ms<<timeShift)
+}
+
 // Time returns the millisecond timestamp encoded in a Generate()d id. posts use it as createdAt (ADR-0010 D18),
 // so (createdAt, id) order equals id order. It errors for anything that is not a non-negative decimal id.
 func Time(id string) (time.Time, error) {

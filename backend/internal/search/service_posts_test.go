@@ -40,6 +40,10 @@ type fakeReader struct {
 	gate  chan struct{} // when set, ByHashtag blocks until it is closed
 }
 
+func (f *fakeReader) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (f *fakeReader) ByHashtag(_ context.Context, tag string, w posts.Window, limit int) ([]*posts.Post, error) {
 	if f.gate != nil {
 		<-f.gate

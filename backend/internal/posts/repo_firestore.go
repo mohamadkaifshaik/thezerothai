@@ -44,10 +44,13 @@ type Repo interface {
 	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
 	// Reads: len(result), minimum 1.
 	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
+	// ByCommunity is the community feed query (repo_community.go): its own `communityId == C ORDER BY __name__ DESC` shape, never run().
+	ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error)
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
 	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
 	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
+	// A community post (p.Community) adds 1 read, the member doc read fresh in the transaction, and 0 writes.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	// DeleteOwn deletes posts/{id} and decrements the author's postsCount in one batch, with an Exists
 	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete
@@ -132,6 +135,17 @@ type postDoc struct {
 	// Poll is ADR-0029 D1: root posts with a poll only; absent otherwise, no backfill. The whole map is index-exempt (fieldOverride
 	// posts.poll). A vote increments poll.counts.<i> and poll.total with field paths, never a whole-map write.
 	Poll *pollDoc `firestore:"poll,omitempty"`
+	// ADR-0031 D2, D5: communityId (the community feed key, root POST or QUOTE only), community {id, name} (label snapshot) and
+	// conversationCommunityId (the conversation's community). All omitempty: absent = not a community post, no backfill.
+	CommunityID             string        `firestore:"communityId,omitempty"`
+	Community               *communityDoc `firestore:"community,omitempty"`
+	ConversationCommunityID string        `firestore:"conversationCommunityId,omitempty"`
+}
+
+// communityDoc is the stored label snapshot of a community post.
+type communityDoc struct {
+	ID   string `firestore:"id"`
+	Name string `firestore:"name"`
 }
 
 // pollDoc is the stored poll: counts is keyed "0".."n-1" so a vote is Increment(poll.counts.<i>) plus Increment(poll.total).
@@ -236,6 +250,10 @@ func toDoc(p *Post) postDoc {
 		ReplyPolicy: string(p.ReplyPolicy),
 		HasMedia:    HasMediaFor(p.Kind, len(p.Media)),
 		Poll:        pollToDoc(p.Poll),
+		CommunityID: p.CommunityID, ConversationCommunityID: p.ConversationCommunityID,
+	}
+	if p.Community != nil {
+		d.Community = &communityDoc{ID: p.Community.ID, Name: p.Community.Name}
 	}
 	if e := p.Embedded; e != nil {
 		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
@@ -289,6 +307,10 @@ func (d postDoc) toPost(id string) *Post {
 		ReplyPolicy: ReplyPolicy(d.ReplyPolicy),
 		HasMedia:    d.HasMedia,
 		Poll:        d.Poll.toPoll(),
+		CommunityID: d.CommunityID, ConversationCommunityID: d.ConversationCommunityID,
+	}
+	if d.Community != nil {
+		p.Community = &CommunityLabel{ID: d.Community.ID, Name: d.Community.Name}
 	}
 	if e := d.Embedded; e != nil {
 		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable,

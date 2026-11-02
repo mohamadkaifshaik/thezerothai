@@ -144,6 +144,18 @@ type Post struct {
 	HasMedia bool
 	// Poll is the root post's poll (ADR-0029 D1), nil for every other post. Read-only once cached: a writer builds a new one.
 	Poll *Poll
+	// CommunityID is the community feed key (ADR-0031 D2, D5): set only on a root POST or QUOTE created into a community, never on a reply
+	// or a REPOST. Absent = not a community post (no backfill). Community is the label snapshot taken at post time; ConversationCommunityID
+	// is the conversation's community, set on the community root and inherited by every reply (the members-only reply key, W5-26b).
+	CommunityID             string
+	Community               *CommunityLabel
+	ConversationCommunityID string
+}
+
+// CommunityLabel is the community {id, name} snapshot a community post stores (ADR-0031 D5): a rename does not rewrite old posts.
+type CommunityLabel struct {
+	ID   string
+	Name string
 }
 
 // Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
@@ -270,6 +282,14 @@ type Reader interface {
 	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search,
 	// W4-7) must drop !Visible() and decide each post through posts.Audience with SurfaceList (ADR-0025, ADR-0028 D3).
 	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
+	// ByCommunity returns the posts listed in community cid (communityId == cid: root posts and quotes, never a reply or a REPOST; a
+	// moderator hide removes the key), newest first, inside window, at most limit (clamped to 1..50). It is its own query, `communityId == cid
+	// ORDER BY __name__ DESC` with id-bound windows (ADR-0031 D3: automatic single-field index, proven on dzeroth-dev), never the createdAt
+	// order of the other methods. Before resumes strictly older (StartAfter), After stops strictly newer (EndBefore); an After whose id is
+	// the all-zero sentinel (the timeline settle watermark, ADR-0010 D13) is the inclusive EndAt of the smallest Snowflake of its
+	// millisecond. Reads: len(result), minimum 1; results fill the posts cache. Unfiltered like every Reader method: the caller drops
+	// !Visible() rows and applies blocks, mutes and audience.
+	ByCommunity(ctx context.Context, cid string, window Window, limit int) ([]*Post, error)
 	// CreatedAfter returns posts created strictly after the watermark, OLDEST first (createdAt ASC, __name__ ASC), at
 	// most limit (default 20, clamped to MaxCreatedAfterLimit 500), for the trends sweep (ADR-0028 D6). With an empty
 	// after.ID the bound is createdAt only; otherwise it resumes strictly after the (createdAt, id) pair. Query on the
@@ -377,8 +397,9 @@ type CreateInput struct {
 	PollsEnabled bool
 	// CommunityID is the request's community_id (ADR-0031 D5), "" for none; CommunitiesEnabled is the FEATURE_COMMUNITIES decision for the
 	// caller, made by server.go (never from the request). A set CommunityID is FEATURE_DISABLED (metadata feature=communities), 0 reads,
-	// checked after polls: with the flag off for the caller, and (until W5-26 builds posts.CommunityGate) with it on too, so the post is
-	// never created as an ordinary one. W5-26 replaces the second refusal with the gate and validates the shape.
+	// checked after polls: with the flag off for the caller, and with it on while no CommunityGate is wired, so the post is never created
+	// as an ordinary one. With the flag on and a gate wired, Create validates the shape (VALIDATION community_id / reply_policy) and runs
+	// the gate (community_gate.go).
 	CommunityID        string
 	CommunitiesEnabled bool
 }

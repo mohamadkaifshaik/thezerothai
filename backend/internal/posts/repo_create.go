@@ -3,6 +3,8 @@
 // One transaction, bounded by createTxTimeout (5 s):
 //
 //	reads : idempotency/{hash} (1), then, only on a first attempt, quotas/{uid} (1)
+//	        a community post (ADR-0031 D5): + communityMembers/{uid} (1, fresh, after the replay check; the community doc is read before the
+//	        transaction through the 60 s cache); posts and communityPosts share the one quota Set, so +0 writes
 //	        media/* (only with images: + len(media_ids) GetAll reads)
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
 //	        (+ one media/{id}.postId update per image, <= 4)
@@ -75,6 +77,19 @@ type CreateParams struct {
 	// Poll is the validated poll of a root post (ADR-0029 D1), nil for none. The transaction builds the stored Poll from it inside
 	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0. +0 reads, +0 writes.
 	Poll *PollDraft
+	// Community, when set, runs the ADR-0031 D5 gate inside the transaction (member doc fresh, communityPosts reserved in the same quota
+	// Set, the per-community daily cap): +1 read, +0 writes. Nil for every other post.
+	Community *CommunityPost
+}
+
+// CommunityPost is the in-transaction half of a community post: the gate and the community's quota limit (the new-account tier applied
+// by the service). The label and the conversation community are already in CreateParams.Draft.
+type CommunityPost struct {
+	Gate       CommunityGate
+	QuotaLimit int64
+	// capDrawn makes the per-community cap draw happen once per CreatePost call, not once per transaction attempt (the SDK re-runs the
+	// function on contention), so a retry is not charged twice. A refusal before the draw and a replay never reach it.
+	capDrawn bool
 }
 
 // CreateResult is the outcome of Repo.Create. Exactly one of Post (a new post, already committed) and ReplayID
@@ -163,6 +178,14 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, fmt.Errorf("posts: quota lookup: %w", err)
 	}
 
+	// ADR-0031 D5 step 3: the caller's member doc, read fresh after the replay check (a replay never reads it) and before anything is
+	// staged. The gate maps a missing doc to not_member itself, so a QUOTE into a community cannot be mistaken for a vanished parent.
+	if p.Community != nil {
+		if err := p.Community.Gate.CheckMember(ctx, tx, p.Draft.CommunityID, p.AuthorID); err != nil {
+			return CreateResult{}, err
+		}
+	}
+
 	// Images are read before the first write (a Firestore transaction rule): one GetAll of len(ids) reads.
 	var claim MediaClaim
 	if len(p.MediaIDs) > 0 {
@@ -208,7 +231,18 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 
 	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
-	if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit); err != nil {
+	if p.Community != nil {
+		// One whole-record Set for both kinds: +0 writes (CheckAndReserve twice would lose the first increment).
+		if err := quota.CheckAndReserveBoth(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit, quota.CommunityPosts, p.Community.QuotaLimit); err != nil {
+			return CreateResult{}, err
+		}
+		if !p.Community.capDrawn {
+			if err := p.Community.Gate.AllowPost(ctx, p.AuthorID, p.Draft.CommunityID); err != nil {
+				return CreateResult{}, err
+			}
+			p.Community.capDrawn = true
+		}
+	} else if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit); err != nil {
 		return CreateResult{}, err
 	}
 	b.Create(r.ref(id), toDoc(&post))
