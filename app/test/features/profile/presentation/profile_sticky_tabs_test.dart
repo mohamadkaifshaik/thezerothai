@@ -242,12 +242,12 @@ void main() {
       expect(pinned.top, closeTo(appBarBottom(tester), 0.5));
       expect(find.byType(AppTabBar).hitTestable(), findsOneWidget);
       // Rows scroll under the pinned bar (where one stops depends on row
-      // heights), never over it: the bar wins hit tests across its whole
-      // height, down to its bottom edge, and rows continue right below it.
-      expect(
-        find.byType(AppTabBar).hitTestable(at: const Alignment(0, 0.9)),
-        findsOneWidget,
-      );
+      // heights), never over it: the bar wins hit tests near its bottom
+      // edge, over the middle and over the rows' text column, and rows
+      // continue right below it.
+      for (final at in const [Alignment(0, 0.98), Alignment(-0.6, 0.98)]) {
+        expect(find.byType(AppTabBar).hitTestable(at: at), findsOneWidget);
+      }
       final rowsBelow = find
           .descendant(
             of: find.byType(TimelineFeedView),

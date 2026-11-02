@@ -567,12 +567,13 @@ class PostCard extends StatelessWidget {
     // around the avatar and the actions already carry whitespace, so the card
     // adds less of its own. The avatar's 40dp circle still starts 12dp down,
     // and the action glyphs end 16dp above the next row. Tap targets stay
-    // 48dp.
+    // 48dp. A context label (repost / community) on top has no such box, so
+    // it keeps the full 12dp above it.
     final dense = !asFocal;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         AppSpacing.md,
-        dense ? AppSpacing.sm : AppSpacing.smd,
+        dense && contextLabel == null ? AppSpacing.sm : AppSpacing.smd,
         AppSpacing.md,
         dense && bar != null ? 0 : AppSpacing.smd,
       ),
