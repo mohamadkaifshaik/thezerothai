@@ -9,56 +9,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../support/fake_crashlytics_port.dart';
+
 const _canary = 'ZZCANARY123456789';
 final RegExp _sixDigits = RegExp(r'\d{6,}');
 
-class _FakePort implements CrashlyticsPort {
-  final List<Object?> args = []; // every argument, as the SDK would see it
-  final List<String> calls = [];
-  final Map<String, Object> keys = {};
-  final List<String> recordedTitles = [];
-
-  @override
-  Future<void> recordError(
-    Object exception,
-    StackTrace stack, {
-    bool fatal = false,
-  }) async {
-    calls.add('recordError');
-    recordedTitles.add(exception.toString());
-    args
-      ..add(exception.toString())
-      ..add(stack.toString())
-      ..add(fatal);
-  }
-
-  @override
-  Future<void> setCustomKey(String key, Object value) async {
-    calls.add('setCustomKey');
-    keys[key] = value;
-    args
-      ..add(key)
-      ..add(value);
-  }
-
-  @override
-  Future<void> log(String message) async {
-    calls.add('log');
-    args.add(message);
-  }
-
-  @override
-  Future<void> setCollectionEnabled(bool enabled) async =>
-      calls.add('setCollectionEnabled($enabled)');
-
-  @override
-  Future<void> deleteUnsentReports() async => calls.add('deleteUnsent');
-
-  String get everything => args.map((a) => '$a').join('\n');
-}
-
-(FirebaseCrashReporter, _FakePort) _make() {
-  final port = _FakePort();
+(FirebaseCrashReporter, FakeCrashlyticsPort) _make() {
+  final port = FakeCrashlyticsPort();
   return (
     FirebaseCrashReporter(
       crashlytics: port,
@@ -72,7 +29,7 @@ class _FakePort implements CrashlyticsPort {
   );
 }
 
-void _expectClean(_FakePort port) {
+void _expectClean(FakeCrashlyticsPort port) {
   expect(port.everything, isNot(contains(_canary)));
   expect(
     _sixDigits.hasMatch(port.everything),
