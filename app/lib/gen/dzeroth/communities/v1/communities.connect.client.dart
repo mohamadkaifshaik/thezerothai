@@ -35,15 +35,18 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Change a community's name, description or rules. Owner only: anyone else => FORBIDDEN "not_owner"; ARCHIVED =>
-  /// COMMUNITY_STATE "community_archived". Only the fields that are set change; the text rules are CreateCommunity's.
+  /// Change a community's name, description or rules. While creation is allowlisted (always at Stage 0) the caller must
+  /// be in COMMUNITY_CREATORS, checked first: else FORBIDDEN "not_creator", 0 reads beyond the interceptor, 0 writes,
+  /// whoever owns the community (ADR-0031 Amendment 1, D10a: an owner by hand-over keeps every other owner power).
+  /// Then owner only: anyone else => FORBIDDEN "not_owner"; ARCHIVED => COMMUNITY_STATE "community_archived". Only the
+  /// fields that are set change; the text rules are CreateCommunity's.
   /// A rename does not rewrite the label of earlier posts (Post.community is a snapshot at post time); the community's
   /// own page and feed header show the current name.
   /// One transaction: idempotency doc, the community (fresh), the owner's memberships (modlogged), then the community
   /// with an EDIT moderation-log entry. A request that changes nothing writes only the idempotency doc.
   /// Firestore: reads 4 cold (interceptor, idempotency, community, owner memberships) / 3 warm; writes 2 (community,
   /// idempotency), +1 for the first log entry that names the owner in this community (memberships modlogged), 1 when
-  /// nothing changes, + 1 TTL delete later; replay 0 writes.
+  /// nothing changes, + 1 TTL delete later; replay 0 writes; "not_creator" 0 reads beyond the interceptor, 0 writes.
   Future<dzerothcommunitiesv1communities.UpdateCommunityResponse> updateCommunity(
     dzerothcommunitiesv1communities.UpdateCommunityRequest input, {
     connect.Headers? headers,
@@ -199,7 +202,10 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   /// index (D3). Each row carries the user's role and UserListItem.since = joinedAt (JOINED) or bannedAt (BANNED).
   /// Rows whose account is not ACTIVE are left out, and so are the D7 drops for the caller (header comment: a block
   /// either way drops the row unless the caller is the owner or a moderator, who see every member; a muted member is
-  /// shown), so a page may be short while next_page_token is set: keep following it. user.is_private is set (live row).
+  /// shown). A protected member (user.is_private) is left out for a caller who is not the owner, a moderator, that
+  /// member or an approved follower of it (a pending request is not approval); a protected owner or moderator is
+  /// always listed (ADR-0031 Amendment 1, D7a, F17), and member_count still counts every member. So a page may be
+  /// short while next_page_token is set: keep following it. user.is_private is set (live row).
   /// Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, the community and the
   /// effective filter (UNSPECIFIED and JOINED bind the same), and expires after 24 h (expired, foreign or tampered =>
   /// VALIDATION "page_token", 0 reads).
@@ -222,19 +228,29 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Hide a post from this community's view (A12). Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED =>
-  /// COMMUNITY_STATE "community_archived". post_id must be a post created into this community (Post.community.id ==
-  /// community_id), else NOT_FOUND "post not found". The post leaves the community's feed and loses its label on every
-  /// surface. It stays on the author's profile, in Home and in search, with its thread, likes and reposts, and it is
-  /// never a takedown (ADR-0016). Already hidden => success, the idempotency doc only. A block either way does not
-  /// refuse it (F14).
-  /// One transaction (posts.CommunityModerator): idempotency doc, the community (fresh), the post (fresh), the actor's
-  /// memberships, then the post (field-level: communityId deleted, communityHidden set), the community (recentRemovals
-  /// += {post, now}, at most 50 kept; a HIDE log entry, at most 100 kept) and idempotency. Feeds on this instance drop
-  /// it at once; other devices drop it at their next refresh (GetCommunityTimeline removed_ids, within 60 s).
-  /// Firestore: reads 5 cold (interceptor, idempotency, community, post, actor memberships) / 4 warm; writes 3 (post,
+  /// Hide a post from this community's view (A12), or a reply from its conversations (ADR-0031 Amendment 1, F15).
+  /// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".
+  /// post_id must be a root post created into this community (Post.community.id == community_id) or a reply at any
+  /// depth of a conversation whose root was. Anything else (a reply in another community's conversation or in one with
+  /// no community, a REPOST, a missing post) and a post or reply the platform removed (taken down, or hidden with its
+  /// suspended author) => NOT_FOUND "post not found", 0 writes; so a hide and restore can never erase a platform
+  /// removal (L-2). A moderator who is not the owner cannot act on a post or reply whose author is the owner or
+  /// another moderator now => FORBIDDEN "not_owner", 0 writes; the owner acts on every one, a moderator on their own and
+  /// on everyone else's (F16).
+  /// A root post leaves the community's feed and loses its label on every surface. A reply leaves the community's
+  /// threads: GetThread drops it for every caller but its author, and as a parent returns it unavailable. Both stay on
+  /// the author's profile, in search and on a direct link (GetPost), with their likes and reposts, and a hide is never
+  /// a takedown (ADR-0016). Already hidden => success, the idempotency doc only. A block either way does not refuse it
+  /// (F14).
+  /// One transaction (posts.CommunityModerator): idempotency doc, the community (fresh), the actor's memberships, the
+  /// post (fresh), then the post (field-level: communityHidden and the hide time set; a root also loses communityId),
+  /// the community (a HIDE log entry, at most 100 kept; for a root also recentRemovals += {post, now}, at most 50 kept;
+  /// a reply adds no recentRemovals entry) and idempotency. Feeds on this instance drop a root at once; other devices
+  /// drop it at their next refresh (GetCommunityTimeline removed_ids, within 60 s). A device keeps a reply in a thread
+  /// it already loaded until it loads the thread again.
+  /// Firestore: reads 5 cold (interceptor, idempotency, community, actor memberships, post) / 4 warm; writes 3 (post,
   /// community, idempotency), +1 for the actor's first log entry in this community (memberships modlogged), 1 when
-  /// already hidden, + 1 TTL delete later; replay 0 writes.
+  /// already hidden, + 1 TTL delete later; replay 0 writes; refused 0 writes.
   Future<dzerothcommunitiesv1communities.HideCommunityPostResponse> hideCommunityPost(
     dzerothcommunitiesv1communities.HideCommunityPostRequest input, {
     connect.Headers? headers,
@@ -252,12 +268,13 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Restore a post a moderator hid in this community: the reverse of HideCommunityPost, with the same roles, rules,
-  /// errors and budget. The post re-enters the community's feed and gets its label back; its recentRemovals entry is
-  /// deleted, so it is never listed in removed_ids (a device that dropped it gets it back at its next cold open). A post
-  /// that is not hidden => success, the idempotency doc only. A RESTORE log entry is appended.
+  /// Restore a post or reply a moderator hid in this community: the reverse of HideCommunityPost, with the same roles,
+  /// rules (the F16 "not_owner" and the platform-removal NOT_FOUND included), errors and budget. A root re-enters the
+  /// community's feed and gets its label back; its recentRemovals entry is deleted, so it is never listed in
+  /// removed_ids (a device that dropped it gets it back at its next cold open). A reply returns to GetThread for every
+  /// caller. A post that is not hidden => success, the idempotency doc only. A RESTORE log entry is appended.
   /// Firestore: reads 5 cold / 4 warm; writes 3 (+1 for the actor's first log entry in this community), 1 when not
-  /// hidden, + 1 TTL delete later; replay 0 writes.
+  /// hidden, + 1 TTL delete later; replay 0 writes; refused 0 writes.
   Future<dzerothcommunitiesv1communities.RestoreCommunityPostResponse> restoreCommunityPost(
     dzerothcommunitiesv1communities.RestoreCommunityPostRequest input, {
     connect.Headers? headers,
@@ -317,7 +334,8 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   /// The community's moderation log, newest first: what the owner and moderators did (ADR-0031 D2). Owner and moderators
   /// only, else FORBIDDEN "not_moderator". The community keeps its newest COMMUNITY_MODLOG_MAX (100) entries, so older
   /// ones are gone. Entries never name a post's author; a user who deleted the account reads as actor_deleted or
-  /// target_deleted (the action and time stay).
+  /// target_deleted (the action and time stay); an entry written by the platform has no actor and actor_deleted false
+  /// (ModerationLogEntry.actor).
   /// Paging: page_size 0 => 25, max 25 (clamped); page_token is sealed, bound to the caller and the community, carries
   /// the last seq returned, and expires after 24 h (expired, foreign or tampered => VALIDATION "page_token", 0 reads).
   /// Firestore: reads 52 cold (interceptor, community, <= 50 actor and target profiles via identity.Directory) / 0 warm;

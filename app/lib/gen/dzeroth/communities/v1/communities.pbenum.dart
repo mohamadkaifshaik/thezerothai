@@ -189,12 +189,14 @@ class ModerationLogAction extends $pb.ProtobufEnum {
       ModerationLogAction._(
           0, _omitEnumNames ? '' : 'MODERATION_LOG_ACTION_UNSPECIFIED');
 
-  /// A post was hidden from the community view (post_id set).
+  /// A post or a reply was hidden from the community view (post_id set).
   static const ModerationLogAction MODERATION_LOG_ACTION_HIDE =
       ModerationLogAction._(
           1, _omitEnumNames ? '' : 'MODERATION_LOG_ACTION_HIDE');
 
-  /// A hidden post was restored (post_id set).
+  /// A hidden post or reply was restored (post_id set). With the platform as actor (ModerationLogEntry.actor) and
+  /// post_id "": one bulk restore by `opsctl community restore-hidden`, one entry per run however many posts it
+  /// restored (ADR-0031 Amendment 1, D14a).
   static const ModerationLogAction MODERATION_LOG_ACTION_RESTORE =
       ModerationLogAction._(
           2, _omitEnumNames ? '' : 'MODERATION_LOG_ACTION_RESTORE');
