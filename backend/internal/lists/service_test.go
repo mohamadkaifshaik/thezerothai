@@ -186,6 +186,8 @@ func TestCreateList_Validation(t *testing.T) {
 		{"description of 101 code points", CreateInput{Key: testKey, Name: "Cricket", Description: strings.Repeat("d", 101)}, "description"},
 		{"description with a newline", CreateInput{Key: testKey, Name: "Cricket", Description: "a\nb"}, "description"},
 		{"description with a bidi isolate", CreateInput{Key: testKey, Name: "Cricket", Description: "a" + lri + "b"}, "description"},
+		{"description with a zero width space (W5-55)", CreateInput{Key: testKey, Name: "Cricket", Description: "a\u200bb"}, "description"},
+		{"description with a Hangul filler (W5-55)", CreateInput{Key: testKey, Name: "Cricket", Description: "a\u3164b"}, "description"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -371,6 +373,7 @@ func TestUpdateList(t *testing.T) {
 			{"name cleared", UpdateInput{Key: testKey, ListID: testListID, Name: ptr("")}, "name"},
 			{"name with bidi", UpdateInput{Key: testKey, ListID: testListID, Name: ptr("a" + rlo + "b")}, "name"},
 			{"description too long", UpdateInput{Key: testKey, ListID: testListID, Description: ptr(strings.Repeat("d", 101))}, "description"},
+			{"description with a word joiner (W5-55)", UpdateInput{Key: testKey, ListID: testListID, Description: ptr("a\u2060b")}, "description"},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
