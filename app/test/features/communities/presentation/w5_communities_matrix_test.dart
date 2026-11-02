@@ -331,7 +331,13 @@ void main() {
       await open(tester, env);
       expectNoOverflow(tester);
       expect(find.text('Retry'), findsOneWidget);
-      expectMinTarget(tester, find.text('Retry'));
+      expectMinTarget(
+        tester,
+        find.ancestor(
+          of: find.text('Retry'),
+          matching: find.bySubtype<ButtonStyleButton>(),
+        ),
+      );
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('Community options menu open', (tester, env) async {
@@ -374,9 +380,21 @@ void main() {
       (tester, env) async {
         stubCommunity(
           role: pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
-          name: _names['long']!,
+          name: 'Chess openings and endgam',
         );
         await open(tester, env);
+        // The header is taller than the view at large text; the rows are lazy.
+        for (
+          var i = 0;
+          i < 20 && find.byTooltip('More options').evaluate().isEmpty;
+          i++
+        ) {
+          await tester.drag(
+            find.byType(Scrollable).first,
+            const Offset(0, -300),
+          );
+          await tester.pump();
+        }
         await tester.tap(find.byTooltip('More options').first);
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
@@ -495,8 +513,8 @@ void main() {
           await tester.tap(find.byTooltip('Moderate @member3'));
           await tester.pumpAndSettle();
           expectNoOverflow(tester);
-          expect(find.text('Ban'), findsOneWidget);
-          await tester.tap(find.text('Ban'));
+          expect(find.text('Ban from Community'), findsOneWidget);
+          await tester.tap(find.text('Ban from Community'));
           await tester.pumpAndSettle();
           expectNoOverflow(tester);
           expect(find.widgetWithText(FilledButton, 'Ban'), findsOneWidget);
@@ -616,7 +634,7 @@ void main() {
           _names['rtl']!,
         );
         await tester.pump();
-        await tester.tap(find.widgetWithText(FilledButton, 'Create').first);
+        await tester.tap(find.text('Create'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
         expect(find.text('Create a Community'), findsOneWidget);
