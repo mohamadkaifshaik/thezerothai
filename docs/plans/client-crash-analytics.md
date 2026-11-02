@@ -263,7 +263,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-15 | Dev rollout (targeted Terraform plan, allowlist, dev Android build, smoke with network trace); prod change prepared, not applied | production-deployer | S | TEL-9 incl. Part B (C-1) and its M-2 check (C-3), TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings; TEL-17 (C-2, M-1) | serialise dev applies | Open |
 | TEL-16 | *(conditional: Apple launch)* iOS: Podfile without AdId support, dSYM upload, privacy manifest, `TelemetryPlatforms` adds iOS, App Store label, policy note 16 | frontend-developer + founder | S | Apple launch, TEL-15 | — | Open (conditional) |
 | TEL-17 | *(TEL-10 M-1, C-2)* Remove the two AdServices permissions from the merged manifest; extend the TEL-9 manifest guard; dump a local release APK's permissions | frontend-developer | S | — | yes (Android manifest and `app/test/guards/` only) | Open |
-| TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Open |
+| TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Done (#643) |
 | TEL-19 | *(TEL-10 L-3, C-5)* ADR-0032 dated note: native crash messages are not scrubbed; the sentence for TEL-12 item 6 | architect | XS | — | yes (ADR-0032 only) | Open |
 | TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Open |
 
@@ -598,7 +598,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** None (a static manifest). Gates both flags leaving `off` in dev (C-2), and TEL-13's Play Data safety and Advertising ID answers.
 - **Seam.** The SDKs stay behind TEL-4's adapters; the guard pins the manifest.
 
-### TEL-18 — L-1, L-2 and I-1 in `core/telemetry`  [owner: frontend-developer] [size: S] [depends: —]  Status: Open
+### TEL-18 — L-1, L-2 and I-1 in `core/telemetry`  [owner: frontend-developer] [size: S] [depends: —]  Status: Done (#643)
 - **Description.** TEL-10 L-1 and L-2 (condition C-6) and I-1. All three are in the controller, the crash adapter and their tests.
   - **L-1: delete before "on" (ADR-0032 D3 step 1).**
     - In `TelemetryController._decide`, when crash collection becomes true, enqueue `_crash.deleteUnsentReports` **before** `_crash.setCollecting(true)`.
