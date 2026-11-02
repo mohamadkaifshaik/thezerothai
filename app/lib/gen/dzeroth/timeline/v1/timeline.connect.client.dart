@@ -211,9 +211,8 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   /// founder decision F5). Read back through IdentityService.GetMe home_tabs.
   /// Rules: at most HOME_TABS_MAX_PINNED (5) tabs, counting stored tabs of a kind whose flag is off for the caller
   /// (those are not in GetMe and are kept after the sent ones), else FAILED_PRECONDITION + LIMIT_REACHED,
-  /// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED, kind COMMUNITY (until
-  /// GetCommunityTimeline ships, plan W5-27) or a malformed id => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
-  /// "tabs", 0 reads.
+  /// metadata["limit"] = "home_tabs". A duplicate (same kind and id), kind UNSPECIFIED or a malformed id =>
+  /// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "tabs", 0 reads.
   /// A LIST tab needs FEATURE_LISTS on for the caller, else FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads; a
   /// COMMUNITY tab needs FEATURE_COMMUNITIES, else FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads; an
   /// empty tabs (unpin everything) is always accepted. A tab NOT already stored must be a list the caller may read now

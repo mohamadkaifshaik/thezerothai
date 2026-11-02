@@ -1,5 +1,5 @@
 # 0031. Communities and their moderation scope at Stage 0 (W5 Part B)
-Status: Accepted (founder, 2026-11-01, by merging #583; F1 and F6 to F14 at the defaults)
+Status: Accepted (founder, 2026-11-01, by merging #583; F1 and F6 to F14 at the defaults); Amendment 1 Proposed (2026-11-02, W5-51: reply moderation and the W5-38 rules; in force when the founder merges its PR)
 Date: 2026-11-01
 Deciders: architect (proposal); the founder accepts by merging the PR. The Part B founder questions (F1, F6 to F13 of
 the plan, and the new F14 below) were taken at their defaults when the founder merged #583 on 2026-11-01. **Each one has a recommended default, which this ADR applies,
@@ -26,6 +26,452 @@ Related ADRs:
   NOT_FOUND, export redaction (`lists_member_of`), the eraser shape, the `opsctl lists hide` lever and the LIST report
   target (W5-44).
 - ADR-0022: credit mode. **Nothing here depends on a credit-mode item.**
+
+## Amendment 1 (2026-11-02, Proposed): reply moderation and the W5-38 rules
+
+**Status: Proposed.** ADR-0031 is Accepted, so this amendment needs the founder's OK before it merges. The founder's
+merge is the acceptance. The decision text below (D1 to D15, F1 to F14, A1 to A14, N1 to N10) stays as written. Each
+section here names the decision it adds to. Where this amendment and the text below differ, the amendment wins for the
+cases it names.
+
+**Source.** The W5-38 security review (#647, `docs/reviews/security/security-w5-communities.md`, CLEAR WITH
+CONDITIONS): findings M-1, M-2, L-1, L-2, L-3(c) and L-5. The founder's answers of 2026-11-02, recorded in the plan
+(`docs/plans/ui-w5-lists-communities.md`, F15 to F17):
+- **F15 (M-1): yes.** The owner and moderators can hide and restore replies in their community's conversations.
+- **F16 (L-1): F9 is literal.** A moderator cannot hide or restore a post or a reply by the owner or by another
+  moderator.
+- **F17 (L-5): hide.** A protected member's row on the member pages is shown only to the owner and moderators, to the
+  account's approved followers and to the account itself. **A protected owner or moderator stays visible to everyone**,
+  as D7 already shows every role holder in GetCommunity (founder decision, 2026-11-02, relayed to the architect by the
+  coordinator; the founder's merge of this PR confirms it). The join-date residual is accepted (D7a).
+
+The plan's questions R1 to R6 are answered in "Answers to R1 to R6" below.
+
+**What does not change.**
+- No new flag, collection, composite index, fieldOverride, Terraform resource, Pub/Sub topic or fixed cost.
+- No new proto field or RPC. The proto changes in this PR are comments only (`buf breaking` clean).
+- Rule 4 holds on every mutation. A community hide is still never `Post.Hidden()` or `!Visible()`.
+- The platform levers keep every power they had.
+
+**Gate.** D4a, D4b, D5a, D13a and D14a are built before `communities` reaches `percent` (W5-51b, W5-51c, W5-52,
+W5-52b, W5-53). D10a and D7a are built before prod `on` (W5-54, W5-56).
+
+### D4a. Replies in the community's conversations (F15, M-1; adds to D4 and D5)
+**Rule.**
+- The owner and moderators can hide and restore a **reply** whose `conversationCommunityId` is their community, at any
+  depth of the conversation. They use the existing HideCommunityPost and RestoreCommunityPost. There is no new RPC and
+  no new field on the wire.
+- A reply is a post with `kind == REPLY`. A REPOST never qualifies.
+- Everything that applies to a root post applies to a reply:
+  - the roles (D4) and F16 (D4b);
+  - F14 (a block never refuses a moderation action);
+  - the platform-removal rule (D5a);
+  - the ARCHIVED refusal and the idempotency document (D8);
+  - `COMMUNITY_MOD_ACTIONS_PER_DAY` and the write rate limit (D11).
+- Anything else is the one NOT_FOUND "post not found" with 0 writes: a reply in another community's conversation, a
+  reply in a conversation with no community, or a missing post.
+
+**Which post qualifies.** `posts.CommunityModerator.SetCommunityListing` reads the post fresh in the moderation
+transaction (D5).
+
+| Post | Qualifies when | "Listed" means | A hide writes | A restore writes |
+|---|---|---|---|---|
+| A root POST or QUOTE | `community.id == cid` (unchanged) | `communityId` present | deletes `communityId`; sets `communityHidden` and `communityHiddenAt` | sets `communityId = community.id`; deletes `communityHidden` and `communityHiddenAt` |
+| A reply | `kind == REPLY` and `conversationCommunityId == cid` | `communityHidden` absent | sets `communityHidden` and `communityHiddenAt` (a reply has no `communityId` to delete) | deletes `communityHidden` and `communityHiddenAt` |
+
+- Each is one field-level `Update` of the post, never `Set`.
+- `communityHiddenAt` is the server time of the hide (D14a uses it).
+- A hide of a hidden post, or a restore of a listed one, writes only the idempotency document, as today.
+
+**The community doc.**
+- A reply hide or restore appends one modlog entry: HIDE or RESTORE, with the reply's id in `postId`. It adds the
+  community to the actor's `modlogged` (I-L), as for a root. The entry never names the reply's author.
+- It writes **no `recentRemovals` entry** and deletes none (R1). Replies are never in the community feed, so feed tokens
+  and the shared feed entry are untouched.
+- The community doc is still written (for the modlog), so the write count stays 3.
+
+**GetThread.** This is the only read path that changes. For every viewer except the reply's author:
+- **Conversation page:** a reply that carries `communityHidden` is dropped after the read, like a reply by a blocked
+  author. The page may be short, and `next_page_token` follows the query, as today. The replies under it stay on the
+  page; each still says "Replying to @handle".
+- **Parent slot:** when the focal post's parent is such a reply, the parent is returned unset with
+  `parent_unavailable = true`. The client renders the tombstone it renders for any unavailable parent (R4).
+- **Root slot:** never affected. A root is never a reply, and a hidden root keeps its thread (D4, "What a hide is").
+- **Focal post:** served as GetPost serves it (R4). A link to a hidden reply still opens it.
+- The author sees their reply everywhere, as before. There is no "hidden" marker on the wire.
+- **Cost: +0 reads.** Every row is already read.
+
+The drop sits in GetThread's conversation-page loop and in its `threadContext` parent check. It never goes into
+`contextUsable`, which reply enforcement shares. So replying to a hidden reply stays allowed (the reply path is
+unchanged), and the new reply is an ordinary member reply that moderators can hide too.
+
+**Everything else is unchanged (R4).**
+- GetPost, the author's Replies tab and search show the reply.
+- Home shows no replies, so it has nothing to drop. Notifications already sent stay.
+- The parent's `replyCount` is unchanged.
+- A hidden reply is never `Hidden()` or `!Visible()`.
+
+**With the flag globally off (R5).** GetThread still drops a hidden reply, whatever the state of
+`FEATURE_COMMUNITIES`: the kill switch must not undo a moderation decision. Hide and Restore stay FEATURE_DISABLED
+while the flag is off for the caller. The platform's `restore-hidden` (D14a) works in any flag state. The label rule
+(D5) is unchanged.
+
+**Staleness.**
+- GetThread's conversation query reads Firestore fresh, so a hidden reply leaves every new page at once.
+- The parent slot reads the post cache-first, so another instance can show the reply there for up to `CACHE_TTL`
+  (60 s). `SetCommunityListing` does not update the posts cache (it does not for roots either).
+- A device keeps a thread it already loaded until it fetches it again. Threads have no `removed_ids`.
+
+**The client (R3).** No proto change.
+- A reply's overflow menu shows "Remove from Community" when two things hold:
+  - the thread's root carries `Post.community`;
+  - the caller's `viewer_role` for that community is OWNER or MODERATOR. It comes from ListMyCommunities, cached for
+    the session.
+- A hidden root has no label, so its replies get no menu. The platform covers that case (D14a).
+- The server decides every refusal (F16, L-2). The client words `not_owner` with a fixed text.
+- A moderator restores a hidden reply from the HIDE row of the moderation log (R2).
+
+**I-C, extended** (the tester's oracle):
+- `communityHidden` present ⇒ either the post is a root with `community` present and `communityId` absent, or the post
+  is a reply with `conversationCommunityId` present.
+- `communityHiddenAt` present ⇒ `communityHidden` present. The converse does not hold: a post hidden before W5-51b has
+  no `communityHiddenAt` (no backfill).
+
+### D4b. Who a moderator may act on (F16, L-1; adds to D4)
+- **Rule.** A moderator who is not the owner cannot hide or restore a post or a reply whose author is the community's
+  owner or another moderator. The answer is PERMISSION_DENIED + FORBIDDEN `not_owner`, with 0 writes.
+- **The current role decides.** It comes from the community doc the transaction already read fresh: `ownerId` and
+  `moderatorIds` now.
+  - A post by a former moderator can be hidden by a moderator.
+  - A post by a member who later became a moderator cannot.
+- **Allowed:**
+  - the owner, on every post and reply;
+  - a moderator, on their own and on everyone else's: members, banned users, non-members and accounts that left.
+- **Moderator RPCs only.** The platform levers (`takedown-post`, `restore-hidden`) have no author rule.
+- **Order of checks** inside the transaction. Every refusal comes before any write.
+  1. the idempotency replay;
+  2. the community: missing or SUSPENDED is NOT_FOUND "community not found";
+  3. the actor is not OWNER or MODERATOR: `not_moderator`;
+  4. ARCHIVED: `community_archived`;
+  5. the actor's memberships;
+  6. the post: NOT_FOUND "post not found" when it is missing, not in this community, or carries `moderation` (D5a);
+  7. the author rule: `not_owner`.
+- **Seam.** `posts.CommunityModerator` and its mirror `communities.PostModerator` change together.
+  - The post read returns the author and whether the post qualifies before anything is written. Firestore needs every
+    read of a transaction before its writes.
+  - W5-53 picks the split: a read method plus a write method, or a check passed in.
+  - Primitives and `*firestore.Transaction` only (N9).
+- **Cost: +0 reads.** The post and the community are already read.
+- **No new oracle.** `not_owner` tells a moderator that the author holds a role, which GetCommunity shows to everyone
+  (D7).
+
+### D5a. Platform removals win (L-2; adds to D5 "Hide and restore")
+- `SetCommunityListing` answers found=false for a post or reply whose `moderation` is set (`TAKEN_DOWN` or
+  `SUSPENDED_AUTHOR`). Hide and Restore then both answer the one NOT_FOUND "post not found", with 0 writes.
+- So a moderator can no longer delete the platform's `recentRemovals` entry by a hide followed by a restore. The entry
+  leaves only through the cap.
+- **Cost: +0 reads.** `moderation` is on the post doc that is already read.
+- Combined states:
+  - **Hidden by a moderator, then taken down:** it stays hidden in the community. After `restore-post` it is visible
+    again but still community-hidden, and a moderator can restore it then.
+  - **Taken down, then a moderator tries to hide it:** NOT_FOUND. After `restore-post` it is listed and can be hidden.
+- **No new oracle.** The NOT_FOUND bytes equal those of a post outside the community. A taken-down post is NOT_FOUND to
+  the moderator on GetPost too.
+
+### D10a. Editing by a hand-over owner (L-3(c); adds to D4 and D10)
+- While creation is allowlisted (always at Stage 0), UpdateCommunity by a caller outside `COMMUNITY_CREATORS` is
+  PERMISSION_DENIED + FORBIDDEN `not_creator`. It costs 0 reads beyond the interceptor and writes nothing.
+- It uses CreateCommunity's one creation check function. It runs before the key check, the text rules and any read.
+- **Precedence:** it runs before the owner check.
+  - Any caller outside the list gets `not_creator`, not `not_owner`, including a moderator and an outsider.
+  - A caller in the list who is not the owner still gets `not_owner`, after the community read.
+  - The check reads nothing about the community, so it is no oracle.
+- A hand-over owner (F12) keeps every other owner power: hide and restore, ban and unban, appoint and remove moderators,
+  and read the log.
+- The founder's levers:
+  - add the uid to `COMMUNITY_CREATORS` (Terraform; this also lets them create up to 2 communities);
+  - or run `opsctl community archive` on request.
+- When creation opens (Stage ladder "Creation" row), this check goes with the allowlist, and the open-creation gates
+  apply to editing too.
+- L-3(a) (the label lag) and L-3(b) (the suspended-community label lookup) are unchanged. W5-54 adds the runbook lines.
+  The lookup stays a prerequisite of open creation.
+
+### D7a. Protected members on the member pages (F17, L-5; adds to D7)
+- ListCommunityMembers (the JOINED page) drops the row of a member whose profile is protected (`isPrivate`), unless the
+  viewer is one of these:
+  - the community's owner or a moderator;
+  - that member;
+  - an approved follower: the member's uid is in the viewer's `following`. A pending follow request is not approval.
+- **Role holders stay listed for every viewer** (F17, founder decision 2026-11-02). The rule never drops the owner's or
+  a moderator's row. This matches D7's GetCommunity rule: who moderates is part of the rules.
+  - **Residual, accepted:** a protected role holder's member row also shows the join date (`since`), which
+    GetCommunity's moderators list does not.
+- The block and inactive drops of D7 apply first and are unchanged.
+- The BANNED page (owner and moderators only) is unchanged. `memberCount` is unchanged and still counts a dropped
+  member.
+- The page may be short. `next_page_token` follows the query, as for the other drops.
+- **Cost: +0 reads.** The profile and the caller's graph are already read.
+- **Staleness:** the profile comes through `identity.Directory` (60 s). A member who turns protected leaves other
+  instances' pages within 60 s, and a device's cached page when it reloads.
+- GetCommunity is unchanged. Feed rows by protected authors still follow `posts.Audience` (D7).
+- The Privacy Policy lines (W5-56b) are the W5-38 §7 lines without "protected accounts included".
+
+### D13a. Keyed hashes and the new log names (M-2; adds to D13)
+D13 says request lines carry counts and enums, never ids. The keyed hashes below are pseudonyms, not ids in that
+sense: nobody can recompute one from an id without `CURSOR_HMAC_KEY`. This follows W7-34 (`conversation_hash`) and
+W6-52 (`post_hash`).
+
+| Field | On which request lines | Value |
+|---|---|---|
+| `community_hash` | every request that writes a modlog entry: hide, restore, set_role, update and a moderator's leave | `logger.HashCommunity(cid)`: the first 8 bytes (16 hex) of HMAC-SHA256(key, `"community\|" + cid`) |
+| `post_hash` | hide, restore | the existing `logger.HashPost(postId)` (label `"post\|"`) |
+| `target_hash` | set_role | the first 8 bytes of HMAC-SHA256(key, `"target\|" + uid`) |
+
+- **The key** is the existing log key derived from `CURSOR_HMAC_KEY` (HKDF, `logger.SetConversationKey`). There is no
+  new secret; the labels keep the domains apart.
+- **Why keyed.**
+  - Community and post ids are public Snowflakes. An unkeyed hash beside the actor's `uid_hash` would let anyone who
+    holds a log rebuild who moderated what.
+  - `target_hash` is keyed for the same reason: an unkeyed one beside `uid_hash` would show who acted on whom to anyone
+    holding a pair of uids.
+- **One name, one function.** opsctl's community commands print `community_hash` today as the unkeyed `HashUID(cid)`.
+  W5-52 switches them to the keyed hash. When the operator's shell has no key, they print the
+  `unavailable(set-CURSOR_HMAC_KEY)` marker (the `conversationHashForAudit` precedent). A value named `community_hash`
+  then means the same thing everywhere.
+- **`opsctl community loghash [--community CID] [--post ID] [--user UID]`** prints `community_hash` and `post_hash`. For a
+  uid it prints both `target_hash` and the plain `uid_hash`, so an operator can join a target to that user's own
+  request lines. It needs no Firestore and no project, only `CURSOR_HMAC_KEY` (as `messages loghash`).
+- **A secret rotation changes every keyed hash.** Use the key version that was live when the lines were written (W7-34).
+- **Other new names:**
+  - `mod_target` (`post`, `reply`) on hide and restore. `post` means a root POST or QUOTE.
+  - outcome `rejected:not_owner` on `mod_action=hide|restore` (D4b). NOT_FOUND keeps `rejected:post_not_found`.
+  - `community_op=update` with outcome `rejected:not_creator` (D10a).
+  - GetThread: `audience_dropped_community_hidden` (a count), included in `thread_replies_dropped`. The plan said
+    "`rows_dropped` cause `community_hidden`"; GetThread's existing per-cause fields are `audience_dropped_<cause>`, so
+    this is the as-built spelling. It stays separate from `audience_dropped_hidden`, which counts platform `Hidden()`
+    drops.
+  - ListCommunityMembers: cause `protected` in `rows_dropped_by` (D7a).
+  - `opsctl community restore-hidden`: a fixed-shape `audit:` line with `community_hash` and the counts `listed`,
+    `restored`, `skipped_platform` and `skipped_no_time`.
+- There is no new log-based metric and no new alert policy.
+
+### D14a. Platform recovery of hidden posts and replies (M-2; adds to D14)
+**Stored fields.**
+- `posts.communityHiddenAt` (timestamp, server time) is written by every hide, root or reply, in the same field-level
+  update as `communityHidden` (+0 writes). Every restore deletes it. There is no backfill: a post hidden before W5-51b
+  has `communityHidden` without it, and its hide time reads "unknown".
+- **The platform marker in the modlog is the actor `_platform`.** It is not `_deleted`, which would render as "Deleted
+  account".
+  - Like `_deleted` (ADR-0027), it can never be a uid, because a uid never contains `_` (ADR-0008 A3). So I-L, the
+    eraser's scrub and the export never match it, and no `modlogged` is written for it.
+  - **Its wire form needs no new field:** `ModerationLogEntry.actor` unset and `actor_deleted` false. This follows the
+    `OWNER_HANDOVER` precedent ("target unset, target_deleted false"). An actor whose account is gone is always
+    `actor_deleted` true, so the two never mix.
+  - ListModerationLog leaves `_platform` out of its profile lookup (W5-52b). W5-51c renders it as the platform. An
+    older build shows "A moderator restored a post", which is acceptable for an operator action.
+
+**`opsctl community hidden CID [--page-token T]`** (read-only):
+- The query is `posts where conversationCommunityId == C AND communityHidden == true ORDER BY __name__ LIMIT ≤ 50`,
+  paged by document id. A hidden root keeps `conversationCommunityId` and every reply carries it, so one query covers
+  both.
+- It has two equalities and no other order, the shape Firestore serves by merging automatic single-field indexes.
+  **W5-52b proves it on the dev Firestore before merge**, with the D3 method: a real query plus a control (an emulator
+  run proves nothing). A "requires an index" answer means stop and ask the founder: the fallback is a composite index
+  in the founder-gated file.
+- Each row prints the post id, root or reply, the hide time or "unknown", and whether `moderation` is set. It never
+  prints text or a uid. The community appears only as `community_hash`.
+- Cost: 1 read (the community) + max(1, rows) per page.
+
+**`opsctl community restore-hidden CID [--since T] [--dry-run]`:**
+- It pages the same query.
+- **`--since T` is applied in memory** to the rows read. A range filter on `communityHiddenAt` beside the two equalities
+  would need a composite index. So a run with `--since` reads as much as a full run.
+  - A row without `communityHiddenAt` is skipped under `--since` (`skipped_no_time`), and restored by a run without it.
+- Each page is one transaction:
+  - the community and the page's posts, fresh;
+  - then each restore through `posts.CommunityModerator` (field-level);
+  - and one community `Update` that deletes the restored roots' `recentRemovals` entries (replies have none, R1).
+- A post with `moderation` set stays hidden and counts as `skipped_platform` (D5a).
+- **One modlog entry per run, not per post:** RESTORE, actor `_platform`, with no `postId` and no target.
+  - It is written in the transaction of the first page that restores at least one post. A run that restores nothing
+    writes no entry, and a re-run of a finished run writes 0.
+  - A crashed run that is run again may add a second entry. The count is bounded by runs, never by posts.
+  - The counts go only in opsctl's `audit:` line, because the modlog has no count field.
+- It has no F16 rule (it is the platform), and it works in any community status and any flag state: it touches
+  documents only.
+- `--dry-run` makes the same reads and writes nothing.
+- **Staleness:** opsctl cannot evict an instance's caches.
+  - A restored root returns to feeds within the shared entry's 5-minute bound (`communityEntryMaxAge`).
+  - A restored reply returns to thread pages at once (the query is fresh), and to parent slots within 60 s.
+- Cost per page: ≤ 50 post reads + 1 community read, and ≤ 50 post writes + 1 community write. A re-run with nothing
+  hidden: 2 reads, 0 writes. An ops path: 0 per DAU.
+
+**Seams.**
+- `posts.CommunityModerator` stays the only writer of `communityHidden` and `communityHiddenAt`.
+- The posts module owns the listing query, as a read method on the same seam. It returns, per row, the id, root or
+  reply, the hide time and whether `moderation` is set.
+- communities exposes both commands' work through `communities.Platform`; opsctl never queries `posts` directly.
+- communities still never imports posts (N9). Its mirror interface grows with posts' interface.
+
+### FU-5 note: the community post fields stay indexed
+- FU-5's optional exemption list no longer includes `posts.community` or `posts.conversationCommunityId`. Both stay
+  indexed, and so do the new `communityHidden` and `communityHiddenAt`.
+- Why:
+  - `conversationCommunityId` and `communityHidden` are D14a's query equalities.
+  - `community` keeps open the root-only recovery query the review named (`community.id == C`).
+  - `communityHiddenAt` costs one index entry per hidden post, and no query needs it yet. Leaving it indexed avoids a
+    change to a gate file.
+- FU-5's other optional items (`communities.modlog`, `recentRemovals`, `rules`, `description`) are unchanged.
+
+### The D4 table, as amended
+These rows replace the D4 rows they name. Every other row is unchanged.
+
+| Action | Owner | Moderator | Member | Banned | Outsider | Platform (opsctl) |
+|---|---|---|---|---|---|---|
+| Hide or restore a post **or a reply** in this community's view | yes, on every post and reply | yes, on their own and on members', banned users' and non-members'; FORBIDDEN `not_owner` on the owner's or another moderator's (D4b) | FORBIDDEN `not_moderator` | same | same | takedown-post (everywhere; ADR-0016); `community hidden` and `restore-hidden` (D14a) |
+| Hide or restore a post or reply the platform removed (`moderation` set) | NOT_FOUND "post not found" (D5a) | same | FORBIDDEN `not_moderator` | same | same | restore-post |
+| Edit the name, description or rules | yes while in `COMMUNITY_CREATORS`, else FORBIDDEN `not_creator` (D10a) | FORBIDDEN `not_creator`; `not_owner` for a caller in `COMMUNITY_CREATORS` | same | same | same | — |
+
+"What a hide is" (D4) gains one line: **a hidden reply leaves the community's threads (GetThread) for everyone but its
+author. It stays on the author's Replies tab, in search and on a direct link.**
+
+No row contradicts F9 as F16 answered it: no moderator acts on the owner or another moderator, by a ban (unchanged), a
+role change (unchanged) or a hide or restore (D4b).
+
+### Answers to R1 to R6
+Each answer is the plan's default unless it says otherwise.
+
+| # | Question | Answer | Why |
+|---|---|---|---|
+| R1 | Does a reply hide write a `recentRemovals` entry? | **No.** | Replies are never in the community feed. Cleaning up hundreds of raid replies would roll the 50-entry log, set `removalsTruncatedAt` and make every member device cold-open the feed. |
+| R2 | Where does a moderator restore a hidden reply? | **From the HIDE row of the moderation log**, which already restores by post id (W5-35). Once the row leaves the 100-entry log, the platform restores (`restore-hidden`, D14a). | GetThread drops the reply for moderators too, so the thread cannot offer it. No new RPC and no new screen. |
+| R3 | How does the client know it may moderate a reply? | **The root's `community` label plus `viewer_role` from ListMyCommunities** (session cache). No proto change. | 0 extra RPCs and 0 reads on a warm session. A role on GetThread would need a proto field and the community doc on every community thread, and would teach posts about roles (posts never imports communities). The server decides anyway. |
+| R4 | What else does a hidden reply do? | **The default, made explicit:** replies under it stay on the page; as a parent it is the unavailable tombstone; as the focal post it is served as GetPost serves it; GetPost, the Replies tab and search are unchanged; the parent's `replyCount` is unchanged. **Added:** replying to it stays allowed. | A community hide is a view action, never a takedown (D4). The parent-slot rule is R4's "shown as GetThread shows replies under an unavailable parent". `contextUsable` stays shared and unchanged, so the reply path cannot change by accident. |
+| R5 | Does a hidden reply stay dropped while `communities` is globally off? | **Yes.** | The kill switch must not undo a moderation decision. The platform can still restore (D14a). The label rule is unchanged. |
+| R6 | What does `restore-hidden --since T` use, and how is the modlog kept from flushing? | **`communityHiddenAt`**, written in the hide's update (+0 writes) and applied in memory. **One modlog entry per run**, with the actor **`_platform`**. This differs from the plan's "as `_deleted`" wording: `_deleted` renders as "Deleted account". | A range filter would need a composite index (a gate file). One entry per run keeps the log from flushing. |
+
+### What changed against the tickets
+Where a ticket's text and this amendment differ, the amendment wins.
+1. **R6 marker:** `_platform`, not `_deleted`. Its wire form is an unset `actor` with `actor_deleted` false (D14a).
+   W5-52b and W5-51c.
+2. **`--since` runs in memory** over the equality query (D14a). W5-52b.
+3. **GetThread's log field** is `audience_dropped_community_hidden` (D13a). W5-51b.
+4. **opsctl's `community_hash` becomes keyed**, and `opsctl community loghash` is added (D13a). W5-52.
+5. **The parent-slot rule** (tombstone for non-authors) is explicit, and `contextUsable` stays untouched (D4a). W5-51b.
+6. **`not_creator` wins over `not_owner`** for every caller outside `COMMUNITY_CREATORS` on UpdateCommunity (D10a).
+   W5-54.
+7. **The hidden-list query is a posts-owned read** on `posts.CommunityModerator` (D14a). W5-52b.
+8. **F17's role-holder rule is decided**, not proposed (D7a). W5-56.
+9. **Two more comment-only proto lines** ship in this PR, so W5-56 and W5-52b have their contract: ListCommunityMembers
+   (the protected drop) and `ModerationLogEntry.actor` (the platform marker).
+
+### Cost impact (Amendment 1)
+- **Fixed monthly cost added: INR 0.** No new service, index, fieldOverride, TTL policy or topic. The credit window
+  (ADR-0022) lifts nothing here.
+- **Storage:** `communityHiddenAt` adds about 30 B and two index entries per hidden post. That is negligible.
+- **Vision units, GCS:** 0.
+
+**Per RPC.**
+
+| Call | Reads worst (cold) | Warm | Writes | Deletes | Notes |
+|---|---|---|---|---|---|
+| HideCommunityPost / RestoreCommunityPost of a reply | 5 (interceptor, idempotency, community, actor memberships, the reply) | 4 | 3 (the reply, field-level; the community modlog; idempotency), +1 on the actor's first entry in this community; no change 1 | 1 TTL | refusals (`not_moderator`, NOT_FOUND, `not_owner`) write 0 |
+| HideCommunityPost / RestoreCommunityPost of a root (with D4b, D5a, `communityHiddenAt`) | 5, unchanged | 4 | 3, unchanged | 1 TTL | +0 reads, +0 writes |
+| GetThread with hidden replies | +0 | +0 | 0 | 0 | rows already read |
+| UpdateCommunity by a caller outside `COMMUNITY_CREATORS` | 1 (the interceptor) | 0 | 0 | 0 | `not_creator` |
+| ListCommunityMembers with the protected drop | +0 (43 / 103 at page 20 / 50) | +0 | 0 | 0 | |
+| The keyed hashes | 0 | 0 | 0 | 0 | one HMAC per moderation request, in memory |
+| `opsctl community hidden` | 1 + max(1, rows) per page | | 0 | 0 | ops path |
+| `opsctl community restore-hidden` | per page 1 + ≤ 50 | | per page ≤ 50 + 1; nothing to restore 0 | 0 | ops path |
+| `opsctl community loghash` | 0 | | 0 | 0 | no Firestore |
+
+**Per DAU per day.** Reply hides and restores are assumed to add **0.003 calls per DAU** (W5-51b), as many again as all
+other moderation. That is +0.015 reads, +0.009 writes and +0.003 deletes per DAU a day, and per DAU-month +0.45 reads,
++0.27 writes, +0.09 deletes and +0.09 requests. Everything else here is +0.
+
+**Free quotas** (the whole product with Part B and this amendment on for every DAU). No crossover moves:
+
+| Quota | Runs out at (unchanged) | Amendment increment at 2× that DAU | at 10× |
+|---|---|---|---|
+| Firestore reads 50k/day (405.7 → 405.715 per DAU) | ≈ 123 DAU | 246 DAU: INR 0.004 | 1,233 DAU: INR 0.02 |
+| Firestore writes 20k/day (41.49 → 41.499) | ≈ 482 DAU | 964 DAU: INR 0.03 | 4,820 DAU: INR 0.13 |
+| Firestore deletes 20k/day (9.16 → 9.163) | ≈ 2,183 DAU | 4,366 DAU: INR 0.004 | 21,830 DAU: INR 0.02 |
+| Cloud Run requests 2M/month (+0.09 per DAU-month) | ≈ 1,033 DAU | 2,066 DAU: INR 0.007 | 10,330 DAU: INR 0.04 |
+| Cloud Run vCPU-s 180k/month (+0.009 per DAU-month) | ≈ 930 DAU | 1,860 DAU: INR 0.04 | 9,300 DAU: INR 0.19 |
+
+**INR per month** (the Mumbai prices of `cost-model.md` §7, INR 95 per USD):
+
+| Line | 300 DAU | 1,000 DAU | 3,000 DAU |
+|---|---|---|---|
+| Firestore reads, writes and deletes | 0.00 | 0.04 | 0.13 |
+| Cloud Run requests and vCPU-s | 0 | 0.02 | 0.07 |
+| **Amendment total** | **≈ 0** | **≈ 0.06** | **≈ 0.2** |
+| **Stage 0 bill with Part B** | ≈ 558, unchanged | ≈ 1,883, unchanged | ≈ 5,106, unchanged |
+
+**Abuse as cost.**
+- Reply hides share `COMMUNITY_MOD_ACTIONS_PER_DAY` (200 per actor per instance, 600 effective) and
+  `RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN` (20 per instance, 60 effective). The worst per role holder per day is
+  unchanged: about 600 actions at up to 4 writes, about INR 0.44 (W5-38 §2.4).
+- A reply raid is bounded by each sock account's `posts` quota (100 a day, 20 for new accounts). F15 lets the community
+  clean it at 3 to 4 writes a reply, within that cap. A raid above 600 replies a day per moderator still needs several
+  moderators, bans, or the platform (`suspend-user`).
+- The review's optional per-community daily hide cap is **not adopted**. The keyed hashes and `restore-hidden` make a
+  flushed log recoverable, and the Stage ladder trigger below watches it.
+
+**For sre-performance** (`docs/reviews/cost-model.md`, feed it, do not edit it here): one row "reply hide and restore,
+0.003 calls per DAU, 5 / 4 reads, 3 writes, 1 TTL delete"; GetThread unchanged; the two opsctl commands as ops paths.
+
+### Stage ladder (Amendment 1)
+The `stage-ladder` skill's "Community moderation" row changes in this PR (the founder reviews `.claude/` with it):
+- **Stage 0:** hide and restore cover **posts and replies**. A post leaves the community query; a reply leaves the
+  community's threads. Both stay on the profile and in search. F16's literal reading. `opsctl community hidden` and
+  `restore-hidden` recover a rogue moderator's hides.
+- **Seam:** `posts.CommunityModerator` (the only writer of `communityHidden`; it owns the hidden-list query) and
+  `communities.Platform` join the row.
+- **Stage 2/3 target:** the moderator console also lists hidden posts and replies.
+- **New trigger:** more than 2 `restore-hidden` runs a month. That means moderators need an in-app hidden list.
+
+The "Creation" row is unchanged: L-3(b)'s label lookup is already a prerequisite of open creation, and D10a's check
+leaves with the allowlist.
+
+### Consequences (Amendment 1)
+**Positive.**
+- A reply raid in a community's threads can be cleaned by the community itself, and every action is logged.
+- F9 holds as written. A platform removal can no longer be erased from the community's removal log.
+- A hand-over owner cannot rename a community while creation is allowlisted.
+- A protected member's communities are not shown to strangers.
+- A rogue or hijacked moderator's work can be audited in Cloud Logging and undone by the platform.
+- All of it costs +0 reads on every user path, and under INR 1 a month at 3,000 DAU.
+
+**Negative.**
+- A hidden reply stays reachable by a link, on the author's Replies tab and in search. This is by design: a community
+  hide is a view action.
+- If a HIDE row leaves the 100-entry log, only the platform can restore the post.
+- A thread already loaded on a device keeps a hidden reply until it reloads.
+- The client shows "Remove from Community" on every reply, the owner's included, and the server refuses where F16
+  says so. The thread carries no author roles.
+- The replies of a hidden root get no menu.
+- The keyed hashes change when `CURSOR_HMAC_KEY` rotates.
+- `restore-hidden --since` reads the whole hidden set of the community.
+
+**Revisit when:** the new Stage ladder trigger fires; D14a's dev proof answers "requires an index"; or a raid exceeds
+what 600 actions a day per moderator can clean.
+
+### Handoff (Amendment 1)
+| Item | Ticket | Owner |
+|---|---|---|
+| Comment-only proto lines (this PR): `communities.proto` HideCommunityPost, RestoreCommunityPost, UpdateCommunity, ListCommunityMembers, the header roles and errors, `ModerationLogAction` HIDE and RESTORE, `ModerationLogEntry.actor`; `posts.proto` GetThread; `timeline.proto` SetHomeTabs (W5-58) | W5-51 | architect |
+| D4b and D5a: the seam returns the author and refuses a platform-removed post before any write; `not_owner` | W5-53 | backend-developer |
+| D4a backend: replies in `SetCommunityListing`; `communityHiddenAt` on every hide; no `recentRemovals` entry for a reply; the GetThread drop and parent slot; `mod_target`; runbook `communities.md` §7 | W5-51b | backend-developer |
+| D4a client: the reply menu; restore from the log row; render the platform marker | W5-51c | frontend-developer |
+| D13a: the three keyed hashes; opsctl's `community_hash` re-keyed; `opsctl community loghash` | W5-52 | backend-developer |
+| D14a: `opsctl community hidden` and `restore-hidden`, the dev proof of the query, the `_platform` entry, ListModerationLog skipping `_platform`; the "Rogue moderator or community raid" runbook section | W5-52b | backend-developer + sre-performance |
+| D10a: `not_creator` on UpdateCommunity | W5-54 | backend-developer |
+| D7a: the protected drop on the member pages | W5-56 | backend-developer |
+| The Privacy Policy lines | W5-56b | architect (draft) + founder |
+| The role × action matrix: reply cells, F16 cells (author is the owner, another moderator, themselves, a member), the takedown-hide-restore sequence, flag off, I-C as extended, GetThread's parent slot and flag-off drop | W5-36, extended by W5-51b and W5-53 | tester |
+| Budget rows (Cost impact above) | W5-39 follow-up | sre-performance |
+| Re-check M-1, M-2, L-1, L-2, L-3(c) and L-5 as closed when their tickets merge | before `percent` and prod `on` | security-auditor |
 
 ## Context
 X's Communities let people who do not follow each other talk about one interest in one place, under rules that the

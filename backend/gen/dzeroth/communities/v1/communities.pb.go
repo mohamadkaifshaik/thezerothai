@@ -41,10 +41,13 @@
 // OWNER and MODERATOR come from the community doc, MEMBER and BANNED from the member doc.
 // - Everyone (members, banned users and outsiders): read the community, its feed, its members and its About.
 // - Members: post (root posts and quotes) and reply in its conversations.
-// - Owner and moderators: hide and restore posts in this community's view (HideCommunityPost, RestoreCommunityPost);
-//   ban and unban plain members and non-members (SetMemberRole); read the BANNED member page and the moderation log.
+// - Owner and moderators: hide and restore posts in this community's view, and replies in its conversations
+//   (HideCommunityPost, RestoreCommunityPost; ADR-0031 Amendment 1); ban and unban plain members and non-members
+//   (SetMemberRole); read the BANNED member page and the moderation log. A moderator never acts on the owner or on
+//   another moderator: not on their membership and not on their posts or replies (F16).
 // - Owner only: appoint and remove moderators (at most COMMUNITY_MAX_MODERATORS, 10), edit the name, description and
-//   rules. The owner cannot leave (no transfer at Stage 0).
+//   rules (while creation is allowlisted, only an owner in COMMUNITY_CREATORS). The owner cannot leave (no transfer at
+//   Stage 0).
 // - Nobody in a community deletes posts, acts outside the community, sees reports, or suspends or archives it: those are
 //   platform (opsctl) levers. A hide never takes a post down: the post stays on the author's profile, in Home and in
 //   search, with its thread and counters. A ban never hides earlier posts.
@@ -88,16 +91,20 @@
 //   user_id | action | filter | page_token | idempotency_key; 0 reads beyond the interceptor unless stated.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities" (above).
 // - NOT_FOUND "community not found": one message for every cause in Status above. Two other NOT_FOUNDs keep the bytes
-//   of their own RPCs: a post that is missing or not in this community => "post not found" (GetPost's), and a
-//   SetMemberRole target that is missing or not ACTIVE => "user not found" (GetProfile's).
+//   of their own RPCs: a post or reply that is missing, not in this community, or removed by the platform (Hide and
+//   Restore) => "post not found" (GetPost's), and a SetMemberRole target that is missing or not ACTIVE => "user not
+//   found" (GetProfile's).
 // - PERMISSION_DENIED + FORBIDDEN (ADR-0031 D4), metadata["reason"]:
 //   - "banned": a BANNED user joins or posts;
 //   - "not_member": a non-member or BANNED user posts or replies;
 //   - "not_moderator": a member, a banned user or an outsider hides, restores, bans, unbans, asks for the BANNED member
 //     page or reads the moderation log;
 //   - "not_owner": anyone but the owner updates the community or appoints or removes a moderator, or a moderator acts
-//     on the owner or on a moderator;
-//   - "not_creator": CreateCommunity by a caller outside COMMUNITY_CREATORS (0 reads beyond the interceptor).
+//     on the owner or on a moderator: a ban, or a hide or restore of a post or reply whose author is the owner or
+//     another moderator now (ADR-0031 Amendment 1, F16);
+//   - "not_creator": CreateCommunity, and UpdateCommunity while creation is allowlisted, by a caller outside
+//     COMMUNITY_CREATORS (0 reads beyond the interceptor). On UpdateCommunity it is checked before the owner, so it
+//     wins over "not_owner" for every caller outside the list.
 //   Do not retry. Show a fixed message per reason.
 // - FAILED_PRECONDITION + COMMUNITY_STATE (ADR-0031 D4), metadata["reason"]:
 //   - "owner": the owner leaves (the owner cannot leave);
@@ -438,9 +445,11 @@ type ModerationLogAction int32
 
 const (
 	ModerationLogAction_MODERATION_LOG_ACTION_UNSPECIFIED ModerationLogAction = 0
-	// A post was hidden from the community view (post_id set).
+	// A post or a reply was hidden from the community view (post_id set).
 	ModerationLogAction_MODERATION_LOG_ACTION_HIDE ModerationLogAction = 1
-	// A hidden post was restored (post_id set).
+	// A hidden post or reply was restored (post_id set). With the platform as actor (ModerationLogEntry.actor) and
+	// post_id "": one bulk restore by `opsctl community restore-hidden`, one entry per run however many posts it
+	// restored (ADR-0031 Amendment 1, D14a).
 	ModerationLogAction_MODERATION_LOG_ACTION_RESTORE ModerationLogAction = 2
 	// target was banned.
 	ModerationLogAction_MODERATION_LOG_ACTION_BAN ModerationLogAction = 3
@@ -789,7 +798,9 @@ type ModerationLogEntry struct {
 	// Server time of the action.
 	At     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
 	Action ModerationLogAction    `protobuf:"varint,3,opt,name=action,proto3,enum=dzeroth.communities.v1.ModerationLogAction" json:"action,omitempty"`
-	// Who acted: a live row (identity.Directory, up to 60 s stale; is_private unset). Unset when actor_deleted.
+	// Who acted: a live row (identity.Directory, up to 60 s stale; is_private unset). Unset when actor_deleted. Unset
+	// with actor_deleted false: the platform acted (opsctl, ADR-0031 Amendment 1 D14a); render it as the platform,
+	// never as a person.
 	Actor *v11.AuthorSnapshot `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
 	// True when the actor deleted the account: render "Deleted account".
 	ActorDeleted bool `protobuf:"varint,5,opt,name=actor_deleted,json=actorDeleted,proto3" json:"actor_deleted,omitempty"`
@@ -798,7 +809,7 @@ type ModerationLogEntry struct {
 	Target *v11.AuthorSnapshot `protobuf:"bytes,6,opt,name=target,proto3" json:"target,omitempty"`
 	// True when the target deleted the account: render "Deleted account".
 	TargetDeleted bool `protobuf:"varint,7,opt,name=target_deleted,json=targetDeleted,proto3" json:"target_deleted,omitempty"`
-	// The post hidden or restored (HIDE, RESTORE); "" otherwise.
+	// The post or reply hidden or restored (HIDE, RESTORE); "" otherwise, and for the platform's bulk RESTORE.
 	PostId        string `protobuf:"bytes,8,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

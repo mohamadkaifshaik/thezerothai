@@ -228,6 +228,11 @@ type PostServiceClient interface {
 	// Protected authors (ADR-0025 D4), for a caller who is neither the author nor a follower of it: a focal post by a
 	// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
 	// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
+	// Community moderation (ADR-0031 Amendment 1, F15): a reply that a community's owner or a moderator hid
+	// (CommunityService.HideCommunityPost) is dropped from the page for every caller but its author (the page may be
+	// short), and as the parent it is unset with parent_unavailable = true; as the focal post it is returned as GetPost
+	// returns it, and the replies under it stay. A hidden root is unaffected. This holds whatever the state of
+	// FEATURE_COMMUNITIES. 0 extra reads.
 	// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
 	// the caller and the focal post.
 	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
@@ -561,6 +566,11 @@ type PostServiceHandler interface {
 	// Protected authors (ADR-0025 D4), for a caller who is neither the author nor a follower of it: a focal post by a
 	// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
 	// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
+	// Community moderation (ADR-0031 Amendment 1, F15): a reply that a community's owner or a moderator hid
+	// (CommunityService.HideCommunityPost) is dropped from the page for every caller but its author (the page may be
+	// short), and as the parent it is unset with parent_unavailable = true; as the focal post it is returned as GetPost
+	// returns it, and the replies under it stay. A hidden root is unaffected. This holds whatever the state of
+	// FEATURE_COMMUNITIES. 0 extra reads.
 	// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
 	// the caller and the focal post.
 	// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
