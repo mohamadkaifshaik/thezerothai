@@ -358,18 +358,21 @@ func communityAuthorAllowed(uid string, snap graph.Snapshot, mod bool, a string)
 	return !snap.BlockedByOverflow || snap.Following[a]
 }
 
-// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read (ADR-0031 A7, 0 reads): a viewer
-// who cannot reply in this community (not a member, banned, or the community is archived) gets NOT_ALLOWED. For a viewer who can, the
-// hint ReplyPolicy produced stands (a restricted conversation stays UNKNOWN or NOT_ALLOWED; it is never upgraded).
+// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read, in both directions (ADR-0031 A7, 0 reads;
+// the literal wording of A7, so it does not depend on what posts.ToView puts there for a community post): ALLOWED for the OWNER, MODERATORS and
+// MEMBERS of an ACTIVE community, NOT_ALLOWED for everyone else (not a member, banned, or the community is ARCHIVED). A community post cannot
+// carry a reply policy other than EVERYONE (CreatePost refuses it), so no stricter ADR-0021 hint is overwritten. Known edge: a moderator whose
+// F14-kept row is by an author who blocks them sees ALLOWED while CreatePost answers NOT_FOUND; NOT_ALLOWED would be a block oracle.
 func applyCommunityReplyHint(views []*postsv1.PostView, items []*posts.Post, c communities.Community, role communities.Role) {
 	can := c.Status == communities.StatusActive &&
 		(role == communities.RoleOwner || role == communities.RoleModerator || role == communities.RoleMember)
+	want := postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED
 	if can {
-		return
+		want = postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED
 	}
 	for i, v := range views {
 		if items[i].ConversationCommunityID != "" || items[i].CommunityID != "" {
-			v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED
+			v.ViewerReplyPermission = want
 		}
 	}
 }

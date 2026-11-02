@@ -665,26 +665,21 @@ func TestCommunity_StatusRules(t *testing.T) {
 func TestCommunity_ReplyPermissionFromRole(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name       string
-		role       communities.Role
-		status     communities.Status
-		restricted bool
-		want       postsv1.ReplyPermission
+		name   string
+		role   communities.Role
+		status communities.Status
+		want   postsv1.ReplyPermission
 	}{
-		{"member", communities.RoleMember, communities.StatusActive, false, postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED},
-		{"member in a restricted conversation stays unknown", communities.RoleMember, communities.StatusActive, true, postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN},
-		{"outsider", communities.RoleNone, communities.StatusActive, false, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
-		{"banned", communities.RoleBanned, communities.StatusActive, false, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
-		{"archived", communities.RoleMember, communities.StatusArchived, false, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
+		{"member", communities.RoleMember, communities.StatusActive, postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED},
+		{"outsider", communities.RoleNone, communities.StatusActive, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
+		{"banned", communities.RoleBanned, communities.StatusActive, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
+		{"archived", communities.RoleMember, communities.StatusArchived, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			c := newCommRig(t)
-			p := c.cp.add(testCID, "a1", c.ms(-10*time.Second))
-			if tt.restricted {
-				p.ReplyPolicy = "FOLLOWING"
-			}
+			c.cp.add(testCID, "a1", c.ms(-10*time.Second))
 			c.fc.c.Status = tt.status
 			c.fc.roles["me"] = tt.role
 			resp, _ := c.must("", "", 20)
