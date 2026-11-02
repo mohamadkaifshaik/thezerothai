@@ -674,6 +674,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
 	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
 		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
+	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs (ADR-0031 D6, W5-27) read communities through the same Reader; set before
+	// ListenAndServe because communities is built after the timeline.
+	timelineServer.SetCommunities(communitiesSvc.(communities.Reader), cfg.Communities.FeedCacheEntries)
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
