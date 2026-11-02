@@ -41,7 +41,7 @@ Set the flag to `off` and deploy (a Terraform change; no data migration). Effect
 
 - `crash_reporting` `off`: on the next `GetMe`, **Dart-side reports stop at once; native capture stops at the next launch, which also deletes unsent reports** (ADR-0032 C1). The switch is hidden; the stored choice is kept. Residual, accepted: a native (Java or Kotlin) fatal crash later in the same process run can still be uploaded.
 - `analytics` `off`: on the next `GetMe`, collection is off (Google documents no next-launch delay for Analytics; TEL-9 checks).
-- Staleness: as of the last `GetMe` (about 4 per DAU per day); on a cold start the stored decision for the restored uid applies until then. Only `off` is the kill switch; percent 0 or a shrunk allowlist is a rollout.
+- Staleness: as of the last `GetMe` (about 4 per DAU per day); on a cold start the stored decision for the restored uid applies until then. "The next launch" means the first launch after a run in which a `GetMe` returned `off`. The launch that first learns `off` may still contact `firebase-settings.crashlytics.com` before Dart runs, and so may a launch that is killed or offline before its `GetMe` returns (ADR-0032 note of 2026-11-02, TEL-9 F-1). Only `off` is the kill switch; percent 0 or a shrunk allowlist is a rollout.
 - Rollback triggers: any report or event containing an id, handle, email or user text **that passes the triage step under Failure modes** (a report that fails it is forged: delete it, do not roll back); SDK traffic seen without consent; a crash or ANR rise attributable to the SDKs; a prod report landing in dzeroth-dev.
 
 ## Deleting data (ADR-0032 C5)

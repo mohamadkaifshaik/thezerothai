@@ -136,14 +136,15 @@ the app for 3 minutes (open a profile, search, compose a post), background the a
 | State | Setup | Expect |
 |---|---|---|
 | 1. Consent off | flags on, consent card shown, tap "Not now" (both off) | **no** connection to any fence host. Also repeat once from a fresh install **before** signing in (nothing is collected without an account) |
-| 2. Flags off, consent given earlier | give consent in state 3 or 4 first, then turn the flags off for the account (next `GetMe`), force-stop and relaunch | no fence host after the relaunch (native capture stops at the next launch, runbook section on the kill switch) |
+| 2. Flags off, consent given earlier | give consent in state 3 or 4 first, then turn the flags off for the account (next `GetMe`), force-stop and relaunch | **First relaunch** (until its `GetMe` returns off): `firebase-settings.crashlytics.com` may be contacted before Dart runs, because the SDK persisted "enabled" and the device has not yet learned "off". Record it with its timestamp; it is not a failure. Record every other fence host too, and hand it to the security-auditor; do not pass or fail on it here. From logcat, record the Crashlytics and Analytics collection lines and any Analytics event logged between process start and the off decision. **Second relaunch** (after a run whose `GetMe` returned off): **no** fence host. That is the pass criterion (ADR-0032 note of 2026-11-02 on "the next launch"; runbook section on the kill switch) |
 | 3. Crash only | flags on; consent card: crash on, usage off | fence hosts for Crashlytics appear **only after** the consent tap; none of the Analytics hosts |
 | 4. Crash plus analytics | both on | both families appear after the consent tap; none before it. Record every host seen |
 
 For states 3 and 4 also record, relative to the consent tap: first fence host timestamp (must be later than the tap).
 For the first launch after install in state 1, record whether any Sessions traffic appears (settles ADR A5e: UNVERIFIED today).
-If any fence host is seen in state 1 or 2, that is a failure of "nothing before consent": stop and file it with the host, the
-timestamp and the build; do not tune the test.
+If any fence host is seen in state 1, that is a failure of "nothing before consent": stop and file it with the host, the
+timestamp and the build; do not tune the test. State 2 is not a consent case (consent was given). A fence host on its
+second relaunch is a failure of the kill switch, filed the same way. Its first relaunch is judged only as its row says.
 
 **Step 3: forced crash (state 3 or 4).**
 There is no crash trigger in the app today (`grep` of `app/lib` finds none, and the plan adds none), and this ticket may not add
@@ -167,8 +168,12 @@ properties, no handle, no id, no query text, no post text. Then switch the usage
 Afterwards `adb shell setprop debug.firebase.analytics.app .none.`.
 
 **Step 5: bootstrap persistence (ADR A6a, "Android Analytics wording: TEL-9 bootstrap trace").**
-In state 4, force-stop and relaunch with the flag turned **off** server-side before launch: no fence host (this is state 2 again,
-and the check that the Dart bootstrap re-apply wins over the SDK's persisted "enabled").
+In state 4, force-stop, turn the flag **off** server-side, relaunch, wait for Home (its `GetMe`), force-stop and relaunch again.
+This is state 2 again, judged by its row. The first relaunch may contact `firebase-settings.crashlytics.com` before Dart runs.
+From the second relaunch on there must be no fence host. This step checks that the bootstrap re-apply and the `GetMe`
+decision persist "off" for the next launch. It cannot override the SDK's persisted "enabled" in the launch that is already
+starting: the native SDK starts before Dart, and the device learns the flag only from that run's `GetMe` (ADR-0032 note of
+2026-11-02).
 
 **Attach to the report:** the merged-manifest output, four host lists with the consent-tap timestamp, the crash screenshot, the
 DebugView screenshot, the list of hosts learned. The final verdict line then changes to `VERDICT: PASS` (or `FAIL`).

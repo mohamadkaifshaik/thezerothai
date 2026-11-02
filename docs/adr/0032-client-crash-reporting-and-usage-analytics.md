@@ -665,6 +665,74 @@ decision, the status and every F, C and D item stay as they are.** No native scr
   - frontend-developer: nothing. L-3's fix names no app change, and the consent card's "it sends the error" includes
     Android's message (TEL-10 section 3.5).
 
+## Note (2026-11-02): what "the next launch" means for the kill switch (TEL-9 Part B F-1; decisions above unchanged)
+Source: TEL-9 Part B device session, finding **F-1** (PR #660, `docs/reviews/tests/test-report-client-telemetry.md`):
+Android 11, Crashlytics 20.1.1, Sessions 3.0.8, dev release build. This note settles a conflict between the TEL-9
+procedure and C1, D11 and D15. **The Accepted decision, the status and every F, C and D item stay as they are.** No
+code change, no new ticket.
+- **What was seen.** Consent was on for crash and usage. With the app not running, `FEATURE_CRASH_REPORTING` and
+  `FEATURE_ANALYTICS` were set to `off` server-side. On the first cold launch after that:
+  - `firebase-settings.crashlytics.com` was contacted before any Dart ran, because Crashlytics had persisted
+    "enabled" natively (A6a);
+  - Crashlytics logged ENABLED, DISABLED, ENABLED, DISABLED and Analytics went from true to false, all within about
+    400 ms. The bootstrap applied the remembered flags (on), then `GetMe` said off. This note does not attribute each of
+    the four transitions;
+  - `firebaselogging-pa.googleapis.com` was contacted about 1 minute after both were disabled.
+
+  The second launch was clean. The procedure expected no fence host on the first launch, on the theory that "the Dart
+  bootstrap re-apply wins over the SDK's persisted enabled".
+- **Which is right: C1 and D15, not the procedure.** The procedure's expectation cannot be met by any Dart change.
+  - **A server flag cannot reach the launch in which the device first learns it.** The native SDK starts from its
+    persisted setting before Dart runs. The device learns "off" only from a `GetMe` in that same run. Waiting for the
+    network before startup would break D3 ("no network wait") and the cold-start target.
+  - **The bootstrap re-apply wins for the rest of that run and from the next launch on, never for native start-up in
+    the same launch.** The re-apply is there for the case where the stored decision is off and native says on (A6a).
+    It cannot undo what the native SDK did before Dart started.
+  - **Not re-applying a remembered "on" was considered and rejected.** It would remove only the Dart-side window and
+    the Analytics true-to-false blip, about 400 ms here. Native capture and the settings call happen either way. The
+    cost would be losing start-up crashes on every normal launch, and all collection on every offline launch, which
+    is what the stored decision (D3, D15) exists for.
+  - **This is not a consent case.** A consent change, an opt-out or a sign-out calls
+    `setCrashlyticsCollectionEnabled(false)` in the same run, so the next launch is clean (C1). The window exists only when the flag changes
+    server-side while the app is not running, or before that run's `GetMe` returns. D13's kill-switch uses (an SDK
+    that raises the crash rate, personal data seen in a report) are met: Dart-side reports stop at that `GetMe`, and
+    native capture stops at the launch after it.
+- **"The next launch", stated exactly.** C1, D11 and D15 mean this: native crash capture, and anything the SDK does
+  before Dart runs, stops from **the first launch after a run in which a `GetMe` returned the flag off** (or in which
+  consent went off). Until that `GetMe` returns, the remembered decision applies (D15), and the bootstrap persists it
+  again. So a launch that is killed or offline before its `GetMe` returns starts the next launch enabled too. Analytics
+  follows D11: off at that `GetMe`. On the first launch it was true from the bootstrap until that `GetMe` (about 400 ms
+  here). This note does not claim that nothing was logged or sent in that window; TEL-9 records it from logcat.
+- **The call after disable.** Whether the `firebaselogging-pa` call fits this window or C1's residual is the
+  security-auditor's F-1 analysis, not this note's. This note permits only the pre-Dart settings call. Any other
+  fence host on that launch is recorded and goes to that analysis. If the analysis finds data sent under a decision
+  that was already off and persisted, that is a new finding and may reopen this note.
+- **What changes.**
+  - TEL-9 procedure, state 2 and step 5, plus the failure sentence of step 2
+    (`docs/reviews/tests/test-report-client-telemetry.md`): the pass criterion is no fence host on any launch after a
+    `GetMe` that returned off. The launch before that may contact `firebase-settings.crashlytics.com`, and that contact
+    is recorded, not failed. State 2 is no longer filed as "nothing before consent".
+  - `docs/runbooks/client-telemetry.md`, the kill switch's staleness line: one sentence with the exact meaning above.
+  - C1, D11, D13, D15 and the Consequences text are not edited.
+- **Stage ladder.** Stage 0: the kill switch is as of the last `GetMe`, plus one launch for native start-up. A possible
+  next rung, **to verify, not planned**: a native gate that reads the stored flag and calls
+  `setCrashlyticsCollectionEnabled(false)` before Crashlytics starts. It is unproven that our code can run first:
+  Firebase starts through its own init provider, which may run before `Application.onCreate`. Even then it would act
+  only on a flag the device already knows, so it shortens nothing in the case F-1 measured. A server-push kill (an FCM
+  data message that sets the flag) is the only way to reach a device before its next `GetMe`; it reaches only devices
+  that are running or can be woken. Trigger for either, each needing its own ADR: a kill-switch event in which reports
+  or events sent in that window are themselves the harm (a leak class that a one-launch delay makes worse), measured
+  in a real incident.
+- **Cost.** INR 0. 0 Firestore reads, writes or deletes, 0 requests; a docs change.
+- **Handoff.**
+  - tester (TEL-9 Part B): run state 2 again under the corrected text, or record the 2026-11-02 run against it. The
+    second relaunch already passed. For the first launch, add the logcat check of Analytics between process start and
+    the off decision.
+  - security-auditor: the `firebaselogging-pa` call after disable (F-1, analysed in parallel); report whether it sits
+    inside this window.
+  - frontend-developer: nothing.
+  - sre-performance: nothing (no budget row).
+
 ## Sources (all read 2026-11-01)
 - [S1] Firebase, Privacy and Security in Firebase (last modified 2026-09-24): https://firebase.google.com/support/privacy
 - [S2] Firebase terms of service listing (last modified 2026-09-24): https://firebase.google.com/terms
