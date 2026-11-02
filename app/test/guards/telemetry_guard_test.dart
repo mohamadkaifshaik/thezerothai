@@ -188,6 +188,19 @@ void main() {
   });
 
   group('no user identifier (Q10 (f))', () {
+    test('the app never reads the installation or app-instance ID', () {
+      expect(findIdentifierReads('FirebaseInstallations.instance.getId()'), [
+        'FirebaseInstallations',
+      ]);
+      expect(findIdentifierReads('await a.appInstanceId'), ['appInstanceId']);
+      final hits = <String, List<String>>{};
+      for (final entry in {..._dartSources(), ..._nativeSources()}.entries) {
+        final found = findIdentifierReads(entry.value);
+        if (found.isNotEmpty) hits[entry.key] = found;
+      }
+      expect(hits, isEmpty);
+    });
+
     test('no setUserIdentifier, setUserId, setUserProperty or '
         'setDefaultEventParameters in Dart or native app code', () {
       final native = _nativeSources();

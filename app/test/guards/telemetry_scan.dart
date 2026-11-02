@@ -124,3 +124,14 @@ Map<String, String> readTree(String dir, Set<String> extensions) {
   }
   return out;
 }
+
+/// Reads of the SDK identifiers that could join a report to an account (ADR-0032
+/// data inventory: the app never calls `FirebaseInstallations.getId` or reads
+/// the Analytics app-instance ID).
+List<String> findIdentifierReads(String source) => [
+  for (final m in RegExp(
+    r'FirebaseInstallations|appInstanceId|getAppInstanceId',
+    caseSensitive: false,
+  ).allMatches(source))
+    m.group(0)!,
+];

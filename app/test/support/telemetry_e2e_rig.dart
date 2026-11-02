@@ -1,4 +1,3 @@
-
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/telemetry/firebase_crash_reporter.dart';
 import 'package:dzeroth/core/telemetry/telemetry_adapters.dart';
