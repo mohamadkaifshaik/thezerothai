@@ -634,13 +634,14 @@ void main() {
                 final repo = await openAt(tester, flags, path);
                 expect(tester.takeException(), isNull, reason: path);
                 if (path == '/communities') {
-                debugPrint('DBG ${path} rail=${find.byType(NavigationRail).evaluate().length} shell=${find.byType(CommunitiesScreen).evaluate().length} icons=${find.byType(Icon).evaluate().map((e) => (e.widget as Icon).icon?.codePoint.toRadixString(16)).toList()}');
                   // The wide-layout rail lists Communities only in the new shell
                   // with the flag on (the page itself sits inside the shell).
                   expect(
                     find.descendant(
                       of: find.byType(NavigationRail),
-                      matching: find.byIcon(Icons.groups_outlined),
+                      matching: find.byIcon(
+                        Icons.groups,
+                      ), // selected on /communities
                     ),
                     communitiesOn && shellOn ? findsOneWidget : findsNothing,
                     reason: 'rail entry',
