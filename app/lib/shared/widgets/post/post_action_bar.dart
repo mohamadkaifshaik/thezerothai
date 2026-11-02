@@ -30,6 +30,9 @@ class PostActions {
 /// bookmarked). The liked / reposted state uses the like / repost colours and
 /// is announced as `selected`. Rendered by `PostCard` only when it is given
 /// [PostActions] (the engagement bar, P5).
+///
+/// [spread] is the opened post's row (X's post page): every action, Bookmark
+/// and Share included, spaced evenly across the width, with [iconSize] glyphs.
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -42,6 +45,8 @@ class PostActionBar extends StatelessWidget {
     this.bookmarked = false,
     this.showDisabled = true,
     this.replyDisabledHint,
+    this.spread = false,
+    this.iconSize = AppIconSize.action,
   });
 
   final PostActions actions;
@@ -64,63 +69,88 @@ class PostActionBar extends StatelessWidget {
   /// this post). It is advisory: it never says why.
   final String? replyDisabledHint;
 
+  /// Space every action evenly across the width (the opened post).
+  final bool spread;
+
+  /// Glyph size; the 48dp tap box stays.
+  final double iconSize;
+
   bool _shows(VoidCallback? callback) => showDisabled || callback != null;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    return Row(
-      children: [
-        if (_shows(actions.onReply) || replyDisabledHint != null)
-          _ActionSlot(
-            child: _ActionButton(
-              icon: Icons.chat_bubble_outline,
-              label: 'Reply',
-              count: replyCount,
-              onPressed: actions.onReply,
-              disabledHint: actions.onReply == null ? replyDisabledHint : null,
-            ),
-          ),
-        if (_shows(actions.onRepost))
-          _ActionSlot(
-            child: _ActionButton(
-              icon: Icons.repeat,
-              label: reposted ? 'Undo repost' : 'Repost',
-              count: repostCount,
-              active: reposted,
-              activeColor: colors.repost,
-              onPressed: actions.onRepost,
-            ),
-          ),
-        if (_shows(actions.onLike))
-          _ActionSlot(
-            child: _ActionButton(
-              icon: liked ? Icons.favorite : Icons.favorite_border,
-              label: liked ? 'Unlike' : 'Like',
-              count: likeCount,
-              active: liked,
-              activeColor: colors.like,
-              onPressed: actions.onLike,
-            ),
-          ),
-        // Bookmark and Share sit together at the right edge (X's action row);
-        // alone, Bookmark takes the flush-right place Share would have.
-        // Offered only with a callback (never as a disabled placeholder).
-        if (actions.onBookmark != null)
-          _ActionButton(
+    final counted = <Widget>[
+      if (_shows(actions.onReply) || replyDisabledHint != null)
+        _ActionButton(
+          icon: Icons.chat_bubble_outline,
+          iconSize: iconSize,
+          label: 'Reply',
+          count: replyCount,
+          onPressed: actions.onReply,
+          disabledHint: actions.onReply == null ? replyDisabledHint : null,
+        ),
+      if (_shows(actions.onRepost))
+        _ActionButton(
+          icon: Icons.repeat,
+          iconSize: iconSize,
+          label: reposted ? 'Undo repost' : 'Repost',
+          count: repostCount,
+          active: reposted,
+          activeColor: colors.repost,
+          onPressed: actions.onRepost,
+        ),
+      if (_shows(actions.onLike))
+        _ActionButton(
+          icon: liked ? Icons.favorite : Icons.favorite_border,
+          iconSize: iconSize,
+          label: liked ? 'Unlike' : 'Like',
+          count: likeCount,
+          active: liked,
+          activeColor: colors.like,
+          onPressed: actions.onLike,
+        ),
+    ];
+    final shareShown = _shows(actions.onShare);
+    // Offered only with a callback (never as a disabled placeholder).
+    Widget? bookmark({required bool alignEnd}) => actions.onBookmark == null
+        ? null
+        : _ActionButton(
             icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
+            iconSize: iconSize,
             label: bookmarked ? 'Bookmarked' : 'Bookmark',
             active: bookmarked,
-            alignEnd: !_shows(actions.onShare),
+            alignEnd: alignEnd,
             onPressed: actions.onBookmark,
-          ),
-        if (_shows(actions.onShare))
-          _ActionButton(
-            icon: Icons.ios_share,
-            label: 'Share',
-            alignEnd: true,
-            onPressed: actions.onShare,
-          ),
+          );
+    Widget share({required bool alignEnd}) => _ActionButton(
+      icon: Icons.ios_share,
+      iconSize: iconSize,
+      label: 'Share',
+      alignEnd: alignEnd,
+      onPressed: actions.onShare,
+    );
+
+    if (spread) {
+      // Loose flex: each button gets a bounded width (its count can fade at
+      // large text) and the space left over still spreads them out.
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (final button in counted) Flexible(child: button),
+          // The last glyph sits flush with the right edge, as in the list.
+          ?bookmark(alignEnd: !shareShown),
+          if (shareShown) share(alignEnd: true),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        for (final button in counted) _ActionSlot(child: button),
+        // Bookmark and Share sit together at the right edge (X's action row);
+        // alone, Bookmark takes the flush-right place Share would have.
+        ?bookmark(alignEnd: !shareShown),
+        if (shareShown) share(alignEnd: true),
       ],
     );
   }
@@ -141,6 +171,7 @@ class _ActionSlot extends StatelessWidget {
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.icon,
+    required this.iconSize,
     required this.label,
     required this.onPressed,
     this.count,
@@ -151,6 +182,7 @@ class _ActionButton extends StatelessWidget {
   });
 
   final IconData icon;
+  final double iconSize;
   final String label;
   final int? count;
   final bool active;
@@ -197,7 +229,7 @@ class _ActionButton extends StatelessWidget {
                 ? MainAxisAlignment.end
                 : MainAxisAlignment.start,
             children: [
-              Icon(icon, size: AppIconSize.action, color: color),
+              Icon(icon, size: iconSize, color: color),
               if (shown > 0) ...[
                 const SizedBox(width: AppSpacing.xs),
                 Flexible(

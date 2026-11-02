@@ -87,12 +87,16 @@ class _Footer extends StatelessWidget {
   }
 }
 
-/// Inline composer docked under the thread: replies to the open post. The
-/// same 280 code-point rules and counter as the main composer.
+/// Composer that replies to the open post: docked under the thread on
+/// phones, or [inline] right under the open post on wider screens (X's post
+/// page, captured 2026-11-02). The same 280 code-point rules and counter as
+/// the main composer.
 class _ReplyComposer extends StatefulWidget {
   const _ReplyComposer({
+    required this.focusNode,
     this.blocked = false,
     this.blockedHint = kReplyNotAllowedHint,
+    this.inline = false,
   });
 
   /// The viewer may not reply to the open post: the field and Reply are
@@ -101,12 +105,23 @@ class _ReplyComposer extends StatefulWidget {
   final bool blocked;
   final String blockedHint;
 
+  /// Focused by Reply on the open post.
+  final FocusNode focusNode;
+
+  /// Part of the thread list: no docked surface, a larger prompt and a rule
+  /// below instead of above.
+  final bool inline;
+
   @override
   State<_ReplyComposer> createState() => _ReplyComposerState();
 }
 
 class _ReplyComposerState extends State<_ReplyComposer> {
-  final _controller = TextEditingController();
+  // Starts from the cubit's text: the composer is rebuilt when the window
+  // crosses the inline / docked width, and the draft must survive it.
+  late final _controller = TextEditingController(
+    text: context.read<ComposerCubit>().state.draft.text,
+  );
 
   @override
   void dispose() {
@@ -122,32 +137,70 @@ class _ReplyComposerState extends State<_ReplyComposer> {
       listenWhen: (before, after) =>
           after.status == ComposerStatus.posted &&
           before.status != ComposerStatus.posted,
-      listener: (context, state) {
-        _controller.clear();
-        cubit.textChanged('');
-      },
+      // The thread screen clears the cubit's draft; this clears the field.
+      listener: (context, state) => _controller.clear(),
       builder: (context, state) {
+        final inline = widget.inline;
+        // X's inline prompt is the 20dp title size at regular weight.
+        final textStyle = inline
+            ? theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400)
+            : theme.textTheme.bodyLarge;
+        final field = TextField(
+          controller: _controller,
+          focusNode: widget.focusNode,
+          enabled: !state.isSubmitting && !widget.blocked,
+          minLines: 1,
+          maxLines: 5,
+          keyboardType: TextInputType.multiline,
+          textCapitalization: TextCapitalization.sentences,
+          inputFormatters: [
+            LengthLimitingTextInputFormatter(kComposerInputCap),
+          ],
+          style: textStyle,
+          decoration: InputDecoration(
+            hintText: widget.blocked ? widget.blockedHint : 'Post your reply',
+            hintStyle: textStyle?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+          ),
+          onChanged: cubit.textChanged,
+        );
+        final side = BorderSide(color: theme.dividerColor);
         return DecoratedBox(
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
-            border: Border(top: BorderSide(color: theme.dividerColor)),
+            border: inline ? Border(bottom: side) : Border(top: side),
           ),
           child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(
-              AppSpacing.md,
-              AppSpacing.sm,
-              AppSpacing.sm,
-              AppSpacing.sm,
-            ),
+            padding: inline
+                ? const EdgeInsetsDirectional.fromSTEB(
+                    AppSpacing.md,
+                    AppSpacing.smd,
+                    AppSpacing.md,
+                    AppSpacing.smd,
+                  )
+                : const EdgeInsetsDirectional.fromSTEB(
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
+                    AppSpacing.sm,
+                  ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: inline
+                      ? CrossAxisAlignment.center
+                      : CrossAxisAlignment.end,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.only(
-                        bottom: AppSpacing.xs,
+                      padding: EdgeInsets.only(
+                        bottom: inline ? 0 : AppSpacing.xs,
                         right: AppSpacing.sm,
                       ),
                       child: ExcludeSemantics(
@@ -159,37 +212,14 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                       ),
                     ),
                     Expanded(
-                      child: AppSurface(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                        child: TextField(
-                          controller: _controller,
-                          enabled: !state.isSubmitting && !widget.blocked,
-                          minLines: 1,
-                          maxLines: 5,
-                          keyboardType: TextInputType.multiline,
-                          textCapitalization: TextCapitalization.sentences,
-                          inputFormatters: [
-                            LengthLimitingTextInputFormatter(kComposerInputCap),
-                          ],
-                          style: theme.textTheme.bodyLarge,
-                          decoration: InputDecoration(
-                            hintText: widget.blocked
-                                ? widget.blockedHint
-                                : 'Post your reply',
-                            hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+                      child: inline
+                          ? field
+                          : AppSurface(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.md,
+                              ),
+                              child: field,
                             ),
-                            filled: false,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                          ),
-                          onChanged: cubit.textChanged,
-                        ),
-                      ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     AppPillButton(

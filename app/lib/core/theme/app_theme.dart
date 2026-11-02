@@ -37,6 +37,15 @@ abstract final class AppIconSize {
   static const double action = 16;
 }
 
+/// The opened post on its post page (x.com post detail, captured 2026-11-02):
+/// text 17dp on a 24dp line (measured); action glyphs a step above the list
+/// rows (estimated from the screenshot).
+abstract final class AppFocalPost {
+  static const double bodySize = 17;
+  static const double bodyLineHeight = 24;
+  static const double actionIcon = 20;
+}
+
 /// Opacity levels for tints over a surface.
 abstract final class AppOpacity {
   /// Tint of a highlighted (for example unread) row: a hint, never the only

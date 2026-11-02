@@ -74,6 +74,9 @@ const Map<String, String> _allowlist = {
   'shared/widgets/post/post_card_engagement_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',
+  'shared/widgets/post/post_card_focal_test.dart':
+      'every PostCard gets now: _created + 22h; the full time line is '
+      'formatted from the fixed date alone',
   'shared/widgets/post/post_card_repost_actions_test.dart':
       'every PostCard (and, through it, every embedded card) gets '
       'now: _now',

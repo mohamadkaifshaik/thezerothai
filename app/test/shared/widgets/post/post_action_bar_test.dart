@@ -19,6 +19,77 @@ Widget _host(Widget child, {double width = 360}) => MaterialApp(
 
 void main() {
   group('PostActionBar', () {
+    for (final scale in const [1.0, 2.0]) {
+      testWidgets('spread with real counts fits 328dp at text x$scale', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: _host(
+              width: 328,
+              PostActionBar(
+                spread: true,
+                iconSize: AppFocalPost.actionIcon,
+                replyCount: 272,
+                repostCount: 38,
+                likeCount: 134,
+                bookmarked: true,
+                actions: PostActions(
+                  onReply: () {},
+                  onRepost: () {},
+                  onLike: () {},
+                  onBookmark: () {},
+                  onShare: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.byIcon(Icons.ios_share), findsOneWidget);
+        if (scale == 1.0) expect(find.text('272'), findsOneWidget);
+      });
+    }
+
+    testWidgets('spread (open post): every action across the width, in order, '
+        'Share flush right, larger glyphs', (tester) async {
+      await tester.pumpWidget(
+        _host(
+          PostActionBar(
+            spread: true,
+            iconSize: AppFocalPost.actionIcon,
+            actions: PostActions(
+              onReply: () {},
+              onRepost: () {},
+              onLike: () {},
+              onBookmark: () {},
+              onShare: () {},
+            ),
+          ),
+        ),
+      );
+
+      final icons = [
+        Icons.chat_bubble_outline,
+        Icons.repeat,
+        Icons.favorite_border,
+        Icons.bookmark_border,
+        Icons.ios_share,
+      ];
+      final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
+      for (var i = 1; i < xs.length; i++) {
+        expect(xs[i], greaterThan(xs[i - 1]));
+      }
+      final bar = tester.getRect(find.byType(PostActionBar));
+      expect(tester.getTopRight(find.byIcon(Icons.ios_share)).dx, bar.right);
+      expect(
+        tester.getSize(find.byIcon(Icons.repeat)).width,
+        AppFocalPost.actionIcon,
+      );
+    });
+
     testWidgets('showDisabled false hides actions without a callback', (
       tester,
     ) async {

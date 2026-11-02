@@ -26,7 +26,7 @@ Single place for everything deferred from the X-research UI programme (W0 `docs/
 ## C. Later waves (numbering follows `docs/plans/roadmap.md`, which follows `14_mvp_structured_plan.md`; each needs plan + server flag, ADRs where noted)
 | ID | Wave | Scope | Gate |
 | --- | --- | --- | --- |
-| B-29 | W1.5 | Capture post detail, composer modal and another user's profile on x.com, then a client-only conformance plan | Founder opens each tab for REA; no spec is invented for unobserved states |
+| B-29 | W1.5 | Capture post detail, composer modal and another user's profile on x.com, then a client-only conformance plan | Founder opens each tab for REA; no spec is invented for unobserved states. Post detail (desktop dark) captured 2026-11-02: plan `ui-w15-post-detail.md` (PD-1..PD-3); mobile, light, composer and other profile still open |
 | B-31 | W3 | Cover image, Media / Reposts / Likes tabs, pinned post, who-to-follow, follow-requests UI, "Follows you" | ADR for cover and likes list; read cap for suggestions |
 | B-32 | W4 | Search (handle prefix, hashtags), suggestions, Explore, trends from own hashtag counters; hashtag tap-through (moved from W2, pending founder decision) | Search module ADR; one scheduled sweep; no external news feed |
 | B-33 | W5 | Lists, custom Home tabs from lists, communities | Plan + ADR; moderation story for communities |

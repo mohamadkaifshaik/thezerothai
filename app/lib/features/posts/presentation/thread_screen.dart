@@ -17,7 +17,6 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
@@ -166,6 +165,9 @@ class _ThreadView extends StatelessWidget {
             final created = state.created;
             if (state.status == ComposerStatus.posted && created != null) {
               thread.replyPosted(created);
+              // Cleared here, where it is always mounted, so a sent reply
+              // never comes back as a draft (the field clears itself).
+              context.read<ComposerCubit>().textChanged('');
               return;
             }
             final error = state.error;
@@ -233,8 +235,22 @@ class _ThreadView extends StatelessWidget {
   }
 }
 
-class _ThreadBody extends StatelessWidget {
+class _ThreadBody extends StatefulWidget {
   const _ThreadBody();
+
+  @override
+  State<_ThreadBody> createState() => _ThreadBodyState();
+}
+
+class _ThreadBodyState extends State<_ThreadBody> {
+  // Reply on the open post focuses the composer (X's post page).
+  final _replyFocus = FocusNode(debugLabel: 'thread reply');
+
+  @override
+  void dispose() {
+    _replyFocus.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -251,18 +267,38 @@ class _ThreadBody extends StatelessWidget {
       final focal = c.state.focal;
       return focal == null ? kReplyNotAllowedHint : replyNotAllowedHint(focal);
     });
+    // From the mobile breakpoint up the composer sits in the list right under
+    // the open post (X on desktop); narrower, it stays docked at the bottom.
+    final inline = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
+    _ReplyComposer composer() => _ReplyComposer(
+      focusNode: _replyFocus,
+      blocked: replyBlocked,
+      blockedHint: blockedHint,
+      inline: inline,
+    );
+    // One tree either way, so crossing the width keeps the list's scroll.
     return Column(
       children: [
-        const Expanded(child: _ThreadList()),
-        if (canReply)
-          _ReplyComposer(blocked: replyBlocked, blockedHint: blockedHint),
+        Expanded(
+          child: _ThreadList(
+            onReply: canReply ? _replyFocus.requestFocus : null,
+            inlineComposer: canReply && inline ? composer() : null,
+          ),
+        ),
+        if (canReply && !inline) composer(),
       ],
     );
   }
 }
 
 class _ThreadList extends StatelessWidget {
-  const _ThreadList();
+  const _ThreadList({this.onReply, this.inlineComposer});
+
+  /// Reply on the open post; null leaves the default (opens the post).
+  final VoidCallback? onReply;
+
+  /// The reply composer placed right under the open post (wide screens).
+  final Widget? inlineComposer;
 
   @override
   Widget build(BuildContext context) {
@@ -356,41 +392,40 @@ class _ThreadList extends StatelessWidget {
                 for (final widget in contextSlots)
                   SliverToBoxAdapter(child: widget),
                 SliverToBoxAdapter(
-                  // The open post sits on a calm tint, apart from its replies.
-                  child: ColoredBox(
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
-                    child: Column(
-                      key: ValueKey('focal-${focal.post.postId}'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (focal.post.replyToHandle.isNotEmpty)
-                          _ReplyingTo(handle: focal.post.replyToHandle),
-                        BlockedPostGate(
-                          authorId: focal.post.author.userId,
-                          handle: focal.post.author.handle,
-                          graphEnabled: graphEnabled,
-                          child: PostCard(
-                            view: focal,
-                            showFullImages: true,
-                            viewerUserId: viewerUserId,
-                            graphActionsEnabled: graphEnabled,
-                            reportsEnabled: reportsEnabled,
-                            engagementEnabled: engagementEnabled,
-                            // The reply composer is right below.
-                            showReply: false,
-                            onDelete: cubit.deletePost,
-                            onRelationshipChanged: onRelationship,
-                          ),
+                  // X's post page: the open post on the plain background,
+                  // with no heading between it and its replies.
+                  child: Column(
+                    key: ValueKey('focal-${focal.post.postId}'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (focal.post.replyToHandle.isNotEmpty)
+                        _ReplyingTo(handle: focal.post.replyToHandle),
+                      BlockedPostGate(
+                        authorId: focal.post.author.userId,
+                        handle: focal.post.author.handle,
+                        graphEnabled: graphEnabled,
+                        child: PostCard(
+                          view: focal,
+                          focal: true,
+                          viewerUserId: viewerUserId,
+                          graphActionsEnabled: graphEnabled,
+                          reportsEnabled: reportsEnabled,
+                          engagementEnabled: engagementEnabled,
+                          // Reply focuses the composer; with replies closed
+                          // there is no composer and no Reply.
+                          showReply: onReply != null,
+                          onReply: onReply,
+                          onDelete: cubit.deletePost,
+                          onRelationshipChanged: onRelationship,
                         ),
+                      ),
+                      if (inlineComposer case final composer?)
+                        composer
+                      else
                         const Divider(height: 1),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
-                if (replies.isNotEmpty)
-                  const SliverToBoxAdapter(
-                    child: AppSectionHeader(title: 'Replies'),
-                  ),
                 SliverList.builder(
                   itemCount: replies.length,
                   findChildIndexCallback: (key) {
