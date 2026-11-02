@@ -148,7 +148,7 @@ function signInOwner() {
   // A profile once per emulator; an existing one answers with an error that is fine to ignore.
   http.post(
     `${API_URL}/${IDENTITY}/CreateProfile`,
-    JSON.stringify({ idempotencyKey: `cf-owner-${run}`, handle: `cfown${run}`.slice(0, 15), displayName: 'CF owner' }),
+    JSON.stringify({ idempotencyKey: `cf-owner-profile-${run}-0123456789`, handle: `cfown${run}`.slice(0, 15), displayName: 'CF owner' }),
     { headers: authHeaders(owner.idToken) },
   );
   return owner;
