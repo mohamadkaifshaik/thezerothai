@@ -357,19 +357,29 @@ func (s *service) loadCommunity(ctx context.Context, id string) (Community, erro
 	return c, nil
 }
 
+// MemberState implements CachedMembers: uid's member-doc state from the 60 s instance cache (absence cached too; staleness bound 60 s, D12),
+// 1 read cold and 0 warm, without loading the community document.
+func (s *service) MemberState(ctx context.Context, communityID, uid string) (MemberState, error) {
+	if st, ok := s.cache.getMember(communityID, uid); ok {
+		return st, nil
+	}
+	st, err := s.d.Repo.Member(ctx, communityID, uid)
+	if err != nil {
+		return MemberNone, err
+	}
+	s.cache.putMember(communityID, uid, st)
+	return st, nil
+}
+
 // roleFor completes the D4 role for uid: the community doc decides OWNER and MODERATOR (0 reads); otherwise the member doc does,
 // cache-first (60 s, absence cached too), 1 read when cold.
 func (s *service) roleFor(ctx context.Context, c Community, uid string) (Role, error) {
 	if r := c.RoleOf(uid); r != RoleNone {
 		return r, nil
 	}
-	st, ok := s.cache.getMember(c.ID, uid)
-	if !ok {
-		var err error
-		if st, err = s.d.Repo.Member(ctx, c.ID, uid); err != nil {
-			return RoleNone, err
-		}
-		s.cache.putMember(c.ID, uid, st)
+	st, err := s.MemberState(ctx, c.ID, uid)
+	if err != nil {
+		return RoleNone, err
 	}
 	switch st {
 	case MemberJoined:

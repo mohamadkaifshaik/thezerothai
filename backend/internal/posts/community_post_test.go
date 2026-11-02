@@ -21,6 +21,32 @@ type fakeGate struct {
 	name     string
 	admits   int
 	lastCID  string
+	// W5-26b: the reply side. replyErr is what CanReply returns; member and memberErr answer IsMember.
+	replyErr    error
+	member      bool
+	memberErr   error
+	replyChecks int
+	memberAsks  int
+}
+
+func (g *fakeGate) CanReply(context.Context, string, string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.replyChecks++
+	return g.replyErr
+}
+
+func (g *fakeGate) IsMember(context.Context, string, string) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.memberAsks++
+	return g.member, g.memberErr
+}
+
+func (g *fakeGate) counts() (replyChecks, memberAsks int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.replyChecks, g.memberAsks
 }
 
 func (g *fakeGate) Admit(_ context.Context, cid string) (string, error) {
