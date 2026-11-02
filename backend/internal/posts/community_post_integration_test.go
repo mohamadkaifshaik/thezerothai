@@ -350,9 +350,9 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	if err != nil || len(sent) != 5 || sent[4].ID != ref.ID {
 		t.Fatalf("sentinel: %d posts, %v", len(sent), err)
 	}
-	// A gap window: both bounds.
+	// A gap window: both bounds, the ids strictly between the old since (10th newest) and the resume point (5th newest).
 	gap, err := in.svc.ByCommunity(context.Background(), commCID, Window{
-		Before: &Position{CreatedAt: page1[9].CreatedAt, ID: page1[9].ID}, After: &Position{CreatedAt: ref.CreatedAt, ID: ref.ID}}, 50)
+		Before: &Position{CreatedAt: ref.CreatedAt, ID: ref.ID}, After: &Position{CreatedAt: page1[9].CreatedAt, ID: page1[9].ID}}, 50)
 	if err != nil || len(gap) != 4 || gap[0].ID != page1[5].ID {
 		t.Fatalf("gap: %d posts, %v", len(gap), err)
 	}

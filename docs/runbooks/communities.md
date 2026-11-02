@@ -99,6 +99,30 @@ moderator, who makes the transaction read the community fresh), 3 writes + 1 del
 `GetAll`, 1 read each). It lists JOINED communities newest first (the reverse of `joined`), leaves out a SUSPENDED one unless the caller
 owns it, keeps ARCHIVED ones, and skips a joined id whose document is gone. A non-empty `page_token` is `VALIDATION page_token` with 0 reads.
 
+## 4b. Posting into a community and the community feed query (W5-26)
+
+`CreatePost` with `community_id` runs `posts.CommunityGate` (ADR-0031 D5; implemented by `communities.PostGate`, wired late in `apiserver` with
+`SetCommunityGate`). Order: flag, shape, protected caller, community status (60 s cache), then inside the transaction the member doc read
+**fresh**, the quota write (`posts` and `communityPosts` in one `Set`) and the per `(uid, community)` daily cap. Extra cost over a plain
+CreatePost: **+2 reads cold / +1 warm, +0 writes** (pinned by `TestCommunityPost_StoresFieldsAndBudgetDelta`). Request-line fields:
+`community_post` (bool) and `community_gate` (`admitted`, `rejected`, `rejected:protected`, `rejected:forbidden`, `rejected:quota`,
+`rejected:cap`), never the id or name. A set `community_id` with the flag on but no gate wired logs `community_refused=not_wired`.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `FEATURE_DISABLED feature=communities` for a caller the flag is on for | The gate was not wired (`community_refused=not_wired`): a build without `SetCommunityGate`. The refusal is deliberate, so a post can never become an ordinary public post outside its community | Fix the wiring; never relax the refusal |
+| `FORBIDDEN reason=not_member` / `banned` on a post | The member doc is read fresh in the transaction: a non-member, or a ban made on any instance a moment ago | Intended. A ban is lifted only by `SetMemberRole` (W5-28) |
+| `COMMUNITY_STATE community_archived` / NOT_FOUND on a post | Status comes from the 60 s community cache, so an archive or suspension on another instance reaches posting within 60 s | Intended |
+| `RATE_LIMITED limit=community_posts_per_community_daily` | 20 posts per community per user per IST day per instance (`COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY`; effective x max-instances). The cap is drawn inside the transaction after the quota check, once per call: a refusal and a replay are not charged, a transaction retry is not charged twice, a commit that fails after the draw is | Wait for IST midnight; tune only with abuse numbers |
+| `QUOTA_EXCEEDED quota=community_posts` | 50 a day (10 for a new account), counted in `quotas.communityPosts` on top of `posts`; a refusal charges neither | Wait for IST midnight |
+| `PROTECTED_ACCOUNT` on a post | A protected caller cannot post into a public community (F6), 0 reads | Intended |
+| A reply in a community conversation is not gated yet | W5-26 only copies `conversationCommunityId` into replies (+0 reads); the members-only reply gate is W5-26b | Until W5-26b the flag stays off |
+
+`posts.Reader.ByCommunity` (the W5-27 feed's query) is `communityId == C ORDER BY __name__ DESC` with id-bound windows, on the automatic
+single-field index (proven on dev, ADR-0031 D3). If Firestore ever answers `FAILED_PRECONDITION "requires an index"` for it, **stop**: the
+fallback is the founder-gated composite `posts (communityId ASC, createdAt DESC)`; do not route it through `FirestoreRepo.run()`. The emulator
+does not enforce indexes, so only the dev smoke (W5-40: F1, F2b, F3b on real posts) proves it.
+
 ## 5. Deleting an account that owns, moderates or joined communities (W5-24)
 
 The `communities` step runs after `poll_votes` and before `identity` (step names are persisted in `deletionJob.step`; this one was
