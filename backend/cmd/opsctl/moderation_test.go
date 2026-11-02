@@ -68,6 +68,8 @@ type fakePost struct {
 	id        int
 	createdAt time.Time
 	hidden    bool
+	// communityID is the post's communityId (empty = not a community post).
+	communityID string
 }
 
 // fakeModerator models the author's posts (newest first). HideAuthor pages fakePage posts per call, honours
@@ -76,9 +78,11 @@ type fakeModerator struct {
 	takedowns, restores []string
 	hideCalls, restCall int
 	releaseRepost       bool // Takedown reports a REPOST that was removed (issue #153)
-	err                 error
-	posts               []*fakePost
-	paged               int
+	// takedownCommunity is the communityId Takedown reports (ADR-0031 D14).
+	takedownCommunity string
+	err               error
+	posts             []*fakePost
+	paged             int
 	// afterFirstHide runs once, right after the first HideAuthor call returns (a post created on an instance that
 	// still cached the account as ACTIVE, after page 1 was read).
 	afterFirstHide func()
@@ -88,7 +92,7 @@ const fakePage = 2
 
 func (f *fakeModerator) Takedown(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
 	f.takedowns = append(f.takedowns, id)
-	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationNone, After: posts.ModerationTakenDown, RepostReleased: f.releaseRepost}, f.err
+	return posts.ModerationResult{AuthorID: "u2", Before: posts.ModerationNone, After: posts.ModerationTakenDown, RepostReleased: f.releaseRepost, CommunityID: f.takedownCommunity}, f.err
 }
 
 func (f *fakeModerator) Restore(_ context.Context, id string, _ time.Time) (posts.ModerationResult, error) {
@@ -117,6 +121,9 @@ func (f *fakeModerator) HideAuthor(_ context.Context, _ string, cp posts.Moderat
 	next := posts.ModerationCheckpoint{Changed: cp.Changed, Since: cp.Since}
 	for _, p := range eligible[start:end] {
 		f.paged++
+		if p.communityID != "" {
+			next.PageCommunityPosts = append(next.PageCommunityPosts, posts.CommunityPostRef{CommunityID: p.communityID, PostID: strconv.Itoa(p.id)})
+		}
 		if !p.hidden {
 			p.hidden = true
 			next.Changed++
@@ -210,13 +217,15 @@ func (f *fakeCleanup) TombstoneQuotes(_ context.Context, id string, _ int) (int,
 }
 
 type modFixture struct {
-	copied  *fakeCopied
-	cleanup *fakeCleanup
-	sweep   *fakeSweeper
-	order   []string
-	ops     *fakeOps
-	mod     *fakeModerator
-	acc     *fakeAccounts
+	removals *fakeRemovals
+	plat     *fakePlatform
+	copied   *fakeCopied
+	cleanup  *fakeCleanup
+	sweep    *fakeSweeper
+	order    []string
+	ops      *fakeOps
+	mod      *fakeModerator
+	acc      *fakeAccounts
 	// slept records the settle waits; onSleep runs while "waiting" (a post created in the cache window).
 	slept   []time.Duration
 	onSleep func()
@@ -226,7 +235,7 @@ type modFixture struct {
 
 func newModFixture() *modFixture {
 	m := &modFixture{ops: &fakeOps{}, mod: &fakeModerator{}, acc: &fakeAccounts{}, sweep: &fakeSweeper{},
-		copied: &fakeCopied{}, cleanup: &fakeCleanup{moreFor: map[string]bool{}}}
+		copied: &fakeCopied{}, cleanup: &fakeCleanup{moreFor: map[string]bool{}}, removals: &fakeRemovals{}, plat: &fakePlatform{}}
 	m.sweep.order = &m.order
 	m.cleanup.order = &m.order
 	return m
@@ -236,7 +245,7 @@ func (m *modFixture) run(stdin string, args ...string) (code int, stdout, stderr
 	var out, errOut bytes.Buffer
 	open := func(context.Context, string) (*backends, error) {
 		return &backends{
-			reports: m.ops, moderator: m.mod, accounts: m.acc, actorSweeper: m.sweep, copied: m.copied, cleanup: m.cleanup,
+			removals: m.removals, communities: m.plat, reports: m.ops, moderator: m.mod, accounts: m.acc, actorSweeper: m.sweep, copied: m.copied, cleanup: m.cleanup,
 			postsPlanner: fakePostsPlanner{posts.PurgePlan{Posts: cmp.Or(m.plannedPosts, 7)}},
 			profile: func(context.Context, string) (identity.Profile, error) {
 				return identity.Profile{Status: identity.AccountStatusActive}, nil

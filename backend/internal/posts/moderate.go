@@ -92,7 +92,7 @@ func (r *FirestoreRepo) setModerationX(ctx context.Context, postID string, decid
 			return fmt.Errorf("posts: moderate decode %s: %w", postID, err)
 		}
 		cur := Moderation(d.Moderation)
-		out = ModerationResult{AuthorID: d.AuthorID, Before: cur, After: cur}
+		out = ModerationResult{AuthorID: d.AuthorID, Before: cur, After: cur, CommunityID: d.CommunityID}
 		repost = nil
 		if interceptRepost && Kind(d.Kind) == KindRepost && d.RepostOfID != "" {
 			repost = &repostRow{id: postID, authorID: d.AuthorID, originalID: d.RepostOfID}
@@ -175,6 +175,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: hide %s: query: %w", logger.HashUID(uid), err)
 	}
+	cp.PageCommunityPosts = nil
 	if len(docs) == 0 {
 		return cp, true, nil
 	}
@@ -183,12 +184,17 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	changed := 0
+	var communityPosts []CommunityPostRef // every community post of the page, changed or already hidden (ADR-0031 D14)
 	for _, s := range docs {
 		var d struct {
-			Moderation string `firestore:"moderation"`
+			Moderation  string `firestore:"moderation"`
+			CommunityID string `firestore:"communityId"`
 		}
 		if err := s.DataTo(&d); err != nil {
 			return cp, false, fmt.Errorf("posts: hide decode %s: %w", s.Ref.ID, err)
+		}
+		if d.CommunityID != "" {
+			communityPosts = append(communityPosts, CommunityPostRef{CommunityID: d.CommunityID, PostID: s.Ref.ID})
 		}
 		if d.Moderation != "" {
 			continue // already hidden (TAKEN_DOWN stays TAKEN_DOWN; SUSPENDED_AUTHOR is a re-run)
@@ -209,7 +215,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	if err := last.DataTo(&ld); err != nil {
 		return cp, false, fmt.Errorf("posts: hide decode %s: %w", last.Ref.ID, err)
 	}
-	next := ModerationCheckpoint{Changed: cp.Changed + changed, After: &Position{CreatedAt: ld.CreatedAt.UTC(), ID: last.Ref.ID}}
+	next := ModerationCheckpoint{Changed: cp.Changed + changed, After: &Position{CreatedAt: ld.CreatedAt.UTC(), ID: last.Ref.ID}, PageCommunityPosts: communityPosts}
 	slog.InfoContext(ctx, "posts_hide_batch", "uid_hash", logger.HashUID(uid), "paged", len(docs), "hidden", changed, "hidden_total", next.Changed)
 	return next, len(docs) < hidePage, nil
 }

@@ -113,8 +113,40 @@ type evidenceDoc struct {
 	// LIST reports only (plan W5-44); additive and omitempty. Inside the index-exempt evidence map.
 	ListName        string `firestore:"listName,omitempty"`
 	ListDescription string `firestore:"listDescription,omitempty"`
+	// COMMUNITY reports only (ADR-0031 D14, W5-29); additive and omitempty, inside the index-exempt evidence map.
+	CommunityName        string          `firestore:"communityName,omitempty"`
+	CommunityDescription string          `firestore:"communityDescription,omitempty"`
+	CommunityRules       []communityRule `firestore:"communityRules,omitempty"`
 	// ADR-0029 D8: the reported post's poll labels; additive, omitempty.
 	PollChoices []string `firestore:"pollChoices,omitempty"`
+}
+
+// communityRule is one rule of a COMMUNITY report's evidence.
+type communityRule struct {
+	Title string `firestore:"title"`
+	Text  string `firestore:"text"`
+}
+
+func ruleDocs(in []CommunityRule) []communityRule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]communityRule, len(in))
+	for i, r := range in {
+		out[i] = communityRule(r)
+	}
+	return out
+}
+
+func ruleOut(in []communityRule) []CommunityRule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]CommunityRule, len(in))
+	for i, r := range in {
+		out[i] = CommunityRule(r)
+	}
+	return out
 }
 
 type reportDoc struct {
@@ -146,7 +178,8 @@ func toDoc(r Report) reportDoc {
 		d.Evidence = &evidenceDoc{Text: r.Evidence.Text, AuthorHandle: r.Evidence.AuthorHandle, MediaIDs: ids, PostCreatedAt: r.Evidence.PostCreatedAt,
 			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
 			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL,
-			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription}
+			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription,
+			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules)}
 		if r.TargetType == TargetMessage {
 			d.Evidence.Text = "" // the text lives in the child document (W7-36)
 		}
@@ -165,7 +198,8 @@ func (d reportDoc) toReport(id string) Report {
 			MediaIDs: d.Evidence.MediaIDs, PostCreatedAt: d.Evidence.PostCreatedAt.UTC(),
 			OriginalPostID: d.Evidence.OriginalPostID, DisplayName: d.Evidence.DisplayName, Bio: d.Evidence.Bio,
 			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL,
-			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription}
+			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription,
+			CommunityName: d.Evidence.CommunityName, CommunityDescription: d.Evidence.CommunityDescription, CommunityRules: ruleOut(d.Evidence.CommunityRules)}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()

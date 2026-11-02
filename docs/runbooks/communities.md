@@ -63,7 +63,7 @@ PERMISSION_DENIED + `FORBIDDEN` `reason=not_creator` with 0 reads, before the ke
 | `LIMIT_REACHED` `limit=communities_joined` | 50 joined communities | The user leaves one |
 | `IDEMPOTENCY_KEY_REUSED` | A client re-used a key with another body | A client bug: one key per user action |
 | Create/Update `RATE_LIMITED` `community_mutation_daily` | 200 mutations per uid per instance per day | Wait for IST midnight, or a new revision resets it |
-| `UpdateCommunity` returns `community_archived` for the owner | The community was archived (`opsctl community archive`, W5-29) | Intended: ARCHIVED is read-only. Restoring is an operator action |
+| `UpdateCommunity` returns `community_archived` for the owner | The community was archived (`opsctl community archive`, W5-29) | Intended: ARCHIVED is read-only. There is no undo at Stage 0: `restore` keeps an ownerless community ARCHIVED (section 6) |
 | `UpdateCommunity` returns `not_owner` for everyone on a community | It has no owner (archived after its owner deleted the account, F12) | Intended: an ownerless community is read-only |
 
 How a write behaves: `CreateCommunity` is one transaction (idempotency doc, memberships doc, then the community, the owner's member
@@ -224,12 +224,51 @@ moderator ids, no log targets, no post ids). A joined or banned community that i
 | A hand-over went to an unexpected moderator | The first moderator in appointment order was not ACTIVE (deleting or suspended), or had no memberships doc (being deleted): the next one took over | Intended. `moderatorIds` is in appointment order |
 | The residue sweep names `communities/{cid}#modlog` after a deletion | A log entry still names the uid: the community was not in the user's memberships (I-L broken by a writer that forgot `modlogged`) | Fix the writer (every modlog append adds the community to both users' `modlogged` in the same transaction). Clean the one document by hand |
 
-## 6. Suspension (placeholder for W5-29)
+## 6. Platform levers: suspend, restore, archive, reports and removals (W5-29)
 
-`opsctl community suspend|restore|archive` arrive with W5-29; until then nothing sets `SUSPENDED` or `ARCHIVED` except the eraser's
-archive-on-owner-deletion. A SUSPENDED community is `NOT_FOUND` ("community not found") on every RPC for everyone, with the same
-bytes and the same read count as an id that never existed; only `GetCommunity` and `ListMyCommunities` show it to its owner, with
-status `SUSPENDED`. It reaches every instance within 60 s (section 4, staleness).
+Three operator commands (`go run ./cmd/opsctl community ... --project P`; a `*-prod` project asks for the project id typed in; each takes
+`--dry-run` and prints `cost: reads=... writes=...` last; the community id appears only as `community_hash`, the one-way hash the request
+logs use for ids, in a fixed-shape `audit:` line, because the document records no platform actor):
+
+| Command | What it does | Cost (reads / writes) |
+|---|---|---|
+| `community suspend CID [--report R] [--note N]` | Field-level `Update` of `status = SUSPENDED` and `updatedAt`. `--report R` first checks R is a COMMUNITY report of exactly this id (a typo cannot close another report), then resolves it as `TAKEDOWN` after the write, also when the community was already suspended | 1 / 1; a repeat 1 / 0; `--report` +1 read to check, +1 / +1 to resolve |
+| `community restore CID` | `status = ACTIVE` when `ownerId` is set, else `ARCHIVED`. Only a SUSPENDED community changes; anything else is "not suspended", 0 writes | 1 / 1; otherwise 1 / 0 |
+| `community archive CID` | An owner's support request (F12). One transaction: `status = ARCHIVED`, `ownerId = ""`, an `OWNER_HANDOVER` modlog entry (actor the former owner, empty target), and the community leaves the owner's `owned` and joins their `modlogged` (I-M, I-L). The former owner **stays a member**. Refused for a SUSPENDED community (restore it first: archiving would quietly lift the suspension). **No undo**: `restore` keeps an ownerless community ARCHIVED; to give it a new owner follow section 5 ("A community has `ownerId ""`") | 3 (community, owner memberships, owner member doc) / 2; a repeat 1 / 0 |
+
+Every command is a field-level `Update` inside a transaction, never a `Set`: a missing community is refused ("no such community", exit 1) and
+never created. **Reach.** opsctl is a separate process and cannot evict an api instance's cache, so a change reaches every warm instance within
+**60 s** (the community cache, section 4); the command prints that line. A SUSPENDED community is `NOT_FOUND` ("community not found") on every RPC for everyone, with the same bytes and the same
+read count as an id that never existed (the feed, the member lists, the moderation log, `JoinCommunity`, the reply gate); `CreatePost` into it is refused the same way; it is out of the directory. Only `GetCommunity` and
+`ListMyCommunities` show it to its owner, with status `SUSPENDED`. A screen already open keeps its copy until it refreshes. An ARCHIVED community is
+read-only (posting, joining and editing refused) and out of the directory.
+
+**Reports.** `ReportContent` accepts the COMMUNITY target (`REPORT_TARGET_TYPE_COMMUNITY`; behind `FEATURE_REPORTS` for the caller and `FEATURE_COMMUNITIES` not
+globally off, the LIST and MESSAGE rule: someone dropped from the allowlist can still report what they saw). `target_id` is the community id; the
+report's owner is the community owner (`""` when ARCHIVED). A missing or SUSPENDED community and the caller's own community are not distinguishable from outside
+(the one NOT_FOUND "community not found"; an own community is VALIDATION `target_id`). The evidence is kept in the report document: the owner's handle, the name, the
+description, the rules and the creation time (public text, no member or moderator id, no child document), with the usual retention (resolved + 90 days). Cost: 5 reads cold / 2 warm (interceptor, community, owner profile, report,
+`quotas`), 2 writes. Reports of a community's **posts** use the POST target. `reports show` prints the snapshot; act with `community suspend CID --report R` (the
+`target` of the report) or resolve with `reports resolve`. The request line has `report_target=COMMUNITY` and the existing `outcome`.
+
+**Takedowns and suspensions reach the community feed.** `takedown-post` of a community post also appends `{postId, now}` to that community's `recentRemovals`
+(`communities.PlatformRemovals`), so the next `since_token` refresh of the community feed lists it in `removed_ids` within 60 s; it reads `communityId` from the post it already reads
+(+1 read, +1 write; a repeat or an already listed post writes nothing). `suspend-user` does the same per page of hidden posts, once per community per page (+1 read,
++1 write per community per page), for the community posts of the page whether they were just hidden or already were, so a re-run after a crash finishes the job. The cap is the community's
+50 newest entries: a **spam account with more than 50 community posts in one community rolls the log**, sets `removalsTruncatedAt`, and every device whose cached feed is older
+than that cold-opens that community (a rejected `since_token`, about 25 reads each), exactly as with a burst of moderator hides (section 7). A post a community moderator
+already hid has no `communityId` and is not listed again (its entry exists). A deleted community is a note in the output (`missing=1`), not an error. `restore-post` and `unsuspend-user`
+do not touch the log (D6): their entries age out.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| A suspended community still shows on one device | The device's cached copy, or an instance that cached it less than 60 s ago | Intended; wait 60 s, the client refreshes on its next open |
+| `community archive` says "the community is SUSPENDED" | Archiving would lift the suspension | `community restore CID`, then `community archive CID` |
+| `community restore` left the community ARCHIVED | It has no owner (an archive, or an owner who deleted the account) | Intended; section 5 for giving it an owner by hand |
+| `takedown-post` printed `community removal log: ... missing=1` | The post's community document no longer exists | Nothing to do; the post is hidden either way |
+| `takedown-post` failed with "(re-run takedown-post to finish)" | The removal-log append failed after the post was hidden | Run it again: the takedown is idempotent and the append finishes the job |
+| After `suspend-user`, followers see a cold open of a community feed | More than 50 removals rolled that community's log | Intended (see above); nothing to do |
+| A COMMUNITY report cannot be filed (NOT_FOUND) | The community is missing or SUSPENDED, or `FEATURE_COMMUNITIES` is globally off (then FEATURE_DISABLED `feature=communities`) | Intended |
 
 ## 7. Moderation: hide, restore, roles, bans and the log (W5-28)
 

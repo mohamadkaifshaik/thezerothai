@@ -39,8 +39,8 @@ func NewServer(svc Service, fc FlagChecker) *Server { return &Server{svc: svc, f
 var _ moderationv1connect.ModerationServiceHandler = (*Server)(nil)
 
 // ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads, when off). A MESSAGE report
-// also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS (guardNotGloballyOff, feature=messaging or lists). Worst case reads and writes per
-// target are on Service.Report: LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
+// also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS and a COMMUNITY report FEATURE_COMMUNITIES (guardNotGloballyOff, feature=messaging, lists or communities). Worst case reads and writes per
+// target are on Service.Report: COMMUNITY 5 reads cold / 2 warm, 2 writes; LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
 func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderationv1.ReportContentRequest]) (*connect.Response[moderationv1.ReportContentResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -56,7 +56,7 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	m := req.Msg
 	targetType := targetTypeFromProto(m.GetTargetType())
 	switch targetType {
-	case TargetMessage, TargetList:
+	case TargetMessage, TargetList, TargetCommunity:
 		// Before any work, so the exhausted-quota fast path (1 read) never runs for a switched-off feature.
 		if err := s.guardNotGloballyOff(ctx, uid, secondFlag(targetType)); err != nil {
 			return nil, err
@@ -77,10 +77,13 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	return connect.NewResponse(&moderationv1.ReportContentResponse{ReportId: res.ReportID, AlreadyReported: res.AlreadyReported}), nil
 }
 
-// secondFlag is the feature a MESSAGE or LIST report needs besides `reports`.
+// secondFlag is the feature a MESSAGE, LIST or COMMUNITY report needs besides `reports`.
 func secondFlag(t TargetType) string {
-	if t == TargetList {
+	switch t {
+	case TargetList:
 		return ListsFlagName
+	case TargetCommunity:
+		return CommunitiesFlagName
 	}
 	return MessagingFlagName
 }
@@ -114,6 +117,8 @@ func targetTypeFromProto(t moderationv1.ReportTargetType) TargetType {
 		return TargetMessage
 	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_LIST:
 		return TargetList
+	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_COMMUNITY:
+		return TargetCommunity
 	}
 	return ""
 }
