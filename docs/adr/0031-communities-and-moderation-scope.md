@@ -1,5 +1,5 @@
 # 0031. Communities and their moderation scope at Stage 0 (W5 Part B)
-Status: Accepted (founder, 2026-11-01, by merging #583; F1 and F6 to F14 at the defaults); Amendment 1 Proposed (2026-11-02, W5-51: reply moderation and the W5-38 rules; in force when the founder merges its PR)
+Status: Accepted (founder, 2026-11-01, by merging #583; F1 and F6 to F14 at the defaults); Amendment 1 Accepted (founder, 2026-11-02, by merging PR #654; W5-51: reply moderation and the W5-38 rules)
 Date: 2026-11-01
 Deciders: architect (proposal); the founder accepts by merging the PR. The Part B founder questions (F1, F6 to F13 of
 the plan, and the new F14 below) were taken at their defaults when the founder merged #583 on 2026-11-01. **Each one has a recommended default, which this ADR applies,
@@ -27,9 +27,9 @@ Related ADRs:
   target (W5-44).
 - ADR-0022: credit mode. **Nothing here depends on a credit-mode item.**
 
-## Amendment 1 (2026-11-02, Proposed): reply moderation and the W5-38 rules
+## Amendment 1 (2026-11-02, Accepted): reply moderation and the W5-38 rules
 
-**Status: Proposed.** ADR-0031 is Accepted, so this amendment needs the founder's OK before it merges. The founder's
+**Status: Accepted** (founder OK 2026-11-02, merged in #654). ADR-0031 is Accepted, so this amendment needed the founder's OK before it merged. The founder's
 merge is the acceptance. The decision text below (D1 to D15, F1 to F14, A1 to A14, N1 to N10) stays as written. Each
 section here names the decision it adds to. Where this amendment and the text below differ, the amendment wins for the
 cases it names.
