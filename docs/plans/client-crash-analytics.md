@@ -190,7 +190,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 
 | Finding | Severity | Goes to | Gate |
 |---|---|---|---|
-| M-1: the AdServices advertising-ID and attribution permissions stay in the merged manifest | Medium | TEL-17 | C-2: before the dev allowlist, and before TEL-13 answers the Play Data safety and Advertising ID questions |
+| M-1: the AdServices advertising-ID and attribution permissions stay in the merged manifest | Medium | TEL-17 (done, #648: both removed, guard extended, release APK permission list in the PR) | C-2: before the dev allowlist, and before TEL-13 answers the Play Data safety and Advertising ID questions |
 | M-2: the Firebase installation ID (FID) may be joinable with the FCM token we store per uid | Medium | TEL-9 Part B item (below); a fix only if joinable | C-3: the check before the dev allowlist; any fix before any non-team account |
 | L-1: no delete of unsent reports before crash collection turns on | Low | TEL-18 | C-6: before any prod raise |
 | L-2: gaps in the first-sign-in reset | Low | TEL-18, per F12 | C-6: before any prod raise |
