@@ -22,9 +22,9 @@ var _ ModerationRepo = (*FirestoreRepo)(nil)
 
 // PostModerator is the posts-side seam of Hide and Restore (A12), the identical interface to posts.CommunityModerator: posts never imports
 // communities and this package does not import posts, so it uses primitives and *firestore.Transaction only. found=false (no error) is a post
-// that is missing or was not created into cid. apiserver hands posts.NewCommunityModerator to WithPostModerator.
+// that is missing or was not created into cid. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check (W5-53), called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
 type PostModerator interface {
-	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool) (changed, found bool, err error)
+	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error)
 }
 
 // WithPostModerator wires the posts-side moderation seam (apiserver at startup; the integration tests). Without it Hide and Restore fail closed.
@@ -97,7 +97,7 @@ func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Tra
 // ModeratePost implements ModerationRepo (ADR-0031 D5, A12). One transaction. Reads, fresh and in this order: idempotency (a replay returns
 // here, 1 read), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
 // written and an error is not recorded), the actor's memberships, and last the post through PostModerator (ErrPostNotFound when
-// it was not created into this community). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
+// it was not created into this community), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16, ADR-0031 D4b: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
 // the post (field-level, in posts), the community (one Update: recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
 // entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, +1 when the
 // community is not yet in the actor's modlogged (A6).
@@ -135,7 +135,7 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		if err != nil {
 			return err
 		}
-		changed, found, err := r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore)
+		changed, found, err := r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore, func(authorID string) error { return actorMayActOn(c, p.UID, authorID) })
 		if err != nil {
 			return err
 		}
@@ -343,4 +343,17 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 	})
 	noteAttempts(ctx, attempts)
 	return res, notFoundIfNoDoc(err)
+}
+
+// actorMayActOn is the F16 rule (ADR-0031 D4b, founder 2026-11-02): the owner may hide or restore every post; a moderator may act on a post
+// whose author is a plain member, a former moderator, a banned or departed user, or the moderator themselves, but never on the owner's post
+// or another current moderator's. The author's role is the one in c now (current role decides). An empty authorId is a plain author.
+func actorMayActOn(c Community, actor, authorID string) error {
+	if c.RoleOf(actor) == RoleOwner || authorID == actor {
+		return nil
+	}
+	if c.RoleOf(authorID) != RoleNone {
+		return ErrNotOwner
+	}
+	return nil
 }

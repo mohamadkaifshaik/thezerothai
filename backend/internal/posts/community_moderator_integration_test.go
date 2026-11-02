@@ -4,6 +4,7 @@ package posts
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -27,16 +28,21 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	seed("0000000000000000901", map[string]any{"communityId": cid, "community": map[string]any{"id": cid, "name": "Go"}})
 	seed("0000000000000000902", map[string]any{"text": "plain post"})
 	seed("0000000000000000903", map[string]any{"communityId": other, "community": map[string]any{"id": other, "name": "Other"}})
+	seed("0000000000000000904", map[string]any{"communityId": cid, "community": map[string]any{"id": cid, "name": "Go"}, "moderation": "TAKEN_DOWN"})
+	seed("0000000000000000905", map[string]any{"communityHidden": true, "community": map[string]any{"id": cid, "name": "Go"}, "moderation": "SUSPENDED_AUTHOR"})
 	m := NewCommunityModerator(client)
 
 	type res struct{ changed, found bool }
+	var gotAuthor string // the authorId the guard saw on the last call
+	var guardErr error
+	guard := func(a string) error { gotAuthor = a; return guardErr }
 	call := func(id, community string, listed bool) (res, int64, int64) {
 		t.Helper()
 		bctx, c := budget.WithCounter(ctx)
 		var out res
 		err := client.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
 			var err error
-			out.changed, out.found, err = m.SetCommunityListing(bctx, tx, id, community, listed)
+			out.changed, out.found, err = m.SetCommunityListing(bctx, tx, id, community, listed, guard)
 			return err
 		})
 		if err != nil {
@@ -114,7 +120,32 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	if listed, _, _ := state("0000000000000000903"); !listed {
 		t.Error("a hide in the wrong community changed the post")
 	}
-	if _, _, err := NewCommunityModerator(nil).SetCommunityListing(ctx, nil, "x", cid, false); err == nil {
+	// F16 (W5-53): the guard sees the author before any write and its error stops the write, hide and restore alike, listed or not
+	gotAuthor, guardErr = "", errors.New("refused")
+	for _, listed := range []bool{false, true} {
+		bctx, c := budget.WithCounter(ctx)
+		err := client.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
+			_, _, err := m.SetCommunityListing(bctx, tx, "0000000000000000901", cid, listed, guard)
+			return err
+		})
+		if !errors.Is(err, guardErr) || gotAuthor != "alice" || c.Reads() != 1 || c.Writes() != 0 {
+			t.Errorf("guard refusal listed=%v: err=%v author=%q reads=%d writes=%d", listed, err, gotAuthor, c.Reads(), c.Writes())
+		}
+	}
+	if listed, _, _ := state("0000000000000000901"); !listed {
+		t.Error("a refused call wrote")
+	}
+	guardErr = nil
+	// L-2: a post with moderation set is not found, hidden or not, and the guard is not even asked
+	gotAuthor = ""
+	for _, id := range []string{"0000000000000000904", "0000000000000000905"} {
+		for _, listed := range []bool{false, true} {
+			if r, reads, writes := call(id, cid, listed); r != (res{false, false}) || reads != 1 || writes != 0 || gotAuthor != "" {
+				t.Errorf("moderated post %s listed=%v = %+v, %d reads, %d writes, guard saw %q", id, listed, r, reads, writes, gotAuthor)
+			}
+		}
+	}
+	if _, _, err := NewCommunityModerator(nil).SetCommunityListing(ctx, nil, "x", cid, false, nil); err == nil {
 		t.Error("a moderator without a client must fail closed")
 	}
 }
