@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
-	"strings"
-	"testing"
 )
 
 func TestParseHiddenArgs(t *testing.T) {
