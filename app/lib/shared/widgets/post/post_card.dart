@@ -10,6 +10,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../features/communities/domain/communities_feature_flag.dart';
 import '../../../features/engagement/domain/engagement_entry.dart';
 import '../../../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../../../features/engagement/presentation/widgets/post_engagement_bar.dart';
@@ -38,6 +39,7 @@ import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
 import 'poll_card.dart';
+import 'post_context_label.dart';
 import 'post_pin_control.dart';
 import '../user/protected_badge.dart';
 import 'protected_post_box.dart';
@@ -468,6 +470,18 @@ class PostCard extends StatelessWidget {
       ],
     );
 
+    // One context row: the repost label wins over the community label.
+    final Widget? contextLabel = isRepost
+        ? PostContextLabel.repost(reposter: _post.author, isOwn: _isOwn)
+        : _post.hasCommunity() && _post.community.name.isNotEmpty
+        ? PostContextLabel.community(
+            name: _post.community.name,
+            onTap: _communityTappable(context)
+                ? () => _openCommunity(context, _post.community.id)
+                : null,
+          )
+        : null;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.md,
@@ -475,16 +489,28 @@ class PostCard extends StatelessWidget {
         AppSpacing.md,
         AppSpacing.smd,
       ),
-      child: isRepost
-          ? Column(
+      child: contextLabel == null
+          ? row
+          : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RepostedBy(reposter: _post.author, isOwn: _isOwn),
-                row,
-              ],
-            )
-          : row,
+              children: [contextLabel, row],
+            ),
     );
+  }
+
+  /// The label opens the community only while `communities` is on (false
+  /// when no session is above, as in some tests).
+  bool _communityTappable(BuildContext context) {
+    if (_post.community.id.isEmpty) return false;
+    try {
+      return isFeatureEnabled(context, kFeatureCommunities);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
+  void _openCommunity(BuildContext context, String communityId) {
+    context.push(AppRouter.communityPath(communityId));
   }
 
   void _openPost(BuildContext context, String postId) {
@@ -530,64 +556,6 @@ class PostCard extends StatelessWidget {
   }
 }
 
-String _repostedByLabel(common.AuthorSnapshot reposter, bool isOwn) {
-  if (isOwn) return 'You reposted';
-  final name = reposter.displayName.isEmpty
-      ? '@${reposter.handle}'
-      : reposter.displayName;
-  return '$name reposted';
-}
-
-/// The "X reposted" line above a REPOST item, aligned with the avatar
-/// column (the viewer's own repost reads "You reposted").
-class _RepostedBy extends StatelessWidget {
-  const _RepostedBy({
-    required this.reposter,
-    required this.isOwn,
-    this.trailing,
-  });
-
-  final common.AuthorSnapshot reposter;
-  final bool isOwn;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final label = _repostedByLabel(reposter, isOwn);
-    return Semantics(
-      container: true,
-      label: label,
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-        child: Row(
-          children: [
-            SizedBox(
-              width: AppSpacing.minTapTarget,
-              child: Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: Icon(Icons.repeat, size: AppIconSize.sm, color: muted),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(color: muted),
-              ),
-            ),
-            ?trailing,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// A REPOST whose original cannot be shown (blocked / muted author, or
 /// already tombstoned): the "X reposted" line over a placeholder box, with
 /// nothing from the snapshot.
@@ -626,7 +594,11 @@ class _RepostPlaceholder extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _RepostedBy(reposter: reposter, isOwn: isOwn, trailing: menu),
+          PostContextLabel.repost(
+            reposter: reposter,
+            isOwn: isOwn,
+            trailing: menu,
+          ),
           Padding(
             padding: const EdgeInsetsDirectional.only(
               start: AppSpacing.minTapTarget + AppSpacing.sm,
