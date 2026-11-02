@@ -39,7 +39,10 @@ func newJoinEnv(t *testing.T) *env {
 	return e
 }
 
+// user adds an active profile. Race tests call it while earlier joins already read the directory, so it takes the fake's lock.
 func (e *env) user(uid string) string {
+	e.dir.mu.Lock()
+	defer e.dir.mu.Unlock()
 	e.dir.profiles[uid] = profile(uid, identity.AccountStatusActive)
 	return uid
 }
