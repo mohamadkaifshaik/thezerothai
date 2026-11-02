@@ -10,6 +10,11 @@ import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
+import '../../features/communities/domain/communities_feature_flag.dart';
+import '../../features/communities/presentation/communities_screen.dart';
+import '../../features/communities/presentation/community_members_screen.dart';
+import '../../features/communities/presentation/community_screen.dart';
+import '../../features/communities/presentation/create_community_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
@@ -153,6 +158,14 @@ class AppRouter {
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
   static String listMembersPath(String listId) => '${listPath(listId)}/members';
+  // W5-31/32: Communities (behind the `communities` flag redirect).
+  // `/communities/new` is matched before `/communities/:id`.
+  static const communitiesPath = '/communities';
+  static const communityNewPath = '/communities/new';
+  static String communityPath(String communityId) =>
+      '/communities/${Uri.encodeComponent(communityId)}';
+  static String communityMembersPath(String communityId) =>
+      '${communityPath(communityId)}/members';
   // W5-14: Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
   static const pinnedPath = '/home/pinned';
   // W4-15: the search results, behind the `search` flag; build links with
@@ -361,6 +374,30 @@ class AppRouter {
             path: '/lists/:id',
             builder: (context, state) => AuthGate(
               child: ListDetailScreen(listId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: communitiesPath,
+            builder: (context, state) =>
+                const AuthGate(child: CommunitiesScreen()),
+          ),
+          GoRoute(
+            path: communityNewPath,
+            builder: (context, state) =>
+                const AuthGate(child: CreateCommunityScreen()),
+          ),
+          GoRoute(
+            path: '/communities/:id',
+            builder: (context, state) => AuthGate(
+              child: CommunityScreen(communityId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: '/communities/:id/members',
+            builder: (context, state) => AuthGate(
+              child: CommunityMembersScreen(
+                communityId: state.pathParameters['id']!,
+              ),
             ),
           ),
           GoRoute(
@@ -646,6 +683,7 @@ class AppRouter {
             _draftsFlagRedirect(loc) ??
             _bookmarksFlagRedirect(loc) ??
             _listsFlagRedirect(loc) ??
+            _communitiesFlagRedirect(loc) ??
             _searchFlagRedirect(loc) ??
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
@@ -816,6 +854,17 @@ class AppRouter {
     }
     if (!_listsRoutes.hasMatch(loc)) return null;
     return features.contains(kFeatureLists) ? null : homePath;
+  }
+
+  static final _communitiesRoutes = RegExp(r'^/communities(?:/|$)');
+
+  /// `/communities` and everything under it redirect Home unless `communities`
+  /// is on for this caller (W5-31). The server stays authoritative.
+  String? _communitiesFlagRedirect(String loc) {
+    if (!_communitiesRoutes.hasMatch(loc)) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureCommunities)
+        ? null
+        : homePath;
   }
 
   /// `/search` redirects Home unless `search` is on for this caller (W4-15).
