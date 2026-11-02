@@ -1049,3 +1049,17 @@ ListModerationLog: `page_size` 0 means 25, max 25. ListCommunities and ListMyCom
 A build without W5-30 shows FORBIDDEN as the generic "restricted" message and COMMUNITY_STATE as the profile-required
 flow. The reply gate runs whenever `communities` is not globally off, so W5-30 is in every served or distributed build
 before the flag leaves `off` anywhere (plan W5-30).
+
+## As-built notes, 2026-11-02: W5-26 and W5-28 wiring
+
+### N9. communities never imports posts
+The package `communities` does not import `posts`. Each module declares the interface it consumes, with primitives and
+`*firestore.Transaction` only, and `apiserver` wires the two:
+
+- `posts.CommunityGate` (declared in posts, W5-26 and W5-26b) is implemented by `communities.PostGate` (`NewPostGate`).
+- `communities.PostModerator` (declared in communities, W5-28, set with `FirestoreRepo.WithPostModerator`) is the identical
+  shape as `posts.CommunityModerator`, which `posts.NewCommunityModerator` implements for the Hide and Restore post write.
+
+The reason is a cycle: posts' in-package integration test imports communities, so a communities import of posts would
+close the loop. D1's text "communities imports posts" is superseded on this point. This is an as-built note only: no new
+decision and no status change.

@@ -148,6 +148,8 @@ type FirestoreRepo struct {
 	idem   *idempotency.Store
 	quotas *quota.Store
 	now    func() time.Time
+	// moderator is the posts-side seam of Hide and Restore (A12).
+	moderator PostModerator
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
