@@ -389,7 +389,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Done (#647; report `docs/reviews/security/security-w5-communities.md`, CLEAR WITH CONDITIONS; findings ticketed as W5-51 to W5-56) |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
-| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
+| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Done |
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
 | W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | Done (#556; gate: before percent) |
 | W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Done (#542) |
@@ -1460,7 +1460,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Measure the cold open both all-cold and with a warm entry.
   - Watch `community_txn_attempts`.
 
-### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0031 merged]  Status: Open
+### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0031 merged]  Status: Done (2026-11-02, dev only; results below)
 - **Description.**
   - Show the founder a targeted dev Terraform plan for `feature_communities*`, `community_creators` (the founder's dev uid) and the community config.
   - If W5-21 added the A1 fallback index: it deploys with the dev workflow's `firebase deploy --only firestore:indexes` after merge and must show READY before the flag leaves `off`.
@@ -1482,6 +1482,36 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - The review (#647) is CLEAR WITH CONDITIONS. Its dev-allowlist condition is met once #647 merges, because W5-51 to W5-56 are then in this plan. None of them blocks this ticket.
   - `percent` is not this ticket (it needs a founder-gated ceiling raise). It additionally needs W5-51, W5-51b, W5-51c, W5-52, W5-52b and W5-53 merged. It also needs W5-36's role × action matrix green, including the new W5-53 cells (a moderator against the owner's and another moderator's posts; takedown, hide, restore) and the W5-51b reply cells.
   - Prod `on` also needs W5-54, W5-55, W5-55b, W5-56 and W5-56b, and the held release (ADR-0019).
+- **Result (2026-11-02, dev `dzeroth-dev` only; prod untouched).**
+  - **Apply.** Targeted plan `-target=module.cloud_run_api`: 0 add, 1 change, 0 destroy, only the `api` service template env (no image change). Added env vars: `FEATURE_COMMUNITIES` (`allowlist`), `FEATURE_COMMUNITIES_ALLOWLIST` (3 uids), `FEATURE_COMMUNITIES_PERCENT` (0), `COMMUNITY_CREATORS` (2 uids), `COMMUNITY_MAX_MODERATORS`, `COMMUNITY_MAX_RULES`, `COMMUNITY_MODLOG_MAX`, `COMMUNITY_MOD_ACTIONS_PER_DAY`, `COMMUNITY_MUTATIONS_PER_DAY`, `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY`, `COMMUNITY_RECENT_REMOVALS_MAX`, `COMMUNITIES_MAX_JOINED`, `COMMUNITIES_MAX_OWNED`, `CACHE_COMMUNITIES_ENTRIES`, `CACHE_COMMUNITY_FEED_ENTRIES`, `CACHE_COMMUNITY_MEMBERS_ENTRIES`, `QUOTA_COMMUNITY_JOINS_PER_DAY`, `QUOTA_COMMUNITY_POSTS_PER_DAY`, `QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY`, `QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY`, `RATE_LIMIT_COMMUNITIES_READ_PER_MIN`, `RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN`, `RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN`, plus the inert `FEATURE_ANALYTICS` and `FEATURE_CRASH_REPORTING` (value `off`, allowlist empty, percent 0).
+  - **Routing.** The apply created revision `api-00491-7wg` at 0% (same image digest as `api-01100-nuc`); dev traffic is pinned, so it was routed with `update-traffic --to-revisions=api-00491-7wg=100`. `GET /health` answered `ok` (200). Previous serving revision for rollback: `api-01100-nuc` (`--to-revisions=api-01100-nuc=100`; it has no community env, so the flag is off by the code default).
+  - **Flag state after the smoke.** `allowlist` (3 uids); prod `off` and unchanged.
+- **Smoke results (dev accounts: smoke 1 = owner and creator, smoke 2 = member, smoke 3 = not allowlisted).**
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | ADR-0031 D3 F1: community feed page 1 on real data | Pass | HTTP 200, 2 posts, `next_page_token` set; no "requires an index" |
+| 2 | F3b: older page (`page_token`) | Pass | HTTP 200, 2 posts |
+| 3 | F2b: `since_token` refresh after a new post (65 s later, past `CACHE_TTL`) | Pass | HTTP 200, exactly the 1 new post |
+| 4 | M1: `ListCommunityMembers` | Pass | HTTP 200, 2 members; directory `ListCommunities` HTTP 200, 1 row |
+| 5 | Create community (creator) | Pass | HTTP 200, viewer role OWNER, status ACTIVE |
+| 6 | `CreateCommunity` by an allowlisted non-creator | Pass | HTTP 403 FORBIDDEN |
+| 7 | Join (member) | Pass | HTTP 200, role MEMBER, member count 2 |
+| 8 | Post in the community (owner and member) | Pass | HTTP 200, `post.community` set on every view |
+| 9 | Community label in Home (follower of the author) | Pass | `GetHomeTimeline` posts carry `community.name` |
+| 10 | Pin the community as a Home tab, header refresh, unpin | Pass | `SetHomeTabs` returns kind COMMUNITY; `GetCommunityTimeline` header has name and viewer role; unpin returns 0 tabs |
+| 11 | Moderator hide | Pass | HTTP 200; the post is gone from the member's feed on the next call |
+| 12 | Restore reappears at once (W5-57) | Pass | the next `GetCommunityTimeline` shows the post again, no 60 s wait; modlog lists HIDE and RESTORE |
+| 13 | Ban: post refused, rejoin refused | Pass | both HTTP 403 FORBIDDEN |
+| 14 | Unban, rejoin, post | Pass | role NONE after unban, then MEMBER; post HTTP 200 |
+| 15 | Report COMMUNITY | Pass | HTTP 200, report id returned, `already_reported` false |
+| 16 | `opsctl community suspend` (dry run, then real) | Pass | dry run `reads=1 writes=0`; real `reads=1 writes=1`; after 62 s the member gets NOT_FOUND on read and on post, the owner still sees SUSPENDED |
+| 17 | `opsctl community restore` | Pass | after 62 s ACTIVE for the member, post HTTP 200 |
+| 18 | Cloud Logging | Pass | `timeline_op=community` x16; `community_op` create, directory, get, hide, join, log, members, my, restore, role; `mod_action` hide, restore, role x2, log; no ERROR-severity lines since the apply |
+| 19 | Not-allowlisted account (flag off for it) | Pass | `GetCommunity`, `JoinCommunity`, `GetCommunityTimeline`, `CreatePost` with `community_id`, `ListMyCommunities`: HTTP 400 FAILED_PRECONDITION `FEATURE_DISABLED` (feature `communities`) |
+
+  - **Observations (not failures).** (a) The community feed is served from the shared instance entry for up to `CACHE_TTL` (60 s): a post by the owner showed in Home at once but in the community feed only after the next refill, and a `since` call made inside that window returned the entry's items rather than only the new post. After the window it returned exactly the new post (check 3). Clients treat `since` as a merge, so no change is proposed. (b) `opsctl community suspend` rejects `--note` without `--report`; flags go after the community id.
+  - **Test data.** One dev community ("W540 smoke") with about 10 posts, left in place in dev.
 
 ### W5-51 — ADR-0031 amendment: reply moderation and the W5-38 rules  [owner: architect] [size: S] [depends: F15, F16, F17]  Status: Done (#654; ADR-0031 Amendment 1 Accepted, founder OK 2026-11-02)
 - **Description.** A dated amendment to ADR-0031. The ADR is Accepted, so **the founder's OK is needed before merge**; the decision text stays and the amendment adds to it. One amendment carries every ADR change the W5-38 tickets need, so the founder reviews once:
