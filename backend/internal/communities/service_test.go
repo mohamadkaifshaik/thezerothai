@@ -56,6 +56,7 @@ type fakeRepo struct {
 	mshipsGet int
 	manyGets  [][]string
 	manyErr   error
+	lst       listingState
 }
 
 func newFakeRepo() *fakeRepo {

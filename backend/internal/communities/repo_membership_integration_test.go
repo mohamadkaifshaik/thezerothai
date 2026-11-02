@@ -40,6 +40,9 @@ func newJoinEnv(t *testing.T) *env {
 }
 
 func (e *env) user(uid string) string {
+	// the join-burst tests call this while goroutines read the directory
+	e.dir.mu.Lock()
+	defer e.dir.mu.Unlock()
 	e.dir.profiles[uid] = profile(uid, identity.AccountStatusActive)
 	return uid
 }
