@@ -182,7 +182,7 @@ Staleness bounds: a post written on another instance appears within 60 s (the en
 that caller, `1 + new posts` reads, never more than the page size); a hide reaches this instance within the 60 s of the cached community
 document (`recentRemovals` is applied to every entry row); the LRU drops an entry after 5 min whatever happens, which bounds a row that is no
 longer listed (a hide older than the capped array) and a restore that put a post back below the entry's range. A hide or restore handled on
-this instance should call `timeline.Server.ForgetCommunityFeed(cid)` (W5-28 owns the hook).
+this instance: a **committed restore** (RestoreCommunityPost, outcome Written; not a replay, a no-op or a refusal) calls `timeline.Server.ForgetCommunityFeed(cid)` through `communities.Deps.OnPostRestored`, wired in `apiserver` (W5-57), so the next feed read on that instance cold-fills and returns the restored post (0 Firestore ops at the call, in-process only; the refill is 25 / 55 wire reads at page 20 / 50 once). A hide does not call it (`recentRemovals` already drops the row). A restore handled on another instance keeps the 5-minute bound above.
 
 | Symptom | Cause | What to do |
 |---|---|---|

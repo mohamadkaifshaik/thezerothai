@@ -457,3 +457,38 @@ func TestRoleActionNames(t *testing.T) {
 		}
 	}
 }
+
+// W5-57: OnPostRestored fires once, only after a committed (Written) restore; never on a hide, a replay, a no-op or an error.
+func TestRestoreCommunityPost_OnPostRestoredOnlyAfterACommittedRestore(t *testing.T) {
+	tests := []struct {
+		name    string
+		restore bool
+		out     Outcome
+		err     error
+		want    int
+	}{
+		{"committed restore", true, Written, nil, 1},
+		{"replayed restore", true, Replayed, nil, 0},
+		{"unchanged restore", true, Unchanged, nil, 0},
+		{"failed restore", true, Written, ErrNotModerator, 0},
+		{"committed hide", false, Written, nil, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, m := modFixture()
+			var got []string
+			f.svc.d.OnPostRestored = func(cid string) { got = append(got, cid) }
+			m.postRes = ModeratePostResult{Outcome: tc.out, Community: Community{ID: testCID, Status: StatusActive}}
+			m.postErr = tc.err
+			in := PostActionInput{Key: goodKey, CommunityID: testCID, PostID: testPost}
+			call := f.svc.HideCommunityPost
+			if tc.restore {
+				call = f.svc.RestoreCommunityPost
+			}
+			_ = call(context.Background(), modUID, in)
+			if len(got) != tc.want || (tc.want == 1 && got[0] != testCID) {
+				t.Errorf("callback calls = %v, want %d", got, tc.want)
+			}
+		})
+	}
+}

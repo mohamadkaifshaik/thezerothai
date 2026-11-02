@@ -67,6 +67,10 @@ type Deps struct {
 	Listing Directory
 	// Moderation is the storage of the moderation calls (W5-28); nil = Repo when it implements ModerationRepo (FirestoreRepo does).
 	Moderation ModerationRepo
+	// OnPostRestored, when set, runs once after a RestoreCommunityPost that committed a change (outcome Written; not on a replay, a no-op or an
+	// error), with the community id. apiserver hands it timeline.Server.ForgetCommunityFeed so this instance's shared feed entry refills at
+	// once (W5-57, ADR-0031 D6). It must be in-process and cheap (0 Firestore ops); communities never imports timeline. A hide needs none.
+	OnPostRestored func(communityID string)
 	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
 	CursorKey []byte
 	Limits    Limits
