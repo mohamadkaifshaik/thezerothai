@@ -361,7 +361,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Done (#629) |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
-| W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#PR) |
+| W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#636) |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
@@ -1156,7 +1156,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Truncation is detected with `removalsTruncatedAt`, not with "the array is full".
   - SetHomeTabs accepts any ACTIVE or ARCHIVED community. Membership is not required.
 
-### W5-28 — Community moderation  [owner: backend-developer] [size: M] [depends: W5-26]  Status: Done (#PR)
+### W5-28 — Community moderation  [owner: backend-developer] [size: M] [depends: W5-26]  Status: Done (#636)
 - **Description.** `communities.Moderation`:
   - **HideCommunityPost / RestoreCommunityPost** (moderator or owner; the post's `communityId` must match). `communityHidden` is set through `posts.CommunityModerator`. On the community doc, `recentRemovals` (≤ 50, newest) and a `modlog` entry (≤ 100, newest; the post id, never the author's uid) are written in one transaction.
   - **Every modlog write** (hide, restore, role change, rules edit, a moderator leaving) adds the community id to the **actor's** `communityMemberships.modlogged[]` in the same transaction (A6), only when the id is not already there. The actor's memberships doc is read in the transaction anyway for the role check, so the first action per community costs +1 write and later ones +0.
