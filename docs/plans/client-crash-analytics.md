@@ -1,5 +1,5 @@
 # Client crash reporting and usage analytics (Firebase Crashlytics, Google Analytics for Firebase)
-Plan owner: planner · Date: 2026-11-01 (updated 2026-11-02: TEL-10 follow-ups TEL-17 to TEL-20, founder decisions F12 and F13; TEL-21 build number, F14 proposed) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
+Plan owner: planner · Date: 2026-11-01 (updated 2026-11-02: TEL-10 follow-ups TEL-17 to TEL-20, founder decisions F12 and F13; TEL-21 build number, F14 answered) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
 
 > **Founder decision (2026-11-01, verbatim):** "plan to add crashlytics and google analytics and update the policy before it ships"
 
@@ -73,10 +73,10 @@ Branches: `feat/tel-N-<slug>` (docs: `docs/tel-N-<slug>`) off `main`, not stacke
   - The alternative, a server-side consent log keyed to the account, would undo F3 and ADR-0011 Q10 (f), and needs its own ADR.
   - Tracked as a blocker in "Before release" and in `docs/plans/roadmap.md` section 9, item 3.26. This is not legal advice.
 
-**Proposed 2026-11-02, not answered** (TEL-21 builds the default unless you choose otherwise):
-- **F14. What the crash key `build_number` holds.** Today no build sets it, so every report says `unknown`, and TEL-20's triage check 1 treats that as forged. **Default: the release tag plus the first 7 hex characters of the tagged commit, for example `v0.5.0+9595a6d`.** Both halves can be checked with `git` alone against tags only you can create, and the tag part matches the `docs/releases/` notes.
-  - (B) The pubspec build number (the Android versionCode). Crashlytics already shows it in the event header, and today it is `1` in every build (`app/pubspec.yaml` is `1.0.0+1`), so it tells no build apart.
-  - (C) The GitHub run number. Unique, but only the Actions UI maps it to a tag; `git` and `docs/releases/` cannot.
+**Answered 2026-11-02:**
+- **F14. What the crash key `build_number` holds. Decided (founder 2026-11-02): the release tag plus the first 7 hex characters of the tagged commit, for example `v0.5.0+9595a6d`.** Today no build sets it, so every report says `unknown`, and TEL-20's triage check 1 treats that as forged. Both halves can be checked with `git` alone against tags only you can create, and the tag part matches the `docs/releases/` notes.
+  - Not chosen: (B) the pubspec build number (the Android versionCode). Crashlytics already shows it in the event header, and today it is `1` in every build (`app/pubspec.yaml` is `1.0.0+1`), so it tells no build apart.
+  - Not chosen: (C) the GitHub run number. Unique, but only the Actions UI maps it to a tag; `git` and `docs/releases/` cannot.
   - Dev and local Android builds pass `dev+<7 hex>`. `unknown` is acceptable only in dzeroth-dev. Web passes nothing: it never sends crash reports (F2).
 
 ## What exists already (verified on this branch, 2026-11-01)
@@ -251,7 +251,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 4. **M4 Policy and stores:** TEL-12 (drafted in parallel with M2; merged after TEL-1 is Accepted and F1–F6, F8 and F11 are answered) → TEL-13.
 5. **M5 Roll:** TEL-15 (dev; prod prepared). TEL-16 only at the Apple launch.
 6. **M6 TEL-10 follow-ups (added 2026-11-02):** TEL-17 ‖ TEL-18 ‖ TEL-19 ‖ TEL-20, all startable now, with no shared file except TEL-20 and TEL-13 (the runbook). TEL-17 and the TEL-9 Part B session gate TEL-15. TEL-18 and TEL-20 gate the prod raise. TEL-19 and the M-2 result feed TEL-12.
-7. **M7 Build number (added 2026-11-02):** TEL-21, startable now on F14's default. It gates the prod raise, not the dev allowlist.
+7. **M7 Build number (added 2026-11-02):** TEL-21, startable now (F14 answered). It gates the prod raise, not the dev allowlist.
 
 | ID | Ticket | Owner | Size | Depends | Parallel | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -692,9 +692,9 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** Changes when the kill switch is used, not the flags. Before any prod raise.
 - **Seam.** —
 
-### TEL-21 — Release builds set `BUILD_NUMBER`  [owner: production-deployer] [size: S] [depends: — (F14 default)]  Status: Open
+### TEL-21 — Release builds set `BUILD_NUMBER`  [owner: production-deployer] [size: S] [depends: — (F14 answered)]  Status: Open
 - **Description.** Found after TEL-20 (2026-11-02). `CrashKeys.fromEnvironment` (`app/lib/core/telemetry/firebase_crash_reporter.dart`) reads `String.fromEnvironment('BUILD_NUMBER')` and sends `unknown` when it is empty. Its doc comment says "release tooling sets both". No workflow passes `--dart-define=BUILD_NUMBER`. TEL-20's triage check 1 (`docs/runbooks/client-telemetry.md`, "Triage: forged report or leak") fails `unknown`, so every genuine prod crash report would look forged and be deleted. The event header does not help: `app/pubspec.yaml` is `1.0.0+1` and no build passes `--build-name` or `--build-number`, so every AAB is version 1.0.0, code 1.
-  - **The value (F14 default):** `<tag>+<first 7 hex of the tagged commit>`, for example `v0.5.0+9595a6d`. Format: `^v[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{7}$`.
+  - **The value (F14, founder 2026-11-02):** `<tag>+<first 7 hex of the tagged commit>`, for example `v0.5.0+9595a6d`. Format: `^v[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{7}$`.
   - **`release-prod.yml`, jobs `build-android` and `build-ios`** (gate file):
     - pass the tag through `env:` (`RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}`), never `${{ }}` inside `run:` (the workflow's M5/N7 rule);
     - after the tag checkout, take `git rev-parse HEAD | cut -c1-7`: the checked-out commit, not `github.sha`, and `cut` rather than `--short`, so the length never varies;
