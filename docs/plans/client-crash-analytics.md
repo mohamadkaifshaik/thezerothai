@@ -198,7 +198,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 
 | Finding | Severity | Goes to | Gate |
 |---|---|---|---|
-| M-1: the AdServices advertising-ID and attribution permissions stay in the merged manifest | Medium | TEL-17 | C-2: before the dev allowlist, and before TEL-13 answers the Play Data safety and Advertising ID questions |
+| M-1: the AdServices advertising-ID and attribution permissions stay in the merged manifest | Medium | TEL-17 (done, #648: both removed, guard extended, release APK permission list in the PR) | C-2: before the dev allowlist, and before TEL-13 answers the Play Data safety and Advertising ID questions |
 | M-2: the Firebase installation ID (FID) may be joinable with the FCM token we store per uid | Medium | TEL-9 Part B item (below); a fix only if joinable | C-3: the check before the dev allowlist; any fix before any non-team account |
 | L-1: no delete of unsent reports before crash collection turns on | Low | TEL-18 | C-6: before any prod raise |
 | L-2: gaps in the first-sign-in reset | Low | TEL-18, per F12 | C-6: before any prod raise |
@@ -209,7 +209,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 
 **Conditions (report section 5):**
 - **C-1** TEL-9 device evidence: TEL-9 Part B. Before the dev allowlist.
-- **C-2** M-1: TEL-17, then the merged-manifest permission line of TEL-9 Part B on its build. Before the dev allowlist.
+- **C-2** M-1: TEL-17 (done, #648), then the merged-manifest permission line of TEL-9 Part B on its build. Before the dev allowlist.
 - **C-3** M-2: the TEL-9 Part B item below. The check before the dev allowlist; any fix before any non-team account.
 - **C-4** notification events in DebugView: TEL-9 Part B (test report §6b) or the TEL-15 smoke. Before any non-team account.
 - **C-5** TEL-12 wording (M-1, L-3, ADR C1 and C2, the C-3 result): TEL-12, with TEL-17, TEL-19 and the C-3 result as inputs. At the TEL-12 merge. TEL-19's input is done (#645): the sentence is in ADR-0032's note of 2026-11-02. C-5 stays open until TEL-12 carries it.
@@ -271,7 +271,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-14 | Prod Android builds use dzeroth-prod's `google-services.json` (`release-prod.yml`, gate file) | production-deployer | S | — | **yes, start now** | Done (#593; device check 2026-11-01) |
 | TEL-15 | Dev rollout (targeted Terraform plan, allowlist, dev Android build, smoke with network trace); prod change prepared, not applied | production-deployer | S | TEL-9 incl. Part B (C-1) and its M-2 check (C-3), TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings; TEL-17 (C-2, M-1) | serialise dev applies | Open |
 | TEL-16 | *(conditional: Apple launch)* iOS: Podfile without AdId support, dSYM upload, privacy manifest, `TelemetryPlatforms` adds iOS, App Store label, policy note 16 | frontend-developer + founder | S | Apple launch, TEL-15 | — | Open (conditional) |
-| TEL-17 | *(TEL-10 M-1, C-2)* Remove the two AdServices permissions from the merged manifest; extend the TEL-9 manifest guard; dump a local release APK's permissions | frontend-developer | S | — | yes (Android manifest and `app/test/guards/` only) | Open |
+| TEL-17 | *(TEL-10 M-1, C-2)* Remove the two AdServices permissions from the merged manifest; extend the TEL-9 manifest guard; dump a local release APK's permissions | frontend-developer | S | — | yes (Android manifest and `app/test/guards/` only) | Done (#648) |
 | TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Done (#643) |
 | TEL-19 | *(TEL-10 L-3, C-5)* ADR-0032 dated note: native crash messages are not scrubbed; the sentence for TEL-12 item 6 | architect | XS | — | yes (ADR-0032 only) | Done (#645) |
 | TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Done (#646) |
@@ -583,7 +583,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** Both.
 - **Seam.** One platform-set entry; no caller change.
 
-### TEL-17 — M-1: AdServices permissions out of the merged manifest  [owner: frontend-developer] [size: S] [depends: —]  Status: Open
+### TEL-17 — M-1: AdServices permissions out of the merged manifest  [owner: frontend-developer] [size: S] [depends: —]  Status: Done (#648)
 - **Description.** TEL-10 M-1 (condition C-2). BoM 34.19.0 resolves `firebase-analytics` 23.2.0. Its `play-services-measurement-api` and `-sdk-api` manifests declare `android.permission.ACCESS_ADSERVICES_AD_ID` and `android.permission.ACCESS_ADSERVICES_ATTRIBUTION`. The app removes only `AD_ID`, so both merge in (reasoned from the cached AARs; no merged manifest has been dumped yet).
   - `app/android/app/src/main/AndroidManifest.xml`, next to the `AD_ID` line:
     - `<uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove"/>`
