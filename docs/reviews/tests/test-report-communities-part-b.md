@@ -4,9 +4,9 @@ Plan: `docs/plans/ui-w5-lists-communities.md` (W5-36). Design: ADR-0031 (`docs/a
 (#601), W5-25 (#613), W5-25b (#626), W5-26 (#629), W5-26b (#633), W5-27 (#634), W5-28 (#636), W5-29 (#639). The client half is W5-37; the security review
 (moderator abuse) is W5-38; the load shapes and the budget table are W5-39 and are not run here beyond the 50-join burst.
 
-Tester: tester agent. Branch `test/communities-w5-36-backend-tests` on `origin/main@d16cba3a`. **No production code was edited and no test seam was added.**
+Tester: tester agent. Branch `test/communities-w5-36-backend-tests` on `origin/main@78279fc9` (merged). **No production code was edited and no test seam was added.**
 
-**VERDICT: __VERDICT__**
+**VERDICT: PASS** (with the skipped cells listed in section 3 and defect D-1, Low)
 
 ---
 
@@ -23,7 +23,7 @@ Tester: tester agent. Branch `test/communities-w5-36-backend-tests` on `origin/m
    `commRig`, `newJoinEnv`) and `budgettest`. Every new test is named `TestW536_*` (one `-run TestW536` selects them; no `|` in a pattern).
 4. Mutation check on the two boundary tests (a strict `After` in `communityRemovals` changed to "not Before": `TestW536_TruncationAtTheTokenCutoff` fails on
    the "exactly the cutoff" case), then restored.
-5. Ran everything against the Firebase emulators (Firestore, Auth, Pub/Sub, Storage) on a private port block (8581 / 9185 / 8587 / 9285 / 4443 / 4543) and a
+5. Ran everything against the Firebase emulators (Firestore, Auth, Pub/Sub, Storage) on a private port block (8581 / 9185 / 8586 / 9285 / 4443 / 4543) and a
    private temp dir per run (`scripts/with-private-tmp.sh`).
 
 ## 2. What was added
@@ -188,6 +188,24 @@ All paths under `backend/`. Package names are the directory (`communities` = `in
 **Summary: every acceptance criterion of W5-23 to W5-29 now has a named test.** 70 criteria / ticket items mapped; 56 were already covered, 14 are
 covered by new tests (13 of them also gain a wire-level test through the real chain; W5-29 acceptance 3 end to end is the one criterion that had none at all).
 
+### Pending W5-53 / W5-51 (skipped, NOT passed)
+
+Founder decision 2026-11-02 (F9 taken literally): a moderator may NOT hide or restore the owner's posts or another moderator's posts (FORBIDDEN `not_owner`).
+Today's code lets a moderator do both, and the existing `TestHideRestore_RoleMatrixAndPostRules` never touches such a post (its posts are authored by a plain
+user), so it does not encode the old behaviour. The cells are added as skipped tests so they turn on when the feature lands:
+
+| Cell | Test | Status |
+|---|---|---|
+| mod1 hides the owner's post -> PermissionDenied `not_owner` | `communities TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts/mod_hides_the_owner's_post` | SKIP, pending W5-53 |
+| mod1 restores the owner's post -> `not_owner` | same test, `.../mod_restores_the_owner's_post` | SKIP, pending W5-53 |
+| mod1 hides mod2's post -> `not_owner` | same test, `.../mod_hides_another_moderator's_post` | SKIP, pending W5-53 |
+| mod1 restores mod2's post -> `not_owner` | same test, `.../mod_restores_another_moderator's_post` | SKIP, pending W5-53 |
+| Moderator hides a reply (W5-51) | not written: W5-51 does not exist and there is no natural place for it | PENDING W5-51 |
+| D-1: restore on the same instance returns a hidden post at once | `apiserver TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` | SKIP, "D-1 follow-up (W5-38 plan follow-ups)" |
+
+The W5-28 row "A member hides: FORBIDDEN" and the owner/moderator/member/banned/outsider matrix pass for posts by plain authors; owner-post and moderator-post
+cells are the pending ones above.
+
 ## 4. Defects
 
 **D-1 (Low). `timeline.Server.ForgetCommunityFeed` is never called in production code.** The hook is defined (`internal/timeline/service_community.go`
@@ -197,7 +215,7 @@ restore handled on this instance should call `timeline.Server.ForgetCommunityFee
 - Effect: a **restore** on the instance that served it does not bring back a post that was hidden before that instance filled its entry: the row stays out
   until the entry expires (60 s TTL for an incremental refill, which cannot see a row below the entry's range, then at most 5 min). Hides are not affected
   (the written `recentRemovals` is applied to every entry row at once; `TestW536_HideAndRestoreAreImmediateOnTheSameInstance` passes).
-- Repro: `TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` (skipped with a reference; remove the `t.Skip` to see it fail): hide a post, open the feed
+- Repro: `TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` (skipped with the reason "D-1 follow-up (W5-38 plan follow-ups)"; remove the `t.Skip` to see it fail): hide a post, open the feed
   on instance A (entry fills without it), restore on A, cold-open on A: expected 3 posts, actual 2.
 - Bound: the documented 5 minutes, so not a correctness break; the hook was meant to make it immediate. Owner: backend-developer (W5-28 follow-up: call
   the hook from the apiserver wiring of HideCommunityPost / RestoreCommunityPost, or amend the runbook and code-map to say the hook is unused).
@@ -219,11 +237,32 @@ No other defect. Observations (not defects):
 
 ## 5. Lint
 
-__LINT__
+From `backend/` (`GOWORK=off`), 2026-11-02, on the merge of `origin/main@78279fc9`: `gofmt -l ./internal ./cmd ./pkg` prints nothing; `go vet -tags=integration ./...` clean;
+`golangci-lint run ./...` (the `make lint` command): `0 issues.`
 
 ## 6. Results
 
-__RESULTS__
+Command (own port block 8581 / 9185 / 8586 / 9285 / 4443 / 4543, private temp dir, project `demo-dzeroth-local`, local config `firebase.w5-36.local.json`, untracked):
+
+```
+bash scripts/with-private-tmp.sh firebase emulators:exec --config firebase.w5-36.local.json --project demo-dzeroth-local --only firestore,auth,pubsub,storage \
+  'bash backend/.w536run.sh'   # go test -tags=integration -race -count=1 -coverprofile=... -coverpkg=./internal/communities/... ./internal/communities/... ./internal/timeline/... ./internal/apiserver/...
+```
+
+| Package | Result | Time |
+|---|---|---|
+| `internal/communities` | ok | 27.1 s |
+| `internal/timeline` | ok | 12.5 s |
+| `internal/timeline/integration` | ok | 36.1 s |
+| `internal/apiserver` | ok | 320.3 s |
+
+- **Coverage of `internal/communities`** (combined profile of those four packages, `-coverpkg=./internal/communities/...`): **92.1 %** (92.0 % from its own package alone). Gate 70 %.
+- **Skipped:** 5 (D-1 repro; the 4 W5-53 cells). Everything else ran and passed under `-race`.
+- **Join burst, Go side** (`TestW536_JoinBurstOfFiftyKeepsMemberCountExact`): 50 distinct users on one community document: 50 of 50 succeeded first try, **0 ABORTED / 0 contention
+  outcomes**, `community_txn_attempts` 1 for every call, `memberCount` == member docs == 51. W5-39 measured 401 joins with 0 ABORTED through k6 (the cloud-shaped
+  load); this is the exact-count check on the emulator. The `ABORTED` -> UNAVAILABLE `outcome=contention` mapping is pinned separately by `TestMembership_ContentionIsRetryableAndLogged`.
+- Emulator hygiene: the Pub/Sub emulator took ports 8586 and (on a retry) 8587 and left two orphan `java.exe` processes that I started; both were killed, no listener remains on the block.
+  `ForgetCommunityFeed`/D-1 and the F9 cells are the only open items.
 
 ## 7. Budgets measured through the real chain (request-line `fs_reads` / `fs_writes`, interceptor included)
 
