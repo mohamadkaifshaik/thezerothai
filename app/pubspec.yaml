@@ -57,8 +57,8 @@ dependencies:
   image_picker: ^1.2.4
   blurhash_dart: ^1.2.1
   http: ^1.6.0
-  firebase_crashlytics: 5.4.0 # exact: 5.4.1 needs firebase_core ^4.15.1 (same BoM generation as core 4.15.0)
-  firebase_analytics: 12.6.1 # exact: 12.6.1 needs firebase_core ^4.15.1
+  firebase_crashlytics: ^5.4.1
+  firebase_analytics: ^12.6.1
 
 dev_dependencies:
   flutter_test:
