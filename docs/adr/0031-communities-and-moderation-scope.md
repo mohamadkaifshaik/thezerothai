@@ -469,7 +469,7 @@ what 600 actions a day per moderator can clean.
 | D10a: `not_creator` on UpdateCommunity | W5-54 | backend-developer |
 | D7a: the protected drop on the member pages | W5-56 | backend-developer |
 | The Privacy Policy lines | W5-56b | architect (draft) + founder |
-| The role × action matrix: reply cells, F16 cells (author is the owner, another moderator, themselves, a member), the takedown-hide-restore sequence, flag off, I-C as extended, GetThread's parent slot and flag-off drop | W5-36, extended by W5-51b and W5-53 | tester |
+| The role × action matrix: reply cells, F16 cells (author is the owner, another moderator, themselves, a member), the takedown-hide-restore sequence, flag off, I-C as extended, GetThread's parent slot and flag-off drop. W5-36 (#650) already holds the four F16 cells as skipped subtests of `TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts` (W5-53 un-skips them) and lists the reply cell as pending (W5-51b writes it) | W5-36 (#650), extended by W5-53 and W5-51b | tester |
 | Budget rows (Cost impact above) | W5-39 follow-up | sre-performance |
 | Re-check M-1, M-2, L-1, L-2, L-3(c) and L-5 as closed when their tickets merge | before `percent` and prod `on` | security-auditor |
 
