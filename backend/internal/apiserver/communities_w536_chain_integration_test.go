@@ -758,3 +758,30 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 		t.Fatalf("cold open right after the restore: %v %v", feedIDs(back), err)
 	}
 }
+
+// D-1 repro (test-report-communities-part-b, section 4): timeline.Server.ForgetCommunityFeed is never called by production code, so a RESTORE on
+// the instance that served it does not bring back a post that was hidden BEFORE that instance filled its entry: the row stays out until the
+// entry expires (<= 5 min). Owner: backend-developer (W5-28 follow-up). Remove the Skip when the hook is wired; the test then guards it.
+func TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce(t *testing.T) {
+	t.Skip("D-1: timeline.Server.ForgetCommunityFeed is never called in production; a restore on the same instance shows the post only when the entry expires (<= 5 min). See docs/reviews/tests/test-report-communities-part-b.md section 4")
+	ctx := context.Background()
+	a := newW536(t, nil)
+	owner, mod, viewer := a.user(t), a.user(t), a.user(t)
+	cid := w536Seed{owner: owner.uid, mods: []string{mod.uid}, members: []string{viewer.uid}}.write(t, a.fs)
+	ids := seedCommunityPosts(t, a.fs, cid, owner.uid, 3)
+
+	if _, err := a.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
+		t.Fatalf("hide: %v", err)
+	}
+	filled, err := a.feed(viewer, cid, 20, "", "") // this instance fills its entry without the hidden post
+	if err != nil || len(feedIDs(filled)) != 2 {
+		t.Fatalf("open after the hide: %v %v", feedIDs(filled), err)
+	}
+	if _, err := a.cm.RestoreCommunityPost(ctx, authed(mod.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	back, err := a.feed(viewer, cid, 20, "", "")
+	if err != nil || !slices.Equal(feedIDs(back), ids) {
+		t.Fatalf("cold open right after the restore: %v %v, want all 3 rows", feedIDs(back), err)
+	}
+}
