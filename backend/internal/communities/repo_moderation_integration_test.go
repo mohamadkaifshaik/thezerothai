@@ -530,7 +530,7 @@ func measuredExact(t *testing.T, name string, b budgettest.Budget, fn func(ctx c
 }
 
 // F9 taken literally (founder decision 2026-11-02): a moderator may not hide or restore the owner's posts or another moderator's posts
-// (FORBIDDEN not_owner). Today's code lets mod1 hide both, so these cells are skipped until W5-53 lands; they must not encode the old behaviour.
+// (FORBIDDEN not_owner, W5-53); the refusal comes before any write.
 func TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts(t *testing.T) {
 	tests := []struct {
 		name, actor, postAuthor string
@@ -543,7 +543,6 @@ func TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts(t *testing.T) {
 	}
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Skip("changes with W5-53: F9 literal, moderators can't hide the owner's or another moderator's posts")
 			e := newModEnv(t)
 			ctx := context.Background()
 			if _, err := e.client.Collection("posts").Doc(modPostA).Update(ctx, []firestore.Update{{Path: "authorId", Value: tc.postAuthor}}); err != nil {
@@ -560,5 +559,97 @@ func TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts(t *testing.T) {
 				t.Error("a refused action changed the post")
 			}
 		})
+	}
+}
+
+func (e *env) setPostField(t *testing.T, post, field string, v any) {
+	t.Helper()
+	if _, err := e.client.Collection("posts").Doc(post).Update(context.Background(), []firestore.Update{{Path: field, Value: v}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The allowed side of F16 (W5-53): the owner acts on a moderator's post, a moderator on their own, and a former moderator's post is a plain
+// member's post (the current role decides). A refusal writes nothing and costs the same reads as a success (+0).
+func TestHideRestore_F16AllowedAuthors(t *testing.T) {
+	tests := []struct{ name, actor, author string }{
+		{"owner on a moderator's post", "owner", "mod2"},
+		{"moderator on their own post", "mod1", "mod1"},
+		{"moderator on a former moderator's post", "mod1", "former"},
+		{"moderator on a member's post", "mod1", "member"},
+		{"moderator on a banned user's post", "mod1", "banned"},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newModEnv(t)
+			ctx := context.Background()
+			e.setPostField(t, modPostA, "authorId", tc.author)
+			if err := e.hide(ctx, tc.actor, 700+i, modPostA); err != nil {
+				t.Fatalf("hide: %v", err)
+			}
+			if listed, hidden, _ := e.postListed(t, modPostA); listed || !hidden {
+				t.Errorf("after the hide: listed=%v hidden=%v", listed, hidden)
+			}
+			if err := e.restore(ctx, tc.actor, 800+i, modPostA); err != nil {
+				t.Fatalf("restore: %v", err)
+			}
+			if listed, hidden, _ := e.postListed(t, modPostA); !listed || hidden {
+				t.Errorf("after the restore: listed=%v hidden=%v", listed, hidden)
+			}
+		})
+	}
+}
+
+// A refused F16 action writes nothing: no post change, no community change, no idempotency record, and the same retry key is free to be used.
+func TestHideRestore_F16RefusalWritesNothing(t *testing.T) {
+	e := newModEnv(t)
+	ctx := context.Background()
+	e.setPostField(t, modPostA, "authorId", "owner")
+	before := e.community(t, modCID)
+	measuredExact(t, "HideCommunityPost not_owner", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
+		wantReason(t, e.hide(ctx, "mod1", 900, modPostA), connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
+	})
+	if listed, hidden, _ := e.postListed(t, modPostA); !listed || hidden {
+		t.Errorf("a refused hide changed the post: listed=%v hidden=%v", listed, hidden)
+	}
+	after := e.community(t, modCID)
+	if len(after.Modlog) != len(before.Modlog) || len(after.RecentRemovals) != 0 || !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("a refused hide changed the community: %+v", after)
+	}
+	if _, ok := e.data(t, "idempotency/"+idempotency.Key("mod1", "HideCommunityPost", key(900))); ok {
+		t.Error("a refusal left an idempotency record")
+	}
+	// the same key by the owner succeeds (a refusal is not recorded)
+	if err := e.hide(ctx, "owner", 900, modPostA); err != nil {
+		t.Errorf("owner with the refused key: %v", err)
+	}
+	// a replay of the owner's hide answers from the idempotency record and mod1's later refusal is still a refusal
+	if err := e.hide(ctx, "owner", 900, modPostA); err != nil {
+		t.Errorf("replay: %v", err)
+	}
+}
+
+// L-2: a post with `moderation` set is NOT_FOUND for a hide and a restore, so a hide-then-restore cannot erase a platform removal; the T1 entry
+// in recentRemovals stays.
+func TestHideRestore_PlatformRemovedPostIsNotFoundAndKeepsEntry(t *testing.T) {
+	e := newModEnv(t)
+	ctx := context.Background()
+	t1 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	if _, err := e.repo.ref(modCID).Update(ctx, []firestore.Update{{Path: "recentRemovals", Value: []removalDoc{{PostID: modPostA, At: t1}}}}); err != nil {
+		t.Fatal(err)
+	}
+	e.setPostField(t, modPostA, "moderation", "TAKEN_DOWN")
+	e.setPostField(t, modPostA, "communityId", firestore.Delete) // a takedown unlists the post
+	e.svc.cache.communities.Delete(modCID)
+	for i, actor := range []string{"owner", "mod1"} {
+		wantAPIErr(t, e.hide(ctx, actor, 950+i, modPostA), connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
+		wantAPIErr(t, e.restore(ctx, actor, 960+i, modPostA), connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
+	}
+	c := e.community(t, modCID)
+	if len(c.RecentRemovals) != 1 || c.RecentRemovals[0].PostID != modPostA || len(c.Modlog) != 0 {
+		t.Errorf("the platform entry was touched: removals %+v modlog %+v", c.RecentRemovals, c.Modlog)
+	}
+	if listed, hidden, _ := e.postListed(t, modPostA); listed || hidden {
+		t.Errorf("post changed: listed=%v hidden=%v", listed, hidden)
 	}
 }
