@@ -506,13 +506,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// ADR-0027 D12 (W7-12): a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
+	// ADR-0031 D14 (W5-29): a COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
+	lateCommunities := &lateCommunityLookup{}
 	// Plan W5-44: a LIST report reaches the list only through lists.ListReporter (the lists service, built above).
 	listReporter, ok := listsSvc.(lists.ListReporter)
 	if !ok {
 		return nil, nil, errors.New("lists service does not implement ListReporter")
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter},
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
@@ -673,8 +675,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The posting gate (ADR-0031 D5, W5-26): posts declares posts.CommunityGate and never imports communities; communities implements it over
 	// its cached Reader, a fresh in-transaction member read and the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
 	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
+	communityReporter, ok := communitiesSvc.(communities.CommunityReporter)
+	if !ok {
+		return nil, nil, errors.New("communities service does not implement CommunityReporter")
+	}
+	lateCommunities.r = communityReporter
 	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
 		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
+	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs (ADR-0031 D6, W5-27) read communities through the same Reader; set before
+	// ListenAndServe because communities is built after the timeline.
+	timelineServer.SetCommunities(communitiesSvc.(communities.Reader), cfg.Communities.FeedCacheEntries)
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)

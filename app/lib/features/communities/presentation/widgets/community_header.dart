@@ -35,6 +35,7 @@ class CommunityHeader extends StatelessWidget {
     required this.onTogglePin,
     required this.onRetry,
     this.onCompose,
+    this.onModerationLog,
   });
 
   final CommunityDetailState state;
@@ -46,6 +47,10 @@ class CommunityHeader extends StatelessWidget {
 
   /// Opens the composer on this community; null hides the "Post" button.
   final VoidCallback? onCompose;
+
+  /// Opens the moderation log (W5-35); null hides the entry. The screen passes
+  /// it only when the server's `viewer_role` is owner or moderator.
+  final VoidCallback? onModerationLog;
 
   /// Whether the "Post" entry is offered for [state] (W5-34): the caller is a
   /// member by the server's `viewer_role` (a banned or non-member viewer is
@@ -163,6 +168,13 @@ class CommunityHeader extends StatelessWidget {
                   onPressed: onCompose,
                   icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
                   label: const Text('Post'),
+                ),
+              if (onModerationLog != null)
+                OutlinedButton.icon(
+                  style: kListOutlinedButtonStyle,
+                  onPressed: onModerationLog,
+                  icon: const Icon(Icons.shield_outlined, size: AppIconSize.md),
+                  label: const Text('Moderation log'),
                 ),
               if (!banned)
                 PinToHomeButton(

@@ -30,6 +30,7 @@ Decide one of:
 | Reverse a takedown | `restore-post --post POSTID` | clears TAKEN_DOWN only; a post hidden by a suspension is left to `unsuspend-user` |
 | Remove one direct message | `messages takedown CONVERSATION_ID:MESSAGE_ID --report R` (use `--dry-run` first; the argument is the report's `target`) | the message becomes `REMOVED` with its text cleared and both people's inbox previews are rewritten; both see "This message was removed" (devices that cached the thread or the inbox at their next poll or refresh); report resolved TAKEDOWN. Not undoable. See "Reading a message report" below |
 | Take down a list | `lists hide LIST_ID --report R --project P` (use `--dry-run` first; the argument is the report's `target`; resolves R as TAKEDOWN); undo with `lists restore LIST_ID` | the list answers NOT_FOUND to everyone but its owner on every list read within 60 s on every server (cached copies expire); the owner still sees it; nothing else is touched. See `docs/runbooks/lists.md` section 7 |
+| Suspend a community | `community suspend CID --report R --project P` (use `--dry-run` first; the argument is the report's `target`; resolves R as TAKEDOWN); undo with `community restore CID`. An owner's support request to close a community is `community archive CID` (no undo) | the community answers NOT_FOUND to everyone but its owner on every community read, CreatePost into it is refused, and it leaves the directory, within 60 s on every server. See `docs/runbooks/communities.md` section 6 |
 | Suspend an account | `suspend-user --uid U --report R` (use `--dry-run` first) | status SUSPENDED (callers get ACCOUNT_RESTRICTED within 60 s), then every post of the user is hidden (marker SUSPENDED_AUTHOR); then other users' reposts and quote embeds of those posts are removed or tombstoned (**permanent**: `unsuspend-user` restores the author's own posts, not the copies); report resolved SUSPENDED |
 | Reverse a suspension | `unsuspend-user --uid U` | ACTIVE again, restores exactly the posts the suspension hid; TAKEN_DOWN posts stay hidden |
 | Clear a malicious profile link, location, bio or image | `clear-profile-fields --uid U --fields website,location,banner,avatar,bio --report R` (use `--dry-run` first) | those fields of one profile emptied with one field-level update (empty ones skipped, a rerun writes 0); for `banner` or `avatar` it also schedules the delete of the image when `PROFILE_MEDIA_RETIRE` is set in your shell (A4) and prints the object names either way (section 3a); report resolved PROFILE_CLEARED. Details: `docs/runbooks/abuse-spike.md` section 5b |
@@ -51,6 +52,9 @@ confirmation. Nothing here touches Firebase Auth.
 | `clear-profile-fields` | 1 (+1 to check `--report`, +1 to resolve it); a DELETING or missing account stops after the read | 1 (0 when every named field is already empty or with `--dry-run`; +1 to resolve the report) |
 | `messages takedown` (W7-12) | 4 at most (message 1, conversation 1, each participant's entry 1; +2 with `--report`: target check, resolve); a repeat or a DELETED_ACCOUNT tombstone 1 | 4 at most (message 1, conversation revision 1, each preview that named it; +1 with `--report`); 0 with `--dry-run`, on a repeat and on a tombstone |
 | `lists hide` / `lists restore` (W5-44) | 1 (the list); `--dry-run` 1; a missing list 1; `--report` +1 to check and the resolve (1 read) | 1 (`hidden` + `updatedAt`, field-level); `--report` +1 (the resolve); 0 on a repeat, a missing list and `--dry-run` |
+| `community suspend` / `community restore` (W5-29) | 1 (the community); `--dry-run` 1; a missing community 1; `--report` +1 to check and the resolve (1 read) | 1 (`status` + `updatedAt`, field-level); `--report` +1 (the resolve); 0 on a repeat, a missing community and `--dry-run` |
+| `community archive` (W5-29) | 3 (community, owner memberships, owner member document); a repeat or a SUSPENDED community 1; `--dry-run` 1 | 2 (community, owner memberships); 0 on a repeat, a refusal and `--dry-run` |
+| `takedown-post` of a community post, `suspend-user` (W5-29) | +1 per community for the `recentRemovals` append (suspend-user: per community per page of hidden posts) | +1 per community (field-level `Update`; 0 when the post is already listed) |
 
 `suspend-user` on a 5,000-post account is about 5,000 reads and 10,000 writes (50% of the daily write quota: each hidden post is
 the post update plus its removal-log entry): run it
@@ -122,6 +126,14 @@ resolved) refreshes it. Two things to know when reading it:
 For a bad link, location, bio or image the action is `clear-profile-fields --report R` (above, the full procedure is
 `docs/runbooks/abuse-spike.md` section 5b); a bad display name or a repeat offender is `suspend-user`. The resolution is
 `PROFILE_CLEARED`; `reports resolve` still accepts only `NO_ACTION` and `DISMISSED`.
+
+### Reading a community report
+A report with `target` type COMMUNITY (ADR-0031 D14, W5-29) has `target` = the community id (19 digits) and `owner` = the community **owner's** uid (empty for an ARCHIVED community). `reports show` prints
+`evidence community owned by @handle created <time>: name "...", description "..."` and one `evidence rule N: title "...", text "..."` line per rule: the community
+**as the reporter saw it**, copied from the community the call already loaded (0 extra reads), so a rename or a rewritten rule right after the report is still on record. It is
+public text (no member or moderator id, no child document) and is deleted with the report (resolved + 90 days). To act, run `community suspend CID --report R` (reversible with
+`community restore CID`) or, for an owner's own request, `community archive CID`; to remove one post of the community use `takedown-post` (it also lists the post in the community's
+removal log). Account actions on `owner` concern the owner only. Full procedure: `docs/runbooks/communities.md` section 6.
 
 ### Reading a message report
 A report with `target` type MESSAGE (ADR-0027 D12, W7-12) has `target` = `<conversation id>:<message id>` (32 lower-case hex each) and `owner`
@@ -228,6 +240,7 @@ change; after that only the ids and the text survive. This is the same rule as s
   (`app/web/privacy.html`, "When your account is deleted") must say so before `FEATURE_REPORTS` is turned on for real
   users. The data export lists the reports the user filed, never reports about them.
 - A LIST report (W5-44) keeps the owner's handle, the list's name and description and its creation time in the report document itself (public text once the list is public; no member id; no child document), with the same retention: resolved + 90 days. A list the reporter cannot see cannot be reported (the one NOT_FOUND).
+- A COMMUNITY report (W5-29) keeps the owner's handle, the community's name, description and rules and its creation time in the report document itself (public text; no member or moderator id; no child document), with the same retention: resolved + 90 days. A missing or SUSPENDED community cannot be reported (the one NOT_FOUND).
 - A MESSAGE report's evidence is **one private message** (its text, the sender's handle, its time; ADR-0027 D12 and the 2026-10-28 note
   on ADR-0016). The same retention applies: kept until resolved + 90 days, then the TTL deletes the report. **The copied text is stored apart, in `reports/{id}/evidence/message`, with its own `expireAt` = filing + 180 days (W7-36, ADR-0016 note 2026-10-30); a Firestore TTL on the collection group `evidence` deletes it, the report itself (target, reason, note, status, dates, handle) stays. `reports resolve` lowers it to at most resolved + 90 d; a re-file rewrites it with a fresh 180 days. `opsctl reports show` prints `evidence expired` once it is gone, so triage inside the 48 h SLA. The TTL policy is Terraform (`ttl_fields.report_evidence_expire_at`): check `gcloud firestore fields ttls list` shows `evidence` before relying on it.** The reporter's erasure the reporter's erasure
   (`reporterId := ""`) is unchanged and nothing in the evidence names the reporter. The report's `target` holds the conversation id, a

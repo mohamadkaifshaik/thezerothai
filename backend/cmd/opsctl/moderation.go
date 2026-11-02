@@ -156,6 +156,16 @@ func printReport(out io.Writer, r moderation.Report) {
 			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.ListName, r.Evidence.ListDescription)
 	case r.TargetType == moderation.TargetList:
 		fmt.Fprintln(out, "evidence none")
+	case r.TargetType == moderation.TargetCommunity && r.Evidence != nil:
+		// ADR-0031 D14 (W5-29): the community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
+		// community was ARCHIVED. Suspend it with `opsctl community suspend CID --report R` (the target id above; it resolves this report as TAKEDOWN).
+		e := r.Evidence
+		fmt.Fprintf(out, "evidence community owned by @%s created %s: name %q, description %q\n", e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.CommunityName, e.CommunityDescription)
+		for i, ru := range e.CommunityRules {
+			fmt.Fprintf(out, "evidence rule %d: title %q, text %q\n", i+1, ru.Title, ru.Text)
+		}
+	case r.TargetType == moderation.TargetCommunity:
+		fmt.Fprintln(out, "evidence none")
 	case r.TargetType == moderation.TargetMessage && r.Evidence != nil:
 		// ADR-0027 D12: one private message, copied at report time. owner above is the sender's uid; the handle is "" when
 		// the sender was not ACTIVE then. takedown with `opsctl messages takedown <target>`.
@@ -256,6 +266,15 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 	}
 	if err := cleanupCopies(cctx, b, a.post, out); err != nil {
 		return err
+	}
+	if r.CommunityID != "" {
+		// ADR-0031 D14: a community post also goes into that community's recentRemovals, so a cached community feed drops it. Also when the
+		// takedown changed nothing (a re-run finishes a crashed one); a post already listed writes nothing. A missing community is only a note.
+		var tot removalTotals
+		if err := appendCommunityRemovals(cctx, b, map[string][]string{r.CommunityID: {a.post}}, now(), &tot); err != nil {
+			return fmt.Errorf("%w (re-run takedown-post to finish)", err)
+		}
+		printRemovalTotals(out, tot)
 	}
 	if a.report != "" {
 		if err := resolveReport(ctx, b, a.report, moderation.ResolutionTakedown, a.note, out, now); err != nil {
@@ -433,6 +452,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 		fmt.Fprintf(out, "  then sweeps the notification rows other users hold about the account: 1 read + 1 delete per row (500 a page, 1 read when none)\n")
 		fmt.Fprintf(out, "  then removes other users' reposts and quote embeds of those posts (PERMANENT: unsuspend-user does not bring them back):\n"+
 			"  ~%d more reads to find the posts that have copies, then per such post 2 reads (minimum), 2 writes and 2 deletes per repost, 1 write per quote\n", plan.Posts)
+		fmt.Fprintf(out, "  then, per page of hidden posts, one recentRemovals append per community that holds any of them (ADR-0031 D14): +1 read and +1 write per community per page, 0 writes when already listed\n")
 		printResetWarning(out, "suspend-user", plan.Posts)
 		return nil
 	}
@@ -445,6 +465,8 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return err
 		}
 	}
+	// ADR-0031 D14: every page also appends its community posts to each community's recentRemovals (once per community per page).
+	var removals removalTotals
 	suspendedAt := now()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	changed, err := b.accounts.SetAccountStatus(cctx, uid, identity.AccountStatusActive, identity.AccountStatusSuspended, suspendedAt)
@@ -464,7 +486,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 	}
 	if err := driveLoop(ctx, out, posts.ModerationCheckpoint{},
 		func(ctx context.Context, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
-			return b.moderator.HideAuthor(ctx, uid, cp, now())
+			return hideAuthorPage(ctx, b, uid, cp, now, &removals)
 		},
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("hidden=%d", cp.Changed) }, "hidden"); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
@@ -480,11 +502,12 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 	since := suspendedAt.Add(-suspendSkew)
 	if err := driveLoop(ctx, out, posts.ModerationCheckpoint{Since: since},
 		func(ctx context.Context, cp posts.ModerationCheckpoint) (posts.ModerationCheckpoint, bool, error) {
-			return b.moderator.HideAuthor(ctx, uid, cp, now())
+			return hideAuthorPage(ctx, b, uid, cp, now, &removals)
 		},
 		func(cp posts.ModerationCheckpoint) string { return fmt.Sprintf("hidden=%d", cp.Changed) }, "settle pass"); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 	}
+	printRemovalTotals(out, removals)
 	// N-4: after the settle wait no instance accepts new activity from the account, so the rows it left in other
 	// users' notification lists (spam likes, follows) can be removed for good. Re-running is safe.
 	if b.actorSweeper != nil {
@@ -597,4 +620,18 @@ func statusName(s identity.AccountStatus) string {
 		return "DELETING"
 	}
 	return "UNKNOWN"
+}
+
+// hideAuthorPage is one HideAuthor call of suspend-user plus the community removal-log appends for the page it processed (ADR-0031 D14).
+// An append failure fails the call, so driveLoop repeats the same page: the hide is idempotent and an append of a post already listed
+// writes nothing.
+func hideAuthorPage(ctx context.Context, b *backends, uid string, cp posts.ModerationCheckpoint, now func() time.Time, tot *removalTotals) (posts.ModerationCheckpoint, bool, error) {
+	next, done, err := b.moderator.HideAuthor(ctx, uid, cp, now())
+	if err != nil {
+		return next, done, err
+	}
+	if err := appendCommunityRemovals(ctx, b, groupCommunityPosts(next.PageCommunityPosts), now(), tot); err != nil {
+		return cp, false, err
+	}
+	return next, done, nil
 }

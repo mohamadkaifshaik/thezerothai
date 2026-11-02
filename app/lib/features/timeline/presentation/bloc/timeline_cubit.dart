@@ -262,6 +262,18 @@ class TimelineCubit extends Cubit<TimelineState> {
     if (_hiddenAuthors.remove(userId)) _emitVisible();
   }
 
+  /// W5-35: a moderator hid [postId] from this community feed. It leaves the
+  /// visible rows at once (local only, no RPC); the cached snapshot keeps it so
+  /// [showPostAgain] can bring it back after a failure or an Undo.
+  void hidePostLocally(String postId) {
+    if (_removed.add(postId)) _emitVisible();
+  }
+
+  /// Undoes [hidePostLocally].
+  void showPostAgain(String postId) {
+    if (_removed.remove(postId)) _emitVisible();
+  }
+
   /// Deletes the caller's post. It leaves the list at once and comes back if
   /// the call fails (the error is rethrown for the card's snackbar). One
   /// idempotency key per post until it succeeds, so a retry is the same

@@ -1063,3 +1063,14 @@ The package `communities` does not import `posts`. Each module declares the inte
 The reason is a cycle: posts' in-package integration test imports communities, so a communities import of posts would
 close the loop. D1's text "communities imports posts" is superseded on this point. This is an as-built note only: no new
 decision and no status change.
+
+## As-built note, 2026-11-02: W5-29 platform levers
+
+### N10. `PlatformRemovals.Append` takes a slice of post ids
+D14 has `suspend-user` append "once per community per page", and a page of 250 posts can hold several posts of one community, while the seam table
+names `Append(ctx, cid, postID, at)`. As built, `communities.PlatformRemovals.Append(ctx, cid, postIDs []string, at, limit) (appended int, err error)`
+adds every id that is not yet listed in one transaction (1 read, 1 write; 0 writes when all are listed, so a re-run and a crash between the hide batch and
+the append are both harmless), applies the `COMMUNITY_RECENT_REMOVALS_MAX` cap (opsctl passes 0 = the default 50) and sets `removalsTruncatedAt` from the entries the
+cap drops. `takedown-post` calls it with one id. The other platform levers are `communities.Platform` (`Get`, `SetSuspended`, `Archive`), implemented by the same
+repository built without an idempotency or quota store. `community archive` refuses a SUSPENDED community (archiving would lift the suspension); its
+`OWNER_HANDOVER` entry names the former owner as the actor and has no target. This is an as-built note only: no new decision and no status change.

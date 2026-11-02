@@ -360,15 +360,16 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Done (#626) |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Done (#629) |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Done (#633) |
-| W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
+| W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Done (#634) |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#636) |
-| W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
+| W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Done (#639) |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Done (#614) |
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Done (#630) |
-| W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
+| W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report list (already done by W5-48); report community moved to W5-35b | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Done (#637) |
+| W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. Blocked on W5-29 (the server answers VALIDATION `target_type` for COMMUNITY until then, `community_target_test.go`) | frontend-developer | S | W5-29, W5-35 | yes | Open |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
@@ -1125,7 +1126,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Home, profile, list and search timelines: UNKNOWN.
   - Reply budget: +2 cold (community status and member doc, both cached) / +0 warm.
 
-### W5-27 — `GetCommunityTimeline` and community tabs  [owner: backend-developer] [size: M] [depends: W5-26, W5-9]  Status: Open
+### W5-27 — `GetCommunityTimeline` and community tabs  [owner: backend-developer] [size: M] [depends: W5-26, W5-9]  Status: Done (#634)
 - **Description.** A new `backend/internal/timeline/service_community.go`:
   - `communities.Reader.Get(cid)` (status, header, `recentRemovals`);
   - a shared **community entry** (newest 30 posts per community, `cache.LRU`, 60 s, shared across viewers) for cold and page 1;
@@ -1193,7 +1194,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Hide / Restore: 5 / 4 reads, 3 writes (+1 on the actor's first entry);
     - SetMemberRole: 7 / 6 reads, ≤ 5 writes.
 
-### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: Open
+### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: Done (#639)
 - **Description.**
   - `ReportContent` accepts the COMMUNITY target (the LIST target shipped in W5-44). The target owner is the community owner. The evidence snapshot holds the name, description and rules text. Quota `reports` as today.
   - Opsctl:
@@ -1215,6 +1216,13 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - ReportContent COMMUNITY: 5 / 2 reads, 2 writes.
   - New lever: `opsctl community archive` (an owner's support request).
   - `suspend-user`'s hide loop also appends to `recentRemovals`, once per community per page, through `communities.PlatformRemovals`.
+
+- **As built (W5-29).**
+  - `ReportContent` COMMUNITY: `moderation.CommunityLookup` (apiserver `lateCommunityLookup` over `communities.CommunityReporter`); flags `reports` for the caller and `communities` not globally off; 5 reads cold / 2 warm, 2 writes.
+  - `opsctl community suspend|restore|archive` over `communities.Platform` (field-level `Update`, never `Set`); `--report` on suspend only. Archive refuses a SUSPENDED community and has no undo (N10).
+  - `takedown-post` and `suspend-user` append through `communities.PlatformRemovals.Append(cid, postIDs, at, limit)` (batch form, N10); `posts.ModerationResult.CommunityID` and `ModerationCheckpoint.PageCommunityPosts` carry the ids at no extra read.
+  - Runbooks: `communities.md` section 6 and `moderation.md`. `lists.md` needed no change (W5-44).
+  - Moved to W5-36: the end-to-end test of acceptance 3 (a takedown, then `removed_ids` on the next `GetCommunityTimeline` refresh). Tests cover each half: the takedown append here (`TestTakedownAndSuspend_Integration_CommunityRemovals`) and `removed_ids` in W5-27 (`community_feed_test.go`).
 
 ### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Done (#599)
 - **Description.**
@@ -1317,7 +1325,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - A draft keeps the community id (ADR-0029 F8). Reset it to Everyone if the user is no longer a member.
   - Show "Only members of <name> can reply" for `NOT_ALLOWED` on a labelled post.
 
-### W5-35 — Moderation UI and reports  [owner: frontend-developer] [size: M] [depends: W5-32, W5-33]  Status: Open
+### W5-35 — Moderation UI and reports  [owner: frontend-developer] [size: M] [depends: W5-32, W5-33]  Status: Done (#637); "Report Community" moved to W5-35b (backend W5-29); "Report List" was already shipped by W5-48 (#557)
 - **Description.**
   - For moderators and the owner:
     - "Remove from Community" and "Restore" on a community post's overflow menu;
@@ -1349,7 +1357,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - counters under a join burst (`ABORTED` metric);
   - the eraser hand-over and archive;
   - the export and residue sweep;
-  - report targets and opsctl suspension.
+  - report targets and opsctl suspension, including W5-29 acceptance 3 end to end (`takedown-post` of a community post, then the next `GetCommunityTimeline` refresh lists it in `removed_ids`) and a suspension mid-pagination.
 
   Coverage on `internal/` stays at 70 % or more.
 - **Acceptance criteria.** Every acceptance criterion in W5-23 to W5-29 has a named test; `make test-int` is green.

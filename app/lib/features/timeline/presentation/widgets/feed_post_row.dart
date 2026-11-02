@@ -6,6 +6,7 @@ import '../../../../core/router/app_router.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../shared/widgets/post/post_card.dart';
+import '../../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../../shared/widgets/post/post_pin_control.dart';
 import '../../../../shared/widgets/post/protected_post_box.dart';
 import '../../../engagement/domain/engagement_entry.dart';
@@ -39,6 +40,7 @@ class FeedPostRow extends StatelessWidget {
     this.onDelete,
     this.onRelationshipChanged,
     this.pinControl,
+    this.moderationControl,
   });
 
   final pb.PostView view;
@@ -56,6 +58,9 @@ class FeedPostRow extends StatelessWidget {
   /// Pin / Unpin rows on the viewer's own posts (null: none).
   final PostPinControl? pinControl;
 
+  /// "Remove from Community" for a community moderator (null: none).
+  final PostModerationControl? moderationControl;
+
   PostCard _card() => PostCard(
     view: view,
     viewerUserId: viewerUserId,
@@ -66,6 +71,7 @@ class FeedPostRow extends StatelessWidget {
     onDelete: onDelete,
     onRelationshipChanged: onRelationshipChanged,
     pinControl: pinControl,
+    moderationControl: moderationControl,
   );
 
   @override

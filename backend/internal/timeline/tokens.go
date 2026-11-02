@@ -174,3 +174,11 @@ func listFeed(caller, listID string) feed {
 	base := "tl|list|" + caller + "|" + listID + "|"
 	return feed{since: base + "since", page: base + "page"}
 }
+
+// communityFeed is the token family of one community read by one caller (ADR-0031 D6): bound to the caller AND the community
+// (`community|<uid>|<cid>`), so a Home, user or list token on a community, or a community token on another community or for another
+// caller, is VALIDATION with 0 reads. ids never contain a pipe.
+func communityFeed(caller, cid string) feed {
+	base := "tl|community|" + caller + "|" + cid + "|"
+	return feed{since: base + "since", page: base + "page"}
+}

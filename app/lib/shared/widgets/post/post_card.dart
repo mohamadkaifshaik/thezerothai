@@ -11,6 +11,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
+import '../../../features/communities/presentation/communities_error_messages.dart';
 import '../../../features/engagement/domain/engagement_entry.dart';
 import '../../../features/engagement/presentation/bloc/engagement_cubit.dart';
 import '../../../features/engagement/presentation/widgets/post_engagement_bar.dart';
@@ -40,6 +41,7 @@ import 'post_action_bar.dart';
 import 'post_media.dart';
 import 'poll_card.dart';
 import 'post_context_label.dart';
+import 'post_moderation_control.dart';
 import 'post_pin_control.dart';
 import '../user/protected_badge.dart';
 import 'protected_post_box.dart';
@@ -112,6 +114,7 @@ class PostCard extends StatelessWidget {
     this.onOpenPost,
     this.bookmarkEnabled,
     this.pinControl,
+    this.moderationControl,
   });
 
   final pb.PostView view;
@@ -164,6 +167,10 @@ class PostCard extends StatelessWidget {
   /// Pin / Unpin rows for the viewer's own POST, QUOTE or REPLY (W3-17).
   /// Null (the default) offers none: a screen that can pin passes one.
   final PostPinControl? pinControl;
+
+  /// "Remove from Community" on a community post for a moderator (W5-35).
+  /// Null (the default) offers none.
+  final PostModerationControl? moderationControl;
 
   /// Opens a profile by user_id. Defaults to pushing `/u/<userId>`.
   final void Function(String userId)? onOpenProfile;
@@ -293,6 +300,7 @@ class PostCard extends StatelessWidget {
                 reportsEnabled: reportsEnabled,
                 onDelete: onDelete,
                 pinControl: pinControl,
+                moderationControl: moderationControl,
                 onRelationshipChanged: onRelationshipChanged,
               ),
       );
@@ -387,6 +395,7 @@ class PostCard extends StatelessWidget {
                     reportsEnabled: reportsEnabled,
                     onDelete: onDelete,
                     pinControl: pinControl,
+                    moderationControl: moderationControl,
                     onRelationshipChanged: onRelationshipChanged,
                   ),
                 ],

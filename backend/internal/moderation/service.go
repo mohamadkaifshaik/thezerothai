@@ -49,6 +49,8 @@ type Deps struct {
 	Messages MessageLookup
 	// Lists resolves a LIST target (plan W5-44); nil makes a list report an internal error.
 	Lists ListLookup
+	// Communities resolves a COMMUNITY target (ADR-0031 D14, plan W5-29); nil makes a community report an internal error.
+	Communities CommunityLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
@@ -101,9 +103,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		return ReportResult{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
 	switch in.TargetType {
-	case TargetPost, TargetAccount, TargetMessage, TargetList:
+	case TargetPost, TargetAccount, TargetMessage, TargetList, TargetCommunity:
 	default:
-		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT, MESSAGE or LIST")
+		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT, MESSAGE, LIST or COMMUNITY")
 	}
 	if in.Reason == "" {
 		return ReportResult{}, apierr.Validation("reason", "choose a reason")
@@ -127,6 +129,10 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	case TargetList:
 		if !postIDPattern.MatchString(in.TargetID) { // a list id is a Snowflake, the same 19 digits as a post id
 			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit list id")
+		}
+	case TargetCommunity:
+		if !postIDPattern.MatchString(in.TargetID) { // a community id is a Snowflake, the same 19 digits as a post id
+			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit community id")
 		}
 	}
 	note, err := normalizeNote(in.Note)
@@ -221,6 +227,17 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// like an ACCOUNT report's profile and follow its retention. No member id is copied.
 		rep.TargetOwnerID = l.OwnerUID
 		rep.Evidence = &Evidence{AuthorHandle: l.OwnerHandle, ListName: l.Name, ListDescription: l.Description, PostCreatedAt: l.CreatedAt}
+	case TargetCommunity:
+		c, err := s.reportedCommunity(ctx, uid, in.TargetID)
+		if err != nil {
+			return ReportResult{}, err
+		}
+		// The community as the reporter saw it, so the owner cannot rename it or rewrite its rules before triage (D14). Public text, kept in
+		// the report document like a LIST report; no member id, no moderator id, no child document. OwnerUID is "" for an ARCHIVED one.
+		rep.TargetOwnerID = c.OwnerUID
+		rules := make([]CommunityRule, len(c.Rules))
+		copy(rules, c.Rules)
+		rep.Evidence = &Evidence{AuthorHandle: c.OwnerHandle, CommunityName: c.Name, CommunityDescription: c.Description, CommunityRules: rules, PostCreatedAt: c.CreatedAt}
 	}
 
 	limit := s.d.ReportsPerDay
@@ -356,13 +373,31 @@ func (s *service) reportedList(ctx context.Context, uid, listID string) (Reporte
 		return ReportedList{}, errors.New("moderation: list reports are not wired")
 	}
 	l, err := s.d.Lists.ReportableList(ctx, uid, listID)
-	switch {
-	case errors.Is(err, ErrOwnList):
-		return ReportedList{}, apierr.Validation("target_id", "you cannot report your own list")
-	case errors.Is(err, ErrListNotFound):
-		return ReportedList{}, listNotFound()
-	case err != nil:
-		return ReportedList{}, logger.RedactErr(fmt.Errorf("moderation: load list: %w", err), listID, uid)
+	return mapTargetLookup(l, err, uid, listID, "list", ErrOwnList, ErrListNotFound, listNotFound)
+}
+
+// reportedCommunity asks the CommunityLookup for the community of a COMMUNITY target (already shape-checked). A missing and a SUSPENDED
+// community are the one NOT_FOUND built here; the caller's own community is the VALIDATION target_id. Anything else is an internal
+// error whose ids are redacted.
+func (s *service) reportedCommunity(ctx context.Context, uid, communityID string) (ReportedCommunity, error) {
+	if s.d.Communities == nil {
+		return ReportedCommunity{}, errors.New("moderation: community reports are not wired")
 	}
-	return l, nil
+	c, err := s.d.Communities.ReportableCommunity(ctx, uid, communityID)
+	return mapTargetLookup(c, err, uid, communityID, "community", ErrOwnCommunity, ErrCommunityNotFound, communityNotFound)
+}
+
+// mapTargetLookup is the one answer table of a LIST or COMMUNITY lookup: the caller's own target is VALIDATION target_id, every
+// "unreportable" cause the one NOT_FOUND notFound builds, anything else an internal error with the ids redacted.
+func mapTargetLookup[T any](v T, err error, uid, id, what string, errOwn, errNotFound error, notFound func() *apierr.Error) (T, error) {
+	var zero T
+	switch {
+	case err == nil:
+		return v, nil
+	case errors.Is(err, errOwn):
+		return zero, apierr.Validation("target_id", "you cannot report your own "+what)
+	case errors.Is(err, errNotFound):
+		return zero, notFound()
+	}
+	return zero, logger.RedactErr(fmt.Errorf("moderation: load %s: %w", what, err), id, uid)
 }

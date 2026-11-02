@@ -33,6 +33,7 @@ const Map<String, String> kScreenNames = {
   '/communities/new': 'community_create',
   '/communities/:id': 'community_detail',
   '/communities/:id/members': 'community_members',
+  '/communities/:id/moderation-log': 'community_moderation_log',
   '/messages': 'messages',
   '/messages/requests': 'message_requests',
   '/messages/new': 'message_new',

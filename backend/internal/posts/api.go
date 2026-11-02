@@ -745,11 +745,25 @@ type ModerationCheckpoint struct {
 	// on its first order field). opsctl suspend-user uses it for the settle pass that catches posts created on
 	// instances whose cached account status was still ACTIVE when the first pass read their page.
 	Since time.Time
+	// PageCommunityPosts is an OUTPUT of HideAuthor, replaced on every call (an input value is ignored): the posts of the page it just
+	// processed that carry a communityId, hidden by this call or already hidden, so that opsctl can append them to each community's
+	// recentRemovals (ADR-0031 D14) and a re-run after a crash between the two steps still finds them. A moderator-hidden community post
+	// has no communityId (its log entry exists already) and is not listed. Empty for RestoreAuthor.
+	PageCommunityPosts []CommunityPostRef
+}
+
+// CommunityPostRef names one community post of a HideAuthor page: the community it was created into and its id. No uid.
+type CommunityPostRef struct {
+	CommunityID string
+	PostID      string
 }
 
 // ModerationResult is what Moderator.Takedown and Restore found.
 type ModerationResult struct {
-	AuthorID string
+	// CommunityID is the community the post was created into (its communityId), "" for any other post, a REPOST, or a post a community
+	// moderator hid (that hide already logged it). Read from the document the call already reads: 0 extra reads (ADR-0031 D14).
+	CommunityID string
+	AuthorID    string
 	// Before and After are the moderation state before and after the call.
 	Before, After Moderation
 	// RepostReleased is set when a takedown hit a REPOST: the doc was deleted and its reposts record, the original's
