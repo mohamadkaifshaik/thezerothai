@@ -120,6 +120,10 @@ func (emptyGraph) Snapshot(context.Context, string) (graph.Snapshot, error) {
 }
 
 // ByHashtag and CreatedAfter are search and trends queries (ADR-0028): empty here.
+func (emptyReader) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (emptyReader) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

@@ -308,7 +308,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
-		CursorKey:             cfg.CursorHMACKey,
+		// ADR-0031 D11: quotas.communityPosts, reserved in CreatePost's quota write on top of posts.
+		CommunityPostsPerDay:           int64(cfg.Quota.CommunityPostsPerDay),
+		NewAccountCommunityPostsPerDay: int64(cfg.Quota.NewAccountCommunityPostsPerDay),
+		CursorKey:                      cfg.CursorHMACKey,
 		// Poll creation limits (ADR-0029; config.Composer). The zero value would reject every poll.
 		Poll: posts.PollLimits{
 			MaxChoices: cfg.Composer.PollMaxChoices, ChoiceMaxCodepoints: cfg.Composer.PollChoiceMaxCodepoints,
@@ -666,6 +669,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},
 	})
+	// The posting gate (ADR-0031 D5, W5-26): posts declares posts.CommunityGate and never imports communities; communities implements it over
+	// its cached Reader, a fresh in-transaction member read and the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
+	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
+	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
+		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)

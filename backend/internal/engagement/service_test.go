@@ -1021,6 +1021,10 @@ func (fakeDir) SearchHandles(context.Context, string, int) ([]identity.Profile, 
 }
 
 // ByHashtag and CreatedAfter are search and trends queries (ADR-0028); engagement never calls them.
+func (f *fakePosts) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
+	return nil, nil
+}
+
 func (f *fakePosts) ByHashtag(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

@@ -1,12 +1,17 @@
 package ratelimit
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"connectrpc.com/connect"
+
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 )
 
 func TestDailyCap_AllowsUpToLimitThenBlocks(t *testing.T) {
@@ -376,5 +381,13 @@ func TestDailyCap_RefundReturnsUnitsAndNeverGoesBelowZero(t *testing.T) {
 	d.Refund("u", -3)
 	if got := d.Spent("u"); got != 0 {
 		t.Fatalf("spent = %d, want 0 (no-op refunds)", got)
+	}
+}
+
+func TestDailyCap_ExceededError(t *testing.T) {
+	d := NewDailyCap(1)
+	ae := d.ExceededError(context.Background(), "some_cap")
+	if ae.Code != connect.CodeResourceExhausted || ae.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED || ae.Metadata["limit"] != "some_cap" || ae.RetryAfter <= 0 {
+		t.Fatalf("error = %+v", ae)
 	}
 }

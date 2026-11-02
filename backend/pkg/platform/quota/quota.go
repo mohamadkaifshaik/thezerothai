@@ -256,6 +256,22 @@ func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kin
 	return nil
 }
 
+// CheckAndReserveBoth reserves one unit of each of two kinds in ONE whole-record Set (CheckAndReserve called twice with the same rec
+// would write the second copy without the first increment, losing a unit). CreatePost into a community uses it for posts and
+// communityPosts (ADR-0031 D11), so the extra quota costs +0 writes. first is checked first: when both are over, first's error wins.
+func CheckAndReserveBoth(b store.Batch, ref *firestore.DocumentRef, rec Record, first Kind, firstLimit int64, second Kind, secondLimit int64) error {
+	if rec.valueFor(first)+1 > firstLimit {
+		return ExceededError(first, time.Now())
+	}
+	if rec.valueFor(second)+1 > secondLimit {
+		return ExceededError(second, time.Now())
+	}
+	rec.increment(first, 1)
+	rec.increment(second, 1)
+	b.Set(ref, rec)
+	return nil
+}
+
 // ExceededError is the RESOURCE_EXHAUSTED / QUOTA_EXCEEDED error for kind at instant now, retry-after the next IST
 // midnight. CheckAndReserveN returns it; a module that remembers "this uid is out of quota until midnight" in its
 // instance cache (moderation, ADR-0016) builds the identical error from it without a Firestore read.

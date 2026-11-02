@@ -153,3 +153,26 @@ func TestTime(t *testing.T) {
 		}
 	}
 }
+
+func TestMinID(t *testing.T) {
+	ms := time.Date(2026, 3, 4, 5, 6, 7, 89_000_000, time.UTC)
+	min := MinID(ms)
+	if len(min) != 19 {
+		t.Fatalf("MinID = %q, want 19 digits", min)
+	}
+	if got, err := Time(min); err != nil || !got.Equal(ms) {
+		t.Fatalf("Time(MinID) = %v, %v; want %v", got, err, ms)
+	}
+	// Every id of that millisecond is >= MinID, every id of the millisecond before is below it.
+	n := &Node{node: maxNode, now: func() time.Time { return ms }}
+	if id := n.Generate(); id < min {
+		t.Fatalf("id %q of the millisecond is below MinID %q", id, min)
+	}
+	n = &Node{node: maxNode, now: func() time.Time { return ms.Add(-time.Millisecond) }}
+	if id := n.Generate(); id >= min {
+		t.Fatalf("id %q of the previous millisecond is not below MinID %q", id, min)
+	}
+	if got := MinID(Epoch.Add(-time.Hour)); got != "0000000000000000000" {
+		t.Fatalf("MinID before the epoch = %q, want all zero", got)
+	}
+}

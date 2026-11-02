@@ -94,3 +94,41 @@ func TestCommunityKinds_QuotaMetadataName(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckAndReserveBoth: posts and communityPosts move together in ONE Set (a second CheckAndReserve on the same record would write
+// a copy without the first increment); posts wins the precedence; a refusal writes nothing.
+func TestCheckAndReserveBoth(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
+	tests := []struct {
+		name      string
+		rec       Record
+		wantQuota string
+		wantPosts int64
+		wantComm  int64
+	}{
+		{"both fit", Record{Day: Today(), Posts: 3, CommunityPosts: 4}, "", 4, 5},
+		{"community at its cap", Record{Day: Today(), Posts: 3, CommunityPosts: 50}, "community_posts", 0, 0},
+		{"posts at its cap", Record{Day: Today(), Posts: 100, CommunityPosts: 1}, "posts", 0, 0},
+		{"both over: posts wins", Record{Day: Today(), Posts: 100, CommunityPosts: 50}, "posts", 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &fakeBatch{}
+			err := CheckAndReserveBoth(b, ref, tt.rec, Posts, 100, CommunityPosts, 50)
+			if tt.wantQuota != "" {
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Metadata["quota"] != tt.wantQuota || len(b.sets) != 0 {
+					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED %s and nothing written", err, len(b.sets), tt.wantQuota)
+				}
+				return
+			}
+			if err != nil || len(b.sets) != 1 {
+				t.Fatalf("err = %v sets = %d, want exactly one Set", err, len(b.sets))
+			}
+			got := b.sets[0].(Record)
+			if got.Posts != tt.wantPosts || got.CommunityPosts != tt.wantComm {
+				t.Fatalf("record = %+v, want posts %d communityPosts %d", got, tt.wantPosts, tt.wantComm)
+			}
+		})
+	}
+}

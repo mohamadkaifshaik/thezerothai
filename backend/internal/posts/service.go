@@ -39,6 +39,10 @@ type Deps struct {
 	PostsPerDay           int64
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
+	// CommunityPostsPerDay and NewAccountCommunityPostsPerDay are the quota.CommunityPosts daily limits (50, and 10 inside NewAccountWindow;
+	// ADR-0031 D11), reserved in CreatePost's quota write on top of posts. Zero or negative refuses every community post.
+	CommunityPostsPerDay           int64
+	NewAccountCommunityPostsPerDay int64
 	// Links releases a deleted REPOST's reposts doc and counters (P5, engagement). Nil: a REPOST deleted through
 	// DeletePost leaves its reposts doc to the post_delete job's reconciliation. Wired late (SetRepostLinks).
 	Links RepostLinks
@@ -82,6 +86,10 @@ type service struct {
 	// protected is the ADR-0025 protected-set loader (WithProtectedAuthors); nil until it is wired, then nobody is protected.
 	protected identity.ProtectedAuthors
 	aud       *Audience
+	// community is the CreatePost gate (SetCommunityGate); nil = a set community_id is FEATURE_DISABLED.
+	community                      CommunityGate
+	communityPostsPerDay           int64
+	newAccountCommunityPostsPerDay int64
 }
 
 // Option configures New.
@@ -105,6 +113,7 @@ func New(d Deps, opts ...Option) Service {
 		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
 		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, poll: d.Poll, sweep: d.Sweep,
 		postsPerDay: d.PostsPerDay, newAccountPostsPerDay: d.NewAccountPostsPerDay, newAccountWindow: d.NewAccountWindow,
+		communityPostsPerDay: d.CommunityPostsPerDay, newAccountCommunityPostsPerDay: d.NewAccountCommunityPostsPerDay,
 	}
 	for _, o := range opts {
 		o(s)

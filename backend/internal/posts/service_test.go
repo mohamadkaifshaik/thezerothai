@@ -24,6 +24,7 @@ type fakeRepo struct {
 	lastReplies   bool
 	lastMedia     bool
 	lastTag       string
+	lastCommunity string
 	lastCAfter    Position
 	lastKind      Kind
 	lastWindow    Window
@@ -112,6 +113,11 @@ func (r *fakeRepo) ByAuthorMedia(ctx context.Context, authorID string, w Window,
 
 func (r *fakeRepo) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
 	r.lastTag = tag
+	return r.query(ctx, w, limit)
+}
+
+func (r *fakeRepo) ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error) {
+	r.lastCommunity = cid
 	return r.query(ctx, w, limit)
 }
 

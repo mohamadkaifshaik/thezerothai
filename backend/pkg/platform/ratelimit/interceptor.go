@@ -361,14 +361,25 @@ func rejectReadBudget(ctx context.Context, keys []budgetKey, tripped int, spent 
 }
 
 func rejectWith(ctx context.Context, name string, retryAfter time.Duration) error {
+	return apierr.ToConnect(limitError(ctx, name, retryAfter))
+}
+
+func limitError(ctx context.Context, name string, retryAfter time.Duration) *apierr.Error {
 	if info := logger.RequestInfoFromContext(ctx); info != nil {
 		info.LimitName = name
 	}
-	return apierr.ToConnect(apierr.New(
+	return apierr.New(
 		connect.CodeResourceExhausted,
 		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
 		"too many requests, please slow down",
-	).WithMeta("limit", name).WithRetryAfter(retryAfter))
+	).WithMeta("limit", name).WithRetryAfter(retryAfter)
+}
+
+// ExceededError is the RATE_LIMITED *apierr.Error of a daily cap that a service (not the interceptor) drew on, such as the per
+// (uid, community) post cap of the posts gate (ADR-0031 D11): metadata["limit"] = name, retry_after the time to the next IST midnight,
+// and the request log's limit_name set. It is the same answer the interceptor gives for a procedure cap.
+func (d *DailyCap) ExceededError(ctx context.Context, name string) *apierr.Error {
+	return limitError(ctx, name, quota.UntilNextDay(d.now()))
 }
 
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is
