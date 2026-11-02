@@ -42,7 +42,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 		var out res
 		err := client.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
 			var err error
-			out.changed, out.found, err = m.SetCommunityListing(bctx, tx, id, community, listed, guard)
+			out.changed, out.found, _, err = m.SetCommunityListing(bctx, tx, id, community, listed, guard)
 			return err
 		})
 		if err != nil {
@@ -125,7 +125,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	for _, listed := range []bool{false, true} {
 		bctx, c := budget.WithCounter(ctx)
 		err := client.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
-			_, _, err := m.SetCommunityListing(bctx, tx, "0000000000000000901", cid, listed, guard)
+			_, _, _, err := m.SetCommunityListing(bctx, tx, "0000000000000000901", cid, listed, guard)
 			return err
 		})
 		if !errors.Is(err, guardErr) || gotAuthor != "alice" || c.Reads() != 1 || c.Writes() != 0 {
@@ -145,7 +145,108 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 			}
 		}
 	}
-	if _, _, err := NewCommunityModerator(nil).SetCommunityListing(ctx, nil, "x", cid, false, nil); err == nil {
+	if _, _, _, err := NewCommunityModerator(nil).SetCommunityListing(ctx, nil, "x", cid, false, nil); err == nil {
 		t.Error("a moderator without a client must fail closed")
+	}
+}
+
+// W5-51b (ADR-0031 Amendment 1 D4a): a reply qualifies through conversationCommunityId; it has no communityId, so hidden is communityHidden alone
+// (plus communityHiddenAt, server time); reply is reported; a REPOST, a foreign conversation and a moderated reply are not found.
+func TestCommunityModerator_SetCommunityListing_Replies(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	const cid, other = "0000000000000000811", "0000000000000000812"
+	seed := func(id string, d map[string]any) {
+		t.Helper()
+		d["authorId"], d["createdAt"] = "alice", time.Now().UTC()
+		if _, err := client.Collection("posts").Doc(id).Set(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("0000000000000000911", map[string]any{"kind": "REPLY", "isReply": true, "conversationCommunityId": cid})
+	seed("0000000000000000912", map[string]any{"kind": "REPLY", "isReply": true, "conversationCommunityId": other})
+	seed("0000000000000000913", map[string]any{"kind": "REPLY", "isReply": true})
+	seed("0000000000000000914", map[string]any{"kind": "REPLY", "isReply": true, "conversationCommunityId": cid, "moderation": "TAKEN_DOWN"})
+	seed("0000000000000000915", map[string]any{"kind": "REPOST", "conversationCommunityId": cid})
+	m := NewCommunityModerator(client)
+
+	var sawAuthor string
+	guard := func(a string) error { sawAuthor = a; return nil }
+	call := func(id string, listed bool) (changed, found, reply bool, reads, writes int64) {
+		t.Helper()
+		bctx, c := budget.WithCounter(ctx)
+		err := client.RunTransaction(ctx, func(_ context.Context, tx *firestore.Transaction) error {
+			var err error
+			changed, found, reply, err = m.SetCommunityListing(bctx, tx, id, cid, listed, guard)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return changed, found, reply, c.Reads(), c.Writes()
+	}
+	fields := func(id string) map[string]any {
+		t.Helper()
+		snap, err := client.Collection("posts").Doc(id).Get(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.Data()
+	}
+	const rep = "0000000000000000911"
+
+	if ch, f, r, reads, writes := call(rep, false); !ch || !f || !r || reads != 1 || writes != 1 || sawAuthor != "alice" {
+		t.Errorf("hide = %v %v %v, %d reads, %d writes, guard saw %q", ch, f, r, reads, writes, sawAuthor)
+	}
+	d := fields(rep)
+	if at, ok := d["communityHiddenAt"].(time.Time); d["communityHidden"] != true || !ok || at.IsZero() {
+		t.Errorf("after hide: %v", d)
+	}
+	if _, ok := d["communityId"]; ok {
+		t.Error("a reply hide wrote communityId")
+	}
+	repo := NewFirestoreRepo(client)
+	got, err := repo.GetAll(ctx, []string{rep})
+	if p := got[rep]; err != nil || p == nil || !p.CommunityHidden || p.Hidden() || !p.Visible() {
+		t.Errorf("hidden reply = %+v, %v, want CommunityHidden and still visible", p, err)
+	}
+	if ch, f, r, _, writes := call(rep, false); ch || !f || !r || writes != 0 {
+		t.Errorf("second hide = %v %v %v, %d writes", ch, f, r, writes)
+	}
+	if ch, f, r, _, writes := call(rep, true); !ch || !f || !r || writes != 1 {
+		t.Errorf("restore = %v %v %v, %d writes", ch, f, r, writes)
+	}
+	d = fields(rep)
+	if _, ok := d["communityHidden"]; ok {
+		t.Errorf("after restore: %v", d)
+	}
+	if _, ok := d["communityHiddenAt"]; ok {
+		t.Errorf("after restore: %v", d)
+	}
+	if ch, f, _, _, writes := call(rep, true); ch || !f || writes != 0 {
+		t.Errorf("second restore = %v %v, %d writes", ch, f, writes)
+	}
+	sawAuthor = ""
+	for _, id := range []string{"0000000000000000912", "0000000000000000913", "0000000000000000914", "0000000000000000915"} {
+		for _, listed := range []bool{false, true} {
+			if ch, f, r, reads, writes := call(id, listed); ch || f || r || reads != 1 || writes != 0 || sawAuthor != "" {
+				t.Errorf("post %s listed=%v = %v %v %v, %d reads, %d writes, guard saw %q, want not found", id, listed, ch, f, r, reads, writes, sawAuthor)
+			}
+		}
+	}
+	// a root answers reply=false and now writes communityHiddenAt too
+	root := "0000000000000000921"
+	seed(root, map[string]any{"kind": "POST", "communityId": cid, "community": map[string]any{"id": cid, "name": "Go"}})
+	if ch, f, r, _, _ := call(root, false); !ch || !f || r {
+		t.Errorf("root hide = %v %v %v", ch, f, r)
+	}
+	if _, ok := fields(root)["communityHiddenAt"].(time.Time); !ok {
+		t.Error("a root hide did not write communityHiddenAt")
+	}
+	if ch, _, _, _, _ := call(root, true); !ch {
+		t.Error("root restore")
+	}
+	if _, ok := fields(root)["communityHiddenAt"]; ok {
+		t.Error("a root restore left communityHiddenAt")
 	}
 }

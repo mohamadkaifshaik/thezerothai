@@ -113,6 +113,8 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 // checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
 // A community conversation (ADR-0031 A7, W5-26b) adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
 // read), +0 warm: 40 cold, 42 for a REPOST focal. The handler applies it (communityReplyHint); GetThread itself does not know the flag.
+// A reply a community moderator hid (communityHidden, ADR-0031 Amendment 1 D4a, W5-51b) is dropped from the page for every viewer but its author and
+// leaves the parent slot as ParentUnavailable: +0 reads (every row is already read), cause audience_dropped_community_hidden, whatever the flag state (R5).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
 	defer func() {
@@ -184,6 +186,8 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		switch {
 		case p.Hidden():
 			tally.hidden++
+		case communityHiddenFor(p, callerUID):
+			tally.communityHidden++
 		case !replyAllowed(snap, callerUID, p.AuthorID):
 			tally.noteBlockMute(snap, p.AuthorID)
 		default:
@@ -212,9 +216,11 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 }
 
 // audienceTally counts the thread rows GetThread dropped, by cause (ADR-0025 W3-29b observability): counts only.
-type audienceTally struct{ protected, blocked, muted, hidden int }
+type audienceTally struct{ protected, blocked, muted, hidden, communityHidden int }
 
-func (t audienceTally) total() int { return t.protected + t.blocked + t.muted + t.hidden }
+func (t audienceTally) total() int {
+	return t.protected + t.blocked + t.muted + t.hidden + t.communityHidden
+}
 
 // noteBlockMute files a reply replyAllowed refused: a mute (the caller's own list) only when no block applies.
 func (t *audienceTally) noteBlockMute(snap graph.Snapshot, author string) {
@@ -232,6 +238,7 @@ func (t audienceTally) note(ctx context.Context) {
 	logger.SetRequestField(ctx, "audience_dropped_blocked", t.blocked)
 	logger.SetRequestField(ctx, "audience_dropped_muted", t.muted)
 	logger.SetRequestField(ctx, "audience_dropped_hidden", t.hidden)
+	logger.SetRequestField(ctx, "audience_dropped_community_hidden", t.communityHidden)
 }
 
 // contextAllowed is the context-post predicate (parent, root) with the audience applied: contextUsable (the pure
@@ -289,6 +296,9 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	var err2 error
 	if out.Parent, err2 = usable(focal.ReplyToID); err2 != nil {
 		return s.audienceErr(err2, caller)
+	}
+	if communityHiddenFor(out.Parent, caller) { // ADR-0031 Amendment 1 R4: a reply a moderator hid is an unavailable parent
+		out.Parent = nil
 	}
 	out.ParentUnavailable = out.Parent == nil
 	if root == focal.ReplyToID {
@@ -572,4 +582,13 @@ func embedStateFor(snap graph.Snapshot, embeddedAuthor string) postsv1.EmbedView
 		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_MUTED
 	}
 	return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
+}
+
+// communityHiddenFor is the reply drop of ADR-0031 Amendment 1 D4a (W5-51b): p is a reply a community moderator hid (communityHidden on a REPLY;
+// a root carries the flag too but keeps its thread, and a hide never touches Hidden() or Visible()) and the viewer is not its author. 0 reads: the
+// flag arrived with the document. It sits in GetThread's conversation loop and threadContext's parent check only, never in contextUsable, so
+// reply enforcement is unchanged and replying to a hidden reply stays allowed. It does not read the communities flag: the kill switch must
+// not undo a moderation decision (R5).
+func communityHiddenFor(p *Post, viewer string) bool {
+	return p != nil && p.IsReply && p.CommunityHidden && p.AuthorID != viewer
 }

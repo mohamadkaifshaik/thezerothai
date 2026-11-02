@@ -22,9 +22,9 @@ var _ ModerationRepo = (*FirestoreRepo)(nil)
 
 // PostModerator is the posts-side seam of Hide and Restore (A12), the identical interface to posts.CommunityModerator: posts never imports
 // communities and this package does not import posts, so it uses primitives and *firestore.Transaction only. found=false (no error) is a post
-// that is missing or was not created into cid. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check (W5-53), called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
+// that is missing, is a REPOST or plain post, is a root not created into cid, or is a reply whose conversationCommunityId is not cid. reply is true for a reply of the conversation (ADR-0031 Amendment 1 D4a, W5-51b): its hide sets communityHidden and communityHiddenAt, a restore deletes both, and ModeratePost writes no recentRemovals entry for it. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check (W5-53), called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
 type PostModerator interface {
-	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error)
+	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
 }
 
 // WithPostModerator wires the posts-side moderation seam (apiserver at startup; the integration tests). Without it Hide and Restore fail closed.
@@ -97,8 +97,8 @@ func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Tra
 // ModeratePost implements ModerationRepo (ADR-0031 D5, A12). One transaction. Reads, fresh and in this order: idempotency (a replay returns
 // here, 1 read), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
 // written and an error is not recorded), the actor's memberships, and last the post through PostModerator (ErrPostNotFound when
-// it was not created into this community), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16, ADR-0031 D4b: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
-// the post (field-level, in posts), the community (one Update: recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
+// it was not created into this community and is not a reply of its conversation), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16, ADR-0031 D4b: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
+// the post (field-level, in posts), the community (one Update: for a root recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
 // entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, +1 when the
 // community is not yet in the actor's modlogged (A6).
 func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) (ModeratePostResult, error) {
@@ -113,8 +113,9 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		rpc, action = rpcRestoreCommunityPost, ActionRestore
 	}
 	var res ModeratePostResult
+	var reply bool
 	attempts, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		res = ModeratePostResult{}
+		res, reply = ModeratePostResult{}, false
 		if _, found, err := r.lookup(ctx, tx, p.IdemKey, p.RequestHash); found || err != nil {
 			if err == nil {
 				res = ModeratePostResult{Outcome: Replayed}
@@ -135,7 +136,8 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		if err != nil {
 			return err
 		}
-		changed, found, err := r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore, func(authorID string) error { return actorMayActOn(c, p.UID, authorID) })
+		var changed, found bool
+		changed, found, reply, err = r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore, func(authorID string) error { return actorMayActOn(c, p.UID, authorID) })
 		if err != nil {
 			return err
 		}
@@ -146,10 +148,13 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		outcome, next := Unchanged, c
 		if changed {
 			now := r.now().UTC()
-			next.RecentRemovals, next.RemovalsTruncatedAt = removalsAfter(c, p.PostID, p.Restore, now, p.RemovalsMax)
-			ups := []firestore.Update{{Path: "recentRemovals", Value: removalDocs(next.RecentRemovals)}}
-			if !next.RemovalsTruncatedAt.Equal(c.RemovalsTruncatedAt) {
-				ups = append(ups, firestore.Update{Path: "removalsTruncatedAt", Value: next.RemovalsTruncatedAt})
+			var ups []firestore.Update
+			if !reply { // a reply is never in the feed: no recentRemovals entry, feed tokens untouched (R1)
+				next.RecentRemovals, next.RemovalsTruncatedAt = removalsAfter(c, p.PostID, p.Restore, now, p.RemovalsMax)
+				ups = append(ups, firestore.Update{Path: "recentRemovals", Value: removalDocs(next.RecentRemovals)})
+				if !next.RemovalsTruncatedAt.Equal(c.RemovalsTruncatedAt) {
+					ups = append(ups, firestore.Update{Path: "removalsTruncatedAt", Value: next.RemovalsTruncatedAt})
+				}
 			}
 			log, seq := appendLog(c, LogEntry{At: now, Actor: p.UID, Action: action, PostID: p.PostID}, p.ModlogMax)
 			b.Update(r.ref(p.ID), append(ups, logUpdates(&next, now, log, seq)...))
@@ -160,10 +165,11 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		if err := b.Err(); err != nil {
 			return err
 		}
-		res = ModeratePostResult{Outcome: outcome, Community: next}
+		res = ModeratePostResult{Outcome: outcome, Community: next, Reply: reply}
 		return nil
 	})
 	noteAttempts(ctx, attempts)
+	res.Reply = reply
 	return res, err
 }
 

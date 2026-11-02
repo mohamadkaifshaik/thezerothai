@@ -17,14 +17,17 @@ import (
 //
 // SetCommunityListing reads the post FRESH inside tx (1 read, never the cache), then:
 //   - found=false (and no error) when the post is missing, carries `moderation` (a platform takedown or suspended author: a community hide and
-//     restore must never touch it, W5-53 L-2) or does not carry community.id == cid (a reply, a REPOST and a plain post never do);
+//     restore must never touch it, W5-53 L-2), is a REPOST or a plain post, is a root whose community.id is not cid, or is a reply
+//     (kind REPLY) whose conversationCommunityId is not cid (ADR-0031 Amendment 1 D4a, W5-51b); reply reports which of the two it was;
 //   - guard (when non-nil) is called with the post's authorId once the post is found and BEFORE any write, whether or not the call would change
 //     anything; its error is returned unchanged and nothing is written (F16, W5-53: the communities module passes the author-vs-actor role check,
-//     so the decision costs 0 extra reads and posts never learns what a role is);
-//   - listed=false (hide): when communityId is present, one field-level Update deletes communityId and sets communityHidden; when it is
-//     already absent (hidden), nothing is written and changed is false;
-//   - listed=true (restore): when communityId is absent, one field-level Update sets communityId to the label's id and deletes
-//     communityHidden; when it is present, nothing is written and changed is false.
+//     so the decision costs 0 extra reads and posts never learns what a role is). It applies to replies unchanged;
+//   - listed=false (hide) of a root: when communityId is present, one field-level Update deletes communityId and sets communityHidden and
+//     communityHiddenAt (server time); when it is already absent (hidden), nothing is written and changed is false;
+//   - listed=true (restore) of a root: when communityId is absent, one field-level Update sets communityId to the label's id and deletes
+//     communityHidden and communityHiddenAt; when it is present, nothing is written and changed is false;
+//   - a reply has no communityId: it is "listed" while communityHidden is absent; a hide sets communityHidden and communityHiddenAt, a restore
+//     deletes both; the same no-op rules.
 //
 // posts never imports communities and communities never imports posts (the in-package posts integration tests import communities), so the seam
 // uses primitives and *firestore.Transaction only; communities declares the identical interface (communities.PostModerator) and apiserver hands
@@ -35,15 +38,18 @@ import (
 // instance cache and author-recent cache are not touched: a label already cached on an instance shows until its entry expires (60 s
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
-	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error)
+	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
 }
 
 // listingDoc is the part of a post document the moderator reads.
 type listingDoc struct {
-	CommunityID string        `firestore:"communityId"`
-	AuthorID    string        `firestore:"authorId"`
-	Moderation  string        `firestore:"moderation"`
-	Community   *communityDoc `firestore:"community"`
+	CommunityID             string        `firestore:"communityId"`
+	ConversationCommunityID string        `firestore:"conversationCommunityId"`
+	AuthorID                string        `firestore:"authorId"`
+	Kind                    string        `firestore:"kind"`
+	Moderation              string        `firestore:"moderation"`
+	CommunityHidden         bool          `firestore:"communityHidden"`
+	Community               *communityDoc `firestore:"community"`
 }
 
 // firestoreModerator implements CommunityModerator on the process's Firestore client.
@@ -55,45 +61,60 @@ func NewCommunityModerator(client *firestore.Client) CommunityModerator {
 }
 
 // SetCommunityListing implements CommunityModerator.
-func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error) {
+func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error) {
 	if m == nil || m.client == nil {
-		return false, false, errors.New("posts: moderator has no firestore client")
+		return false, false, false, errors.New("posts: moderator has no firestore client")
 	}
 	ref := m.client.Collection(postsCollection).Doc(postID)
 	snap, err := tx.Get(ref)
 	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
-			return false, false, nil
+			return false, false, false, nil
 		}
-		return false, false, fmt.Errorf("posts: get post for listing: %w", err)
+		return false, false, false, fmt.Errorf("posts: get post for listing: %w", err)
 	}
 	var d listingDoc
 	if err := snap.DataTo(&d); err != nil {
-		return false, false, fmt.Errorf("posts: decode post for listing: %w", err)
+		return false, false, false, fmt.Errorf("posts: decode post for listing: %w", err)
 	}
-	if d.Community == nil || d.Community.ID != cid {
-		return false, false, nil
+	// ADR-0031 Amendment 1 D4a: a reply qualifies through the conversation's community, a root POST or QUOTE through its label.
+	reply = d.Kind == string(KindReply)
+	switch {
+	case reply && d.ConversationCommunityID != cid:
+		return false, false, false, nil
+	case !reply && (d.Kind == string(KindRepost) || d.Community == nil || d.Community.ID != cid):
+		return false, false, false, nil
 	}
 	if d.Moderation != "" {
-		return false, false, nil
+		return false, false, false, nil
 	}
 	if guard != nil {
 		if err := guard(d.AuthorID); err != nil {
-			return false, true, err
+			return false, true, reply, err
 		}
 	}
 	isListed := d.CommunityID != ""
-	if isListed == listed {
-		return false, true, nil
+	if reply {
+		isListed = !d.CommunityHidden
 	}
-	updates := []firestore.Update{{Path: "communityId", Value: firestore.Delete}, {Path: "communityHidden", Value: true}}
-	if listed {
-		updates = []firestore.Update{{Path: "communityId", Value: cid}, {Path: "communityHidden", Value: firestore.Delete}}
+	if isListed == listed {
+		return false, true, reply, nil
+	}
+	var updates []firestore.Update
+	switch {
+	case reply && listed:
+		updates = []firestore.Update{{Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
+	case reply:
+		updates = []firestore.Update{{Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
+	case listed:
+		updates = []firestore.Update{{Path: "communityId", Value: cid}, {Path: "communityHidden", Value: firestore.Delete}, {Path: "communityHiddenAt", Value: firestore.Delete}}
+	default:
+		updates = []firestore.Update{{Path: "communityId", Value: firestore.Delete}, {Path: "communityHidden", Value: true}, {Path: "communityHiddenAt", Value: firestore.ServerTimestamp}}
 	}
 	if err := tx.Update(ref, updates); err != nil {
-		return false, true, fmt.Errorf("posts: set community listing: %w", err)
+		return false, true, reply, fmt.Errorf("posts: set community listing: %w", err)
 	}
 	budget.FromContext(ctx).AddWrites(1)
-	return true, true, nil
+	return true, true, reply, nil
 }

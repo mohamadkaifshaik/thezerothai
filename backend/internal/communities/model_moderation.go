@@ -127,10 +127,12 @@ type ModeratePostParams struct {
 	RemovalsMax, ModlogMax                int
 }
 
-// ModeratePostResult is what Repo.ModeratePost answers. Community is the freshly written document when Outcome is Written.
+// ModeratePostResult is what Repo.ModeratePost answers. Community is the freshly written document when Outcome is Written. Reply is true when the
+// target was a reply of the community's conversation (ADR-0031 Amendment 1 D4a), known once the post was read, so also on an F16 refusal; false on a replay.
 type ModeratePostResult struct {
 	Outcome   Outcome
 	Community Community
+	Reply     bool
 }
 
 // SetRoleParams is one SetMemberRole write.
