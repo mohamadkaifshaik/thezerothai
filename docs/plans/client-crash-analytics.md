@@ -195,7 +195,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | L-1: no delete of unsent reports before crash collection turns on | Low | TEL-18 | C-6: before any prod raise |
 | L-2: gaps in the first-sign-in reset | Low | TEL-18, per F12 | C-6: before any prod raise |
 | L-3: native (Java or Kotlin) crash messages are not scrubbed | Low | TEL-19 (ADR note); TEL-9 Part B trace (b) records a native crash | C-5: TEL-12 item 6 carries the sentence |
-| L-4: forged reports can trip the rollback trigger | Low | TEL-20 (runbook triage, in review; BoM re-check); TEL-13 (no Measurement Protocol `api_secret`; the runbook says never create one) | before any prod raise |
+| L-4: forged reports can trip the rollback trigger | Low | TEL-20 (runbook triage and BoM re-check, done #646); TEL-13 (no Measurement Protocol `api_secret`; the runbook says never create one) | before any prod raise |
 | I-1: `breadcrumb()` is public and not gated | Info | TEL-18 (deleted until it has a caller) | none |
 | Q-1: DPDP s. 6(10) proof of consent | question | F13, legal review | before any non-team account |
 
@@ -265,7 +265,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-17 | *(TEL-10 M-1, C-2)* Remove the two AdServices permissions from the merged manifest; extend the TEL-9 manifest guard; dump a local release APK's permissions | frontend-developer | S | — | yes (Android manifest and `app/test/guards/` only) | Open |
 | TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Done (#643) |
 | TEL-19 | *(TEL-10 L-3, C-5)* ADR-0032 dated note: native crash messages are not scrubbed; the sentence for TEL-12 item 6 | architect | XS | — | yes (ADR-0032 only) | Open |
-| TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Open |
+| TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Done (#646) |
 
 **Definition of done per ticket:** `make ci` green; widget tests for every new widget at 360 / 600 / 1200, light and dark, text scale 1.0 / 1.3 / 2.0 via `test/support/theme_harness.dart`; `docs/ui-catalog.md` and `docs/code-map.md` updated for shared items; this table's Status updated in the PR.
 
@@ -659,7 +659,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** Feeds TEL-12, which gates both flags leaving `off`.
 - **Seam.** —
 
-### TEL-20 — L-4: triage before a reported leak counts as one  [owner: sre-performance] [size: XS] [depends: —]  Status: Open
+### TEL-20 — L-4: triage before a reported leak counts as one  [owner: sre-performance] [size: XS] [depends: —]  Status: Done (#646)
 - **Description.** TEL-10 L-4. The app's Firebase IDs and API key are public. Anyone can plant a crash or event that contains an id, handle, email or text. That trips the rollback trigger, or plants third-party personal data in our consoles.
   - **`docs/runbooks/client-telemetry.md`, Failure modes:** a triage step before "Personal data seen in a crash report or an event" counts as a leak. Check that:
     - the build number is in a shipped range;
