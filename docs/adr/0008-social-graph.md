@@ -1,4 +1,6 @@
 # 0008. Social graph slice: follows, blocks, mutes, feature flags and graph quotas
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded in part. The single `graph/{uid}` document and its `maxFollowing` cap are replaced by a Postgres edges table (ADR-0033 D2, `docs/plans/refactor.md` RF-12). Graph semantics (blocks, mutes, requests, the unfollow no-op invariant) stay.
 Status: Accepted. All items, including D12 (export contents), which the founder decided on 2026-09-28.
 Amended 2026-09-30 ("Amendment 2026-09-30: M4 decisions" below): Mute target existence, the cold/warm budget
 convention (supersedes the per-RPC table in Cost impact) and the `_` uid invariant for edge doc ids.

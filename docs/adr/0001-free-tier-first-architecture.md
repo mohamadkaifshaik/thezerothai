@@ -1,4 +1,6 @@
 # 0001. Free-tier-first architecture
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded by ADR-0033 from its acceptance. Free tier first is no longer the design constraint; fixed-cost services named in ADR-0033 are allowed with `# cost-approved: ADR-0033`. Kept as history.
 Status: Accepted
 Date: 2026-09-26
 Deciders: architect, founder

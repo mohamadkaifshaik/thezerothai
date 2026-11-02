@@ -1,4 +1,6 @@
 # Credit runway cost model (feeds ADR-0022)
+
+> **2026-11-02, ADR-0033 (architecture reset):** historical. ADR-0022 credit mode ends on its own dates; spend after that follows ADR-0033 "Cost impact".
 Owner: architect · Date: 2026-10-23 · Status: draft for ADR-0022 (Proposed). Planning document: no code, infra or proto change.
 The measured, living model stays `docs/reviews/cost-model.md` (sre-performance). This file shows the arithmetic behind the
 ADR-0022 numbers so the founder can audit it. Every figure is a model estimate: prod has about 0 DAU today.

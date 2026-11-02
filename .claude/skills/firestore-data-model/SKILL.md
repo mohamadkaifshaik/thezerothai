@@ -3,6 +3,8 @@ name: firestore-data-model
 description: Firestore collections, document shapes, indexes, query rules and read/write costs for users, graph, posts, engagement, media and notifications. Use when designing data, writing repositories or queries, or changing firestore.indexes.json / rules.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Firestore data model (Native mode, `(default)` database)
 
 Only the Go API touches Firestore (Admin SDK). `firebase/firestore.rules` is **deny-all** for clients:

@@ -1,4 +1,6 @@
 # Cost model — v0.3 (design estimate; Graph and Posts/Timeline rows use emulator-measured numbers, no production data yet)
+
+> **2026-11-02, ADR-0033 (architecture reset):** historical. This models the Firestore-only Stage 0 design and no longer gates designs. ADR-0033 "Cost impact" is the current fixed-cost estimate; sre-performance rewrites this model once refactor phases 2 to 3 run in dev.
 Owner: sre-performance (maintains actuals weekly). Seeded by: architect, 2026-09-26, from ADR-0002…0007 and the protos.
 Updated 2026-09-30 (T21): Graph rows re-based on `docs/archive/reviews/loadtest-graph.md` (T18) and the T16a/T16b `budgettest` ceilings; see `cost-report-v0.2.0.md` §Graph.
 Updated 2026-10-06 (posts-and-timeline T25): Post/Timeline rows re-based on emulator measurements; see `cost-report-posts-timeline.md`. Whole product 191 to 230.0 reads/DAU (released scope 192.9; ADR-0010 forecast 182.6).

@@ -1,4 +1,6 @@
 # Product roadmap: X-parity UI programme and everything-in-MVP waves
+
+> **2026-11-02, ADR-0033 (architecture reset):** infrastructure work now follows `docs/plans/refactor.md`. The product waves below are unchanged; the "Stage 0 (free tier ...)" framing in the header no longer binds.
 Plan owner: planner · Date: 2026-10-23 (wording 2026-10-26; W2 and W3 status rows 2026-10-28) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU) · **Planning document only: no code, proto, Firebase or infra change.**
 This is the canonical, tracked roadmap. It supersedes the phase list in `.claude/skills/mvp-roadmap/SKILL.md` where they differ, and decisions (1)-(3) of `docs/plans/phase1.md`.
 

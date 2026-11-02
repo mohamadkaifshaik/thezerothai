@@ -35,8 +35,9 @@ if [ -n "$hits$mins$expired$malformed" ]; then
     [ -n "$mins" ] && printf '%s\n' "$mins"
     [ -n "$expired" ] && { echo "expired time-boxed approval (until: date passed): revert the line or get a new ADR"; printf '%s\n' "$expired"; }
     [ -n "$malformed" ] && { echo "malformed time-boxed approval: write it exactly as '# cost-approved: ADR-NNNN until:YYYY-MM-DD'"; printf '%s\n' "$malformed"; }
-    echo "Stage 0 is free-tier only (see CLAUDE.md and the free-tier-budget skill)."
-    echo "If this is intended, the architect must write an ADR with a Cost impact section, the human must accept it,"
+    echo "Fixed-cost resources need an Accepted ADR that names the cost (ADR-0033 covers Cloud SQL, Memorystore,"
+    echo "Direct VPC egress and the media LB/CDN/Armor; see docs/plans/refactor.md). For anything else,"
+    echo "the architect must write an ADR with a Cost impact section, the human must accept it,"
     echo "and the resource line must carry the comment:  # cost-approved: ADR-NNNN  (time-boxed: # cost-approved: ADR-NNNN until:YYYY-MM-DD)"
   } >&2
   exit 2

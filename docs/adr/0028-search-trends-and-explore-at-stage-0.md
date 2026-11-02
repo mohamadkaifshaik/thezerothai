@@ -1,4 +1,6 @@
 # 0028. Search, trends and Explore at Stage 0 (W4)
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded in part. Search moves to Postgres full-text and `pg_trgm` (ADR-0033 D5); the query grammar and `testdata/search_query_grammar.json` stay the contract.
 Status: Accepted (founder, 2026-10-30, by merging #465; F1–F8 at the defaults)
 Date: 2026-10-30
 Deciders: architect (proposal); the founder accepts by merging the PR. The founder said "start W4" without answering
