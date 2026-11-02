@@ -147,7 +147,13 @@ func (s *Server) communityTimeline(ctx context.Context, uid string, req *timelin
 	}
 	listed := removalIDs(c)
 	mod := role == communities.RoleOwner || role == communities.RoleModerator
-	af := s.newAudienceFilter(ctx, uid, snap)
+	// F14: the audience decision drops an author who blocks the viewer (its snapshot test is BlockedBy alone); a moderator keeps those rows, so
+	// the decision gets a snapshot without that set. communityAuthorAllowed and embedAllowed below still run on the full snapshot.
+	asnap := snap
+	if mod {
+		asnap.BlockedBy = nil
+	}
+	af := s.newAudienceFilter(ctx, uid, asnap)
 	// Per viewer, after the shared entry. A hidden post has already left the query, so communityHidden is not tested; an id in the
 	// current recentRemovals is dropped from every entry that still holds it.
 	keep := func(p *posts.Post) bool {
@@ -203,7 +209,9 @@ func (r communityResult) empty() bool {
 // userLikes (ADR-0031 D6).
 func (s *Server) communityRead(ctx context.Context, cid string, tok request, limit int, start time.Time) (communityResult, error) {
 	var res communityResult
-	if md := tok.mode(); md == modeOlder || md == modeGap {
+	// Older and gap pages run the query directly. So does a refresh on an instance with no entry: it costs 1 + new posts, where filling the
+	// entry would read a whole page (ADR-0031 D6: an empty refresh is 1 read).
+	if md := tok.mode(); md == modeOlder || md == modeGap || (md == modeRefresh && !s.community.hasEntry(cid)) {
 		ps, err := s.deps.Posts.ByCommunity(ctx, cid, tok.window(), limit)
 		if err != nil {
 			return res, logger.RedactErr(fmt.Errorf("timeline: community posts: %w", err), cid)
@@ -364,4 +372,10 @@ func applyCommunityReplyHint(views []*postsv1.PostView, items []*posts.Post, c c
 			v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED
 		}
 	}
+}
+
+// hasEntry reports whether this instance holds a live (not LRU-expired) entry for the community.
+func (c *communityFeedState) hasEntry(cid string) bool {
+	_, ok := c.entries.Get(cid)
+	return ok
 }
