@@ -367,3 +367,101 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 		t.Fatalf("empty query reads = %d, want 1", c.Reads())
 	}
 }
+
+// replyIn replies to parent as uid on this instance (the author profile is pre-loaded outside the measured call, as postIn does).
+func (in *createInstance) replyIn(t *testing.T, uid, key, parent string) (*Post, *budget.Counter, error) {
+	t.Helper()
+	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
+	if _, err := in.svc.directory.GetProfiles(context.Background(), []string{uid}); err != nil {
+		t.Errorf("warm profile: %v", err)
+	}
+	ctx, c := budget.WithCounter(ctx)
+	p, err := in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: "a reply", ReplyToPostID: parent, RepliesEnabled: true})
+	return p, c, err
+}
+
+// TestCommunityReply_MembersOnlyAndBudget (W5-26b, ADR-0031 D5 F8): a member's reply, to the root and to a reply, costs +2 reads cold and +0
+// warm over the same reply in a plain conversation, +0 writes; a non-member and a banned user get FORBIDDEN not_member with 0 writes; the rule
+// keys on the inherited conversationCommunityId (stored on the reply) and still holds when the root is hidden (communityId deleted).
+func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
+	client := newTestClient(t)
+	author, _ := newCommunityInstance(t, client, 100)
+	for _, u := range []string{"alice", "bob", "carol", "dave"} {
+		author.signUp(t, "uid-"+u, u)
+	}
+	seedCommunityDoc(t, client, commCID, "Go Lang", "ACTIVE")
+	seedMember(t, client, commCID, "uid-alice", "JOINED")
+	seedMember(t, client, commCID, "uid-bob", "JOINED")
+	seedMember(t, client, commCID, "uid-dave", "BANNED")
+
+	root, _, err := author.postIn(t, "uid-alice", key(1), commCID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainRoot, _, err := author.create(t, "uid-alice", key(2), "plain root")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Baseline: the same two replies in a plain conversation on a fresh instance.
+	plainIn, _ := newCommunityInstance(t, client, 100)
+	pr1, plainCold, err := plainIn.replyIn(t, "uid-bob", key(10), plainRoot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, plainWarm, err := plainIn.replyIn(t, "uid-bob", key(11), pr1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The community conversation on another fresh instance: cold caches for the community and the member doc.
+	in, _ := newCommunityInstance(t, client, 100)
+	r1, cold, err := in.replyIn(t, "uid-bob", key(20), root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cold.Reads() != plainCold.Reads()+2 || cold.Writes() != plainCold.Writes() {
+		t.Fatalf("cold: reads %d writes %d, want plain %d/%d + 2 reads, +0 writes", cold.Reads(), cold.Writes(), plainCold.Reads(), plainCold.Writes())
+	}
+	budgettest.Assert(t, "reply in a community conversation, cold", cold, budgettest.Budget{Reads: plainCold.Reads() + 2, Writes: plainCold.Writes()})
+	if r1.ConversationCommunityID != commCID || r1.CommunityID != "" || r1.Community != nil {
+		t.Fatalf("reply = conv %q communityId %q community %v, want the inherited conversation community only", r1.ConversationCommunityID, r1.CommunityID, r1.Community)
+	}
+	// A reply to a reply: the root is never read; warm: +0 over the plain warm reply.
+	r2, warm, err := in.replyIn(t, "uid-bob", key(21), r1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warm.Reads() != plainWarm.Reads() || warm.Writes() != plainWarm.Writes() {
+		t.Fatalf("warm: reads %d writes %d, want plain %d/%d (+0)", warm.Reads(), warm.Writes(), plainWarm.Reads(), plainWarm.Writes())
+	}
+	if r2.ConversationCommunityID != commCID {
+		t.Fatalf("a reply to a reply lost the conversation community: %q", r2.ConversationCommunityID)
+	}
+
+	// A hidden root: communityId and the label go, conversationCommunityId stays, so the conversation stays members only.
+	if _, err := client.Collection(postsCollection).Doc(root.ID).Update(context.Background(), []firestore.Update{
+		{Path: "communityId", Value: firestore.Delete}, {Path: "communityHidden", Value: true}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		uid, name string
+		n         int
+	}{{"uid-carol", "non-member", 30}, {"uid-dave", "banned", 31}} {
+		fresh, _ := newCommunityInstance(t, client, 100)
+		_, c, err := fresh.replyIn(t, tc.uid, key(tc.n), r2.ID)
+		wantRefusal(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", "not_member")
+		if c.Writes() != 0 {
+			t.Fatalf("%s: writes = %d, want 0", tc.name, c.Writes())
+		}
+	}
+	// The member still may reply under the hidden root (new instance: root read from Firestore sees communityHidden).
+	fresh, _ := newCommunityInstance(t, client, 100)
+	hp, _, err := fresh.replyIn(t, "uid-bob", key(40), r2.ID)
+	if err != nil || hp.ConversationCommunityID != commCID {
+		t.Fatalf("member reply under a hidden root: %v %+v", err, hp)
+	}
+	if got := fieldInt(t, client, "posts/"+root.ID, "replyCount"); got != 1 {
+		t.Fatalf("root replyCount = %d, want 1 (refused replies are not counted)", got)
+	}
+}
