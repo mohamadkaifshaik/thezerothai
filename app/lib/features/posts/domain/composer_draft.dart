@@ -80,6 +80,7 @@ class ComposerDraft {
     this.replyAudience = ReplyAudience.everyone,
     this.paidPartnership = false,
     this.madeWithAi = false,
+    this.communityId = '',
   });
 
   final String id;
@@ -91,6 +92,11 @@ class ComposerDraft {
   final ReplyAudience replyAudience;
   final bool paidPartnership;
   final bool madeWithAi;
+
+  /// The community the post was going into (W5-34, ADR-0029 F8), or empty for
+  /// Everyone. The id only: the name is read from the caller's communities when
+  /// the draft opens, and a community the caller is not in is dropped then.
+  final String communityId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -106,6 +112,7 @@ class ComposerDraft {
     ReplyAudience? replyAudience,
     bool? paidPartnership,
     bool? madeWithAi,
+    String? communityId,
     DateTime? updatedAt,
   }) => ComposerDraft(
     id: id,
@@ -115,6 +122,7 @@ class ComposerDraft {
     replyAudience: replyAudience ?? this.replyAudience,
     paidPartnership: paidPartnership ?? this.paidPartnership,
     madeWithAi: madeWithAi ?? this.madeWithAi,
+    communityId: communityId ?? this.communityId,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -129,6 +137,7 @@ class ComposerDraft {
       other.replyAudience == replyAudience &&
       other.paidPartnership == paidPartnership &&
       other.madeWithAi == madeWithAi &&
+      other.communityId == communityId &&
       other.createdAt == createdAt &&
       other.updatedAt == updatedAt;
 
@@ -141,6 +150,7 @@ class ComposerDraft {
     replyAudience,
     paidPartnership,
     madeWithAi,
+    communityId,
     createdAt,
     updatedAt,
   );

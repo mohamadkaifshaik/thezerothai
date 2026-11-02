@@ -3,6 +3,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../domain/communities_feature_flag.dart';
 
@@ -74,16 +75,89 @@ class ModerationLogPage {
 ///   Nothing is retried here.
 /// - **Roles** are the server's (`Community.viewer_role`,
 ///   `CommunityMember.role`, see `CommunityRole`); this class derives none.
-/// - Holds no session state: nothing here outlives a sign-out.
+/// - **Session cache (W5-34).** The caller's communities are kept in memory
+///   for the session: every successful [listMyCommunities] fills it, a Join,
+///   Leave or create keeps it current, and [myCommunities] reads it, so the
+///   composer's audience picker costs 0 calls once the Communities screen (or
+///   an earlier compose) has loaded the list. It ends with the shared
+///   [SessionEpoch] (sign-out); nothing is persisted.
 class CommunitiesRepository {
   CommunitiesRepository({
     required ApiClient apiClient,
     required ServiceFeatureGate gate,
+    SessionEpoch? epoch,
   }) : _apiClient = apiClient,
-       _gate = gate;
+       _gate = gate,
+       _epoch = epoch,
+       _seenEpoch = epoch?.value ?? 0;
 
   final ApiClient _apiClient;
   final ServiceFeatureGate _gate;
+  final SessionEpoch? _epoch;
+  int _seenEpoch;
+  MyCommunities? _mine;
+  Future<MyCommunities>? _mineInFlight;
+
+  /// Drops the cache when the session ended since it was last looked at.
+  void _sync() {
+    final epoch = _epoch;
+    if (epoch == null || epoch.value == _seenEpoch) return;
+    _seenEpoch = epoch.value;
+    _mine = null;
+    _mineInFlight = null;
+  }
+
+  /// The caller's communities as last seen this session, or null (never
+  /// loaded, or the session ended). Reads nothing from the network.
+  MyCommunities? get cachedMine {
+    _sync();
+    return _mine;
+  }
+
+  /// The caller's communities: the session cache when there is one, else one
+  /// ListMyCommunities (concurrent callers share it). Pass [refresh] to ask
+  /// the server again.
+  Future<MyCommunities> myCommunities({bool refresh = false}) {
+    _sync();
+    final cached = _mine;
+    if (!refresh && cached != null) return Future.value(cached);
+    return _mineInFlight ??= listMyCommunities(pageSize: 50)
+        .whenComplete(() => _mineInFlight = null);
+  }
+
+  void _noteJoined(pb.Community community) {
+    _sync();
+    final mine = _mine;
+    if (mine == null) return;
+    final id = community.communityId;
+    final known = mine.communities.any((c) => c.communityId == id);
+    _mine = MyCommunities(
+      communities: known
+          ? [
+              for (final c in mine.communities)
+                c.communityId == id ? community : c,
+            ]
+          : [...mine.communities, community],
+      canCreate: mine.canCreate,
+      nextPageToken: mine.nextPageToken,
+    );
+  }
+
+  /// Forgets [communityId] from the cache after the server said the caller
+  /// cannot post there (not a member, banned).
+  void forgetCommunity(String communityId) {
+    _sync();
+    final mine = _mine;
+    if (mine == null) return;
+    _mine = MyCommunities(
+      communities: [
+        for (final c in mine.communities)
+          if (c.communityId != communityId) c,
+      ],
+      canCreate: mine.canCreate,
+      nextPageToken: mine.nextPageToken,
+    );
+  }
 
   /// Whether communities RPCs may be sent at all right now.
   bool get enabled => _gate.enabled;
@@ -95,8 +169,8 @@ class CommunitiesRepository {
     required String name,
     String description = '',
     List<pb.CommunityRule> rules = const [],
-  }) {
-    return _call(
+  }) async {
+    final r = await _call(
       () => _apiClient.communities.createCommunity(
         pb.CreateCommunityRequest(
           idempotencyKey: idempotencyKey,
@@ -106,6 +180,9 @@ class CommunitiesRepository {
         ),
       ),
     );
+    // The owner is a member now: the next read asks the server.
+    _mine = null;
+    return r;
   }
 
   /// Field presence is the signal: a null argument leaves the field
@@ -156,16 +233,21 @@ class CommunitiesRepository {
     int pageSize = 0,
     String pageToken = '',
   }) async {
+    _sync();
+    final startEpoch = _epoch?.value;
     final r = await _call(
       () => _apiClient.communities.listMyCommunities(
         pb.ListMyCommunitiesRequest(pageSize: pageSize, pageToken: pageToken),
       ),
     );
-    return MyCommunities(
+    final mine = MyCommunities(
       communities: r.communities.toList(),
       canCreate: r.canCreate,
       nextPageToken: r.nextPageToken,
     );
+    // Only the first page is the whole list; a later page never replaces it.
+    if (pageToken.isEmpty && _epoch?.value == startEpoch) _mine = mine;
+    return mine;
   }
 
   /// Returns the community with the caller's new `viewer_role`.
@@ -181,6 +263,7 @@ class CommunitiesRepository {
         ),
       ),
     );
+    _noteJoined(r.community);
     return r.community;
   }
 
@@ -196,6 +279,7 @@ class CommunitiesRepository {
         ),
       ),
     );
+    forgetCommunity(communityId);
     return r.community;
   }
 

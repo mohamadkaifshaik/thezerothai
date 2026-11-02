@@ -4277,6 +4277,18 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _communityIdMeta = const VerificationMeta(
+    'communityId',
+  );
+  @override
+  late final GeneratedColumn<String> communityId = GeneratedColumn<String>(
+    'community_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -4354,6 +4366,7 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
     replyPolicy,
     paidPartnership,
     madeWithAi,
+    communityId,
     createdAt,
     updatedAt,
     sendKey,
@@ -4427,6 +4440,15 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
         madeWithAi.isAcceptableOrUnknown(
           data['made_with_ai']!,
           _madeWithAiMeta,
+        ),
+      );
+    }
+    if (data.containsKey('community_id')) {
+      context.handle(
+        _communityIdMeta,
+        communityId.isAcceptableOrUnknown(
+          data['community_id']!,
+          _communityIdMeta,
         ),
       );
     }
@@ -4513,6 +4535,10 @@ class $ComposerDraftEntriesTable extends ComposerDraftEntries
         DriftSqlType.bool,
         data['${effectivePrefix}made_with_ai'],
       )!,
+      communityId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}community_id'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
@@ -4565,6 +4591,9 @@ class ComposerDraftRow extends DataClass
   final String replyPolicy;
   final bool paidPartnership;
   final bool madeWithAi;
+
+  /// The community the post was going into (W5-34); '' = Everyone.
+  final String communityId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -4593,6 +4622,7 @@ class ComposerDraftRow extends DataClass
     required this.replyPolicy,
     required this.paidPartnership,
     required this.madeWithAi,
+    required this.communityId,
     required this.createdAt,
     required this.updatedAt,
     this.sendKey,
@@ -4610,6 +4640,7 @@ class ComposerDraftRow extends DataClass
     map['reply_policy'] = Variable<String>(replyPolicy);
     map['paid_partnership'] = Variable<bool>(paidPartnership);
     map['made_with_ai'] = Variable<bool>(madeWithAi);
+    map['community_id'] = Variable<String>(communityId);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || sendKey != null) {
@@ -4636,6 +4667,7 @@ class ComposerDraftRow extends DataClass
       replyPolicy: Value(replyPolicy),
       paidPartnership: Value(paidPartnership),
       madeWithAi: Value(madeWithAi),
+      communityId: Value(communityId),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
       sendKey: sendKey == null && nullToAbsent
@@ -4666,6 +4698,7 @@ class ComposerDraftRow extends DataClass
       replyPolicy: serializer.fromJson<String>(json['replyPolicy']),
       paidPartnership: serializer.fromJson<bool>(json['paidPartnership']),
       madeWithAi: serializer.fromJson<bool>(json['madeWithAi']),
+      communityId: serializer.fromJson<String>(json['communityId']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       sendKey: serializer.fromJson<String?>(json['sendKey']),
@@ -4685,6 +4718,7 @@ class ComposerDraftRow extends DataClass
       'replyPolicy': serializer.toJson<String>(replyPolicy),
       'paidPartnership': serializer.toJson<bool>(paidPartnership),
       'madeWithAi': serializer.toJson<bool>(madeWithAi),
+      'communityId': serializer.toJson<String>(communityId),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'sendKey': serializer.toJson<String?>(sendKey),
@@ -4702,6 +4736,7 @@ class ComposerDraftRow extends DataClass
     String? replyPolicy,
     bool? paidPartnership,
     bool? madeWithAi,
+    String? communityId,
     DateTime? createdAt,
     DateTime? updatedAt,
     Value<String?> sendKey = const Value.absent(),
@@ -4716,6 +4751,7 @@ class ComposerDraftRow extends DataClass
     replyPolicy: replyPolicy ?? this.replyPolicy,
     paidPartnership: paidPartnership ?? this.paidPartnership,
     madeWithAi: madeWithAi ?? this.madeWithAi,
+    communityId: communityId ?? this.communityId,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     sendKey: sendKey.present ? sendKey.value : this.sendKey,
@@ -4742,6 +4778,9 @@ class ComposerDraftRow extends DataClass
       madeWithAi: data.madeWithAi.present
           ? data.madeWithAi.value
           : this.madeWithAi,
+      communityId: data.communityId.present
+          ? data.communityId.value
+          : this.communityId,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       sendKey: data.sendKey.present ? data.sendKey.value : this.sendKey,
@@ -4765,6 +4804,7 @@ class ComposerDraftRow extends DataClass
           ..write('replyPolicy: $replyPolicy, ')
           ..write('paidPartnership: $paidPartnership, ')
           ..write('madeWithAi: $madeWithAi, ')
+          ..write('communityId: $communityId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('sendKey: $sendKey, ')
@@ -4784,6 +4824,7 @@ class ComposerDraftRow extends DataClass
     replyPolicy,
     paidPartnership,
     madeWithAi,
+    communityId,
     createdAt,
     updatedAt,
     sendKey,
@@ -4802,6 +4843,7 @@ class ComposerDraftRow extends DataClass
           other.replyPolicy == this.replyPolicy &&
           other.paidPartnership == this.paidPartnership &&
           other.madeWithAi == this.madeWithAi &&
+          other.communityId == this.communityId &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.sendKey == this.sendKey &&
@@ -4818,6 +4860,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
   final Value<String> replyPolicy;
   final Value<bool> paidPartnership;
   final Value<bool> madeWithAi;
+  final Value<String> communityId;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
   final Value<String?> sendKey;
@@ -4833,6 +4876,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     this.replyPolicy = const Value.absent(),
     this.paidPartnership = const Value.absent(),
     this.madeWithAi = const Value.absent(),
+    this.communityId = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.sendKey = const Value.absent(),
@@ -4849,6 +4893,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     this.replyPolicy = const Value.absent(),
     this.paidPartnership = const Value.absent(),
     this.madeWithAi = const Value.absent(),
+    this.communityId = const Value.absent(),
     required DateTime createdAt,
     required DateTime updatedAt,
     this.sendKey = const Value.absent(),
@@ -4869,6 +4914,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     Expression<String>? replyPolicy,
     Expression<bool>? paidPartnership,
     Expression<bool>? madeWithAi,
+    Expression<String>? communityId,
     Expression<DateTime>? createdAt,
     Expression<DateTime>? updatedAt,
     Expression<String>? sendKey,
@@ -4885,6 +4931,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
       if (replyPolicy != null) 'reply_policy': replyPolicy,
       if (paidPartnership != null) 'paid_partnership': paidPartnership,
       if (madeWithAi != null) 'made_with_ai': madeWithAi,
+      if (communityId != null) 'community_id': communityId,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (sendKey != null) 'send_key': sendKey,
@@ -4903,6 +4950,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     Value<String>? replyPolicy,
     Value<bool>? paidPartnership,
     Value<bool>? madeWithAi,
+    Value<String>? communityId,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
     Value<String?>? sendKey,
@@ -4919,6 +4967,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
       replyPolicy: replyPolicy ?? this.replyPolicy,
       paidPartnership: paidPartnership ?? this.paidPartnership,
       madeWithAi: madeWithAi ?? this.madeWithAi,
+      communityId: communityId ?? this.communityId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       sendKey: sendKey ?? this.sendKey,
@@ -4952,6 +5001,9 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
     }
     if (madeWithAi.present) {
       map['made_with_ai'] = Variable<bool>(madeWithAi.value);
+    }
+    if (communityId.present) {
+      map['community_id'] = Variable<String>(communityId.value);
     }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
@@ -4987,6 +5039,7 @@ class ComposerDraftEntriesCompanion extends UpdateCompanion<ComposerDraftRow> {
           ..write('replyPolicy: $replyPolicy, ')
           ..write('paidPartnership: $paidPartnership, ')
           ..write('madeWithAi: $madeWithAi, ')
+          ..write('communityId: $communityId, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('sendKey: $sendKey, ')
@@ -7567,6 +7620,7 @@ typedef $$ComposerDraftEntriesTableCreateCompanionBuilder =
       Value<String> replyPolicy,
       Value<bool> paidPartnership,
       Value<bool> madeWithAi,
+      Value<String> communityId,
       required DateTime createdAt,
       required DateTime updatedAt,
       Value<String?> sendKey,
@@ -7584,6 +7638,7 @@ typedef $$ComposerDraftEntriesTableUpdateCompanionBuilder =
       Value<String> replyPolicy,
       Value<bool> paidPartnership,
       Value<bool> madeWithAi,
+      Value<String> communityId,
       Value<DateTime> createdAt,
       Value<DateTime> updatedAt,
       Value<String?> sendKey,
@@ -7634,6 +7689,11 @@ class $$ComposerDraftEntriesTableFilterComposer
 
   ColumnFilters<bool> get madeWithAi => $composableBuilder(
     column: $table.madeWithAi,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get communityId => $composableBuilder(
+    column: $table.communityId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7712,6 +7772,11 @@ class $$ComposerDraftEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get communityId => $composableBuilder(
+    column: $table.communityId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -7776,6 +7841,11 @@ class $$ComposerDraftEntriesTableAnnotationComposer
 
   GeneratedColumn<bool> get madeWithAi => $composableBuilder(
     column: $table.madeWithAi,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get communityId => $composableBuilder(
+    column: $table.communityId,
     builder: (column) => column,
   );
 
@@ -7852,6 +7922,7 @@ class $$ComposerDraftEntriesTableTableManager
                 Value<String> replyPolicy = const Value.absent(),
                 Value<bool> paidPartnership = const Value.absent(),
                 Value<bool> madeWithAi = const Value.absent(),
+                Value<String> communityId = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<String?> sendKey = const Value.absent(),
@@ -7867,6 +7938,7 @@ class $$ComposerDraftEntriesTableTableManager
                 replyPolicy: replyPolicy,
                 paidPartnership: paidPartnership,
                 madeWithAi: madeWithAi,
+                communityId: communityId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 sendKey: sendKey,
@@ -7884,6 +7956,7 @@ class $$ComposerDraftEntriesTableTableManager
                 Value<String> replyPolicy = const Value.absent(),
                 Value<bool> paidPartnership = const Value.absent(),
                 Value<bool> madeWithAi = const Value.absent(),
+                Value<String> communityId = const Value.absent(),
                 required DateTime createdAt,
                 required DateTime updatedAt,
                 Value<String?> sendKey = const Value.absent(),
@@ -7899,6 +7972,7 @@ class $$ComposerDraftEntriesTableTableManager
                 replyPolicy: replyPolicy,
                 paidPartnership: paidPartnership,
                 madeWithAi: madeWithAi,
+                communityId: communityId,
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 sendKey: sendKey,

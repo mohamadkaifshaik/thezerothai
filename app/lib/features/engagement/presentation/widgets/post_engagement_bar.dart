@@ -126,7 +126,9 @@ class PostEngagementBar extends StatelessWidget {
         Widget bar({bool bookmarked = false, VoidCallback? onBookmark}) =>
             PostActionBar(
               showDisabled: false,
-              replyDisabledHint: replyBlocked ? kReplyNotAllowedHint : null,
+              replyDisabledHint: replyBlocked
+                  ? replyNotAllowedHint(view)
+                  : null,
               replyCount: view.post.replyCount.toInt(),
               repostCount: current.repostCount ?? 0,
               likeCount: current.likeCount ?? 0,

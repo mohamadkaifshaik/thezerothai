@@ -145,9 +145,19 @@ class _ThreadView extends StatelessWidget {
               // The post vanished under us: reload to the unavailable view.
               thread.load();
             }
+            final focal = thread.state.focal;
+            final communityName = focal != null && focal.post.hasCommunity()
+                ? focal.post.community.name
+                : '';
             ScaffoldMessenger.of(context)
               ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(content: Text(replyErrorMessage(error))));
+              ..showSnackBar(
+                SnackBar(
+                  content: Text(
+                    replyErrorMessage(error, communityName: communityName),
+                  ),
+                ),
+              );
             context.read<ComposerCubit>().errorShown();
           },
         ),
@@ -204,10 +214,16 @@ class _ThreadBody extends StatelessWidget {
       final focal = c.state.focal;
       return focal != null && replyKnownNotAllowed(focal);
     });
+    // A post in a community: only its members may reply, and the hint says so.
+    final blockedHint = context.select((ThreadCubit c) {
+      final focal = c.state.focal;
+      return focal == null ? kReplyNotAllowedHint : replyNotAllowedHint(focal);
+    });
     return Column(
       children: [
         const Expanded(child: _ThreadList()),
-        if (canReply) _ReplyComposer(blocked: replyBlocked),
+        if (canReply)
+          _ReplyComposer(blocked: replyBlocked, blockedHint: blockedHint),
       ],
     );
   }

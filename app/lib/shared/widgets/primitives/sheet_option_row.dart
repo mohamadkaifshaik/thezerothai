@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsRole;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -8,7 +10,8 @@ import '../../../core/theme/app_theme.dart';
 ///
 /// With [selected] set the row is one choice of a mutually exclusive group:
 /// it is announced as selected or not (the visual mark is the caller's
-/// [trailing]); with [selected] null it is a plain button.
+/// [trailing]); with [selected] null it is a plain button. [role] gives the row
+/// an ARIA role on the web (the audience picker's rows are `menuItem`s).
 class SheetOptionRow extends StatelessWidget {
   const SheetOptionRow({
     super.key,
@@ -17,6 +20,7 @@ class SheetOptionRow extends StatelessWidget {
     required this.onTap,
     this.trailing,
     this.selected,
+    this.role,
   });
 
   final IconData icon;
@@ -24,6 +28,7 @@ class SheetOptionRow extends StatelessWidget {
   final VoidCallback? onTap;
   final Widget? trailing;
   final bool? selected;
+  final SemanticsRole? role;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,7 @@ class SheetOptionRow extends StatelessWidget {
     final tint = enabled ? null : theme.disabledColor;
     return Semantics(
       button: true,
+      role: role,
       enabled: enabled,
       selected: selected,
       inMutuallyExclusiveGroup: selected == null ? null : true,

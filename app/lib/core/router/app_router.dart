@@ -189,6 +189,12 @@ class AppRouter {
   static String composeDraftPath(String draftId) =>
       '$composePath?draft=${Uri.encodeQueryComponent(draftId)}';
 
+  /// The composer with the community [communityId] preselected as the
+  /// audience (W5-34): `/compose?community=<id>`. Used only while the caller is
+  /// in that community; otherwise it opens on Everyone and says so.
+  static String composeCommunityPath(String communityId) =>
+      '$composePath?community=${Uri.encodeQueryComponent(communityId)}';
+
   /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
   /// quoted post's `EmbeddedPost` as `extra` for the preview.
   static String composeQuotePath(String postId) =>
@@ -245,8 +251,11 @@ class AppRouter {
         builder: (context, state) {
           final quote = state.uri.queryParameters['quote'] ?? '';
           final draft = state.uri.queryParameters['draft'] ?? '';
+          final community = state.uri.queryParameters['community'] ?? '';
           return AuthGate(
             child: ComposerScreen(
+              // Only a well-formed community id (19 digits) preselects one.
+              communityId: _postIdPattern.hasMatch(community) ? community : '',
               // Only a well-formed post id (19 digits) starts a quote.
               quoteOfPostId: _postIdPattern.hasMatch(quote) ? quote : '',
               // Only a well-formed draft id (16 lower-case hex) opens a draft;

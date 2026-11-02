@@ -2,6 +2,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
+import '../../communities/domain/communities_feature_flag.dart'
+    show kCommunityPostsQuota;
 import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/posts_feature_flag.dart';
@@ -20,6 +22,9 @@ const kMediaCombinationMessage =
 /// Callers must never auto-retry after [DegradedModeException].
 String createPostErrorMessage(AppException error) {
   return switch (error) {
+    QuotaExceededException(quota: kCommunityPostsQuota) =>
+      "You've posted a lot in communities today. You can post more "
+          'tomorrow.',
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
@@ -66,7 +71,17 @@ String createPostErrorMessage(AppException error) {
 /// where "reply" wording matters: the parent vanished (NOT_FOUND, one answer
 /// for missing/deleted/hidden) or FEATURE_REPLIES is off. Everything else is
 /// the shared [createPostErrorMessage].
-String replyErrorMessage(AppException error) {
+///
+/// [communityName] is the community of the post being replied to, when it
+/// carries a label: a refusal for not being allowed to reply then reads "Only
+/// members of `<name>` can reply" (ADR-0031 F8).
+String replyErrorMessage(AppException error, {String communityName = ''}) {
+  if (communityName.isNotEmpty &&
+      (error is ReplyNotAllowedException ||
+          error is CommunityForbiddenException &&
+              error.reason == CommunityForbiddenReason.notMember)) {
+    return '${communityRepliesHint(communityName)}.';
+  }
   return switch (error) {
     NotFoundException() =>
       "The post you're replying to isn't available any more.",

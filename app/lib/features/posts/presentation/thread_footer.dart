@@ -90,11 +90,16 @@ class _Footer extends StatelessWidget {
 /// Inline composer docked under the thread: replies to the open post. The
 /// same 280 code-point rules and counter as the main composer.
 class _ReplyComposer extends StatefulWidget {
-  const _ReplyComposer({this.blocked = false});
+  const _ReplyComposer({
+    this.blocked = false,
+    this.blockedHint = kReplyNotAllowedHint,
+  });
 
   /// The viewer may not reply to the open post: the field and Reply are
-  /// disabled, with a why-less hint.
+  /// disabled, with [blockedHint] ("Only members of `<name>` can reply" for a
+  /// post in a community, else a why-less one).
   final bool blocked;
+  final String blockedHint;
 
   @override
   State<_ReplyComposer> createState() => _ReplyComposerState();
@@ -171,7 +176,7 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                           style: theme.textTheme.bodyLarge,
                           decoration: InputDecoration(
                             hintText: widget.blocked
-                                ? kReplyNotAllowedHint
+                                ? widget.blockedHint
                                 : 'Post your reply',
                             hintStyle: theme.textTheme.bodyLarge?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,

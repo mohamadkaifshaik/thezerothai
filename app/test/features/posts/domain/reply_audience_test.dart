@@ -48,4 +48,22 @@ void main() {
     expect(blocked(ReplyPermission.REPLY_PERMISSION_ALLOWED), isFalse);
     expect(replyKnownNotAllowed(pb.PostView()), isFalse);
   });
+
+  test('the disabled Reply hint names the community of a labelled post '
+      '(ADR-0031 F8)', () {
+    expect(replyNotAllowedHint(pb.PostView()), kReplyNotAllowedHint);
+    final labelled = pb.PostView(
+      post: pb.Post(
+        community: pb.CommunityRef(id: '1', name: 'Gardeners'),
+      ),
+    );
+    expect(
+      replyNotAllowedHint(labelled),
+      'Only members of Gardeners can reply',
+    );
+    final nameless = pb.PostView(
+      post: pb.Post(community: pb.CommunityRef(id: '1')),
+    );
+    expect(replyNotAllowedHint(nameless), kReplyNotAllowedHint);
+  });
 }

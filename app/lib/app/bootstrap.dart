@@ -283,12 +283,14 @@ Future<void> bootstrap() async {
   // shared SessionEpoch (sign-out).
   final listsGate = buildServiceGate(onboardingBloc, kFeatureLists);
   // Communities (ADR-0031): one gate for CommunityService and COMMUNITY Home
-  // tabs (0 RPCs while `communities` is off). The repository holds no session
-  // state, so nothing of it needs wiping on sign-out.
+  // tabs (0 RPCs while `communities` is off). The caller's own
+  // communities are a session cache that ends with the shared SessionEpoch
+  // (sign-out).
   final communitiesGate = buildServiceGate(onboardingBloc, kFeatureCommunities);
   final communitiesRepository = CommunitiesRepository(
     apiClient: apiClient,
     gate: communitiesGate,
+    epoch: database.sessionEpoch,
   );
   final homeTabsRepository = HomeTabsRepository(
     apiClient: apiClient,

@@ -367,7 +367,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
 | W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Done (#614) |
-| W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Open |
+| W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Done (#630) |
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
@@ -1281,7 +1281,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Parallel with W3 Part A / W4:** yes.
 - **As built (W5-32).**
   - `TimelineRepository` fetches `FeedKey.community` through a `communitiesGate` (`GetCommunityTimeline`, like the list path); `onCommunitySeen` is an optional hook, not wired in `bootstrap.dart` (the page reads its header from its one `GetCommunity`).
-  - No compose-to-community from the page: W5-34 owns posting, including preselect from `/communities/:id`.
+  - No compose-to-community from the page: W5-34 owns posting, including preselect from `/communities/:id`. (W5-34, #630: the header got a "Post" button for a joined, not archived community; it opens `/compose?community=<id>`.)
   - The members page has no moderation actions (ban, roles): W5-35.
   - Pin / Unpin reuses the new shared `PinToHomeButton` (extracted from the List header).
 
@@ -1299,7 +1299,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** One `PostContextLabel` widget in `app/lib/shared/widgets` (catalogued), so later labels (pinned, W3-17) reuse it.
 - **Parallel with W3 Part A / W4:** `post_card.dart` serialises with W3-17 and W4-16. If W3-17 lands first, its "Pinned" row moves onto this widget.
 
-### W5-34 — Composer audience picker  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Open
+### W5-34 — Composer audience picker  [owner: frontend-developer] [size: M] [depends: W5-30]  Status: Done (#630)
 - **Description.** Under the avatar in the composer, an audience pill "Everyone ▾" with an accent outline. It opens "Choose audience": `Everyone`, then "My Communities" rows (name, N members) (`composer.md` §3, OBSERVED + A11Y). Choosing a community sets `community_id` on CreatePost (root posts and quotes only). The pill is hidden in reply mode and in schedule mode (SchedulePost rejects it). Opening `/compose` from a community page preselects that community. Friendly errors for not-member, banned and quota.
 - **Acceptance criteria.**
   - Given `communities` off or no memberships, then no pill.
