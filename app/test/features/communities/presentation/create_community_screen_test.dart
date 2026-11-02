@@ -108,6 +108,32 @@ void main() {
     expect(find.text('Add a rule'), findsOneWidget);
   });
 
+  testWidgets('an invisible character in the description or a rule text '
+      'shows an error and blocks Create (W5-55b)', (tester) async {
+    await open(tester);
+    await fillName(tester);
+    await tester.tap(find.text('Add a rule'));
+    await tester.pump();
+    await tester.enterText(field('Description'), 'a\u200Bb');
+    await tester.enterText(field('Rule 1 title'), 'Be kind');
+    await tester.pump();
+    expect(createEnabled(tester), isFalse);
+    expect(
+      find.text('Use plain text, with no invisible characters.'),
+      findsOneWidget,
+    );
+    await tester.enterText(field('Description'), 'two\nlines');
+    await tester.pump();
+    expect(createEnabled(tester), isTrue);
+    await tester.enterText(field('Rule 1 details'), 'a⁠b');
+    await tester.pump();
+    expect(createEnabled(tester), isFalse);
+    expect(
+      find.text('Use plain text, with no invisible characters.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Create sends name, description and rules once', (tester) async {
     final answer = Completer<pb.CreateCommunityResponse>();
     when(

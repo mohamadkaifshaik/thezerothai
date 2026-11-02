@@ -731,7 +731,7 @@ func countReplies(t *testing.T, fs *firestore.Client, id string) int {
 func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 	ctx := context.Background()
 	a := newW536(t, nil)
-	owner, mod, viewer := a.user(t), a.user(t), a.user(t)
+	owner, mod, viewer := a.user(t), a.user(t), a.user(t) // the owner acts: F16 (W5-53) bars a moderator from the owner's posts
 	cid := w536Seed{owner: owner.uid, mods: []string{mod.uid}, members: []string{viewer.uid}}.write(t, a.fs)
 	ids := seedCommunityPosts(t, a.fs, cid, owner.uid, 4)
 
@@ -739,7 +739,7 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 	if err != nil || !slices.Equal(feedIDs(first), ids) {
 		t.Fatalf("open: %v %v", feedIDs(first), err)
 	}
-	if _, err := a.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide"), CommunityId: cid, PostId: ids[1]})); err != nil {
+	if _, err := a.cm.HideCommunityPost(ctx, authed(owner.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
 	cold, err := a.feed(viewer, cid, 20, "", "")
@@ -750,7 +750,7 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 	if err != nil || !slices.Equal(r.GetRemovedIds(), []string{ids[1]}) {
 		t.Fatalf("refresh right after the hide: removed_ids=%v err=%v", r.GetRemovedIds(), err)
 	}
-	if _, err := a.cm.RestoreCommunityPost(ctx, authed(mod.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore"), CommunityId: cid, PostId: ids[1]})); err != nil {
+	if _, err := a.cm.RestoreCommunityPost(ctx, authed(owner.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	back, err := a.feed(viewer, cid, 20, "", "")
@@ -765,18 +765,18 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 func TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce(t *testing.T) {
 	ctx := context.Background()
 	a := newW536(t, nil)
-	owner, mod, viewer := a.user(t), a.user(t), a.user(t)
+	owner, mod, viewer := a.user(t), a.user(t), a.user(t) // the owner acts: F16 (W5-53) bars a moderator from the owner's posts
 	cid := w536Seed{owner: owner.uid, mods: []string{mod.uid}, members: []string{viewer.uid}}.write(t, a.fs)
 	ids := seedCommunityPosts(t, a.fs, cid, owner.uid, 3)
 
-	if _, err := a.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
+	if _, err := a.cm.HideCommunityPost(ctx, authed(owner.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
 	filled, err := a.feed(viewer, cid, 20, "", "") // this instance fills its entry without the hidden post
 	if err != nil || len(feedIDs(filled)) != 2 {
 		t.Fatalf("open after the hide: %v %v", feedIDs(filled), err)
 	}
-	if _, err := a.cm.RestoreCommunityPost(ctx, authed(mod.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
+	if _, err := a.cm.RestoreCommunityPost(ctx, authed(owner.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore-d1"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	back, err := a.feed(viewer, cid, 20, "", "")

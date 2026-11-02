@@ -43,6 +43,11 @@ enum BioIssue {
   /// A control character other than LF (CR is refused, not folded), a line or
   /// paragraph separator or a bidi formatting control.
   forbiddenCharacter,
+
+  /// An invisible format character or a filler (W5-55, W5-55b): the bio would
+  /// hide text. A joiner between two real neighbours and a flag tag sequence
+  /// stay valid.
+  invisibleCharacter,
 }
 
 enum LocationIssue {
@@ -111,14 +116,6 @@ int locationRemaining(String raw) =>
 int websiteRemaining(String raw) =>
     kMaxWebsiteLength - normalizeProfileWebsite(raw).runes.length;
 
-// The server's sets: Cc (U+0000-001F, U+007F-009F), the line and paragraph
-// separators Zl and Zp (U+2028, U+2029) and the bidi formatting controls
-// U+202A-202E and U+2066-2069 (ADR-0010 D9).
-bool _isControl(int r) => r <= 0x1F || (r >= 0x7F && r <= 0x9F);
-bool _isLineSeparator(int r) => r == 0x2028 || r == 0x2029;
-bool _isBidi(int r) =>
-    (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069);
-
 /// Why [raw] cannot be saved as a display name, or null: 1 to
 /// [kMaxDisplayNameLength] code points after trim and NFC, on one line, with a
 /// visible character and no invisible format character (`singleLineIssue`).
@@ -140,12 +137,11 @@ DisplayNameIssue? displayNameIssue(String raw) {
 BioIssue? bioIssue(String raw) {
   final text = normalizeBio(raw);
   if (text.runes.length > kMaxBioLength) return BioIssue.tooLong;
-  for (final r in text.runes) {
-    if (r != 0x0A && (_isControl(r) || _isLineSeparator(r) || _isBidi(r))) {
-      return BioIssue.forbiddenCharacter;
-    }
-  }
-  return null;
+  return switch (multiLineTextIssue(text)) {
+    SingleLineIssue.forbidden => BioIssue.forbiddenCharacter,
+    SingleLineIssue.invisible => BioIssue.invisibleCharacter,
+    null => null,
+  };
 }
 
 /// Why [raw] cannot be saved as a location, or null (an empty location is a

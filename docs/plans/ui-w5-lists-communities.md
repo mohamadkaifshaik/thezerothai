@@ -389,7 +389,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Done (#647; report `docs/reviews/security/security-w5-communities.md`, CLEAR WITH CONDITIONS; findings ticketed as W5-51 to W5-56) |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
-| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
+| W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Done |
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
 | W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | Done (#556; gate: before percent) |
 | W5-43 | *(W5-17 M-3)* SetHomeTabs with the kind's flag off for the caller answers an empty request at 0 reads and 0 writes; test it | backend-developer | XS | W5-9 | `timeline/home_tabs.go` | Done (#542) |
@@ -405,10 +405,10 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-51c | *(W5-38 M-1, F15)* Reply menu: "Remove from Community" on a reply in a community conversation for the owner and moderators; Restore from the moderation-log row; the platform marker in the log | frontend-developer | S | W5-51b | post menu file serialises | Open (gate: before percent) |
 | W5-52 | *(W5-38 M-2)* Keyed `community_hash`, `target_hash` and `post_hash` on the moderation request lines (HMAC with `CURSOR_HMAC_KEY`, the W7-34 precedent) and an `opsctl` loghash counterpart | backend-developer | S | W5-51 merged, W5-28 | communities moderation files: one at a time with W5-53 | Open (gate: before percent) |
 | W5-52b | *(W5-38 M-2)* `opsctl community hidden CID` and `restore-hidden CID [--since T]` (Limit ≤ 50, paged, field-level, one platform modlog entry per run), the query proven on dev Firestore; runbook section "Rogue moderator or community raid" | backend-developer + sre-performance (runbook) | M | W5-51b, W5-29 | opsctl and communities moderation files | Open (gate: before percent) |
-| W5-53 | *(W5-38 L-1 / F16, L-2)* `SetCommunityListing` returns `authorId`: a moderator's hide or restore of the owner's or another moderator's post or reply is FORBIDDEN `not_owner` (0 extra reads); a post with `moderation` set is NOT_FOUND, so a hide and restore cannot erase a platform removal | backend-developer | S | W5-51 merged, W5-28 | `SetCommunityListing` before W5-51b | Open (gate: before percent) |
+| W5-53 | *(W5-38 L-1 / F16, L-2)* `SetCommunityListing` returns `authorId`: a moderator's hide or restore of the owner's or another moderator's post or reply is FORBIDDEN `not_owner` (0 extra reads); a post with `moderation` set is NOT_FOUND, so a hide and restore cannot erase a platform removal | backend-developer | S | W5-51 merged, W5-28 | `SetCommunityListing` before W5-51b | Done (gate: before percent) |
 | W5-54 | *(W5-38 L-3)* While creation is allowlisted, UpdateCommunity by an owner outside `COMMUNITY_CREATORS` is FORBIDDEN `not_creator` (0 reads); runbook lines on cached labels (the posts-cache label lag folds in here); the suspended-community label seam stays on the open-creation list | backend-developer | XS | W5-51 merged, W5-23 | yes | Open (gate: before prod on) |
-| W5-55 | *(W5-38 L-4)* The Cf and filler rule in `identity.BioText` (keeping `\n`, and ZWJ, ZWNJ and emoji tags inside sequences), vectors in `testdata/profile_text/bio.json`; covers bios, list descriptions and community description and rule text | backend-developer | S | W5-45 | `identity` text files | Open (gate: before prod on) |
-| W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Open (gate: before prod on) |
+| W5-55 | *(W5-38 L-4)* The Cf and filler rule in `identity.BioText` (keeping `\n`, and ZWJ, ZWNJ and emoji tags inside sequences), vectors in `testdata/profile_text/bio.json`; covers bios, list descriptions and community description and rule text | backend-developer | S | W5-45 | `identity` text files | Done (gate: before prod on) |
+| W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Done (gate: before prod on) |
 | W5-56 | *(W5-38 L-5, F17)* ListCommunityMembers drops a protected member's row for a viewer who is not the owner, a moderator, an approved follower or the member (0 reads); role holders stay listed; `memberCount` unchanged | backend-developer | XS | W5-51 merged, W5-25b | yes | Open (gate: before prod on) |
 | W5-56b | *(W5-38 §7, F17)* Privacy Policy lines for communities (report §7, without "protected accounts included"), worded with legal review (roadmap section 9, item 3.26) | architect (draft) + founder (approval) | S | W5-56 | yes | Open (gate: before prod on) |
 | W5-57 | *(W5-28 D-1, W5-38 I-3)* Call `timeline.Server.ForgetCommunityFeed(cid)` after a committed restore, through an apiserver callback; un-skip W5-36's repro; runbook `communities.md` §4e and `docs/code-map.md` | backend-developer | XS | W5-28, W5-36 | apiserver wiring | Done (#652) |
@@ -1460,7 +1460,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - Measure the cold open both all-cold and with a warm entry.
   - Watch `community_txn_attempts`.
 
-### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0031 merged]  Status: Open
+### W5-40 — Part B dev rollout  [owner: production-deployer] [size: S] [depends: W5-36, W5-38, W5-39, ADR-0031 merged]  Status: Done (2026-11-02, dev only; results below)
 - **Description.**
   - Show the founder a targeted dev Terraform plan for `feature_communities*`, `community_creators` (the founder's dev uid) and the community config.
   - If W5-21 added the A1 fallback index: it deploys with the dev workflow's `firebase deploy --only firestore:indexes` after merge and must show READY before the flag leaves `off`.
@@ -1482,6 +1482,36 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - The review (#647) is CLEAR WITH CONDITIONS. Its dev-allowlist condition is met once #647 merges, because W5-51 to W5-56 are then in this plan. None of them blocks this ticket.
   - `percent` is not this ticket (it needs a founder-gated ceiling raise). It additionally needs W5-51, W5-51b, W5-51c, W5-52, W5-52b and W5-53 merged. It also needs W5-36's role × action matrix green, including the new W5-53 cells (a moderator against the owner's and another moderator's posts; takedown, hide, restore) and the W5-51b reply cells.
   - Prod `on` also needs W5-54, W5-55, W5-55b, W5-56 and W5-56b, and the held release (ADR-0019).
+- **Result (2026-11-02, dev `dzeroth-dev` only; prod untouched).**
+  - **Apply.** Targeted plan `-target=module.cloud_run_api`: 0 add, 1 change, 0 destroy, only the `api` service template env (no image change). Added env vars: `FEATURE_COMMUNITIES` (`allowlist`), `FEATURE_COMMUNITIES_ALLOWLIST` (3 uids), `FEATURE_COMMUNITIES_PERCENT` (0), `COMMUNITY_CREATORS` (2 uids), `COMMUNITY_MAX_MODERATORS`, `COMMUNITY_MAX_RULES`, `COMMUNITY_MODLOG_MAX`, `COMMUNITY_MOD_ACTIONS_PER_DAY`, `COMMUNITY_MUTATIONS_PER_DAY`, `COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY`, `COMMUNITY_RECENT_REMOVALS_MAX`, `COMMUNITIES_MAX_JOINED`, `COMMUNITIES_MAX_OWNED`, `CACHE_COMMUNITIES_ENTRIES`, `CACHE_COMMUNITY_FEED_ENTRIES`, `CACHE_COMMUNITY_MEMBERS_ENTRIES`, `QUOTA_COMMUNITY_JOINS_PER_DAY`, `QUOTA_COMMUNITY_POSTS_PER_DAY`, `QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY`, `QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY`, `RATE_LIMIT_COMMUNITIES_READ_PER_MIN`, `RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN`, `RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN`, plus the inert `FEATURE_ANALYTICS` and `FEATURE_CRASH_REPORTING` (value `off`, allowlist empty, percent 0).
+  - **Routing.** The apply created revision `api-00491-7wg` at 0% (same image digest as `api-01100-nuc`); dev traffic is pinned, so it was routed with `update-traffic --to-revisions=api-00491-7wg=100`. `GET /health` answered `ok` (200). Previous serving revision for rollback: `api-01100-nuc` (`--to-revisions=api-01100-nuc=100`; it has no community env, so the flag is off by the code default).
+  - **Flag state after the smoke.** `allowlist` (3 uids); prod `off` and unchanged.
+- **Smoke results (dev accounts: smoke 1 = owner and creator, smoke 2 = member, smoke 3 = not allowlisted).**
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| 1 | ADR-0031 D3 F1: community feed page 1 on real data | Pass | HTTP 200, 2 posts, `next_page_token` set; no "requires an index" |
+| 2 | F3b: older page (`page_token`) | Pass | HTTP 200, 2 posts |
+| 3 | F2b: `since_token` refresh after a new post (65 s later, past `CACHE_TTL`) | Pass | HTTP 200, exactly the 1 new post |
+| 4 | M1: `ListCommunityMembers` | Pass | HTTP 200, 2 members; directory `ListCommunities` HTTP 200, 1 row |
+| 5 | Create community (creator) | Pass | HTTP 200, viewer role OWNER, status ACTIVE |
+| 6 | `CreateCommunity` by an allowlisted non-creator | Pass | HTTP 403 FORBIDDEN |
+| 7 | Join (member) | Pass | HTTP 200, role MEMBER, member count 2 |
+| 8 | Post in the community (owner and member) | Pass | HTTP 200, `post.community` set on every view |
+| 9 | Community label in Home (follower of the author) | Pass | `GetHomeTimeline` posts carry `community.name` |
+| 10 | Pin the community as a Home tab, header refresh, unpin | Pass | `SetHomeTabs` returns kind COMMUNITY; `GetCommunityTimeline` header has name and viewer role; unpin returns 0 tabs |
+| 11 | Moderator hide | Pass | HTTP 200; the post is gone from the member's feed on the next call |
+| 12 | Restore reappears at once (W5-57) | Pass | the next `GetCommunityTimeline` shows the post again, no 60 s wait; modlog lists HIDE and RESTORE |
+| 13 | Ban: post refused, rejoin refused | Pass | both HTTP 403 FORBIDDEN |
+| 14 | Unban, rejoin, post | Pass | role NONE after unban, then MEMBER; post HTTP 200 |
+| 15 | Report COMMUNITY | Pass | HTTP 200, report id returned, `already_reported` false |
+| 16 | `opsctl community suspend` (dry run, then real) | Pass | dry run `reads=1 writes=0`; real `reads=1 writes=1`; after 62 s the member gets NOT_FOUND on read and on post, the owner still sees SUSPENDED |
+| 17 | `opsctl community restore` | Pass | after 62 s ACTIVE for the member, post HTTP 200 |
+| 18 | Cloud Logging | Pass | `timeline_op=community` x16; `community_op` create, directory, get, hide, join, log, members, my, restore, role; `mod_action` hide, restore, role x2, log; no ERROR-severity lines since the apply |
+| 19 | Not-allowlisted account (flag off for it) | Pass | `GetCommunity`, `JoinCommunity`, `GetCommunityTimeline`, `CreatePost` with `community_id`, `ListMyCommunities`: HTTP 400 FAILED_PRECONDITION `FEATURE_DISABLED` (feature `communities`) |
+
+  - **Observations (not failures).** (a) The community feed is served from the shared instance entry for up to `CACHE_TTL` (60 s): a post by the owner showed in Home at once but in the community feed only after the next refill, and a `since` call made inside that window returned the entry's items rather than only the new post. After the window it returned exactly the new post (check 3). Clients treat `since` as a merge, so no change is proposed. (b) `opsctl community suspend` rejects `--note` without `--report`; flags go after the community id.
+  - **Test data.** One dev community ("W540 smoke") with about 10 posts, left in place in dev.
 
 ### W5-51 — ADR-0031 amendment: reply moderation and the W5-38 rules  [owner: architect] [size: S] [depends: F15, F16, F17]  Status: Done (#654; ADR-0031 Amendment 1 Accepted, founder OK 2026-11-02)
 - **Description.** A dated amendment to ADR-0031. The ADR is Accepted, so **the founder's OK is needed before merge**; the decision text stays and the amendment adds to it. One amendment carries every ADR change the W5-38 tickets need, so the founder reviews once:
@@ -1633,7 +1663,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Gate.** Before `percent`.
 - **Parallel with W3 Part A / W4:** opsctl and communities moderation files, after W5-51b (shared-files table).
 
-### W5-53 — F16 targets and platform removals in `SetCommunityListing`  [owner: backend-developer] [size: S] [depends: W5-51 merged, W5-28]  Status: Open
+### W5-53 — F16 targets and platform removals in `SetCommunityListing`  [owner: backend-developer] [size: S] [depends: W5-51 merged, W5-28]  Status: Done
 - **Description.**
   - `SetCommunityListing` (and its mirror `communities.PostModerator`) also returns the post's `authorId`.
   - It answers found=false for a post whose `moderation` is set, so the caller answers the one NOT_FOUND "post not found" (L-2).
@@ -1678,7 +1708,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Gate.** Before prod `on`.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-55 — Invisible characters in bio-rule text  [owner: backend-developer] [size: S] [depends: W5-45]  Status: Open
+### W5-55 — Invisible characters in bio-rule text  [owner: backend-developer] [size: S] [depends: W5-45]  Status: Done
 - **Description.**
   - Apply W5-45's Cf and filler rule (from `SingleLineText`) inside `identity.BioText`. Keep `\n`, and keep ZWJ (U+200D), ZWNJ (U+200C), variation selectors and emoji tag characters (U+E0020 to U+E007F) inside sequences, as W5-45 does for names. Reuse its helper.
   - The VALIDATION message stays: it becomes true.
@@ -1699,7 +1729,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Gate.** Before prod `on`.
 - **Parallel with W3 Part A / W4:** `identity` text files, one at a time.
 
-### W5-55b — Dart port of the bio-rule change  [owner: frontend-developer] [size: S] [depends: W5-55, W5-49]  Status: Open
+### W5-55b — Dart port of the bio-rule change  [owner: frontend-developer] [size: S] [depends: W5-55, W5-49]  Status: Done
 - **Description.** Port W5-55's rule to the client checks for the bio, the list description (`list_text_rules.dart`) and the community description and rules, with the fixture runner over `testdata/profile_text/bio.json`. Dart has no Unicode category data, so reuse W5-49's explicit Cf table.
 - **Acceptance criteria.**
   - Given each `bio.json` vector, then the Dart verdict equals the Go verdict.
@@ -1710,6 +1740,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** None (validation).
 - **Seam.** One shared Dart helper, catalogued in `docs/ui-catalog.md`.
 - **Gate.** Before prod `on`.
+- **Done.** `multiLineTextIssue` in `shared/format/single_line_text.dart` (one scanner with `singleLineIssue`, LF kept, no visible-rune rule) backs `bioIssue` (new `BioIssue.invisibleCharacter`) and the community description and rule text (new `CommunityTextIssue.notPlainText`); the list description already used the single-line rule. `profile_text_fixture_test.dart` runs every `bio.json` row; `community_text_rules_test.dart` and the Create Community screen test cover the rest.
 - **Parallel with W3 Part A / W4:** no (follows W5-55).
 
 ### W5-56 — Protected members on member pages  [owner: backend-developer] [size: XS] [depends: W5-51 merged, W5-25b]  Status: Open

@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"unicode"
 	"unicode/utf8"
 )
 
@@ -27,7 +26,8 @@ func SingleLineText(s string, minRunes, maxRunes int) (string, bool) {
 
 // BioText applies the profile bio rules (ADR-0010 D9) for a multi-line text field of another module, with the length bound as a
 // parameter: trim, NFC, at most maxRunes code points, valid UTF-8, and no control character other than "\n", line or paragraph
-// separator, or bidi formatting control. It returns the form to store and whether s is acceptable. An empty result is
+// separator, bidi formatting control, invisible format character (Cf) or filler, with the single-line rule's ZWJ/ZWNJ and subdivision-flag
+// exceptions (W5-55, one scanner: invisibleTextIssue). Unlike SingleLineText it does not require a visible rune. It returns the form to store and whether s is acceptable. An empty result is
 // acceptable. bioIssue is this rule at 160, so community descriptions and rule texts (ADR-0031 D2) cannot drift from the bio's.
 // Pure: no Firestore access.
 func BioText(s string, maxRunes int) (string, bool) {
@@ -38,10 +38,8 @@ func BioText(s string, maxRunes int) (string, bool) {
 	if utf8.RuneCountInString(n) > maxRunes {
 		return "", false
 	}
-	for _, r := range n {
-		if r != '\n' && (unicode.IsControl(r) || isLineSeparator(r) || isBidiControl(r)) {
-			return "", false
-		}
+	if invisibleTextIssue(n, true, false) {
+		return "", false
 	}
 	return n, true
 }

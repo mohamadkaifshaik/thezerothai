@@ -64,7 +64,8 @@ bool _isBidi(int r) =>
     (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069);
 
 /// The Hangul and halfwidth fillers: letters to Unicode, blank on screen.
-bool _isFiller(int r) => r == 0x115F || r == 0x1160 || r == 0x3164 || r == 0xFFA0;
+bool _isFiller(int r) =>
+    r == 0x115F || r == 0x1160 || r == 0x3164 || r == 0xFFA0;
 
 /// White space as the server trims it: Unicode White_Space plus U+FEFF.
 bool _isSpace(int r) =>
@@ -115,7 +116,20 @@ int _tagSequenceLength(List<int> rest, int from) {
 /// `singleLineIssue`: refuses control, line separator, bidi control, filler,
 /// any Cf character but a joiner with real neighbours and a well-formed flag
 /// tag sequence, and non-empty text with no visible rune.
-SingleLineIssue? singleLineIssue(String normalized) {
+SingleLineIssue? singleLineIssue(String normalized) =>
+    _scan(normalized, allowLf: false, requireVisible: true);
+
+/// The multi-line rule behind the bio, community description and rule text
+/// (W5-55b, `identity.BioText`): the same scan with LF kept (it counts as white
+/// space for the joiner check) and no visible-rune requirement.
+SingleLineIssue? multiLineTextIssue(String normalized) =>
+    _scan(normalized, allowLf: true, requireVisible: false);
+
+SingleLineIssue? _scan(
+  String normalized, {
+  required bool allowLf,
+  required bool requireVisible,
+}) {
   final rs = normalized.runes.toList(growable: false);
   var visible = false;
   for (var i = 0; i < rs.length; i++) {
@@ -123,6 +137,8 @@ SingleLineIssue? singleLineIssue(String normalized) {
     if (r == 0x1F3F4) {
       visible = true;
       i += _tagSequenceLength(rs, i + 1);
+    } else if (allowLf && r == 0x0A) {
+      continue;
     } else if (_isControl(r) || _isLineSeparator(r) || _isBidi(r)) {
       return SingleLineIssue.forbidden;
     } else if (_isFiller(r)) {
@@ -140,5 +156,7 @@ SingleLineIssue? singleLineIssue(String normalized) {
       visible = true;
     }
   }
-  return normalized.isNotEmpty && !visible ? SingleLineIssue.invisible : null;
+  return requireVisible && normalized.isNotEmpty && !visible
+      ? SingleLineIssue.invisible
+      : null;
 }
