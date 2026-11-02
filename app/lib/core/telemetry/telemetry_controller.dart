@@ -33,12 +33,14 @@ class TelemetryController {
     required bool platformSupported,
     TelemetryConsentSource consent = const NoTelemetryConsent(),
     TelemetryFlagMemory? memory,
+    TelemetryLastUidStore? lastUid,
     void Function(String message)? debugLog,
   }) : _crash = adapters.crash,
        _analytics = adapters.analytics,
        _platformSupported = platformSupported,
        _consent = consent,
        _memory = memory ?? InMemoryTelemetryFlagMemory(),
+       _lastUid = lastUid ?? InMemoryTelemetryLastUidStore(),
        _debugLog = debugLog ?? _defaultDebugLog {
     _consentSub = _consent.changes.listen((_) => _decide());
   }
@@ -48,6 +50,7 @@ class TelemetryController {
   final bool _platformSupported;
   final TelemetryConsentSource _consent;
   final TelemetryFlagMemory _memory;
+  final TelemetryLastUidStore _lastUid;
   final void Function(String message) _debugLog;
   late final StreamSubscription<void> _consentSub;
 
@@ -80,6 +83,7 @@ class TelemetryController {
   /// `Firebase.initializeApp`, before the first frame.
   Future<void> applyAtBootstrap(String? restoredUid) async {
     _uid = restoredUid;
+    if (restoredUid != null) _noteSignIn(restoredUid);
     _flags = restoredUid == null
         ? TelemetryFlags.off
         : await _memory.read(restoredUid) ?? TelemetryFlags.off;
@@ -92,6 +96,7 @@ class TelemetryController {
   void onAuthChanged(String? uid) {
     if (uid == _uid) return;
     _uid = uid;
+    if (uid != null) _noteSignIn(uid);
     _flags = TelemetryFlags.off;
     _decide();
   }
@@ -138,7 +143,37 @@ class TelemetryController {
   /// deletion and account switches happen then too.
   Future<void> resetDevice() => _enqueue(_analytics.resetDevice);
 
+  /// TEL-8, in-app deletion of [uid] (the consent keys go through the consent
+  /// store): drop the reports not yet sent, reset the analytics ID and forget
+  /// the uid's flags and last-uid record. Allowed while off.
+  Future<void> forgetDevice(String uid) async {
+    await _enqueue(_crash.deleteUnsentReports);
+    await _enqueue(_analytics.resetDevice);
+    await _enqueue(() => _memory.forget(uid));
+    await _enqueue(() => _lastUid.forget(uid));
+  }
+
   Future<void> dispose() => _consentSub.cancel();
+
+  /// F11: a different account than the last one on this device gets a fresh
+  /// analytics ID. Queued ahead of the decision for the new uid, so the reset
+  /// runs before that account's first event. The same uid again, or no
+  /// record yet (the first sign-in on this device), resets nothing.
+  void _noteSignIn(String uid) {
+    unawaited(
+      _enqueue(() async {
+        final last = await _lastUid.read();
+        if (last != null && last != uid) {
+          try {
+            await _analytics.resetDevice();
+          } catch (_) {
+            // Recorded below anyway; the next switch resets again.
+          }
+        }
+        if (last != uid) await _lastUid.write(uid);
+      }),
+    );
+  }
 
   void _decide({bool force = false}) {
     final crash = crashCollecting;
