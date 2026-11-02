@@ -528,3 +528,37 @@ func measuredExact(t *testing.T, name string, b budgettest.Budget, fn func(ctx c
 		t.Errorf("%s: measured %d reads, %d writes, %d deletes, documented %d, %d, %d", name, c.Reads(), c.Writes(), c.Deletes(), b.Reads, b.Writes, b.Deletes)
 	}
 }
+
+// F9 taken literally (founder decision 2026-11-02): a moderator may not hide or restore the owner's posts or another moderator's posts
+// (FORBIDDEN not_owner). Today's code lets mod1 hide both, so these cells are skipped until W5-53 lands; they must not encode the old behaviour.
+func TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts(t *testing.T) {
+	tests := []struct {
+		name, actor, postAuthor string
+		restore                 bool
+	}{
+		{"mod hides the owner's post", "mod1", "owner", false},
+		{"mod restores the owner's post", "mod1", "owner", true},
+		{"mod hides another moderator's post", "mod1", "mod2", false},
+		{"mod restores another moderator's post", "mod1", "mod2", true},
+	}
+	for i, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Skip("changes with W5-53: F9 literal, moderators can't hide the owner's or another moderator's posts")
+			e := newModEnv(t)
+			ctx := context.Background()
+			if _, err := e.client.Collection("posts").Doc(modPostA).Update(ctx, []firestore.Update{{Path: "authorId", Value: tc.postAuthor}}); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if tc.restore {
+				err = e.restore(ctx, tc.actor, 500+i, modPostA)
+			} else {
+				err = e.hide(ctx, tc.actor, 500+i, modPostA)
+			}
+			wantReason(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
+			if listed, _, _ := e.postListed(t, modPostA); !listed {
+				t.Error("a refused action changed the post")
+			}
+		})
+	}
+}

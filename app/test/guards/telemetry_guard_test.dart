@@ -134,20 +134,41 @@ void main() {
         plistBooleans('<!-- <key>A</key><false/> --><key>B</key>\n<true/>'),
         {'B': 'true'},
       );
-      const adId = 'com.google.android.gms.permission.AD_ID';
+    });
+
+    test('ad permission scanners: removed, commented out, no remove', () {
+      String tag(String p, {bool remove = true}) =>
+          '<uses-permission android:name="$p"'
+          '${remove ? ' tools:node="remove"' : ''}/>';
+      final all = adPermissions.map(tag).join();
+      expect(removesAdPermissions(all), isTrue);
+      for (final p in adPermissions) {
+        // Each name on its own: removed, deleted, commented out, no remove.
+        expect(removesPermission(tag(p), p), isTrue, reason: p);
+        expect(removesPermission('<!-- ${tag(p)} -->', p), isFalse, reason: p);
+        expect(removesPermission(tag(p, remove: false), p), isFalse);
+        final others = adPermissions.where((o) => o != p).map(tag).join();
+        expect(removesAdPermissions(others), isFalse, reason: 'deleted $p');
+        expect(
+          removesAdPermissions('$others<!-- ${tag(p)} -->'),
+          isFalse,
+          reason: 'commented $p',
+        );
+        expect(
+          removesAdPermissions('$others${tag(p, remove: false)}'),
+          isFalse,
+          reason: 'no remove $p',
+        );
+        // A variant manifest may remove it or not mention it, never add it.
+        expect(addsNoAdPermission(tag(p)), isTrue);
+        expect(addsNoAdPermission('<!-- ${tag(p, remove: false)} -->'), isTrue);
+        expect(addsNoAdPermission(tag(p, remove: false)), isFalse);
+      }
+      // The AdServices name must not be satisfied by the play-services AD_ID.
       expect(
-        removesAdId(
-          '<uses-permission android:name="$adId" tools:node="remove"/>',
-        ),
-        isTrue,
-      );
-      expect(
-        removesAdId(
-          '<!-- <uses-permission android:name="$adId" tools:node="remove"/> -->',
-        ),
+        removesPermission(tag(adPermissions[0]), adPermissions[1]),
         isFalse,
       );
-      expect(removesAdId('<uses-permission android:name="$adId"/>'), isFalse);
     });
 
     test('CSP finder walks maps and lists', () {
@@ -243,18 +264,19 @@ void main() {
     });
 
     test(
-      'the advertising-ID permission is removed from the merged manifest',
+      'the three advertising permissions are removed in the source manifest',
       () {
         expect(
-          removesAdId(_read('android/app/src/main/AndroidManifest.xml')),
+          removesAdPermissions(
+            _read('android/app/src/main/AndroidManifest.xml'),
+          ),
           isTrue,
         );
         // No variant adds it back or turns a key on.
         for (final variant in ['debug', 'profile']) {
           final path = 'android/app/src/$variant/AndroidManifest.xml';
           final xml = _read(path);
-          final uses = RegExp(r'AD_ID').hasMatch(stripXmlComments(xml));
-          expect(!uses || removesAdId(xml), isTrue, reason: path);
+          expect(addsNoAdPermission(xml), isTrue, reason: path);
           for (final e in manifestMetaData(xml).entries) {
             if (_androidOff.containsKey(e.key)) {
               expect(e.value, 'false', reason: '$path ${e.key}');

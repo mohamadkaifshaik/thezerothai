@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- TEL-3 (ADR-0032): the Analytics SDK merges the advertising-ID permission in; we never read the ad ID. -->
     <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove"/>
+    <!-- TEL-17 (ADR-0032, TEL-10 M-1): the Analytics SDK also merges in the AdServices permissions; we use neither. -->
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove"/>
     <!-- W7-35 (L-5): the cached messages live in the app database; keep them out
          of Auto Backup and device-to-device transfer (allowBackup for Android 11 and
          below, dataExtractionRules for 12 and up). -->

@@ -385,7 +385,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Done (#630) |
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report list (already done by W5-48); report community moved to W5-35b | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Done (#637) |
 | W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. | frontend-developer | S | W5-29, W5-35 | yes | Done (#641) |
-| W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
+| W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Done (#650) |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Done (#647; report `docs/reviews/security/security-w5-communities.md`, CLEAR WITH CONDITIONS; findings ticketed as W5-51 to W5-56) |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
@@ -1379,7 +1379,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** Role checks come from `viewer_role` in GetCommunity only; the client never infers roles.
 - **Parallel with W3 Part A / W4:** the post menu file after W3-17.
 
-### W5-36 — Part B backend tests  [owner: tester] [size: M] [depends: W5-25 to W5-29]  Status: Open
+### W5-36 — Part B backend tests  [owner: tester] [size: M] [depends: W5-25 to W5-29]  Status: Done (#650)
 - **Description.** Emulator integration:
   - flag modes for `communities`;
   - the creators allowlist;
