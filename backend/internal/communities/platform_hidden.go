@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -20,8 +21,8 @@ import (
 // posts, N9): the listing query and the in-transaction page restore. SetCommunityListing cannot be called once per post inside one
 // transaction (it reads then writes, and a transaction refuses a read after a write), so the page is read once and written after.
 type HiddenPosts interface {
-	ListHidden(ctx context.Context, cid, after string, limit int, each func(id string, reply bool, hiddenAt time.Time, moderated bool) bool) (rows int, last string, err error)
-	RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want func(id string, reply bool, hiddenAt time.Time, moderated bool) bool) (res HiddenPage, err error)
+	ListHidden(ctx context.Context, cid, after string, limit int, each func(id string, reply bool, hiddenAt time.Time, moderated, other bool) bool) (rows int, last string, err error)
+	RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want func(id string, reply bool, hiddenAt time.Time, moderated, other bool) bool) (res HiddenPage, err error)
 }
 
 // HiddenPage mirrors posts.HiddenPageResult (an alias of the same unnamed struct).
@@ -46,6 +47,8 @@ type HiddenRow struct {
 	HiddenAt time.Time
 	// Moderated is true when `moderation` is set on the post (a platform takedown or suspended author): restore-hidden leaves it hidden.
 	Moderated bool
+	// Other is true for a REPOST or a root whose label names another community: restore-hidden never restores it.
+	Other bool
 }
 
 // RestoreHiddenParams is one page of RestoreHidden.
@@ -72,6 +75,7 @@ type RestoreHiddenResult struct {
 	Restored        int    // posts restored (written)
 	SkippedPlatform int    // `moderation` set: stays hidden (D5a, L-2)
 	SkippedNoTime   int    // no communityHiddenAt, with Since set
+	SkippedOther    int    // a REPOST or a root labelled with another community: never restored
 	Last            string // the last row's id, the next page's After
 	EntryWritten    bool   // this page wrote the run's modlog entry
 }
@@ -86,14 +90,14 @@ func (r *FirestoreRepo) ListHidden(ctx context.Context, cid, after string, limit
 		return nil, "", errors.New("communities: repo has no hidden-posts reader")
 	}
 	if _, err := r.Get(ctx, cid); err != nil {
-		return nil, "", err
+		return nil, "", redactHidden(fmt.Errorf("communities: list hidden: %w", err), cid)
 	}
-	n, last, err := r.hidden.ListHidden(ctx, cid, after, limit, func(id string, reply bool, at time.Time, moderated bool) bool {
-		rows = append(rows, HiddenRow{PostID: id, Reply: reply, HiddenAt: at, Moderated: moderated})
+	n, last, err := r.hidden.ListHidden(ctx, cid, after, limit, func(id string, reply bool, at time.Time, moderated, other bool) bool {
+		rows = append(rows, HiddenRow{PostID: id, Reply: reply, HiddenAt: at, Moderated: moderated, Other: other})
 		return false
 	})
 	if err != nil {
-		return nil, "", err
+		return nil, "", redactHidden(fmt.Errorf("communities: list hidden: %w", err), cid)
 	}
 	if n >= limit {
 		next = last
@@ -123,17 +127,18 @@ func (r *FirestoreRepo) RestoreHidden(ctx context.Context, p RestoreHiddenParams
 		if err != nil {
 			return err
 		}
-		var platform, noTime int
-		pg, err := r.hidden.RestoreHiddenPage(ctx, tx, p.CID, p.After, p.Limit, func(_ string, _ bool, at time.Time, moderated bool) bool {
-			restore, v := hiddenVerdict(p.Since, at, moderated)
+		var platform, noTime, otherN int
+		pg, err := r.hidden.RestoreHiddenPage(ctx, tx, p.CID, p.After, p.Limit, func(_ string, _ bool, at time.Time, moderated, other bool) bool {
+			restore, v := hiddenVerdict(p.Since, at, moderated, other)
 			platform += v.platform
 			noTime += v.noTime
+			otherN += v.other
 			return restore
 		})
 		if err != nil {
 			return err
 		}
-		res = RestoreHiddenResult{Listed: pg.Rows, Restored: pg.Restored, SkippedPlatform: platform, SkippedNoTime: noTime, Last: pg.Last}
+		res = RestoreHiddenResult{Listed: pg.Rows, Restored: pg.Restored, SkippedPlatform: platform, SkippedNoTime: noTime, SkippedOther: otherN, Last: pg.Last}
 		if pg.Restored == 0 {
 			return nil
 		}
@@ -161,7 +166,7 @@ func (r *FirestoreRepo) RestoreHidden(ctx context.Context, p RestoreHiddenParams
 		return b.Err()
 	})
 	if err != nil {
-		return RestoreHiddenResult{}, fmt.Errorf("communities: restore hidden: %w", err)
+		return RestoreHiddenResult{}, redactHidden(fmt.Errorf("communities: restore hidden: %w", err), p.CID)
 	}
 	return res, nil
 }
@@ -175,12 +180,14 @@ type HiddenRecovery interface {
 var _ HiddenRecovery = (*FirestoreRepo)(nil)
 
 // hiddenCounts are the skip counters one verdict adds.
-type hiddenCounts struct{ platform, noTime int }
+type hiddenCounts struct{ platform, noTime, other int }
 
 // hiddenVerdict is the one rule of restore-hidden for a row read at `at` (zero = unknown), shared by the real run and --dry-run: a post with
 // `moderation` stays hidden (D5a), with Since set a row without a hide time is skipped (skipped_no_time) and one hidden before Since stays.
-func hiddenVerdict(since, at time.Time, moderated bool) (restore bool, c hiddenCounts) {
+func hiddenVerdict(since, at time.Time, moderated, other bool) (restore bool, c hiddenCounts) {
 	switch {
+	case other:
+		c.other = 1
 	case moderated:
 		c.platform = 1
 	case !since.IsZero() && at.IsZero():
@@ -195,21 +202,31 @@ func hiddenVerdict(since, at time.Time, moderated bool) (restore bool, c hiddenC
 // dryRunHidden is RestoreHidden with DryRun: the community read, then the page outside any transaction, and no write.
 func (r *FirestoreRepo) dryRunHidden(ctx context.Context, p RestoreHiddenParams) (RestoreHiddenResult, error) {
 	if _, err := r.Get(ctx, p.CID); err != nil {
-		return RestoreHiddenResult{}, err
+		return RestoreHiddenResult{}, redactHidden(fmt.Errorf("communities: restore hidden dry-run: %w", err), p.CID)
 	}
 	var res RestoreHiddenResult
-	n, last, err := r.hidden.ListHidden(ctx, p.CID, p.After, p.Limit, func(_ string, _ bool, at time.Time, moderated bool) bool {
-		restore, v := hiddenVerdict(p.Since, at, moderated)
+	n, last, err := r.hidden.ListHidden(ctx, p.CID, p.After, p.Limit, func(_ string, _ bool, at time.Time, moderated, other bool) bool {
+		restore, v := hiddenVerdict(p.Since, at, moderated, other)
 		res.SkippedPlatform += v.platform
 		res.SkippedNoTime += v.noTime
+		res.SkippedOther += v.other
 		if restore {
 			res.Restored++
 		}
 		return false
 	})
 	if err != nil {
-		return RestoreHiddenResult{}, err
+		return RestoreHiddenResult{}, redactHidden(fmt.Errorf("communities: restore hidden dry-run: %w", err), p.CID)
 	}
 	res.Listed, res.Last = n, last
 	return res, nil
+}
+
+// redactHidden maps a community id inside err's text to its hash (the ids of a document path in a Firestore error). RedactErr drops the
+// cause chain, so ErrNotFound, which the caller tests with errors.Is, is returned as it is.
+func redactHidden(err error, cid string) error {
+	if errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return logger.RedactErr(err, cid)
 }

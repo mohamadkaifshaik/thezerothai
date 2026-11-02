@@ -334,7 +334,7 @@ or a user id; the community appears only as `community_hash`. Fifty rows a page;
 community) + max(1, rows) per page. The query is `conversationCommunityId == C AND communityHidden == true` ordered by document id; it was proven on `dzeroth-dev` (plan W5-52b).
 
 **4. Undo.** `go run ./cmd/opsctl community restore-hidden CID --project P [--since T] [--dry-run]`.
-- Always `--dry-run` first: it makes the same reads and prints `listed`, `would_restore`, `skipped_platform` and `skipped_no_time`.
+- Always `--dry-run` first: it makes the same reads and prints `listed`, `would_restore`, `skipped_platform`, `skipped_no_time` and `skipped_other` (a REPOST or a root labelled with another community, never restored).
 - `--since T` (RFC 3339, UTC, for example the time of the first suspicious `hide` line) restores only posts hidden at or after T. It is applied in memory on every hidden row,
   so a `--since` run reads as much as a full one. A row with no hide time is **not** restored under `--since` (`skipped_no_time`); a run without `--since` restores it. Decide
   those by hand: list them with `community hidden` and judge by post id and neighbours.

@@ -221,6 +221,9 @@ func TestCommunityRestoreHidden_Integration(t *testing.T) {
 	if _, hidden := e.postDoc(a3)["communityHidden"]; hidden {
 		t.Errorf("reply still hidden: %v", e.postDoc(a3))
 	}
+	if _, has := e.postDoc(a3)["communityHiddenAt"]; has {
+		t.Errorf("a restored reply keeps communityHiddenAt: %v", e.postDoc(a3))
+	}
 	for _, id := range []string{a1, a4, a5} {
 		if e.postDoc(id)["communityHidden"] != true {
 			t.Errorf("%s was restored", id)
@@ -287,5 +290,59 @@ func TestCommunityHidden_Integration_Args(t *testing.T) {
 		if code, _, _ := e.cli(args...); code != 2 {
 			t.Errorf("%v: code = %d, want 2", args, code)
 		}
+	}
+}
+
+// M-4 / N-1: a REPOST and a root labelled with another community are never restored (and the dry-run says so too); a restored reply loses
+// communityHiddenAt; when the first pages restore nothing, the run's modlog entry is written on the page that does.
+func TestCommunityRestoreHidden_Integration_OtherRowsAndLatePage(t *testing.T) {
+	e := newHiddenEnv(t, 2)
+	const cid, foreign = "0000000000000009001", "0000000000000009002"
+	since := e.now.Add(-2 * time.Hour)
+	after := since.Add(time.Hour)
+	c1, c2, c3, c4, c5, c6 := "0000000000000009101", "0000000000000009102", "0000000000000009103", "0000000000000009104", "0000000000000009105", "0000000000000009106"
+	e.community(cid, "ACTIVE")
+	e.post(c1, cid, false, since.Add(-time.Hour), "") // older than the cut
+	e.post(c2, cid, false, since.Add(-time.Hour), "")
+	// c3: a REPOST that carries the conversation key; c4: a root whose label names another community
+	e.post(c3, cid, false, after, "")
+	if _, err := e.client.Collection("posts").Doc(c3).Update(context.Background(), []firestore.Update{{Path: "kind", Value: "REPOST"}}); err != nil {
+		t.Fatal(err)
+	}
+	e.post(c4, cid, false, after, "")
+	if _, err := e.client.Collection("posts").Doc(c4).Update(context.Background(), []firestore.Update{{Path: "community", Value: map[string]any{"id": foreign, "name": "Dogs"}}}); err != nil {
+		t.Fatal(err)
+	}
+	e.post(c5, cid, false, after, "")
+	e.post(c6, cid, true, after, "")
+
+	_, out, _ := e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339), "--dry-run")
+	mustContain(t, "dry-run", out, "listed=6 would_restore=2 skipped_platform=0 skipped_no_time=0 skipped_other=2", "writes=0")
+
+	_, out, _ = e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339))
+	mustContain(t, "restore", out, "listed=6 restored=2 skipped_platform=0 skipped_no_time=0 skipped_other=2", "modlog: 1 platform entry", "outcome=ok", "cost: reads=11 writes=3")
+	for _, id := range []string{c1, c2, c3, c4} {
+		if e.postDoc(id)["communityHidden"] != true {
+			t.Errorf("%s was restored", id)
+		}
+	}
+	if _, has := e.postDoc(c3)["communityId"]; has {
+		t.Error("the REPOST gained communityId")
+	}
+	if _, has := e.postDoc(c4)["communityId"]; has {
+		t.Error("the foreign-label root gained communityId")
+	}
+	if !e.listed(c5) {
+		t.Errorf("c5 not restored: %v", e.postDoc(c5))
+	}
+	r := e.postDoc(c6)
+	if _, has := r["communityHidden"]; has {
+		t.Errorf("reply still hidden: %v", r)
+	}
+	if _, has := r["communityHiddenAt"]; has {
+		t.Errorf("a restored reply keeps communityHiddenAt: %v", r)
+	}
+	if n := len(e.communityDoc(cid)["modlog"].([]any)); n != 1 {
+		t.Errorf("modlog entries = %d, want 1 (written on the third page)", n)
 	}
 }

@@ -16,9 +16,9 @@ const hiddenPageMax = 50
 
 // HiddenRowFunc sees one hidden post or reply of a community: its id, whether it is a reply (a root otherwise), the server time of the
 // hide (the zero time when the post was hidden before W5-51b wrote communityHiddenAt: "unknown", no backfill), and whether `moderation` is
-// set (a platform takedown or suspended author, ADR-0031 D5a). It never receives text or a uid. For RestoreHiddenPage the answer says
-// whether to restore the row (a moderated row is never restored, whatever the answer); ListHidden ignores it.
-type HiddenRowFunc = func(id string, reply bool, hiddenAt time.Time, moderated bool) bool
+// set (a platform takedown or suspended author, ADR-0031 D5a), and whether the row is `other` (a REPOST or a root labelled with another community: never restored). It never receives text or a uid. For RestoreHiddenPage the answer says
+// whether to restore the row (a moderated or other row is never restored, whatever the answer); ListHidden ignores it.
+type HiddenRowFunc = func(id string, reply bool, hiddenAt time.Time, moderated, other bool) bool
 
 // HiddenPageResult is what RestoreHiddenPage read and did (an alias of an unnamed struct, identical to communities.HiddenPage, so the two seams match structurally).
 type HiddenPageResult = struct {
@@ -73,7 +73,7 @@ func (m *firestoreModerator) ListHidden(ctx context.Context, cid, after string, 
 		if err := s.DataTo(&d); err != nil {
 			return 0, "", fmt.Errorf("posts: decode hidden post: %w", err)
 		}
-		each(s.Ref.ID, d.Kind == string(KindReply), d.CommunityHiddenAt, d.Moderation != "")
+		each(s.Ref.ID, d.Kind == string(KindReply), d.CommunityHiddenAt, d.Moderation != "", d.unrestorable(d.Kind == string(KindReply), cid))
 		last = s.Ref.ID
 	}
 	return len(snaps), last, nil
@@ -103,10 +103,8 @@ func (m *firestoreModerator) RestoreHiddenPage(ctx context.Context, tx *firestor
 		res.Rows++
 		res.Last = s.Ref.ID
 		reply := d.Kind == string(KindReply)
-		if !want(s.Ref.ID, reply, d.CommunityHiddenAt, d.Moderation != "") || d.Moderation != "" {
-			continue
-		}
-		if !reply && (d.Kind == string(KindRepost) || d.Community == nil || d.Community.ID != cid) {
+		moderated, other := d.Moderation != "", d.unrestorable(reply, cid)
+		if !want(s.Ref.ID, reply, d.CommunityHiddenAt, moderated, other) || moderated || other {
 			continue
 		}
 		if err := tx.Update(s.Ref, listingUpdates(reply, true, cid)); err != nil {
@@ -119,4 +117,10 @@ func (m *firestoreModerator) RestoreHiddenPage(ctx context.Context, tx *firestor
 		}
 	}
 	return res, nil
+}
+
+// unrestorable is true for a row restore-hidden never restores besides a moderated one: a REPOST, or a root whose label names another community
+// (a reply qualifies through conversationCommunityId, which the query already matched). The listing, --dry-run and the real run all use it.
+func (d hiddenDoc) unrestorable(reply bool, cid string) bool {
+	return !reply && (d.Kind == string(KindRepost) || d.Community == nil || d.Community.ID != cid)
 }

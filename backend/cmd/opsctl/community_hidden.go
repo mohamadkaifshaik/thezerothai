@@ -43,6 +43,9 @@ func parseHiddenArgs(sub, cid string, a modArgs) error {
 	if err := communities.ValidateCommunityID(cid); err != nil {
 		return usageErr("community " + sub + ": the community id must be 19 digits")
 	}
+	if a.limit != 0 {
+		return usageErr("--limit is not for community " + sub + " (a page is 50 rows)")
+	}
 	if a.report != "" || a.note != "" {
 		return usageErr("--report and --note are not for community " + sub)
 	}
@@ -149,49 +152,65 @@ func listHidden(ctx context.Context, b *backends, project, cid, hash, after stri
 
 func restoreHidden(ctx context.Context, b *backends, project, cid, hash, after string, since time.Time, dryRun bool, out io.Writer, now func() time.Time) error {
 	var tot communities.RestoreHiddenResult
-	entry := false // the run's single modlog entry, once a page wrote it
-	next := ""
+	entry := false  // the run's single modlog entry, once a page wrote it
+	capped := false // stopped at the page cap with a full last page
 	var runErr error
-	for page := 0; page < restoreHiddenMaxPages; page++ {
+	pages, notFound := 0, false
+	for pages < restoreHiddenMaxPages {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
 		res, err := b.hidden.RestoreHidden(cctx, communities.RestoreHiddenParams{
 			CID: cid, After: after, Limit: hiddenPageSize, Since: since, WriteEntry: !entry && !dryRun, DryRun: dryRun, Now: now(),
 		})
 		cancel()
-		if errors.Is(err, communities.ErrNotFound) {
-			runErr = errors.New("no such community (nothing written)")
-			break
-		}
 		if err != nil {
 			runErr = err
+			if errors.Is(err, communities.ErrNotFound) {
+				runErr, notFound = errors.New("no such community (nothing written)"), true
+			}
 			break
 		}
+		pages++
 		tot.Listed += res.Listed
 		tot.Restored += res.Restored
 		tot.SkippedPlatform += res.SkippedPlatform
 		tot.SkippedNoTime += res.SkippedNoTime
+		tot.SkippedOther += res.SkippedOther
 		entry = entry || res.EntryWritten
 		if res.Listed < hiddenPageSize {
-			next = ""
+			after = ""
 			break
 		}
-		after, next = res.Last, res.Last
+		after = res.Last
+		capped = pages == restoreHiddenMaxPages
+	}
+	if notFound && pages == 0 {
+		return runErr // nothing was read or written: no summary, no audit line
 	}
 	verb, noun := "restored", "restored"
 	if dryRun {
 		verb, noun = "dry-run: would restore", "would_restore"
 	}
-	fmt.Fprintf(out, "%s: community_hash=%s listed=%d %s=%d skipped_platform=%d skipped_no_time=%d\n", verb, hash, tot.Listed, noun, tot.Restored, tot.SkippedPlatform, tot.SkippedNoTime)
-	if next != "" {
-		fmt.Fprintf(out, "stopped at the page cap (%d pages): run again; with --since resume with --page-token %s\n", restoreHiddenMaxPages, hiddenToken(next))
+	fmt.Fprintf(out, "%s: community_hash=%s listed=%d %s=%d skipped_platform=%d skipped_no_time=%d skipped_other=%d\n", verb, hash, tot.Listed, noun, tot.Restored, tot.SkippedPlatform, tot.SkippedNoTime, tot.SkippedOther)
+	outcome := "ok"
+	switch {
+	case runErr != nil:
+		outcome = "error"
+		resume := ""
+		if after != "" {
+			resume = "; resume with --page-token " + hiddenToken(after)
+		}
+		fmt.Fprintf(out, "error after %d pages%s\n", pages, resume)
+	case capped:
+		outcome = "capped"
+		fmt.Fprintf(out, "stopped at the page cap (%d pages): run again; with --since resume with --page-token %s\n", restoreHiddenMaxPages, hiddenToken(after))
 	}
-	if !dryRun {
-		fmt.Fprintf(out, "modlog: %d platform entry written; roots return to community feeds within %s on every server (communityEntryMaxAge), replies to thread pages at once; posts with a platform takedown stay hidden\n", boolInt(entry), communityEntryBound)
-		fmt.Fprintf(out, "audit: community restore-hidden project=%s at=%s community_hash=%s listed=%d restored=%d skipped_platform=%d skipped_no_time=%d\n",
-			project, now().UTC().Format(time.RFC3339), hash, tot.Listed, tot.Restored, tot.SkippedPlatform, tot.SkippedNoTime)
-	} else {
+	if dryRun {
 		fmt.Fprintln(out, "dry-run: nothing written")
+		return runErr
 	}
+	fmt.Fprintf(out, "modlog: %d platform entry written; roots return to community feeds within %s on every server (communityEntryMaxAge), replies to thread pages at once; posts with a platform takedown stay hidden\n", boolInt(entry), communityEntryBound)
+	fmt.Fprintf(out, "audit: community restore-hidden project=%s at=%s community_hash=%s outcome=%s listed=%d restored=%d skipped_platform=%d skipped_no_time=%d skipped_other=%d\n",
+		project, now().UTC().Format(time.RFC3339), hash, outcome, tot.Listed, tot.Restored, tot.SkippedPlatform, tot.SkippedNoTime, tot.SkippedOther)
 	return runErr
 }
 

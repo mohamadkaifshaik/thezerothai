@@ -1629,7 +1629,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Description.**
   - **`opsctl community hidden CID [--page-token T]`** lists the posts and replies hidden in a community: `posts where conversationCommunityId == C AND communityHidden == true`, Limit ≤ 50, paged by id. Roots keep `conversationCommunityId` after a hide (ADR-0031 D5) and replies always carry it, so one query covers both. It prints ids, kind (root or reply) and hide time, never text. The community id appears only as `community_hash`.
   - **Prove that query on the dev Firestore** before merge. It relies on two automatic single-field indexes, and the emulator never requires an index (the A1 precedent). A "requires an index" error means stop and ask the founder: the index file is founder-gated.
-  - **`opsctl community restore-hidden CID [--since T] [--dry-run]`** restores through `posts.CommunityModerator.SetCommunityListing` (field-level, never `Set`):
+  - **`opsctl community restore-hidden CID [--since T] [--dry-run]`** restores through `posts.CommunityModerator.RestoreHiddenPage` (field-level, never `Set`; as built, because `SetCommunityListing` cannot be looped inside one transaction, see the implementation notes):
     - one transaction per page with the community doc;
     - it deletes the matching `recentRemovals` entries;
     - `--since T` uses `communityHiddenAt` (R6);
@@ -1655,11 +1655,11 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Test notes.** Emulator integration for both commands; the paging; the `--since` cut; the L-2 skip; `opsctl` prints `cost: reads=... writes=...` last, as the other community commands do.
 - **Observability.** A fixed-shape `audit:` line with `community_hash` and counts (`listed`, `restored`, `skipped_platform`).
 - **Budget.** An ops path, 0 per DAU.
-  - `community hidden`: 1 (community doc) + ≤ 50 reads per page; 1 when empty.
+  - `community hidden`: 1 (community doc) + max(1, rows) reads per page, so 2 when empty (the dev proof measured 2).
   - `restore-hidden`: per page ≤ 50 post reads + 1 community read, and ≤ 50 post writes + 1 community write. A re-run with nothing hidden: 2 reads, 0 writes.
   - Dev query proof: under 20 reads.
 - **Flag.** None (opsctl runs whatever the flag; it touches documents only).
-- **Seam.** `posts.CommunityModerator` stays the only writer of `communityHidden`; opsctl reaches communities through `communities.Platform`.
+- **Seam.** `posts.CommunityModerator` stays the only writer of `communityHidden`; opsctl reaches communities through `communities.HiddenRecovery` (implemented by `communities.FirestoreRepo`, beside `communities.Platform`) and posts through the `communities.HiddenPosts` seam.
 - **Gate.** Before `percent`.
 - **Parallel with W3 Part A / W4:** opsctl and communities moderation files, after W5-51b (shared-files table).
 - **Implementation notes (as built, 2026-11-02, backend-developer).**
@@ -1671,6 +1671,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - **Platform marker.** `communities.PlatformMarker` (`_platform`); `ListModerationLog` leaves it out of the profile lookup and returns an unset actor with `actor_deleted` false.
   - **Run shape.** `--since` is applied in memory (`hiddenVerdict`, shared by the real run and `--dry-run`); the modlog entry is requested until a page reports it written; a run stops after 100 pages and prints `--page-token` to resume. `--page-token` is `h1.<post id>`.
   - **community_hash.** `hiddenCommunityHash` in `community_hidden.go` is the one call and returns `communityHashForAudit` (W5-52: the keyed hash with `CURSOR_HMAC_KEY` set, else `unavailable(set-CURSOR_HMAC_KEY)`).
+  - **Review follow-ups (code review of #664).** A REPOST or a root labelled with another community is never restored; the real run and `--dry-run` count both as `skipped_other` (a fifth count on the `audit:` line and the summary). The audit line carries `outcome=ok|error|capped`; a mid-run error prints `error after N pages; resume with --page-token ...`, a missing community prints no summary or audit line, and the cap message appears only when page 100 was full. `--limit` is refused. Errors are wrapped with `logger.RedactErr` (ErrNotFound stays detectable).
 
 ### W5-53 — F16 targets and platform removals in `SetCommunityListing`  [owner: backend-developer] [size: S] [depends: W5-51 merged, W5-28]  Status: Done
 - **Description.**
