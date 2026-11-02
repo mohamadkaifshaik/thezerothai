@@ -113,8 +113,8 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		Poll:         pollInputOf(m.GetPoll()),
 		PollsEnabled: s.pollsEnabled(uid),
 
-		CommunityID:        m.GetCommunityId(),
-		CommunitiesEnabled: s.communitiesEnabled(uid),
+		CommunityID:            m.GetCommunityId(),
+		CommunitiesEnabled:     s.communitiesEnabled(uid),
 		CommunitiesGloballyOff: s.communitiesGloballyOff(),
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	}
 	view := &postsv1.PostView{Post: ToProtoForViewer(post, uid)}
 	view.Post.Community = communityRef(post, false) // the creator just passed the community gate: the flag is on for them
-	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
+	if h, ok := s.svc.(VisibilityHinter); ok {      // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
 		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
 	}
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
