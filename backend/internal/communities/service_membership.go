@@ -125,6 +125,9 @@ func (s *service) JoinCommunity(ctx context.Context, uid string, in MembershipIn
 		return View{}, mapErr(ctx, "join", uid, c.ID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if res.Outcome == Written {
+		s.cache.forgetMemberships(uid)
+	}
 	switch res.Outcome {
 	case Replayed:
 		role, rerr := s.roleFor(ctx, c, uid)
@@ -157,6 +160,9 @@ func (s *service) LeaveCommunity(ctx context.Context, uid string, in MembershipI
 		return View{}, mapErr(ctx, "leave", uid, c.ID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if res.Outcome == Written {
+		s.cache.forgetMemberships(uid)
+	}
 	if res.Outcome == Replayed {
 		role, rerr := s.roleFor(ctx, c, uid)
 		if rerr != nil {

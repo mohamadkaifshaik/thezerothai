@@ -61,7 +61,11 @@ type Deps struct {
 	IDs   IDSource
 	// Creators are the uids that may call CreateCommunity (COMMUNITY_CREATORS, at most 10).
 	Creators []string
-	Limits   Limits
+	// Listing is the directory seam (W5-25b); nil = the Stage 0 shared Firestore entry (5 min).
+	Listing Directory
+	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
+	CursorKey []byte
+	Limits    Limits
 }
 
 type service struct {
@@ -69,6 +73,7 @@ type service struct {
 	cache    *docCache
 	creators map[string]struct{}
 	now      func() time.Time
+	listing  Directory
 }
 
 // New builds the communities service. It never touches Firestore itself; the flag gate is the handler's (Guard), before this runs.
@@ -77,7 +82,12 @@ func New(d Deps) Service {
 	for _, uid := range d.Creators {
 		c[uid] = struct{}{}
 	}
-	return &service{d: d, cache: newDocCache(d.Limits.CacheEntries, d.Limits.MembersCacheEntries), creators: c, now: time.Now}
+	s := &service{d: d, cache: newDocCache(d.Limits.CacheEntries, d.Limits.MembersCacheEntries), creators: c, now: time.Now}
+	s.listing = d.Listing
+	if s.listing == nil {
+		s.listing = &sharedDirectory{repo: d.Repo, now: func() time.Time { return s.now() }}
+	}
+	return s
 }
 
 var _ Service = (*service)(nil)
@@ -271,6 +281,7 @@ func (s *service) CreateCommunity(ctx context.Context, uid string, in CreateInpu
 	if res.Outcome == Written {
 		s.cache.put(res.Community)
 		s.cache.putMember(res.Community.ID, uid, MemberJoined)
+		s.cache.forgetMemberships(uid)
 	}
 	return View{Community: res.Community, Role: res.Community.RoleOf(uid)}, nil
 }

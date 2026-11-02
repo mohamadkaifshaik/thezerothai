@@ -357,7 +357,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-23 | Communities write path: CreateCommunity / UpdateCommunity / GetCommunity (**same PR as W5-24**) | backend-developer | M | W5-22 | yes (new module) | Done (#601) |
 | W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Done (#601) |
 | W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Done (#613) |
-| W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
+| W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Done (#626) |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
@@ -1049,7 +1049,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Join: 6 / 4 reads, 5 writes.
     - Leave: 5 (6 for a moderator) / 3 reads, 3 writes + 1 delete.
 
-### W5-25b — Directory and member list  [owner: backend-developer] [size: S] [depends: W5-25]  Status: Open
+### W5-25b — Directory and member list  [owner: backend-developer] [size: S] [depends: W5-25]  Status: Done (#626)
 - **Description.**
   - **ListCommunities:** `orderBy memberCount desc Limit(50)` (automatic index), non-ACTIVE filtered in memory (a short list is allowed), a shared instance entry (5 min).
   - **ListCommunityMembers:** a `communityMembers orderBy joinedAt desc` page, `identity.Directory` hydration (cache-first), D6 drops for the viewer, `Relationship` from the caller graph. BANNED rows only for moderators (`role_filter`, a `role == BANNED` equality query on the automatic index). Sealed cursor bound to `community_members|<uid>|<cid>`, 24 h.

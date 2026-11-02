@@ -16,17 +16,21 @@ import (
 
 // fakeService records what the handlers pass down and answers canned values.
 type fakeService struct {
-	create  []CreateInput
-	update  []UpdateInput
-	get     []string
-	view    View
-	detail  Detail
-	err     error
-	gotUser string
-	join    []MembershipInput
-	leave   []MembershipInput
-	my      []string
-	list    MyCommunities
+	create    []CreateInput
+	update    []UpdateInput
+	get       []string
+	view      View
+	detail    Detail
+	err       error
+	gotUser   string
+	join      []MembershipInput
+	leave     []MembershipInput
+	my        []string
+	list      MyCommunities
+	dirViews  []View
+	dirCalls  int
+	members   MembersPage
+	membersIn []MembersInput
 }
 
 func (s *fakeService) JoinCommunity(_ context.Context, uid string, in MembershipInput) (View, error) {
@@ -74,12 +78,14 @@ func sampleView() View {
 // FEATURE_DISABLED), and a caller inside does.
 func TestServer_ImplementedRPCsRunTheGateBeforeTheService(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
-		"CreateCommunity":   call((*Server).CreateCommunity),
-		"UpdateCommunity":   call((*Server).UpdateCommunity),
-		"GetCommunity":      call((*Server).GetCommunity),
-		"JoinCommunity":     call((*Server).JoinCommunity),
-		"LeaveCommunity":    call((*Server).LeaveCommunity),
-		"ListMyCommunities": call((*Server).ListMyCommunities),
+		"CreateCommunity":      call((*Server).CreateCommunity),
+		"UpdateCommunity":      call((*Server).UpdateCommunity),
+		"GetCommunity":         call((*Server).GetCommunity),
+		"JoinCommunity":        call((*Server).JoinCommunity),
+		"LeaveCommunity":       call((*Server).LeaveCommunity),
+		"ListMyCommunities":    call((*Server).ListMyCommunities),
+		"ListCommunities":      call((*Server).ListCommunities),
+		"ListCommunityMembers": call((*Server).ListCommunityMembers),
 	}
 	for rpc, c := range calls {
 		for _, m := range flagModes() {
@@ -87,7 +93,7 @@ func TestServer_ImplementedRPCsRunTheGateBeforeTheService(t *testing.T) {
 				svc := &fakeService{view: sampleView()}
 				s := NewServer(flags.NewRegistry(m.spec), svc)
 				err := c(s, authedCtx(m.uid))
-				touched := len(svc.create)+len(svc.update)+len(svc.get)+len(svc.join)+len(svc.leave)+len(svc.my) > 0
+				touched := len(svc.create)+len(svc.update)+len(svc.get)+len(svc.join)+len(svc.leave)+len(svc.my)+len(svc.dirViews)+len(svc.membersIn)+svc.dirCalls > 0
 				if m.wantOff {
 					assertDisabled(t, err)
 					if touched {
