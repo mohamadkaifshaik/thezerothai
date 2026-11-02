@@ -173,24 +173,30 @@ void main() {
     );
   });
 
-  test('a consent change applies at once', () async {
-    final rig = _Rig();
-    await rig.controller.applyAtBootstrap('a');
-    rig.controller.onEnabledFeatures(both);
-    await settle();
-    rig.log.clear();
-    rig.consent.crash.add('a');
-    rig.consent.notify();
-    await settle();
-    expect(rig.log.calls, ['crash.setCollecting(true)']);
-    rig.consent.crash.clear();
-    rig.consent.notify();
-    await settle();
-    expect(rig.log.calls.skip(1), [
-      'crash.setCollecting(false)',
-      'crash.deleteUnsent',
-    ]);
-  });
+  test(
+    'a consent change applies at once; unsent reports go before "on" (L-1)',
+    () async {
+      final rig = _Rig();
+      await rig.controller.applyAtBootstrap('a');
+      rig.controller.onEnabledFeatures(both);
+      await settle();
+      rig.log.clear();
+      rig.consent.crash.add('a');
+      rig.consent.notify();
+      await settle();
+      expect(rig.log.calls, [
+        'crash.deleteUnsent',
+        'crash.setCollecting(true)',
+      ]);
+      rig.consent.crash.clear();
+      rig.consent.notify();
+      await settle();
+      expect(rig.log.calls.skip(2), [
+        'crash.setCollecting(false)',
+        'crash.deleteUnsent',
+      ]);
+    },
+  );
 
   test('bootstrap applies the stored decision of the restored uid and always '
       'reaches the SDKs', () async {
@@ -201,6 +207,8 @@ void main() {
     await rig.controller.applyAtBootstrap('a');
     expect(rig.controller.crashCollecting, isTrue);
     expect(rig.log.calls, [
+      'usage.reset', // F12: no record counts as a different account
+      'crash.deleteUnsent', // L-1: before "on"
       'crash.setCollecting(true)',
       'usage.setCollecting(false)',
     ]);

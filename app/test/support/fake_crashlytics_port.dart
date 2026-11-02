@@ -37,12 +37,6 @@ class FakeCrashlyticsPort implements CrashlyticsPort {
   }
 
   @override
-  Future<void> log(String message) async {
-    calls.add('log');
-    args.add(message);
-  }
-
-  @override
   Future<void> setCollectionEnabled(bool enabled) async =>
       calls.add('setCollectionEnabled($enabled)');
 
