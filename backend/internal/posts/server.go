@@ -157,7 +157,9 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 // cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (ADR-0018 D5, ADR-0023 D5: with only
 // bookmarks on just bookmarked_by_viewer is set), else they are false and nothing is read.
 // viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
-// a reply in a restricted conversation is UNKNOWN. Never flag-gated.
+// a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation (ADR-0031 A7) is NOT_ALLOWED for a
+// viewer who is not a JOINED member: +1 read cold (the member doc), +0 warm, skipped while communities is globally off. PostView.post.community
+// (the label) is decided by ToView: absent when hidden or when communities is globally off. Worst case: 4 + 1 reads cold, 0 writes.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err

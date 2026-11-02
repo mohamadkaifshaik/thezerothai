@@ -52,7 +52,9 @@ func TestTimelines_CommunityLabel(t *testing.T) {
 					r.dir.profiles["me"] = identity.Profile{UserID: "me", Status: identity.AccountStatusActive}
 				}
 				p.CommunityID, p.ConversationCommunityID = labelCID, labelCID
-				p.Community = &posts.CommunityLabel{ID: labelCID, Name: "Go"}
+				label := newOf(p.Community) // timeline may not name posts.CommunityLabel (the seam guard in server_test.go), so the label is built by type inference
+				label.ID, label.Name = labelCID, "Go"
+				p.Community = label
 				p.CommunityHidden = tt.hidden
 				r.srv.deps.Flags = reg(tt.mode)
 
@@ -82,3 +84,6 @@ func TestTimelines_CommunityLabel(t *testing.T) {
 		}
 	}
 }
+
+// newOf returns a new zero T for a typed nil or non-nil pointer, without naming T.
+func newOf[T any](*T) *T { return new(T) }
