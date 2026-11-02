@@ -1402,7 +1402,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 
 ### W5-39 — Part B cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-27, W5-28]  Status: Open
 - **Description.**
-  - Add the Part B rows (+16.0 reads, +0.11 writes, +2.0 requests per DAU) to `cost-model.md`.
+  - Add the Part B rows (+20.3 reads, +0.15 writes, +0.05 deletes, +2.0 requests per DAU; ADR-0031 supersedes the earlier +16.0 / +0.11) to `cost-model.md`.
   - Run `make loadtest SCENARIO=community_feed`: cold and warm shared entry, refresh with 0 and with 5 new, page 50, a hide during refreshes, a join burst.
   - Name the triggers: community feed reads > 15 % of daily reads; a community above 1 post/s; `ABORTED` on a community doc.
 - **Acceptance criteria.** The model is updated with measured reads (± 25 % or the plan corrected), and a k6 script is added.
