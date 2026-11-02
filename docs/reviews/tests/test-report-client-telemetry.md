@@ -173,6 +173,17 @@ and the check that the Dart bootstrap re-apply wins over the SDK's persisted "en
 **Attach to the report:** the merged-manifest output, four host lists with the consent-tap timestamp, the crash screenshot, the
 DebugView screenshot, the list of hosts learned. The final verdict line then changes to `VERDICT: PASS` (or `FAIL`).
 
+### 6b. Part B additions from the TEL-10 security review (`docs/reviews/security/security-client-telemetry.md`, CLEAR WITH CONDITIONS)
+
+Not run (no phone). These are added to the procedure above; none changes production code.
+
+- **C-1, hosts.** In states 1 and 2 assert no connection to `firebase-settings.crashlytics.com` (Sessions remote settings) as well as to the Crashlytics, Sessions and Analytics hosts of the fence. Record every host actually seen in each state, including the allowed existing ones.
+- **C-1, web trace.** In a browser on the dev web build (DevTools Network, cache disabled, fresh profile, signed in, 3 minutes of use): no request to `firebase-analytics.js`, `googletagmanager.com` or `google-analytics.com`, and no CSP violation in the console or the Issues tab. Attach the HAR host list. (The source guard checks the CSP text and `web/index.html` only.)
+- **C-2 / M-1, merged-manifest permissions.** On the release APK run `apkanalyzer manifest permissions app-release.apk` (or `aapt2 dump permissions`) and assert all three are absent: `com.google.android.gms.permission.AD_ID`, `android.permission.ACCESS_ADSERVICES_AD_ID`, `android.permission.ACCESS_ADSERVICES_ATTRIBUTION`. TEL-10 expects the last two to be present (they come from play-services-measurement 23.2.0) because the app removes only AD_ID. **Known gap M-1**: fixing it is a separate frontend ticket; this ticket's source-manifest guard asserts only what is true today (AD_ID removal), and no test was added that would fail on main.
+- **C-3 / M-2, FID versus FCM token.** On a debug device, with `adb shell setprop log.tag.FirebaseInstallations DEBUG` and `log.tag.FirebaseMessaging DEBUG`, read logcat and compare the FCM token prefix (the part before the first `:`) with the Firebase installation ID. Record only whether they are equal, never the values. Do not add a `getId` call to the app (the guard in section 3 forbids it). Then open the forced test crash in the dzeroth-dev Crashlytics console and check every field (device info, keys, logs) for the FID.
+- **C-4, notification events.** With analytics on in dev, receive one post push and one DM push. In DebugView confirm the `notification_*` events (`notification_receive`, `notification_open`, `notification_foreground`, `notification_dismiss`) carry no `actorId`, `postId`, `notificationId`, `conversationId`, title or body parameter.
+- **L-3, native crash.** In step 3, also record what a forced **native (Kotlin)** crash report shows in the console (title, stack, keys, logs), since the Dart scrubber does not apply to it. This depends on the same open question about a crash trigger.
+
 ### 7. Observations and gaps (for the owners; none is a defect)
 
 - **O-1.** `bootstrap.dart` wires `onAuthChanged`, `onEnabledFeatures`, the consent load and `TelemetryDeviceForget.of` inline, where a test cannot call it. The rig copies the wiring order (documented in its class comment); a drift between the two would not be caught. A test of `bootstrap` itself needs a seam in production code; I did not add one (owner: frontend-developer, if wanted).
