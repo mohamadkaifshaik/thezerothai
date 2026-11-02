@@ -627,6 +627,9 @@ module "apikeys" {
     "securetoken.googleapis.com",
     "firebaseinstallations.googleapis.com",
     "firebaseappcheck.googleapis.com",
+    # FCM token registration (FirebaseMessaging.getToken). Without it the
+    # Android app gets no push token (found by the TEL-9 Part B device check).
+    "fcmregistrations.googleapis.com",
   ]
   ios_api_targets = [
     "identitytoolkit.googleapis.com",
@@ -636,8 +639,14 @@ module "apikeys" {
   ]
 
   ios_bundle_id = var.ios_bundle_id
-  # android_allowed_applications left at its default ([]): no Play Console
-  # signing cert yet. See docs/runbooks/cloud-bootstrap.md section 9.
+  # Debug signing keys only (dev never gets Play keys; one key, one project,
+  # docs/runbooks/cloud-bootstrap.md section 4). The b574... entry was set by
+  # hand on 2026-10-24 and is kept as found; 052eaf6c... is the debug key the
+  # Firebase dev app already lists. SHA-1 is not secret.
+  android_allowed_applications = [
+    { package_name = "com.dzeroth.dzeroth", sha1_fingerprint = "b574a7ebb541989f234910f8840015c6e642b9d8" },
+    { package_name = "com.dzeroth.dzeroth", sha1_fingerprint = "052eaf6cbad3268095eaa12f529ea6d36fe8d4b6" },
+  ]
 
   depends_on = [module.project_services]
 }
