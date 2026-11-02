@@ -213,6 +213,12 @@ type Service interface {
 	// ListMyCommunities lists the communities uid is JOINED in, newest join first (not paged at Stage 0). Firestore (interceptor excluded):
 	// reads 1 (memberships) + one per community document that is not cached, at most 51; warm 1; writes 0.
 	ListMyCommunities(ctx context.Context, uid, pageToken string) (MyCommunities, error)
+	// ListCommunities is the directory (W5-25b): ACTIVE communities, most members first, from the shared Directory entry (5 min) with the caller's role per row
+	// (memberships cached 60 s). Firestore (interceptor excluded): reads cold <= 51 (the refill <= 50, memberships 1), warm 0-1; writes 0.
+	ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error)
+	// ListCommunityMembers is one member page (W5-25b; BANNED for the owner and moderators only). Firestore (interceptor excluded): reads 1 community +
+	// page rows + page profiles + 1 caller graph = 42 cold at page 20 / 102 at page 50; warm 20 / 50; writes 0.
+	ListCommunityMembers(ctx context.Context, uid string, in MembersInput) (MembersPage, error)
 }
 
 // IDSource issues community ids (a Snowflake node, rule 1). *snowflake.Node satisfies it.
@@ -344,4 +350,8 @@ type Repo interface {
 	Memberships(ctx context.Context, uid string) (Memberships, error)
 	// GetMany reads the community documents with one GetAll (1 read per id, charged when missing too). Missing ids are absent from the map.
 	GetMany(ctx context.Context, ids []string) (map[string]Community, error)
+	// ListByMemberCount is the directory query (memberCount DESC, __name__ DESC, Limit <= 50; 1 read per row, min 1); Status is not filtered.
+	ListByMemberCount(ctx context.Context, limit int) ([]Community, error)
+	// ListMembers is one member page (joinedAt or bannedAt DESC, __name__ DESC; presence of the field is the filter; 1 read per row, min 1).
+	ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow, error)
 }

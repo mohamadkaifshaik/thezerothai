@@ -99,7 +99,24 @@ moderator, who makes the transaction read the community fresh), 3 writes + 1 del
 `GetAll`, 1 read each). It lists JOINED communities newest first (the reverse of `joined`), leaves out a SUSPENDED one unless the caller
 owns it, keeps ARCHIVED ones, and skips a joined id whose document is gone. A non-empty `page_token` is `VALIDATION page_token` with 0 reads.
 
-## 4b. Posting into a community and the community feed query (W5-26)
+## 4b. The directory and the member pages (W5-25b)
+
+`ListCommunities` and `ListCommunityMembers` run behind the same flag, read only (0 writes). Request-line fields: `community_op=directory|members`,
+`cache_hit` (directory: the shared entry was warm), `rows_dropped` and `rows_dropped_by` ({inactive, blocked, blocked_by}), `fs_reads`.
+**No index change:** the member pages order by `joinedAt` / `bannedAt` (field presence is the filter) and the directory by `memberCount`, all on
+the automatic single-field indexes (ADR-0031 D3, proven on `dzeroth-dev`). A "requires an index" error here means stop and ask the founder; do
+not add a `state ==` equality query.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| A new, renamed, suspended or archived community still shows (or is missing) in the directory | The directory is one shared entry per instance, 5 minutes (`DirectoryTTL`), no per-viewer copy | Intended. Bounded to 5 minutes per instance; a restart refills it |
+| Directory `viewer_role` lags a join, ban or eraser run by up to 60 s | The caller's memberships are cached 60 s for this list only; this instance's own Join, Leave and Create drop the entry at once | Intended. Join's cap and ListMyCommunities read fresh |
+| First directory call on a cold instance costs about 51 reads | `ORDER BY memberCount DESC LIMIT 50` plus the caller's memberships; concurrent cold callers share one refill (singleflight). At Stage 0 (<= 20 communities) it is about 21 | Intended; at more than 50 communities the directory shows the top 50 only (a ticket for the W4 engine) |
+| `FORBIDDEN reason=not_moderator` on the BANNED page | The caller is not the owner or a moderator in the (60 s cached) community document; the answer costs the community read only | Intended |
+| `VALIDATION page_token` on a member page | Tampered, expired (24 h), or sealed for another caller, community or filter (the token binds `community_members\|uid\|cid\|filter`) | The client restarts the list. 0 reads |
+| A member page is short, or empty, with a `next_page_token` | Rows of accounts that are not ACTIVE and (for a plain member) members who block the caller or whom the caller blocks are dropped after the page is read; the token follows the last row queried | Intended: keep following the token. The owner and moderators see every member either way (F14), so they can ban |
+
+## 4c. Posting into a community and the community feed query (W5-26)
 
 `CreatePost` with `community_id` runs `posts.CommunityGate` (ADR-0031 D5; implemented by `communities.PostGate`, wired late in `apiserver` with
 `SetCommunityGate`). Order: flag, shape, protected caller, community status (60 s cache), then inside the transaction the member doc read
