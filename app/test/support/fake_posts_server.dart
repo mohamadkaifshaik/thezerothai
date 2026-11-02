@@ -63,6 +63,10 @@ class FakePostsServer extends Fake implements PostsRepository {
   /// Every key that reached the server, in order (replays included).
   final List<String> receivedKeys = [];
 
+  /// The `community_id` of every CreatePost that reached the server (empty:
+  /// none), in order.
+  final List<String> receivedCommunityIds = [];
+
   /// Distinct items accepted (a replay adds none).
   final List<Accepted> accepted = [];
 
@@ -88,12 +92,14 @@ class FakePostsServer extends Fake implements PostsRepository {
     List<String> mediaAltTexts = const [],
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     DraftPoll? poll,
+    String communityId = '',
   }) async {
     receivedKeys.add(idempotencyKey);
     if (refusals.isNotEmpty) throw refusals.removeAt(0);
+    receivedCommunityIds.add(communityId);
     final body =
         'post|$text|${mediaIds.join(',')}|${mediaAltTexts.join(',')}'
-        '|${replyPolicy.value}|${poll?.choices.join(',')}';
+        '|${replyPolicy.value}|${poll?.choices.join(',')}|$communityId';
     final seen = _byKey['post:$idempotencyKey'];
     if (seen != null) {
       if (seen.body != body) {

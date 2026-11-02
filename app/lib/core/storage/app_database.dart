@@ -288,6 +288,9 @@ class ComposerDraftEntries extends Table {
   BoolColumn get paidPartnership =>
       boolean().withDefault(const Constant(false))();
   BoolColumn get madeWithAi => boolean().withDefault(const Constant(false))();
+
+  /// The community the post was going into (W5-34); '' = Everyone.
+  TextColumn get communityId => text().withDefault(const Constant(''))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
@@ -341,7 +344,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 11;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -400,6 +403,16 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(
           composerDraftEntries,
           composerDraftEntries.sendStartedAt,
+        );
+      }
+      // v11 -> v12 (W5-34): the community a draft was going into. Added
+      // BEFORE the rebuild below, which copies every current column by name
+      // and so needs it in the old table too. A database older than v9 just
+      // got the table above in its current shape.
+      if (from >= 9 && from < 12) {
+        await m.addColumn(
+          composerDraftEntries,
+          composerDraftEntries.communityId,
         );
       }
       // v10 -> v11 (W6-31, I-1): the drafts key becomes {uid, draftId}. The

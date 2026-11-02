@@ -125,6 +125,46 @@ void main() {
       );
     });
 
+    test('the community post quota has its own text', () {
+      expect(
+        createPostErrorMessage(
+          const QuotaExceededException('x', quota: 'community_posts'),
+        ),
+        "You've posted a lot in communities today. You can post more "
+        'tomorrow.',
+      );
+    });
+
+    test('a refused reply on a labelled post says who may reply', () {
+      expect(
+        replyErrorMessage(
+          const ReplyNotAllowedException(),
+          communityName: 'Gardeners',
+        ),
+        'Only members of Gardeners can reply.',
+      );
+      expect(
+        replyErrorMessage(
+          CommunityForbiddenException(CommunityForbiddenReason.notMember),
+          communityName: 'Gardeners',
+        ),
+        'Only members of Gardeners can reply.',
+      );
+      // No label, no name: the old texts.
+      expect(
+        replyErrorMessage(const ReplyNotAllowedException()),
+        ReplyNotAllowedException.userMessage,
+      );
+      // A banned member keeps the banned text.
+      expect(
+        replyErrorMessage(
+          CommunityForbiddenException(CommunityForbiddenReason.banned),
+          communityName: 'Gardeners',
+        ),
+        "You're banned from this community.",
+      );
+    });
+
     test('quotes keep their own protected-account text', () {
       expect(
         quoteErrorMessage(const ProtectedAccountException()),

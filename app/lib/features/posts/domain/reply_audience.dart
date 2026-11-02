@@ -61,6 +61,18 @@ bool replyKnownNotAllowed(pb.PostView view) =>
 /// The hint on a disabled Reply button. It never says why.
 const kReplyNotAllowedHint = "You can't reply to this post";
 
+/// The hint on a disabled Reply button of [view]: for a post labelled with a
+/// community it says who may reply (ADR-0031 F8, members only), otherwise the
+/// why-less [kReplyNotAllowedHint].
+String replyNotAllowedHint(pb.PostView view) {
+  final name = view.post.hasCommunity() ? view.post.community.name : '';
+  return name.isEmpty ? kReplyNotAllowedHint : communityRepliesHint(name);
+}
+
+/// "Only members of `<name>` can reply".
+String communityRepliesHint(String communityName) =>
+    'Only members of $communityName can reply';
+
 /// The notice after a create whose echoed policy differs from the one sent
 /// (ADR-0021 L-1: an old revision dropped the field during a canary).
 const kReplyPolicyNotAppliedMessage =

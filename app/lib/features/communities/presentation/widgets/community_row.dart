@@ -1,3 +1,5 @@
+import 'dart:ui' show SemanticsRole;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -25,18 +27,28 @@ String? communityRoleBadge(CommunityRole role) => switch (role) {
 /// [trailing] control (the Join pill of the directory). A custom row (no
 /// `ListTile`); the whole text area is the tap target (>= 48dp) and speaks
 /// name, members and role as one label. The audience picker (W5-34) reuses it
-/// without [trailing].
+/// without [trailing], with [role] `menuItem` and [selected] for the chosen
+/// one.
 class CommunityRow extends StatelessWidget {
   const CommunityRow({
     super.key,
     required this.community,
     this.onTap,
     this.trailing,
+    this.role,
+    this.selected,
   });
 
   final pb.Community community;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// An ARIA role for the row on the web (null: a plain button).
+  final SemanticsRole? role;
+
+  /// Non-null makes the row one choice of a mutually exclusive group (spoken
+  /// as selected or not).
+  final bool? selected;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +62,9 @@ class CommunityRow extends StatelessWidget {
         Expanded(
           child: Semantics(
             button: onTap != null,
+            role: role,
+            selected: selected,
+            inMutuallyExclusiveGroup: selected == null ? null : true,
             label: spoken,
             excludeSemantics: true,
             onTap: onTap,

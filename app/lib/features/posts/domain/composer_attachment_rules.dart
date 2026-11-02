@@ -16,7 +16,11 @@ enum ComposerBlock {
   scheduled,
   hasPoll,
   hasGif,
-  hasPhotos;
+  hasPhotos,
+
+  /// A community is chosen as the audience: SchedulePost takes no
+  /// `community_id` (ADR-0031 D5).
+  inCommunity;
 
   /// The tooltip of a button that this block disables.
   String get pollTooltip => switch (this) {
@@ -43,6 +47,7 @@ enum ComposerBlock {
   String get scheduleTooltip => switch (this) {
     hasPoll => "Polls can't be scheduled",
     hasGif => "GIFs can't be scheduled",
+    inCommunity => "Community posts can't be scheduled",
     _ => 'Schedule post',
   };
 }
@@ -69,6 +74,7 @@ class ComposerAttachmentRules {
     this.hasGif = false,
     this.hasPoll = false,
     this.scheduled = false,
+    this.inCommunity = false,
   });
 
   final bool flagPolls;
@@ -81,6 +87,9 @@ class ComposerAttachmentRules {
   final bool hasGif;
   final bool hasPoll;
   final bool scheduled;
+
+  /// A community is the chosen audience (W5-34): it disables Schedule.
+  final bool inCommunity;
 
   /// The Poll button exists at all.
   bool get showPoll => flagPolls && engagementOn && !isReply && !isQuote;
@@ -116,6 +125,7 @@ class ComposerAttachmentRules {
   ComposerBlock get schedule {
     if (hasPoll) return ComposerBlock.hasPoll;
     if (hasGif) return ComposerBlock.hasGif;
+    if (inCommunity) return ComposerBlock.inCommunity;
     return ComposerBlock.none;
   }
 }

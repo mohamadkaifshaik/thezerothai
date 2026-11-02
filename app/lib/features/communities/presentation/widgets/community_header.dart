@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
+import '../../../lists/presentation/widgets/list_unavailable_view.dart'
+    show kListOutlinedButtonStyle;
+import '../../../../gen/dzeroth/communities/v1/communities.pbenum.dart'
+    show CommunityStatus;
 import '../../domain/community_role.dart';
 import '../bloc/community_detail_state.dart';
 import 'community_join_control.dart';
@@ -18,6 +22,9 @@ import 'community_row.dart';
 /// - A banned viewer sees the muted "You can't join this Community" and no Pin.
 /// - At [kMaxPinnedHomeTabs] pinned, Pin is disabled and a hint says why. The
 ///   buttons wrap, so they fit at 360 dp and text scale 2.0.
+/// - "Post" (W5-34) is the compose entry: shown only when the screen passes
+///   [onCompose], which it does for a joined, not archived community and a
+///   caller who may post (see [communityComposeAllowed]).
 class CommunityHeader extends StatelessWidget {
   const CommunityHeader({
     super.key,
@@ -27,6 +34,7 @@ class CommunityHeader extends StatelessWidget {
     required this.onLeave,
     required this.onTogglePin,
     required this.onRetry,
+    this.onCompose,
   });
 
   final CommunityDetailState state;
@@ -35,6 +43,23 @@ class CommunityHeader extends StatelessWidget {
   final VoidCallback onLeave;
   final VoidCallback onTogglePin;
   final VoidCallback onRetry;
+
+  /// Opens the composer on this community; null hides the "Post" button.
+  final VoidCallback? onCompose;
+
+  /// Whether the "Post" entry is offered for [state] (W5-34): the caller is a
+  /// member by the server's `viewer_role` (a banned or non-member viewer is
+  /// not), the community is not archived (read-only), and no Join / Leave is
+  /// in flight. The caller's own flags (`posts`, protected account) are the
+  /// screen's to add.
+  static bool communityComposeAllowed(CommunityDetailState state) {
+    final community = state.community;
+    if (community == null) return false;
+    if (community.status == CommunityStatus.COMMUNITY_STATUS_ARCHIVED) {
+      return false;
+    }
+    return joinStateOf(state) == CommunityJoinState.joined && !state.joinBusy;
+  }
 
   /// What the control shows for [state].
   static CommunityJoinState joinStateOf(CommunityDetailState state) {
@@ -132,6 +157,13 @@ class CommunityHeader extends StatelessWidget {
                 onJoin: onJoin,
                 onLeave: role.isOwner ? null : onLeave,
               ),
+              if (onCompose != null)
+                OutlinedButton.icon(
+                  style: kListOutlinedButtonStyle,
+                  onPressed: onCompose,
+                  icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
+                  label: const Text('Post'),
+                ),
               if (!banned)
                 PinToHomeButton(
                   pinned: state.pinned,

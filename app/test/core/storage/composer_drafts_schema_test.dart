@@ -150,10 +150,10 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 11', () async {
+  test('a fresh database is at schema version 12', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 11);
+    expect(db.schemaVersion, 12);
   });
 
   test('migrates a v10 database to v11: same rows and send-key values, key '
@@ -243,6 +243,41 @@ void main() {
       newKey: () => 'unused',
     );
     expect(claim.key, 'key-1');
+  });
+
+  test('migrates a v11 database to v12: rows kept, community id empty and '
+      'then stored', () async {
+    final s = kBase.millisecondsSinceEpoch ~/ 1000;
+    final executor = NativeDatabase.memory(
+      setup: (raw) {
+        raw.execute('''
+          CREATE TABLE composer_draft_entries (
+            draft_id TEXT NOT NULL, uid TEXT NOT NULL,
+            draft_text TEXT NOT NULL,
+            poll_json TEXT NOT NULL DEFAULT '',
+            reply_policy TEXT NOT NULL DEFAULT 'everyone',
+            paid_partnership INTEGER NOT NULL DEFAULT 0,
+            made_with_ai INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+            send_key TEXT NULL, send_kind TEXT NULL,
+            send_publish_at INTEGER NULL, send_started_at INTEGER NULL,
+            PRIMARY KEY (uid, draft_id)
+          )''');
+        raw.execute(
+          "INSERT INTO composer_draft_entries (draft_id, uid, draft_text, "
+          "created_at, updated_at) VALUES ('a', 'u1', 'kept', $s, $s)",
+        );
+        raw.execute('PRAGMA user_version = 11');
+      },
+    );
+    final db = AppDatabase.forTesting(executor);
+    addTearDown(db.close);
+    final repo = DraftsRepository(db);
+    final old = (await repo.read('u1', 'a'))!;
+    expect(old.text, 'kept');
+    expect(old.communityId, '');
+    await repo.upsert(old.copyWith(communityId: '1234567890123456789'));
+    expect((await repo.read('u1', 'a'))!.communityId, '1234567890123456789');
   });
 
   test('a v9 database reaches v11 with its rows and the new key', () async {

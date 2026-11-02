@@ -21,6 +21,8 @@ import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/embedded_post_card.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
+import '../../communities/data/communities_repository.dart';
+import '../../communities/domain/communities_feature_flag.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../media/data/gif_source.dart';
 import '../../media/data/image_picker_service.dart';
@@ -43,6 +45,8 @@ import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
+import 'widgets/audience_pill.dart';
+import 'widgets/audience_sheet.dart';
 import 'widgets/composer_extras_buttons.dart';
 import 'widgets/composer_poll_builder.dart';
 import 'widgets/draft_dialogs.dart';
@@ -56,6 +60,11 @@ import 'widgets/send_conflict_dialog.dart';
 const kDraftGoneMessage = 'That draft is no longer available.';
 const kDraftNeedsNoMediaMessage =
     'That draft has a poll. Remove your photos or GIF to open it.';
+
+/// ADR-0031 L-1: the server posted without the community (an older revision
+/// dropped the field), so the post is open to everyone.
+const kCommunityNotAddedMessage =
+    'Your post was sent without its community, so everyone can see it.';
 
 /// Upper bound on what the field accepts. It is far above the 280 limit so
 /// the counter can go negative (the user sees how much to cut), while a huge
@@ -78,10 +87,16 @@ class ComposerScreen extends StatelessWidget {
     this.quoteOfPostId = '',
     this.quotePreview,
     this.draftId = '',
+    this.communityId = '',
     @visibleForTesting this.scheduleClock,
   });
 
   final String quoteOfPostId;
+
+  /// The community to preselect as the audience (`/compose?community=<id>`,
+  /// W5-34), or empty. Used only while `communities` is on and the caller is
+  /// in it; any other id opens on Everyone with a notice.
+  final String communityId;
 
   /// The saved draft to continue (`/compose?draft=<id>`, W6-15), or empty for
   /// a new post. Used only while `drafts` is on. A draft that is gone (or
@@ -149,6 +164,11 @@ class ComposerScreen extends StatelessWidget {
         context.read<PostsRepository>().subFeatureEnabled(
           kPostsSubFeatureMedia,
         );
+    // The audience picker (W5-34): `communities` on and the caller not
+    // protected (the server answers PROTECTED_ACCOUNT to a community post).
+    final communitiesOn =
+        featureEnabledSnapshot(context, kFeatureCommunities) &&
+        !(profile?.isPrivate ?? false);
     return MultiBlocProvider(
       providers: [
         if (mediaEnabled)
@@ -171,6 +191,11 @@ class ComposerScreen extends StatelessWidget {
           ),
         BlocProvider<ComposerCubit>(
           create: (context) => ComposerCubit(
+            communitiesEnabled: communitiesOn,
+            communities: communitiesOn
+                ? context.read<CommunitiesRepository>()
+                : null,
+            initialCommunityId: communityId,
             postsRepository: context.read<PostsRepository>(),
             pending: context.read<PendingPostsCubit>(),
             author: viewerAuthorSnapshot(profile),
@@ -198,7 +223,7 @@ class ComposerScreen extends StatelessWidget {
             uid: uid,
             initialDraft: initial,
             usage: UsageScope.of(context),
-          ),
+          )..loadAudiences(),
         ),
       ],
       child: mediaEnabled
@@ -369,7 +394,16 @@ class _ComposerViewState extends State<_ComposerView> {
   /// user once and offer Delete (the post is a bare question) or Keep. The
   /// messenger and the repository are taken before the screen pops, so the
   /// snackbar outlives it.
-  void _warnPollNotAdded(BuildContext context, pb.PostView created) {
+  void _warnPollNotAdded(BuildContext context, pb.PostView created) =>
+      _warnNotApplied(context, created, kPollNotAddedMessage);
+
+  /// The same warning for a field the server dropped (the poll, the
+  /// community): [message] and Keep / Delete.
+  void _warnNotApplied(
+    BuildContext context,
+    pb.PostView created,
+    String message,
+  ) {
     final messenger = ScaffoldMessenger.of(context);
     final posts = context.read<PostsRepository>();
     final postId = created.post.postId;
@@ -381,7 +415,7 @@ class _ComposerViewState extends State<_ComposerView> {
           content: Wrap(
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const Text(kPollNotAddedMessage),
+              Text(message),
               TextButton(
                 onPressed: messenger.hideCurrentSnackBar,
                 child: const Text('Keep'),
@@ -545,6 +579,11 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   void _onState(BuildContext context, ComposerState state) {
+    final notice = state.audienceNotice;
+    if (notice != null) {
+      context.read<ComposerCubit>().audienceNoticeShown();
+      _notice(notice.message);
+    }
     final conflict = state.sendConflict;
     if (conflict != null) {
       context.read<ComposerCubit>().sendConflictShown();
@@ -558,6 +597,9 @@ class _ComposerViewState extends State<_ComposerView> {
     }
     if (state.status == ComposerStatus.posted) {
       if (state.pollNotAdded) _warnPollNotAdded(context, state.created!);
+      if (state.communityNotApplied && !state.pollNotAdded) {
+        _warnNotApplied(context, state.created!, kCommunityNotAddedMessage);
+      }
       // ADR-0021 L-1: the server echoed another audience than the one sent.
       // The messenger is app-level, so the snackbar outlives this screen.
       if (state.replyPolicyNotApplied) {
@@ -621,6 +663,37 @@ class _ComposerViewState extends State<_ComposerView> {
   ) {
     final cubit = context.read<ComposerCubit>();
     final hasPoll = state.hasPoll;
+    final field = TextField(
+      controller: _controller,
+      focusNode: _questionFocus,
+      autofocus: true,
+      enabled: !state.isSubmitting,
+      expands: !hasPoll,
+      maxLines: null,
+      minLines: hasPoll ? 2 : null,
+      textAlignVertical: TextAlignVertical.top,
+      keyboardType: TextInputType.multiline,
+      textCapitalization: TextCapitalization.sentences,
+      inputFormatters: [LengthLimitingTextInputFormatter(kComposerInputCap)],
+      style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 18),
+      decoration: InputDecoration(
+        hintText: hasPoll
+            ? kPollQuestionHint
+            : isQuote
+            ? 'Add a comment'
+            : "What's happening?",
+        hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          fontSize: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        disabledBorder: InputBorder.none,
+      ),
+      onChanged: cubit.textChanged,
+    );
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
@@ -629,44 +702,41 @@ class _ComposerViewState extends State<_ComposerView> {
           ExcludeSemantics(child: AppAvatar(url: widget.avatarUrl)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: TextField(
-              controller: _controller,
-              focusNode: _questionFocus,
-              autofocus: true,
-              enabled: !state.isSubmitting,
-              expands: !hasPoll,
-              maxLines: null,
-              minLines: hasPoll ? 2 : null,
-              textAlignVertical: TextAlignVertical.top,
-              keyboardType: TextInputType.multiline,
-              textCapitalization: TextCapitalization.sentences,
-              inputFormatters: [
-                LengthLimitingTextInputFormatter(kComposerInputCap),
-              ],
-              style: Theme.of(context).textTheme.bodyLarge
-                  ?.copyWith(fontSize: 18),
-              decoration: InputDecoration(
-                hintText: hasPoll
-                    ? kPollQuestionHint
-                    : isQuote
-                    ? 'Add a comment'
-                    : "What's happening?",
-                hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: 18,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                filled: false,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-              ),
-              onChanged: cubit.textChanged,
-            ),
+            // The audience pill (W5-34) sits above the text, next to the
+            // avatar, as on X; without it the field is laid out as before.
+            child: !cubit.canChooseCommunity
+                ? field
+                : Column(
+                    mainAxisSize: hasPoll ? MainAxisSize.min : MainAxisSize.max,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AudiencePill(
+                        audience: state.audience,
+                        onTap: state.isSubmitting
+                            ? null
+                            : () => _chooseAudience(context, state),
+                      ),
+                      if (hasPoll) field else Expanded(child: field),
+                    ],
+                  ),
           ),
         ],
       ),
     );
+  }
+
+  /// Opens "Choose audience" and applies the answer.
+  Future<void> _chooseAudience(
+    BuildContext context,
+    ComposerState state,
+  ) async {
+    final cubit = context.read<ComposerCubit>();
+    final picked = await showAudienceSheet(
+      context,
+      selected: state.audience,
+      communities: state.communityChoices,
+    );
+    if (picked != null && !cubit.isClosed) cubit.audienceChanged(picked);
   }
 
   /// Leaves the screen. What it asks depends on [ComposerCubit.leaveAction]:
@@ -743,6 +813,7 @@ class _ComposerViewState extends State<_ComposerView> {
           prev.status != curr.status ||
           !identical(prev.error, curr.error) ||
           prev.sendConflict != curr.sendConflict ||
+          prev.audienceNotice != curr.audienceNotice ||
           !identical(prev.scheduledNotice, curr.scheduledNotice),
       listener: _onState,
       builder: (context, state) {
@@ -858,6 +929,8 @@ class _ComposerViewState extends State<_ComposerView> {
                     if (isQuote) _QuotePreview(preview: widget.quotePreview),
                     if (widget.mediaEnabled)
                       AttachmentGrid(enabled: !state.isSubmitting),
+                    // A community post takes no reply policy (ADR-0031 F8):
+                    // the cubit hides this control while one is chosen.
                     if (cubit.canChooseReplyAudience)
                       _ReplyAudienceLink(
                         audience: state.replyAudience,

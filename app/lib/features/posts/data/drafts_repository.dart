@@ -379,7 +379,8 @@ class DraftsRepository {
           existing.pollJson == pollJson &&
           existing.replyPolicy == draft.replyAudience.name &&
           existing.paidPartnership == draft.paidPartnership &&
-          existing.madeWithAi == draft.madeWithAi) {
+          existing.madeWithAi == draft.madeWithAi &&
+          existing.communityId == draft.communityId) {
         return DraftSaveResult.saved;
       }
       _seen.add(draft.id);
@@ -394,6 +395,7 @@ class DraftsRepository {
               replyPolicy: Value(draft.replyAudience.name),
               paidPartnership: Value(draft.paidPartnership),
               madeWithAi: Value(draft.madeWithAi),
+              communityId: Value(draft.communityId),
               createdAt: existing?.createdAt ?? draft.createdAt,
               updatedAt: _now(),
             ),
@@ -446,6 +448,7 @@ class DraftsRepository {
       ),
       paidPartnership: row.paidPartnership,
       madeWithAi: row.madeWithAi,
+      communityId: row.communityId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     );

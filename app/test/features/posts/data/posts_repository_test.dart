@@ -138,6 +138,54 @@ void main() {
     expect(cachedIds(await store.read(const FeedKey.home())), [postId(5)]);
   });
 
+  group('community_id (ADR-0031 D5, W5-34)', () {
+    const cid = '1000000000000000042';
+
+    pb.CreatePostRequest lastRequest() =>
+        requests.whereType<pb.CreatePostRequest>().last;
+
+    test('is left unset unless a community is passed', () async {
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(idempotencyKey: 'k', text: 't');
+      expect(lastRequest().hasCommunityId(), isFalse);
+    });
+
+    test('a chosen community goes on the wire', () async {
+      answer = (_) => pb.CreatePostResponse(post: postView(1));
+      await repo.createPost(idempotencyKey: 'k', text: 't', communityId: cid);
+      expect(lastRequest().communityId, cid);
+    });
+
+    test('a post labelled with a community tops that loaded feed', () async {
+      final community = FeedKey.community(cid);
+      await seed(community, [5]);
+      final view = postView(9, authorId: 'me');
+      view.post.community = pb.CommunityRef(id: cid, name: 'Gardeners');
+      answer = (_) => pb.CreatePostResponse(post: view);
+      await repo.createPost(idempotencyKey: 'k', text: 't', communityId: cid);
+      expect(cachedIds(await store.read(community)), [postId(9), postId(5)]);
+    });
+
+    test(
+      'FEATURE_DISABLED communities is remembered by the posts gate',
+      () async {
+        answer = (_) =>
+            throw FeatureDisabledException('off', feature: 'communities');
+        await expectLater(
+          repo.createPost(idempotencyKey: 'k', text: 't', communityId: cid),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        // The second try is not even sent.
+        final sent = requests.length;
+        await expectLater(
+          repo.createPost(idempotencyKey: 'k2', text: 't', communityId: cid),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(requests.length, sent);
+      },
+    );
+  });
+
   group('reply_policy (ADR-0021)', () {
     pb.CreatePostRequest lastRequest() =>
         requests.whereType<pb.CreatePostRequest>().last;

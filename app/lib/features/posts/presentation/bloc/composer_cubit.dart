@@ -8,10 +8,15 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pbc;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import '../../../communities/data/communities_repository.dart';
+import '../../../communities/domain/communities_feature_flag.dart';
+import '../../../communities/domain/community_role.dart';
 import '../../../media/presentation/bloc/attachments_cubit.dart';
 import '../../data/posts_repository.dart';
+import '../../domain/compose_audience.dart';
 import '../../domain/composer_attachment_rules.dart';
 import '../../data/drafts_repository.dart';
 import '../../domain/composer_draft.dart';
@@ -93,6 +98,10 @@ class ComposerState {
     this.pollDurationClamped = false,
     this.pollNotAdded = false,
     this.sendConflict,
+    this.audience = ComposeAudience.everyone,
+    this.communityChoices = const [],
+    this.audienceNotice,
+    this.communityNotApplied = false,
   });
 
   final PostDraft draft;
@@ -156,6 +165,23 @@ class ComposerState {
   /// cleared by [ComposerCubit.sendConflictShown].
   final SendConflict? sendConflict;
 
+  /// Where the post goes (W5-34): Everyone, or one joined community. Sent as
+  /// `community_id` only while [ComposerCubit.canChooseCommunity].
+  final ComposeAudience audience;
+
+  /// The communities the caller may post into (the picker's rows), empty until
+  /// loaded or when there is none.
+  final List<pbc.Community> communityChoices;
+
+  /// The composer put the audience back to Everyone: shown once by the screen
+  /// ([ComposerCubit.audienceNoticeShown]).
+  final AudienceNotice? audienceNotice;
+
+  /// Set with [ComposerStatus.posted] when a community post came back with no
+  /// `community` (an older server dropped the field, ADR-0031 L-1): the screen
+  /// warns once and offers to delete the post.
+  final bool communityNotApplied;
+
   bool get hasPoll => poll != null;
   bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
@@ -189,6 +215,11 @@ class ComposerState {
     bool? pollDurationClamped,
     bool? pollNotAdded,
     SendConflict? sendConflict,
+    ComposeAudience? audience,
+    List<pbc.Community>? communityChoices,
+    AudienceNotice? audienceNotice,
+    bool clearAudienceNotice = false,
+    bool? communityNotApplied,
     bool clearSendConflict = false,
     bool clearPoll = false,
     bool clearError = false,
@@ -215,6 +246,12 @@ class ComposerState {
     sendConflict: clearSendConflict
         ? null
         : (sendConflict ?? this.sendConflict),
+    audience: audience ?? this.audience,
+    communityChoices: communityChoices ?? this.communityChoices,
+    audienceNotice: clearAudienceNotice
+        ? null
+        : (audienceNotice ?? this.audienceNotice),
+    communityNotApplied: communityNotApplied ?? this.communityNotApplied,
   );
 }
 
@@ -252,6 +289,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     this.engagementOn = false,
     this.gifFlag = false,
     this.mediaOn = false,
+    this.communitiesEnabled = false,
+    CommunitiesRepository? communities,
+    String initialCommunityId = '',
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Uuid? uuid,
     DateTime Function()? clock,
@@ -260,6 +300,10 @@ class ComposerCubit extends Cubit<ComposerState> {
     ComposerDraft? initialDraft,
     UsageReporter usage = const UsageReporter.none(),
   }) : replyToPostId = '',
+       _communities = communities,
+       _pendingCommunityId = initialCommunityId.isNotEmpty
+           ? initialCommunityId
+           : (initialDraft?.communityId ?? ''),
        _usage = usage,
        _repository = postsRepository,
        _pending = pending,
@@ -303,6 +347,9 @@ class ComposerCubit extends Cubit<ComposerState> {
        _uuid = uuid ?? const Uuid(),
        _clock = clock ?? DateTime.now,
        replyAudienceEnabled = false,
+       communitiesEnabled = false,
+       _communities = null,
+       _pendingCommunityId = '',
        scheduleEnabled = false,
        pollsFlag = false,
        engagementOn = false,
@@ -373,7 +420,14 @@ class ComposerCubit extends Cubit<ComposerState> {
     poll: state.poll,
     clearPoll: state.poll == null,
     replyAudience: state.replyAudience,
+    communityId: _draftCommunity(state),
   );
+
+  /// The community id a draft keeps: the chosen one, else the one still
+  /// waiting to be matched with the caller's communities (so an autosave never
+  /// erases it before the list has loaded).
+  String _draftCommunity(ComposerState s) =>
+      s.audience.isCommunity ? s.audience.communityId : _pendingCommunityId;
 
   /// What leaving the composer needs now (see [LeaveAction]).
   LeaveAction get leaveAction {
@@ -399,7 +453,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     return !draft.isEmpty &&
         (draft.text != _baseline.text ||
             draft.poll != _baseline.poll ||
-            draft.replyAudience != _baseline.replyAudience);
+            draft.replyAudience != _baseline.replyAudience ||
+            draft.communityId != _baseline.communityId);
   }
 
   /// Loads the saved draft [id] of this account into the composer (picked in
@@ -451,9 +506,12 @@ class ComposerCubit extends Cubit<ComposerState> {
             : ReplyAudience.everyone,
         clearScheduledAt: loadsPoll,
         clearError: true,
+        audience: ComposeAudience.everyone,
       ),
     );
     _loadingDraft = false;
+    _pendingCommunityId = draft.communityId;
+    _resolvePendingCommunity();
     return DraftLoadResult.loaded;
   }
 
@@ -523,7 +581,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     }
     if (a.draft.text == b.draft.text &&
         a.poll == b.poll &&
-        a.replyAudience == b.replyAudience) {
+        a.replyAudience == b.replyAudience &&
+        a.audience == b.audience) {
       return;
     }
     repo.autosave(
@@ -532,6 +591,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         poll: b.poll,
         clearPoll: b.poll == null,
         replyAudience: b.replyAudience,
+        communityId: _draftCommunity(b),
       ),
     );
   }
@@ -549,11 +609,23 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// can reply; otherwise the request always carries UNSPECIFIED.
   final bool replyAudienceEnabled;
 
+  /// `communities` is on for this viewer and the caller is not protected (the
+  /// screen decides; the server answers PROTECTED_ACCOUNT otherwise).
+  final bool communitiesEnabled;
+  final CommunitiesRepository? _communities;
+
+  /// A community id (from a draft, or the community page) not yet matched
+  /// with the caller's communities; empty once it is chosen or dropped.
+  String _pendingCommunityId;
+
   /// Also false once the server answered FEATURE_DISABLED for it (the gate
   /// remembers that until the next `GetMe`).
   bool get canChooseReplyAudience =>
       replyAudienceEnabled &&
       replyToPostId.isEmpty &&
+      // A community conversation is members only and takes no policy of its
+      // own (ADR-0031 F8): the control goes while a community is chosen.
+      !state.audience.isCommunity &&
       _repository.subFeatureEnabled(kFeatureReplyAudience);
 
   /// `posts` and `scheduled_posts` are both on for this viewer (CMP-D6,
@@ -595,6 +667,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     hasPoll: state.hasPoll,
     // A time is only in force while the composer can still schedule.
     scheduled: state.isScheduling && canSchedule,
+    inCommunity: state.audience.isCommunity,
   );
 
   bool get _gifHeld => _attachments?.state.hasGif ?? false;
@@ -757,6 +830,9 @@ class ComposerCubit extends Cubit<ComposerState> {
         scheduledAt: state.scheduledAt,
         poll: state.poll,
         pollDurationClamped: state.pollDurationClamped,
+        audience: state.audience,
+        communityChoices: state.communityChoices,
+        audienceNotice: state.audienceNotice,
       ),
     );
   }
@@ -894,6 +970,123 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (!canChooseReplyAudience || state.isSubmitting) return;
     if (audience == state.replyAudience) return;
     emit(state.copyWith(replyAudience: audience));
+  }
+
+  /// Whether the audience picker is offered (W5-34): `communities` is on and
+  /// the caller is not protected (both decided by the screen), a new root post
+  /// or quote (never a reply), no schedule time set (SchedulePost takes no
+  /// community), the caller is in at least one community, and the server has
+  /// not answered FEATURE_DISABLED for it (the gate remembers that).
+  bool get canChooseCommunity =>
+      communitiesEnabled &&
+      replyToPostId.isEmpty &&
+      !state.isScheduling &&
+      state.communityChoices.isNotEmpty &&
+      _repository.subFeatureEnabled(kFeatureCommunities);
+
+  /// The `community_id` the next CreatePost carries: only a community the
+  /// picker offers right now, never a stale one.
+  String get _communityToSend =>
+      canChooseCommunity && state.audience.isCommunity
+      ? state.audience.communityId
+      : '';
+
+  /// Picks where the post goes (the "Choose audience" sheet). A community must
+  /// be one the caller is in ([ComposerState.communityChoices]); ignored while
+  /// the picker is not offered and while the post is being sent.
+  void audienceChanged(ComposeAudience audience) {
+    if (!canChooseCommunity || state.isSubmitting) return;
+    if (audience == state.audience) return;
+    if (audience.isCommunity &&
+        !state.communityChoices.any(
+          (c) => c.communityId == audience.communityId,
+        )) {
+      return;
+    }
+    // An explicit choice settles what an unmatched draft id was waiting for.
+    _pendingCommunityId = '';
+    emit(state.copyWith(audience: audience, clearError: true));
+  }
+
+  /// Reads the caller's communities for the picker: the session cache when it
+  /// has them (0 calls), else one ListMyCommunities shared with the
+  /// Communities screen. Nothing is read while the picker cannot be offered.
+  /// A failure leaves the picker out and the post going to everyone; it is
+  /// said once when a community was asked for (a draft, the community page).
+  Future<void> loadAudiences() async {
+    final repo = _communities;
+    if (repo == null || !communitiesEnabled || replyToPostId.isNotEmpty) return;
+    // Always answer after the caller's first build, also from the cache: the
+    // screen starts listening in that build, and a notice emitted before it
+    // would be missed.
+    await Future<void>.value();
+    if (isClosed) return;
+    try {
+      final mine = repo.cachedMine ?? await repo.myCommunities();
+      if (isClosed) return;
+      _applyChoices(mine);
+    } on AppException {
+      if (isClosed) return;
+      if (_pendingCommunityId.isNotEmpty) {
+        emit(state.copyWith(audienceNotice: AudienceNotice.couldNotLoad));
+      }
+    } catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
+    }
+  }
+
+  /// The caller's communities were read (even when there are none).
+  bool _choicesLoaded = false;
+
+  void _applyChoices(MyCommunities mine) {
+    _choicesLoaded = true;
+    final choices = [
+      for (final c in mine.communities)
+        // Joined and open: a banned or archived community takes no post.
+        if (c.role.isMember &&
+            c.status != pbc.CommunityStatus.COMMUNITY_STATUS_ARCHIVED)
+          c,
+    ];
+    final keep =
+        state.audience.isCommunity &&
+        choices.any((c) => c.communityId == state.audience.communityId);
+    emit(
+      state.copyWith(
+        communityChoices: choices,
+        audience: keep ? null : ComposeAudience.everyone,
+      ),
+    );
+    _resolvePendingCommunity();
+  }
+
+  /// Matches the community a draft or the community page asked for with the
+  /// loaded choices: found, it is chosen; not found, the post goes to
+  /// everyone and the user is told once (ADR-0029 F8). Waits until the
+  /// choices have loaded.
+  void _resolvePendingCommunity() {
+    final id = _pendingCommunityId;
+    if (id.isEmpty || !communitiesEnabled) return;
+    if (!_choicesLoaded) return;
+    final found = state.communityChoices.where((c) => c.communityId == id);
+    _pendingCommunityId = '';
+    if (found.isNotEmpty) {
+      if (!state.isScheduling) {
+        emit(state.copyWith(audience: found.first.composeAudience));
+      }
+      return;
+    }
+    // The draft no longer names a community the caller is in: it is an
+    // Everyone draft now, and leaving without edits asks nothing.
+    _baseline = _baseline.copyWith(communityId: '');
+    _base = _base.copyWith(communityId: '');
+    emit(state.copyWith(audienceNotice: AudienceNotice.notAMember));
+  }
+
+  /// The notice was shown: forget it.
+  void audienceNoticeShown() {
+    if (state.audienceNotice != null) {
+      emit(state.copyWith(clearAudienceNotice: true));
+    }
   }
 
   /// The policy the next CreatePost carries: UNSPECIFIED unless a narrower
@@ -1054,11 +1247,19 @@ class ComposerCubit extends Cubit<ComposerState> {
     final media = _mediaKind(mediaIds);
 
     final policy = _policyToSend;
+    // Read once, after the uploads: what is sent is what the pill showed.
+    final communityId = _communityToSend;
     final bodyWithPolicy = _bodyKey(text, mediaIds, altTexts, policy, poll);
+    // The server answers IDEMPOTENCY_KEY_REUSED for one key with another
+    // community, so a community post has its own key; a post without one keeps
+    // the key it always had.
+    final bodyWithCommunity = communityId.isEmpty
+        ? bodyWithPolicy
+        : 'c:$communityId\u0001$bodyWithPolicy';
     // A quote and a plain post with the same body are different requests.
     final intent = quoteOfPostId.isEmpty
-        ? bodyWithPolicy
-        : 'q:$quoteOfPostId\u0001$bodyWithPolicy';
+        ? bodyWithCommunity
+        : 'q:$quoteOfPostId\u0001$bodyWithCommunity';
     final key = claim.key ?? _keyFor(intent);
 
     final pending = _pending;
@@ -1089,6 +1290,7 @@ class ComposerCubit extends Cubit<ComposerState> {
                 choices: analyzePoll(poll).stored,
                 durationMinutes: poll.durationMinutes,
               ),
+        communityId: communityId,
       );
       // The server accepted the post: reported even if the screen closed.
       _usage.log(
@@ -1108,10 +1310,10 @@ class ComposerCubit extends Cubit<ComposerState> {
       if (!isClosed) {
         // Echo check (ADR-0021 L-1): an older revision may have dropped the
         // field, leaving the post open to everyone. Warn; never fail.
-        final notApplied = !replyPoliciesMatch(
-          policy,
-          created.post.replyPolicy,
-        );
+        // A community post takes no policy of its own: nothing to compare.
+        final notApplied =
+            communityId.isEmpty &&
+            !replyPoliciesMatch(policy, created.post.replyPolicy);
         emit(
           state.copyWith(
             status: ComposerStatus.posted,
@@ -1120,6 +1322,10 @@ class ComposerCubit extends Cubit<ComposerState> {
             // Echo check (ADR-0029 L-1): an older revision drops the field
             // and posts the question alone.
             pollNotAdded: poll != null && !created.post.hasPoll(),
+            // Echo check (ADR-0031 L-1): an older revision drops the field
+            // and posts to everyone.
+            communityNotApplied:
+                communityId.isNotEmpty && !created.post.hasCommunity(),
           ),
         );
       }
@@ -1199,7 +1405,11 @@ class ComposerCubit extends Cubit<ComposerState> {
       _draftScheduled();
       if (isClosed) return;
       emit(
-        ComposerState(draft: analyzePostDraft(''), scheduledNotice: scheduled),
+        ComposerState(
+          draft: analyzePostDraft(''),
+          scheduledNotice: scheduled,
+          communityChoices: state.communityChoices,
+        ),
       );
       // The images now belong to the scheduled item.
       _attachments?.clear();
@@ -1247,10 +1457,42 @@ class ComposerCubit extends Cubit<ComposerState> {
         error.feature == kFeatureReplyAudience;
     final pollsRefused =
         error is FeatureDisabledException && error.feature == kFeaturePolls;
+    // The server will not take a post into this community (communities are
+    // off, the caller left or was banned): back to Everyone, so the user can
+    // still post, and the community leaves the picker. The gate remembers a
+    // FEATURE_DISABLED itself.
+    // Left, banned, archived or gone: this community is no longer a place to
+    // post, so it also leaves the picker and the session cache.
+    final communityGone =
+        state.audience.isCommunity &&
+        (error is CommunityForbiddenException &&
+                (error.reason == CommunityForbiddenReason.notMember ||
+                    error.reason == CommunityForbiddenReason.banned) ||
+            error is CommunityStateException ||
+            error is NotFoundException && quoteOfPostId.isEmpty);
+    final communityRefused =
+        communityGone ||
+        state.audience.isCommunity &&
+            (error is FeatureDisabledException &&
+                    error.feature == kFeatureCommunities ||
+                error is ProtectedAccountException);
+    if (communityGone) {
+      final id = state.audience.communityId;
+      _communities?.forgetCommunity(id);
+      emit(
+        state.copyWith(
+          communityChoices: [
+            for (final c in state.communityChoices)
+              if (c.communityId != id) c,
+          ],
+        ),
+      );
+    }
     emit(
       state.copyWith(
         status: ComposerStatus.editing,
         error: error,
+        audience: communityRefused ? ComposeAudience.everyone : null,
         replyAudience: audienceRefused ? ReplyAudience.everyone : null,
         // Any answer that turned scheduling off (the sub-feature, or the whole
         // of posts) takes the time with it: the button goes back to "Post".

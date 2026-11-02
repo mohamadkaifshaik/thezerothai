@@ -9,6 +9,8 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
 import '../../timeline/data/timeline_store.dart';
 import '../../timeline/domain/feed_key.dart';
+import '../../communities/domain/communities_feature_flag.dart'
+    show kFeatureCommunities;
 import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/composer_draft.dart' show DraftPoll;
 import '../domain/posts_feature_flag.dart';
@@ -72,6 +74,7 @@ class PostsRepository {
     List<String> mediaAltTexts = const [],
     ReplyPolicy replyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     DraftPoll? poll,
+    String communityId = '',
   }) async {
     final session = _store.session;
     final response = await _gate.run(
@@ -90,6 +93,9 @@ class PostsRepository {
                   choices: poll.choices,
                   durationMinutes: poll.durationMinutes,
                 ),
+          // Set only for a post into a community (root or quote; never with
+          // a reply policy, ADR-0031 D5/F8): the field stays unset otherwise.
+          communityId: communityId.isEmpty ? null : communityId,
         ),
       ),
       requires: [
@@ -97,6 +103,7 @@ class PostsRepository {
         if (quoteOfPostId.isNotEmpty) kPostsSubFeatureQuotes,
         if (mediaIds.isNotEmpty) kPostsSubFeatureMedia,
         if (poll != null) kFeaturePolls,
+        if (communityId.isNotEmpty) kFeatureCommunities,
         // Only a chosen audience needs the flag; UNSPECIFIED never does.
         if (replyPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED)
           kFeatureReplyAudience,
@@ -116,6 +123,10 @@ class PostsRepository {
           FeedKey.user(authorId),
           FeedKey.user(authorId, includeReplies: true),
         ],
+        // A post into a community also tops that community's loaded feed
+        // (W5-34), so going back to its page shows it with no refetch.
+        if (view.post.hasCommunity() && view.post.community.id.isNotEmpty)
+          FeedKey.community(view.post.community.id),
       ],
     );
     return view;

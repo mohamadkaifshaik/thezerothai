@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -11,6 +12,7 @@ import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../lists/data/home_tabs_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../posts/data/posts_repository.dart';
+import '../../posts/domain/posts_feature_flag.dart';
 import '../../timeline/data/timeline_repository.dart';
 import '../../timeline/domain/feed_key.dart';
 import '../../timeline/presentation/bloc/timeline_cubit.dart';
@@ -35,8 +37,11 @@ import 'widgets/community_unavailable_view.dart';
 ///   one `SetHomeTabs`.
 /// - NOT_FOUND from either RPC replaces the screen with "This Community is
 ///   unavailable"; one text for every cause.
-/// - There is no compose-to-community entry here: the composer's audience
-///   picker (W5-34) owns posting into a community.
+/// - "Post" in the header (W5-34) opens `/compose?community=<id>` with this
+///   community preselected, only for a joined, not archived community, a
+///   caller who may post (`posts` on) and who is not protected (the server
+///   answers PROTECTED_ACCOUNT to a community post). The composer still
+///   checks membership against the server's list.
 class CommunityScreen extends StatefulWidget {
   const CommunityScreen({super.key, required this.communityId});
 
@@ -74,6 +79,14 @@ class _CommunityScreenState extends State<CommunityScreen> {
     _timeline.close();
     _detail.close();
     super.dispose();
+  }
+
+  /// The "Post" entry: the header's own rule plus the caller's flags.
+  bool _canCompose(BuildContext context, CommunityDetailState state) {
+    final profile = context.read<OnboardingBloc>().state.profile;
+    return CommunityHeader.communityComposeAllowed(state) &&
+        isFeatureEnabled(context, kFeaturePosts) &&
+        !(profile?.isPrivate ?? false);
   }
 
   void _back() {
@@ -197,6 +210,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                   SliverToBoxAdapter(
                     child: CommunityHeader(
                       state: state,
+                      onCompose: _canCompose(context, state)
+                          ? () => context.push(
+                              AppRouter.composeCommunityPath(
+                                widget.communityId,
+                              ),
+                            )
+                          : null,
                       onMembers: () => context.push(
                         AppRouter.communityMembersPath(widget.communityId),
                       ),
