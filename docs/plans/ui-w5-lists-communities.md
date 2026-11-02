@@ -366,7 +366,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
-| W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Open |
+| W5-33 | One context-label row on `PostCard` (repost, community) | frontend-developer | S | W5-30 | `post_card.dart` serialises with W3-17 / W4-16 | Done (#614) |
 | W5-34 | Composer audience picker (Everyone / a joined community) | frontend-developer | M | W5-30 | composer files serialise with W1.5 / W6 tickets | Open |
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report community / list | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Open |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
@@ -1285,7 +1285,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - The members page has no moderation actions (ban, roles): W5-35.
   - Pin / Unpin reuses the new shared `PinToHomeButton` (extracted from the List header).
 
-### W5-33 — Context label row on `PostCard`  [owner: frontend-developer] [size: S] [depends: W5-30]  Status: Open
+### W5-33 — Context label row on `PostCard`  [owner: frontend-developer] [size: S] [depends: W5-30]  Status: Done (#614)
 - **Description.** Generalise the private `_RepostedBy` into one context-label row: an icon over the avatar column plus muted text (`communities.md` §3, MEASURED). Its variants are "<name> reposted" (existing behaviour, unchanged) and "<community name>" (people icon; tap → `/communities/:id`, only with `communities`). There is one row; when both apply, the repost label wins. Semantics: the article label starts with the community name (`communities.md` §4).
 - **Acceptance criteria.**
   - Given a community post, then the label shows.
