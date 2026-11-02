@@ -188,7 +188,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#609) |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Done (#611) |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Done (#612) |
-| TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Open |
+| TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Done (#PR) |
 | TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Open |
 | TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | Open |
 | TEL-11 | Cost and performance note: INR 0 line, AAB and web bundle deltas, cold start on a low-end Android; `cost-model.md` section | sre-performance | XS | TEL-3, TEL-4 | yes | Open |
@@ -351,10 +351,10 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** Both.
 - **Seam.** The store and card are per kind, so a third kind (a web banner later) adds a key, not a new mechanism.
 
-### TEL-8 — Deletion and account switch on the device  [owner: frontend-developer] [size: XS] [depends: TEL-7]  Status: Open
+### TEL-8 — Deletion and account switch on the device  [owner: frontend-developer] [size: XS] [depends: TEL-7]  Status: Done (#PR)
 - **Description.**
-  - In-app Delete account (before `/account-deleted`): `TelemetryConsentStore.forget(uid)`, `deleteUnsentReports()` and `resetAnalyticsData()`.
-  - On sign-in of a different uid than the last one on this device: `resetAnalyticsData()` (F11).
+  - In-app Delete account (before `/account-deleted`): `TelemetryConsentStore.forget(uid)`, `deleteUnsentReports()` and `UsageAnalytics.resetDevice()` (the SDK's `resetAnalyticsData()`), through `TelemetryController.forgetDevice(uid)` so they keep the controller's order.
+  - On sign-in of a different uid than the last one on this device (stored in `AppSettingEntries` as `telemetry_last_uid`): `UsageAnalytics.resetDevice()` (F11), queued by the controller before that uid's first event. Same uid again, or no stored uid (first sign-in on the device): no reset.
   - Runbook lines:
     - `account-deletion.md` §7, the email answer: crash reports and usage statistics are device-level and cannot be found by account (Q10 (f)). To clear them, the user deletes in the app or clears the app's data.
     - §3b: no manual step.
