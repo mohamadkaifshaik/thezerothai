@@ -629,6 +629,20 @@ func TestW536_F14ReplyHintOnTheWire(t *testing.T) {
 	if _, err := b.posts.CreatePost(ctx, authed(member.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("rep"), Text: "reply from a member", ReplyToPostId: ids[0]})); err != nil {
 		t.Errorf("member's reply: %v", err)
 	}
+	// Members-only replies on the wire (F8): a non-member sees NOT_ALLOWED and the reply is FORBIDDEN not_member with nothing written.
+	outsider := a.user(t)
+	o, err := b.feed(outsider, cid, 20, "", "")
+	if err != nil || len(o.GetPosts()) != 1 || o.GetPosts()[0].GetViewerReplyPermission() != postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED {
+		t.Fatalf("outsider's feed: %v %v", feedIDs(o), err)
+	}
+	before := countReplies(t, b.fs, ids[0])
+	_, err = b.posts.CreatePost(ctx, authed(outsider.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("rep"), Text: "reply from an outsider", ReplyToPostId: ids[0]}))
+	if d := wireError(t, err, connect.CodePermissionDenied); d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FORBIDDEN || d.GetMetadata()["reason"] != "not_member" {
+		t.Errorf("outsider's reply: %v", d)
+	}
+	if after := countReplies(t, b.fs, ids[0]); after != before {
+		t.Errorf("replies %d -> %d, a refused reply wrote", before, after)
+	}
 	// A member the raider blocks does not see the row at all.
 	if _, err := a.gr.Block(ctx, authed(raider.token, &graphv1.BlockRequest{IdempotencyKey: contractKey("blk"), UserId: member.uid})); err != nil {
 		t.Fatal(err)
@@ -698,5 +712,49 @@ func TestW536_RemovalsOverflowResetsTheSinceToken(t *testing.T) {
 	}
 	if _, err := newW536(t, nil).feed(viewer, cid, 20, cold.GetSinceToken(), ""); err != nil {
 		t.Errorf("a token issued after the lag window is still rejected: %v", err)
+	}
+}
+
+// countReplies is the number of reply documents to post id (a direct query: the test's own view of "nothing was written").
+func countReplies(t *testing.T, fs *firestore.Client, id string) int {
+	t.Helper()
+	docs, err := fs.Collection("posts").Where("replyToId", "==", id).Documents(context.Background()).GetAll()
+	if err != nil {
+		t.Fatalf("count replies: %v", err)
+	}
+	return len(docs)
+}
+
+// A hide and a restore through the RPC take effect at once ON THE SAME INSTANCE, although it holds a shared feed entry that still lists the
+// post and caches the community document for 60 s: the write fills the community cache from the written data and drops the instance's
+// feed entry (ForgetCommunityFeed). The bound for OTHER instances is the 60 s of the community cache (not asserted here, no sleeping).
+func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
+	ctx := context.Background()
+	a := newW536(t, nil)
+	owner, mod, viewer := a.user(t), a.user(t), a.user(t)
+	cid := w536Seed{owner: owner.uid, mods: []string{mod.uid}, members: []string{viewer.uid}}.write(t, a.fs)
+	ids := seedCommunityPosts(t, a.fs, cid, owner.uid, 4)
+
+	first, err := a.feed(viewer, cid, 20, "", "") // fills this instance's entry and caches the community
+	if err != nil || !slices.Equal(feedIDs(first), ids) {
+		t.Fatalf("open: %v %v", feedIDs(first), err)
+	}
+	if _, err := a.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide"), CommunityId: cid, PostId: ids[1]})); err != nil {
+		t.Fatalf("hide: %v", err)
+	}
+	cold, err := a.feed(viewer, cid, 20, "", "")
+	if err != nil || slices.Contains(feedIDs(cold), ids[1]) || len(feedIDs(cold)) != 3 {
+		t.Fatalf("cold open right after the hide on the same instance: %v %v (the cached entry still lists the post)", feedIDs(cold), err)
+	}
+	r, err := a.feed(viewer, cid, 20, first.GetSinceToken(), "")
+	if err != nil || !slices.Equal(r.GetRemovedIds(), []string{ids[1]}) {
+		t.Fatalf("refresh right after the hide: removed_ids=%v err=%v", r.GetRemovedIds(), err)
+	}
+	if _, err := a.cm.RestoreCommunityPost(ctx, authed(mod.token, &communitiesv1.RestoreCommunityPostRequest{IdempotencyKey: contractKey("restore"), CommunityId: cid, PostId: ids[1]})); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	back, err := a.feed(viewer, cid, 20, "", "")
+	if err != nil || !slices.Equal(feedIDs(back), ids) {
+		t.Fatalf("cold open right after the restore: %v %v", feedIDs(back), err)
 	}
 }
