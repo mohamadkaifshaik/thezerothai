@@ -8,7 +8,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -21,8 +20,15 @@ const (
 
 var _ ModerationRepo = (*FirestoreRepo)(nil)
 
-// WithPostModerator replaces the posts-side moderation seam (tests); NewFirestoreRepo wires posts.NewCommunityModerator on its own client.
-func (r *FirestoreRepo) WithPostModerator(m posts.CommunityModerator) *FirestoreRepo {
+// PostModerator is the posts-side seam of Hide and Restore (A12), the identical interface to posts.CommunityModerator: posts never imports
+// communities and this package does not import posts, so it uses primitives and *firestore.Transaction only. found=false (no error) is a post
+// that is missing or was not created into cid. apiserver hands posts.NewCommunityModerator to WithPostModerator.
+type PostModerator interface {
+	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool) (changed, found bool, err error)
+}
+
+// WithPostModerator wires the posts-side moderation seam (apiserver at startup; the integration tests). Without it Hide and Restore fail closed.
+func (r *FirestoreRepo) WithPostModerator(m PostModerator) *FirestoreRepo {
 	r.moderator = m
 	return r
 }
@@ -90,7 +96,7 @@ func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Tra
 
 // ModeratePost implements ModerationRepo (ADR-0031 D5, A12). One transaction. Reads, fresh and in this order: idempotency (a replay returns
 // here, 1 read), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
-// written and an error is not recorded), the actor's memberships, and last the post through posts.CommunityModerator (ErrPostNotFound when
+// written and an error is not recorded), the actor's memberships, and last the post through PostModerator (ErrPostNotFound when
 // it was not created into this community). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
 // the post (field-level, in posts), the community (one Update: recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
 // entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, +1 when the
@@ -129,12 +135,12 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		if err != nil {
 			return err
 		}
-		changed, err := r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore)
+		changed, found, err := r.moderator.SetCommunityListing(ctx, tx, p.PostID, p.ID, p.Restore)
 		if err != nil {
-			if errors.Is(err, posts.ErrNotFound) {
-				return ErrPostNotFound
-			}
 			return err
+		}
+		if !found {
+			return ErrPostNotFound
 		}
 		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
 		outcome, next := Unchanged, c

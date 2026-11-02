@@ -413,7 +413,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	listsReader := listsSvc.(lists.Reader)
 	// Communities (ADR-0031, W5-23): the repo is built here because the account-lifecycle registration below needs it (the eraser step
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
-	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient))
+	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
+		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (W5-28, A12)
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,

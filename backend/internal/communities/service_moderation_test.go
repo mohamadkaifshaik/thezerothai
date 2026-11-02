@@ -20,14 +20,13 @@ import (
 
 // fakeModRepo is an in-memory ModerationRepo that records its calls (guarded by mu).
 type fakeModRepo struct {
-	mu       sync.Mutex
-	posts    []ModeratePostParams
-	roles    []SetRoleParams
-	postRes  ModeratePostResult
-	roleRes  SetRoleResult
-	postErr  error
-	roleErr  error
-	calledAt int
+	mu      sync.Mutex
+	posts   []ModeratePostParams
+	roles   []SetRoleParams
+	postRes ModeratePostResult
+	roleRes SetRoleResult
+	postErr error
+	roleErr error
 }
 
 func (r *fakeModRepo) ModeratePost(_ context.Context, p ModeratePostParams) (ModeratePostResult, error) {

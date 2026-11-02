@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -32,6 +33,7 @@ const (
 func newModEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t, 100)
+	e.repo.WithPostModerator(posts.NewCommunityModerator(e.client))
 	e.dir.free = true
 	for _, u := range []string{"banned", "target", "target2"} {
 		e.user(u)
@@ -430,6 +432,7 @@ func mustErr(_ RoleResult, err error) error { return err }
 
 func TestModlog_CapsAndTruncationMarker(t *testing.T) {
 	e := newEnv(t, 3) // modlog keeps the newest 3
+	e.repo.WithPostModerator(posts.NewCommunityModerator(e.client))
 	e.dir.free = true
 	e.seedCommunity(t, Community{ID: modCID, Name: "Mod", OwnerID: "owner", MemberCount: 1}, map[string]MemberState{"owner": MemberJoined})
 	e.seedMemberships(t, "owner", Memberships{Joined: []string{modCID}, Owned: []string{modCID}})

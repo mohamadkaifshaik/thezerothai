@@ -11,7 +11,7 @@
 // apiserver/lifecycle_communities.go, with the T11 rows). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go)
 // fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR; join, leave
 // and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). Still to come: the directory
-// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
+// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28: service_moderation.go, repo_moderation.go, server_moderation.go, and posts.CommunityModerator).
 package communities
 
 import (
