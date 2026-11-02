@@ -264,6 +264,60 @@ void main() {
     expect(find.text('Restore'), findsOneWidget);
   });
 
+  test('the platform acted: no actor and not deleted reads as the platform', () {
+    final hide = pb.ModerationLogEntry(
+      seq: Int64(1),
+      action: ModerationLogAction.MODERATION_LOG_ACTION_RESTORE,
+    );
+    expect(moderationLogSentence(hide), 'The platform restored a post');
+    // An actor row with an empty handle is still a person.
+    final person = _entry(
+      2,
+      ModerationLogAction.MODERATION_LOG_ACTION_HIDE,
+      actor: '',
+    );
+    expect(moderationLogSentence(person), 'A moderator removed a post');
+  });
+
+  testWidgets(
+    "a reply's HIDE row restores by the reply's id; the platform's bulk "
+    'RESTORE row has no button',
+    (tester) async {
+      final replyId = postId(9);
+      stubLog([
+        pb.ModerationLogEntry(
+          seq: Int64(4),
+          action: ModerationLogAction.MODERATION_LOG_ACTION_RESTORE,
+        )..at = _ts(_now.subtract(const Duration(hours: 1))),
+        _entry(
+          3,
+          ModerationLogAction.MODERATION_LOG_ACTION_HIDE,
+          postId: replyId,
+        ),
+      ]);
+      when(
+        () => communities.restorePost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          communityId: '77',
+          postId: replyId,
+        ),
+      ).thenAnswer((_) async {});
+      await open(tester);
+      expect(find.text('The platform restored a post'), findsOneWidget);
+      expect(find.text('Restore'), findsOneWidget);
+      await tester.tap(find.text('Restore'));
+      await tester.pumpAndSettle();
+      expect(find.text('Restored'), findsOneWidget);
+      verify(
+        () => communities.restorePost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          communityId: '77',
+          postId: replyId,
+        ),
+      ).called(1);
+    },
+  );
+
   group('CommunityModerationLogCubit', () {
     CommunityModerationLogCubit make() => CommunityModerationLogCubit(
       communityId: '77',

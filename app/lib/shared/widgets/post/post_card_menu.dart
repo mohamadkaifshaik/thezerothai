@@ -383,10 +383,18 @@ class _PostMenuState extends State<_PostMenu> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Remove this post from ${control.communityName}?'),
-        content: const Text(
-          'It leaves the community feed for everyone. The post stays on its '
-          "author's profile. You can restore it from the moderation log.",
+        title: Text(
+          'Remove this ${control.repliesOnly ? 'reply' : 'post'} from '
+          '${control.communityName}?',
+        ),
+        content: Text(
+          control.repliesOnly
+              ? "It leaves this Community's conversation for everyone but "
+                    'its author. The reply stays on their profile. You can '
+                    'restore it from the moderation log.'
+              : 'It leaves the community feed for everyone. The post stays '
+                    "on its author's profile. You can restore it from the "
+                    'moderation log.',
         ),
         actions: [
           TextButton(
@@ -431,7 +439,7 @@ class _PostMenuState extends State<_PostMenu> {
       );
     } on AppException catch (error) {
       say(
-        communitiesErrorMessage(error),
+        _errorText(control, error),
         action: 'Retry',
         onAction: () => unawaited(_runHide(messenger, control, postId)),
       );
@@ -444,6 +452,22 @@ class _PostMenuState extends State<_PostMenu> {
     }
   }
 
+  /// The failure text of a hide or restore. A reply's NOT_FOUND is the post (or
+  /// the platform removed it), not the community; `not_owner` explains F16.
+  String _errorText(PostModerationControl control, AppException error) {
+    if (control.repliesOnly) {
+      if (error is NotFoundException) {
+        return "This reply isn't available any more.";
+      }
+      if (error is CommunityForbiddenException &&
+          error.reason == CommunityForbiddenReason.notOwner) {
+        return "Only the Community owner can remove a reply by the owner or "
+            'another moderator.';
+      }
+    }
+    return communitiesErrorMessage(error);
+  }
+
   Future<void> _runRestore(
     ScaffoldMessengerState messenger,
     PostModerationControl control,
@@ -453,7 +477,7 @@ class _PostMenuState extends State<_PostMenu> {
     try {
       await control.onRestore(postId);
     } on AppException catch (error) {
-      text = communitiesErrorMessage(error);
+      text = _errorText(control, error);
     } catch (_) {
       text = "Couldn't restore the post. Try the moderation log.";
     }

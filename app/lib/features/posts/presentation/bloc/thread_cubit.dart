@@ -40,6 +40,7 @@ class ThreadState {
     this.error,
     this.refreshError,
     this.hiddenAuthors = const {},
+    this.hiddenReplies = const {},
     this.repliesDisabled = false,
   });
 
@@ -72,6 +73,10 @@ class ThreadState {
   /// Authors the viewer blocked or muted from a reply's menu: hidden at once.
   final Set<String> hiddenAuthors;
 
+  /// Replies a community moderator removed from this thread (W5-51c): gone at
+  /// once, back if the call fails. The server drops them on the next read.
+  final Set<String> hiddenReplies;
+
   /// A reply attempt was answered FEATURE_DISABLED: the composer goes away
   /// but the conversation stays readable.
   final bool repliesDisabled;
@@ -79,12 +84,34 @@ class ThreadState {
   bool get hasMore => nextPageToken.isNotEmpty;
 
   /// Replies to render (hidden authors removed).
-  List<pb.PostView> get visibleReplies => hiddenAuthors.isEmpty
+  List<pb.PostView> get visibleReplies =>
+      hiddenAuthors.isEmpty && hiddenReplies.isEmpty
       ? replies
       : [
           for (final r in replies)
-            if (!hiddenAuthors.contains(r.post.author.userId)) r,
+            if (!hiddenAuthors.contains(r.post.author.userId) &&
+                !hiddenReplies.contains(r.post.postId))
+              r,
         ];
+
+  /// The community the conversation belongs to: the root post's label (the
+  /// focal post itself when it is the root). Null when there is none or the
+  /// root is unavailable (a hidden root has no label, ADR-0031 R3).
+  pb.CommunityRef? get rootCommunity {
+    final f = focal;
+    if (f == null) return null;
+    final pb.PostView? rootView;
+    if (f.post.replyToPostId.isEmpty) {
+      rootView = f;
+    } else {
+      rootView =
+          root ??
+          (f.post.replyToPostId == f.post.conversationId ? parent : null);
+    }
+    return rootView != null && rootView.post.hasCommunity()
+        ? rootView.post.community
+        : null;
+  }
 
   ThreadState copyWith({
     ThreadStatus? status,
@@ -96,6 +123,7 @@ class ThreadState {
     AppException? refreshError,
     bool clearRefreshError = false,
     Set<String>? hiddenAuthors,
+    Set<String>? hiddenReplies,
     bool? repliesDisabled,
     bool dropParent = false,
     bool dropRoot = false,
@@ -118,6 +146,7 @@ class ThreadState {
         ? null
         : (refreshError ?? this.refreshError),
     hiddenAuthors: hiddenAuthors ?? this.hiddenAuthors,
+    hiddenReplies: hiddenReplies ?? this.hiddenReplies,
     repliesDisabled: repliesDisabled ?? this.repliesDisabled,
   );
 }
@@ -175,6 +204,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     emit(
       ThreadState(
         hiddenAuthors: state.hiddenAuthors,
+        hiddenReplies: state.hiddenReplies,
         repliesDisabled: state.repliesDisabled,
       ),
     );
@@ -240,6 +270,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       ],
       nextPageToken: r.nextPageToken,
       hiddenAuthors: state.hiddenAuthors,
+      hiddenReplies: state.hiddenReplies,
       repliesDisabled: state.repliesDisabled,
     );
   }
@@ -370,6 +401,20 @@ class ThreadCubit extends Cubit<ThreadState> {
     final next = {...state.hiddenAuthors};
     final changed = hidden ? next.add(userId) : next.remove(userId);
     if (changed) emit(state.copyWith(hiddenAuthors: next));
+  }
+
+  /// A moderator removed [replyId] from the community view: it leaves the
+  /// open thread at once (W5-51c). [showReplyAgain] rolls it back.
+  void hideReplyLocally(String replyId) {
+    if (isClosed || state.hiddenReplies.contains(replyId)) return;
+    emit(state.copyWith(hiddenReplies: {...state.hiddenReplies, replyId}));
+  }
+
+  void showReplyAgain(String replyId) {
+    if (isClosed || !state.hiddenReplies.contains(replyId)) return;
+    emit(
+      state.copyWith(hiddenReplies: {...state.hiddenReplies}..remove(replyId)),
+    );
   }
 
   /// Deletes the focal post (leaves the screen) or one of the loaded posts
