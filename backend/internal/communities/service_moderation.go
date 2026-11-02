@@ -62,9 +62,11 @@ func (s *service) moderatePost(ctx context.Context, op, uid string, in PostActio
 	if err := ValidateCommunityID(in.CommunityID); err != nil {
 		return mapErr(ctx, op, uid, in.CommunityID, err)
 	}
+	noteCommunity(ctx, in.CommunityID)
 	if !ids.ValidPostID(in.PostID) {
 		return mapErr(ctx, op, uid, in.CommunityID, apierr.Validation("post_id", "post_id must be a 19-digit post id"))
 	}
+	logger.SetRequestField(ctx, fieldPostHash, logger.HashPost(in.PostID))
 	repo, err := s.modRepo()
 	if err != nil {
 		return mapErr(ctx, op, uid, in.CommunityID, err)
@@ -119,9 +121,11 @@ func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (
 	if err := ValidateCommunityID(in.CommunityID); err != nil {
 		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, err)
 	}
+	noteCommunity(ctx, in.CommunityID)
 	if !ids.ValidUID(in.UserID) {
 		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, apierr.Validation("user_id", "user_id is not a valid user id"))
 	}
+	logger.SetRequestField(ctx, fieldTargetHash, logger.HashTarget(in.UserID))
 	if in.Action == RoleActionNone {
 		return RoleResult{}, mapErr(ctx, op, uid, in.CommunityID, apierr.Validation("action", "action must be BAN, UNBAN, MAKE_MODERATOR or REMOVE_MODERATOR"))
 	}

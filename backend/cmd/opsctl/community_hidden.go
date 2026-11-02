@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const communityHiddenUsage = `  opsctl community hidden CID --project P [--page-token T]                        (read-only: the posts and replies a moderator hid, ids and times only, 50 a page)
@@ -31,8 +30,8 @@ const communityEntryBound = "5 minutes"
 // hiddenPageTokenPrefix versions the --page-token (the id of the last row printed).
 const hiddenPageTokenPrefix = "h1."
 
-// hiddenCommunityHash is the community_hash of the hidden commands. Kept in one place: W5-52 re-keys opsctl's community_hash.
-func hiddenCommunityHash(cid string) string { return logger.HashUID(cid) }
+// hiddenCommunityHash is the community_hash of the hidden commands: the keyed hash of W5-52 (CURSOR_HMAC_KEY), else the unavailable marker.
+func hiddenCommunityHash(cid string) string { return communityHashForAudit(cid) }
 
 func isHiddenSub(sub string) bool { return sub == "hidden" || sub == "restore-hidden" }
 

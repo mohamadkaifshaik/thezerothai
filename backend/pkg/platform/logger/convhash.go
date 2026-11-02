@@ -141,3 +141,24 @@ func RedactErrPostDocs(err error, uid string, docIDs ...string) error {
 	}
 	return RedactErrPosts(err, postIDs, uid)
 }
+
+// HashCommunity is the log pseudonym of a community id (community_hash on the Communities moderation request lines, ADR-0031 D13a,
+// W5-52): the first 8 bytes of HMAC-SHA256(key, "community|" + id), the same key as HashConversation. A community id is a public
+// Snowflake; an unkeyed hash next to the actor's uid_hash would let a log reader rebuild who moderated what. `opsctl community
+// loghash` and the opsctl community commands reproduce it. "" in, "" out.
+func HashCommunity(id string) string {
+	if id == "" {
+		return ""
+	}
+	return hashKeyed("community|" + id)
+}
+
+// HashTarget is the log pseudonym of the user a role action is applied to (target_hash on the SetMemberRole request line, W5-52):
+// the first 8 bytes of HMAC-SHA256(key, "target|" + uid). It is keyed, not HashUID, because the plain hash of a target beside the
+// actor's uid_hash would show who acted on whom to anyone holding a pair of uids. "" in, "" out.
+func HashTarget(uid string) string {
+	if uid == "" {
+		return ""
+	}
+	return hashKeyed("target|" + uid)
+}

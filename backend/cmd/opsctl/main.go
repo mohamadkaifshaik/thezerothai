@@ -247,6 +247,14 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		}
 		return 0
 	}
+	if cmd == "community" && sub == "loghash" {
+		// `opsctl community loghash [--community CID] [--post ID] [--user UID]`: no Firestore, no project (needs CURSOR_HMAC_KEY).
+		if err := communityLogHash(rest, os.Getenv(cursorKeyEnv), out, errOut); err != nil {
+			fmt.Fprintln(errOut, err)
+			return 2
+		}
+		return 0
+	}
 	if cmd == "messages" && (sub == "takedown" || sub == "loghash") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		msgTarget, rest = rest[0], rest[1:]
 	}

@@ -12,12 +12,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const communityUsage = `  opsctl community suspend CID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone on every read, posting refused, within 60 s on every server; the owner still sees it)
   opsctl community restore CID --project P [--dry-run]                            (ACTIVE again; an ownerless community comes back ARCHIVED)
   opsctl community archive CID --project P [--dry-run]                            (an owner's support request: read-only, ownerless, out of the directory; NOT undone by restore)
+  opsctl community loghash [--community CID] [--post ID] [--user UID]   (no project; needs CURSOR_HMAC_KEY: the keyed community_hash, post_hash, target_hash and uid_hash of the request lines)
 `
 
 // communityCacheBound is the longest an api instance serves a cached copy of a community doc (communities cache, ADR-0031 D12). opsctl is
@@ -61,7 +61,7 @@ func parseCommunityArgs(sub, cid string, a modArgs) error {
 // refuses with 0 writes). archive is 3 reads and 2 writes (a repeat 1 read, 0 writes). --dry-run is 1 read and no write. --report R
 // (suspend only; checked first: R must be a COMMUNITY report of exactly this community) resolves R as TAKEDOWN after the write, also when
 // the community was already suspended; it adds 1 read to check and the resolve (1 read, 1 write). The cost line is printed last.
-// Output holds no name, description or owner: the id appears only as community_hash (the one-way uid_hash), in a fixed-shape audit
+// Output holds no name, description or owner: the id appears only as community_hash (the keyed logger.HashCommunity, W5-52; a marker without CURSOR_HMAC_KEY), in a fixed-shape audit
 // line that is the moderation trail because the community document records no platform actor.
 func communityCommand(ctx context.Context, b *backends, project, sub, cid string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.communities == nil {
@@ -77,7 +77,7 @@ func communityCommand(ctx context.Context, b *backends, project, sub, cid string
 			return err
 		}
 	}
-	hash := logger.HashUID(cid)
+	hash := communityHashForAudit(cid)
 	if a.dryRun {
 		c, err := b.communities.Get(cctx, cid)
 		if errors.Is(err, communities.ErrNotFound) {
@@ -203,7 +203,7 @@ func appendCommunityRemovals(ctx context.Context, b *backends, byCommunity map[s
 		case errors.Is(err, communities.ErrNotFound):
 			tot.missing++
 		case err != nil:
-			return fmt.Errorf("community removal log %s: %w", logger.HashUID(cid), err)
+			return fmt.Errorf("community removal log %s: %w", communityHashForAudit(cid), err)
 		case n > 0:
 			tot.communities++
 			tot.entries += n
