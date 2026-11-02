@@ -34,7 +34,7 @@ infra/terraform/
 - One project per env (dev, prod) on **one billing account**. Remember Cloud Run free tier is shared across both.
 - Labels on everything: `env, module, cost-center`.
 - Deletion protection on Firestore and the media bucket (`force_destroy = false`).
-- CI: `terraform fmt -check && terraform validate && tflint && checkov -d . --soft-fail-on MEDIUM`; plan on PR, apply on main (prod requires GitHub environment approval).
+- CI (`terraform.yml`): job `lint` runs `terraform fmt -check`, tflint and checkov (soft fail) with no cloud identity, Dependabot PRs included; job `plan` runs validate and plan per env with the read-only plan SA after the `tf-plan` environment approval. No third-party Docker image runs in `plan`. CI never applies: apply is a human step (prod: plan, then the founder's OK).
 
 ## Forbidden without an Accepted ADR (fixed monthly cost) — enforced by `.claude/hooks/cost-guard.sh`
 `google_container_cluster`, `google_container_node_pool`, `google_spanner_instance`, `google_redis_instance`,
