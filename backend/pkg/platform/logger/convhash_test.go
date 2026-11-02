@@ -128,3 +128,24 @@ func TestRedactErrPostDocs(t *testing.T) {
 		})
 	}
 }
+
+// W5-52: community and target hashes are keyed, domain-separated and 16 hex.
+func TestHashCommunityAndTarget(t *testing.T) {
+	if err := SetConversationKey([]byte("k-one")); err != nil {
+		t.Fatal(err)
+	}
+	id := "0000000000000000501"
+	c, tg := HashCommunity(id), HashTarget(id)
+	if len(c) != 16 || len(tg) != 16 || c == tg || c == HashUID(id) || tg == HashUID(id) || c == HashPost(id) || c == HashConversation(id) {
+		t.Errorf("community %q target %q: want 16 hex, distinct from each other and from the plain and other keyed hashes", c, tg)
+	}
+	if HashCommunity("") != "" || HashTarget("") != "" {
+		t.Error("empty in, empty out")
+	}
+	if err := SetConversationKey([]byte("k-two")); err != nil {
+		t.Fatal(err)
+	}
+	if HashCommunity(id) == c || HashTarget(id) == tg {
+		t.Error("hash does not depend on the key")
+	}
+}

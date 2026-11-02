@@ -29,6 +29,11 @@ const (
 	fieldOutcome  = "outcome"
 	fieldCacheHit = "cache_hit"
 
+	// Keyed pseudonyms (ADR-0031 D13a, W5-52): HMAC with the CURSOR_HMAC_KEY-derived log key, never a raw id or a plain digest.
+	fieldCommunityHash = "community_hash"
+	fieldPostHash      = "post_hash"
+	fieldTargetHash    = "target_hash"
+
 	outcomeDone       = "done"
 	outcomeReplay     = "replay"
 	outcomeNoop       = "noop"
@@ -195,6 +200,12 @@ func updateHash(id string, name, description *string, rules *[]Rule) string {
 
 func begin(ctx context.Context, op string) { logger.SetRequestField(ctx, fieldOp, op) }
 
+// noteCommunity adds community_hash to the request line of a call that writes (or may write) a modlog entry. Called once the id has
+// the id shape, so a malformed input is never hashed.
+func noteCommunity(ctx context.Context, cid string) {
+	logger.SetRequestField(ctx, fieldCommunityHash, logger.HashCommunity(cid))
+}
+
 func noteOutcome(ctx context.Context, o Outcome) {
 	switch o {
 	case Written:
@@ -325,6 +336,7 @@ func (s *service) UpdateCommunity(ctx context.Context, uid string, in UpdateInpu
 	if err := ValidateCommunityID(in.CommunityID); err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.CommunityID, err)
 	}
+	noteCommunity(ctx, in.CommunityID)
 	var name, description *string
 	if in.Name != nil {
 		n, err := validateName(*in.Name)
