@@ -296,7 +296,8 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 		now := r.now().UTC()
 		next := c
 		var cups, tups []firestore.Update
-		action, after := ActionBan, st
+		action := ActionBan
+		var after MemberState // every case below sets it; default returns
 		switch p.Action {
 		case RoleActionBan:
 			if st == MemberJoined {

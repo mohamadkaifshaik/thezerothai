@@ -47,6 +47,7 @@ Future<TelemetryController> startTelemetry({
   required Future<String?> Function() restoredUid,
   TelemetryFlagMemory? memory,
   TelemetryConsentSource consent = const NoTelemetryConsent(),
+  TelemetryLastUidStore? lastUid,
   bool? supported,
   TelemetryAdapters Function(bool supported)? adaptersFor,
   void Function(String message)? debugLog,
@@ -62,6 +63,7 @@ Future<TelemetryController> startTelemetry({
     platformSupported: isSupported,
     consent: consent,
     memory: memory,
+    lastUid: lastUid,
     debugLog: debugLog,
   );
   if (installHooks) installTelemetryErrorHooks(controller);

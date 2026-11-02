@@ -140,6 +140,7 @@ type postDoc struct {
 	CommunityID             string        `firestore:"communityId,omitempty"`
 	Community               *communityDoc `firestore:"community,omitempty"`
 	ConversationCommunityID string        `firestore:"conversationCommunityId,omitempty"`
+	CommunityHidden         bool          `firestore:"communityHidden,omitempty"`
 }
 
 // communityDoc is the stored label snapshot of a community post.
@@ -250,7 +251,7 @@ func toDoc(p *Post) postDoc {
 		ReplyPolicy: string(p.ReplyPolicy),
 		HasMedia:    HasMediaFor(p.Kind, len(p.Media)),
 		Poll:        pollToDoc(p.Poll),
-		CommunityID: p.CommunityID, ConversationCommunityID: p.ConversationCommunityID,
+		CommunityID: p.CommunityID, ConversationCommunityID: p.ConversationCommunityID, CommunityHidden: p.CommunityHidden,
 	}
 	if p.Community != nil {
 		d.Community = &communityDoc{ID: p.Community.ID, Name: p.Community.Name}
@@ -307,7 +308,7 @@ func (d postDoc) toPost(id string) *Post {
 		ReplyPolicy: ReplyPolicy(d.ReplyPolicy),
 		HasMedia:    d.HasMedia,
 		Poll:        d.Poll.toPoll(),
-		CommunityID: d.CommunityID, ConversationCommunityID: d.ConversationCommunityID,
+		CommunityID: d.CommunityID, ConversationCommunityID: d.ConversationCommunityID, CommunityHidden: d.CommunityHidden,
 	}
 	if d.Community != nil {
 		p.Community = &CommunityLabel{ID: d.Community.ID, Name: d.Community.Name}

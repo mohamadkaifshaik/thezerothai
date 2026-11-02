@@ -216,6 +216,10 @@ against a cloud project.
   ADR-0003's delete path) as each Phase 1 module lands.
 - **Backups:** prod weekly Firestore backups keep data for up to **14 days**, and deleted data ages out with them.
   Say so in the reply. Logs hold only a hashed uid.
+- **Crash reports and usage statistics (ADR-0032): no manual step.** They are device-level, keyed to a random ID on the
+  device and never to the uid (ADR-0011 Q10 (f)), so there is nothing to find or erase by account here. The in-app Delete
+  account clears them on that device (consent keys, unsent crash reports, the analytics ID); what Google already holds
+  ages out by itself (crash reports 90 days, individual usage events 2 months).
 
 ## Drill record (T22 acceptance)
 The graph deletion steps above were drilled end to end on `dzeroth-dev` on 2026-09-30, following this runbook as
@@ -397,6 +401,10 @@ collection. Turning the prod flag on is a founder plan-then-OK Terraform change,
      It never includes who has blocked you."
    - If the app says the feature is unavailable, tell them it is not enabled for their account yet and that you will do
      it by hand within 30 days.
+   - **Crash reports and usage statistics:** if they ask about data from the Android app's crash reports or usage
+     statistics: "These are tied to a random ID on your device, not to your account, so we cannot find them by account
+     (ADR-0011 Q10 (f)). To clear them, delete your account in the app, which also resets them on that device, or clear
+     the app's data in your phone's settings."
 4. Record only the date, request type and a hashed uid in the founder's tracker (section 4).
 
 ## 8. Drill records (P8, in-app path)

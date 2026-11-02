@@ -15,6 +15,7 @@ import '../core/telemetry/telemetry_consent_cubit.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/theme/app_theme.dart';
 import '../core/theme/theme_mode_cubit.dart';
+import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
 import '../core/widgets/service_paused_view.dart';
 import '../features/account/data/account_repository.dart';
@@ -101,6 +102,7 @@ class AppWidget extends StatefulWidget {
     this.servicePausedCubit,
     this.shareLinks,
     this.usage = const UsageReporter.none(),
+    this.telemetryForget = const TelemetryDeviceForget.none(),
   });
 
   final AuthBloc authBloc;
@@ -172,6 +174,9 @@ class AppWidget extends StatefulWidget {
   /// Reports usage events and screen views (TEL-6); drops everything while
   /// collection is off. Defaults to none (tests).
   final UsageReporter usage;
+
+  /// Forgets this device's telemetry for a deleted account (TEL-8).
+  final TelemetryDeviceForget telemetryForget;
 
   /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
@@ -560,8 +565,11 @@ class _AppWidgetState extends State<AppWidget> {
                     ),
                     child: UsageScope(
                       reporter: widget.usage,
-                      child: _PausedOverlay(
-                        child: child ?? const SizedBox.shrink(),
+                      child: TelemetryForgetScope(
+                        forget: widget.telemetryForget,
+                        child: _PausedOverlay(
+                          child: child ?? const SizedBox.shrink(),
+                        ),
                       ),
                     ),
                   ),

@@ -47,6 +47,11 @@ import (
 // plain post, +0 writes (quotas.communityPosts rides the one quota Set). Every refusal (not a member, banned, archived, quota, per-community
 // cap) writes 0; a replay returns before the member read, so it costs a plain replay (+0, plus the cached community read).
 //
+// Members-only replies (ADR-0031 D5, F8; W5-26b): a reply whose parent carries conversationCommunityId (communities not globally off) runs
+// CommunityGate.CanReply after the reply-policy rules: +2 reads cold (community status, member doc, both 60 s caches), +0 warm, +0 writes; a
+// non-member or banned caller is FORBIDDEN reason=not_member with 0 writes; a reply to a non-community post costs nothing extra. The outcome is
+// the request-line field community_reply_gate.
+//
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
 // FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
@@ -160,6 +165,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		}
 		// ADR-0021 D2: after the visibility check (NOT_FOUND first), before mentions and the transaction.
 		if err = s.enforceReplyPolicy(ctx, uid, parent); err != nil {
+			return nil, err
+		}
+		// ADR-0031 D5 (F8): a reply into a community conversation is members only (after the policy rules, before mentions and the transaction).
+		if err = s.gateReply(ctx, uid, parent, in.CommunitiesGloballyOff); err != nil {
 			return nil, err
 		}
 	}

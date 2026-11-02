@@ -2,6 +2,12 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/core/telemetry/telemetry_adapters.dart';
+import 'package:dzeroth/core/telemetry/telemetry_consent_store.dart';
+import 'package:dzeroth/core/telemetry/telemetry_controller.dart';
+import 'package:dzeroth/core/telemetry/telemetry_device_forget.dart';
+import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
@@ -28,6 +34,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../core/telemetry/fake_telemetry.dart';
 import '../../../support/fake_push_opt_in_store.dart';
 
 class _MockAccounts extends Mock implements AccountRepository {}
@@ -106,6 +113,7 @@ void main() {
     Size? size,
     double textScale = 1,
     String initial = AppRouter.deleteAccountPath,
+    TelemetryDeviceForget? telemetry,
   }) async {
     if (size != null) {
       tester.view.physicalSize = size;
@@ -149,12 +157,15 @@ void main() {
             BlocProvider<AuthBloc>.value(value: authBloc),
             BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
           ],
-          child: MaterialApp.router(
-            routerConfig: router,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
+          child: TelemetryForgetScope(
+            forget: telemetry ?? const TelemetryDeviceForget.none(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
             ),
           ),
         ),
@@ -255,6 +266,71 @@ void main() {
     expect(optIn.forgotten, ['uid-1']);
     expect(optIn.records.keys, ['uid-2']);
     expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  testWidgets('success forgets the device telemetry of the deleted uid before '
+      'the final page (TEL-8)', (tester) async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    final consent = TelemetryConsentStore(database);
+    final log = CallLog();
+    final controller = TelemetryController(
+      adapters: TelemetryAdapters(
+        crash: FakeCrashReporter(log),
+        analytics: FakeUsageAnalytics(log),
+      ),
+      platformSupported: true,
+      consent: consent,
+      debugLog: (_) {},
+    );
+    addTearDown(() async {
+      await controller.dispose();
+      await consent.dispose();
+      await database.close();
+    });
+    for (final uid in ['uid-1', 'uid-2']) {
+      await consent.setAll(uid, {
+        TelemetryKind.crash: ConsentChoice.on,
+        TelemetryKind.usage: ConsentChoice.on,
+      });
+    }
+    log.clear();
+    await pump(
+      tester,
+      telemetry: TelemetryDeviceForget.of(
+        consent: consent,
+        controller: controller,
+      ),
+    );
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(await database.readSetting('telemetry_consent:crash:uid-1'), isNull);
+    expect(await database.readSetting('telemetry_consent:usage:uid-1'), isNull);
+    expect(await database.readSetting('telemetry_consent:crash:uid-2'), 'on');
+    expect(log.calls, containsAll(['crash.deleteUnsent', 'usage.reset']));
+    expect(find.text('Your account is being deleted'), findsOneWidget);
+  });
+
+  testWidgets('a failed delete leaves the device telemetry alone', (
+    tester,
+  ) async {
+    var forgotten = <String>[];
+    when(
+      () =>
+          accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenThrow(const UnknownApiException('boom'));
+    await pump(
+      tester,
+      telemetry: TelemetryDeviceForget((uid) async => forgotten.add(uid)),
+    );
+    await typeHandle(tester, 'kaif');
+
+    await tester.tap(button());
+    await tester.pumpAndSettle();
+
+    expect(forgotten, isEmpty);
   });
 
   testWidgets('a failed delete leaves the "Not now" record alone', (

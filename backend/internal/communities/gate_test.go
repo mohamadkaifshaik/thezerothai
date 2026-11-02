@@ -11,6 +11,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
@@ -156,3 +157,103 @@ func TestPostGate_AllowPost(t *testing.T) {
 		t.Fatalf("nil cap: %v", err)
 	}
 }
+
+// W5-26b: the members-only reply rule over the real service (its 60 s member cache) and over a Reader that cannot answer a member lookup alone.
+func TestPostGate_CanReply(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		status     Status
+		member     MemberState
+		wantReason string // "" = allowed
+		wantState  bool
+		wantReads  int64
+	}{
+		{"joined member", StatusActive, MemberJoined, "", false, 2},
+		{"non-member", StatusActive, MemberNone, "not_member", false, 2},
+		{"banned looks like a non-member", StatusActive, MemberBanned, "not_member", false, 2},
+		{"archived", StatusArchived, MemberJoined, "", true, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture()
+			f.seed(Community{ID: testCID, Name: "Go", Status: tt.status})
+			f.repo.members[testCID+"|u1"] = tt.member
+			g := NewPostGate(f.svc, &gateMembers{}, nil)
+			ctx, c := budget.WithCounter(context.Background())
+			err := g.CanReply(ctx, "u1", testCID)
+			switch {
+			case tt.wantState:
+				wantErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE, "reason", "community_archived")
+			case tt.wantReason != "":
+				wantErr(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", tt.wantReason)
+			case err != nil:
+				t.Fatal(err)
+			}
+			if c.Reads() != tt.wantReads {
+				t.Fatalf("cold reads = %d, want %d", c.Reads(), tt.wantReads)
+			}
+			// Warm: +0 reads.
+			ctx2, c2 := budget.WithCounter(context.Background())
+			_ = g.CanReply(ctx2, "u1", testCID)
+			if c2.Reads() != 0 {
+				t.Fatalf("warm reads = %d, want 0", c2.Reads())
+			}
+		})
+	}
+	t.Run("missing and suspended are the one not found", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.seed(Community{ID: testCID, Status: StatusSuspended})
+		g := NewPostGate(f.svc, &gateMembers{}, nil)
+		wantErr(t, g.CanReply(context.Background(), "u1", testCID), connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
+		wantErr(t, g.CanReply(context.Background(), "u1", "1000000000000000099"), connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
+	})
+}
+
+func TestPostGate_IsMember(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.seed(Community{ID: testCID, Name: "Go", OwnerID: ownerUID})
+	f.repo.members[testCID+"|u1"] = MemberJoined
+	f.repo.members[testCID+"|u2"] = MemberBanned
+	g := NewPostGate(f.svc, &gateMembers{}, nil)
+	for uid, want := range map[string]bool{"u1": true, "u2": false, "u3": false} {
+		ctx, c := budget.WithCounter(context.Background())
+		got, err := g.IsMember(ctx, uid, testCID)
+		if err != nil || got != want {
+			t.Fatalf("%s: member=%v err=%v, want %v", uid, got, err, want)
+		}
+		if c.Reads() != 1 {
+			t.Fatalf("%s: cold reads = %d, want 1 (the member doc only; the community is not loaded)", uid, c.Reads())
+		}
+	}
+	// warm, and the community document was never read.
+	ctx, c := budget.WithCounter(context.Background())
+	if ok, _ := g.IsMember(ctx, "u1", testCID); !ok || c.Reads() != 0 || f.repo.gets != 0 {
+		t.Fatalf("warm: ok=%v reads=%d community gets=%d", ok, c.Reads(), f.repo.gets)
+	}
+	t.Run("a Reader without member lookup falls back to Role", func(t *testing.T) {
+		t.Parallel()
+		ok, err := NewPostGate(roleReader{role: RoleModerator}, &gateMembers{}, nil).IsMember(context.Background(), "u", testCID)
+		if err != nil || !ok {
+			t.Fatalf("moderator: %v %v", ok, err)
+		}
+		ok, _ = NewPostGate(roleReader{role: RoleBanned}, &gateMembers{}, nil).IsMember(context.Background(), "u", testCID)
+		if ok {
+			t.Fatal("banned counted as a member")
+		}
+		if _, err = NewPostGate(roleReader{err: errors.New("boom")}, &gateMembers{}, nil).IsMember(context.Background(), "u", testCID); err == nil {
+			t.Fatal("a read failure must be an error, not a refusal")
+		}
+	})
+}
+
+type roleReader struct {
+	gateReader
+	role Role
+	err  error
+}
+
+func (r roleReader) Role(context.Context, string, string) (Role, error) { return r.role, r.err }

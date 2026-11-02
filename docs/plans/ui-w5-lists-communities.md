@@ -359,7 +359,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Done (#613) |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Done (#626) |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Done (#629) |
-| W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
+| W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Done (#633) |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#636) |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Open |
@@ -1102,7 +1102,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - a `reply_policy` other than EVERYONE with `community_id`: VALIDATION.
   - The post also gets `conversationCommunityId`.
 
-### W5-26b — Members-only replies and the label kill switch  [owner: backend-developer] [size: S] [depends: W5-26]  Status: Open
+### W5-26b — Members-only replies and the label kill switch  [owner: backend-developer] [size: S] [depends: W5-26]  Status: Done (#633)
 - **Description.**
   - **Members-only replies (F8):** in the reply path, when the root has `communityId` (the root is already read), `CommunityGate.CanReply` reads the member doc (cached 60 s); a non-member or BANNED caller gets FORBIDDEN `reason=not_member`. `viewer_reply_permission` reports it per A7 (an additive enum value if the ADR decides so; UNKNOWN on timelines where it would need a read, as ADR-0021 D2 does).
   - `ToView` omits `community` when `communityHidden` is set or `communities` is globally off (`Registry.GloballyOff`, 0 reads).

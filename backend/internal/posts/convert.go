@@ -101,6 +101,7 @@ func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post
 	v := &postsv1.PostView{Post: toProtoAt(p, vs, viewer, now), LikedByViewer: liked, RepostedByViewer: reposted,
 		BookmarkedByViewer:    vs.Bookmarked(p),
 		ViewerReplyPermission: replyPermissionFor(p, viewer)}
+	v.Post.Community = communityRef(p, vs.communitiesOff)
 	v.ViewerPollVoteBlocked = vs.PollVoteBlocked(p, viewer, now)
 	if i, voted := vs.PollChoice(p); voted {
 		v.ViewerPollChoice = int32(i) + 1 //nolint:gosec // i is 0..3 (WithPollVotes drops anything else); index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
@@ -205,4 +206,14 @@ func embeddedPollToProto(e *EmbeddedPoll, now time.Time) *postsv1.Poll {
 		out.Choices[i] = &postsv1.PollChoice{Label: label}
 	}
 	return out
+}
+
+// communityRef is the one decision about the community label on the wire (ADR-0031 D5): the post carries a label, a moderator has not hidden
+// it (communityHidden) and communities is not globally off (the kill switch). 0 reads. ToViewAt calls it for every PostView; CreatePost's
+// own response calls it with off=false (its caller just passed the community gate, so the flag is on).
+func communityRef(p *Post, off bool) *postsv1.CommunityRef {
+	if p.Community == nil || p.CommunityHidden || off {
+		return nil
+	}
+	return &postsv1.CommunityRef{Id: p.Community.ID, Name: p.Community.Name}
 }
