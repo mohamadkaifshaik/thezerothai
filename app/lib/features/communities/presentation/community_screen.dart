@@ -180,7 +180,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   /// W5-35b: the shared report sheet with the Community target. The owner is
   /// refused by the server (VALIDATION `target_id`), so the entry is hidden
-  /// for them; NOT_FOUND reads "community not found" in the sheet.
+  /// for them; NOT_FOUND shows [kReportCommunityNotFound] in the sheet.
   Future<void> _report() async {
     final messenger = ScaffoldMessenger.of(context);
     final outcome = await showReportSheet(
