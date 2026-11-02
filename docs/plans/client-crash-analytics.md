@@ -226,15 +226,15 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 **TEL-9 Part B: what the device session covers.** The procedure is `docs/reviews/tests/test-report-client-telemetry.md` sections 6 and 6b; nothing here changes it.
 - Run it once, on a dev build from `main` with TEL-17 and TEL-18 merged. Then C-2 passes on the same build, and trace (a) shows L-1's fix. TEL-18 is not a dev gate: if it lags, run Part B without it and repeat only trace (a) later.
 
-| Item | Test report | Needs the founder's phone | Needs the founder's dzeroth-dev console |
-|---|---|---|---|
-| Merged-manifest permissions (C-2) | §6 step 1, §6b C-2 | no: a local release APK and `aapt2 dump permissions` (TEL-17 does it first) | no |
-| Network traces, states 1 to 4, incl. `firebase-settings.crashlytics.com` (C-1) | §6 step 2, §6b C-1 | yes | no |
-| Web trace (C-1) | §6b C-1 | no: a desktop browser | no |
-| **M-2 (C-3), part 1:** FCM token prefix versus the FID, from logcat with the debug log tags; record only "equal" or "not equal", never the values; no `getId` call in app code | §6b C-3 / M-2 | yes | no |
-| **M-2 (C-3), part 2:** every field of a test crash (device info, keys, logs) checked for the FID | §6b C-3 / M-2 | yes, to raise the crash | yes, read only |
-| Notification events carry no ids, title or body (C-4) | §6b C-4 | yes, to receive the pushes | yes (DebugView) |
-| Native crash: trace (b) (C1 residual, L-3) and trace (a) (L-1) | §6 step 3, §6b L-3; ADR-0032 Handoff | yes | yes |
+| Item | Test report | Needs the founder's phone | Needs the founder's dzeroth-dev console | Status |
+|---|---|---|---|---|
+| Merged-manifest permissions (C-2) | §6 step 1, §6b C-2 | no: a local release APK and `aapt2 dump permissions` (TEL-17 does it first) | no | **Ran 2026-11-02: PASS** (§6c) |
+| Network traces, states 1 to 4, incl. `firebase-settings.crashlytics.com` (C-1) | §6 step 2, §6b C-1 | yes | no | **Ran 2026-11-02:** states 1, 3, 4 PASS; state 2 first relaunch FAIL (F-1, open); second relaunch PASS (§6c) |
+| Web trace (C-1) | §6b C-1 | no: a desktop browser | no | **Not run** |
+| **M-2 (C-3), part 1:** FCM token prefix versus the FID, from logcat with the debug log tags; record only "equal" or "not equal", never the values; no `getId` call in app code | §6b C-3 / M-2 | yes | no | **Ran 2026-11-02:** token prefix equals the FID |
+| **M-2 (C-3), part 2:** every field of a test crash (device info, keys, logs) checked for the FID | §6b C-3 / M-2 | yes, to raise the crash | yes, read only | **Ran 2026-11-02:** FID not found in the console view; no new TEL ticket |
+| Notification events carry no ids, title or body (C-4) | §6b C-4 | yes, to receive the pushes | yes (DebugView) | **Not run** |
+| Native crash: trace (b) (C1 residual, L-3) and trace (a) (L-1) | §6 step 3, §6b L-3; ADR-0032 Handoff | yes | yes | **Ran 2026-11-02:** (a) PASS, (b) PASS (§6c) |
 
 - **C-3 does not wait for a forced fatal.** Part 2 needs only some test crash in dzeroth-dev. A non-fatal through a real `reportUnexpectedError` path, flushed by force-stop and relaunch (§6 step 3, option (b)), is enough. Only the native traces (a) and (b) need an answer to §6 step 3's open question.
 - **Open question: how to force a native crash in a release build** (§6 step 3; owner frontend-developer or architect). **Proposed default:** a throwaway scratch build, never merged (as TEL-10 proposes for the M-2 logcat), that throws a Kotlin exception. No production seam.
@@ -263,7 +263,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Done (#611) |
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Done (#612) |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Done (#635) |
-| TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Code part merged (#640); device evidence (Part B) pending |
+| TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Code part merged (#640); Part B device session run 2026-11-02 (test report §6c): PASS except state 2 first relaunch (F-1, open), C-4 and web trace not run |
 | TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, conditions C-1 to C-6 open |
 | TEL-11 | Cost and performance note: INR 0 line, AAB and web bundle deltas, cold start on a low-end Android; `cost-model.md` section | sre-performance | XS | TEL-3, TEL-4 | yes | Open |
 | TEL-12 | Privacy Policy update (sentence list in the ticket) | architect (draft) + founder (approval) | S | TEL-1 Accepted; F1–F6, F8, F11; C-5: TEL-17, TEL-19 and the M-2 result (C-3) | yes (`privacy.html`: one PR at a time) | Open |
@@ -446,7 +446,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 - **Flag.** Both.
 - **Seam.** No server eraser step; Q10 (f) unchanged.
 
-### TEL-9 — Tests and evidence  [owner: tester] [size: M] [depends: TEL-5 to TEL-8]  Status: Code part merged (#640); device evidence (Part B) pending
+### TEL-9 — Tests and evidence  [owner: tester] [size: M] [depends: TEL-5 to TEL-8]  Status: Code part merged (#640); Part B run 2026-11-02, one open finding F-1, C-4 and web trace not run
 - **Description.**
   - Guard tests:
     - only the two adapter files import `firebase_crashlytics` or `firebase_analytics`;
