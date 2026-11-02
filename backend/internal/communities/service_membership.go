@@ -152,6 +152,9 @@ func (s *service) LeaveCommunity(ctx context.Context, uid string, in MembershipI
 	if err != nil {
 		return View{}, err
 	}
+	if c.RoleOf(uid) == RoleModerator { // only a moderator's leave writes a modlog entry
+		noteCommunity(ctx, c.ID)
+	}
 	res, err := s.d.Repo.Leave(ctx, LeaveParams{
 		UID: uid, ID: c.ID, IdemKey: idempotency.Key(uid, rpcLeaveCommunity, in.Key), RequestHash: joinHash(c.ID),
 		ModeratorHint: c.RoleOf(uid) == RoleModerator, ModlogMax: s.d.Limits.ModlogMax,

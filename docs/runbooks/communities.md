@@ -227,8 +227,8 @@ moderator ids, no log targets, no post ids). A joined or banned community that i
 ## 6. Platform levers: suspend, restore, archive, reports and removals (W5-29)
 
 Three operator commands (`go run ./cmd/opsctl community ... --project P`; a `*-prod` project asks for the project id typed in; each takes
-`--dry-run` and prints `cost: reads=... writes=...` last; the community id appears only as `community_hash`, the one-way hash the request
-logs use for ids, in a fixed-shape `audit:` line, because the document records no platform actor):
+`--dry-run` and prints `cost: reads=... writes=...` last; the community id appears only as `community_hash`, the keyed hash the request
+lines carry (W5-52: before it was the unkeyed `HashUID`, so older operator output does not match the logs; now it needs `CURSOR_HMAC_KEY` in the shell, else it prints `unavailable(set-CURSOR_HMAC_KEY)`), in a fixed-shape `audit:` line, because the document records no platform actor):
 
 | Command | What it does | Cost (reads / writes) |
 |---|---|---|
@@ -276,7 +276,7 @@ do not touch the log (D6): their entries age out.
 write goes through `posts.CommunityModerator.SetCommunityListing` inside the same transaction). Request-line fields: `community_op=hide|restore|role|log`,
 `mod_action=hide|restore|ban|unban|make_moderator|remove_moderator|log`, `outcome` (`done`, `noop`, `replay`, `rejected:not_moderator`, `rejected:not_owner`,
 `rejected:moderator`, `rejected:invalid_target`, `rejected:limit_reached`, `rejected:post_not_found`, `rejected:user_not_found`, `contention`), `community_txn_attempts`,
-`fs_reads`, `fs_writes`; never an id. Budgets (module only, interceptor excluded): Hide / Restore 4 reads, 3 writes for a post or a reply (+1 on the actor's first entry in the
+`fs_reads`, `fs_writes`; never a raw id. Every request that can write a modlog entry (hide, restore including replies, ban, unban, make or remove moderator, update, a moderator's leave) also carries the keyed `community_hash`; hide and restore add `post_hash`, role actions add `target_hash` (W5-52, ADR-0031 D13a; HMAC with the key derived from `CURSOR_HMAC_KEY`, so a hash cannot be recomputed from an id without the secret, and a secret rotation changes every hash: use the version live when the lines were written). `go run ./cmd/opsctl community loghash [--community CID] [--post ID] [--user UID]` (no project; `CURSOR_HMAC_KEY` in the shell, from the `cursor-hmac-key` secret) prints them, and `--user` also prints the plain `uid_hash` to join a target to that user's own lines. Budget: 0 reads, 0 writes. Budgets (module only, interceptor excluded): Hide / Restore 4 reads, 3 writes for a post or a reply (+1 on the actor's first entry in the
 community); SetMemberRole 5 reads, BAN 4 / UNBAN 3 + 1 delete / MAKE or REMOVE 2-3 writes (+1 first entry, worst 5); a request that changes nothing writes only the
 idempotency document. Every change appends one `modlog` entry (newest `COMMUNITY_MODLOG_MAX` kept) and adds the community to the `modlogged` of the actor and of
 the target (I-L), which is what lets the account-deletion eraser find and scrub them.
