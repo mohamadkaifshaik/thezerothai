@@ -137,10 +137,8 @@ class _ReplyComposerState extends State<_ReplyComposer> {
       listenWhen: (before, after) =>
           after.status == ComposerStatus.posted &&
           before.status != ComposerStatus.posted,
-      listener: (context, state) {
-        _controller.clear();
-        cubit.textChanged('');
-      },
+      // The thread screen clears the cubit's draft; this clears the field.
+      listener: (context, state) => _controller.clear(),
       builder: (context, state) {
         final inline = widget.inline;
         // X's inline prompt is the 20dp title size at regular weight.

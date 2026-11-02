@@ -343,16 +343,18 @@ class PostCard extends StatelessWidget {
     final protectedAuthor =
         !isRepost && _post.visibility == pb.Visibility.VISIBILITY_FOLLOWERS;
 
+    final asFocal = focal && !isRepost;
+    // A REPOST given focal keeps the list layout but still shows it all.
+    final fullContent = showFullImages || focal;
+
     final authorLabel = [
       displayName,
       if (protectedAuthor) 'protected account',
       if (author.verified) 'verified',
       '@${author.handle}',
-      if (spokenTime.isNotEmpty) spokenTime,
+      // The open post reads its full time from the line below instead.
+      if (spokenTime.isNotEmpty && !asFocal) spokenTime,
     ].join(', ');
-
-    final asFocal = focal && !isRepost;
-    final fullContent = showFullImages || asFocal;
 
     final avatar = Semantics(
       button: true,
@@ -515,6 +517,9 @@ class PostCard extends StatelessWidget {
               padding: const EdgeInsets.only(top: AppSpacing.md),
               child: Text(
                 formatPostTimestamp(created),
+                // Read as "9:11 PM, Nov 1, 2026", not with the dot.
+                semanticsLabel: formatPostTimestamp(created)
+                    .replaceAll(' · ', ', '),
                 style: theme.textTheme.bodyLarge?.copyWith(color: muted),
               ),
             ),

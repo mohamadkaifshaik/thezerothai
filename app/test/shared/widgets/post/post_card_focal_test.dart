@@ -2,6 +2,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import 'package:dzeroth/shared/format/relative_time.dart';
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
@@ -126,6 +127,119 @@ void main() {
       tester.getTopRight(find.byIcon(Icons.ios_share)).dx,
       closeTo(phone.size.width - AppSpacing.md, 1),
     );
+  });
+
+  pb.PostView withEmbedded(PostKind kind, {String text = 'my take'}) =>
+      pb.PostView(
+        post: pb.Post(
+          postId: postId(2),
+          kind: kind,
+          text: text,
+          createdAt: ts.Timestamp.fromDateTime(_created),
+          author: common.AuthorSnapshot(
+            userId: 'u1',
+            handle: 'alice',
+            displayName: 'Alice A',
+          ),
+          media: [
+            common.MediaRef(
+              url: 'https://cdn.example/m/a.jpg',
+              thumbUrl: 'https://cdn.example/m/a_t.jpg',
+              width: 1200,
+              height: 800,
+              contentType: 'image/jpeg',
+            ),
+          ],
+          embedded: pb.EmbeddedPost(
+            postId: postId(3),
+            text: 'the original words ' * 8,
+            createdAt: ts.Timestamp.fromDateTime(_created),
+            author: common.AuthorSnapshot(
+              userId: 'u2',
+              handle: 'bob',
+              displayName: 'Bob B',
+            ),
+            media: [
+              common.MediaRef(
+                url: 'https://cdn.example/m/b.jpg',
+                thumbUrl: 'https://cdn.example/m/b_t.jpg',
+                width: 800,
+                height: 1200,
+                contentType: 'image/jpeg',
+              ),
+            ],
+          ),
+        ),
+      );
+
+  testWidgets(
+    'focal quote with an image and an embed fits at 360dp, text 2.0',
+    (tester) async {
+      addTearDown(() => tester.takeException()); // test images never load
+      await pumpThemed(
+        tester,
+        RepositoryProvider<GraphRepository>.value(
+          value: _MockGraphRepository(),
+          child: SingleChildScrollView(
+            child: PostCard(
+              view: withEmbedded(
+                PostKind.POST_KIND_QUOTE,
+                text: 'my take ' * 20,
+              ),
+              focal: true,
+              graphActionsEnabled: false,
+              now: _created.add(const Duration(hours: 22)),
+              actions: PostActions(
+                onReply: () {},
+                onLike: () {},
+                onShare: () {},
+              ),
+            ),
+          ),
+        ),
+        size: const Size(360, 800),
+        textScale: 2.0,
+      );
+
+      expectNoOverflow(tester);
+      expect(find.text(formatPostTimestamp(_created)), findsOneWidget);
+      expect(find.text('Bob B'), findsOneWidget, reason: 'the quote embed');
+      expect(
+        tester.widget<PostActionBar>(find.byType(PostActionBar)).spread,
+        true,
+      );
+    },
+  );
+
+  testWidgets('a focal REPOST keeps the list layout (the original, relative '
+      'time, no spread bar)', (tester) async {
+    addTearDown(() => tester.takeException());
+    await pumpThemed(
+      tester,
+      RepositoryProvider<GraphRepository>.value(
+        value: _MockGraphRepository(),
+        child: SingleChildScrollView(
+          child: PostCard(
+            view: withEmbedded(PostKind.POST_KIND_REPOST),
+            focal: true,
+            graphActionsEnabled: false,
+            now: _created.add(const Duration(hours: 22)),
+            actions: PostActions(onReply: () {}, onLike: () {}),
+          ),
+        ),
+      ),
+      size: const Size(400, 800),
+    );
+
+    expect(find.text('22h'), findsOneWidget);
+    expect(find.text(formatPostTimestamp(_created)), findsNothing);
+    expect(
+      tester.widget<PostActionBar>(find.byType(PostActionBar)).spread,
+      false,
+    );
+    final text = tester.widget<PostRichText>(find.byType(PostRichText));
+    expect(text.style?.fontSize, isNot(AppFocalPost.bodySize));
+    expect(text.maxLines, isNull, reason: "a focal repost shows all of it");
   });
 
   testWidgets('list rows keep the one-line author and the relative time', (

@@ -165,6 +165,9 @@ class _ThreadView extends StatelessWidget {
             final created = state.created;
             if (state.status == ComposerStatus.posted && created != null) {
               thread.replyPosted(created);
+              // Cleared here, where it is always mounted, so a sent reply
+              // never comes back as a draft (the field clears itself).
+              context.read<ComposerCubit>().textChanged('');
               return;
             }
             final error = state.error;

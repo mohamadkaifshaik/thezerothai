@@ -39,5 +39,7 @@ Not ours: Grok, views, "Relevant" ranking and "View quotes" (no backend yet).
 - From 600dp the reply entry sits between the open post and the first reply and scrolls with them;
   below 600dp it stays docked; a draft survives crossing the width.
 - Reply on the open post focuses the entry; with replies closed there is neither.
-- Widget tests: `post_card_focal_test.dart` (360 / 600 / 1200 x light / dark x 1.0 / 1.3 / 2.0 no
-  overflow), `post_action_bar_test.dart` (spread), `thread_layout_test.dart` (placement, focus).
+- Widget tests: `post_card_focal_test.dart` (the `forEachThemeAndWidth` widths x light / dark x 1.0 / 1.3 / 2.0 no
+  overflow), `post_action_bar_test.dart` (spread, real counts at 328dp), `thread_layout_test.dart` (390 / 1440 and the
+  599 / 600 boundary: placement, focus, draft across a resize, a sent reply leaves no draft).
+- Known limit: mobile X was not captured; the docked composer below 600dp is our assumption.

@@ -10,7 +10,11 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/posts/domain/reply_audience.dart';
+import 'package:dzeroth/features/posts/presentation/bloc/thread_cubit.dart';
 import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPermission;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -318,6 +322,68 @@ void main() {
       });
     }
 
+    for (final size in const [Size(390, 844), Size(1440, 900)]) {
+      testWidgets('NOT_ALLOWED: the open post keeps a disabled Reply with the '
+          'hint (${size.width.toInt()})', (tester) async {
+        final handle = tester.ensureSemantics();
+        stubThread(
+          () async => pb.GetThreadResponse(
+            focal: postView(1, text: 'root')
+              ..viewerReplyPermission =
+                  ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED,
+          ),
+        );
+        await open(
+          tester,
+          size: size,
+          features: const {'posts', 'replies', 'engagement'},
+        );
+
+        final reply = find.descendant(
+          of: find.descendant(
+            of: find.byKey(ValueKey('focal-${postId(1)}')),
+            matching: find.byType(PostCard),
+          ),
+          matching: find.bySemanticsLabel('Reply'),
+        );
+        expect(reply, findsOneWidget);
+        expect(
+          tester.getSemantics(reply),
+          isSemantics(
+            label: 'Reply',
+            hint: kReplyNotAllowedHint,
+            isEnabled: false,
+          ),
+        );
+        expect(tester.takeException(), isNull);
+        handle.dispose();
+      });
+    }
+
+    testWidgets('replies closed: the open post still uses the focal layout '
+        'and offers no Reply', (tester) async {
+      stubThread(
+        () async => pb.GetThreadResponse(focal: postView(1, text: 'root')),
+      );
+      await open(tester, features: const {'posts', 'replies', 'engagement'});
+      final context = tester.element(find.byType(PostCard).first);
+      context.read<ThreadCubit>().repliesBecameUnavailable();
+      await tester.pumpAndSettle();
+
+      final card = tester.widget<PostCard>(find.byType(PostCard).first);
+      expect(card.focal, isTrue);
+      expect(card.showReply, isFalse);
+      expect(find.text('Post your reply'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(ValueKey('focal-${postId(1)}')),
+          matching: find.bySemanticsLabel('Reply'),
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('wide screens keep the thread and the reply entry in the '
         'main column', (tester) async {
       stubThread(
@@ -434,6 +500,93 @@ void main() {
       await tester.pump();
       expect(replyButton(tester).onPressed, isNotNull);
       expect(find.text('272'), findsOneWidget);
+    });
+
+    for (final (width, inline) in const [(599.0, false), (600.0, true)]) {
+      testWidgets('at ${width.toInt()}dp the entry is '
+          '${inline ? 'inline' : 'docked'}', (tester) async {
+        await open(tester, size: Size(width, 844));
+
+        expect(
+          find.ancestor(
+            of: find.text('Post your reply'),
+            matching: find.byType(CustomScrollView),
+          ),
+          inline ? findsOneWidget : findsNothing,
+        );
+      });
+    }
+
+    testWidgets('wide: the inline entry keeps focus scrolled far away, and a '
+        'reply sent meanwhile leaves no draft', (tester) async {
+      stubThread(
+        () async => pb.GetThreadResponse(
+          focal: postView(1, text: 'root'),
+          replies: [
+            for (var i = 2; i < 30; i++) _reply(i, text: 'reply $i ' * 8),
+          ],
+        ),
+      );
+      final done = Completer<pb.PostView>();
+      when(
+        () => posts.createPost(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: any(named: 'text'),
+          replyToPostId: postId(1),
+          mediaIds: any(named: 'mediaIds'),
+          mediaAltTexts: any(named: 'mediaAltTexts'),
+        ),
+      ).thenAnswer((_) => done.future);
+      await open(tester, size: const Size(1440, 600));
+
+      await tester.enterText(find.byType(TextField), 'my reply');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(AppPillButton, 'Reply'));
+      await tester.pump();
+
+      final list = find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.drag(list, const Offset(0, -3000));
+      // The busy Reply spinner never settles while the send is pending.
+      await tester.pump(const Duration(seconds: 1));
+      // Still built while scrolled away (not a lazy list child).
+      expect(find.byType(TextField, skipOffstage: false), findsOneWidget);
+
+      done.complete(
+        pb.PostView(
+          post: pb.Post(
+            postId: postId(99),
+            text: 'my reply',
+            replyToPostId: postId(1),
+            conversationId: postId(1),
+            author: common.AuthorSnapshot(userId: 'me', handle: 'me'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(list, const Offset(0, 6000));
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isEmpty);
+      expect(find.text('Post your reply'), findsOneWidget);
+
+      // Focus survives scrolling the entry out of view.
+      await tester.tap(find.byType(TextField));
+      await tester.pump();
+      await tester.drag(list, const Offset(0, -3000));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(find.byType(TextField, skipOffstage: false))
+            .focusNode!
+            .hasFocus,
+        isTrue,
+      );
     });
 
     testWidgets('the counter still counts NFC code points: 280 decomposed '
