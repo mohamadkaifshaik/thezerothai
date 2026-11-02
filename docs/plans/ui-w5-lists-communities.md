@@ -4,7 +4,7 @@ Source: `docs/plans/roadmap.md` (W5 row "Lists and Communities, custom Home tabs
 Branches: `feat/ui-w5-N-<slug>` off `main` (not stacked); one ticket per PR except where a ticket says "same PR as" (the T11 lifecycle guard); merge `origin/main` into the branch.
 
 ## Questions for the founder (proposed default in bold; nothing blocks the ADR or proto tickets)
-Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-30); F1 and F6 to F14 for communities at the defaults with ADR-0031 (Accepted 2026-11-01, #583).
+Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-30); F1 and F6 to F14 for communities at the defaults with ADR-0031 (Accepted 2026-11-01, #583); F15 to F17 on 2026-11-02 (the W5-38 security review, #647; the W5-51 amendment records F15 and F16 in ADR-0031).
 - **F1. Who may create a community at Stage 0?** `FEATURE_COMMUNITIES` cannot express this alone. Its allowlist gates the whole feature per uid, so the flag cannot be on for readers and allowlist-only for creators at the same time. **Default: a config list `COMMUNITY_CREATORS` (at most 10 uids, a Terraform variable like `SUGGESTED_USER_IDS`, not a secret).** CreateCommunity checks the caller is in the list (0 reads), and the client learns it from `ListMyCommunitiesResponse.can_create` (0 reads). Each creator owns at most 2 communities. Open creation later is its own decision, made with a security review: an account-age gate, a creation quota and the moderation load. Alternative: a third flag `FEATURE_COMMUNITY_CREATE` (the `quotes` sub-flag precedent), which adds a founder-gated ceiling row.
 - **F2. Members per list (`LIST_MAX_MEMBERS`).** **150.** The list timeline is Home's pull-merge over the members, and each refresh pays one read per 30 members even when nothing is new (table in Non-functional targets). At 150 a list is at most 5 chunks. Raising the cap later is a config change and is safe; lowering it would strand lists that are already larger, so start low. Alternatives: 500 (17 chunks) or 5,000 (X's limit), which fails the per-call read hold of 269.
 - **F3. Lists per user and the default visibility.** **At most 20 lists per user, created private.** The owner can make a list public. X creates lists public by default, but a public list of people is a harassment surface, so we default to private.
@@ -35,6 +35,9 @@ Answered: F2 to F5, and F10 and F13 for lists, with ADR-0030 (Accepted 2026-10-3
   - Rules: at most 10. Name: at most 30 code points. Description: at most 160.
 - **F12. A community whose owner deletes their account.** **Ownership passes to the longest-serving moderator. If there is none, the community is archived:** it becomes read-only, leaves the directory, and its `ownerId` is cleared. The owner cannot leave or transfer the community while the account is live; transfer is Out of scope.
 - **F13. Images.** **No list or community images at Stage 0.** They use a flat default tile with an icon, as in X's default list tiles (`lists.md` §3). This adds 0 Vision units. Community banners can reuse W3's banner media kind later.
+- **F15. Can community moderators remove replies in their community's conversations? (W5-38 M-1)** **Answered 2026-11-02: yes**, by an amendment to ADR-0031 D4 (W5-51). The owner and moderators can hide and restore a reply whose `conversationCommunityId` is their community. GetThread then drops the reply for everyone but its author, at 0 extra reads, and each action writes a modlog entry. Tickets: W5-51 (amendment), W5-51b (backend), W5-51c (reply menu); all before `percent`.
+- **F16. Does F9's "cannot act on the owner, and moderators cannot act on other moderators" cover hiding their posts? (W5-38 L-1)** **Answered 2026-11-02: yes, F9 is literal.** A moderator cannot hide or restore a post (or, with F15, a reply) by the owner or by another moderator: FORBIDDEN `not_owner`. `SetCommunityListing` returns the post's `authorId`, so the check costs 0 extra reads. The owner can act on every post, and a moderator on their own. Ticket W5-53, with the L-2 fix; before `percent`.
+- **F17. Should a protected account's community memberships be hidden from viewers it has not approved? (W5-38 L-5)** **Answered 2026-11-02: hide.** On the member pages, a protected account's row is shown only to the community's owner and moderators, to its approved followers and to the account itself. `memberCount` is unchanged. **Proposed, for the founder to confirm with the W5-51 OK:** a protected account that holds a role (owner or moderator) stays visible to everyone, as ADR-0031 D7 already shows every role holder in GetCommunity. The residual: its member row also shows its join date (`Since`), which GetCommunity's moderators list does not. The Privacy Policy lines of the W5-38 report §7 stay, without "protected accounts included"; their wording is drafted with legal review (`docs/plans/roadmap.md` section 9, item 3.26). Tickets W5-56 and W5-56b; before prod `on`.
 
 ## What exists already (verified on `main` d2ff011)
 | Piece | State | W5 delta |
@@ -231,7 +234,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 - **Render rules.** Community labels on posts render whenever the post carries `community`. With `communities` **globally** off (`Registry.GloballyOff`, 0 reads), `ToView` omits the label, so clients make no community calls; that is the kill switch for those calls. A pinned tab whose flag is off for the caller is omitted from `GetMe.home_tabs` but kept in storage, so it comes back when the flag does.
 - **Ceilings.** `scripts/promotion/flag-ceiling.json` gets `LISTS` (W5-3) and `COMMUNITIES` (W5-22) in `flags` and dev entries, with **no prod raise**. **That file is founder-gated (CODEOWNERS).**
 - **Terraform.** `feature_lists*` and `feature_communities*` variables, plus `community_creators`, go in `envs/dev` and `envs/prod`, default `off` / empty (copy `feature_bookmarks`). Nothing is applied by the build tickets.
-- **Ramp.** Dev allowlist (3 uids) → the founder's MVP launch decision for prod: allowlist → percent 5 → 25 → 100 → `on`, each a Terraform change plus a tagged revision (ADR-0019). `communities` ramps after `lists` and only once W5-38's moderator-abuse findings are closed.
+- **Ramp.** Dev allowlist (3 uids) → the founder's MVP launch decision for prod: allowlist → percent 5 → 25 → 100 → `on`, each a Terraform change plus a tagged revision (ADR-0019). `communities` ramps after `lists` and only once W5-38's moderator-abuse findings are closed: `percent` needs W5-51 to W5-53 (with W5-51b, W5-51c and W5-52b), and prod `on` also needs W5-54 to W5-56 (with W5-55b and W5-56b). See the Rollout plan.
 
 ## Abuse & security surface
 - **New public reads (signed-in only, App Check + ID token like every RPC; all `NO_SIDE_EFFECTS`, so they keep working under `DEGRADED_MODE=readonly`):**
@@ -275,7 +278,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 - **Moderator abuse:**
   - A moderator's power is limited to the community view (F9). A hide never deletes or takes down a post, and the author keeps it on their profile and in Home.
   - Moderators cannot act on the owner or on each other. Only the owner appoints and removes moderators.
-  - Every action is in the modlog (actor, action, target, time), readable by the owner and moderators, and in a structured log line. The log line carries counts and enums only; the ids live in the modlog.
+  - Every action is in the modlog (actor, action, target, time), readable by the owner and moderators, and in a structured log line. The log line carries counts and enums only; the ids live in the modlog. W5-52 adds keyed hashes (`community_hash`, `target_hash`, `post_hash`) so an operator can rebuild one community's history from the logs (W5-38 M-2).
   - `COMMUNITY_MOD_ACTIONS_PER_DAY` bounds a rogue moderator.
   - The platform can report and suspend a community, and the owner can remove a moderator.
   - Residual: a rogue owner can hide everything in their own community. The platform lever is suspension (Risks).
@@ -291,7 +294,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 - **W3 (ADR-0024 / ADR-0025).** If private accounts (W3 Part B) ship, ADR-0025's visibility matrix must include GetListTimeline and GetCommunityTimeline. If W5 ships first, both feeds call the same posts-side policy function once it exists. W5-8 and W5-27 name the hook (the `keep` predicate), and W3-35's matrix gets the two feeds.
 - **W4.** Community posts are public and appear in hashtag search with no change.
 - **W1.5 / W6 composer work.** The audience picker (W5-34) and the composer files are shared; see the shared-files table.
-- **The founder's answers to F1 to F13.**
+- **The founder's answers to F1 to F13** (and F14 to F17, recorded above).
 - **Captures (optional, non-blocking):** list detail, create-list flow, community page and About, join flow, the Manage timelines dialog, moderator menus. They are UNKNOWN today, so the UI tickets use X-like defaults and say so.
 
 **Questions for @architect:**
@@ -318,6 +321,17 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
   - **A8. Owner deletion (F12)** inside the eraser step: resumable and idempotent; it clears `ownerId` when archiving.
   - **A9 (communities part).** Shared community entry size (30), directory cache (5 min), membership cache (60 s).
   - **A11.** The `stage-ladder` "Community feed" and "Community moderation" rows.
+- **ADR-0031 amendment (W5-51, from the W5-38 review; proposed defaults, the architect decides, the founder OKs the merge):**
+  - **R1. A reply hide and `recentRemovals`.** Default: **no entry.** Replies are not in the community feed. Cleaning up hundreds of raid replies would roll the 50-entry log and make every member device cold-open the feed.
+  - **R2. Where a moderator restores a hidden reply.** GetThread drops it for moderators too. Default: **from the HIDE row of the moderation log**, which already restores a hidden post by id (W5-35's log screen).
+  - **R3. How the client knows it may moderate a reply.** Default: **the conversation root's `community` label plus the caller's role from ListMyCommunities** (each row carries `viewer_role`; the list is cached for the session). No proto change. A hidden root has no label, so its replies get no menu; the platform playbook (W5-52b) covers that case. If the architect prefers a role field on GetThread, W5-51 adds it as an additive proto change.
+  - **R4. What else a hidden reply does.** Default:
+    - replies under it stay, shown as GetThread shows replies under an unavailable parent;
+    - opened as the focal post, it is served as GetPost serves it;
+    - GetPost, the author's Replies tab and search are unchanged (a hide is never `Hidden()`);
+    - the parent's `replyCount` is unchanged.
+  - **R5. A hidden reply while `communities` is globally off.** Default: **GetThread still drops it.** The kill switch must not undo a moderation decision. The label rule is unchanged.
+  - **R6. `restore-hidden --since T` needs the hide time, and the run must not flush the modlog.** Default: the hide also writes `communityHiddenAt` in the same field-level update (+0 writes), and the restore deletes it. Each `restore-hidden` run writes **one** modlog entry with a platform actor marker (as `_deleted`), not one per post.
 
 ## Milestones
 1. **M5.1 Contracts:** W5-1, W5-2 (Part A) and W5-20, W5-21 (Part B). The ADRs are accepted by the founder's merge.
@@ -327,6 +341,7 @@ Method: `free-tier-budget` §2 and `docs/reviews/cost-model.md`. **Baseline: the
 5. **M5.5 Communities backend:** W5-22 to W5-29.
 6. **M5.6 Communities client:** W5-30 to W5-35.
 7. **M5.7 Communities verify and roll:** W5-36 to W5-40, with W5-38 and W5-39 done before `communities` leaves `off` in dev.
+8. **M5.8 W5-38 follow-ups:** W5-51 to W5-56 (W5-51, W5-51b, W5-51c, W5-52, W5-52b and W5-53 before `percent`; W5-54, W5-55, W5-55b, W5-56 and W5-56b before prod `on`), then W5-57 to W5-59 (no gate).
 
 Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-pause-resume.md`, dated step 1.2) and the founder's MVP launch decision.
 
@@ -372,7 +387,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. | frontend-developer | S | W5-29, W5-35 | yes | Done (#641) |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
-| W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
+| W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Done (#647; report `docs/reviews/security/security-w5-communities.md`, CLEAR WITH CONDITIONS; findings ticketed as W5-51 to W5-56) |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
@@ -385,6 +400,20 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-48 | *(W5-44 follow-up)* "Report list" in the list overflow menu: `ReportTargetType.list`, the reason sheet, friendly mapping of NOT_FOUND `list not found` and `FEATURE_DISABLED feature=lists`; the sheet shows only for lists the viewer does not own | frontend-developer | S | W5-44, W5-11 | yes | Done (#557) |
 | W5-49 | *(W5-45 L-2 follow-up)* Dart port of the visible-rune and format-character rules of `testdata/profile_text/single_line_text.json` into `profile_extras_rules.dart` (display name, location) and the list name field, with the fixture runner; Dart has no Unicode category data, so it needs an explicit Cf table | frontend-developer | S | W5-45 | no | Done (#557) |
 | W5-50 | *(W5-16 D2, D3)* ListsRepository session epoch and reset on account switch: `ListsRepository` takes the shared `SessionEpoch` (a `GetList` / `ListUserLists` / mutation answer and a `GetListTimeline` header that land after sign-out or a switch are dropped); one `AccountSessionReset` run by `AppWidget` for sign-out and for a direct A to B switch; inventory of every per-account cache | frontend-developer | S | W5-16 | yes | Done (#553) |
+| W5-51 | *(W5-38 M-1, F15)* ADR-0031 amendment (founder OK before merge): D4 reply moderation (hide and restore a reply whose `conversationCommunityId` is the community; GetThread drops it for everyone but its author; modlog entry; 0 extra reads), plus the F16, F17, L-2, L-3(c) and M-2 lines W5-52 to W5-54 and W5-56 build; comment-only proto updates | architect | S | F15, F16, F17 | yes | Open (gate: before percent) |
+| W5-51b | *(W5-38 M-1, F15)* Reply moderation backend: `SetCommunityListing` accepts a reply of the community's conversation; GetThread drops a hidden reply for everyone but its author (0 reads); modlog entry, no `recentRemovals` entry; runbook `communities.md` §7 | backend-developer | M | W5-51 merged, W5-53 | `SetCommunityListing` after W5-53 | Open (gate: before percent) |
+| W5-51c | *(W5-38 M-1, F15)* Reply menu: "Remove from Community" on a reply in a community conversation for the owner and moderators; Restore from the moderation-log row; the platform marker in the log | frontend-developer | S | W5-51b | post menu file serialises | Open (gate: before percent) |
+| W5-52 | *(W5-38 M-2)* Keyed `community_hash`, `target_hash` and `post_hash` on the moderation request lines (HMAC with `CURSOR_HMAC_KEY`, the W7-34 precedent) and an `opsctl` loghash counterpart | backend-developer | S | W5-51 merged, W5-28 | communities moderation files: one at a time with W5-53 | Open (gate: before percent) |
+| W5-52b | *(W5-38 M-2)* `opsctl community hidden CID` and `restore-hidden CID [--since T]` (Limit ≤ 50, paged, field-level, one platform modlog entry per run), the query proven on dev Firestore; runbook section "Rogue moderator or community raid" | backend-developer + sre-performance (runbook) | M | W5-51b, W5-29 | opsctl and communities moderation files | Open (gate: before percent) |
+| W5-53 | *(W5-38 L-1 / F16, L-2)* `SetCommunityListing` returns `authorId`: a moderator's hide or restore of the owner's or another moderator's post or reply is FORBIDDEN `not_owner` (0 extra reads); a post with `moderation` set is NOT_FOUND, so a hide and restore cannot erase a platform removal | backend-developer | S | W5-51 merged, W5-28 | `SetCommunityListing` before W5-51b | Open (gate: before percent) |
+| W5-54 | *(W5-38 L-3)* While creation is allowlisted, UpdateCommunity by an owner outside `COMMUNITY_CREATORS` is FORBIDDEN `not_creator` (0 reads); runbook lines on cached labels (the posts-cache label lag folds in here); the suspended-community label seam stays on the open-creation list | backend-developer | XS | W5-51 merged, W5-23 | yes | Open (gate: before prod on) |
+| W5-55 | *(W5-38 L-4)* The Cf and filler rule in `identity.BioText` (keeping `\n`, and ZWJ, ZWNJ and emoji tags inside sequences), vectors in `testdata/profile_text/bio.json`; covers bios, list descriptions and community description and rule text | backend-developer | S | W5-45 | `identity` text files | Open (gate: before prod on) |
+| W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Open (gate: before prod on) |
+| W5-56 | *(W5-38 L-5, F17)* ListCommunityMembers drops a protected member's row for a viewer who is not the owner, a moderator, an approved follower or the member (0 reads); role holders stay listed; `memberCount` unchanged | backend-developer | XS | W5-51 merged, W5-25b | yes | Open (gate: before prod on) |
+| W5-56b | *(W5-38 §7, F17)* Privacy Policy lines for communities (report §7, without "protected accounts included"), worded with legal review (roadmap section 9, item 3.26) | architect (draft) + founder (approval) | S | W5-56 | yes | Open (gate: before prod on) |
+| W5-57 | *(W5-28 D-1, W5-38 I-3)* Call `timeline.Server.ForgetCommunityFeed(cid)` after a committed restore, through an apiserver callback; un-skip W5-36's repro; runbook `communities.md` §4e and `docs/code-map.md` | backend-developer | XS | W5-28, W5-36 | apiserver wiring | Open (no gate) |
+| W5-58 | *(W5-27 follow-up)* Comment-only fix of the stale SetHomeTabs comment in `timeline.proto` (COMMUNITY tabs are accepted since W5-27); `make proto`, `buf breaking` clean | architect | XS | — | `timeline.proto`: one proto PR at a time | Open (no gate) |
+| W5-59 | *(ADR-0031 D6, W5-27 follow-up)* A community post created on an instance reaches that instance's shared community entry at once (the entry is marked stale and refills incrementally, 1 + new reads); the author's device already inserts it (W5-34) | backend-developer | XS | W5-57 | apiserver wiring, after W5-57 | Open (no gate) |
 
 **Order:**
 1. **Start now:** W5-1 and W5-20 (new ADR files only).
@@ -397,6 +426,10 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
    - backend: W5-22 → (W5-23 + W5-24 in one PR) → W5-25 → W5-25b ‖ W5-26 → W5-26b ‖ W5-27 ‖ W5-28 → W5-29;
    - client: W5-30 → W5-31 ‖ W5-32 ‖ W5-33 → W5-34, W5-35;
    - then W5-36 to W5-40.
+5. **W5-38 follow-ups (Part B):**
+   - W5-51 first (the ADR-0031 amendment; the founder's OK before merge). Then W5-53 → W5-51b → W5-51c, and W5-52 ‖ W5-54 ‖ W5-56 → W5-56b; W5-52b after W5-51b.
+   - Independent of the amendment: W5-55 → W5-55b.
+   - No gate: W5-57 (after W5-36 merges) → W5-59; W5-58 any time (it may ride in W5-51's PR).
 
 Part B can run alongside Part A once W5-21 is in; only the shared files below serialise.
 
@@ -420,6 +453,8 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 | `app/lib/shared/widgets/post/post_card.dart` (context label, post menu) | W5-33, W5-35 | W3-17 (pinned label, pin menu), W4-16 (hashtag tap) | one at a time |
 | `app/lib/features/profile/presentation/widgets/profile_header.dart` (overflow menu) | W5-13 | W3-13, W3-14 | after W3-14 |
 | composer files (`app/lib/features/compose/...`) | W5-34 | W1.5 composer conformance, W6 | one at a time |
+| `backend/internal/posts/community_moderator.go` (`SetCommunityListing`, `listingDoc`), its mirror `communities.PostModerator`, `backend/internal/communities/repo_moderation.go` and `service_moderation.go` | W5-53, W5-51b, W5-52, W5-52b | — | one at a time: W5-53, then W5-51b, then W5-52b; W5-52 rebases on whichever lands first |
+| `backend/internal/apiserver` wiring of callbacks into `timeline.Server` (communities and posts never import timeline) | W5-57, W5-59 | — | W5-57, then W5-59 |
 | `docs/code-map.md`, `docs/ui-catalog.md` | every ticket | every wave | trivial merges |
 
 **Definition of done per ticket:**
@@ -1378,7 +1413,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-38 — Part B security review, including moderator abuse  [owner: security-auditor] [size: M] [depends: W5-25 to W5-29, W5-34]  Status: Open
+### W5-38 — Part B security review, including moderator abuse  [owner: security-auditor] [size: M] [depends: W5-25 to W5-29, W5-34]  Status: Done (#647; report `docs/reviews/security/security-w5-communities.md`)
 - **Description.** A threat model for:
   - the creators allowlist;
   - public user-generated text (names, rules) and its report path;
@@ -1399,6 +1434,12 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** Reviews the `communities` gate and `COMMUNITY_CREATORS`.
 - **Seam.** The rate-limit × 3 arithmetic; the `stage-ladder` vectors.
 - **Parallel with W3 Part A / W4:** yes.
+- **Result (2026-11-02, #647).** CLEAR WITH CONDITIONS: no Critical or High finding. F6 is confirmed (report §4).
+  - Findings: M-1 (moderators cannot remove replies), M-2 (moderation cannot be audited or undone past the capped arrays), and L-1 to L-5.
+  - The founder answered the report's three questions on 2026-11-02 (F15 to F17).
+  - Every finding is ticketed: W5-51 to W5-56, with W5-51b, W5-51c, W5-52b, W5-55b and W5-56b. That meets this ticket's rule, "fixed or ticketed before any dev allowlist".
+  - Gates (report §6): W5-51 to W5-53 before `percent`; W5-54 to W5-56 before prod `on`.
+  - Informational items: I-3 is W5-57 (D-1). I-5 and I-7 are covered by W5-51b and W5-52b's runbook section. I-1, I-2, I-4, I-6, I-8 and I-9 need no ticket (accepted, or watched through existing signals).
 
 ### W5-39 — Part B cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-27, W5-28]  Status: Done (#644)
 - **Description.**
@@ -1437,14 +1478,352 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - A1 passed on dev, so there is **no fallback index** to deploy.
   - The smoke **first re-runs ADR-0031 D3's F1, F2b, F3b and M1 on real data**. A "requires an index" error means stop and ask the founder.
   - `COMMUNITY_CREATORS` holds the founder's dev uid.
+- **W5-38 condition (2026-11-02).**
+  - The review (#647) is CLEAR WITH CONDITIONS. Its dev-allowlist condition is met once #647 merges, because W5-51 to W5-56 are then in this plan. None of them blocks this ticket.
+  - `percent` is not this ticket (it needs a founder-gated ceiling raise). It additionally needs W5-51, W5-51b, W5-51c, W5-52, W5-52b and W5-53 merged. It also needs W5-36's role × action matrix green, including the new W5-53 cells (a moderator against the owner's and another moderator's posts; takedown, hide, restore) and the W5-51b reply cells.
+  - Prod `on` also needs W5-54, W5-55, W5-55b, W5-56 and W5-56b, and the held release (ADR-0019).
+
+### W5-51 — ADR-0031 amendment: reply moderation and the W5-38 rules  [owner: architect] [size: S] [depends: F15, F16, F17]  Status: Open
+- **Description.** A dated amendment to ADR-0031. The ADR is Accepted, so **the founder's OK is needed before merge**; the decision text stays and the amendment adds to it. One amendment carries every ADR change the W5-38 tickets need, so the founder reviews once:
+  - **D4, replies (F15, M-1).**
+    - The owner and moderators can hide and restore a reply whose `conversationCommunityId` is the community, at any depth.
+    - A hide sets `communityHidden` on the reply (a reply has no `communityId` to delete); a restore deletes it.
+    - GetThread drops a hidden reply for every viewer but its author, from rows it already read (0 extra reads).
+    - Each action writes one modlog entry (HIDE or RESTORE with the reply's id), as for a post.
+    - The D4 table's hide row names replies, and the `stage-ladder` "Community moderation" row says "posts and replies".
+  - **D4, targets (F16, L-1).** A moderator cannot hide or restore a post or reply by the owner or by another moderator: FORBIDDEN `not_owner`. The author's role is the current one, from the community doc already read in the transaction. The owner can act on every post; a moderator on their own posts and on members'.
+  - **D5, platform removals (L-2).** `SetCommunityListing` answers NOT_FOUND for a post whose `moderation` is set, so a community hide and restore can never erase a platform removal entry.
+  - **D4 and D10, editing (L-3(c)).** While creation is allowlisted, UpdateCommunity by an owner outside `COMMUNITY_CREATORS` (an F12 hand-over owner) is FORBIDDEN `not_creator`.
+  - **D7, protected members (F17, L-5).** ListCommunityMembers shows a protected member's row only to the owner and moderators, to approved followers and to the member; `memberCount` is unchanged. Role holders stay visible to everyone (D7's GetCommunity rule), a proposal the founder confirms with this OK (F17 names the join-date residual).
+  - **D13, keyed hashes (M-2).** The moderation request lines carry `community_hash`, `post_hash` for hides and restores, and `target_hash` for role actions. Each is an HMAC keyed with `CURSOR_HMAC_KEY`, as W7-34's `conversation_hash`, and an `opsctl` loghash command reproduces it. They are not ids in the D13 sense.
+  - **D14, platform recovery (M-2).** `opsctl community hidden` and `restore-hidden` (W5-52b), `communityHiddenAt` and the modlog's platform actor marker (R6).
+  - **FU-5 note.** `posts.conversationCommunityId`, `posts.community` and the new `communityHidden` / `communityHiddenAt` stay indexed: W5-52b queries them. The `firestore-data-model` skill's `posts` row gains `communityHiddenAt`.
+  - The answers to R1 to R6 in "Questions for @architect".
+  - **Comment-only proto updates** (`buf breaking` clean):
+    - `communities.proto` HideCommunityPost and RestoreCommunityPost: replies accepted, `not_owner`, NOT_FOUND for a platform-removed post;
+    - UpdateCommunity: `not_creator`;
+    - `posts.proto` GetThread: hidden replies dropped.
+
+    W5-58's SetHomeTabs comment may ride in the same PR.
+- **Acceptance criteria.**
+  - Given the amendment, then each item above has its decision, its cost line and the ticket that builds it. The cost line for a reply hide or restore is 5 / 4 reads and 3 writes (+1 on the actor's first entry); GetThread is +0.
+  - Given the D4 table, then the hide row covers replies and the F16 refusals, and no row contradicts F9 as answered in F16.
+  - Given `buf breaking` against `main`, then it is clean, and the proto change is comments only.
+  - Given the PR, then it is not merged before the founder's OK.
+- **Test notes.** None (docs). `code-reviewer` checks the seams and that every item maps to a ticket.
+- **Observability.** The amendment names:
+  - the outcome `rejected:not_owner` on hide and restore;
+  - a `mod_target` enum (`post`, `reply`);
+  - GetThread's `rows_dropped` cause `community_hidden`;
+  - the three hash fields.
+- **Budget.** 0 (docs). The amendment's numbers are the source for W5-51b to W5-54 and W5-56.
+- **Flag.** None (docs). Every change sits behind `FEATURE_COMMUNITIES`.
+- **Seam.** `communities.Moderation` and `posts.CommunityModerator` stay the only writers of `communityHidden`. The reply drop lives in GetThread only.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** yes (ADR and proto comments only).
+
+### W5-51b — Reply moderation backend  [owner: backend-developer] [size: M] [depends: W5-51 merged, W5-53]  Status: Open
+- **Description.**
+  - `SetCommunityListing` also accepts a reply whose `conversationCommunityId == cid` (a reply never carries `community`). A hide sets `communityHidden` and `communityHiddenAt`; a restore deletes both. A root keeps its rule (`community.id == cid`), and gains `communityHiddenAt` too. W5-53's `authorId` and `moderation` rules apply unchanged.
+  - `communities.Moderation` Hide and Restore of a reply:
+    - write the modlog entry and the `modlogged` updates as for a post;
+    - write **no** `recentRemovals` entry (R1);
+    - apply F16.
+  - GetThread drops a reply carrying `communityHidden` for every viewer but its author (rows already read), with `rows_dropped` cause `community_hidden`. Replies under it and a hidden focal reply follow R4; the flag rule follows R5.
+  - Runbook `communities.md` §7: rewrite the NOT_FOUND row that calls replies out of scope ("replies and REPOSTs carry none"), and add a reply-hide row.
+- **Acceptance criteria.**
+  - Given a moderator and a member's reply in the community's conversation, when the moderator hides it, then GetThread omits it for other viewers, its author still sees it, and the modlog has a HIDE entry with its id.
+  - Given that reply restored, then GetThread shows it to everyone again.
+  - Given a reply in another community's conversation, or in a conversation with no community, then NOT_FOUND "post not found" and 0 writes.
+  - Given a reply by the owner or another moderator, when a moderator hides it, then FORBIDDEN `not_owner` and no write (F16).
+  - Given a reply hide, then the community's `recentRemovals` is unchanged and existing feed tokens stay valid.
+  - Given GetThread on a thread with a hidden reply, then the same reads as on that thread without one (+0).
+  - Given a replay of the hide's key after a restore, then 0 writes (A13).
+- **Test notes.**
+  - Emulator integration and `budgettest` on Hide, Restore and GetThread.
+  - Add the reply cells to W5-36's role × action matrix: owner, moderator, member, banned and outsider × hide and restore a reply; a moderator against the owner's and another moderator's reply. If W5-36 merged first, this ticket extends its matrix test.
+  - Flag off: FEATURE_DISABLED with 0 reads.
+  - A hidden reply by a protected author: `posts.Audience` still applies first.
+  - Replay with the same key; a new key after a restore.
+- **Observability.** `mod_target=reply`; the same outcomes as for posts; GetThread `rows_dropped` cause `community_hidden`. No ids in logs.
+- **Budget.**
+  - Hide or restore of a reply: 5 reads cold / 4 warm, 3 writes (+1 on the actor's first modlog entry in the community). A no-op writes the idempotency doc only.
+  - GetThread: +0 reads.
+  - At 0.003 moderation actions per DAU this stays below 0.02 reads per DAU.
+- **Flag.** `FEATURE_COMMUNITIES` for Hide and Restore. GetThread's drop applies whenever `communityHidden` is set (R5).
+- **Seam.** `posts.CommunityModerator` and its mirror `communities.PostModerator` change together. The drop sits in GetThread only; communities never imports posts.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** `posts/community_moderator.go` and its mirror after W5-53 (shared-files table).
+
+### W5-51c — Reply moderation menu  [owner: frontend-developer] [size: S] [depends: W5-51b]  Status: Open
+- **Description.**
+  - In a thread whose root carries `community`, a reply's overflow menu gets "Remove from Community" (with a confirm) when the caller's role in that community is OWNER or MODERATOR. The role comes from ListMyCommunities, cached for the session (R3). The thread does not carry the reply author's role, so the entry shows on every reply; the server refuses a moderator's hide of the owner's or another moderator's reply (F16), and the client shows the friendly `not_owner` text.
+  - After a hide, the reply leaves the open thread at once (local).
+  - Restore: the moderation log's HIDE row already restores by post id (W5-35). Check it works for a reply id.
+  - The log renders the platform actor marker W5-51 picks (W5-52b's `restore-hidden`), as it renders `_deleted`.
+  - A hidden root has no label, so its replies get no menu (R3).
+- **Acceptance criteria.**
+  - Given a member, then no "Remove from Community" on any reply.
+  - Given a moderator in a community thread, then the entry shows on a member's reply, and a hide removes it from the thread.
+  - Given a moderator who removes the owner's reply, then the friendly `not_owner` text and the reply stays.
+  - Given the log's HIDE row of a reply, then Restore calls RestoreCommunityPost with the reply's id.
+  - Given `communities` off, then no entry.
+- **Test notes.** Widget tests at 360 / 600 / 1200, light and dark, text scale 1.0 / 1.3 / 2.0; the role matrix; W5-37's flows gain "moderator hides a reply".
+- **Observability.** —
+- **Budget.** 0 extra RPCs on a thread open (ListMyCommunities is session-cached; a cold session pays one, ≤ 52 reads, once). 1 Hide or Restore per action.
+- **Flag.** `communities`.
+- **Seam.** The role still comes from the server (`viewer_role` in ListMyCommunities); the client never infers it.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** the post menu file serialises with any other post-menu change.
+
+### W5-52 — Keyed hashes on moderation request lines  [owner: backend-developer] [size: S] [depends: W5-51 merged, W5-28]  Status: Open
+- **Description.**
+  - Every request that writes a modlog entry (hide, restore, set_role, update, a moderator's leave) adds `community_hash` to its request line. Hides and restores add `post_hash`, and role actions add `target_hash`.
+  - Each is an HMAC keyed with `CURSOR_HMAC_KEY`. Reuse the W7-34 `conversation_hash` helper and the keyed `HashPost` (search `docs/code-map.md` first).
+  - An `opsctl` loghash counterpart prints the hashes for a given community id, post id or uid, so an operator can rebuild one community's history in Logs Explorer.
+  - The request line still carries no raw id, name or text (D13 as amended).
+- **Acceptance criteria.**
+  - Given a hide, then its request line carries `community_hash` and `post_hash` and no raw id.
+  - Given a BAN, then the line carries `community_hash` and `target_hash`.
+  - Given `opsctl` loghash with the same community id, then it prints the same `community_hash`.
+  - Given another key, then the hash differs (keyed, not a plain digest).
+- **Test notes.** Unit tests on the fields per action; a log-hygiene test that no raw id appears; the `opsctl` round trip.
+- **Observability.** This ticket is the observability change. W5-52b's runbook section holds the Logs Explorer query.
+- **Budget.** 0 reads, 0 writes: one HMAC in memory per moderation request.
+- **Flag.** `FEATURE_COMMUNITIES` (the paths it logs).
+- **Seam.** The shared hash helper in `pkg/platform/logger`; no module-local hashing.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** communities moderation files, one at a time with W5-53 (shared-files table).
+
+### W5-52b — Platform recovery of hidden posts and the raid runbook  [owner: backend-developer + sre-performance (runbook)] [size: M] [depends: W5-51b, W5-29]  Status: Open
+- **Description.**
+  - **`opsctl community hidden CID [--page-token T]`** lists the posts and replies hidden in a community: `posts where conversationCommunityId == C AND communityHidden == true`, Limit ≤ 50, paged by id. Roots keep `conversationCommunityId` after a hide (ADR-0031 D5) and replies always carry it, so one query covers both. It prints ids, kind (root or reply) and hide time, never text. The community id appears only as `community_hash`.
+  - **Prove that query on the dev Firestore** before merge. It relies on two automatic single-field indexes, and the emulator never requires an index (the A1 precedent). A "requires an index" error means stop and ask the founder: the index file is founder-gated.
+  - **`opsctl community restore-hidden CID [--since T] [--dry-run]`** restores through `posts.CommunityModerator.SetCommunityListing` (field-level, never `Set`):
+    - one transaction per page with the community doc;
+    - it deletes the matching `recentRemovals` entries;
+    - `--since T` uses `communityHiddenAt` (R6);
+    - a post with `moderation` set stays hidden and is counted as `skipped_platform` (L-2);
+    - each run writes **one** modlog entry with the platform marker (R6).
+
+    opsctl cannot evict an instance's shared feed entry, so a restored root comes back within the 5-minute entry bound (`communityEntryMaxAge`).
+  - **Runbook** `docs/runbooks/communities.md`, a new section "Rogue moderator or community raid" (sre-performance):
+    - identify: the modlog and the request lines by `community_hash` (W5-52), with the Logs Explorer query;
+    - contain: the owner removes the moderator; for a rogue owner, `community suspend`, and `suspend-user` where needed;
+    - list: `community hidden`;
+    - undo: `restore-hidden --since T`;
+    - clean a raid: bans, hides of posts and replies (W5-51b), and `takedown-post` and `suspend-user` for sock accounts;
+    - the I-7 residual: there is no lever to replace a rogue owner except the console edit of section 5.
+- **Acceptance criteria.**
+  - Given 3 hidden posts and 2 hidden replies in a community, then `community hidden` lists all 5 and nothing from another community.
+  - Given the dev query, then the ticket records who ran it, when and the result (an emulator run does not count).
+  - Given `restore-hidden --since T`, then only posts hidden after T come back, and the modlog gains exactly one platform entry.
+  - Given a platform-removed post among them, then it stays hidden and is counted as skipped.
+  - Given a post hidden before W5-51b added `communityHiddenAt` (no backfill), then `hidden` lists it with the time "unknown", `restore-hidden --since T` skips it with a `skipped_no_time` count, and a run without `--since` restores it.
+  - Given a re-run, then 0 post writes.
+  - Given `--dry-run`, then 0 writes.
+- **Test notes.** Emulator integration for both commands; the paging; the `--since` cut; the L-2 skip; `opsctl` prints `cost: reads=... writes=...` last, as the other community commands do.
+- **Observability.** A fixed-shape `audit:` line with `community_hash` and counts (`listed`, `restored`, `skipped_platform`).
+- **Budget.** An ops path, 0 per DAU.
+  - `community hidden`: 1 (community doc) + ≤ 50 reads per page; 1 when empty.
+  - `restore-hidden`: per page ≤ 50 post reads + 1 community read, and ≤ 50 post writes + 1 community write. A re-run with nothing hidden: 2 reads, 0 writes.
+  - Dev query proof: under 20 reads.
+- **Flag.** None (opsctl runs whatever the flag; it touches documents only).
+- **Seam.** `posts.CommunityModerator` stays the only writer of `communityHidden`; opsctl reaches communities through `communities.Platform`.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** opsctl and communities moderation files, after W5-51b (shared-files table).
+
+### W5-53 — F16 targets and platform removals in `SetCommunityListing`  [owner: backend-developer] [size: S] [depends: W5-51 merged, W5-28]  Status: Open
+- **Description.**
+  - `SetCommunityListing` (and its mirror `communities.PostModerator`) also returns the post's `authorId`.
+  - It answers found=false for a post whose `moderation` is set, so the caller answers the one NOT_FOUND "post not found" (L-2).
+  - The post is already read, so both cost 0 extra reads. The refusal must come before any write: split the read from the write, or pass the check in.
+  - In `communities.Moderation` Hide and Restore, a moderator who is not the owner gets FORBIDDEN `not_owner` with no write when the author is the owner or in `moderatorIds` (F16). The community doc is already read in the transaction. A moderator acting on their own post is allowed.
+  - Runbook `communities.md` §7: a `not_owner` row for hides, and a NOT_FOUND row for a platform-removed post.
+- **Acceptance criteria.**
+  - Given a moderator and the owner's post, when they hide or restore it, then FORBIDDEN `not_owner` and no write.
+  - Given a moderator and another moderator's post, then the same.
+  - Given the owner and a moderator's post, then the hide succeeds.
+  - Given a moderator and their own post, then the hide succeeds.
+  - Given a post by a former moderator whose role was removed, then a moderator can hide it (the current role decides).
+  - Given a platform takedown of community post P, listed in `recentRemovals` at T1, when a moderator hides and then restores P, then both answer NOT_FOUND and the entry from T1 is still listed.
+  - Given `budgettest`, then Hide and Restore reads are unchanged (+0).
+- **Test notes.** Add the cells to W5-36's role × action matrix: a moderator × an author who is the owner, another moderator, themselves or a member, for hide and restore. Also the takedown, hide, restore sequence; a replay; flag off. If W5-36 merged first, this ticket extends its matrix test.
+- **Observability.** `outcome=rejected:not_owner` on `mod_action=hide|restore`; NOT_FOUND keeps `rejected:post_not_found`.
+- **Budget.** +0 reads; a refusal writes nothing. Hide and Restore stay 5 / 4 reads, 3 writes.
+- **Flag.** `FEATURE_COMMUNITIES`.
+- **Seam.** `posts.CommunityModerator` (primitives and the transaction only); posts and communities still never import each other.
+- **Gate.** Before `percent`.
+- **Parallel with W3 Part A / W4:** `SetCommunityListing` before W5-51b (shared-files table).
+
+### W5-54 — Hand-over owners and cached labels  [owner: backend-developer] [size: XS] [depends: W5-51 merged, W5-23]  Status: Open
+- **Description.**
+  - **L-3(c).** While creation is allowlisted (always at Stage 0), UpdateCommunity by an owner outside `COMMUNITY_CREATORS` gets FORBIDDEN `not_creator`. The check uses CreateCommunity's creators function, at 0 reads, before the key and the text checks. A hand-over owner keeps every other owner power (hide, ban, appoint moderators).
+  - **L-3(a) and the posts-cache label lag (the W5-28 follow-up folds in here; no separate ticket).** Add runbook lines to `communities.md` §7:
+    - a hidden post's label stays on devices that cached the card until the card is fetched again (a `since` refresh never re-renders an old row);
+    - the label stays in other instances' posts caches for up to `CACHE_TTL` (60 s).
+
+    Both are intended. There is no code change: another instance's cache cannot be evicted, so the 60 s server bound stays.
+  - **L-3(b).** There is no work at Stage 0. The suspended-community label lookup stays on the `stage-ladder` "Creation" row as a prerequisite for open creation. Confirm the row still says so.
+- **Acceptance criteria.**
+  - Given a hand-over owner outside `COMMUNITY_CREATORS`, when they call UpdateCommunity, then FORBIDDEN `not_creator`, 0 reads beyond the interceptor and 0 writes.
+  - Given an owner in `COMMUNITY_CREATORS`, then the edit works as before.
+  - Given the hand-over owner, then hide, ban and MAKE_MODERATOR still work.
+  - Given the runbook, then §7 states both label bounds.
+- **Test notes.** Unit and emulator: the F12 hand-over (W5-24's test), then an edit by the new owner. Check the client's `not_creator` text (W5-30) reads right on the edit screen; if it reads as a creation refusal, a one-line text change rides in this PR.
+- **Observability.** `community_op=update`, `outcome=rejected:not_creator`.
+- **Budget.** The refusal costs 0 reads beyond the interceptor; edits are unchanged.
+- **Flag.** `FEATURE_COMMUNITIES`.
+- **Seam.** The one creation check function (the `stage-ladder` "Creation" row), now used by both CreateCommunity and UpdateCommunity.
+- **Gate.** Before prod `on`.
+- **Parallel with W3 Part A / W4:** yes.
+
+### W5-55 — Invisible characters in bio-rule text  [owner: backend-developer] [size: S] [depends: W5-45]  Status: Open
+- **Description.**
+  - Apply W5-45's Cf and filler rule (from `SingleLineText`) inside `identity.BioText`. Keep `\n`, and keep ZWJ (U+200D), ZWNJ (U+200C), variation selectors and emoji tag characters (U+E0020 to U+E007F) inside sequences, as W5-45 does for names. Reuse its helper.
+  - The VALIDATION message stays: it becomes true.
+  - **This is an unflagged behaviour change at merge.** `BioText` is the rule for profile bios, list descriptions, and community descriptions and rule text.
+  - It applies on write only. Stored text is not rewritten.
+- **Acceptance criteria.**
+  - Given a community description with U+200B, then VALIDATION `field=description`.
+  - Given a rule text with U+3164, then VALIDATION `field=rules`.
+  - Given a bio with U+2060 or an interior U+FEFF, then VALIDATION `field=bio`.
+  - Given a bio with a ZWJ family emoji, a subdivision flag (a tag sequence), or Hindi or Malayalam text with ZWJ or ZWNJ, then accepted.
+  - Given multi-line text, then accepted.
+  - Given a stored bio that the new rule would refuse, then reads return it unchanged.
+- **Test notes.** Vectors in `testdata/profile_text/bio.json` (shared with the Dart port); the Go fixture runner; the existing bio, list and community text tests stay green.
+- **Observability.** —
+- **Budget.** 0 (validation only).
+- **Flag.** None: a validation rule, applied wherever `BioText` is used.
+- **Seam.** `identity.BioText` stays the one bio rule; lists and communities call it.
+- **Gate.** Before prod `on`.
+- **Parallel with W3 Part A / W4:** `identity` text files, one at a time.
+
+### W5-55b — Dart port of the bio-rule change  [owner: frontend-developer] [size: S] [depends: W5-55, W5-49]  Status: Open
+- **Description.** Port W5-55's rule to the client checks for the bio, the list description (`list_text_rules.dart`) and the community description and rules, with the fixture runner over `testdata/profile_text/bio.json`. Dart has no Unicode category data, so reuse W5-49's explicit Cf table.
+- **Acceptance criteria.**
+  - Given each `bio.json` vector, then the Dart verdict equals the Go verdict.
+  - Given a refused character in a field, then the field shows the error before any RPC.
+- **Test notes.** The fixture runner; widget tests of the three forms at 360 / 600 / 1200.
+- **Observability.** —
+- **Budget.** 0 RPCs.
+- **Flag.** None (validation).
+- **Seam.** One shared Dart helper, catalogued in `docs/ui-catalog.md`.
+- **Gate.** Before prod `on`.
+- **Parallel with W3 Part A / W4:** no (follows W5-55).
+
+### W5-56 — Protected members on member pages  [owner: backend-developer] [size: XS] [depends: W5-51 merged, W5-25b]  Status: Open
+- **Description.**
+  - ListCommunityMembers drops the row of a member whose profile is protected (`IsPrivate`), unless the viewer is:
+    - the owner or a moderator;
+    - that member;
+    - an approved follower of that member.
+
+    The profile and the caller's graph are already read, so this costs 0 reads.
+  - Role holders' rows stay for every viewer: D7 shows every role holder in GetCommunity, because who moderates is part of the rules, and GetCommunity is unchanged. This is a proposal in F17 that the founder confirms with the W5-51 OK; if the founder says no, a protected role holder's member row is dropped like any other.
+  - `memberCount` is unchanged. The BANNED page (owner and moderators only) is unchanged.
+  - `next_page_token` follows the query; a short page is allowed, as for the other drops.
+  - A runbook line in `communities.md`.
+- **Acceptance criteria.**
+  - Given protected member P and viewer V who does not follow P, then P's row is absent from V's page.
+  - Given V an approved follower of P, then P's row is present.
+  - Given V the owner or a moderator, then present.
+  - Given P viewing, then present.
+  - Given P a moderator, then present for everyone, and GetCommunity lists P.
+  - Given `memberCount`, then unchanged.
+  - Given a page where every row is dropped, then a short or empty page with a valid next token.
+- **Test notes.** Emulator `budgettest` (+0); the viewer matrix above; P's protection turned on after joining (the profile cache bound, 60 s).
+- **Observability.** `rows_dropped` cause `protected` on `community_op=members`.
+- **Budget.** +0 reads: 43 / 103 cold at page 20 / 50, unchanged.
+- **Flag.** `FEATURE_COMMUNITIES`.
+- **Seam.** The drop sits behind `communities.Directory`'s member page.
+- **Gate.** Before prod `on`.
+- **Parallel with W3 Part A / W4:** yes.
+
+### W5-56b — Privacy Policy lines for communities  [owner: architect (draft) + founder (approval)] [size: S] [depends: W5-56]  Status: Open
+- **Description.** Add the W5-38 report §7 lines to the Privacy Policy (as refreshed by W6-55, #584), without "protected accounts included" (F17):
+  - communities and their members are public;
+  - community posts are public posts that also appear on the author's profile and in Home;
+  - moderators can remove a post or a reply from the community, not from the platform;
+  - the owner and moderators see a moderation log that names them;
+  - account deletion removes you from communities and replaces your name in the log with "deleted account".
+
+  The wording is drafted with legal review (`docs/plans/roadmap.md` section 9, item 3.26). That review also decides whether to say how a protected account's membership shows (F17). Not legal advice.
+- **Acceptance criteria.**
+  - Given the PR, then the founder approves the text by merging it (the W6-55 precedent).
+  - Given prod `on` for `communities`, then prod Hosting already serves the text.
+- **Test notes.** None (text).
+- **Observability.** —
+- **Budget.** 0.
+- **Flag.** None.
+- **Seam.** —
+- **Gate.** Before prod `on`.
+- **Parallel with W3 Part A / W4:** yes.
+
+### W5-57 — Wire `ForgetCommunityFeed` on restore (D-1)  [owner: backend-developer] [size: XS] [depends: W5-28, W5-36]  Status: Open
+- **Description.**
+  - `timeline.Server.ForgetCommunityFeed` is never called in production (W5-38 I-3). So a restore on the same instance does not bring back, for up to 5 minutes, a post that was hidden before the shared entry filled. Hides are fine: `recentRemovals` drops them at once on the writing instance.
+  - Fix: after a committed RestoreCommunityPost that changed the post, an apiserver callback calls `ForgetCommunityFeed(cid)`. The next read on that instance cold-fills and returns the restored post. communities never imports timeline: apiserver hands communities a function, like the late lookups.
+  - A hide needs no call.
+  - Un-skip W5-36's D-1 repro test.
+  - Update runbook `communities.md` §4e ("should call ... W5-28 owns the hook" becomes the as-built line) and the `docs/code-map.md` entry.
+  - The alternative is docs only: say in the runbook and code map that the method is unused and the restore bound is 5 minutes. Default: wire it.
+- **Acceptance criteria.**
+  - Given a post hidden before this instance's entry filled, when it is restored on the same instance, then the next GetCommunityTimeline on that instance returns it (the un-skipped repro passes).
+  - Given a hide, then the entry is not dropped.
+  - Given a restore on another instance, then the 5-minute bound stays (runbook).
+- **Test notes.** The un-skipped repro; a unit test that the callback fires only on a committed, changed restore (not on a replay, a no-op or a refusal).
+- **Observability.** —
+- **Budget.** 0 reads at the call. The next feed read on that instance cold-fills: 25 / 55 wire reads at page 20 / 50 instead of 3 warm, once per restore. Restores are a fraction of the 0.003 moderation actions per DAU, so this is below 0.1 reads per DAU.
+- **Flag.** `FEATURE_COMMUNITIES`.
+- **Seam.** A callback set by apiserver; communities never imports timeline; the entry stays behind `ForgetCommunityFeed`.
+- **Gate.** None.
+- **Parallel with W3 Part A / W4:** apiserver wiring, before W5-59.
+
+### W5-58 — Stale SetHomeTabs proto comment  [owner: architect] [size: XS] [depends: —]  Status: Open
+- **Description.** The SetHomeTabs comment in `proto/dzeroth/timeline/v1/timeline.proto` (lines 206-207) still lists "kind COMMUNITY (until GetCommunityTimeline ships, plan W5-27)" among the VALIDATION causes. A COMMUNITY tab is accepted since W5-27, as the same comment says a few lines down (ADR-0031 D6, Home tabs). Remove the stale clause. This is a comment-only change: `make proto` regenerates Go and Dart, and `buf lint` and `buf breaking` stay clean. It may ride in W5-51's PR.
+- **Acceptance criteria.**
+  - Given `buf breaking` against `main`, then it is clean.
+  - Given the comment, then it matches ADR-0031 D6 (any ACTIVE or ARCHIVED community; missing or SUSPENDED is VALIDATION `tabs`).
+- **Test notes.** `buf breaking`.
+- **Observability.** —
+- **Budget.** 0.
+- **Flag.** None (contract comment).
+- **Seam.** —
+- **Gate.** None.
+- **Parallel with W3 Part A / W4:** `timeline.proto`, one proto PR at a time.
+
+### W5-59 — A new community post reaches the writing instance's entry at once (D6)  [owner: backend-developer] [size: XS] [depends: W5-57]  Status: Open
+- **Description.**
+  - ADR-0031 D6 says a new post on this instance updates the shared entry at once. It does not: CreatePost into a community leaves timeline's entry alone. On the writing instance, the post appears in the community feed only after the entry's 60 s TTL.
+  - The author's own device already shows it at once: `PostsRepository.createPost` inserts it into `FeedKey.community` (W5-34). The gap is the author's other devices and other members served by that instance, for up to 60 s.
+  - Fix: after a committed CreatePost with `community_id`, an apiserver callback (posts never imports timeline) **marks that community's entry stale**. The next read then refills incrementally from the entry's newest row (1 + new reads).
+  - Do not prepend the post into the entry. The entry must stay complete from its newest row down (`communityEntry` in `service_community.go`; refills run `After = newestId`), so a prepend would skip posts written on other instances in between.
+  - The alternative is an as-built note correcting D6 (architect). Default: wire it.
+- **Acceptance criteria.**
+  - Given a warm entry on instance I, when a member posts into the community on I, then the next GetCommunityTimeline on I (within 60 s) returns the post, at 1 + new reads.
+  - Given a post written on another instance, then the 60 s bound stays.
+  - Given a post that is not a community post, then no entry changes.
+  - Given posts on two instances in the same second, then no post is skipped after the refill.
+- **Test notes.** Unit tests in timeline (stale mark, then an incremental refill); the callback fires only on a committed community CreatePost (not on a replay or a refusal); `budgettest` of the refill.
+- **Observability.** The existing `timeline_cache_hit` and `fs_reads` show the refill.
+- **Budget.** The next read on that instance pays 1 + new reads instead of 0 (warm). At 0.1 community posts per DAU this is at most +0.1 reads per DAU.
+- **Flag.** `FEATURE_COMMUNITIES`.
+- **Seam.** A callback set by apiserver; a new `timeline.Server` method next to `ForgetCommunityFeed` (code-map row); the entry stays behind the `timeline` interface.
+- **Gate.** None.
+- **Parallel with W3 Part A / W4:** apiserver wiring, after W5-57.
 
 ## Rollout plan
 - **Dev.** Allowlist (3 uids): `lists` first (W5-19), then `communities` (W5-40).
 - **Prod.** The founder's MVP launch decision: allowlist → percent 5 → 25 → 100 → `on`, each step a Terraform change plus a tagged revision (ADR-0019). Before each step, check the `cost-model.md` headroom and the error rate. `communities` never ramps ahead of `lists`, and `COMMUNITY_CREATORS` holds the founders' uids at launch.
+- **`communities` gates from W5-38 (#647, report §6):**
+  - **Dev allowlist (W5-40):** met once #647 merges (W5-51 to W5-56 are in this plan).
+  - **`percent`** (a founder-gated ceiling raise): W5-51, W5-51b, W5-51c, W5-52, W5-52b and W5-53 merged, and W5-36's role × action matrix green, including the W5-51b and W5-53 cells.
+  - **Prod `on`:** also W5-54, W5-55, W5-55b, W5-56 and W5-56b (the Privacy Policy lines served by prod Hosting), and the held release (ADR-0019).
 - **Rollback triggers:**
   - error rate on any W5 RPC above 2 % for 15 min;
   - list or community feed reads per DAU above twice the W5-18 / W5-39 model for a day;
-  - a moderator-abuse or raid incident in a community (first suspend that community, else `FEATURE_COMMUNITIES=off`);
+  - a moderator-abuse or raid incident in a community: first suspend that community, else `FEATURE_COMMUNITIES=off`. To undo a rogue moderator's hides, use `opsctl community hidden` and `restore-hidden` (W5-52b, runbook "Rogue moderator or community raid");
   - an abusive public list (`opsctl list hide`).
 - **Kill switches:**
   - `FEATURE_LISTS=off`: the list RPCs reject, and the client hides Lists, list tabs and Add to Lists.
@@ -1458,7 +1837,10 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 |---|---|
 | Lists and communities add +38 reads per DAU and move the free-read crossover from about 201 to about 174 DAU (about 138 with W3 and W4) | the 150-member cap, shared and author-recent caches, ≥ 60 s refreshes, the two 15 % triggers, the kill switches; cents per 100k reads, no fixed fee |
 | A1's id-ordered query does not run on the automatic index (the emulator cannot tell: it never requires indexes) | the dev Firestore check in W5-20 before the ADR is final; the named fallback index in W5-21 (one gate-file change); the W5-40 dev smoke runs every feed form again before the flag leaves `off` |
-| Rogue moderator or owner, raids, spam communities | F9 scope, caps, modlog, `DailyCap`, members-only replies, creators allowlist, opsctl suspension, W5-38 |
+| Rogue moderator or owner, raids, spam communities | F9 scope (literal, F16: W5-53), caps, modlog, `DailyCap`, members-only replies, creators allowlist (also for edits by hand-over owners, W5-54), opsctl suspension, W5-38 |
+| A reply raid in a community's threads outlives the ban (W5-38 M-1) | F15: moderators hide and restore replies (W5-51 to W5-51c), before `percent`; until then `takedown-post` and `suspend-user` |
+| A rogue or hijacked moderator's actions cannot be audited or undone past the capped modlog (100) and `recentRemovals` (50) (W5-38 M-2) | keyed hashes on the moderation request lines (W5-52); `opsctl community hidden` and `restore-hidden` and the raid runbook section (W5-52b); all before `percent` |
+| W5-55 tightens the bio rule for every surface (profile bios, list descriptions, community text) at merge, with no flag | it applies on write only (stored text is not rewritten); vectors keep ZWJ, ZWNJ and emoji tag sequences valid; the Dart port (W5-55b) shows the error before any RPC |
 | Public lists as harassment lists | private by default (F3), no add notification, blocks prevent adds and hide members (F4), report and hide |
 | A community post can be misattributed after a hide | the label is omitted when `communityHidden`; the post itself is untouched |
 | Hot community doc (`memberCount`) during a viral join burst | rule 3 holds at Stage 0; the `ABORTED` metric and the counters-row trigger |
