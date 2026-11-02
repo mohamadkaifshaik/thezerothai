@@ -373,7 +373,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
 | W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
-| W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Open |
+| W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
 | W5-41 | *(W5-17 M-1)* ListUserLists for another owner returns all public lists in one page, token "" (filter before paging); fix the `lists.proto:114-115` comment; test private-first with page_size 1 | backend-developer | XS | W5-7 | yes | Done (#542) |
 | W5-42 | *(W5-17 M-2, founder question)* Protected owner rule in `resolve` and `otherOwner` (NOT_FOUND / PROTECTED_ACCOUNT for unapproved viewers, 0 reads); hide "View Lists" on protected profiles not followed; ADR-0030 D3 note | architect + backend-developer + frontend-developer | S | founder answer (yes, 2026-10-31) | yes | Done (#556; gate: before percent) |
@@ -1400,7 +1400,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** The rate-limit × 3 arithmetic; the `stage-ladder` vectors.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-39 — Part B cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-27, W5-28]  Status: Open
+### W5-39 — Part B cost and performance budget  [owner: sre-performance] [size: S] [depends: W5-27, W5-28]  Status: Done (#644)
 - **Description.**
   - Add the Part B rows (+20.3 reads, +0.15 writes, +0.05 deletes, +2.0 requests per DAU; ADR-0031 supersedes the earlier +16.0 / +0.11) to `cost-model.md`.
   - Run `make loadtest SCENARIO=community_feed`: cold and warm shared entry, refresh with 0 and with 5 new, page 50, a hide during refreshes, a join burst.
