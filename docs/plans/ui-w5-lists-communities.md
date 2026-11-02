@@ -371,7 +371,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report list (already done by W5-48); report community moved to W5-35b | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Done (#637) |
 | W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. | frontend-developer | S | W5-29, W5-35 | yes | Done (#641) |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Open |
-| W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#PR) |
+| W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Open |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
@@ -1368,7 +1368,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-37 — Part B client tests  [owner: tester] [size: S] [depends: W5-31 to W5-35]  Status: Done (#PR)
+### W5-37 — Part B client tests  [owner: tester] [size: S] [depends: W5-31 to W5-35]  Status: Done (#649)
 - **Description.** The responsive matrix and flows: Communities → join → post from the composer → label in Home → community tab → moderator hide → report; flag combinations (`communities` × `lists` × `ui_shell` × `reports`); text scale 2.0.
 - **Acceptance criteria.** Every new widget is covered at 360 / 600 / 1200, light and dark; no overflow at 2.0.
 - **Test notes.** —
