@@ -2,15 +2,16 @@
 // one interest, under rules that the community's own owner and moderators enforce inside the community view only. It owns the
 // communities/{cid} collection, its communityMembers subcollection and communityMemberships/{uid}, and
 // dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in model.go and this file (ADR-0031 D1):
-// communities.Reader for reads, added by the tickets that need it; posts never imports this module (posts.CommunityGate and
+// communities.Reader for reads (W5-25: Get, Role, Memberships); posts never imports this module (posts.CommunityGate and
 // posts.CommunityModerator are seams declared in posts).
 //
 // What exists: the flag gate (W5-22, FEATURE_COMMUNITIES, D10), the error and limit names fixed by the proto (errors.go, limits.go);
 // the write path CreateCommunity, UpdateCommunity and GetCommunity (W5-23: model.go, service.go, repo_firestore.go, cache.go,
 // server_rpcs.go); and the lifecycle (W5-24: purge.go, the `communities` eraser step and export section, registered in
 // apiserver/lifecycle_communities.go, with the T11 rows). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go)
-// fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR. Still to come: join,
-// leave and the lists (W5-25), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
+// fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR; join, leave
+// and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). Still to come: the directory
+// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
 package communities
 
 import (
@@ -47,4 +48,19 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 		return ae.WithMeta("feature", FlagName)
 	}
 	return err
+}
+
+// Reader is the read seam other modules and the handlers use (ADR-0031 D1): everything cached on this instance for at most 60 s (D12), so
+// a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline (W5-27),
+// posts' CommunityGate (W5-26) and moderation reach communities through it; *service implements it, next to Service.
+type Reader interface {
+	// Get is the cache-first community document: 0 reads warm, 1 cold (charged when the document is missing too, and a missing one is
+	// remembered for 60 s). ErrNotFound for a missing document. It does not apply the SUSPENDED rule: a caller that answers NOT_FOUND for
+	// everyone checks Status itself (the owner alone may see a SUSPENDED community in GetCommunity and ListMyCommunities).
+	Get(ctx context.Context, communityID string) (Community, error)
+	// Role is the viewer's D4 role: OWNER and MODERATOR from the community document, MEMBER and BANNED from the member document, which is
+	// cached for 60 s with absence cached too. 0 extra reads warm, 1 cold.
+	Role(ctx context.Context, communityID, uid string) (Role, error)
+	// Memberships is uid's communityMemberships document, never cached: 1 read (charged when missing too).
+	Memberships(ctx context.Context, uid string) (Memberships, error)
 }

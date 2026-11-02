@@ -24,6 +24,7 @@ type docCache struct {
 	communities *cache.LRU[string, Community]
 	miss        *cache.LRU[string, struct{}]
 	members     *cache.LRU[string, MemberState]
+	memberships *cache.LRU[string, Memberships]
 }
 
 func newDocCache(communityEntries, memberEntries int) *docCache {
@@ -32,6 +33,7 @@ func newDocCache(communityEntries, memberEntries int) *docCache {
 		communities: cache.New[string, Community](n, cacheTTL),
 		miss:        cache.New[string, struct{}](n, negativeTTL),
 		members:     cache.New[string, MemberState](m, cacheTTL),
+		memberships: cache.New[string, Memberships](m, cacheTTL),
 	}
 }
 
@@ -72,3 +74,11 @@ func (c *docCache) putMember(cid, uid string, s MemberState) { c.members.Set(mem
 func (c *docCache) getMember(cid, uid string) (MemberState, bool) {
 	return c.members.Get(memberKey(cid, uid))
 }
+
+// putMemberships, getMemberships and forgetMemberships hold the caller's memberships for the directory's viewer_role only (60 s, same
+// bound as the member docs). Join, Leave and Create on this instance forget the entry.
+func (c *docCache) putMemberships(uid string, m Memberships) { c.memberships.Set(uid, m) }
+
+func (c *docCache) getMemberships(uid string) (Memberships, bool) { return c.memberships.Get(uid) }
+
+func (c *docCache) forgetMemberships(uid string) { c.memberships.Delete(uid) }

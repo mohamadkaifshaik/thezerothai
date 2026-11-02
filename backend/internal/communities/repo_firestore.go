@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -145,6 +146,7 @@ func logDocs(entries []LogEntry) []logDoc {
 type FirestoreRepo struct {
 	client *firestore.Client
 	idem   *idempotency.Store
+	quotas *quota.Store
 	now    func() time.Time
 }
 
@@ -153,7 +155,7 @@ var _ Repo = (*FirestoreRepo)(nil)
 // NewFirestoreRepo builds the repository on the process's one Firestore client. idem is the shared idempotency store; a repo built
 // without it (the lifecycle tests) can still erase and export.
 func NewFirestoreRepo(client *firestore.Client, idem *idempotency.Store) *FirestoreRepo {
-	return &FirestoreRepo{client: client, idem: idem, now: time.Now}
+	return &FirestoreRepo{client: client, idem: idem, quotas: quota.New(client), now: time.Now}
 }
 
 func (r *FirestoreRepo) col() *firestore.CollectionRef {
@@ -171,7 +173,7 @@ func (r *FirestoreRepo) membershipsRef(uid string) *firestore.DocumentRef {
 }
 
 func (r *FirestoreRepo) ready() error {
-	if r == nil || r.client == nil || r.idem == nil {
+	if r == nil || r.client == nil || r.idem == nil || r.quotas == nil {
 		return errors.New("communities: repo is not fully wired")
 	}
 	return nil

@@ -16,6 +16,7 @@ import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_bootstrap.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/telemetry/telemetry_inputs.dart';
+import '../core/telemetry/usage_reporter.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -314,6 +315,7 @@ Future<void> bootstrap() async {
     rateLimitHold: rateLimitHold,
     listsGate: listsGate,
     onListSeen: listsRepository.noteListInfo,
+    communitiesGate: communitiesGate,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,
@@ -390,6 +392,7 @@ Future<void> bootstrap() async {
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,
       shareLinks: ShareLinks(origin: config.shareOrigin),
+      usage: UsageReporter.controller(telemetry),
     ),
   );
 }

@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/router/app_router.dart';
+import '../../../../core/telemetry/analytics_event.dart';
+import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -147,7 +149,19 @@ class _AppSearchFieldState extends State<AppSearchField> {
   }
 
   void _go(String canonical) {
-    if (SearchQuery.parse(canonical).isValid) _cubit?.remember(canonical);
+    final parsed = SearchQuery.parse(canonical);
+    if (parsed.isValid) {
+      _cubit?.remember(canonical);
+      // TEL-6: the kind only, never the text. `#tag` looks for a hashtag; a
+      // handle or a word looks for people (a word also matches the tag).
+      UsageScope.of(context).log(
+        SearchUsed(
+          type: parsed.kind == SearchQueryKind.tag
+              ? SearchType.hashtag
+              : SearchType.people,
+        ),
+      );
+    }
     _text.value = TextEditingValue(
       text: canonical,
       selection: TextSelection.collapsed(offset: canonical.length),
@@ -166,6 +180,7 @@ class _AppSearchFieldState extends State<AppSearchField> {
       _go(e.value);
       return;
     }
+    UsageScope.of(context).log(const SearchUsed(type: SearchType.people));
     _cubit?.remember(e.value);
     _focus.unfocus();
     final callback = widget.onPersonSelected;

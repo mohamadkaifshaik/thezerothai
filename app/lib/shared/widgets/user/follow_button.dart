@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/network/app_exception.dart';
+import '../../../core/telemetry/analytics_event.dart';
+import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/graph/presentation/bloc/relationship_cubit.dart';
 import '../../../features/graph/presentation/bloc/relationship_state.dart';
@@ -34,15 +36,26 @@ class FollowButton extends StatelessWidget {
   /// [followedBy]: the other user follows the viewer, so the not-following
   /// state reads "Follow back" (only the profile header knows this; list rows
   /// pass nothing).
-  const FollowButton({super.key, this.followedBy = false, this.onGone});
+  const FollowButton({
+    super.key,
+    this.followedBy = false,
+    this.onGone,
+    this.source = FollowSource.other,
+  });
 
   final bool followedBy;
+
+  /// Where this button sits, for the `follow` usage event (TEL-6). Reported
+  /// once, when the server confirmed a follow (never the optimistic step, never
+  /// a rolled-back one).
+  final FollowSource source;
 
   /// Called, with no snackbar, when the action fails with NOT_FOUND.
   final VoidCallback? onGone;
 
   @override
   Widget build(BuildContext context) {
+    final usage = UsageScope.of(context);
     return BlocConsumer<RelationshipCubit, RelationshipState>(
       listener: (context, state) {
         final error = state.error;
@@ -88,7 +101,17 @@ class FollowButton extends StatelessWidget {
         } else {
           label = followedBy ? 'Follow back' : 'Follow';
           filled = true;
-          onPressed = state.isUpdating ? null : cubit.follow;
+          onPressed = state.isUpdating
+              ? null
+              : () async {
+                  await cubit.follow();
+                  // Only a confirmed follow is reported (TEL-6): a refusal rolls
+                  // back with an `error`, and a cubit closed mid-request is left
+                  // in its optimistic, still-updating state.
+                  if (cubit.state.isConfirmedFollow) {
+                    usage.log(FollowMade(source: source));
+                  }
+                };
         }
 
         final child = state.isUpdating

@@ -46,10 +46,21 @@ type fakeRepo struct {
 	getErr    error
 	// replayDoc is what a replay answers with.
 	replayDoc Community
+	joins     []JoinParams
+	leaves    []LeaveParams
+	joinRes   JoinResult
+	leaveRes  LeaveResult
+	joinErr   error
+	leaveErr  error
+	mships    map[string]Memberships
+	mshipsGet int
+	manyGets  [][]string
+	manyErr   error
+	lst       listingState
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{docs: map[string]Community{}, members: map[string]MemberState{}, idem: map[string]string{}}
+	return &fakeRepo{mships: map[string]Memberships{}, docs: map[string]Community{}, members: map[string]MemberState{}, idem: map[string]string{}}
 }
 
 func (r *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, error) {
@@ -127,13 +138,20 @@ func (r *fakeRepo) Member(ctx context.Context, cid, uid string) (MemberState, er
 type fakeDirectory struct {
 	identity.Directory
 	profiles map[string]identity.Profile
-	asked    int
-	err      error
+	// free makes a lookup cost 0 reads, like the production directory behind the account-status interceptor (it has just loaded the caller).
+	free  bool
+	mu    sync.Mutex // the join/leave race tests call it from many goroutines
+	asked int
+	err   error
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.asked += len(uids)
-	budget.FromContext(ctx).AddReads(int64(len(uids)))
+	if !d.free {
+		budget.FromContext(ctx).AddReads(int64(len(uids)))
+	}
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
 		if p, ok := d.profiles[u]; ok {
@@ -146,10 +164,13 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 type fakeGraph struct {
 	snap  graph.Snapshot
 	err   error
+	mu    sync.Mutex
 	calls int
 }
 
 func (g *fakeGraph) Snapshot(ctx context.Context, _ string) (graph.Snapshot, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.calls++
 	budget.FromContext(ctx).AddReads(1)
 	return g.snap, g.err
@@ -622,4 +643,49 @@ func TestRoleOf(t *testing.T) {
 	if (Community{}).RoleOf("") != RoleNone {
 		t.Error("an owner-less community made the empty uid its owner")
 	}
+}
+
+func (r *fakeRepo) Join(_ context.Context, p JoinParams) (JoinResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.joins = append(r.joins, p)
+	if r.joinErr != nil {
+		return JoinResult{}, r.joinErr
+	}
+	return r.joinRes, nil
+}
+
+func (r *fakeRepo) Leave(_ context.Context, p LeaveParams) (LeaveResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.leaves = append(r.leaves, p)
+	if r.leaveErr != nil {
+		return LeaveResult{}, r.leaveErr
+	}
+	return r.leaveRes, nil
+}
+
+func (r *fakeRepo) Memberships(ctx context.Context, uid string) (Memberships, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mshipsGet++
+	budget.FromContext(ctx).AddReads(1)
+	return r.mships[uid], nil
+}
+
+func (r *fakeRepo) GetMany(ctx context.Context, ids []string) (map[string]Community, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.manyGets = append(r.manyGets, append([]string(nil), ids...))
+	budget.FromContext(ctx).AddReads(int64(len(ids)))
+	if r.manyErr != nil {
+		return nil, r.manyErr
+	}
+	out := map[string]Community{}
+	for _, id := range ids {
+		if c, ok := r.docs[id]; ok {
+			out[id] = c
+		}
+	}
+	return out, nil
 }

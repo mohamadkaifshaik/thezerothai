@@ -107,6 +107,15 @@ key-ordered); CI fails when `firebase/firestore.indexes.json` overrides stop mat
 deliberate edit of the ack file in a reviewed PR. Adding or changing composite `indexes` needs no ack. This is a review gate, not a
 proof of safety: it cannot tell whether a given exemption is safe.
 
+## check-stale-commit.sh (deploy-dev, promote mode)
+`check-stale-commit.sh <run-sha> <main-head-sha> [compare.json]` is deploy-dev.yml's "Refuse to promote a stale commit" step. A run whose
+commit is main's head promotes. A run that main has moved past refuses, because the newer push starts its own run, **unless** every path
+changed since (the net `compare/<run-sha>...<head>` diff, renames' old paths included) matches the workflow's `paths-ignore` list: such a
+push starts no run, so refusing would leave dev a commit behind with nothing coming (2026-11-01: run 517 for #609 refused after the
+docs-only #610 merged, and dev stayed on #608 until a manual dispatch). It fails closed when head is not strictly ahead (`diverged`,
+`behind`), the compare data is missing or unreadable, or the API lists 300 files or more (its cap). `PATTERNS` in the script must equal
+`on.push.paths-ignore`; `test/run.sh` compares them and covers each case above.
+
 ## authenticated-smoke.sh and prod-smoke.sh
 `authenticated-smoke.sh <base_url>` signs in as a smoke account and calls GetMe (unauthenticated: must be 401; authenticated: 200 with a
 handle) and GetProfile, printing only step names, HTTP codes and the handle, and ending with `authenticated smoke: PASS` or

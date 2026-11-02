@@ -1,8 +1,9 @@
 # Communities runbook
 
-Status: **W5-23 + W5-24.** `CreateCommunity`, `UpdateCommunity` and `GetCommunity` write and read the data model; the lifecycle
-(eraser step `communities`, export section, owner hand-over) is live whether or not the flag is on. The other nine RPCs answer
-`UNIMPLEMENTED` past the flag until W5-25 (join, leave, the lists) and W5-28 (moderation). Design:
+Status: **W5-23, W5-24 + W5-25.** `CreateCommunity`, `UpdateCommunity` and `GetCommunity` write and read the data model; `JoinCommunity`,
+`LeaveCommunity` and `ListMyCommunities` (section 4a) are live; the lifecycle (eraser step `communities`, export section, owner hand-over) is
+live whether or not the flag is on. The other six RPCs answer `UNIMPLEMENTED` past the flag until W5-25b (directory, member list) and W5-28
+(moderation). Design:
 `docs/adr/0031-communities-and-moderation-scope.md`; contract: `proto/dzeroth/communities/v1/communities.proto`.
 
 ## 1. The flag and the kill switch
@@ -74,6 +75,46 @@ gets UNAVAILABLE with a 1 s retry-after.
 Staleness: the community doc and the member doc are cached per instance for 60 s (`CACHE_COMMUNITIES_ENTRIES`,
 `CACHE_COMMUNITY_MEMBERS_ENTRIES`); the writing instance is updated at once. A rename, a hand-over or a (W5-29) suspension therefore
 reaches every other instance within 60 s. A missing id is remembered for 60 s too (no read on a repeat probe).
+
+## 4a. Joining, leaving and My Communities (W5-25)
+
+`JoinCommunity`, `LeaveCommunity` and `ListMyCommunities` run behind the same flag. One transaction each; the Join transaction **never reads
+the community document** (`memberCount` is a blind `Increment` through `memberCountDelta`, the one writer), so a join burst does not abort
+other joins. Budgets with the interceptor: Join 6 cold / 4 warm reads, 5 writes (1 when already a member); Leave 5 / 3 reads (6 / 4 for a
+moderator, who makes the transaction read the community fresh), 3 writes + 1 delete (1 write for a non-member); ListMyCommunities 52 cold /
+2 warm reads. Request-line fields: `community_op=join|leave|my`, `outcome`, `cache_hit`, `community_txn_attempts`, `txn_attempts`, `fs_reads`.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `FORBIDDEN reason=banned` on Join | The member doc is BANNED. A ban is only lifted by `SetMemberRole` (W5-28) | Intended. Leave by a banned user is a success that changes nothing: the ban stays |
+| `COMMUNITY_STATE reason=owner` on Leave | The owner cannot leave (no transfer at Stage 0); checked against `communityMemberships.owned` in the transaction | Intended |
+| `LIMIT_REACHED limit=communities_joined` | 50 joined, checked against the memberships doc in the transaction (exact) | The user leaves one |
+| `QUOTA_EXCEEDED quota=community_joins` | 20 joins a day (5 for an account younger than `QUOTA_NEW_ACCOUNT_WINDOW`, 24 h), IST day; a repeat join of a community the user is in is free | Wait for IST midnight. Tune `QUOTA_COMMUNITY_JOINS_PER_DAY` only with the abuse numbers in front of you |
+| `member_count` in a Join/Leave response looks stale | The transaction does not read the community; the response is the instance-cached count plus or minus this call, and other instances catch up within 60 s (`CACHE_TTL`) | Intended (communities.proto). Do not "fix" it by reading the community in the Join transaction (that reintroduces the lock contention) |
+| Join into a community that was ARCHIVED or SUSPENDED in the last 60 s succeeds | The status comes from the 60 s instance cache | Bounded to 60 s per instance; the next call after the entry expires gets the real status |
+| `UNAVAILABLE` on Leave of a moderator during a viral join burst | The moderator path reads the hot community doc, so concurrent `Increment`s abort it (`community_txn_attempts` > 1, WARN `communities_txn_contention` above 3) | Retry (the client does, `retry-after` 1 s). If it is sustained, or one community passes about 1 join/s, move `memberCount` to shards or Pub/Sub-batched increments (ADR-0031 hot-doc fallback, stage-ladder "Community counters") |
+| A moderator who left is still listed in `moderatorIds` | The leaver was promoted on another instance and neither this instance's 60 s cache nor the leaver's `modlogged` named the community, so the transaction did not read the community (the one residual window of the cached moderator hint) | Rare (a promotion adds the target to `modlogged`, I-L, so the repository check covers it once W5-28 writes it). Fix by hand: remove the uid from `moderatorIds` and add a `MODERATOR_LEFT` entry. The owner can also remove the role with `SetMemberRole` (W5-28) |
+
+`ListMyCommunities` is not paged (at most 50): it reads the memberships doc fresh and the community docs from the 60 s cache (misses in one
+`GetAll`, 1 read each). It lists JOINED communities newest first (the reverse of `joined`), leaves out a SUSPENDED one unless the caller
+owns it, keeps ARCHIVED ones, and skips a joined id whose document is gone. A non-empty `page_token` is `VALIDATION page_token` with 0 reads.
+
+## 4b. The directory and the member pages (W5-25b)
+
+`ListCommunities` and `ListCommunityMembers` run behind the same flag, read only (0 writes). Request-line fields: `community_op=directory|members`,
+`cache_hit` (directory: the shared entry was warm), `rows_dropped` and `rows_dropped_by` ({inactive, blocked, blocked_by}), `fs_reads`.
+**No index change:** the member pages order by `joinedAt` / `bannedAt` (field presence is the filter) and the directory by `memberCount`, all on
+the automatic single-field indexes (ADR-0031 D3, proven on `dzeroth-dev`). A "requires an index" error here means stop and ask the founder; do
+not add a `state ==` equality query.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| A new, renamed, suspended or archived community still shows (or is missing) in the directory | The directory is one shared entry per instance, 5 minutes (`DirectoryTTL`), no per-viewer copy | Intended. Bounded to 5 minutes per instance; a restart refills it |
+| Directory `viewer_role` lags a join, ban or eraser run by up to 60 s | The caller's memberships are cached 60 s for this list only; this instance's own Join, Leave and Create drop the entry at once | Intended. Join's cap and ListMyCommunities read fresh |
+| First directory call on a cold instance costs about 51 reads | `ORDER BY memberCount DESC LIMIT 50` plus the caller's memberships; concurrent cold callers share one refill (singleflight). At Stage 0 (<= 20 communities) it is about 21 | Intended; at more than 50 communities the directory shows the top 50 only (a ticket for the W4 engine) |
+| `FORBIDDEN reason=not_moderator` on the BANNED page | The caller is not the owner or a moderator in the (60 s cached) community document; the answer costs the community read only | Intended |
+| `VALIDATION page_token` on a member page | Tampered, expired (24 h), or sealed for another caller, community or filter (the token binds `community_members\|uid\|cid\|filter`) | The client restarts the list. 0 reads |
+| A member page is short, or empty, with a `next_page_token` | Rows of accounts that are not ACTIVE and (for a plain member) members who block the caller or whom the caller blocks are dropped after the page is read; the token follows the last row queried | Intended: keep following the token. The owner and moderators see every member either way (F14), so they can ban |
 
 ## 5. Deleting an account that owns, moderates or joined communities (W5-24)
 
