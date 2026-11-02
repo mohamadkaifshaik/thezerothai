@@ -1,5 +1,5 @@
 # Client crash reporting and usage analytics (Firebase Crashlytics, Google Analytics for Firebase)
-Plan owner: planner · Date: 2026-11-01 (updated 2026-11-02: TEL-10 follow-ups TEL-17 to TEL-20, founder decisions F12 and F13) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
+Plan owner: planner · Date: 2026-11-01 (updated 2026-11-02: TEL-10 follow-ups TEL-17 to TEL-20, founder decisions F12 and F13; TEL-21 build number, F14 answered) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
 
 > **Founder decision (2026-11-01, verbatim):** "plan to add crashlytics and google analytics and update the policy before it ships"
 
@@ -73,6 +73,12 @@ Branches: `feat/tel-N-<slug>` (docs: `docs/tel-N-<slug>`) off `main`, not stacke
   - The alternative, a server-side consent log keyed to the account, would undo F3 and ADR-0011 Q10 (f), and needs its own ADR.
   - Tracked as a blocker in "Before release" and in `docs/plans/roadmap.md` section 9, item 3.26. This is not legal advice.
 
+**Answered 2026-11-02:**
+- **F14. What the crash key `build_number` holds. Decided (founder 2026-11-02): the release tag plus the first 7 hex characters of the tagged commit, for example `v0.5.0+9595a6d`.** Today no build sets it, so every report says `unknown`, and TEL-20's triage check 1 treats that as forged. Both halves can be checked with `git` alone against tags only you can create, and the tag part matches the `docs/releases/` notes.
+  - Not chosen: (B) the pubspec build number (the Android versionCode). Crashlytics already shows it in the event header, and today it is `1` in every build (`app/pubspec.yaml` is `1.0.0+1`), so it tells no build apart.
+  - Not chosen: (C) the GitHub run number. Unique, but only the Actions UI maps it to a tag; `git` and `docs/releases/` cannot.
+  - Dev and local Android builds pass `dev+<7 hex>`. `unknown` is acceptable only in dzeroth-dev. Web passes nothing: it never sends crash reports (F2).
+
 ## What exists already (verified on this branch, 2026-11-01)
 | Piece | State | Delta |
 |---|---|---|
@@ -135,6 +141,8 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 
 **TEL-17 to TEL-20 (TEL-10 follow-ups, 2026-11-02): INR 0.** A manifest change, client code, tests and docs. 0 RPCs, 0 Firestore operations, no new resource. TEL-18's extra `resetAnalyticsData()` is a local SDK call.
 
+**TEL-21 (build number, 2026-11-02): INR 0.** Two workflow lines, a static check inside the existing `promotion-scripts` CI job, runbook text and a doc comment. 0 RPCs, 0 Firestore operations, no new resource, no new CI job.
+
 ## Flags
 | Flag (wire name) | Gates (client only; no RPC) | Kill switch |
 |---|---|---|
@@ -173,7 +181,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Shared files:**
   - `config.go`, `apiserver.go`, `flag-ceiling.json` and the Terraform `feature_*` files serialise with every flag ticket;
   - `settings_screen.dart` and the Home card slot serialise with any wave adding a Settings row or a Home card;
-  - `release-prod.yml` is a gate file (TEL-14 needs your review).
+  - `release-prod.yml` is a gate file (TEL-14 and TEL-21 need your review; roadmap 3.24 (b) edits it too).
 
 **Questions for @architect (TEL-1 answers them in the ADR):**
 - **A1. ADR needed?** Yes: a new data flow to Google, Google Analytics terms, a consent model, the rule 10 reading (F8) and the Q10 (f) confirmation. The next free number (0032 at the time of writing).
@@ -243,6 +251,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 4. **M4 Policy and stores:** TEL-12 (drafted in parallel with M2; merged after TEL-1 is Accepted and F1–F6, F8 and F11 are answered) → TEL-13.
 5. **M5 Roll:** TEL-15 (dev; prod prepared). TEL-16 only at the Apple launch.
 6. **M6 TEL-10 follow-ups (added 2026-11-02):** TEL-17 ‖ TEL-18 ‖ TEL-19 ‖ TEL-20, all startable now, with no shared file except TEL-20 and TEL-13 (the runbook). TEL-17 and the TEL-9 Part B session gate TEL-15. TEL-18 and TEL-20 gate the prod raise. TEL-19 and the M-2 result feed TEL-12.
+7. **M7 Build number (added 2026-11-02):** TEL-21, startable now (F14 answered). It gates the prod raise, not the dev allowlist.
 
 | ID | Ticket | Owner | Size | Depends | Parallel | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -266,6 +275,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
 | TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Done (#643) |
 | TEL-19 | *(TEL-10 L-3, C-5)* ADR-0032 dated note: native crash messages are not scrubbed; the sentence for TEL-12 item 6 | architect | XS | — | yes (ADR-0032 only) | Done (#645) |
 | TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Done (#646) |
+| TEL-21 | *(found after TEL-20)* Release Android and iOS builds pass `BUILD_NUMBER` (F14: `<tag>+<7 hex>`); a static CI check in `scripts/promotion/test/run.sh`; triage check 1 names the format | production-deployer | S | — (F14 default) | `release-prod.yml`: one PR at a time with roadmap 3.24 (b); `client-telemetry.md`: one PR at a time with TEL-13 | Open |
 
 **Definition of done per ticket:** `make ci` green; widget tests for every new widget at 360 / 600 / 1200, light and dark, text scale 1.0 / 1.3 / 2.0 via `test/support/theme_harness.dart`; `docs/ui-catalog.md` and `docs/code-map.md` updated for shared items; this table's Status updated in the PR.
 
@@ -367,7 +377,7 @@ Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITI
   - the message only for allowlisted types, scrubbed and cut to 200 characters;
   - `ConnectException` → code and `ErrorReason` only;
   - `FlutterErrorDetails` → exception and stack only, without `context` or `informationCollector` (use `recordError`, not `recordFlutterError`);
-  - custom keys: build number, `FIREBASE_ENV`, platform;
+  - custom keys: build number, `FIREBASE_ENV`, platform (no workflow set the build number; TEL-21 does, 2026-11-02);
   - breadcrumbs: constants from one file.
 - **Acceptance criteria.** Given a canary string `ZZCANARY123456789` placed in each of the following, then no argument passed to the fake Crashlytics adapter contains the canary or a 6-digit run:
   - a `Text` that throws in build;
@@ -671,6 +681,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
   - **Same file, BoM bumps (TEL-10 M-1):** at every Firebase BoM bump (Dependabot), rerun TEL-17's permission dump on a release APK and compare it with the baseline, the permission list recorded in TEL-17's PR. A permission not in the baseline blocks the release until it is removed with `tools:node="remove"` or declared in TEL-13's forms. Record the new list as the next baseline.
   - **Same file:** never create a Measurement Protocol `api_secret` (TEL-13 checks the consoles).
   - **This plan's Rollout plan:** the first rollback trigger gains "(after the runbook's triage step)".
+  - **Pointer (2026-11-02):** no release build passed `BUILD_NUMBER`, so check 1 would fail every genuine prod report. TEL-21 fixes it.
 - **Acceptance criteria.**
   - Given a report whose build number was never shipped, or whose top frames are not ours, when the runbook is followed, then the outcome is "forged: delete, no rollback".
   - Given a report from a shipped build, with our frames and text in an allowlisted message, then the outcome is "leak: flag off".
@@ -680,6 +691,51 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Budget.** 0.
 - **Flag.** Changes when the kill switch is used, not the flags. Before any prod raise.
 - **Seam.** —
+
+### TEL-21 — Release builds set `BUILD_NUMBER`  [owner: production-deployer] [size: S] [depends: — (F14 answered)]  Status: Open
+- **Description.** Found after TEL-20 (2026-11-02). `CrashKeys.fromEnvironment` (`app/lib/core/telemetry/firebase_crash_reporter.dart`) reads `String.fromEnvironment('BUILD_NUMBER')` and sends `unknown` when it is empty. Its doc comment says "release tooling sets both". No workflow passes `--dart-define=BUILD_NUMBER`. TEL-20's triage check 1 (`docs/runbooks/client-telemetry.md`, "Triage: forged report or leak") fails `unknown`, so every genuine prod crash report would look forged and be deleted. The event header does not help: `app/pubspec.yaml` is `1.0.0+1` and no build passes `--build-name` or `--build-number`, so every AAB is version 1.0.0, code 1.
+  - **The value (F14, founder 2026-11-02):** `<tag>+<first 7 hex of the tagged commit>`, for example `v0.5.0+9595a6d`. Format: `^v[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{7}$`.
+  - **`release-prod.yml`, jobs `build-android` and `build-ios`** (gate file):
+    - pass the tag through `env:` (`RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}`), never `${{ }}` inside `run:` (the workflow's M5/N7 rule);
+    - after the tag checkout, take `git rev-parse HEAD | cut -c1-7`: the checked-out commit, not `github.sha`, and `cut` rather than `--short`, so the length never varies;
+    - set `BUILD_NUMBER="${RELEASE_TAG}+${sha}"`, fail the step if it does not match the format, and print it as a `::notice::` (it is not secret);
+    - add `--dart-define=BUILD_NUMBER="${BUILD_NUMBER}"` to `flutter build appbundle` and `flutter build ios`.
+  - **Web: not passed.** `promote-prod.yml` and `deploy-dev.yml` stay unchanged. Crashlytics has no Flutter web support and Analytics is off on web (F2, ADR-0032 D10), so a web build uses the `Noop` reporter and never reads the define. Passing it would edit two more gate files for no reader. iOS also uses `Noop` until TEL-16, but it is passed anyway: it sits in the same gate file this PR already edits, and TEL-16 then turns iOS on with no workflow change. Roadmap 3.25 (web Analytics) or the Stage 2 `ReportClientError` row adds it if the web ever sends.
+  - **Dev and local builds.** deploy-dev builds web only. Dev Android builds are local (TEL-9 Part B, TEL-15, the BoM dump). They pass `dev+<first 7 hex of HEAD>`. A scratch build may pass another short label, never a person's name or handle (F3). `unknown` (no define) stays the code's fallback and is acceptable only with `FIREBASE_ENV=dev`, for a local debug run. In dzeroth-prod it always fails check 1.
+  - **CI check, the cheapest that fits:** a static block in `scripts/promotion/test/run.sh`, next to the "deploy-dev.yml invariants" block. That file already runs in the required `promotion-scripts` job, so `ci.yml` does not change.
+    - It reads every file in `.github/workflows/`, strips comment lines and joins backslash continuations.
+    - Each `flutter build appbundle`, `apk`, `ios` or `ipa` command must carry `--dart-define=BUILD_NUMBER=`, and that define must not contain `${{`.
+    - It fails when `release-prod.yml` has fewer than 2 such commands, so it cannot pass with nothing to check.
+    - `flutter build web` is exempt (above).
+    - `run.sh` is not in CODEOWNERS. Dropping a define still needs a workflow edit, and workflows are code-owned.
+  - **Runbook** (`docs/runbooks/client-telemetry.md`), Triage check 1 names the format and the match:
+    - prod: `vX.Y.Z+<7 hex>` passes when the tag exists (`git tag -l 'v*'`; only you create `v*` tags) and `git rev-parse vX.Y.Z^{commit} | cut -c1-7` (Git Bash) equals the hex. `docs/releases/vX.Y.Z.md` confirms the tag where it exists (today only v0.4.0 has notes), so `git` is the first source;
+    - in dzeroth-prod, `unknown`, `dev+...` or any other form fails;
+    - in dzeroth-dev, `dev+<7 hex>` and `unknown` are expected;
+    - the header's version name and code tell no build apart today (1.0.0, 1);
+    - the value is a plain string inside the shipped app, so a match only filters careless forgeries. Checks 2 and 3 still run.
+    - The BoM-bump example's `BUILD_NUMBER=tel9` becomes `dev+<7 hex>`.
+  - **Doc comment** on `CrashKeys.fromEnvironment`: comment only, no behaviour change. It names the format and says local builds may leave the define empty (`unknown`).
+  - **Not in this ticket:** Play needs a unique, rising versionCode per upload, and today it is always 1. That belongs with Play distribution (roadmap 3.24). No change to what `CrashKeys` does.
+- **Acceptance criteria.**
+  - Given `release-prod.yml`, then `flutter build appbundle` and `flutter build ios` each pass `--dart-define=BUILD_NUMBER="${BUILD_NUMBER}"`, the value is built from the `env:` tag and `git rev-parse HEAD`, and no `${{ }}` appears inside those `run:` blocks.
+  - Given a computed value that does not match the format (for example an empty tag), then the step fails before `flutter build` runs.
+  - Given `scripts/promotion/test/run.sh`, when either define is removed from `release-prod.yml`, a `flutter build apk` step without the define is added to any workflow, or the define uses `${{ }}`, then the run fails. Record each mutation in the PR, as the TEL-9 report's section 4 does, then revert.
+  - Given the unchanged `flutter build web` steps, then the check passes.
+  - Given the runbook's check 1, then it names the prod format, the `git` match, the dzeroth-dev values, and that `unknown` fails in dzeroth-prod.
+  - Given `firebase_crash_reporter.dart`, then the doc comment matches what the workflows do.
+  - Given the first `v*` tag after the merge, then the `build-android` log shows the `::notice::` value, and its hex equals `git rev-parse <tag>^{commit} | cut -c1-7`.
+  - Given the first prod allowlist session (Rollout plan, prod step 1), then a test crash in dzeroth-prod shows the same value under Keys.
+- **Test notes.**
+  - Run `bash scripts/promotion/test/run.sh`. CI's actionlint and shellcheck cover the new inline script.
+  - The workflow cannot run before a tag (founder only). Run the derivation lines in Git Bash on a checked-out tag and paste the value in the PR.
+  - Flag modes do not apply: the define is fixed at build time. The key is sent only when the decision is "on".
+  - Walk three reports through check 1 with the tester or the founder: `unknown` in dzeroth-prod is forged; `v0.4.0+<right hex>` passes; `v0.4.0+<wrong hex>` is forged.
+- **Observability.** The `::notice::` line in the `build-android` and `build-ios` logs; the `build_number` key in Crashlytics.
+- **Budget.** 0 RPCs, 0 Firestore operations. INR 0. No new resource, no new CI job.
+- **Flag.** None (build time). Gates any prod raise (Before release); does not gate the dev allowlist.
+- **Gate.** `.github/workflows/release-prod.yml` is a CODEOWNERS gate file: the PR needs your code-owner review. Serialise with roadmap 3.24 (b), which also edits `release-prod.yml`, and with TEL-13, which also edits the runbook.
+- **Seam.** `CrashKeys` stays the only reader of the define; the workflow only supplies the value. Web or iOS telemetry later reuse the same define.
 
 ## Before release (nothing leaves `off` anywhere until each item for that step is done)
 - **Before any merge that ships the SDKs:** TEL-3's off keys and TEL-4's decision are in the same or an earlier PR, so a merged build collects nothing.
@@ -700,6 +756,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
   - the TEL-13 prod GA settings are done;
   - your OK on the Terraform plan and the release flow (ADR-0019);
   - TEL-18 is in the release (C-6: L-1 and L-2), and TEL-20 is merged (L-4);
+  - TEL-21 is in the release: the prod Android build's `build_number` is `<tag>+<7 hex>` (F14), so a genuine report can pass TEL-20's check 1;
   - C-4 is checked (TEL-9 Part B or the TEL-15 smoke);
   - if the M-2 check found a join, its follow-up ticket is done (C-3);
   - **legal review has decided Q-1 (F13, roadmap 3.26).** This also blocks any TEL-15 step beyond the team's test accounts, and TEL-16.
@@ -736,3 +793,5 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 | Fake events or crashes from scripts | numbers are never used for security, billing or moderation; console noise only |
 | A Firebase BoM bump adds an advertising or other permission to the merged manifest without anyone noticing (TEL-10 M-1) | TEL-17 removes the known three and dumps a release APK's permissions; TEL-20's runbook line repeats the dump at every BoM bump |
 | A forged report forces a kill switch (TEL-10 L-4) | TEL-20's triage step; no Measurement Protocol `api_secret` (TEL-13) |
+| Every genuine prod crash report reads `build_number` `unknown`, fails triage check 1 and is deleted as forged | TEL-21 (F14) before any prod raise; its `run.sh` check keeps the define on every mobile release build |
+| `build_number` is a plain string inside the shipped app, so a forger can copy it | it filters careless forgeries only; checks 2 and 3 still run (runbook, TEL-21) |
