@@ -663,7 +663,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity (W5-23) and JoinCommunity,
 	// LeaveCommunity and ListMyCommunities (W5-25) run the service; W5-25b and W5-28 replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
 	communitiesSvc := communities.New(communities.Deps{
-		Repo: communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
+		// W5-57: a committed restore drops this instance's shared feed entry (timeline is built above; communities never imports it).
+		OnPostRestored: timelineServer.ForgetCommunityFeed,
+		Repo:           communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
 		Creators: cfg.Communities.Creators, CursorKey: cfg.CursorHMACKey,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,

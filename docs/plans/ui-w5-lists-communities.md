@@ -386,7 +386,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-35 | Moderation UI (hide, restore, members, roles, modlog) + report list (already done by W5-48); report community moved to W5-35b | frontend-developer | M | W5-32, W5-33 | post menu file after W3-17 | Done (#637) |
 | W5-35b | *(W5-35 follow-up)* "Report Community" on the community header menu: `ReportTargetType.community` through the existing report sheet, hidden for the owner, friendly NOT_FOUND `community not found` and `FEATURE_DISABLED feature=communities`. | frontend-developer | S | W5-29, W5-35 | yes | Done (#641) |
 | W5-36 | Part B backend tests | tester | M | W5-25 to W5-29 | yes | Done (#650) |
-| W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Open |
+| W5-37 | Part B client tests | tester | S | W5-31 to W5-35 | yes | Done (#649) |
 | W5-38 | Part B security review incl. moderator abuse | security-auditor | M | W5-25 to W5-29, W5-34 | yes | Done (#647; report `docs/reviews/security/security-w5-communities.md`, CLEAR WITH CONDITIONS; findings ticketed as W5-51 to W5-56) |
 | W5-39 | Part B cost and performance budget: community feed hot path, load smoke | sre-performance | S | W5-27, W5-28 | yes | Done (#644) |
 | W5-40 | Part B dev rollout | production-deployer | S | W5-36, W5-38, W5-39, ADR-0031 merged | serialise dev applies | Open |
@@ -411,7 +411,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Open (gate: before prod on) |
 | W5-56 | *(W5-38 L-5, F17)* ListCommunityMembers drops a protected member's row for a viewer who is not the owner, a moderator, an approved follower or the member (0 reads); role holders stay listed; `memberCount` unchanged | backend-developer | XS | W5-51 merged, W5-25b | yes | Open (gate: before prod on) |
 | W5-56b | *(W5-38 §7, F17)* Privacy Policy lines for communities (report §7, without "protected accounts included"), worded with legal review (roadmap section 9, item 3.26) | architect (draft) + founder (approval) | S | W5-56 | yes | Open (gate: before prod on) |
-| W5-57 | *(W5-28 D-1, W5-38 I-3)* Call `timeline.Server.ForgetCommunityFeed(cid)` after a committed restore, through an apiserver callback; un-skip W5-36's repro; runbook `communities.md` §4e and `docs/code-map.md` | backend-developer | XS | W5-28, W5-36 | apiserver wiring | Open (no gate) |
+| W5-57 | *(W5-28 D-1, W5-38 I-3)* Call `timeline.Server.ForgetCommunityFeed(cid)` after a committed restore, through an apiserver callback; un-skip W5-36's repro; runbook `communities.md` §4e and `docs/code-map.md` | backend-developer | XS | W5-28, W5-36 | apiserver wiring | Done (#652) |
 | W5-58 | *(W5-27 follow-up)* Comment-only fix of the stale SetHomeTabs comment in `timeline.proto` (COMMUNITY tabs are accepted since W5-27); `make proto`, `buf breaking` clean | architect | XS | — | `timeline.proto`: one proto PR at a time | Done (#654, with W5-51) |
 | W5-59 | *(ADR-0031 D6, W5-27 follow-up)* A community post created on an instance reaches that instance's shared community entry at once (the entry is marked stale and refills incrementally, 1 + new reads); the author's device already inserts it (W5-34) | backend-developer | XS | W5-57 | apiserver wiring, after W5-57 | Open (no gate) |
 
@@ -1403,7 +1403,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Seam.** —
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-37 — Part B client tests  [owner: tester] [size: S] [depends: W5-31 to W5-35]  Status: Open
+### W5-37 — Part B client tests  [owner: tester] [size: S] [depends: W5-31 to W5-35]  Status: Done (#649)
 - **Description.** The responsive matrix and flows: Communities → join → post from the composer → label in Home → community tab → moderator hide → report; flag combinations (`communities` × `lists` × `ui_shell` × `reports`); text scale 2.0.
 - **Acceptance criteria.** Every new widget is covered at 360 / 600 / 1200, light and dark; no overflow at 2.0.
 - **Test notes.** —
@@ -1760,7 +1760,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Gate.** Before prod `on`.
 - **Parallel with W3 Part A / W4:** yes.
 
-### W5-57 — Wire `ForgetCommunityFeed` on restore (D-1)  [owner: backend-developer] [size: XS] [depends: W5-28, W5-36]  Status: Open
+### W5-57 — Wire `ForgetCommunityFeed` on restore (D-1)  [owner: backend-developer] [size: XS] [depends: W5-28, W5-36]  Status: Done (#652)
 - **Description.**
   - `timeline.Server.ForgetCommunityFeed` is never called in production (W5-38 I-3). So a restore on the same instance does not bring back, for up to 5 minutes, a post that was hidden before the shared entry filled. Hides are fine: `recentRemovals` drops them at once on the writing instance.
   - Fix: after a committed RestoreCommunityPost that changed the post, an apiserver callback calls `ForgetCommunityFeed(cid)`. The next read on that instance cold-fills and returns the restored post. communities never imports timeline: apiserver hands communities a function, like the late lookups.

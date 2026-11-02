@@ -251,6 +251,11 @@ func TestCreate_ReplayWritesNothingAndAnotherBodyIsRefused(t *testing.T) {
 	}
 }
 
+// Four racers on one key: a racer that loses the transaction and exhausts its re-runs answers a retryable
+// UNAVAILABLE ("temporarily busy"); what must never happen is a second community. As in lists (W5-15), this used to
+// demand that all four succeed, and a slow CI runner failed it with a correct product answer. Now: at least one
+// succeeds, every success is the same community, a busy racer's retry with the same key replays it, and there is
+// exactly one community, owned and joined once.
 func TestCreate_ConcurrentSameKeyCreatesOne(t *testing.T) {
 	e := newEnv(t, 100)
 	var wg sync.WaitGroup
@@ -265,12 +270,29 @@ func TestCreate_ConcurrentSameKeyCreatesOne(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	winner := ""
 	for i := range ids {
 		if errs[i] != nil {
-			t.Fatalf("request %d: %v", i, errs[i])
+			wantAPIErr(t, errs[i], connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil) // a lost race: retryable, nothing written
+			continue
 		}
-		if ids[i] != ids[0] {
-			t.Errorf("request %d answered %s, want %s: one key, one community", i, ids[i], ids[0])
+		if winner == "" {
+			winner = ids[i]
+		}
+		if ids[i] != winner {
+			t.Errorf("request %d answered %s, want %s: one key, one community", i, ids[i], winner)
+		}
+	}
+	if winner == "" {
+		t.Fatalf("no racer succeeded: %v", errs)
+	}
+	for i := range ids {
+		if errs[i] == nil {
+			continue
+		}
+		again, err := e.svc.CreateCommunity(context.Background(), "owner", CreateInput{Key: key(7), Name: "Racers"})
+		if err != nil || again.Community.ID != winner {
+			t.Errorf("retry of busy request %d: id=%s err=%v, want the replayed community %s", i, again.Community.ID, err, winner)
 		}
 	}
 	docs, err := e.client.Collection("communities").Documents(context.Background()).GetAll()
