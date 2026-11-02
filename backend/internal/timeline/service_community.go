@@ -154,10 +154,11 @@ func (s *Server) communityTimeline(ctx context.Context, uid string, req *timelin
 		asnap.BlockedBy = nil
 	}
 	af := s.newAudienceFilter(ctx, uid, asnap)
-	// Per viewer, after the shared entry. A hidden post has already left the query, so communityHidden is not tested; an id in the
+	// Per viewer, after the shared entry. A hidden post has left the query, but a cached entry may still hold one: communityHidden is dropped
+	// here as well, so a hidden post never shows in the feed. An id in the
 	// current recentRemovals is dropped from every entry that still holds it.
 	keep := func(p *posts.Post) bool {
-		return p.Visible() && !listed[p.ID] && communityAuthorAllowed(uid, snap, mod, p.AuthorID) && embedAllowed(snap, uid, p) && af.keep(p)
+		return p.Visible() && !listed[p.ID] && !p.CommunityHidden && communityAuthorAllowed(uid, snap, mod, p.AuthorID) && embedAllowed(snap, uid, p) && af.keep(p)
 	}
 	page := Merge(res.sources, limit, keep)
 	if err := af.finish(); err != nil {
