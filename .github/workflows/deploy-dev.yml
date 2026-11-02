@@ -17,6 +17,7 @@ on:
   push:
     branches: [main]
     # A push is skipped only when EVERY changed file matches; one code file in the push still deploys. workflow_dispatch is unaffected.
+    # Keep in sync with PATTERNS in scripts/promotion/check-stale-commit.sh (test/run.sh compares them).
     paths-ignore:
       - "docs/**"
       - "**/*.md"
@@ -149,7 +150,8 @@ jobs:
           digest=$(ko build "${API_MAIN_PKG}" --bare -t "${IMAGE_TAG}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
-      # A run that waited in the queue (or built slowly) must not promote an older commit after main has moved on.
+      # A run that waited in the queue (or built slowly) must not promote an older commit after main has moved on. The exception is
+      # a move that only touches paths-ignore files: that push starts no run, so this run is the last one coming (check-stale-commit.sh).
       - name: Refuse to promote a stale commit
         if: steps.mode.outputs.dry_run == 'false'
         env:
@@ -159,9 +161,9 @@ jobs:
         run: |
           head=$(gh api "repos/${REPO_SLUG}/commits/main" --jq .sha)
           if [ "$head" != "$SHA" ]; then
-            echo "::error::main has moved on (head ${head:0:7}, this run ${SHA:0:7}). Not promoting a stale commit; the newer run will."
-            exit 1
+            gh api "repos/${REPO_SLUG}/compare/${SHA}...${head}" > "${RUNNER_TEMP}/compare.json"
           fi
+          bash scripts/promotion/check-stale-commit.sh "$SHA" "$head" "${RUNNER_TEMP}/compare.json"
 
       # Composite indexes go out BEFORE promotion so a candidate that needs a new one never serves FAILED_PRECONDITION. They are
       # additive: `firebase deploy` in non-interactive mode without --force never deletes indexes missing from the file (firebase-tools
