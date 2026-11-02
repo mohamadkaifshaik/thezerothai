@@ -75,7 +75,7 @@ func TestCreate_MembersOnlyReply(t *testing.T) {
 					t.Fatalf("reason = %q", ae.Metadata["reason"])
 				}
 			case "state":
-				wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE)
+				_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE)
 			}
 			if tt.wantErr != "" && (c.Writes() != 0 || e.repo.createCalls != 0) {
 				t.Fatalf("a refusal wrote: writes=%d creates=%d", c.Writes(), e.repo.createCalls)
