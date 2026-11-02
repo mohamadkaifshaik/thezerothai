@@ -8,9 +8,11 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/telemetry/telemetry_consent_store.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_mode_cubit.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
+import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
@@ -29,6 +31,7 @@ import '../domain/private_accounts_feature_flag.dart';
 import 'bloc/protect_posts_cubit.dart';
 import 'widgets/appearance_sheet.dart';
 import 'widgets/protect_posts_row.dart';
+import 'widgets/telemetry_consent_row.dart';
 import 'widgets/unsent_posts_row.dart';
 
 /// Phase 0 settings: account info + sign out. Notification, privacy and
@@ -239,6 +242,10 @@ class SettingsList extends StatelessWidget {
         'Privacy & safety',
         [
           if (showProtect) const ProtectPostsRow(),
+          // TEL-7: only on Android, only while the kind's flag is on.
+          for (final kind in TelemetryKind.values)
+            if (telemetryRowVisible(context, kind))
+              TelemetryConsentRow(kind: kind),
           if (graphEnabled) ...[
             SettingsRow(
               icon: Icons.block_outlined,

@@ -187,7 +187,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-4 | `core/telemetry` seam: `CrashReporter`, `UsageAnalytics`, `TelemetryController` (flag × consent × platform × auth), error hooks | frontend-developer | M | TEL-3 | yes | Done (#608) |
 | TEL-5 | Crash payload rules and `CrashScrubber`, with canary tests | frontend-developer | S | TEL-4 | yes | Done (#609) |
 | TEL-6 | Analytics events (sealed list) and template screen names | frontend-developer | S | TEL-4 | yes | Done (#611) |
-| TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Open |
+| TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Done (#612) |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Open |
 | TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Open |
 | TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | Open |
@@ -331,7 +331,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** `analytics`.
 - **Seam.** `AnalyticsEvent` is the only event vocabulary; a new event changes the policy in the same PR (runbook rule).
 
-### TEL-7 — Consent card and Settings switches  [owner: frontend-developer] [size: M] [depends: TEL-4; F1]  Status: Open
+### TEL-7 — Consent card and Settings switches  [owner: frontend-developer] [size: M] [depends: TEL-4; F1]  Status: Done (#612)
 - **Description.**
   - `TelemetryConsentStore`, a copy of `DatabasePushOptInStore`: `AppSettingEntries` keys `telemetry_consent:crash:<uid>` and `telemetry_consent:usage:<uid>` (on, off or unasked), kept on sign-out, `forget(uid)` on deletion.
   - `TelemetryConsentCard` at the top of Home (the `PushOptInCard` slot rules; one card at a time, push first). It is shown on Android when either flag is on for the account and that kind is unasked, with two switches (off), "Save" and "Not now", one sentence each on what is sent, "not linked to your account", and the Privacy Policy link.
