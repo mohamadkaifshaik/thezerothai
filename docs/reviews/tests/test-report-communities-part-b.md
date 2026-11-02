@@ -201,7 +201,7 @@ user), so it does not encode the old behaviour. The cells are added as skipped t
 | mod1 hides mod2's post -> `not_owner` | same test, `.../mod_hides_another_moderator's_post` | SKIP, pending W5-53 |
 | mod1 restores mod2's post -> `not_owner` | same test, `.../mod_restores_another_moderator's_post` | SKIP, pending W5-53 |
 | Moderator hides a reply (W5-51) | not written: W5-51 does not exist and there is no natural place for it | PENDING W5-51 |
-| D-1: restore on the same instance returns a hidden post at once | `apiserver TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` | SKIP, "D-1 follow-up (W5-38 plan follow-ups)" |
+| D-1: restore on the same instance returns a hidden post at once | `apiserver TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` | SKIP, "D-1, fixed by W5-57" |
 
 The W5-28 row "A member hides: FORBIDDEN" and the owner/moderator/member/banned/outsider matrix pass for posts by plain authors; owner-post and moderator-post
 cells are the pending ones above.
@@ -215,7 +215,7 @@ restore handled on this instance should call `timeline.Server.ForgetCommunityFee
 - Effect: a **restore** on the instance that served it does not bring back a post that was hidden before that instance filled its entry: the row stays out
   until the entry expires (60 s TTL for an incremental refill, which cannot see a row below the entry's range, then at most 5 min). Hides are not affected
   (the written `recentRemovals` is applied to every entry row at once; `TestW536_HideAndRestoreAreImmediateOnTheSameInstance` passes).
-- Repro: `TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` (skipped with the reason "D-1 follow-up (W5-38 plan follow-ups)"; remove the `t.Skip` to see it fail): hide a post, open the feed
+- Repro: `TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce` (skipped with the reason "D-1, fixed by W5-57"; remove the `t.Skip` to see it fail): hide a post, open the feed
   on instance A (entry fills without it), restore on A, cold-open on A: expected 3 posts, actual 2.
 - Bound: the documented 5 minutes, so not a correctness break; the hook was meant to make it immediate. Owner: backend-developer (W5-28 follow-up: call
   the hook from the apiserver wiring of HideCommunityPost / RestoreCommunityPost, or amend the runbook and code-map to say the hook is unused).

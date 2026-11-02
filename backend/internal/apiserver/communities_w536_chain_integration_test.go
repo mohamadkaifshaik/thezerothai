@@ -763,7 +763,7 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 // the instance that served it does not bring back a post that was hidden BEFORE that instance filled its entry: the row stays out until the
 // entry expires (<= 5 min). Owner: backend-developer (W5-28 follow-up). Remove the Skip when the hook is wired; the test then guards it.
 func TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce(t *testing.T) {
-	t.Skip("D-1 follow-up (W5-38 plan follow-ups): timeline.Server.ForgetCommunityFeed is never called in production; a restore on the same instance shows the post only when the entry expires (<= 5 min). See docs/reviews/tests/test-report-communities-part-b.md section 4")
+	t.Skip("D-1, fixed by W5-57: timeline.Server.ForgetCommunityFeed is never called in production; a restore on the same instance shows the post only when the entry expires (<= 5 min). See docs/reviews/tests/test-report-communities-part-b.md section 4")
 	ctx := context.Background()
 	a := newW536(t, nil)
 	owner, mod, viewer := a.user(t), a.user(t), a.user(t)
