@@ -1,5 +1,5 @@
 # Client crash reporting and usage analytics (Firebase Crashlytics, Google Analytics for Firebase)
-Plan owner: planner · Date: 2026-11-01 · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
+Plan owner: planner · Date: 2026-11-01 (updated 2026-11-02: TEL-10 follow-ups TEL-17 to TEL-20, founder decisions F12 and F13) · Stage 0 (free tier, per use past it; about INR 434/month at 300 DAU, `docs/reviews/cost-model.md` §5, ADR-0022) · **Client-only:** two Firebase SDKs in the Flutter app, a consent card and two Settings switches. 0 RPCs, 0 Firestore reads, writes or deletes, no proto, no index, no new GCP resource, no fixed cost · Flags: new `FEATURE_CRASH_REPORTING` (`crash_reporting`) and `FEATURE_ANALYTICS` (`analytics`), both client-only (registered like `ui_shell`, `drafts` and `shells` so `GetMe.enabled_features` reports them) · Roadmap: not a wave; tracked in `docs/plans/roadmap.md` section 9, item 3.23
 
 > **Founder decision (2026-11-01, verbatim):** "plan to add crashlytics and google analytics and update the policy before it ships"
 
@@ -63,6 +63,16 @@ Branches: `feat/tel-N-<slug>` (docs: `docs/tel-N-<slug>`) off `main`, not stacke
 - **F10. Legal review.** The policy is still a Draft; maintainer note 1 says legal review has not been done. **Default: same as every other feature.** You approve the text by merging TEL-12, and legal review stays note 1's open item. The Analytics terms check (A2) **is** a gate.
 - **F11. A second account on the same device.** **Default: reset the device's analytics ID whenever a different account signs in on the device than the last one, and on in-app account deletion.** Each account's choice is stored separately (per uid). Cost of the reset: one person with two accounts counts as two users.
 
+**Decided 2026-11-02, after the TEL-10 review** (founder, 2026-11-02, as relayed by the lead; the founder confirms them by merging the PR that adds them):
+- **F12. L-2: the analytics ID at a first sign-in. Decided: reset.** Reset the Google Analytics app-instance ID whenever the last uid recorded on the device differs from the uid signing in, **including when none is recorded** (`last == null`). Also reset when the record cannot be read (fail closed). This extends F11.
+  - It replaces TEL-8's rule "no stored uid (first sign-in on the device): no reset". TEL-8 stays as built. TEL-18 changes the code and the tests, including "first sign-in on a device (no record) resets nothing".
+  - Cost: one local `resetAnalyticsData()` per device at its first recorded sign-in, and again after an in-app deletion. It adds no GA user: the ID that exists before the first recorded sign-in has never sent an event (TEL-10 section 3.2).
+  - C-6 is met by fixing L-1 and L-2 (TEL-18). No ADR-0032 amendment is needed.
+- **F13. Q-1: DPDP Act 2023 s. 6(10), proof of consent. Decided: legal review later.** Keep the device-only consent record (F3).
+  - Before any **non-team** account is allowlisted for either flag (any TEL-15 step beyond the team's test accounts, any prod raise, TEL-16), legal review decides whether the device-only record is enough.
+  - The alternative, a server-side consent log keyed to the account, would undo F3 and ADR-0011 Q10 (f), and needs its own ADR.
+  - Tracked as a blocker in "Before release" and in `docs/plans/roadmap.md` section 9, item 3.26. This is not legal advice.
+
 ## What exists already (verified on this branch, 2026-11-01)
 | Piece | State | Delta |
 |---|---|---|
@@ -123,6 +133,8 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 
 **Total: Crashlytics and Analytics INR 0 / 0 / 0; all in, about INR 0 / 0 / 2 a month at 300 / 1,000 / 3,000 DAU** (the web bundle line, upper estimate). No quota crossover moves. Nothing depends on credit mode (ADR-0022). If A4 shows that the web build also fetches `firebase-analytics.js` from `www.gstatic.com` at startup, that is Google's CDN and not our Hosting bill, but it extends the policy's "when you load the web app" bullet (TEL-3 prevents it).
 
+**TEL-17 to TEL-20 (TEL-10 follow-ups, 2026-11-02): INR 0.** A manifest change, client code, tests and docs. 0 RPCs, 0 Firestore operations, no new resource. TEL-18's extra `resetAnalyticsData()` is a local SDK call.
+
 ## Flags
 | Flag (wire name) | Gates (client only; no RPC) | Kill switch |
 |---|---|---|
@@ -157,6 +169,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **TEL-14 before any prod raise** (prod Android config).
 - **TEL-12 live before any non-team account is allowlisted** (F9).
 - **The Apple launch** before TEL-16.
+- **Legal review of Q-1 (F13)** before any non-team account (roadmap 3.26).
 - **Shared files:**
   - `config.go`, `apiserver.go`, `flag-ceiling.json` and the Terraform `feature_*` files serialise with every flag ticket;
   - `settings_screen.dart` and the Home card slot serialise with any wave adding a Settings row or a Home card;
@@ -172,12 +185,64 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **A7. Automatic events.** The exact automatic events and user properties on Android, including the FCM notification events and the Crashlytics `app_exception` and breadcrumb integration with Analytics.
 - **A8. Proposed lines for gate files.** A `CLAUDE.md` reference-architecture line for Analytics, and the `stage-ladder` row above. Both files are CODEOWNERS gates; TEL-1 proposes them, you review.
 
+## TEL-10 follow-ups (added 2026-11-02)
+Source: `docs/reviews/security/security-client-telemetry.md` (CLEAR WITH CONDITIONS, #638). Every finding has a home below. The report's proposed tickets are TEL-17 to TEL-20. Its device and console checks stay in TEL-9 Part B.
+
+| Finding | Severity | Goes to | Gate |
+|---|---|---|---|
+| M-1: the AdServices advertising-ID and attribution permissions stay in the merged manifest | Medium | TEL-17 | C-2: before the dev allowlist, and before TEL-13 answers the Play Data safety and Advertising ID questions |
+| M-2: the Firebase installation ID (FID) may be joinable with the FCM token we store per uid | Medium | TEL-9 Part B item (below); a fix only if joinable | C-3: the check before the dev allowlist; any fix before any non-team account |
+| L-1: no delete of unsent reports before crash collection turns on | Low | TEL-18 | C-6: before any prod raise |
+| L-2: gaps in the first-sign-in reset | Low | TEL-18, per F12 | C-6: before any prod raise |
+| L-3: native (Java or Kotlin) crash messages are not scrubbed | Low | TEL-19 (ADR note); TEL-9 Part B trace (b) records a native crash | C-5: TEL-12 item 6 carries the sentence |
+| L-4: forged reports can trip the rollback trigger | Low | TEL-20 (runbook triage); TEL-13 (no Measurement Protocol `api_secret`) | before any prod raise |
+| I-1: `breadcrumb()` is public and not gated | Info | TEL-18 (deleted until it has a caller) | none |
+| Q-1: DPDP s. 6(10) proof of consent | question | F13, legal review | before any non-team account |
+
+**Conditions (report section 5):**
+- **C-1** TEL-9 device evidence: TEL-9 Part B. Before the dev allowlist.
+- **C-2** M-1: TEL-17, then the merged-manifest permission line of TEL-9 Part B on its build. Before the dev allowlist.
+- **C-3** M-2: the TEL-9 Part B item below. The check before the dev allowlist; any fix before any non-team account.
+- **C-4** notification events in DebugView: TEL-9 Part B (test report §6b) or the TEL-15 smoke. Before any non-team account.
+- **C-5** TEL-12 wording (M-1, L-3, ADR C1 and C2, the C-3 result): TEL-12, with TEL-17, TEL-19 and the C-3 result as inputs. At the TEL-12 merge.
+- **C-6** L-1 and L-2: TEL-18. Before any prod raise.
+
+**No ticket (one line each):**
+- **I-2:** the CSP's `img-src https:` would pass an image beacon only if a GA script ran; the ignored script and the missing gtag host in `script-src` already stop that, and TEL-9 guards both. (This plan's "`firebase/firebase.json`" means the root `firebase.json`.)
+- **I-3:** the Sessions settings host `firebase-settings.crashlytics.com` is already in the TEL-9 Part B fence for states 1 and 2 (test report §6b, C-1).
+- **I-4:** the dev ceilings match F7; prod is gated by this plan's review and ADR-0019, as for every flag.
+- **I-5:** wording only: the `AppSettingEntries` doc comment "holds no personal data" is out of date. No behaviour changes, and `app_database.dart` is shared, so fix it the next time a ticket edits that file.
+- **I-6:** verified. Whether the FCM `data` keys reach GA is C-4's check.
+- **I-7:** accepted. Consent still holds, and the runbook's next-launch wording covers it.
+
+**TEL-9 Part B: what the device session covers.** The procedure is `docs/reviews/tests/test-report-client-telemetry.md` sections 6 and 6b; nothing here changes it.
+- Run it once, on a dev build from `main` with TEL-17 and TEL-18 merged. Then C-2 passes on the same build, and trace (a) shows L-1's fix. TEL-18 is not a dev gate: if it lags, run Part B without it and repeat only trace (a) later.
+
+| Item | Test report | Needs the founder's phone | Needs the founder's dzeroth-dev console |
+|---|---|---|---|
+| Merged-manifest permissions (C-2) | §6 step 1, §6b C-2 | no: a local release APK and `aapt2 dump permissions` (TEL-17 does it first) | no |
+| Network traces, states 1 to 4, incl. `firebase-settings.crashlytics.com` (C-1) | §6 step 2, §6b C-1 | yes | no |
+| Web trace (C-1) | §6b C-1 | no: a desktop browser | no |
+| **M-2 (C-3), part 1:** FCM token prefix versus the FID, from logcat with the debug log tags; record only "equal" or "not equal", never the values; no `getId` call in app code | §6b C-3 / M-2 | yes | no |
+| **M-2 (C-3), part 2:** every field of a test crash (device info, keys, logs) checked for the FID | §6b C-3 / M-2 | yes, to raise the crash | yes, read only |
+| Notification events carry no ids, title or body (C-4) | §6b C-4 | yes, to receive the pushes | yes (DebugView) |
+| Native crash: trace (b) (C1 residual, L-3) and trace (a) (L-1) | §6 step 3, §6b L-3; ADR-0032 Handoff | yes | yes |
+
+- **C-3 does not wait for a forced fatal.** Part 2 needs only some test crash in dzeroth-dev. A non-fatal through a real `reportUnexpectedError` path, flushed by force-stop and relaunch (§6 step 3, option (b)), is enough. Only the native traces (a) and (b) need an answer to §6 step 3's open question.
+- **Open question: how to force a native crash in a release build** (§6 step 3; owner frontend-developer or architect). **Proposed default:** a throwaway scratch build, never merged (as TEL-10 proposes for the M-2 logcat), that throws a Kotlin exception. No production seam.
+- **Open question: Part B needs the flags on, and TEL-15 waits for Part B.** Part B's prerequisites (test report §6) put one dev test account on both allowlists. **Proposed default:** that targeted, plan-then-OK allowlist of one test account is an evidence step, not "the dev allowlist" of "Before release". TEL-15 widens it to the team's test accounts.
+- **M-2 outcome.**
+  - If the token prefix equals the FID **and** a dzeroth-dev Crashlytics view shows the FID: open the next free TEL ticket then. It covers the architect's ADR-0032 D9 note, the TEL-12 wording ("Google can link these to the push registration; we do not") and the runbook rule "never compare `devices.token` with console data". It gates any non-team account.
+  - If either is false: the security-auditor records the evidence in the M-2 row and issues the unqualified line of the report's section 4.
+  - Either way, the result is recorded in the security report (C-3) before TEL-12 merges, because TEL-12's "not linked to your account" depends on it (C-5).
+
 ## Milestones
 1. **M1 Contract:** TEL-1 (ADR) ‖ TEL-2 (flags) ‖ TEL-14 (prod Android config).
 2. **M2 Client, collection off:** TEL-3 → TEL-4 → TEL-5 ‖ TEL-6 ‖ TEL-7 → TEL-8.
 3. **M3 Verify:** TEL-9 ‖ TEL-10 ‖ TEL-11.
 4. **M4 Policy and stores:** TEL-12 (drafted in parallel with M2; merged after TEL-1 is Accepted and F1–F6, F8 and F11 are answered) → TEL-13.
 5. **M5 Roll:** TEL-15 (dev; prod prepared). TEL-16 only at the Apple launch.
+6. **M6 TEL-10 follow-ups (added 2026-11-02):** TEL-17 ‖ TEL-18 ‖ TEL-19 ‖ TEL-20, all startable now, with no shared file except TEL-20 and TEL-13 (the runbook). TEL-17 and the TEL-9 Part B session gate TEL-15. TEL-18 and TEL-20 gate the prod raise. TEL-19 and the M-2 result feed TEL-12.
 
 | ID | Ticket | Owner | Size | Depends | Parallel | Status |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -190,13 +255,17 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 | TEL-7 | Consent card, Settings switches, `TelemetryConsentStore` | frontend-developer | M | TEL-4; F1 | Settings and Home card files: one PR at a time | Done (#612) |
 | TEL-8 | Account deletion and account switch on the device: forget consent, delete unsent reports, reset the analytics ID; runbook lines | frontend-developer | XS | TEL-7 | yes | Done (#635) |
 | TEL-9 | Tests: guards (imports, no user id, manifest and plist values, CSP hosts), decision matrix, canaries end to end, release-build network trace | tester | M | TEL-5 to TEL-8 | yes | Code part merged (#640); device evidence (Part B) pending |
-| TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | CLEAR WITH CONDITIONS (#638); conditions C-1 to C-6 open |
+| TEL-10 | Security review: payloads, linkability, consent bypass, web, terms | security-auditor | S | TEL-5 to TEL-8 (TEL-9 evidence) | yes | CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, conditions C-1 to C-6 open |
 | TEL-11 | Cost and performance note: INR 0 line, AAB and web bundle deltas, cold start on a low-end Android; `cost-model.md` section | sre-performance | XS | TEL-3, TEL-4 | yes | Open |
-| TEL-12 | Privacy Policy update (sentence list in the ticket) | architect (draft) + founder (approval) | S | TEL-1 Accepted; F1–F6, F8, F11 | yes (`privacy.html`: one PR at a time) | Open |
+| TEL-12 | Privacy Policy update (sentence list in the ticket) | architect (draft) + founder (approval) | S | TEL-1 Accepted; F1–F6, F8, F11; C-5: TEL-17, TEL-19 and the M-2 result (C-3) | yes (`privacy.html`: one PR at a time) | Open |
 | TEL-13 | Store forms and console settings: Play Data safety, App Store label text (prepared for the Apple launch), GA property settings (F5) in dev and prod, the `measurementId` check | production-deployer (prepares) + founder (consoles) | XS | TEL-12 text | yes | Open |
 | TEL-14 | Prod Android builds use dzeroth-prod's `google-services.json` (`release-prod.yml`, gate file) | production-deployer | S | — | **yes, start now** | Done (#593; device check 2026-11-01) |
-| TEL-15 | Dev rollout (targeted Terraform plan, allowlist, dev Android build, smoke with network trace); prod change prepared, not applied | production-deployer | S | TEL-9, TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings | serialise dev applies | Open |
+| TEL-15 | Dev rollout (targeted Terraform plan, allowlist, dev Android build, smoke with network trace); prod change prepared, not applied | production-deployer | S | TEL-9 incl. Part B (C-1) and its M-2 check (C-3), TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings; TEL-17 (C-2, M-1) | serialise dev applies | Open |
 | TEL-16 | *(conditional: Apple launch)* iOS: Podfile without AdId support, dSYM upload, privacy manifest, `TelemetryPlatforms` adds iOS, App Store label, policy note 16 | frontend-developer + founder | S | Apple launch, TEL-15 | — | Open (conditional) |
+| TEL-17 | *(TEL-10 M-1, C-2)* Remove the two AdServices permissions from the merged manifest; extend the TEL-9 manifest guard; dump a local release APK's permissions | frontend-developer | S | — | yes (Android manifest and `app/test/guards/` only) | Open |
+| TEL-18 | *(TEL-10 L-1, L-2, I-1; C-6)* Delete unsent reports before crash "on"; reset the analytics ID with no record or an unreadable record (F12); delete the ungated `breadcrumb()` | frontend-developer | S | — | yes (`core/telemetry` and its tests; no file shared with TEL-17) | Open |
+| TEL-19 | *(TEL-10 L-3, C-5)* ADR-0032 dated note: native crash messages are not scrubbed; the sentence for TEL-12 item 6 | architect | XS | — | yes (ADR-0032 only) | Open |
+| TEL-20 | *(TEL-10 L-4)* Runbook triage before a reported leak counts as one; re-check the merged permissions at every Firebase BoM bump | sre-performance | XS | — | `client-telemetry.md`: one PR at a time with TEL-13 | Open |
 
 **Definition of done per ticket:** `make ci` green; widget tests for every new widget at 360 / 600 / 1200, light and dark, text scale 1.0 / 1.3 / 2.0 via `test/support/theme_harness.dart`; `docs/ui-catalog.md` and `docs/code-map.md` updated for shared items; this table's Status updated in the PR.
 
@@ -354,7 +423,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 ### TEL-8 — Deletion and account switch on the device  [owner: frontend-developer] [size: XS] [depends: TEL-7]  Status: Done (#635)
 - **Description.**
   - In-app Delete account (before `/account-deleted`): `TelemetryConsentStore.forget(uid)`, `deleteUnsentReports()` and `UsageAnalytics.resetDevice()` (the SDK's `resetAnalyticsData()`), through `TelemetryController.forgetDevice(uid)` so they keep the controller's order.
-  - On sign-in of a different uid than the last one on this device (stored in `AppSettingEntries` as `telemetry_last_uid`): `UsageAnalytics.resetDevice()` (F11), queued by the controller before that uid's first event. Same uid again, or no stored uid (first sign-in on the device): no reset.
+  - On sign-in of a different uid than the last one on this device (stored in `AppSettingEntries` as `telemetry_last_uid`): `UsageAnalytics.resetDevice()` (F11), queued by the controller before that uid's first event. Same uid again, or no stored uid (first sign-in on the device): no reset. *(Superseded by F12, 2026-11-02: a missing or unreadable record also resets; TEL-18 changes the code.)*
   - Runbook lines:
     - `account-deletion.md` §7, the email answer: crash reports and usage statistics are device-level and cannot be found by account (Q10 (f)). To clear them, the user deletes in the app or clears the app's data.
     - §3b: no manual step.
@@ -385,7 +454,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** Both.
 - **Seam.** The guards pin the seam.
 
-### TEL-10 — Security review  [owner: security-auditor] [size: S] [depends: TEL-5 to TEL-8]  Status: CLEAR WITH CONDITIONS (#638); conditions C-1 to C-6 open
+### TEL-10 — Security review  [owner: security-auditor] [size: S] [depends: TEL-5 to TEL-8]  Status: CLEAR WITH CONDITIONS (#638); follow-ups ticketed as TEL-17 to TEL-20, conditions C-1 to C-6 open
 - **Description.** Against `security-checklist`:
   - the F6 rules and canaries;
   - linkability (custom keys, flag lists, `deviceTokens` versus SDK identifiers, the app-instance ID across accounts);
@@ -415,7 +484,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 - **Flag.** —
 - **Seam.** —
 
-### TEL-12 — Privacy Policy update  [owner: architect (draft) + founder (approval)] [size: S] [depends: TEL-1 Accepted; F1–F6, F8, F11]  Status: Open
+### TEL-12 — Privacy Policy update  [owner: architect (draft) + founder (approval)] [size: S] [depends: TEL-1 Accepted; F1–F6, F8, F11; C-5: TEL-17, TEL-19 and the M-2 result (C-3)]  Status: Open
 - **Description.** Changes to `app/web/privacy.html`, in plain language like the rest of the page:
   0. **Re-check first.** This list was drafted against the #584 text and checked against #589 (maintainer notes 1–21). If a later refresh is on `main` when this ticket starts, re-read the page and add any new sentence about analytics, crash reporting, cookies or diagnostics to this list.
   1. **Header comment and maintainer notes.** Add TEL-12 and the ADR to the "Draft — last updated" line. Replace note 21 (#589: "we ship neither ... keep both off there while the text says we use neither"), which this change makes untrue, with: "Crash reports and usage statistics are Android only. Before either is switched on for iPhone (TEL-16) or the web, update 'Crash reports and usage statistics', 'Who we share it with', 'On your device' (web Analytics sets cookies) and the store forms. The events are the list in `app/lib/core/telemetry/analytics_events.dart`; a new event or parameter changes this page in the same PR." Extend note 16 with "and crash reports and usage statistics on iPhone".
@@ -454,6 +523,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
   - **Play Data safety:** App info and performance (crash logs, diagnostics), App activity (app interactions) and Device or other IDs; collected, optional, not shared (service provider), encrypted in transit, purposes "Analytics" and "App functionality"; no advertising ID.
   - **App Store label (text only, for TEL-16):** Diagnostics (crash data, performance data, other diagnostic data), Usage data (product interaction) and Identifiers (device ID); not linked to you, not used for tracking.
   - **GA property settings (F5)** in dzeroth-dev and dzeroth-prod: confirm whether Google Analytics is already linked (the `measurementId` values exist), and link it if not.
+  - **No Measurement Protocol `api_secret`** in either GA property (TEL-10 L-4). Confirm that none exists (Admin › Data streams › the Android stream › Measurement Protocol API secrets) and never create one, so events reach our properties only through the SDK, never from a script.
   - **No BigQuery links.** Screenshots go in the PR.
 - **Acceptance criteria.**
   - The checklist exists.
@@ -482,7 +552,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** **Blocks both flags leaving `off` in prod.**
 - **Seam.** —
 
-### TEL-15 — Dev rollout; prod prepared  [owner: production-deployer] [size: S] [depends: TEL-9, TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings]  Status: Open
+### TEL-15 — Dev rollout; prod prepared  [owner: production-deployer] [size: S] [depends: TEL-9 incl. Part B (C-1) and its M-2 check (C-3), TEL-10, TEL-11; TEL-12 on dev Hosting; TEL-13 dev settings; TEL-17 (C-2, M-1)]  Status: Open
 - **Description.**
   - A targeted dev Terraform plan for `feature_crash_reporting*` and `feature_analytics*` (roadmap 3.10: name `-target=module.budget.google_pubsub_topic.billing_alerts` too), shown to you; apply on OK, with the team's test accounts in the allowlist.
   - Smoke on a dev Android build: the card appears; with consent off, no SDK traffic; with consent on, a test crash and events arrive in the dzeroth-dev consoles with no id or text; with the flag off, collection stops on the next `GetMe`.
@@ -503,6 +573,114 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 - **Flag.** Both.
 - **Seam.** One platform-set entry; no caller change.
 
+### TEL-17 — M-1: AdServices permissions out of the merged manifest  [owner: frontend-developer] [size: S] [depends: —]  Status: Open
+- **Description.** TEL-10 M-1 (condition C-2). BoM 34.19.0 resolves `firebase-analytics` 23.2.0. Its `play-services-measurement-api` and `-sdk-api` manifests declare `android.permission.ACCESS_ADSERVICES_AD_ID` and `android.permission.ACCESS_ADSERVICES_ATTRIBUTION`. The app removes only `AD_ID`, so both merge in (reasoned from the cached AARs; no merged manifest has been dumped yet).
+  - `app/android/app/src/main/AndroidManifest.xml`, next to the `AD_ID` line:
+    - `<uses-permission android:name="android.permission.ACCESS_ADSERVICES_AD_ID" tools:node="remove"/>`
+    - `<uses-permission android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION" tools:node="remove"/>`
+  - **Source guard** (`app/test/guards/telemetry_scan.dart`, `telemetry_guard_test.dart`):
+    - extend `removesAdId` so all three permissions must carry `tools:node="remove"` in the main manifest (comments stripped), and no `debug` or `profile` manifest may add any of them back;
+    - add synthetic-input tests for the two new names: removed, commented out, declared without `remove`;
+    - the guard's name says it reads the source manifests (today it says "merged manifest", which it does not read; test report O-6).
+  - **Merged-manifest check, no phone.** Build a release APK on your PC with the dev defines of test report §6 (Prerequisites). Run `aapt2 dump permissions` (or `apkanalyzer manifest permissions`) on it. Paste the full permission list in the PR.
+  - A Firebase BoM bump can add a permission silently. TEL-20 puts the re-check in the runbook.
+  - No Dart code under `lib/` changes. Do not touch `core/telemetry` (TEL-18).
+- **Acceptance criteria.**
+  - Given the main manifest, then all three permissions carry `tools:node="remove"` and the guard passes.
+  - Given either new line deleted, commented out or left without `tools:node="remove"`, then the guard fails. This is a mutation check: record it in the PR the way the TEL-9 report's section 4 does, then revert.
+  - Given a local release APK, when its permissions are dumped, then `com.google.android.gms.permission.AD_ID`, `android.permission.ACCESS_ADSERVICES_AD_ID` and `android.permission.ACCESS_ADSERVICES_ATTRIBUTION` are all absent, and the full list is in the PR.
+- **Test notes.**
+  - Run `flutter test test/guards` and `flutter analyze`.
+  - The APK dump needs the Android SDK build-tools on the PC, not a device. TEL-9 Part B repeats the dump on its own build (§6b C-2).
+  - Flag modes do not apply: permissions are static.
+- **Observability.** None at runtime. The PR keeps the permission list as evidence.
+- **Budget.** 0 RPCs, 0 Firestore operations. INR 0.
+- **Flag.** None (a static manifest). Gates both flags leaving `off` in dev (C-2), and TEL-13's Play Data safety and Advertising ID answers.
+- **Seam.** The SDKs stay behind TEL-4's adapters; the guard pins the manifest.
+
+### TEL-18 — L-1, L-2 and I-1 in `core/telemetry`  [owner: frontend-developer] [size: S] [depends: —]  Status: Open
+- **Description.** TEL-10 L-1 and L-2 (condition C-6) and I-1. All three are in the controller, the crash adapter and their tests.
+  - **L-1: delete before "on" (ADR-0032 D3 step 1).**
+    - In `TelemetryController._decide`, when crash collection becomes true, enqueue `_crash.deleteUnsentReports` **before** `_crash.setCollecting(true)`.
+    - It is a no-op once native collection is on, so it is safe in every state, including the bootstrap's forced apply.
+  - **L-2: reset per F12.**
+    - In `_noteSignIn`, reset when `last != uid`, **including `last == null`**.
+    - When `_lastUid.read()` throws, reset anyway (fail closed), then try to write the uid.
+    - A failing reset or write never breaks sign-in (as today).
+    - This also closes the `forgetDevice` gap: a swallowed reset followed by a cleared record now resets at the next sign-in.
+    - Update the doc comments that say a first sign-in resets nothing.
+  - **I-1: delete the ungated breadcrumb path** until it has a caller. Delete:
+    - `FirebaseCrashReporter.breadcrumb()`;
+    - `CrashlyticsPort.log`, with its `FirebaseCrashlyticsPort` and `FakeCrashlyticsPort` (`app/test/support/fake_crashlytics_port.dart`) implementations;
+    - `crash_breadcrumbs.dart` (`CrashBreadcrumb`). None of these has another user (grep, 2026-11-02);
+    - the test "breadcrumbs are the enum constants" (`firebase_crash_reporter_test.dart`) and the `docs/ui-catalog.md` entry.
+
+    A future breadcrumb comes back through `TelemetryController`, gated like `recordError`, with its policy line.
+  - **Tests that change, because the rule changed** (line numbers approximate):
+    - `telemetry_controller_test.dart`: "a consent change applies at once" (line 185) becomes `['crash.deleteUnsent', 'crash.setCollecting(true)']`. The bootstrap test (line 203) gains `usage.reset` (empty record) and `crash.deleteUnsent` before `crash.setCollecting(true)`.
+    - `telemetry_account_switch_test.dart`:
+      - "first sign-in on a device (no record) resets nothing" (line 83) becomes "resets once and records the uid";
+      - "A, sign out, B, sign out, A" (line 69) counts 3 resets;
+      - "after A is deleted, B signing in is a first sign-in: no second reset" (line 139) now resets.
+    - `telemetry_decision_matrix_e2e_test.dart`: the tests at lines 213, 240, 263 and 322. Each launches on an empty store and counts resets.
+    - Any other test that pins an exact call list gets the same treatment.
+- **Acceptance criteria.**
+  - Given crash consent turned on while the flag is on, then the adapter calls are exactly `deleteUnsentReports`, then `setCollecting(true)`.
+  - Given a bootstrap whose restored uid has crash on, then `deleteUnsentReports` runs before `setCollecting(true)`.
+  - Given no `telemetry_last_uid` record and a sign-in (or a restored uid at bootstrap), then the analytics ID is reset once, before that uid's first event, and the uid is recorded.
+  - Given a record read that throws, then the reset still runs before the uid's first event, and sign-in completes.
+  - Given account A deleted in the app with its reset failing, then B's sign-in resets.
+  - Given A, sign-out, A again, with A recorded, then no reset (unchanged).
+  - Given `app/lib` and `app/test`, then no `breadcrumb(`, `CrashBreadcrumb` or Crashlytics `log` call remains. The canaries' "no other call reached the SDK" test still passes.
+  - Every changed test names the new rule. A test about something else seeds `telemetry_last_uid` instead of changing its counts. No exact call list is loosened to `contains`.
+- **Test notes.**
+  - Mutation checks, recorded in the PR and reverted (as the TEL-9 report's section 4):
+    - drop the pre-enable delete: the L-1 tests fail;
+    - restore `last != null &&`: the first-sign-in tests fail;
+    - remove the fail-closed reset: the read-failure test fails.
+  - Run `flutter test test/core/telemetry test/guards test/features/account` and `flutter analyze`.
+  - Flag modes: the 2 × 2 × 2 × 2 matrix stays green.
+  - On a device, TEL-9 Part B trace (a) shows L-1's fix.
+- **Observability.** The existing debug-only decision log; nothing in release.
+- **Budget.** 0 RPCs, 0 Firestore operations. INR 0. One more local `resetAnalyticsData()` per device, at its first recorded sign-in and after an in-app deletion.
+- **Flag.** `crash_reporting`, `analytics`. Nothing changes while both are off. Gates any prod raise (C-6).
+- **Seam.** `CrashReporter` and `UsageAnalytics` keep their methods. `TelemetryController` stays the only decision point, and every SDK call goes through its queue.
+
+### TEL-19 — L-3: native crash messages in ADR-0032  [owner: architect] [size: XS] [depends: —]  Status: Open
+- **Description.** TEL-10 L-3 (condition C-5). F6 and the scrubber cover Dart errors only. An uncaught Java or Kotlin exception in a plugin or the engine reaches Crashlytics through its `UncaughtExceptionHandler`, with its message: for example a file path or content URI from `image_picker`, or a SQLite message. No native scrubber at Stage 0.
+  - A dated note in ADR-0032 (Data inventory, Crashlytics "What is sent", and D6). It says a crash in Android's own code carries Android's error message, which can include a file name or path. Post and message text are not expected there. The Accepted decision does not change.
+  - The note gives the sentence TEL-12 item 6 must carry (C-5). For example: "A crash in Android's own code can include Android's error message, which may contain a file name." TEL-12 is edited when it is drafted, not in this ticket.
+- **Acceptance criteria.**
+  - Given ADR-0032, then the Data inventory and D6 no longer read as if every crash message passes the scrubber, and the note is dated and cites TEL-10 L-3.
+  - Given the TEL-12 draft, then item 6 can use the note's sentence as written.
+- **Test notes.** None (docs). TEL-9 Part B trace (b) records what a forced native crash shows. If it shows more than paths or URIs, revise the note.
+- **Observability.** —
+- **Budget.** 0.
+- **Flag.** Feeds TEL-12, which gates both flags leaving `off`.
+- **Seam.** —
+
+### TEL-20 — L-4: triage before a reported leak counts as one  [owner: sre-performance] [size: XS] [depends: —]  Status: Open
+- **Description.** TEL-10 L-4. The app's Firebase IDs and API key are public. Anyone can plant a crash or event that contains an id, handle, email or text. That trips the rollback trigger, or plants third-party personal data in our consoles.
+  - **`docs/runbooks/client-telemetry.md`, Failure modes:** a triage step before "Personal data seen in a crash report or an event" counts as a leak. Check that:
+    - the build number is in a shipped range;
+    - the top frames are `package:dzeroth/` or our plugins;
+    - the text sits where our code can put text (only allowlisted Dart types carry a message; native messages per L-3 and TEL-19).
+
+    A report that fails these checks is forged: delete it (Firebase support, or a GA data-deletion request) and do not roll back. A report that passes is a leak: flag `off`, as today.
+  - **Same file, Kill switch:** the first rollback trigger points to the triage step.
+  - **Same file, BoM bumps (TEL-10 M-1):** at every Firebase BoM bump (Dependabot), rerun TEL-17's permission dump on a release APK and compare it with the baseline, the permission list recorded in TEL-17's PR. A permission not in the baseline blocks the release until it is removed with `tools:node="remove"` or declared in TEL-13's forms. Record the new list as the next baseline.
+  - **Same file:** never create a Measurement Protocol `api_secret` (TEL-13 checks the consoles).
+  - **This plan's Rollout plan:** the first rollback trigger gains "(after the runbook's triage step)".
+- **Acceptance criteria.**
+  - Given a report whose build number was never shipped, or whose top frames are not ours, when the runbook is followed, then the outcome is "forged: delete, no rollback".
+  - Given a report from a shipped build, with our frames and text in an allowlisted message, then the outcome is "leak: flag off".
+  - Given a BoM bump, then the runbook names the check and what to do with a new permission.
+- **Test notes.** Walk both cases through the runbook with the tester or the founder; no code.
+- **Observability.** The triage step names the console fields to read (build number, frames, where the text sits).
+- **Budget.** 0.
+- **Flag.** Changes when the kill switch is used, not the flags. Before any prod raise.
+- **Seam.** —
+
 ## Before release (nothing leaves `off` anywhere until each item for that step is done)
 - **Before any merge that ships the SDKs:** TEL-3's off keys and TEL-4's decision are in the same or an earlier PR, so a merged build collects nothing.
 - **Before the dev allowlist (TEL-15):**
@@ -512,13 +690,19 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
   - TEL-11 HOLDS;
   - TEL-12 merged and on dev Hosting;
   - TEL-13 dev console settings done;
-  - team test accounts only (F9).
-- **Before any Play build with the SDKs leaves internal testing:** the TEL-13 Play Data safety form is updated.
+  - team test accounts only (F9);
+  - TEL-17 merged, and the merged manifest of the Part B build has none of the three advertising permissions (C-2);
+  - the M-2 item of TEL-9 Part B done and its result recorded in the security report (C-3).
+- **Before any Play build with the SDKs leaves internal testing:** the TEL-13 Play Data safety form is updated, and TEL-17 is in that build (C-2), so the Advertising ID and Data safety answers describe it.
 - **Before any prod raise or any non-team account:**
   - TEL-12 is served by prod Hosting (a promoted `v*` tag containing it; the Android in-app link opens prod Hosting);
   - TEL-14 is in the release;
   - the TEL-13 prod GA settings are done;
-  - your OK on the Terraform plan and the release flow (ADR-0019).
+  - your OK on the Terraform plan and the release flow (ADR-0019);
+  - TEL-18 is in the release (C-6: L-1 and L-2), and TEL-20 is merged (L-4);
+  - C-4 is checked (TEL-9 Part B or the TEL-15 smoke);
+  - if the M-2 check found a join, its follow-up ticket is done (C-3);
+  - **legal review has decided Q-1 (F13, roadmap 3.26).** This also blocks any TEL-15 step beyond the team's test accounts, and TEL-16.
 - **iPhone and web:** nothing in this plan turns them on (TEL-16; Out of scope).
 - **Readiness checklist:** the `production-readiness` line "Crashlytics on" stays valid. For a release, the evidence is `crash_reporting` on in prod plus a dzeroth-prod Crashlytics console screenshot (Android); it is N/A for web. `CLAUDE.md` already lists Crashlytics; the Analytics line is TEL-1's proposal for you.
 
@@ -550,3 +734,5 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 | A Google Analytics property already exists with permissive defaults | TEL-13 checks the `measurementId` properties and applies F5 before any collection |
 | Web Analytics added later without the cookie, banner and CSP work | Out of scope with a trigger; the TEL-12 maintainer note (replacing note 21); the TEL-9 CSP guard |
 | Fake events or crashes from scripts | numbers are never used for security, billing or moderation; console noise only |
+| A Firebase BoM bump adds an advertising or other permission to the merged manifest without anyone noticing (TEL-10 M-1) | TEL-17 removes the known three and dumps a release APK's permissions; TEL-20's runbook line repeats the dump at every BoM bump |
+| A forged report forces a kill switch (TEL-10 L-4) | TEL-20's triage step; no Measurement Protocol `api_secret` (TEL-13) |
