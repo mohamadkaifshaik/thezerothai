@@ -162,6 +162,10 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		if err = s.enforceReplyPolicy(ctx, uid, parent); err != nil {
 			return nil, err
 		}
+		// ADR-0031 D5 (F8): a reply into a community conversation is members only (after the policy rules, before mentions and the transaction).
+		if err = s.gateReply(ctx, uid, parent, in.CommunitiesGloballyOff); err != nil {
+			return nil, err
+		}
 	}
 	var quoted *Post
 	if in.QuoteOfPostID != "" {

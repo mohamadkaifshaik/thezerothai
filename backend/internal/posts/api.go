@@ -150,6 +150,9 @@ type Post struct {
 	CommunityID             string
 	Community               *CommunityLabel
 	ConversationCommunityID string
+	// CommunityHidden is the label switch only (ADR-0031 D5, A12): a moderator hide sets it, a restore clears it. It never feeds Hidden() or
+	// the audience; ToView drops the community label while it is true. Absent = false.
+	CommunityHidden bool
 }
 
 // CommunityLabel is the community {id, name} snapshot a community post stores (ADR-0031 D5): a rename does not rewrite old posts.
@@ -402,6 +405,9 @@ type CreateInput struct {
 	// the gate (community_gate.go).
 	CommunityID        string
 	CommunitiesEnabled bool
+	// CommunitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch; server.go, never from the request): a reply into a
+	// community conversation then skips CommunityGate.CanReply (ADR-0031 D5). 0 reads.
+	CommunitiesGloballyOff bool
 }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST
@@ -461,6 +467,8 @@ type ViewerSet struct {
 	pollChoice map[string]int
 	// pollsOff is true when FEATURE_POLLS is globally off: nobody can vote, so every poll shows its results (ADR-0029 D4).
 	pollsOff bool
+	// communitiesOff is true when FEATURE_COMMUNITIES is globally off: ToView drops PostView.post.community (ADR-0031 D5, the kill switch).
+	communitiesOff bool
 	// blockedAuthors is the viewer's outgoing block set (graph snapshot.Blocked), set by the producers that show a post by an author the viewer
 	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked (ADR-0029 A1.5). Read-only.
 	blockedAuthors map[string]bool
@@ -493,7 +501,7 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 // FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags (ADR-0023 D5).
 // The poll choices go with them (ADR-0029 D3); the polls-globally-off mark stays (it is not viewer state).
 func (v ViewerSet) BookmarksOnly() ViewerSet {
-	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff}
+	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff}
 }
 
 // WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last,
@@ -536,6 +544,12 @@ func (v ViewerSet) PollVoteBlocked(p *Post, viewer string, now time.Time) bool {
 // WithPollsGloballyOff returns v marked so that every poll shows its results (FEATURE_POLLS is off for everyone, ADR-0029 D4).
 func (v ViewerSet) WithPollsGloballyOff() ViewerSet {
 	v.pollsOff = true
+	return v
+}
+
+// WithCommunitiesGloballyOff returns v marked so that ToView carries no community label (FEATURE_COMMUNITIES is off for everyone, ADR-0031 D5).
+func (v ViewerSet) WithCommunitiesGloballyOff() ViewerSet {
+	v.communitiesOff = true
 	return v
 }
 
@@ -591,6 +605,9 @@ func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid stri
 	if g, ok := fc.(GloballyOffChecker); ok && g.GloballyOff(PollsFlagName) {
 		base = base.WithPollsGloballyOff()
 	}
+	if g, ok := fc.(GloballyOffChecker); ok && g.GloballyOff(CommunitiesFlagName) {
+		base = base.WithCommunitiesGloballyOff()
+	}
 	if vf == nil {
 		return base
 	}
@@ -604,6 +621,9 @@ func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid stri
 	}
 	if base.pollsOff {
 		vs = vs.WithPollsGloballyOff()
+	}
+	if base.communitiesOff {
+		vs = vs.WithCommunitiesGloballyOff()
 	}
 	return vs
 }
