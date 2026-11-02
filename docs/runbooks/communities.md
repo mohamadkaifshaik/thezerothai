@@ -1,6 +1,6 @@
 # Communities runbook
 
-Status: **W5-23, W5-24 + W5-25.** `CreateCommunity`, `UpdateCommunity` and `GetCommunity` write and read the data model; `JoinCommunity`,
+Status: **W5-23, W5-24, W5-25 + W5-27 (feed).** `CreateCommunity`, `UpdateCommunity` and `GetCommunity` write and read the data model; `JoinCommunity`,
 `LeaveCommunity` and `ListMyCommunities` (section 4a) are live; the lifecycle (eraser step `communities`, export section, owner hand-over) is
 live whether or not the flag is on. The other six RPCs answer `UNIMPLEMENTED` past the flag until W5-25b (directory, member list) and W5-28
 (moderation). Design:
@@ -167,6 +167,31 @@ community posts behave as ordinary posts. Turning the flag back on needs no data
 | A hidden post still blocks non-members from replying | By design: `conversationCommunityId` survives a hide | Intended |
 | Community labels vanish everywhere | `FEATURE_COMMUNITIES=off` (the kill switch) | Intended; set the flag back to `on`, `allowlist` or `percent` |
 | `community_reply_gate=error` spike | A failed Firestore read of the community or member doc | Check Firestore health; replies into community conversations fail closed, all other replies are unaffected |
+
+## 4e. The community feed and the COMMUNITY Home tab (W5-27)
+
+`TimelineService.GetCommunityTimeline` (`backend/internal/timeline/service_community.go`) reads a **shared per-community entry** (the newest 30
+posts, one per community per instance, `CACHE_COMMUNITY_FEED_ENTRIES` 100) for cold opens and `since` refreshes, and `posts.Reader.ByCommunity`
+for older pages. Order: flags (`communities`, then `posts`), shape and tokens (0 reads), community (missing or SUSPENDED is the one NOT_FOUND,
+ARCHIVED is readable), `removed_ids` check, the caller's role, the rows, then the caller's graph and userLikes (skipped when no row came back).
+Wire reads (interceptor included): cold **page + 5** (25 at page 20, 55 at page 50), warm 3, empty `since` refresh 4 cold, NOT_FOUND 2, writes 0.
+Request-line fields: `timeline_op=community`, `timeline_mode`, `timeline_cache_hit`, `items_returned`, `items_filtered`, `removed`,
+`viewer_role` (an enum name), never an id or text.
+
+Staleness bounds: a post written on another instance appears within 60 s (the entry refills incrementally at the next call after that, charged to
+that caller, `1 + new posts` reads, never more than the page size); a hide reaches this instance within the 60 s of the cached community
+document (`recentRemovals` is applied to every entry row); the LRU drops an entry after 5 min whatever happens, which bounds a row that is no
+longer listed (a hide older than the capped array) and a restore that put a post back below the entry's range. A hide or restore handled on
+this instance should call `timeline.Server.ForgetCommunityFeed(cid)` (W5-28 owns the hook).
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `GetCommunityTimeline` answers UNIMPLEMENTED for a caller inside the flag | `timelineServer.SetCommunities(...)` was not called in `apiserver` (the stub answer of W5-22) | Fix the wiring; the call must precede `ListenAndServe` |
+| Clients cold-open every few refreshes in one community (`removed_reset=true` on the request line, VALIDATION `since_token`) | More than 50 hides since the token was issued: `removalsTruncatedAt` is newer than the token's cutoff (ADR-0031 A3) | Intended: the client replaces its cache. If it is every refresh, the community is being hidden faster than the clients poll; check the modlog, not the code |
+| A restored post does not come back on a device | The restore deletes its `recentRemovals` entry, so it is never listed; a device that dropped the card gets it at the next cold open (as `restore-post` on Home) | Intended |
+| A moderator sees posts by users who block them; members do not | F14: the "author blocks the viewer" drop is waived for the OWNER and MODERATORS only; their own blocks and mutes, and protected authors, still drop | Intended |
+| `UNAVAILABLE` on the feed | The protected-author set could not be loaded younger than `PROTECTED_SET_MAX_STALE` (the page is never served unfiltered) | Same as Home; see the identity runbook |
+| `SetHomeTabs` answers VALIDATION `tabs` for a COMMUNITY tab | The community is missing or SUSPENDED (one answer for both), or the build does not wire communities | Intended / fix the wiring |
 
 ## 5. Deleting an account that owns, moderates or joined communities (W5-24)
 

@@ -360,7 +360,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Done (#626) |
 | W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Done (#629) |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Done (#633) |
-| W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
+| W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Done (#634) |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#636) |
 | W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | In review (#639) |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
@@ -1125,7 +1125,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Home, profile, list and search timelines: UNKNOWN.
   - Reply budget: +2 cold (community status and member doc, both cached) / +0 warm.
 
-### W5-27 — `GetCommunityTimeline` and community tabs  [owner: backend-developer] [size: M] [depends: W5-26, W5-9]  Status: Open
+### W5-27 — `GetCommunityTimeline` and community tabs  [owner: backend-developer] [size: M] [depends: W5-26, W5-9]  Status: Done (#634)
 - **Description.** A new `backend/internal/timeline/service_community.go`:
   - `communities.Reader.Get(cid)` (status, header, `recentRemovals`);
   - a shared **community entry** (newest 30 posts per community, `cache.LRU`, 60 s, shared across viewers) for cold and page 1;
