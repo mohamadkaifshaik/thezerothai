@@ -492,3 +492,24 @@ func TestRestoreCommunityPost_OnPostRestoredOnlyAfterACommittedRestore(t *testin
 		})
 	}
 }
+
+// W5-52b (ADR-0031 D14a): a RESTORE entry of the platform marker has no person: an unset actor with actor_deleted false, and the marker is never
+// looked up in the directory.
+func TestListModerationLog_PlatformMarkerIsNoPerson(t *testing.T) {
+	f, _ := modFixture()
+	c := Community{ID: testCID, OwnerID: ownerUID, ModeratorIDs: []string{modUID}, Status: StatusActive, ModlogSeq: 2, Modlog: []LogEntry{
+		{Seq: 1, At: testNow, Actor: modUID, Action: ActionHide, PostID: testPost},
+		{Seq: 2, At: testNow.Add(time.Minute), Actor: PlatformMarker, Action: ActionRestore},
+	}}
+	f.seed(c)
+	page, err := f.svc.ListModerationLog(context.Background(), ownerUID, LogInput{CommunityID: testCID})
+	if err != nil || len(page.Items) != 2 {
+		t.Fatalf("items = %d, err %v", len(page.Items), err)
+	}
+	if it := page.Items[0]; it.Entry.Actor != PlatformMarker || it.Actor != nil || it.ActorDeleted || it.Target != nil || it.TargetDeleted {
+		t.Errorf("platform entry = %+v", it)
+	}
+	if it := page.Items[1]; it.Actor == nil || it.ActorDeleted {
+		t.Errorf("moderator entry = %+v", it)
+	}
+}

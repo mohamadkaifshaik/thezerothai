@@ -304,3 +304,61 @@ cached feed is older than that gets a cold open (a rejected `since_token`) inste
 | A late retry of a hide did not hide the post again | The standard idempotency document answers a replay with 0 writes, so a retry after a restore cannot re-hide (A13) | Intended: send a new idempotency key to hide again |
 | A user is BANNED but still counted in `memberCount` | A ban of a JOINED member lowers `memberCount` in the same community Update; a count that disagrees points at a writer other than `SetMemberRole` | Recount by hand (JOINED member docs) and fix the writer |
 | `modlog` is shorter than the actions taken | Only the newest 100 entries are kept; older ones are dropped by design | Intended; the request log keeps one line per action |
+
+## 8. Rogue moderator or community raid (W5-52b, ADR-0031 Amendment 1 D14a)
+
+Use this when a moderator (or a hijacked moderator account) hides posts and replies that should stay, or a raid fills a community with abuse. The
+in-app tools hold only the newest 100 modlog entries and 50 `recentRemovals`, so the platform levers below read the posts themselves.
+Triggers: a report or support mail about vanished posts, a spike of `mod_action=hide` on one `community_hash`, or a `rejected:` burst on one actor.
+
+**1. Identify.**
+- *Modlog.* `ListModerationLog` (owner and moderators) shows the newest 100 entries with the actor; a platform run shows as the platform, not a person.
+- *Request lines.* One line per moderation request carries `mod_action`, `outcome`, `uid_hash` (the actor) and, from W5-52, `community_hash`,
+  `post_hash` and `target_hash`, keyed with `CURSOR_HMAC_KEY` (so the key version live when the line was written must be used). Logs Explorer,
+  `resource.type="cloud_run_revision" AND resource.labels.service_name="api"`:
+  - `jsonPayload.community_op=("hide" OR "restore" OR "role") AND jsonPayload.community_hash="<H>"` for one community;
+  - add `AND jsonPayload.uid_hash="<U>"` for one actor, and group by `jsonPayload.mod_action` and `jsonPayload.outcome`;
+  - `opsctl community loghash --community CID` prints the `community_hash` to paste (W5-52). Until that ships, `opsctl community hidden` prints the
+    older unkeyed `community_hash` for the same id; match it to the lines with the same function.
+- Count the damage with `opsctl community hidden CID` (step 3), not from the capped arrays.
+
+**2. Contain.** Choose the smallest lever that works.
+- A rogue moderator: the owner removes the role (`SetMemberRole` REMOVE_MODERATOR, then BAN if needed).
+- A rogue or hijacked owner, or a raid the owner cannot handle: `opsctl community suspend CID` (NOT_FOUND to everyone within 60 s; the owner still sees it), else
+  `FEATURE_COMMUNITIES=off` (a Terraform change; hidden replies stay hidden, R5). Section 6 has the commands.
+- Sock accounts: `opsctl suspend-user --uid U` (hides their posts, adds the community posts to `recentRemovals`) or `takedown-post`.
+
+**3. List.** `go run ./cmd/opsctl community hidden CID --project P [--page-token T]`. It is read-only and prints, per row, the post id, `root` or `reply`, the hide time
+(`unknown` for a post hidden before W5-51b wrote `communityHiddenAt`; there is no backfill) and `moderation=set` for a post under a platform takedown. It never prints text
+or a user id; the community appears only as `community_hash`. Fifty rows a page; the line `page: ... next_page_token=` resumes the next one. Cost: 1 read (the
+community) + max(1, rows) per page. The query is `conversationCommunityId == C AND communityHidden == true` ordered by document id; it was proven on `dzeroth-dev` (plan W5-52b).
+
+**4. Undo.** `go run ./cmd/opsctl community restore-hidden CID --project P [--since T] [--dry-run]`.
+- Always `--dry-run` first: it makes the same reads and prints `listed`, `would_restore`, `skipped_platform` and `skipped_no_time`.
+- `--since T` (RFC 3339, UTC, for example the time of the first suspicious `hide` line) restores only posts hidden at or after T. It is applied in memory on every hidden row,
+  so a `--since` run reads as much as a full one. A row with no hide time is **not** restored under `--since` (`skipped_no_time`); a run without `--since` restores it. Decide
+  those by hand: list them with `community hidden` and judge by post id and neighbours.
+- A post with `moderation` set (a platform takedown or a suspended author) stays hidden and is counted in `skipped_platform`; its `recentRemovals` entry stays too.
+- Each page is one transaction with the community document (field-level updates, never a `Set`): up to 50 post restores, the restored roots' `recentRemovals` entries deleted,
+  and, in the first page that restores anything, **one** modlog entry for the whole run (RESTORE, actor `_platform`, no post id). A re-run restores nothing and writes nothing.
+  A crashed run that is run again may add a second entry. The counts are in the printed `audit:` line, not in the modlog.
+- Budget per page: at most 51 reads (1 community + 50 posts) and 51 writes. A run stops after 100 pages (5,000 post writes, a quarter of the Firestore free write quota of a day);
+  run it again, or with `--since` resume with the printed `--page-token`. Check `make cost` before a very large run.
+- **Reach.** opsctl cannot evict a server cache. A restored root is back in community feeds within **5 minutes** (`communityEntryMaxAge`); a restored reply is back in thread pages
+  at once and in parent slots within 60 s. Devices that cached the feed or a thread keep their copy until they refresh.
+- It works in any community status (a SUSPENDED community is recovered too) and in any flag state.
+
+**5. Clean a raid.** Ban the accounts (`SetMemberRole` BAN), hide the posts and replies (HideCommunityPost works on replies since W5-51b), and use `takedown-post` and `suspend-user`
+for sock accounts. Hides of replies write the modlog only (no `recentRemovals` entry), so a hundred of them do not roll the removal log. If the clean-up itself overreached, step 4 undoes it.
+
+**6. Residual (I-7).** The platform can act on a whole community, but it cannot replace a rogue owner, and `restore-hidden` cannot stop the owner hiding again.
+The only way to change the owner is the console edit of section 5: set `ownerId` by hand **and** add the community to that user's `communityMemberships.owned` (I-M).
+Until an in-app transfer exists, suspend the community and decide with the founder.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `community hidden` says "no such community" | A wrong id, or the community document was deleted | Check the id; the listing needs the community document (1 read) |
+| `restore-hidden` restored fewer posts than `listed` | `--since` cut, `moderation` set, or no hide time (`skipped_*` counts) | Intended; see step 4 |
+| A restored post is still missing from the feed | The shared feed entry lives up to 5 minutes on each instance | Wait 5 minutes; devices refresh on their own schedule |
+| A restored root has no community label | It was a REPOST, or its label names another community (never restored) | Intended; only posts created into this community return |
+| The `modlog` shows a RESTORE with no person | The platform marker `_platform` of a `restore-hidden` run | Intended; an older client shows "A moderator restored a post" |

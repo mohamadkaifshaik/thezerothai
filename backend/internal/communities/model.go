@@ -24,6 +24,11 @@ const (
 // action and time, so the owner still sees that something happened.
 const DeletedMarker = "_deleted"
 
+// PlatformMarker is the modlog actor of an operator action (ADR-0031 Amendment 1 D14a, R6): `opsctl community restore-hidden` writes one
+// RESTORE entry per run with this actor. Like DeletedMarker it can never be a uid (a uid has no `_`, ADR-0008 A3), so I-L, the eraser scrub
+// and the export never match it. On the wire it is an unset actor with actor_deleted false.
+const PlatformMarker = "_platform"
+
 // Status is communities/{cid}.status (ADR-0031 D2).
 type Status string
 
