@@ -8,7 +8,7 @@ the bootstrap wiring in `app/lib/app/bootstrap.dart`).
 
 Tester: tester agent. Branch `test/tel-9-telemetry-guards` on `main@e01885e5`.
 
-**VERDICT: PASS except state 2 first relaunch (finding F-1, procedure vs ADR-0032 C1 conflict + firebaselogging-pa after disable); C-4 and web trace not run.** The code part is unchanged: the guards, the decision matrix, the TEL-8 forget and reset, and the canaries all pass, and every guard and matrix rule fails when its rule is broken (20 mutations, section 4). No production file was changed. Part B (device evidence) was run on 2026-11-02 and its results are in section 6c. It settled A5e (no Sessions traffic on first launch) and learned the real hosts; M-2 part 2 is false. One finding is open: F-1. Not run: C-4 (notification events) and the C-1 web trace.
+**VERDICT: PASS; F-1 closed as a procedure error (ADR-0032 note of 2026-11-02, security review L-5); C-4 and web trace not run.** The code part is unchanged: the guards, the decision matrix, the TEL-8 forget and reset, and the canaries all pass, and every guard and matrix rule fails when its rule is broken (20 mutations, section 4). No production file was changed. Part B (device evidence) was run on 2026-11-02 and its results are in section 6c. It settled A5e (no Sessions traffic on first launch) and learned the real hosts; M-2 part 2 is false. F-1 is closed as a procedure error: the procedure, not the app, was wrong (ADR-0032 note of 2026-11-02; security review L-5, Low). Not run: C-4 (notification events) and the C-1 web trace.
 
 ---
 
@@ -96,7 +96,7 @@ M1b is the valid one. Total valid mutations: 20 recorded above (13 guard, 5 matr
 
 `flutter test` (all of `app/test`, run before the last guard test was added): **9259 tests, All tests passed**, 5 min 27 s. After adding the last guard (G6) the guard file was re-run: 15 pass. `flutter analyze`: **No issues found** (0 new warnings; the first run had an unused import and an unnecessary `dart:ui` import in my files, both removed). `dart format --set-exit-if-changed` on the new and changed test files: clean. Coverage: this ticket adds tests only and no `lib/` code; `core/telemetry` coverage was not measured separately.
 
-### 6. Part B: device evidence (RUN 2026-11-02, results in section 6c; one open finding F-1)
+### 6. Part B: device evidence (RUN 2026-11-02, results in section 6c; F-1 closed as a procedure error)
 
 Owner to run: the founder or `production-deployer` (TEL-15 repeats it on an iPhone later). Do this on the **dev** project
 (`dzeroth-dev`) with a team test account that is on both dev allowlists. Do not use prod. Do not paste uids, emails or tokens
@@ -131,7 +131,7 @@ the app for 3 minutes (open a profile, search, compose a post), background the a
 | State | Setup | Expect |
 |---|---|---|
 | 1. Consent off | flags on, consent card shown, tap "Not now" (both off) | **no** connection to any fence host. Also repeat once from a fresh install **before** signing in (nothing is collected without an account) |
-| 2. Flags off, consent given earlier | give consent in state 3 or 4 first, then turn the flags off for the account (next `GetMe`), force-stop and relaunch | **First relaunch** (until its `GetMe` returns off): `firebase-settings.crashlytics.com` may be contacted before Dart runs, because the SDK persisted "enabled" and the device has not yet learned "off". Record it with its timestamp; it is not a failure. Record every other fence host too, and hand it to the security-auditor; do not pass or fail on it here. From logcat, record the Crashlytics and Analytics collection lines and any Analytics event logged between process start and the off decision. **Second relaunch** (after a run whose `GetMe` returned off): **no** fence host. That is the pass criterion (ADR-0032 note of 2026-11-02 on "the next launch"; runbook section on the kill switch) |
+| 2. Flags off, consent given earlier | give consent in state 3 or 4 first, then turn the flags off for the account (next `GetMe`), force-stop and relaunch | **First relaunch** (until its `GetMe` returns off): `firebase-settings.crashlytics.com` may be contacted before Dart runs, because the SDK persisted "enabled" and the device has not yet learned "off". Record it with its timestamp; it is not a failure. `firebaselogging-pa.googleapis.com` may also appear, about 1 min later: the Firebase Sessions `SESSION_START` queued before Dart ran (security review L-5). Record it; it is not a failure. Any other fence host is recorded and filed as a new finding. From logcat, record the Crashlytics and Analytics collection lines and any Analytics event logged between process start and the off decision. **Second relaunch** (after a run whose `GetMe` returned off): **no** fence host. That is the pass criterion (ADR-0032 note of 2026-11-02 on "the next launch"; runbook section on the kill switch) |
 | 3. Crash only | flags on; consent card: crash on, usage off | fence hosts for Crashlytics appear **only after** the consent tap; none of the Analytics hosts |
 | 4. Crash plus analytics | both on | both families appear after the consent tap; none before it. Record every host seen |
 
@@ -164,7 +164,7 @@ Afterwards `adb shell setprop debug.firebase.analytics.app .none.`.
 
 **Step 5: bootstrap persistence (ADR A6a, "Android Analytics wording: TEL-9 bootstrap trace").**
 In state 4, force-stop, turn the flag **off** server-side, relaunch, wait for Home (its `GetMe`), force-stop and relaunch again.
-This is state 2 again, judged by its row. The first relaunch may contact `firebase-settings.crashlytics.com` before Dart runs.
+This is state 2 again, judged by its row. The first relaunch may contact `firebase-settings.crashlytics.com` before Dart runs, and Sessions may send its `SESSION_START` to `firebaselogging-pa.googleapis.com` (L-5).
 From the second relaunch on there must be no fence host. This step checks that the bootstrap re-apply and the `GetMe`
 decision persist "off" for the next launch. It cannot override the SDK's persisted "enabled" in the launch that is already
 starting: the native SDK starts before Dart, and the device learns the flag only from that run's `GetMe` (ADR-0032 note of
@@ -199,8 +199,8 @@ Procedure of sections 6 and 6b, run once; nothing was re-run for this write-up. 
 | State 1b: signed in, consent card shown, "Not now" tapped 17:07 | **PASS** | The tap is not in the capture, so it was re-captured with consent off, 3.5 min of use: `firebaseappcheck.googleapis.com`, the dev API, `storage.googleapis.com`. `firebaseappcheck` is not in the procedure's exclusion list; recorded as existing app traffic |
 | State 3: crash only, through the Settings switch | **PASS** | Crashlytics "collection ENABLED by API" 17:20:56.830; first `firebase-settings.crashlytics.com` DNS 17:20:56.859 (+29 ms). No Analytics hosts. Extra host seen: `www.googleapis.com` |
 | State 4: both, through the consent card on a fresh install | **PASS** | Consent 17:33:30.244; Crashlytics settings host +17 ms; Analytics measurement enabled 17:33:30.265. DebugView (founder): events present, no ids, handle or text in parameters; events stopped after usage was switched off at 17:36:04 (logcat "Event not sent since app measurement is disabled"). Limitation below |
-| State 2 / step 5, first relaunch after the flags went off server-side | **FAIL (finding F-1)** | See F-1 |
-| State 2, second relaunch | **PASS** | Only appcheck, the dev API, storage. Crashlytics DISABLED throughout; Sessions logged "SDK disabled through data collection". The Crashlytics SDK logged "userId set for session <id>": SDK-internal, not an app call; for the reviewer to confirm |
+| State 2 / step 5, first relaunch after the flags went off server-side | **Expected under the corrected row (F-1, closed as a procedure error)** | See F-1. Against the original row this was a FAIL; the row was wrong (ADR-0032 note of 2026-11-02) |
+| State 2, second relaunch | **PASS** | Only appcheck, the dev API, storage. Crashlytics DISABLED throughout; Sessions logged "SDK disabled through data collection". The Crashlytics SDK logged "No userId set for session <id>": SDK-internal, not an app call; it confirms no user id is set (security review: question closed) |
 | M-2 / C-3 part 1 (debug build, SDK storage read with `run-as`, values never printed) | FCM token prefix **EQUALS** the FID | |
 | Trace (a) / L-1 (TEL-18), scratch build | **PASS** | See below |
 | Trace (b) / L-3 and C-3 part 2, scratch build | **PASS** | See below |
@@ -211,12 +211,14 @@ Procedure of sections 6 and 6b, run once; nothing was re-run for this write-up. 
 
 **Procedure note.** The consent card is hidden while the push opt-in card is offered (`telemetry_consent_card.dart:69`). Not a defect.
 
-**F-1 (state 2, first relaunch). Open; recorded as found, not tuned.** With the flags turned off server-side:
+**F-1 (state 2, first relaunch). Closed 2026-11-02 as a procedure error; the observations below are kept as found, not tuned.** With the flags turned off server-side:
 - `firebase-settings.crashlytics.com` was contacted at 17:46:15.205, before Dart ran: Crashlytics had persisted "enabled" natively.
 - The SDK flip-flopped ENABLED, DISABLED, ENABLED, DISABLED, and Analytics went true to false, all within about 400 ms: the remembered flag was applied at bootstrap, then `GetMe` turned it off.
-- `firebaselogging-pa.googleapis.com` was contacted at 17:47:13, about 1 min after both were disabled. This call is unexplained.
+- `firebaselogging-pa.googleapis.com` was contacted at 17:47:13, about 1 min after both were disabled. Explained by the security review (L-5, Low): the Firebase Sessions `SESSION_START` event, queued natively before Dart ran and uploaded by DataTransport, which does not re-check the collection state.
 
 The procedure expected "no fence host after the relaunch", so this is a FAIL against the procedure. It conflicts with `docs/runbooks/client-telemetry.md:42-44` (ADR-0032 C1), which already says native capture stops at the next launch and the stored decision applies until the next `GetMe`. Owners: architect (procedure versus C1) and security-auditor (the `firebaselogging-pa` call after disable).
+
+**Resolution.** The architect ruled for ADR-0032 C1 and D15 (ADR-0032 note of 2026-11-02, "what the next launch means"). The native SDKs start from their persisted setting before Dart runs, and the device learns `off` only from that run's `GetMe`. So that run still starts with the previous native setting: one Crashlytics settings fetch and one Firebase Sessions start event, which carries the installation ID (L-5). State 2 is the second relaunch, or a relaunch after an in-run `GetMe` that returned off. The second relaunch above passed, so state 2 PASSES under the corrected row; no re-run is needed. The app code is unchanged.
 
 **Trace (a) / L-1 (TEL-18).** A throwaway, never-merged scratch build throws a Kotlin `IllegalStateException` 10 s after launch, on an intent extra. Crash A at 18:16:40 with collection disabled. Flags on, relaunch: "Waiting for send/deleteUnsentReports to be called" 18:20:04.560, collection ENABLED 18:20:06.889; two launches; no `crashlyticsreports-pa` traffic; the console later shows 1 crash from 1 user (only crash B).
 
@@ -229,9 +231,9 @@ The procedure expected "no fence host after the relaunch", so this is a FAIL aga
 
 **M-2 outcome.** Part 1 is true (prefix equals the FID); part 2 is false (the FID is not in the console view). Per the plan's M-2 outcome, no new TEL ticket is opened. The security-auditor records the evidence (C-3) before TEL-12.
 
-**Hosts learned (extend the fence).** `firebase-settings.crashlytics.com` (states 3 and 4, and F-1), `crashlyticsreports-pa.googleapis.com` (crash B), `firebaselogging-pa.googleapis.com` (F-1 only), `www.googleapis.com` (state 3). Existing app traffic: `firebaseinstallations.googleapis.com`, `firebaseappcheck.googleapis.com`, the dev API, `storage.googleapis.com`.
+**Hosts learned (extend the fence).** `firebase-settings.crashlytics.com` (states 3 and 4, and F-1), `crashlyticsreports-pa.googleapis.com` (crash B), `firebaselogging-pa.googleapis.com` (Firebase Sessions `SESSION_START`, L-5: seen only in F-1 and after traces (a) and (b)), `www.googleapis.com` (state 3). Existing app traffic: `firebaseinstallations.googleapis.com`, `firebaseappcheck.googleapis.com`, the dev API, `storage.googleapis.com`.
 
-**Remaining.** C-4 notification events (needs pushes); C-1 web trace; F-1 resolution (then repeat state 2, first relaunch).
+**Remaining.** C-4 notification events (needs pushes); C-1 web trace. F-1 is closed (procedure corrected in section 6).
 
 ### 7. Observations and gaps (for the owners; none is a defect)
 
@@ -242,4 +244,4 @@ The procedure expected "no fence host after the relaunch", so this is a FAIL aga
 - **O-5.** The CRLF warnings printed by git on this checkout are line-ending normalisation only.
 - **O-6.** The guards read source manifests. The merged manifest (plugins add their own meta-data and permissions) is only checked in Part B step 1.
 
-VERDICT: PASS except state 2 first relaunch (finding F-1, procedure vs ADR-0032 C1 conflict + firebaselogging-pa after disable); C-4 and web trace not run
+VERDICT: PASS; F-1 closed as a procedure error (ADR-0032 note of 2026-11-02, security review L-5); C-4 and web trace not run
