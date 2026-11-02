@@ -112,7 +112,8 @@ const kImagesGoneMessage =
 /// character", and a location has no invisible characters.
 const kNameVisibleCharacterMessage =
     'Your name must contain a visible character and no invisible ones.';
-const kLocationInvisibleMessage = 'Use one line of plain text, with no invisible characters.';
+const kLocationInvisibleMessage =
+    'Use one line of plain text, with no invisible characters.';
 
 /// The inline error under the display name field for a local check, or null.
 String? displayNameFieldError(DisplayNameIssue? issue) => switch (issue) {
@@ -127,6 +128,8 @@ String? displayNameFieldError(DisplayNameIssue? issue) => switch (issue) {
 String? bioFieldError(BioIssue? issue) => switch (issue) {
   BioIssue.tooLong => 'At most $kMaxBioLength characters.',
   BioIssue.forbiddenCharacter => 'Use plain text with simple line breaks.',
+  BioIssue.invisibleCharacter =>
+    'Use plain text with simple line breaks and no invisible characters.',
   null => null,
 };
 

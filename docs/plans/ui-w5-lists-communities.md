@@ -408,7 +408,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-53 | *(W5-38 L-1 / F16, L-2)* `SetCommunityListing` returns `authorId`: a moderator's hide or restore of the owner's or another moderator's post or reply is FORBIDDEN `not_owner` (0 extra reads); a post with `moderation` set is NOT_FOUND, so a hide and restore cannot erase a platform removal | backend-developer | S | W5-51 merged, W5-28 | `SetCommunityListing` before W5-51b | Open (gate: before percent) |
 | W5-54 | *(W5-38 L-3)* While creation is allowlisted, UpdateCommunity by an owner outside `COMMUNITY_CREATORS` is FORBIDDEN `not_creator` (0 reads); runbook lines on cached labels (the posts-cache label lag folds in here); the suspended-community label seam stays on the open-creation list | backend-developer | XS | W5-51 merged, W5-23 | yes | Open (gate: before prod on) |
 | W5-55 | *(W5-38 L-4)* The Cf and filler rule in `identity.BioText` (keeping `\n`, and ZWJ, ZWNJ and emoji tags inside sequences), vectors in `testdata/profile_text/bio.json`; covers bios, list descriptions and community description and rule text | backend-developer | S | W5-45 | `identity` text files | Done (gate: before prod on) |
-| W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Open (gate: before prod on) |
+| W5-55b | *(W5-38 L-4)* Dart port of the W5-55 rule (bio, list description, community description and rules) with the fixture runner | frontend-developer | S | W5-55, W5-49 | no | Done (gate: before prod on) |
 | W5-56 | *(W5-38 L-5, F17)* ListCommunityMembers drops a protected member's row for a viewer who is not the owner, a moderator, an approved follower or the member (0 reads); role holders stay listed; `memberCount` unchanged | backend-developer | XS | W5-51 merged, W5-25b | yes | Open (gate: before prod on) |
 | W5-56b | *(W5-38 §7, F17)* Privacy Policy lines for communities (report §7, without "protected accounts included"), worded with legal review (roadmap section 9, item 3.26) | architect (draft) + founder (approval) | S | W5-56 | yes | Open (gate: before prod on) |
 | W5-57 | *(W5-28 D-1, W5-38 I-3)* Call `timeline.Server.ForgetCommunityFeed(cid)` after a committed restore, through an apiserver callback; un-skip W5-36's repro; runbook `communities.md` §4e and `docs/code-map.md` | backend-developer | XS | W5-28, W5-36 | apiserver wiring | Done (#652) |
@@ -1729,7 +1729,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Gate.** Before prod `on`.
 - **Parallel with W3 Part A / W4:** `identity` text files, one at a time.
 
-### W5-55b — Dart port of the bio-rule change  [owner: frontend-developer] [size: S] [depends: W5-55, W5-49]  Status: Open
+### W5-55b — Dart port of the bio-rule change  [owner: frontend-developer] [size: S] [depends: W5-55, W5-49]  Status: Done
 - **Description.** Port W5-55's rule to the client checks for the bio, the list description (`list_text_rules.dart`) and the community description and rules, with the fixture runner over `testdata/profile_text/bio.json`. Dart has no Unicode category data, so reuse W5-49's explicit Cf table.
 - **Acceptance criteria.**
   - Given each `bio.json` vector, then the Dart verdict equals the Go verdict.
@@ -1740,6 +1740,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
 - **Flag.** None (validation).
 - **Seam.** One shared Dart helper, catalogued in `docs/ui-catalog.md`.
 - **Gate.** Before prod `on`.
+- **Done.** `multiLineTextIssue` in `shared/format/single_line_text.dart` (one scanner with `singleLineIssue`, LF kept, no visible-rune rule) backs `bioIssue` (new `BioIssue.invisibleCharacter`) and the community description and rule text (new `CommunityTextIssue.notPlainText`); the list description already used the single-line rule. `profile_text_fixture_test.dart` runs every `bio.json` row; `community_text_rules_test.dart` and the Create Community screen test cover the rest.
 - **Parallel with W3 Part A / W4:** no (follows W5-55).
 
 ### W5-56 — Protected members on member pages  [owner: backend-developer] [size: XS] [depends: W5-51 merged, W5-25b]  Status: Open
