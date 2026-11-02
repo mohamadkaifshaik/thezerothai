@@ -150,6 +150,9 @@ type Post struct {
 	CommunityID             string
 	Community               *CommunityLabel
 	ConversationCommunityID string
+	// CommunityHidden mirrors posts.communityHidden (ADR-0031 A12): a moderator hid the post from its community, which deleted CommunityID. It is
+	// the label switch only (ToView shows no community label while it is set) and never feeds Hidden() or Visible().
+	CommunityHidden bool
 }
 
 // CommunityLabel is the community {id, name} snapshot a community post stores (ADR-0031 D5): a rename does not rewrite old posts.

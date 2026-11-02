@@ -3,6 +3,7 @@ package communities
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -31,6 +32,15 @@ type fakeService struct {
 	dirCalls  int
 	members   MembersPage
 	membersIn []MembersInput
+
+	// moderation (W5-28), guarded by modMu
+	modMu    sync.Mutex
+	hides    []PostActionInput
+	restores []PostActionInput
+	roles    []RoleInput
+	logs     []LogInput
+	roleRes  RoleResult
+	logPage  LogPage
 }
 
 func (s *fakeService) JoinCommunity(_ context.Context, uid string, in MembershipInput) (View, error) {
@@ -287,4 +297,32 @@ func TestServer_ListMyCommunities(t *testing.T) {
 	if err != nil || resp.Msg.GetCanCreate() || len(resp.Msg.GetCommunities()) != 0 {
 		t.Errorf("empty list: %v, %v", resp, err)
 	}
+}
+
+func (s *fakeService) HideCommunityPost(_ context.Context, uid string, in PostActionInput) error {
+	s.modMu.Lock()
+	defer s.modMu.Unlock()
+	s.hides, s.gotUser = append(s.hides, in), uid
+	return s.err
+}
+
+func (s *fakeService) RestoreCommunityPost(_ context.Context, uid string, in PostActionInput) error {
+	s.modMu.Lock()
+	defer s.modMu.Unlock()
+	s.restores, s.gotUser = append(s.restores, in), uid
+	return s.err
+}
+
+func (s *fakeService) SetMemberRole(_ context.Context, uid string, in RoleInput) (RoleResult, error) {
+	s.modMu.Lock()
+	defer s.modMu.Unlock()
+	s.roles, s.gotUser = append(s.roles, in), uid
+	return s.roleRes, s.err
+}
+
+func (s *fakeService) ListModerationLog(_ context.Context, uid string, in LogInput) (LogPage, error) {
+	s.modMu.Lock()
+	defer s.modMu.Unlock()
+	s.logs, s.gotUser = append(s.logs, in), uid
+	return s.logPage, s.err
 }

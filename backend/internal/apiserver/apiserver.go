@@ -664,7 +664,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Creators: cfg.Communities.Creators, CursorKey: cfg.CursorHMACKey,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
-			ModlogMax: cfg.Communities.ModlogMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
+			ModlogMax: cfg.Communities.ModlogMax, MaxModerators: cfg.Communities.MaxModerators, RecentRemovalsMax: cfg.Communities.RecentRemovalsMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
 			JoinsPerDay: int64(cfg.Quota.CommunityJoinsPerDay), NewAccountJoinsPerDay: int64(cfg.Quota.NewAccountCommunityJoinsPerDay),
 			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},

@@ -7,7 +7,6 @@ import (
 
 	"connectrpc.com/connect"
 
-	communitiesv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
@@ -19,8 +18,7 @@ const rpcDeadline = 8 * time.Second
 // limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES, ADR-0031 D10) before anything else: a
 // caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate
 // CreateCommunity, UpdateCommunity and GetCommunity (W5-23) and JoinCommunity, LeaveCommunity and ListMyCommunities (W5-25) call the
-// Service; ListCommunities and ListCommunityMembers (W5-25b) call it too; the other four methods are still the generated Unimplemented answer until W5-28
-// (moderation) replace them. A Server built without a Service answers Unimplemented for the implemented ones as well.
+// Service; ListCommunities and ListCommunityMembers (W5-25b) call it too; the four moderation methods (W5-28, server_moderation.go) call it too. A Server built without a Service answers Unimplemented for the implemented ones as well.
 type Server struct {
 	communitiesv1connect.UnimplementedCommunityServiceHandler
 	flags FlagChecker
@@ -54,36 +52,4 @@ func (s *Server) entry(ctx context.Context, rpc string) (context.Context, contex
 	uid, _ := authn.UIDFromContext(ctx) // gate proved it is set
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
 	return ctx, cancel, uid, nil
-}
-
-// HideCommunityPost is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) HideCommunityPost(ctx context.Context, req *connect.Request[communitiesv1.HideCommunityPostRequest]) (*connect.Response[communitiesv1.HideCommunityPostResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.HideCommunityPost(ctx, req)
-}
-
-// RestoreCommunityPost is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) RestoreCommunityPost(ctx context.Context, req *connect.Request[communitiesv1.RestoreCommunityPostRequest]) (*connect.Response[communitiesv1.RestoreCommunityPostResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.RestoreCommunityPost(ctx, req)
-}
-
-// SetMemberRole is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) SetMemberRole(ctx context.Context, req *connect.Request[communitiesv1.SetMemberRoleRequest]) (*connect.Response[communitiesv1.SetMemberRoleResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.SetMemberRole(ctx, req)
-}
-
-// ListModerationLog is gated by FEATURE_COMMUNITIES; the real method arrives with its W5 ticket (see Server).
-func (s *Server) ListModerationLog(ctx context.Context, req *connect.Request[communitiesv1.ListModerationLogRequest]) (*connect.Response[communitiesv1.ListModerationLogResponse], error) {
-	if err := s.gate(ctx); err != nil {
-		return nil, err
-	}
-	return s.UnimplementedCommunityServiceHandler.ListModerationLog(ctx, req)
 }

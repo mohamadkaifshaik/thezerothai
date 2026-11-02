@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -148,6 +149,8 @@ type FirestoreRepo struct {
 	idem   *idempotency.Store
 	quotas *quota.Store
 	now    func() time.Time
+	// moderator is the posts-side seam of Hide and Restore (A12).
+	moderator posts.CommunityModerator
 }
 
 var _ Repo = (*FirestoreRepo)(nil)
@@ -155,7 +158,11 @@ var _ Repo = (*FirestoreRepo)(nil)
 // NewFirestoreRepo builds the repository on the process's one Firestore client. idem is the shared idempotency store; a repo built
 // without it (the lifecycle tests) can still erase and export.
 func NewFirestoreRepo(client *firestore.Client, idem *idempotency.Store) *FirestoreRepo {
-	return &FirestoreRepo{client: client, idem: idem, quotas: quota.New(client), now: time.Now}
+	r := &FirestoreRepo{client: client, idem: idem, quotas: quota.New(client), now: time.Now}
+	if client != nil {
+		r.moderator = posts.NewCommunityModerator(client)
+	}
+	return r
 }
 
 func (r *FirestoreRepo) col() *firestore.CollectionRef {

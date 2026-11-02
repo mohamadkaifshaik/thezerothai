@@ -44,7 +44,9 @@ const notFoundText = "community not found"
 // COMMUNITY_MODLOG_MAX and the two cache sizes.
 type Limits struct {
 	MaxOwned, MaxJoined, MaxRules, ModlogMax int
-	CacheEntries, MembersCacheEntries        int
+	// MaxModerators (COMMUNITY_MAX_MODERATORS, 10) and RecentRemovalsMax (COMMUNITY_RECENT_REMOVALS_MAX, 50) are the W5-28 caps; zero reads as the default.
+	MaxModerators, RecentRemovalsMax  int
+	CacheEntries, MembersCacheEntries int
 	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow; ADR-0031 D11).
 	JoinsPerDay, NewAccountJoinsPerDay int64
 	NewAccountWindow                   time.Duration
@@ -63,6 +65,8 @@ type Deps struct {
 	Creators []string
 	// Listing is the directory seam (W5-25b); nil = the Stage 0 shared Firestore entry (5 min).
 	Listing Directory
+	// Moderation is the storage of the moderation calls (W5-28); nil = Repo when it implements ModerationRepo (FirestoreRepo does).
+	Moderation ModerationRepo
 	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
 	CursorKey []byte
 	Limits    Limits
@@ -74,6 +78,7 @@ type service struct {
 	creators map[string]struct{}
 	now      func() time.Time
 	listing  Directory
+	mod      ModerationRepo
 }
 
 // New builds the communities service. It never touches Firestore itself; the flag gate is the handler's (Guard), before this runs.
@@ -84,6 +89,10 @@ func New(d Deps) Service {
 	}
 	s := &service{d: d, cache: newDocCache(d.Limits.CacheEntries, d.Limits.MembersCacheEntries), creators: c, now: time.Now}
 	s.listing = d.Listing
+	s.mod = d.Moderation
+	if s.mod == nil {
+		s.mod, _ = d.Repo.(ModerationRepo)
+	}
 	if s.listing == nil {
 		s.listing = &sharedDirectory{repo: d.Repo, now: func() time.Time { return s.now() }}
 	}
@@ -212,6 +221,22 @@ func mapErr(ctx context.Context, op, uid, cid string, err error) error {
 	case errors.Is(err, ErrBanned):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:banned")
 		return Forbidden(ReasonBanned)
+	case errors.Is(err, ErrNotModerator):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:not_moderator")
+		return Forbidden(ReasonNotModerator)
+	case errors.Is(err, ErrModeratorTarget):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:moderator")
+		return StateConflict(StateModerator)
+	case errors.Is(err, ErrBadTarget):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:invalid_target")
+		return apierr.Validation("user_id", "that user cannot be the target of this action")
+	case errors.Is(err, ErrModeratorCap):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", LimitModerators)
+		return LimitReached(LimitModerators)
+	case errors.Is(err, ErrPostNotFound):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:post_not_found")
+		return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, postNotFound)
 	case errors.Is(err, ErrOwnerLeave):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:owner")
 		return StateConflict(StateOwner)
