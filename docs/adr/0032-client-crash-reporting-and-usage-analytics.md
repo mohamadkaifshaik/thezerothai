@@ -214,7 +214,7 @@ github.com/firebase for SDK source). **UNVERIFIED** = no primary statement found
 ## Data inventory per SDK (Android)
 | | Firebase Crashlytics | Firebase Sessions (comes with Crashlytics) | Google Analytics for Firebase |
 |---|---|---|---|
-| What is sent | Error type and stack trace (F6); the message only for allowlisted types after the scrubber; "point-in-time metadata about the device when an application crashes", including OS name and version and the time [S1, S11b]; custom keys (build number, `FIREBASE_ENV`, platform); breadcrumbs (our constants, plus Analytics events when Analytics is also on, C8); up to 8 non-fatals per fatal. Fatal reports are sent at once; non-fatals are written to disk and sent "with the next fatal report or on app restart" [S18] | Package name, OS information, SDK version, network connection type, device manufacturer and model, foreground session start [S11b] | Our 3 events and `screen_view` (F4); the automatic events (A7a); the automatic dimensions (A7b); consent state. No advertising ID (key + `AD_ID` removed), no user ID, no user properties |
+| What is sent | Error type and stack trace (F6); for a Dart error, the message only for allowlisted types after the scrubber; for an uncaught Java or Kotlin exception in Android's own code, its own message and those of its causes, **not scrubbed** (Note 2026-11-02, TEL-10 L-3); "point-in-time metadata about the device when an application crashes", including OS name and version and the time [S1, S11b]; custom keys (build number, `FIREBASE_ENV`, platform); breadcrumbs (our constants, plus Analytics events when Analytics is also on, C8); up to 8 non-fatals per fatal. Fatal reports are sent at once; non-fatals are written to disk and sent "with the next fatal report or on app restart" [S18] | Package name, OS information, SDK version, network connection type, device manufacturer and model, foreground session start [S11b] | Our 3 events and `screen_view` (F4); the automatic events (A7a); the automatic dimensions (A7b); consent state. No advertising ID (key + `AD_ID` removed), no user ID, no user properties |
 | Identifiers | **Crashlytics installation UUID** (to count affected users; "rotated when the Firebase installation ID changes") and the **Firebase installation ID** [S1, S11b] | none of its own documented | **App-instance ID** ("by default ... not tied to a user identifier", reset by `resetAnalyticsData`) [S11c, S22]; masked IP for coarse location [S11c] |
 | Hosts (device to Google) | Not documented by Google. Candidates from third-party lists: `crashlyticsreports-pa.googleapis.com`, `firebase-settings.crashlytics.com` | Not documented | Not documented |
 | Host status | **UNVERIFIED: TEL-9 records the actual hosts** in the opted-in trace and asserts that none appear in the no-consent and flag-off traces. FCM and Firebase Installations (`firebaseinstallations.googleapis.com`) traffic already exists and is excluded | same | same |
@@ -310,6 +310,9 @@ measures it).
   and `informationCollector` never leave the device.
 - `information` and `reason` are never filled from runtime strings.
 - The scrubber is one function (`CrashScrubber`), shared by any later reporter.
+- **Scope (Note 2026-11-02, TEL-10 L-3).** These rules and `CrashScrubber` apply to the errors our Dart code hands to
+  `CrashReporter.record`, including a plugin's `PlatformException`. An exception left uncaught in Android's own code
+  (Java or Kotlin) never passes through Dart: Crashlytics records it with its own message, not scrubbed. See the note.
 
 ### D7. Console settings and the terms gate (F5, A2, C6)
 - F5 as decided, in dzeroth-dev and dzeroth-prod, done by the founder from TEL-13's checklist **before** that project
@@ -615,6 +618,52 @@ Optional, same gating (not needed for acceptance):
   - TEL-14: the prod `google-services.json` swap (gate file) before any prod raise.
   - TEL-15: a dev allowlist of team test accounts only, after the plan's "Before release" list and C6. Prod prepared,
     not applied.
+
+## Note (2026-11-02): native crash messages are not scrubbed (TEL-10 L-3, TEL-19; decisions above unchanged)
+Source: `docs/reviews/security/security-client-telemetry.md` (TEL-10, #638), finding **L-3** and condition **C-5**;
+ticket TEL-19 in `docs/plans/client-crash-analytics.md`. This note states the scope of F6 and D6. **The Accepted
+decision, the status and every F, C and D item stay as they are.** No native scrubber is added at Stage 0.
+- **What F6 and the scrubber cover.** F6, D6 and `CrashScrubber` govern the errors our Dart code hands to
+  `CrashReporter.record` (`FlutterError.onError`, `PlatformDispatcher.instance.onError`, `reportUnexpectedError`). That
+  includes a Java or Kotlin exception that a plugin catches and returns over its method channel: it reaches Dart as a
+  `PlatformException`, so only its type is sent (TEL-5 canary). F6 in the founder table and "scrubbed crash payloads" in
+  Decision mean these payloads.
+- **What they do not cover.** "Android's own code" means the Java and Kotlin code in the app's process: the Flutter
+  Android embedding, plugins (for example `image_picker`) and the Android libraries and framework classes they call. An
+  exception left uncaught there never reaches Dart. Crashlytics's own `UncaughtExceptionHandler` records it as a fatal
+  crash, with its Java stack and **its message and the messages of its causes, as that code wrote them**. Nothing
+  scrubs them. Native C or C++ crashes are not captured at all (no Crashlytics NDK, D1).
+- **What that message can contain.** Mostly a file path or content URI (for example from `image_picker`) or a database
+  error message (L-3's examples). A path can include a file name, such as the name of a photo the person picked. Post
+  and message text are **not expected** there (L-3: "the realistic content is paths and URIs"). With no native scrubber
+  that is an expectation, not a guarantee; trace (b) and the triage below check it.
+- **Consent is unchanged.** A native crash is captured only under the same decision as every other crash report (D3):
+  while crash collection is on natively, with C1's next-launch residual.
+- **Where the ADR now says so.** The Data inventory (Crashlytics, "What is sent") and D6 point to this note. F6 (the
+  founder's decision text) and the Decision paragraph are not edited.
+- **TEL-12 item 6 (C-5).** The policy's new section "Crash reports and usage statistics" carries this sentence as
+  written, right after "Never the text you wrote or saw.":
+
+  > A crash in Android's own code can include Android's error message, which may contain a file name.
+
+  C-5 stays open until TEL-12 carries it.
+- **Triage.** A file name, path or URI in a native crash's message is behaviour this note and the policy disclose, not
+  a scrubber failure, and `CrashScrubber` cannot change it. A native message that carries anything the policy does not
+  disclose (post or message text, a uid, a handle or an email) is a leak: flag `off`, fix the crashing code (not the
+  scrubber), and remove the report through Firebase support (C5). TEL-20 writes the triage step into
+  `docs/runbooks/client-telemetry.md`.
+- **Evidence and revisit.** TEL-9 Part B trace (b) records what a forced native crash report shows (title, stack, keys,
+  logs). If it shows more than a file name, path or URI, revise this note and the policy sentence.
+- **Stage ladder.** Stage 0: no native scrubber; the message is disclosed. Next rung, its own ADR: a native-side filter
+  that scrubs an uncaught exception's message before Crashlytics records it. Trigger: trace (b) or any real native
+  report that carries post or message text, a uid, a handle or an email.
+- **Cost.** INR 0. 0 Firestore reads, writes or deletes, 0 requests; a docs change.
+- **Handoff.**
+  - architect (TEL-12): the sentence above, in item 6.
+  - sre-performance (TEL-20): the triage line above.
+  - tester (TEL-9 Part B): trace (b), recorded as above.
+  - frontend-developer: nothing. L-3's fix names no app change, and the consent card's "it sends the error" includes
+    Android's message (TEL-10 section 3.5).
 
 ## Sources (all read 2026-11-01)
 - [S1] Firebase, Privacy and Security in Firebase (last modified 2026-09-24): https://firebase.google.com/support/privacy
