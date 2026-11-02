@@ -423,7 +423,7 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 	if cold.Reads() != plainCold.Reads()+2 || cold.Writes() != plainCold.Writes() {
 		t.Fatalf("cold: reads %d writes %d, want plain %d/%d + 2 reads, +0 writes", cold.Reads(), cold.Writes(), plainCold.Reads(), plainCold.Writes())
 	}
-	budgettest.Assert(t, "reply in a community conversation, cold", cold, budgettest.Budget{Reads: plainCold.Reads() + 2, Writes: plainCold.Writes()})
+	budgettest.Assert(t, "reply in a community conversation, cold", cold, budgettest.Budget{Reads: 7, Writes: 5})
 	if r1.ConversationCommunityID != commCID || r1.CommunityID != "" || r1.Community != nil {
 		t.Fatalf("reply = conv %q communityId %q community %v, want the inherited conversation community only", r1.ConversationCommunityID, r1.CommunityID, r1.Community)
 	}
@@ -435,6 +435,7 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 	if warm.Reads() != plainWarm.Reads() || warm.Writes() != plainWarm.Writes() {
 		t.Fatalf("warm: reads %d writes %d, want plain %d/%d (+0)", warm.Reads(), warm.Writes(), plainWarm.Reads(), plainWarm.Writes())
 	}
+	budgettest.Assert(t, "reply to a reply in a community conversation, warm", warm, budgettest.Budget{Reads: 2, Writes: 5})
 	if r2.ConversationCommunityID != commCID {
 		t.Fatalf("a reply to a reply lost the conversation community: %q", r2.ConversationCommunityID)
 	}

@@ -159,7 +159,7 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 // viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
 // a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation (ADR-0031 A7) is NOT_ALLOWED for a
 // viewer who is not a JOINED member: +1 read cold (the member doc), +0 warm, skipped while communities is globally off. PostView.post.community
-// (the label) is decided by ToView: absent when hidden or when communities is globally off. Worst case: 4 + 1 reads cold, 0 writes.
+// (the label) is decided by ToView: absent when hidden or when communities is globally off. The community hint adds +1 read cold over the budget above (a community conversation has the EVERYONE policy, so it never adds to the FOLLOWING read), 0 writes.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if h, ok := s.svc.(ReplyHinter); ok {
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
 	}
-	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm == postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED { // members only (ADR-0031 A7); never loosens
+	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7): NOT_ALLOWED, or UNKNOWN when the lookup failed; never loosens
 		v.ViewerReplyPermission = perm
 	}
 	if h, ok := s.svc.(EmbedHinter); ok {
@@ -317,7 +317,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	}
 	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
 	replyPerm := t.ReplyPermission
-	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm == postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED { // members only (ADR-0031 A7); +1 read cold
+	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7); +1 read cold
 		replyPerm = perm
 	}
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row

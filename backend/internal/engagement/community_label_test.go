@@ -61,3 +61,35 @@ func TestLists_CommunityLabel(t *testing.T) {
 		})
 	}
 }
+
+// TestVotePoll_CommunityLabel: the VotePoll response is built from a ViewerSet that does not come from HydrateViewer, so the kill switch is
+// applied in pollVoteView itself (W5-26b).
+func TestVotePoll_CommunityLabel(t *testing.T) {
+	label := &posts.CommunityLabel{ID: "1000000000000000042", Name: "Go"}
+	tests := []struct {
+		name   string
+		mode   flags.Mode
+		hidden bool
+		want   bool
+	}{
+		{"community post", flags.On, false, true},
+		{"hidden", flags.On, true, false},
+		{"communities globally off", flags.Off, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newPollEnv(t, func(d *Deps, _ *pollEnv) {
+				d.Flags = flags.NewRegistry(flags.Spec{Name: "engagement", Mode: flags.On}, flags.Spec{Name: "communities", Mode: tt.mode})
+			})
+			p := e.posts.docs[pidA]
+			p.CommunityID, p.Community, p.CommunityHidden = label.ID, label, tt.hidden
+			res, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := posts.ToViewAt(res.Post, res.Viewer, "viewer", e.now).GetPost().GetCommunity() != nil; got != tt.want {
+				t.Fatalf("label present = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

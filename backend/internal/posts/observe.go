@@ -28,7 +28,7 @@ const (
 	fieldCommunityRefused   = "community_refused"    // flag_off or not_wired; a set community_id only, never the id
 	fieldCommunityPost      = "community_post"       // bool: this CreatePost carries a community_id (ADR-0031 D13), never the id
 	fieldCommunityGate      = "community_gate"       // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:quota, rejected:cap
-	fieldCommunityReplyGate = "community_reply_gate" // outcome enum of the members-only reply check (ADR-0031 D5): admitted, skipped, rejected:not_member, rejected:state, error
+	fieldCommunityReplyGate = "community_reply_gate" // outcome enum of the members-only reply check (ADR-0031 D5): admitted, rejected:not_member, rejected:state, error
 )
 
 // outcomes of CreatePost (posts_op=create).

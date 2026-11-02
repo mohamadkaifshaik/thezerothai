@@ -256,6 +256,9 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 		vs = next.set
 	}
 	vs = vs.WithPollVotes([]string{entry}) // only this post is rendered
+	if g, ok := s.d.Flags.(posts.GloballyOffChecker); ok && g.GloballyOff(posts.CommunitiesFlagName) {
+		vs = vs.WithCommunitiesGloballyOff() // the kill switch: the response shows no community label (ADR-0031 D5)
+	}
 	out := PollVote{Post: post, Viewer: vs}
 	if s.d.Audience != nil && s.d.Graph != nil {
 		// 0 reads: the snapshot is the one the visibility check just cached.

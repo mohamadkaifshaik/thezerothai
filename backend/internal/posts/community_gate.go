@@ -57,7 +57,6 @@ const (
 
 	// Reply-gate outcomes (`community_reply_gate`, W5-26b): enums only.
 	replyGateAdmitted  = "admitted"
-	replyGateSkipped   = "skipped" // the conversation is not a community's, or communities is globally off
 	replyGateNotMember = "rejected:not_member"
 	replyGateState     = "rejected:state" // missing, suspended or archived community
 	replyGateError     = "error"

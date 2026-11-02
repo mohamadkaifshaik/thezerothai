@@ -184,7 +184,7 @@ func TestServer_CommunityLabelAndReplyHint(t *testing.T) {
 	}{
 		{"member sees the label, may reply", flags.On, true, nil, false, true, postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED, 1},
 		{"non-member: NOT_ALLOWED", flags.On, false, nil, false, true, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED, 1},
-		{"lookup failure keeps the advisory answer", flags.On, false, errors.New("boom"), false, true, postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED, 1},
+		{"lookup failure is UNKNOWN, never a refusal", flags.On, false, errors.New("boom"), false, true, postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN, 1},
 		{"hidden: no label, still members only", flags.On, false, nil, true, false, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED, 1},
 		{"globally off: no label, no member read, ALLOWED", flags.Off, false, nil, false, false, postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED, 0},
 	}

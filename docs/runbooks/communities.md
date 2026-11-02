@@ -153,7 +153,7 @@ Request-line field `community_reply_gate` (replies into a community conversation
 `error`. `error` is a failed status or member read, returned as a wrapped Internal error that Error Reporting groups (no ids in the message).
 
 `viewer_reply_permission` (ADR-0031 A7, no new enum value): GetPost and GetThread answer `NOT_ALLOWED` for a viewer who is not a JOINED member of the
-conversation's community (+1 read cold for the member doc, +0 warm; a failed lookup keeps the ordinary answer). Home, profile, list, search and
+conversation's community (+1 read cold for the member doc, +0 warm; a failed lookup is UNKNOWN). Home, profile, list, search and
 bookmark rows keep the ordinary answer, 0 reads.
 
 **The label kill switch.** `PostView.post.community` is decided only in `posts.ToView` (`communityRef`): present when the post carries `community`,
