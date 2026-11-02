@@ -1,13 +1,22 @@
 import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../communities/domain/communities_feature_flag.dart';
+import '../../communities/presentation/communities_error_messages.dart';
 
 /// Friendly text for a failed ReportContent (shown inline in the report
 /// sheet; never the raw server message). NOT_FOUND has ONE wording for a
 /// missing, hidden, blocked or suspended target (ADR-0016: no oracle), and
 /// reporting yourself is a validation error with its own text.
-String reportErrorMessage(AppException error) {
+///
+/// [notFoundMessage] lets a target name itself in the one NOT_FOUND text (the
+/// Community report, W5-35b). A FEATURE_DISABLED for `feature=communities`
+/// (the COMMUNITY target needs both flags) reads as the Communities text.
+String reportErrorMessage(AppException error, {String? notFoundMessage}) {
   return switch (error) {
-    NotFoundException() => "This isn't available to report any more.",
+    NotFoundException() =>
+      notFoundMessage ?? "This isn't available to report any more.",
+    FeatureDisabledException(feature: kFeatureCommunities) =>
+      communitiesErrorMessage(error),
     QuotaExceededException() || LimitReachedException() =>
       "You've reached today's limit for reports. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),

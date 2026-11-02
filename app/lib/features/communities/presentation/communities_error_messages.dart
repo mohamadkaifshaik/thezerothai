@@ -47,3 +47,8 @@ String communitiesErrorMessage(AppException error) {
     _ => 'Something went wrong. Please try again.',
   };
 }
+
+/// The NOT_FOUND text of the Community report sheet (W5-35b): one wording for
+/// a missing or suspended Community, as everywhere else.
+const kReportCommunityNotFound =
+    "This community isn't available to report any more.";
