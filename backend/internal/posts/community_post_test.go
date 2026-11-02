@@ -108,7 +108,7 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 		p.IsPrivate = true
 		e.dir.profiles[testUID] = p
 		_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
-		wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
+		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 		if g.admitCount() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
 			t.Fatalf("admits=%d writes=%d creates=%d", g.admitCount(), c.Writes(), e.repo.createCalls)
 		}
@@ -121,7 +121,7 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 		} {
 			e := gatedEnv(&fakeGate{admitErr: want})
 			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
-			wantAPIError(t, err, want.Code, want.Reason)
+			_ = wantAPIError(t, err, want.Code, want.Reason)
 			if c.Writes() != 0 || e.repo.createCalls != 0 {
 				t.Fatalf("writes=%d creates=%d", c.Writes(), e.repo.createCalls)
 			}
@@ -202,7 +202,7 @@ func TestCreate_CommunityRequestHash(t *testing.T) {
 	in := plain
 	in.CommunityID = testCommunityID
 	_, _, err := e.create(in) // same key, now with a community
-	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 
 	in.IdempotencyKey = key2
 	if _, _, err := e.create(in); err != nil {
@@ -210,7 +210,7 @@ func TestCreate_CommunityRequestHash(t *testing.T) {
 	}
 	in.CommunityID = "9234567890123456789"
 	_, _, err = e.create(in)
-	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
+	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
 // TestApplyReply_InheritsConversationCommunity: +0 reads; a parent without one changes nothing.
