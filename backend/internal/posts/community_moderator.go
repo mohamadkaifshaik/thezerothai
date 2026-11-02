@@ -16,7 +16,11 @@ import (
 // moderation transaction (posts never imports communities).
 //
 // SetCommunityListing reads the post FRESH inside tx (1 read, never the cache), then:
-//   - found=false (and no error) when the post is missing or does not carry community.id == cid (a reply, a REPOST and a plain post never do);
+//   - found=false (and no error) when the post is missing, carries `moderation` (a platform takedown or suspended author: a community hide and
+//     restore must never touch it, W5-53 L-2) or does not carry community.id == cid (a reply, a REPOST and a plain post never do);
+//   - guard (when non-nil) is called with the post's authorId once the post is found and BEFORE any write, whether or not the call would change
+//     anything; its error is returned unchanged and nothing is written (F16, W5-53: the communities module passes the author-vs-actor role check,
+//     so the decision costs 0 extra reads and posts never learns what a role is);
 //   - listed=false (hide): when communityId is present, one field-level Update deletes communityId and sets communityHidden; when it is
 //     already absent (hidden), nothing is written and changed is false;
 //   - listed=true (restore): when communityId is absent, one field-level Update sets communityId to the label's id and deletes
@@ -31,12 +35,14 @@ import (
 // instance cache and author-recent cache are not touched: a label already cached on an instance shows until its entry expires (60 s
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
-	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool) (changed, found bool, err error)
+	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error)
 }
 
 // listingDoc is the part of a post document the moderator reads.
 type listingDoc struct {
 	CommunityID string        `firestore:"communityId"`
+	AuthorID    string        `firestore:"authorId"`
+	Moderation  string        `firestore:"moderation"`
 	Community   *communityDoc `firestore:"community"`
 }
 
@@ -49,7 +55,7 @@ func NewCommunityModerator(client *firestore.Client) CommunityModerator {
 }
 
 // SetCommunityListing implements CommunityModerator.
-func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool) (changed, found bool, err error) {
+func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found bool, err error) {
 	if m == nil || m.client == nil {
 		return false, false, errors.New("posts: moderator has no firestore client")
 	}
@@ -68,6 +74,14 @@ func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firest
 	}
 	if d.Community == nil || d.Community.ID != cid {
 		return false, false, nil
+	}
+	if d.Moderation != "" {
+		return false, false, nil
+	}
+	if guard != nil {
+		if err := guard(d.AuthorID); err != nil {
+			return false, true, err
+		}
 	}
 	isListed := d.CommunityID != ""
 	if isListed == listed {
