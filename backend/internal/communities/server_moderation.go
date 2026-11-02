@@ -90,7 +90,7 @@ func roleActionFromProto(a communitiesv1.MemberRoleAction) RoleAction {
 // first, at most 25 entries a page. A tampered, expired or foreign page_token is VALIDATION "page_token" with 0 reads beyond the
 // interceptor.
 //
-// Firestore (interceptor included): reads 52 cold (interceptor, community, <= 50 actor and target profiles) / 1 + profiles warm; a
+// Firestore (interceptor included): reads 52 cold (interceptor, community, <= 50 actor and target profiles) / 0 warm (profiles come from the directory cache); a
 // refused caller 2; writes 0.
 func (s *Server) ListModerationLog(ctx context.Context, req *connect.Request[communitiesv1.ListModerationLogRequest]) (*connect.Response[communitiesv1.ListModerationLogResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListModerationLog")

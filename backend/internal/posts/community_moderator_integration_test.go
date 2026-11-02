@@ -66,6 +66,28 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	if listed, hidden, label := state("0000000000000000901"); listed || !hidden || label != "Go" {
 		t.Errorf("after hide: listed=%v hidden=%v label=%q", listed, hidden, label)
 	}
+	// A12: the post left the community query but is still an ordinary, visible post (never Hidden()), label snapshot intact
+	repo := NewFirestoreRepo(client)
+	inQuery := func() bool {
+		t.Helper()
+		got, err := repo.ByCommunity(ctx, cid, Window{}, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range got {
+			if p.ID == "0000000000000000901" {
+				return true
+			}
+		}
+		return false
+	}
+	if inQuery() {
+		t.Error("a hidden post is still in the community query")
+	}
+	posts, err := repo.GetAll(ctx, []string{"0000000000000000901"})
+	if p := posts["0000000000000000901"]; err != nil || p == nil || p.CommunityID != "" || p.Community == nil || p.Community.Name != "Go" || p.Hidden() || !p.Visible() {
+		t.Errorf("hidden post = %+v, %v, want kept, visible, unlisted, label snapshot kept", p, err)
+	}
 	// hiding again changes nothing and writes nothing
 	if r, reads, writes := call("0000000000000000901", cid, false); r != (res{false, true}) || reads != 1 || writes != 0 {
 		t.Errorf("second hide = %+v, %d reads, %d writes", r, reads, writes)
@@ -76,6 +98,9 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	}
 	if listed, hidden, _ := state("0000000000000000901"); !listed || hidden {
 		t.Errorf("after restore: listed=%v hidden=%v", listed, hidden)
+	}
+	if !inQuery() {
+		t.Error("a restored post is not back in the community query")
 	}
 	if r, _, writes := call("0000000000000000901", cid, true); r != (res{false, true}) || writes != 0 {
 		t.Errorf("second restore = %+v, %d writes", r, writes)

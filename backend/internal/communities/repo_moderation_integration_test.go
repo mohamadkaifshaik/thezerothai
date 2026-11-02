@@ -100,7 +100,7 @@ func TestHideRestore_BudgetsEffectsAndLateRetry(t *testing.T) {
 	e := newModEnv(t)
 
 	// the first hide by mod1: idempotency, community, actor memberships, post = 4 reads; post, community, memberships, idempotency = 4 writes
-	measured(t, "HideCommunityPost first", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "HideCommunityPost first", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 1, modPostA); err != nil {
 			t.Fatal(err)
 		}
@@ -124,13 +124,13 @@ func TestHideRestore_BudgetsEffectsAndLateRetry(t *testing.T) {
 	}
 
 	// a second hide of another post by the same moderator adds no write for modlogged: 3 writes
-	measured(t, "HideCommunityPost second", budgettest.Budget{Reads: 4, Writes: 3}, func(ctx context.Context) {
+	measuredExact(t, "HideCommunityPost second", budgettest.Budget{Reads: 4, Writes: 3}, func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 2, modPostB); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// an already hidden post: the idempotency document only
-	measured(t, "HideCommunityPost already hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "HideCommunityPost already hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
 		if err := e.hide(ctx, "owner", 3, modPostA); err != nil {
 			t.Fatal(err)
 		}
@@ -140,7 +140,7 @@ func TestHideRestore_BudgetsEffectsAndLateRetry(t *testing.T) {
 	}
 
 	// restore: the entry leaves recentRemovals, the label comes back; the owner's first entry costs the memberships write
-	measured(t, "RestoreCommunityPost", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "RestoreCommunityPost", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
 		if err := e.restore(ctx, "owner", 4, modPostA); err != nil {
 			t.Fatal(err)
 		}
@@ -153,14 +153,14 @@ func TestHideRestore_BudgetsEffectsAndLateRetry(t *testing.T) {
 		t.Errorf("after the restore: removals %+v, modlog %+v", c.RecentRemovals, c.Modlog)
 	}
 	// restoring a listed post: the idempotency document only
-	measured(t, "RestoreCommunityPost not hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "RestoreCommunityPost not hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
 		if err := e.restore(ctx, "mod1", 5, modPostA); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	// a late retry of the first hide (same key) after the restore must NOT hide the post again: the standard idempotency document answers
-	measured(t, "HideCommunityPost late retry", budgettest.Budget{Reads: 1, Writes: 0}, func(ctx context.Context) {
+	measuredExact(t, "HideCommunityPost late retry", budgettest.Budget{Reads: 1, Writes: 0}, func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 1, modPostA); err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +234,7 @@ func TestSetMemberRole_BanUnbanBudgetsAndRecords(t *testing.T) {
 
 	// BAN of a JOINED member by mod1 (first entry): idempotency, community, member doc, target memberships, actor memberships = 5 reads;
 	// member doc, community, target memberships, actor memberships, idempotency = 5 writes
-	measured(t, "SetMemberRole BAN", budgettest.Budget{Reads: 5, Writes: 5}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole BAN", budgettest.Budget{Reads: 5, Writes: 5}, func(ctx context.Context) {
 		r, err := e.role(ctx, "mod1", 1, "member", RoleActionBan)
 		if err != nil || r.Role != RoleBanned || r.View.Community.MemberCount != 3 || r.View.Role != RoleModerator {
 			t.Fatalf("BAN = %+v, %v", r, err)
@@ -259,7 +259,7 @@ func TestSetMemberRole_BanUnbanBudgetsAndRecords(t *testing.T) {
 	}
 
 	// BAN accepts a non-member: a create, no count change; the actor already logged: 4 writes
-	measured(t, "SetMemberRole BAN non-member", budgettest.Budget{Reads: 5, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole BAN non-member", budgettest.Budget{Reads: 5, Writes: 4}, func(ctx context.Context) {
 		if r, err := e.role(ctx, "mod1", 2, "stranger", RoleActionBan); err != nil || r.Role != RoleBanned || r.View.Community.MemberCount != 3 {
 			t.Fatalf("BAN non-member = %+v, %v", r, err)
 		}
@@ -268,13 +268,13 @@ func TestSetMemberRole_BanUnbanBudgetsAndRecords(t *testing.T) {
 		t.Errorf("a non-member's memberships after the ban = %+v, %v", ms, ok)
 	}
 	// a repeated ban changes nothing: reads stop at the member doc, the idempotency document is the only write
-	measured(t, "SetMemberRole BAN again", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole BAN again", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
 		if r, err := e.role(ctx, "owner", 3, "member", RoleActionBan); err != nil || r.Role != RoleBanned {
 			t.Fatalf("repeated BAN = %+v, %v", r, err)
 		}
 	})
 	// UNBAN: delete the record, 3 writes + 1 delete (the owner's first entry adds a write)
-	measured(t, "SetMemberRole UNBAN", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole UNBAN", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(ctx context.Context) {
 		if r, err := e.role(ctx, "owner", 4, "member", RoleActionUnban); err != nil || r.Role != RoleNone {
 			t.Fatalf("UNBAN = %+v, %v", r, err)
 		}
@@ -286,13 +286,13 @@ func TestSetMemberRole_BanUnbanBudgetsAndRecords(t *testing.T) {
 		t.Errorf("target memberships after the unban = %+v (modlogged never shrinks)", tms)
 	}
 	// unban of a user who is not banned: the idempotency document only
-	measured(t, "SetMemberRole UNBAN not banned", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole UNBAN not banned", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
 		if _, err := e.role(ctx, "owner", 5, "target", RoleActionUnban); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// a late retry of the first ban (same key) after the unban must not ban again
-	measured(t, "SetMemberRole replay", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole replay", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
 		if _, err := e.role(ctx, "mod1", 1, "member", RoleActionBan); err != nil {
 			t.Fatal(err)
 		}
@@ -376,7 +376,7 @@ func TestSetMemberRole_ModeratorsOrderAndCap(t *testing.T) {
 	e.svc.d.Limits.MaxModerators = 3 // mod1, mod2 and one more
 
 	// MAKE: community + target memberships (modlogged) + idempotency + the owner's first entry = 4 writes, appointment order kept
-	measured(t, "SetMemberRole MAKE_MODERATOR", budgettest.Budget{Reads: 5, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole MAKE_MODERATOR", budgettest.Budget{Reads: 5, Writes: 4}, func(ctx context.Context) {
 		r, err := e.role(ctx, "owner", 1, "member", RoleActionMakeModerator)
 		if err != nil || r.Role != RoleModerator {
 			t.Fatalf("MAKE = %+v, %v", r, err)
@@ -389,7 +389,7 @@ func TestSetMemberRole_ModeratorsOrderAndCap(t *testing.T) {
 		t.Errorf("the promoted user's modlogged = %v (I-L: the target is logged; Leave's fresh check relies on it)", ms.Modlogged)
 	}
 	// appointing again changes nothing and reads nothing more
-	measured(t, "SetMemberRole MAKE again", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole MAKE again", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
 		if _, err := e.role(ctx, "owner", 2, "member", RoleActionMakeModerator); err != nil {
 			t.Fatal(err)
 		}
@@ -401,7 +401,7 @@ func TestSetMemberRole_ModeratorsOrderAndCap(t *testing.T) {
 	}
 	wantAPIErr(t, mustErr(e.role(ctx, "owner", 3, "target", RoleActionMakeModerator)), connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": LimitModerators})
 	// REMOVE: the moderator stays a member
-	measured(t, "SetMemberRole REMOVE_MODERATOR", budgettest.Budget{Reads: 4, Writes: 3}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole REMOVE_MODERATOR", budgettest.Budget{Reads: 4, Writes: 3}, func(ctx context.Context) {
 		r, err := e.role(ctx, "owner", 4, "mod1", RoleActionRemoveModerator)
 		if err != nil || r.Role != RoleMember {
 			t.Fatalf("REMOVE = %+v, %v", r, err)
@@ -411,7 +411,7 @@ func TestSetMemberRole_ModeratorsOrderAndCap(t *testing.T) {
 		t.Errorf("moderatorIds = %v", c.ModeratorIDs)
 	}
 	// removing a user who is no moderator: the idempotency document only
-	measured(t, "SetMemberRole REMOVE not a moderator", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "SetMemberRole REMOVE not a moderator", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
 		if _, err := e.role(ctx, "owner", 5, "banned", RoleActionRemoveModerator); err != nil {
 			t.Fatal(err)
 		}
@@ -517,4 +517,14 @@ func TestRemovalsAfter_Table(t *testing.T) {
 
 func archivedUpdate(s Status) []firestore.Update {
 	return []firestore.Update{{Path: "status", Value: string(s)}}
+}
+
+// measuredExact is measured with the budget pinned as an equality: the documented figures (RPC doc comments, runbook section 7) are the
+// measured ones, so a saving or a regression both show up here.
+func measuredExact(t *testing.T, name string, b budgettest.Budget, fn func(ctx context.Context)) {
+	t.Helper()
+	c := measured(t, name, b, fn)
+	if c.Reads() != b.Reads || c.Writes() != b.Writes || c.Deletes() != b.Deletes {
+		t.Errorf("%s: measured %d reads, %d writes, %d deletes, documented %d, %d, %d", name, c.Reads(), c.Writes(), c.Deletes(), b.Reads, b.Writes, b.Deletes)
+	}
 }
