@@ -542,11 +542,8 @@ class PostCard extends StatelessWidget {
               children: [
                 header,
                 ...content,
-                if (bar != null) ...[
-                  const SizedBox(height: AppSpacing.sm),
-                  bar,
-                ] else
-                  const SizedBox(height: AppSpacing.xs),
+                // The bar's 48dp boxes already leave 16dp above its glyphs.
+                if (bar != null) bar else const SizedBox(height: AppSpacing.xs),
               ],
             ),
           ),
@@ -566,12 +563,18 @@ class PostCard extends StatelessWidget {
           )
         : null;
 
+    // List rows (PD-2, X rows are about 99dp for one line): the 48dp boxes
+    // around the avatar and the actions already carry whitespace, so the card
+    // adds less of its own. The avatar's 40dp circle still starts 12dp down,
+    // and the action glyphs end 16dp above the next row. Tap targets stay
+    // 48dp.
+    final dense = !asFocal;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         AppSpacing.md,
-        AppSpacing.smd,
+        dense ? AppSpacing.sm : AppSpacing.smd,
         AppSpacing.md,
-        AppSpacing.smd,
+        dense && bar != null ? 0 : AppSpacing.smd,
       ),
       child: contextLabel == null
           ? row

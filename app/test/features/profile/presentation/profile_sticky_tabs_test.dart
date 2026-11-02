@@ -241,18 +241,22 @@ void main() {
       final pinned = tester.getRect(find.byType(AppTabBar));
       expect(pinned.top, closeTo(appBarBottom(tester), 0.5));
       expect(find.byType(AppTabBar).hitTestable(), findsOneWidget);
-      // The first visible row sits right under the pinned bar, never under it.
-      final firstRow = find
+      // Rows scroll under the pinned bar (where one stops depends on row
+      // heights), never over it: the bar wins hit tests across its whole
+      // height, down to its bottom edge, and rows continue right below it.
+      expect(
+        find.byType(AppTabBar).hitTestable(at: const Alignment(0, 0.9)),
+        findsOneWidget,
+      );
+      final rowsBelow = find
           .descendant(
             of: find.byType(TimelineFeedView),
             matching: find.textContaining(RegExp(r'^post \d+$')),
           )
           .evaluate()
           .map((e) => tester.getRect(find.byWidget(e.widget)))
-          .where((r) => r.bottom > pinned.bottom)
-          .map((r) => r.top)
-          .fold<double>(double.infinity, (a, b) => a < b ? a : b);
-      expect(firstRow, greaterThanOrEqualTo(pinned.bottom - 0.5));
+          .where((r) => r.top >= pinned.bottom - 0.5);
+      expect(rowsBelow, isNotEmpty);
     });
 
     testWidgets('each tab keeps its own offset and its rows', (tester) async {

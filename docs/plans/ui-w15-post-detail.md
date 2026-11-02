@@ -1,6 +1,6 @@
 # UI W1.5: post detail conformance (PD)
 
-Status 2026-11-02: PD-1 in review; PD-2 and PD-3 queued (one PR at a time, founder 2026-11-02).
+Status 2026-11-02: PD-1 done (#665); PD-2 in review; PD-3 queued (one PR at a time, founder 2026-11-02).
 
 Source: x.com post page captured 2026-11-02 (desktop, dark, signed-in founder account, Chrome 156,
 600px main column) with REA (passive screenshot and DOM) plus a CDP measurement script. CSS px are dp.
@@ -28,8 +28,8 @@ Not ours: Grok, views, "Relevant" ranking and "View quotes" (no backend yet).
 
 | Ticket | Scope | Owner | Size | Status |
 |---|---|---|---|---|
-| PD-1 | Open post layout + reply entry: `PostCard(focal: true)` (two-line author, full-width 17/24 text and media, full time line, divided spread action row with Reply that focuses the composer, no tint); composer inline under the open post from 600dp up, docked below 600dp (mobile X not captured: our assumption); no "Replies" heading. Client only, flags unchanged (`posts`, `replies`, `engagement`). Cost: 0 RPCs added | frontend-developer | M | **In review** (branch `feat/ui-w15-pd-1-post-detail`) |
-| PD-2 | Denser reply and feed rows: keep 48dp tap targets but stop them adding visible height (author row, action row), toward X's ~99dp one-line row. Shared `PostCard`, so Home, profile and search change too; goldens and layout tests updated | frontend-developer | M | Queued after PD-1 |
+| PD-1 | Open post layout + reply entry: `PostCard(focal: true)` (two-line author, full-width 17/24 text and media, full time line, divided spread action row with Reply that focuses the composer, no tint); composer inline under the open post from 600dp up, docked below 600dp (mobile X not captured: our assumption); no "Replies" heading. Client only, flags unchanged (`posts`, `replies`, `engagement`). Cost: 0 RPCs added | frontend-developer | M | **Done** (#665) |
+| PD-2 | Denser reply and feed rows: keep 48dp tap targets but stop them adding visible height (author row, action row), toward X's ~99dp one-line row. Shared `PostCard`, so Home, profile and search change too; goldens and layout tests updated | frontend-developer | M | **In review** (branch `feat/ui-w15-pd-2-denser-rows`): padding only, 148 -> 124dp for a one-line row with actions, every target still 48dp; the rest of the gap to ~99dp needs smaller or overlapping targets (founder decision) |
 | PD-3 | Reply sort (Relevant / Recent) and "View quotes": needs a `GetThread` sort option and a quotes list RPC, so an architect ADR (read budget) and planner tickets first | planner + architect | L | Queued, needs founder go |
 
 ## Acceptance (PD-1)
