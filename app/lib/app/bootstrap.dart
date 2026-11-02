@@ -300,6 +300,7 @@ Future<void> bootstrap() async {
     rateLimitHold: rateLimitHold,
     listsGate: listsGate,
     onListSeen: listsRepository.noteListInfo,
+    communitiesGate: communitiesGate,
   );
   final notificationsRepository = NotificationsRepository(
     apiClient: apiClient,

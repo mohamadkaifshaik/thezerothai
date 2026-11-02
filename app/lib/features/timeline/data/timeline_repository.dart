@@ -4,6 +4,8 @@ import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
+import '../../../gen/dzeroth/communities/v1/communities.pb.dart'
+    as communities_pb;
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as lists_pb;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
@@ -49,11 +51,15 @@ class TimelineRepository {
     RateLimitHold? rateLimitHold,
     ServiceFeatureGate? listsGate,
     void Function(lists_pb.ListInfo list)? onListSeen,
+    ServiceFeatureGate? communitiesGate,
+    void Function(communities_pb.Community community)? onCommunitySeen,
   }) : _apiClient = apiClient,
        _store = store,
        _gate = gate,
        _listsGate = listsGate,
        _onListSeen = onListSeen,
+       _communitiesGate = communitiesGate,
+       _onCommunitySeen = onCommunitySeen,
        _pageSize = pageSize,
        _elapsed = monotonic ?? _stopwatchClock() {
     _hold = rateLimitHold ?? RateLimitHold(monotonic: _elapsed);
@@ -69,6 +75,14 @@ class TimelineRepository {
 
   /// Every list header a `GetListTimeline` answer carries.
   final void Function(lists_pb.ListInfo list)? _onListSeen;
+
+  /// The `communities` gate (W5-32): a community feed is fetched through it,
+  /// never the posts gate. Null = communities are not wired, a community feed
+  /// is "not available".
+  final ServiceFeatureGate? _communitiesGate;
+
+  /// Every community header a `GetCommunityTimeline` answer carries.
+  final void Function(communities_pb.Community community)? _onCommunitySeen;
 
   /// 0 lets the server pick its default (20).
   final int _pageSize;
@@ -313,12 +327,13 @@ class TimelineRepository {
         return await _fetchList(feed.listId!, sinceToken, pageToken, session);
       }
       if (feed.isCommunity) {
-        // `GetCommunityTimeline` is wired with the community page (W5-32).
-        // Until then a community feed is "not available": no RPC, and never
-        // the user-timeline path below (a community key has no user or tab).
-        throw const FeatureDisabledException(
-          "Communities aren't available yet.",
-          feature: kFeatureCommunities,
+        // Never the user-timeline path below (a community key has no user or
+        // tab).
+        return await _fetchCommunity(
+          feed.communityId!,
+          sinceToken,
+          pageToken,
+          session,
         );
       }
       final tab = feed.tab!;
@@ -402,6 +417,52 @@ class TimelineRepository {
       r.removedIds.toList(),
     );
   }
+
+  /// `GetCommunityTimeline` through the `communities` gate (ADR-0031), the
+  /// twin of [_fetchList]: UNIMPLEMENTED is "not available yet", not reported
+  /// and not tripping the gate. Every answer's `community` header goes to
+  /// `onCommunitySeen`.
+  Future<_Page> _fetchCommunity(
+    String communityId,
+    String sinceToken,
+    String pageToken,
+    int session,
+  ) async {
+    final gate = _communitiesGate;
+    if (gate == null) throw _communitiesNotYet();
+    final r = await gate.run<tl.GetCommunityTimelineResponse?>(() async {
+      try {
+        return await _apiClient.timeline.getCommunityTimeline(
+          tl.GetCommunityTimelineRequest(
+            communityId: communityId,
+            pageSize: _pageSize,
+            sinceToken: sinceToken,
+            pageToken: pageToken,
+          ),
+        );
+      } on connect.ConnectException catch (error) {
+        if (error.code == connect.Code.unimplemented) return null;
+        rethrow;
+      }
+    });
+    if (r == null) throw _communitiesNotYet();
+    if (r.hasCommunity() && _store.session == session) {
+      _onCommunitySeen?.call(r.community);
+    }
+    return _Page(
+      r.posts.toList(),
+      r.nextPageToken,
+      r.sinceToken,
+      r.gapPageToken,
+      r.removedIds.toList(),
+    );
+  }
+
+  FeatureDisabledException _communitiesNotYet() =>
+      const FeatureDisabledException(
+        "Communities aren't available yet.",
+        feature: kFeatureCommunities,
+      );
 
   FeatureDisabledException _listsNotYet() => const FeatureDisabledException(
     "Lists aren't available yet.",

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
-import '../../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_detail_state.dart';
 import 'list_unavailable_view.dart';
@@ -61,17 +61,11 @@ class ListDetailHeader extends StatelessWidget {
         ),
       );
     }
-    final pinDisabled =
-        !state.pinned &&
-        (state.pinFull || state.pinWriteUnavailable || state.pinBusy);
-    final hint = state.pinned
-        ? null
-        : state.pinFull
-        ? 'You can pin up to $kMaxPinnedHomeTabs timelines to Home. Unpin one '
-              'first.'
-        : state.pinWriteUnavailable
-        ? "Pinning isn't available yet."
-        : null;
+    final hint = pinToHomeHint(
+      pinned: state.pinned,
+      full: state.pinFull,
+      writeUnavailable: state.pinWriteUnavailable,
+    );
     final owner = header.owner;
     final ownerName = owner.displayName.isEmpty
         ? '@${owner.handle}'
@@ -163,18 +157,13 @@ class ListDetailHeader extends StatelessWidget {
             runSpacing: AppSpacing.sm,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (state.pinned)
-                OutlinedButton(
-                  style: kListOutlinedButtonStyle,
-                  onPressed: state.pinBusy ? null : onTogglePin,
-                  child: const Text('Unpin from Home'),
-                )
-              else
-                AppPillButton(
-                  label: 'Pin to Home',
-                  compact: true,
-                  onPressed: pinDisabled ? null : onTogglePin,
-                ),
+              PinToHomeButton(
+                pinned: state.pinned,
+                full: state.pinFull,
+                writeUnavailable: state.pinWriteUnavailable,
+                busy: state.pinBusy,
+                onToggle: onTogglePin,
+              ),
               if (isOwner)
                 OutlinedButton(
                   style: kListOutlinedButtonStyle,

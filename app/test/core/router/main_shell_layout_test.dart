@@ -120,6 +120,10 @@ void main() {
           builder: (context, state) => page('/lists', 'lists body'),
         ),
         GoRoute(
+          path: '/communities',
+          builder: (context, state) => page('/communities', 'communities body'),
+        ),
+        GoRoute(
           path: '/bookmarks',
           builder: (context, state) => page('/bookmarks', 'bookmarks body'),
         ),
@@ -805,6 +809,45 @@ void main() {
       }
       await pump(tester, flags: const {'lists'});
       expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+    });
+  });
+
+  group('Communities entry (W5-31)', () {
+    for (final width in [600.0, 1300.0]) {
+      testWidgets('${width.toInt()}dp: a rail destination that opens '
+          '/communities', (tester) async {
+        await pump(tester, width: width, flags: const {'communities'});
+
+        final rail = find.byType(NavigationRail);
+        final labels = tester
+            .widget<NavigationRail>(rail)
+            .destinations
+            .map((d) => (d.label as Text).data)
+            .toList();
+        expect(labels, ['Home', 'Communities', 'Profile']);
+
+        await tester.tap(find.byIcon(Icons.groups_outlined));
+        await tester.pumpAndSettle();
+        expect(find.text('communities body'), findsOneWidget);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+      });
+    }
+
+    testWidgets('absent with communities off or ui_shell off; never in the '
+        'phone bottom bar', (tester) async {
+      for (final width in [360.0, 600.0, 1300.0]) {
+        await pump(tester, width: width, flags: const {'posts'});
+        expect(find.byIcon(Icons.groups_outlined), findsNothing);
+        await pump(
+          tester,
+          width: width,
+          flags: const {'communities'},
+          newShell: false,
+        );
+        expect(find.byIcon(Icons.groups_outlined), findsNothing);
+      }
+      await pump(tester, flags: const {'communities'});
+      expect(find.byIcon(Icons.groups_outlined), findsNothing);
     });
   });
 
