@@ -115,9 +115,22 @@ class PostCard extends StatelessWidget {
     this.bookmarkEnabled,
     this.pinControl,
     this.moderationControl,
+    this.focal = false,
+    this.onReply,
   });
 
   final pb.PostView view;
+
+  /// The opened post of a thread, laid out like X's post page (captured
+  /// 2026-11-02): name over handle beside the avatar (no relative time), text
+  /// and media across the full width in the larger focal type, the full time
+  /// below, then a divided action row spaced evenly. Implies full text and
+  /// full-size images. A REPOST row keeps the list layout.
+  final bool focal;
+
+  /// What Reply in the engagement row does; null opens the post. The opened
+  /// post passes one that focuses the thread's reply composer.
+  final VoidCallback? onReply;
 
   /// Overrides whether the engagement row shows the bookmark icon: null
   /// follows the `bookmarks` flag; the Bookmarks screen passes true (a caller
@@ -138,8 +151,8 @@ class PostCard extends StatelessWidget {
   /// above). Off by default: a screen opts in.
   final bool engagementEnabled;
 
-  /// Offer Reply in the engagement row (false on the focal post of a thread,
-  /// which has its own reply composer).
+  /// Offer Reply in the engagement row (false on the open post of a thread
+  /// that has no reply composer).
   final bool showReply;
 
   /// Opens a post by id (a quoted post). Defaults to pushing `/post/<id>`.
@@ -338,146 +351,203 @@ class PostCard extends StatelessWidget {
       if (spokenTime.isNotEmpty) spokenTime,
     ].join(', ');
 
-    final row = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Semantics(
-          button: true,
-          label: 'Open profile of @${author.handle}',
-          excludeSemantics: true,
-          child: InkResponse(
-            onTap: () => _openProfile(context, author.userId),
-            radius: AppSpacing.minTapTarget / 2,
-            child: SizedBox(
-              width: AppSpacing.minTapTarget,
-              height: AppSpacing.minTapTarget,
-              child: Center(child: AppAvatar(url: author.avatarUrl)),
-            ),
+    final asFocal = focal && !isRepost;
+    final fullContent = showFullImages || asFocal;
+
+    final avatar = Semantics(
+      button: true,
+      label: 'Open profile of @${author.handle}',
+      excludeSemantics: true,
+      child: InkResponse(
+        onTap: () => _openProfile(context, author.userId),
+        radius: AppSpacing.minTapTarget / 2,
+        child: SizedBox(
+          width: AppSpacing.minTapTarget,
+          height: AppSpacing.minTapTarget,
+          child: Center(child: AppAvatar(url: author.avatarUrl)),
+        ),
+      ),
+    );
+    final authorButton = Semantics(
+      button: true,
+      label: authorLabel,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () => _openProfile(context, author.userId),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: asFocal
+                ? _FocalAuthorLines(
+                    displayName: displayName,
+                    handle: author.handle,
+                    verified: author.verified,
+                    protected: protectedAuthor,
+                  )
+                : _AuthorLine(
+                    displayName: displayName,
+                    handle: author.handle,
+                    verified: author.verified,
+                    protected: protectedAuthor,
+                    time: shortTime,
+                  ),
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Semantics(
-                      button: true,
-                      label: authorLabel,
-                      excludeSemantics: true,
-                      child: InkWell(
-                        onTap: () => _openProfile(context, author.userId),
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minHeight: AppSpacing.minTapTarget,
-                          ),
-                          child: Align(
-                            alignment: AlignmentDirectional.centerStart,
-                            child: _AuthorLine(
-                              displayName: displayName,
-                              handle: author.handle,
-                              verified: author.verified,
-                              protected: protectedAuthor,
-                              time: shortTime,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  _PostMenu(
-                    post: _post,
-                    isOwn: _isOwn,
-                    target: _menuTarget(original: isRepost ? embedded : null),
-                    graphActionsEnabled: graphActionsEnabled,
-                    reportsEnabled: reportsEnabled,
-                    onDelete: onDelete,
-                    pinControl: pinControl,
-                    moderationControl: moderationControl,
-                    onRelationshipChanged: onRelationshipChanged,
-                  ),
-                ],
-              ),
-              // An image-only post has empty text: no empty line above the images.
-              if (text.isNotEmpty)
-                PostRichText(
-                  maxLines: showFullImages ? null : kPostTextClampLines,
-                  text: text,
-                  mentions: mentions,
-                  style: theme.textTheme.bodyLarge,
-                  onOpenLink: (uri) => _openLink(context, uri),
-                  onOpenMention: (userId, handle) =>
-                      _openProfile(context, userId),
-                  hashtagSearch: _searchOn(context),
-                  onHashtagTap:
-                      onHashtagTap ?? (tag) => _openHashtag(context, tag),
-                ),
-              if (media.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.sm),
-                PostMedia(media: media, useFullImage: showFullImages),
-              ],
-              // W6-13: a poll on this post (live card) or on the original of a
-              // repost (the frozen definition: read-only, opens the original).
-              if (isRepost && embedded!.hasPoll())
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: PollEmbedSummary(
-                    poll: embedded.poll,
-                    now: reference,
-                    showOptions: true,
-                    onOpen: () => _openPost(context, embedded.postId),
-                  ),
-                )
-              else if (!isRepost && _post.hasPoll())
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.sm),
-                  child: PostPoll(
-                    view: view,
-                    targetId: _post.postId,
-                    isAuthor: _isOwn,
-                    now: reference,
-                  ),
-                ),
-              if (!isRepost &&
-                  _post.kind == PostKind.POST_KIND_QUOTE &&
-                  embedded != null &&
-                  embedded.postId.isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.sm),
-                EmbeddedPostCard(
-                  embedded: embedded,
-                  placeholder: placeholder,
-                  now: now,
-                  onTap: placeholder == null
-                      ? () => _openPost(context, embedded.postId)
-                      : null,
-                ),
-              ],
-              if (actions != null) ...[
-                const SizedBox(height: AppSpacing.sm),
-                PostActionBar(
-                  likeCount: _post.likeCount.toInt(),
-                  repostCount: _post.repostCount.toInt(),
-                  replyCount: _post.replyCount.toInt(),
-                  liked: view.likedByViewer,
-                  reposted: view.repostedByViewer,
-                  actions: actions!,
-                ),
-              ] else if (engagementEnabled) ...[
-                const SizedBox(height: AppSpacing.sm),
-                PostEngagementBar(
-                  view: view,
-                  showReply: showReply,
-                  bookmarkEnabled: bookmarkEnabled,
-                ),
-              ] else
-                const SizedBox(height: AppSpacing.xs),
-            ],
-          ),
+      ),
+    );
+    final header = Row(
+      children: [
+        Expanded(child: authorButton),
+        _PostMenu(
+          post: _post,
+          isOwn: _isOwn,
+          target: _menuTarget(original: isRepost ? embedded : null),
+          graphActionsEnabled: graphActionsEnabled,
+          reportsEnabled: reportsEnabled,
+          onDelete: onDelete,
+          pinControl: pinControl,
+          moderationControl: moderationControl,
+          onRelationshipChanged: onRelationshipChanged,
         ),
       ],
     );
+
+    final content = <Widget>[
+      // An image-only post has empty text: no empty line above the images.
+      if (text.isNotEmpty)
+        PostRichText(
+          maxLines: fullContent ? null : kPostTextClampLines,
+          text: text,
+          mentions: mentions,
+          style: asFocal
+              ? theme.textTheme.bodyLarge?.copyWith(
+                  fontSize: AppFocalPost.bodySize,
+                  height: AppFocalPost.bodyLineHeight / AppFocalPost.bodySize,
+                )
+              : theme.textTheme.bodyLarge,
+          onOpenLink: (uri) => _openLink(context, uri),
+          onOpenMention: (userId, handle) => _openProfile(context, userId),
+          hashtagSearch: _searchOn(context),
+          onHashtagTap: onHashtagTap ?? (tag) => _openHashtag(context, tag),
+        ),
+      if (media.isNotEmpty) ...[
+        const SizedBox(height: AppSpacing.sm),
+        PostMedia(media: media, useFullImage: fullContent),
+      ],
+      // W6-13: a poll on this post (live card) or on the original of a
+      // repost (the frozen definition: read-only, opens the original).
+      if (isRepost && embedded!.hasPoll())
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: PollEmbedSummary(
+            poll: embedded.poll,
+            now: reference,
+            showOptions: true,
+            onOpen: () => _openPost(context, embedded.postId),
+          ),
+        )
+      else if (!isRepost && _post.hasPoll())
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: PostPoll(
+            view: view,
+            targetId: _post.postId,
+            isAuthor: _isOwn,
+            now: reference,
+          ),
+        ),
+      if (!isRepost &&
+          _post.kind == PostKind.POST_KIND_QUOTE &&
+          embedded != null &&
+          embedded.postId.isNotEmpty) ...[
+        const SizedBox(height: AppSpacing.sm),
+        EmbeddedPostCard(
+          embedded: embedded,
+          placeholder: placeholder,
+          now: now,
+          onTap: placeholder == null
+              ? () => _openPost(context, embedded.postId)
+              : null,
+        ),
+      ],
+    ];
+
+    final Widget? bar = actions != null
+        ? PostActionBar(
+            likeCount: _post.likeCount.toInt(),
+            repostCount: _post.repostCount.toInt(),
+            replyCount: _post.replyCount.toInt(),
+            liked: view.likedByViewer,
+            reposted: view.repostedByViewer,
+            actions: actions!,
+            spread: asFocal,
+            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+          )
+        : engagementEnabled
+        ? PostEngagementBar(
+            view: view,
+            showReply: showReply,
+            bookmarkEnabled: bookmarkEnabled,
+            onReply: onReply,
+            spread: asFocal,
+            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+          )
+        : null;
+
+    final Widget row;
+    if (asFocal) {
+      final muted = theme.colorScheme.onSurfaceVariant;
+      row = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              avatar,
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(child: header),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ...content,
+          if (created != null)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.md),
+              child: Text(
+                formatPostTimestamp(created),
+                style: theme.textTheme.bodyLarge?.copyWith(color: muted),
+              ),
+            ),
+          if (bar != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            const Divider(height: 1),
+            bar,
+          ],
+        ],
+      );
+    } else {
+      row = Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          avatar,
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                ...content,
+                if (bar != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  bar,
+                ] else
+                  const SizedBox(height: AppSpacing.xs),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
 
     // One context row: the repost label wins over the community label.
     final Widget? contextLabel = isRepost
@@ -663,6 +733,78 @@ void _showMessage(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+/// The display name, then the verified and protected badges.
+List<Widget> _nameWithBadges(
+  ThemeData theme, {
+  required String displayName,
+  required bool verified,
+  required bool protected,
+}) => [
+  Flexible(
+    child: Text(
+      displayName,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleSmall,
+    ),
+  ),
+  if (verified) ...[
+    const SizedBox(width: AppSpacing.xs),
+    Icon(
+      Icons.verified,
+      size: AppIconSize.sm,
+      color: theme.colorScheme.primary,
+    ),
+  ],
+  if (protected) ...[
+    const SizedBox(width: AppSpacing.xs),
+    const ProtectedBadge(),
+  ],
+];
+
+/// The opened post's author: the name (and badges) over the handle, with no
+/// relative time (the full time sits under the post).
+class _FocalAuthorLines extends StatelessWidget {
+  const _FocalAuthorLines({
+    required this.displayName,
+    required this.handle,
+    required this.verified,
+    required this.protected,
+  });
+
+  final String displayName;
+  final String handle;
+  final bool verified;
+  final bool protected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: _nameWithBadges(
+            theme,
+            displayName: displayName,
+            verified: verified,
+            protected: protected,
+          ),
+        ),
+        Text(
+          '@$handle',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _AuthorLine extends StatelessWidget {
   const _AuthorLine({
     required this.displayName,
@@ -684,26 +826,12 @@ class _AuthorLine extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     return Row(
       children: [
-        Flexible(
-          child: Text(
-            displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleSmall,
-          ),
+        ..._nameWithBadges(
+          theme,
+          displayName: displayName,
+          verified: verified,
+          protected: protected,
         ),
-        if (verified) ...[
-          const SizedBox(width: AppSpacing.xs),
-          Icon(
-            Icons.verified,
-            size: AppIconSize.sm,
-            color: theme.colorScheme.primary,
-          ),
-        ],
-        if (protected) ...[
-          const SizedBox(width: AppSpacing.xs),
-          const ProtectedBadge(),
-        ],
         const SizedBox(width: AppSpacing.xs),
         Flexible(
           child: Text(

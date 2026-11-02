@@ -15,6 +15,14 @@ String formatRelativeTime(DateTime time, DateTime now) {
       : DateFormat.yMMMd().format(local);
 }
 
+/// The full time under an opened post: `9:11 PM · Nov 1, 2026`, in the
+/// device zone (X's post page).
+String formatPostTimestamp(DateTime time) {
+  final local = time.toLocal();
+  return '${DateFormat.jm().format(local)} · '
+      '${DateFormat.yMMMd().format(local)}';
+}
+
 /// The same instant spelled out for screen readers: `5 minutes ago`.
 String formatRelativeTimeSpoken(DateTime time, DateTime now) {
   final diff = now.difference(time);

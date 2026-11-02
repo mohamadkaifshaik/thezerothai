@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/share/share_links.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     as pbenum
@@ -66,7 +67,19 @@ class PostEngagementBar extends StatelessWidget {
     this.showReply = true,
     this.onQuote,
     this.bookmarkEnabled,
+    this.onReply,
+    this.spread = false,
+    this.iconSize = AppIconSize.action,
   });
+
+  /// What Reply does. Null (the default) opens the post; the opened post
+  /// passes a callback that focuses its reply composer.
+  final VoidCallback? onReply;
+
+  /// The opened post's row: actions spaced evenly, [iconSize] glyphs
+  /// ([PostActionBar.spread]).
+  final bool spread;
+  final double iconSize;
 
   final pb.PostView view;
 
@@ -76,8 +89,8 @@ class PostEngagementBar extends StatelessWidget {
   /// (ADR-0023 D5: Remove needs the flag only "not globally off").
   final bool? bookmarkEnabled;
 
-  /// Offer Reply (opens the post). The post screen, which has its own reply
-  /// composer, turns it off for the focal post.
+  /// Offer Reply (opens the post, or runs [onReply]). The post screen turns
+  /// it off for the open post only while it has no reply composer.
   final bool showReply;
 
   /// Opens the quote composer for [view]. Defaults to `/compose?quote=<id>`
@@ -126,6 +139,8 @@ class PostEngagementBar extends StatelessWidget {
         Widget bar({bool bookmarked = false, VoidCallback? onBookmark}) =>
             PostActionBar(
               showDisabled: false,
+              spread: spread,
+              iconSize: iconSize,
               replyDisabledHint: replyBlocked
                   ? replyNotAllowedHint(view)
                   : null,
@@ -137,7 +152,7 @@ class PostEngagementBar extends StatelessWidget {
               bookmarked: bookmarked,
               actions: PostActions(
                 onReply: replies && !replyBlocked
-                    ? () => context.push(AppRouter.postPath(target))
+                    ? onReply ?? () => context.push(AppRouter.postPath(target))
                     : null,
                 onLike: () =>
                     cubit.setLiked(target, liked: !current.liked, shown: shown),

@@ -146,7 +146,7 @@ class _ReadyPost extends StatelessWidget {
             graphEnabled: graphEnabled,
             child: PostCard(
               view: view,
-              showFullImages: true,
+              focal: true,
               viewerUserId: viewerUserId,
               graphActionsEnabled: graphEnabled,
               reportsEnabled: reportsEnabled,

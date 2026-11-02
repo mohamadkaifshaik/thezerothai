@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
+import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -12,6 +14,7 @@ import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -23,6 +26,8 @@ import '../../../support/posts_fixtures.dart';
 import '../../../support/timeline_fixtures.dart';
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
+
+class _MockEngagementRepository extends Mock implements EngagementRepository {}
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -109,8 +114,14 @@ void main() {
           RepositoryProvider<PostsRepository>.value(value: posts),
           RepositoryProvider<GraphRepository>.value(value: graphRepository),
         ],
-        child: BlocProvider<OnboardingBloc>.value(
-          value: onboardingBloc,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
+            BlocProvider<EngagementCubit>(
+              create: (_) =>
+                  EngagementCubit(repository: _MockEngagementRepository()),
+            ),
+          ],
           child: MaterialApp.router(
             routerConfig: router,
             theme: buildAppTheme(brightness: brightness),
@@ -141,7 +152,7 @@ void main() {
         for (final textScale in const [1.0, 2.0]) {
           testWidgets(
             '${size.width.toInt()}x${size.height.toInt()} ${brightness.name} '
-            'text x$textScale: no overflow, Replies header, reply entry',
+            'text x$textScale: no overflow, replies, reply entry',
             (tester) async {
               stubThread(
                 () async => pb.GetThreadResponse(
@@ -161,16 +172,19 @@ void main() {
 
               expect(tester.takeException(), isNull);
               // At large text the focal post can fill the screen: the list
-              // builds lazily, so scroll to the heading.
+              // builds lazily, so scroll to the last reply.
               await tester.scrollUntilVisible(
-                find.text('Replies'),
+                find.text('second reply'),
                 200,
-                scrollable: find.descendant(
-                  of: find.byType(CustomScrollView),
-                  matching: find.byType(Scrollable),
-                ),
+                // The list itself (an inline reply field has its own).
+                scrollable: find
+                    .descendant(
+                      of: find.byType(CustomScrollView),
+                      matching: find.byType(Scrollable),
+                    )
+                    .first,
               );
-              expect(find.text('Replies'), findsOneWidget);
+              expect(find.text('second reply'), findsOneWidget);
               expect(find.text('Post your reply'), findsOneWidget);
               expect(tester.takeException(), isNull);
               expect(
@@ -183,8 +197,22 @@ void main() {
       }
     }
 
-    testWidgets('the Replies heading is announced as a header', (tester) async {
-      final handle = tester.ensureSemantics();
+    testWidgets('no heading between the open post and its replies (X)', (
+      tester,
+    ) async {
+      stubThread(
+        () async => pb.GetThreadResponse(
+          focal: postView(1, text: 'root'),
+          replies: [_reply(2, text: 'a reply')],
+        ),
+      );
+      await open(tester);
+
+      expect(find.text('Replies'), findsNothing);
+      expect(find.text('a reply'), findsOneWidget);
+    });
+
+    testWidgets('phones dock the reply entry below the thread', (tester) async {
       stubThread(
         () async => pb.GetThreadResponse(
           focal: postView(1, text: 'root'),
@@ -194,11 +222,101 @@ void main() {
       await open(tester);
 
       expect(
-        tester.getSemantics(find.text('Replies')),
-        isSemantics(label: 'Replies', isHeader: true),
+        tester.getTopLeft(find.text('Post your reply')).dy,
+        greaterThan(tester.getTopLeft(find.text('a reply')).dy),
       );
-      handle.dispose();
+      expect(
+        find.ancestor(
+          of: find.text('Post your reply'),
+          matching: find.byType(CustomScrollView),
+        ),
+        findsNothing,
+      );
     });
+
+    testWidgets('wide screens put the reply entry right under the open post', (
+      tester,
+    ) async {
+      stubThread(
+        () async => pb.GetThreadResponse(
+          focal: postView(1, text: 'root'),
+          replies: [_reply(2, text: 'a reply')],
+        ),
+      );
+      await open(tester, size: const Size(1440, 900));
+
+      final entry = tester.getTopLeft(find.text('Post your reply')).dy;
+      expect(entry, greaterThan(tester.getTopLeft(find.text('root')).dy));
+      expect(entry, lessThan(tester.getTopLeft(find.text('a reply')).dy));
+      expect(
+        find.ancestor(
+          of: find.text('Post your reply'),
+          matching: find.byType(CustomScrollView),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    for (final (from, to) in const [
+      (Size(390, 844), Size(1440, 900)),
+      (Size(1440, 900), Size(390, 844)),
+    ]) {
+      testWidgets('a draft survives crossing the width '
+          '(${from.width.toInt()} -> ${to.width.toInt()})', (tester) async {
+        stubThread(
+          () async => pb.GetThreadResponse(
+            focal: postView(1, text: 'root'),
+            replies: [_reply(2, text: 'a reply')],
+          ),
+        );
+        await open(tester, size: from);
+
+        await tester.enterText(find.byType(TextField), 'half a reply');
+        await tester.pump();
+        tester.view.physicalSize = to;
+        await tester.pumpAndSettle();
+
+        expect(find.text('half a reply'), findsOneWidget);
+        expect(find.text('root'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final size in const [Size(390, 844), Size(1440, 900)]) {
+      testWidgets('Reply on the open post focuses the reply entry '
+          '(${size.width.toInt()})', (tester) async {
+        stubThread(
+          () async => pb.GetThreadResponse(
+            focal: postView(1, text: 'root'),
+            replies: [_reply(2, text: 'a reply')],
+          ),
+        );
+        await open(
+          tester,
+          size: size,
+          features: const {'posts', 'replies', 'engagement'},
+        );
+
+        // The open post's own Reply (on wide screens the entry's pill is
+        // under the same key).
+        final focal = find.descendant(
+          of: find.byKey(ValueKey('focal-${postId(1)}')),
+          matching: find.byType(PostCard),
+        );
+        await tester.tap(
+          find.descendant(of: focal, matching: find.bySemanticsLabel('Reply')),
+        );
+        await tester.pump();
+
+        final field = tester.widget<TextField>(
+          find.ancestor(
+            of: find.text('Post your reply'),
+            matching: find.byType(TextField),
+          ),
+        );
+        expect(field.focusNode!.hasFocus, isTrue);
+      });
+    }
 
     testWidgets('wide screens keep the thread and the reply entry in the '
         'main column', (tester) async {
@@ -221,9 +339,8 @@ void main() {
       );
     });
 
-    testWidgets('the focal post sits on its own tint, above the replies', (
-      tester,
-    ) async {
+    testWidgets('the open post sits on the plain background, above the '
+        'replies, in the focal layout', (tester) async {
       stubThread(
         () async => pb.GetThreadResponse(
           focal: postView(1, text: 'root'),
@@ -232,19 +349,25 @@ void main() {
       );
       await open(tester, brightness: Brightness.dark);
 
-      final tint = tester.widget<ColoredBox>(
-        find
-            .ancestor(of: find.text('root'), matching: find.byType(ColoredBox))
-            .first,
-      );
-      expect(tint.color, appDarkTheme.colorScheme.surfaceContainerLow);
+      final focal = find.byKey(ValueKey('focal-${postId(1)}'));
       expect(
-        tester.getTopLeft(find.text('Replies')).dy,
-        greaterThan(tester.getTopLeft(find.text('root')).dy),
+        find
+            .ancestor(of: focal, matching: find.byType(ColoredBox))
+            .evaluate()
+            .map((e) => (e.widget as ColoredBox).color),
+        isNot(contains(appDarkTheme.colorScheme.surfaceContainerLow)),
+      );
+      expect(
+        tester
+            .widget<PostCard>(
+              find.descendant(of: focal, matching: find.byType(PostCard)),
+            )
+            .focal,
+        isTrue,
       );
       expect(
         tester.getTopLeft(find.text('a reply')).dy,
-        greaterThan(tester.getTopLeft(find.text('Replies')).dy),
+        greaterThan(tester.getTopLeft(find.text('root')).dy),
       );
     });
   });
