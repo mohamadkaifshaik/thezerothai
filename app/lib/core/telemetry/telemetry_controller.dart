@@ -83,11 +83,11 @@ class TelemetryController {
   /// `Firebase.initializeApp`, before the first frame.
   Future<void> applyAtBootstrap(String? restoredUid) async {
     _uid = restoredUid;
-    if (restoredUid != null) _noteSignIn(restoredUid);
     _flags = restoredUid == null
         ? TelemetryFlags.off
         : await _memory.read(restoredUid) ?? TelemetryFlags.off;
     _decide(force: true);
+    if (restoredUid != null) _noteSignIn(restoredUid);
     await _queue;
   }
 
@@ -96,9 +96,9 @@ class TelemetryController {
   void onAuthChanged(String? uid) {
     if (uid == _uid) return;
     _uid = uid;
-    if (uid != null) _noteSignIn(uid);
     _flags = TelemetryFlags.off;
     _decide();
+    if (uid != null) _noteSignIn(uid);
   }
 
   /// A fresh `GetMe` of the current account.
@@ -156,8 +156,9 @@ class TelemetryController {
   Future<void> dispose() => _consentSub.cancel();
 
   /// F11: a different account than the last one on this device gets a fresh
-  /// analytics ID. Queued ahead of the decision for the new uid, so the reset
-  /// runs before that account's first event. The same uid again, or no
+  /// analytics ID. Queued right after the "off" decision of the switch and ahead
+  /// of anything the new uid can log (its flags are off until its own `GetMe`),
+  /// so the reset runs before that account's first event. The same uid again, or no
   /// record yet (the first sign-in on this device), resets nothing.
   void _noteSignIn(String uid) {
     unawaited(
