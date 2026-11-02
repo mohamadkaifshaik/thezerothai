@@ -3,6 +3,8 @@ name: mvp-roadmap
 description: The phased product roadmap for the X-like platform, from a free-tier launch (about INR 434/month at 300 DAU) to funded scale, and how each phase maps to the stage-ladder rungs. Use when planning what to build next or bootstrapping the project.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Roadmap
 
 Status (2026-10-26): **Phase 0 done**. **Phase 1 backends are built and merged** (identity, graph, posts, timeline, engagement, media, notifications, moderation, account lifecycle), each behind a server flag; releases up to v0.4.0 (`docs/releases/`). **UI waves W0 and W1 (X colour system, shell, core surfaces) are merged** behind `ui_shell` (dev allowlist). **Credit mode (ADR-0022) is active until 2026-12-24**; it pays for a warm prod instance and a higher Vision cap, lifts no roadmap gate, and nothing built in the window may depend on it after 2026-12-22. **The canonical roadmap is `docs/plans/roadmap.md`** (waves W0-W8 + W1.5, status per feature, founder decisions; Spaces is out of scope); live ticket status is in `docs/plans/*.md`, and open items outside the wave plans are in `docs/plans/roadmap.md` section 9. The phase list below is the original outline: where it conflicts with the roadmap, the roadmap wins. Update this note when a wave moves.

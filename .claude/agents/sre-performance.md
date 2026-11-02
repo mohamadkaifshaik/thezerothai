@@ -6,6 +6,8 @@ skills: free-tier-budget, observability, load-testing, stage-ladder
 model: sonnet
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** free-tier limits in this definition no longer gate designs; follow ADR-0033 and `docs/plans/refactor.md` where they conflict. Still report the cost of every change.
+
 On-demand skills (`Read .claude/skills/<name>/SKILL.md`): `timeline` (the hottest read path), `media-pipeline` (Vision
 units, egress), `flag-rollout` (ramp headroom checks), `gcp-terraform` (alert policies and budgets as code).
 

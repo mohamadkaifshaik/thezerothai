@@ -3,6 +3,8 @@ name: stage-ladder
 description: For every hot concern of an X-style platform (timeline, real-time, counters, IDs, cache, rate limits, DDoS), the Stage 0 implementation, the seam to protect now, the Stage 2/3 target and the measured trigger that moves between them. Use when designing, building, reviewing or load-testing any feed, event, counter, cache or abuse control, and before proposing any new infrastructure.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Stage ladder: design for Stage 0, keep the door open to Stage 3
 
 `CLAUDE.md` forbids fixed-cost infrastructure (Memorystore, Cloud SQL, Spanner, GKE, load balancers, Cloud Armor) at

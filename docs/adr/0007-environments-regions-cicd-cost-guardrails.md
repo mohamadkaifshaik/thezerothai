@@ -1,4 +1,6 @@
 # 0007. Environments, regions, CI/CD and cost guardrails
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded in part. The "not used at Stage 0" list and "$0 at Stage 0" target no longer bind; Cloud SQL, Memorystore, Direct VPC egress, LB + CDN + Cloud Armor and a staging project are allowed per ADR-0033. Regions, CI/CD and the prod gate stay.
 Status: Accepted — founder confirmed Firestore location `asia-south1` and prod weekly backups on 2026-09-27.
 Date: 2026-09-26
 Deciders: architect, founder

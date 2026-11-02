@@ -3,6 +3,8 @@ name: gcp-terraform
 description: Terraform conventions, module list and environment layout for the free-tier GCP + Firebase infrastructure, including budgets and cost caps. Use for any infra change.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Terraform on GCP (Stage 0, free tier)
 
 ```

@@ -4,6 +4,16 @@ Text-first social platform (X/Twitter-style) with image uploads, built by an ear
 Every agent and every human reads this file first. Decisions here are binding
 until superseded by an ADR in `docs/adr/`.
 
+## Architecture reset (ADR-0033)
+
+Once ADR-0033 is Accepted it supersedes, where they conflict, the free-tier-first rules below and ADR-0001, 0003 (for
+migrated modules), 0004, 0007 (the "not used" list), 0008 (single graph document) and 0028. Target: Cloud SQL Postgres
+as the system of record for relational modules, Memorystore as the shared cache, a hybrid fan-out timeline, Postgres
+search, Direct VPC egress. The sections below describe the **current** system being migrated; the migration plan and
+ticket status live in `docs/plans/refactor.md`. Non-negotiable rules 1, 4–11, the release gates (ADR-0019) and the
+"stop and ask the founder" list still apply. Fixed-cost Terraform lines carry `# cost-approved: ADR-0033`.
+`AGENTS.md` gives the same rules to non-Claude agents.
+
 ## Prime directive: free tier first, per-use cost only, until users pay for it
 
 We run on the **GCP Always Free tier + Firebase no-cost quotas** from local dev through the

@@ -3,6 +3,8 @@ name: timeline
 description: Home, profile and thread timelines on Firestore within free-tier read quotas — pull-on-read, incremental refresh, instance + client caching, filtering and the path to fan-out later. Use for any timeline, feed or refresh work.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Timelines (Stage 0: pull-on-read)
 
 Why pull: push fan-out costs 1 Firestore write per follower per post (the 20k writes/day quota disappears fast).

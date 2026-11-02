@@ -1,4 +1,6 @@
 # 0004. Pull-on-read timeline with incremental refresh and two-level cache
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded in part. The home timeline moves to hybrid fan-out-on-write with a shared Redis cache (ADR-0033 D4); the pull path below stays as the fallback until `FEATURE_TIMELINE_FANOUT` is retired.
 Status: Accepted
 Date: 2026-09-26
 Deciders: architect, founder

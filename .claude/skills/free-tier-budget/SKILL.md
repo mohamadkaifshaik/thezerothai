@@ -3,6 +3,8 @@ name: free-tier-budget
 description: GCP/Firebase Always Free limits, the per-request read/write budget method, cost guardrails (budgets, caps, degraded mode) and scale-up triggers. Use for any design, plan, review, infra change or cost question, and before adding any GCP service.
 ---
 
+> **2026-11-02, ADR-0033 (architecture reset):** this skill describes the current Firestore-only Stage 0 system. Where it conflicts with ADR-0033 or `docs/plans/refactor.md`, those win.
+
 # Free-tier budget
 
 ## 1. The allowances we design against

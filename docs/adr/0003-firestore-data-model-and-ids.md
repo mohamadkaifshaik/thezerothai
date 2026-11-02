@@ -1,4 +1,6 @@
 # 0003. Firestore data model, ID scheme, counters and idempotency
+
+> **2026-11-02, ADR-0033 (architecture reset):** superseded in part. For each module migrated to Postgres (`docs/plans/refactor.md` phase 2) the Firestore model below no longer applies; IDs (Snowflake), idempotency and counter rules stay in force.
 Status: Accepted
 Date: 2026-09-26
 Deciders: architect, founder
