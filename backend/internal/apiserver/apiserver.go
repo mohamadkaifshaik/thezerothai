@@ -413,7 +413,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	listsReader := listsSvc.(lists.Reader)
 	// Communities (ADR-0031, W5-23): the repo is built here because the account-lifecycle registration below needs it (the eraser step
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
-	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient))
+	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
+		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (W5-28, A12)
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
@@ -664,7 +665,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Creators: cfg.Communities.Creators, CursorKey: cfg.CursorHMACKey,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
-			ModlogMax: cfg.Communities.ModlogMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
+			ModlogMax: cfg.Communities.ModlogMax, MaxModerators: cfg.Communities.MaxModerators, RecentRemovalsMax: cfg.Communities.RecentRemovalsMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
 			JoinsPerDay: int64(cfg.Quota.CommunityJoinsPerDay), NewAccountJoinsPerDay: int64(cfg.Quota.NewAccountCommunityJoinsPerDay),
 			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},

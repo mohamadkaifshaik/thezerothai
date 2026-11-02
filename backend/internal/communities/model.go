@@ -187,6 +187,8 @@ type Detail struct {
 // Service is everything the CommunityService handlers call (ADR-0031 D1, the seam: handlers call only this). W5-23 holds Create, Update
 // and Get; W5-25 adds Join, Leave and the lists, W5-28 the moderation calls.
 type Service interface {
+	// Moderation is the owner and moderator surface (W5-28): Hide, Restore, SetMemberRole and ListModerationLog.
+	Moderation
 	// CreateCommunity creates a community owned by uid, who becomes its first member. COMMUNITY_CREATORS is checked first (FORBIDDEN
 	// not_creator, 0 reads), then the key and the text rules. No daily quota: the owned cap is exact and lifetime. Firestore: reads 2
 	// (idempotency, memberships; the interceptor's 1 on top = 3 cold); writes 4 (community, owner member doc, memberships,

@@ -206,9 +206,32 @@ archive-on-owner-deletion. A SUSPENDED community is `NOT_FOUND` ("community not 
 bytes and the same read count as an id that never existed; only `GetCommunity` and `ListMyCommunities` show it to its owner, with
 status `SUSPENDED`. It reaches every instance within 60 s (section 4, staleness).
 
-## 7. Hidden posts and `recentRemovals` overflow (placeholder for W5-28)
+## 7. Moderation: hide, restore, roles, bans and the log (W5-28)
 
-`HideCommunityPost` (W5-28) appends `{postId, at}` to `recentRemovals` (newest 50 kept) and sets `removalsTruncatedAt` to the `at` of
-the newest entry a cap ever dropped; a device whose cached feed is older than that cannot be told what was removed and gets a cold
-open (a rejected `since_token`). Nothing writes either field in W5-23/24, so today `recentRemovals` is `[]` and `removalsTruncatedAt`
-is absent. A flood of hides is bounded by `COMMUNITY_MOD_ACTIONS_PER_DAY` (200 per actor per instance).
+`HideCommunityPost`, `RestoreCommunityPost`, `SetMemberRole` and `ListModerationLog` run behind `FEATURE_COMMUNITIES` (`communities.Moderation`; the post
+write goes through `posts.CommunityModerator.SetCommunityListing` inside the same transaction). Request-line fields: `community_op=hide|restore|role|log`,
+`mod_action=hide|restore|ban|unban|make_moderator|remove_moderator|log`, `outcome` (`done`, `noop`, `replay`, `rejected:not_moderator`, `rejected:not_owner`,
+`rejected:moderator`, `rejected:invalid_target`, `rejected:limit_reached`, `rejected:post_not_found`, `rejected:user_not_found`, `contention`), `community_txn_attempts`,
+`fs_reads`, `fs_writes`; never an id. Budgets (module only, interceptor excluded): Hide / Restore 4 reads, 3 writes (+1 on the actor's first entry in the
+community); SetMemberRole 5 reads, BAN 4 / UNBAN 3 + 1 delete / MAKE or REMOVE 2-3 writes (+1 first entry, worst 5); a request that changes nothing writes only the
+idempotency document. Every change appends one `modlog` entry (newest `COMMUNITY_MODLOG_MAX` kept) and adds the community to the `modlogged` of the actor and of
+the target (I-L), which is what lets the account-deletion eraser find and scrub them.
+
+A hide **deletes `posts.communityId` and sets `communityHidden`**; a restore puts `communityId` back and deletes the flag. The post stays on the author's
+profile and in Home (it is never `Hidden()`); only the community feed and the community label change. The label of a post already cached by the posts module
+(post cache, author-recent cache) can show for up to `CACHE_TTL` (60 s) after a hide; the community feed does not depend on it (it drops the id through
+`recentRemovals`). `recentRemovals` keeps the newest 50 `{postId, at}`; when the cap drops an entry, `removalsTruncatedAt` is set to its `at`, and a device whose
+cached feed is older than that gets a cold open (a rejected `since_token`) instead of a removal list. A flood of hides is bounded by `COMMUNITY_MOD_ACTIONS_PER_DAY`
+(200 per actor per instance, effective x max-instances).
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `FORBIDDEN reason=not_moderator` on a hide, restore, ban, unban or the log | The caller is not in `ownerId` / `moderatorIds` of the community document read fresh in the transaction (the log reads the 60 s cached document) | Intended. A moderator removed on another instance can still read the log for up to 60 s |
+| `FORBIDDEN reason=not_owner` on a ban | A moderator tried to ban the owner or another moderator, or anyone but the owner tried MAKE / REMOVE_MODERATOR | Intended |
+| `COMMUNITY_STATE reason=moderator` on a ban | The owner banned a moderator | Remove the role first (`REMOVE_MODERATOR`), then ban |
+| `LIMIT_REACHED limit=community_moderators` | The community has `COMMUNITY_MAX_MODERATORS` (10) | Remove a moderator first |
+| `NOT_FOUND "post not found"` on a hide | The post is gone, or was not created into this community (`community.id` differs; replies and REPOSTs carry none) | Intended |
+| A hidden post still shows its community label on one device | The label comes from the cached post (60 s) | Intended; the feed already dropped the post |
+| A late retry of a hide did not hide the post again | The standard idempotency document answers a replay with 0 writes, so a retry after a restore cannot re-hide (A13) | Intended: send a new idempotency key to hide again |
+| A user is BANNED but still counted in `memberCount` | A ban of a JOINED member lowers `memberCount` in the same community Update; a count that disagrees points at a writer other than `SetMemberRole` | Recount by hand (JOINED member docs) and fix the writer |
+| `modlog` is shorter than the actions taken | Only the newest 100 entries are kept; older ones are dropped by design | Intended; the request log keeps one line per action |
