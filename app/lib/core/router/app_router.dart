@@ -13,6 +13,7 @@ import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/communities/presentation/communities_screen.dart';
 import '../../features/communities/presentation/community_members_screen.dart';
+import '../../features/communities/presentation/community_moderation_log_screen.dart';
 import '../../features/communities/presentation/community_screen.dart';
 import '../../features/communities/presentation/create_community_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
@@ -164,6 +165,8 @@ class AppRouter {
   static const communityNewPath = '/communities/new';
   static String communityPath(String communityId) =>
       '/communities/${Uri.encodeComponent(communityId)}';
+  static String communityModerationLogPath(String communityId) =>
+      '${communityPath(communityId)}/moderation-log';
   static String communityMembersPath(String communityId) =>
       '${communityPath(communityId)}/members';
   // W5-14: Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
@@ -405,6 +408,14 @@ class AppRouter {
             path: '/communities/:id/members',
             builder: (context, state) => AuthGate(
               child: CommunityMembersScreen(
+                communityId: state.pathParameters['id']!,
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/communities/:id/moderation-log',
+            builder: (context, state) => AuthGate(
+              child: CommunityModerationLogScreen(
                 communityId: state.pathParameters['id']!,
               ),
             ),
