@@ -161,20 +161,31 @@ class TelemetryController {
   /// F11: a different account than the last one on this device gets a fresh
   /// analytics ID. Queued right after the "off" decision of the switch and ahead
   /// of anything the new uid can log (its flags are off until its own `GetMe`),
-  /// so the reset runs before that account's first event. The same uid again, or no
-  /// record yet (the first sign-in on this device), resets nothing.
+  /// so the reset runs before that account's first event. No record yet (F12,
+  /// TEL-18) or an unreadable one counts as a different account and resets; the
+  /// same uid again resets nothing.
   void _noteSignIn(String uid) {
     unawaited(
       _enqueue(() async {
-        final last = await _lastUid.read();
-        if (last != null && last != uid) {
+        String? last;
+        var readFailed = false;
+        try {
+          last = await _lastUid.read();
+        } catch (_) {
+          readFailed = true; // fail closed: reset below
+        }
+        if (readFailed || last != uid) {
           try {
             await _analytics.resetDevice();
           } catch (_) {
-            // Recorded below anyway; the next switch resets again.
+            // Never breaks sign-in; the uid is recorded below anyway.
+          }
+          try {
+            await _lastUid.write(uid);
+          } catch (_) {
+            // The next sign-in finds no record and resets again.
           }
         }
-        if (last != uid) await _lastUid.write(uid);
       }),
     );
   }
@@ -185,6 +196,9 @@ class TelemetryController {
     if (force || crash != _appliedCrash) {
       _appliedCrash = crash;
       _debugLog('telemetry: crash reports ${crash ? 'on' : 'off'}');
+      // ADR-0032 D3 step 1 (TEL-18, L-1): reports from before consent never
+      // upload. A no-op once native collection is on, so safe in every state.
+      if (crash) unawaited(_enqueue(_crash.deleteUnsentReports));
       unawaited(_enqueue(() => _crash.setCollecting(crash)));
       if (!crash) unawaited(_enqueue(_crash.deleteUnsentReports));
     }

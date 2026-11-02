@@ -213,6 +213,10 @@ void main() {
     test('A (opted in) to B (not): nothing of B is reported; B gets a '
         'fresh analytics ID first', () async {
       final rig = TelemetryE2eRig(database);
+      await database.writeSetting(
+        'telemetry_last_uid',
+        'a',
+      ); // not a first sign-in
       await rig.consent.setAll('a', {
         TelemetryKind.crash: ConsentChoice.on,
         TelemetryKind.usage: ConsentChoice.on,
@@ -241,6 +245,10 @@ void main() {
       'B opted in too: the reset runs before the first event of B',
       () async {
         final rig = TelemetryE2eRig(database);
+        await database.writeSetting(
+          'telemetry_last_uid',
+          'a',
+        ); // not a first sign-in
         for (final uid in ['a', 'b']) {
           await rig.consent.set(uid, TelemetryKind.usage, ConsentChoice.on);
         }
@@ -262,6 +270,7 @@ void main() {
 
     test('A signs in again after A: no reset', () async {
       final rig = TelemetryE2eRig(database);
+      await database.writeSetting('telemetry_last_uid', 'a'); // A is recorded
       await rig.consent.set('a', TelemetryKind.usage, ConsentChoice.on);
       await rig.launch(restoredUid: 'a');
       await rig.signOut();
@@ -320,8 +329,9 @@ void main() {
     });
 
     test('deleting while collection is off still resets, and the next '
-        'account on the device is a first sign-in (no second reset)', () async {
+        'account finds no record and resets (F12)', () async {
       final rig = TelemetryE2eRig(database);
+      await database.writeSetting('telemetry_last_uid', 'a');
       await rig.launch(restoredUid: 'a'); // never opted in, flags off
       await rig.deleteAccount('a');
       expect(rig.resets, 1);
@@ -332,7 +342,7 @@ void main() {
       await rig.getMe(_both);
       await rig.controller.logEvent(_post);
       await pumpEventQueue();
-      expect(rig.resets, 0);
+      expect(rig.resets, 1);
       expect(rig.usageLogs, 1);
       await rig.dispose();
     });

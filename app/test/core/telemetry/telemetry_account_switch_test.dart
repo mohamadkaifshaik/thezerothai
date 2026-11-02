@@ -66,28 +66,31 @@ void main() {
     expect(await rig.lastUid.read(), 'a');
   });
 
-  test('A, sign out, B, sign out, A: each change resets', () async {
+  test(
+    'A, sign out, B, sign out, A: no record at first, then each change resets',
+    () async {
+      final rig = _Rig();
+      await rig.controller.applyAtBootstrap(null);
+      rig.controller.onAuthChanged('a');
+      rig.controller.onAuthChanged(null);
+      rig.controller.onAuthChanged('b');
+      rig.controller.onAuthChanged(null);
+      rig.controller.onAuthChanged('a');
+      await pumpEventQueue();
+
+      // F12: A finds no record (reset 1), then B (2), then A again (3).
+      expect(rig.resets, 3);
+    },
+  );
+
+  test('first sign-in on a device (no record) resets once and records the '
+      'uid (F12)', () async {
     final rig = _Rig();
     await rig.controller.applyAtBootstrap(null);
     rig.controller.onAuthChanged('a');
-    rig.controller.onAuthChanged(null);
-    rig.controller.onAuthChanged('b');
-    rig.controller.onAuthChanged(null);
-    rig.controller.onAuthChanged('a');
     await pumpEventQueue();
 
-    // The first sign-in has no earlier account to differ from.
-    expect(rig.resets, 2);
-  });
-
-  test('first sign-in on a device (no record) resets nothing and records the '
-      'uid', () async {
-    final rig = _Rig();
-    await rig.controller.applyAtBootstrap(null);
-    rig.controller.onAuthChanged('a');
-    await pumpEventQueue();
-
-    expect(rig.resets, 0);
+    expect(rig.resets, 1);
     expect(await rig.lastUid.read(), 'a');
   });
 
@@ -136,19 +139,21 @@ void main() {
     },
   );
 
-  test('after A is deleted, B signing in is a first sign-in: no second '
-      'reset', () async {
-    final rig = _Rig(lastUid: 'a');
-    await rig.controller.applyAtBootstrap('a');
-    await rig.controller.forgetDevice('a');
-    rig.controller.onAuthChanged(null);
-    rig.log.clear();
+  test(
+    'after A is deleted, B signing in finds no record and resets (F12)',
+    () async {
+      final rig = _Rig(lastUid: 'a');
+      await rig.controller.applyAtBootstrap('a');
+      await rig.controller.forgetDevice('a');
+      rig.controller.onAuthChanged(null);
+      rig.log.clear();
 
-    rig.controller.onAuthChanged('b');
-    await pumpEventQueue();
+      rig.controller.onAuthChanged('b');
+      await pumpEventQueue();
 
-    expect(rig.resets, 0);
-  });
+      expect(rig.resets, 1);
+    },
+  );
 
   test('forgetDevice keeps another account\'s record', () async {
     final rig = _Rig(lastUid: 'b');
@@ -158,6 +163,8 @@ void main() {
     expect(await rig.lastUid.read(), 'b');
   });
 
+  _failClosedTests();
+
   test('a failing adapter never breaks sign-in or deletion', () async {
     final rig = _Rig(lastUid: 'a');
     final forget = TelemetryDeviceForget((uid) => throw StateError('boom'));
@@ -166,4 +173,101 @@ void main() {
     await pumpEventQueue();
     expect(await rig.lastUid.read(), 'b');
   });
+}
+
+class _ThrowingReadStore extends InMemoryTelemetryLastUidStore {
+  _ThrowingReadStore({this.failWrite = false});
+  final bool failWrite;
+
+  @override
+  Future<String?> read() async => throw StateError('unreadable');
+
+  @override
+  Future<void> write(String uid) async {
+    if (failWrite) throw StateError('unwritable');
+    await super.write(uid);
+  }
+}
+
+class _ThrowingResetAnalytics extends FakeUsageAnalytics {
+  _ThrowingResetAnalytics(super.calls);
+
+  @override
+  Future<void> resetDevice() async {
+    calls.add('usage.reset');
+    throw StateError('reset failed');
+  }
+}
+
+TelemetryController _controller(
+  CallLog log,
+  TelemetryLastUidStore store, {
+  bool resetFails = false,
+}) => TelemetryController(
+  adapters: TelemetryAdapters(
+    crash: FakeCrashReporter(log),
+    analytics: resetFails
+        ? _ThrowingResetAnalytics(log)
+        : FakeUsageAnalytics(log),
+  ),
+  platformSupported: true,
+  lastUid: store,
+  debugLog: (_) {},
+);
+
+void _failClosedTests() {
+  test('F12 fail closed: an unreadable record resets before the uid\'s first '
+      'event, then sign-in completes and the uid is recorded', () async {
+    final log = CallLog();
+    final store = _ThrowingReadStore();
+    final c = _controller(log, store);
+    await c.applyAtBootstrap(null);
+    log.clear();
+
+    c.onAuthChanged('a');
+    await c.logScreen('home');
+    await pumpEventQueue();
+
+    expect(log.calls.where((e) => e == 'usage.reset').length, 1);
+    expect(store.value, 'a');
+  });
+
+  test(
+    'F12: a failing reset and a failing write never break sign-in',
+    () async {
+      final log = CallLog();
+      final c = _controller(
+        log,
+        _ThrowingReadStore(failWrite: true),
+        resetFails: true,
+      );
+      await c.applyAtBootstrap(null);
+      c.onAuthChanged('a');
+      await pumpEventQueue();
+      expect(log.calls.where((e) => e == 'usage.reset').length, 1);
+      expect(c.crashCollecting, isFalse); // still working
+      c.onAuthChanged('b');
+      await pumpEventQueue();
+      expect(log.calls.where((e) => e == 'usage.reset').length, 2);
+    },
+  );
+
+  test(
+    'F12: A deleted with its reset failing, then B signing in resets',
+    () async {
+      final log = CallLog();
+      final store = InMemoryTelemetryLastUidStore('a');
+      final c = _controller(log, store, resetFails: true);
+      await c.applyAtBootstrap('a');
+      await c.forgetDevice('a'); // reset throws, swallowed; record cleared
+      c.onAuthChanged(null);
+      log.clear();
+
+      c.onAuthChanged('b');
+      await pumpEventQueue();
+
+      expect(log.calls.where((e) => e == 'usage.reset').length, 1);
+      expect(store.value, 'b');
+    },
+  );
 }
