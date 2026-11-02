@@ -362,7 +362,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Done (#633) |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Done (#634) |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Done (#636) |
-| W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | In review (#639) |
+| W5-29 | Platform levers: report target COMMUNITY; opsctl community suspend / restore; takedown appends `recentRemovals` (the LIST report target and `list hide|restore` moved to W5-44) | backend-developer | M | W5-23, W5-4, W5-28 | moderation module only | Done (#639) |
 | W5-30 | Client data layer B: `CommunitiesRepository`, `FeedKey.community`, `kFeatureCommunities` | frontend-developer | S | W5-22 | after W5-10 (`feed_key.dart`) | Done (#599) |
 | W5-31 | Communities screen `/communities` (My Communities + directory) and Create community | frontend-developer | M | W5-30 | shell nav files after W5-11 | Done (#616) |
 | W5-32 | Community page `/communities/:id`: header, Join / Joined, Posts, About | frontend-developer | M | W5-30 | yes | Done (#616) |
@@ -1193,7 +1193,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - Hide / Restore: 5 / 4 reads, 3 writes (+1 on the actor's first entry);
     - SetMemberRole: 7 / 6 reads, ≤ 5 writes.
 
-### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: In review (#639)
+### W5-29 — Platform levers  [owner: backend-developer] [size: M] [depends: W5-23, W5-4, W5-28]  Status: Done (#639)
 - **Description.**
   - `ReportContent` accepts the COMMUNITY target (the LIST target shipped in W5-44). The target owner is the community owner. The evidence snapshot holds the name, description and rules text. Quota `reports` as today.
   - Opsctl:
@@ -1221,7 +1221,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - `opsctl community suspend|restore|archive` over `communities.Platform` (field-level `Update`, never `Set`); `--report` on suspend only. Archive refuses a SUSPENDED community and has no undo (N10).
   - `takedown-post` and `suspend-user` append through `communities.PlatformRemovals.Append(cid, postIDs, at, limit)` (batch form, N10); `posts.ModerationResult.CommunityID` and `ModerationCheckpoint.PageCommunityPosts` carry the ids at no extra read.
   - Runbooks: `communities.md` section 6 and `moderation.md`. `lists.md` needed no change (W5-44).
-  - Open: the `removed_ids` end-to-end assertion through `GetCommunityTimeline` follows once #634 (W5-27) is on main.
+  - Moved to W5-36: the end-to-end test of acceptance 3 (a takedown, then `removed_ids` on the next `GetCommunityTimeline` refresh). Tests cover each half: the takedown append here (`TestTakedownAndSuspend_Integration_CommunityRemovals`) and `removed_ids` in W5-27 (`community_feed_test.go`).
 
 ### W5-30 — Client data layer B  [owner: frontend-developer] [size: S] [depends: W5-22]  Status: Done (#599)
 - **Description.**
@@ -1356,7 +1356,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
   - counters under a join burst (`ABORTED` metric);
   - the eraser hand-over and archive;
   - the export and residue sweep;
-  - report targets and opsctl suspension.
+  - report targets and opsctl suspension, including W5-29 acceptance 3 end to end (`takedown-post` of a community post, then the next `GetCommunityTimeline` refresh lists it in `removed_ids`) and a suspension mid-pagination.
 
   Coverage on `internal/` stays at 70 % or more.
 - **Acceptance criteria.** Every acceptance criterion in W5-23 to W5-29 has a named test; `make test-int` is green.
