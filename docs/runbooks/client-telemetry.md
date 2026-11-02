@@ -96,7 +96,7 @@ At every Firebase BoM bump (Dependabot PR for `app/android`, or any manual one),
 2. Dump the merged permissions:
    `%LOCALAPPDATA%/Android/Sdk/build-tools/36.1.0/aapt2.exe dump permissions app/build/app/outputs/flutter-apk/app-release.apk`
    (In Git Bash: `"$LOCALAPPDATA/Android/Sdk/build-tools/36.1.0/aapt2.exe" dump permissions <apk>`.)
-3. Compare with the baseline: the permission list recorded in TEL-17's PR.
+3. Compare with the baseline: the permission list recorded in TEL-17's PR #648.
 4. A permission **not in the baseline blocks the release**. Remove it with `<uses-permission android:name="..." tools:node="remove"/>` next to the existing lines in the app manifest, or declare it in TEL-13's forms (Play Data safety, privacy policy) if we mean to keep it. Rebuild and dump again.
 5. Record the new list as the next baseline (in the BoM PR body, and the TEL-9 report's permission line).
 6. A permission that is in the baseline and gone is fine; note it.

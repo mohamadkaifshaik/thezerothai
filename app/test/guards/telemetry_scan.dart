@@ -73,15 +73,40 @@ Map<String, String> plistBooleans(String plist) => {
     m.group(1)!: m.group(2)!,
 };
 
-/// True when the manifest (comments ignored) removes the advertising-ID
-/// permission, and false for any other use of it.
-bool removesAdId(String manifest) {
-  final uses = RegExp(
-    r'<uses-permission\b[^>]*com\.google\.android\.gms\.permission\.AD_ID[^>]*>',
-  ).allMatches(stripXmlComments(manifest)).map((m) => m.group(0)!).toList();
+/// The advertising permissions the Analytics SDK declares and the merged
+/// manifest must not contain (TEL-3, TEL-17).
+const List<String> adPermissions = [
+  'com.google.android.gms.permission.AD_ID',
+  'android.permission.ACCESS_ADSERVICES_AD_ID',
+  'android.permission.ACCESS_ADSERVICES_ATTRIBUTION',
+];
+
+/// `<uses-permission>` tags (comments ignored) that name [permission] exactly.
+List<String> _usesOf(String manifest, String permission) => [
+  for (final m in RegExp(
+    r'<uses-permission\b[^>]*>',
+  ).allMatches(stripXmlComments(manifest)))
+    if (m.group(0)!.contains('"$permission"')) m.group(0)!,
+];
+
+/// True when the SOURCE manifest (comments ignored) removes [permission] with
+/// `tools:node="remove"` and declares it in no other way. It does not read the
+/// merged manifest; that is checked on the built APK (TEL-17).
+bool removesPermission(String manifest, String permission) {
+  final uses = _usesOf(manifest, permission);
   return uses.isNotEmpty &&
       uses.every((t) => t.contains('tools:node="remove"'));
 }
+
+/// True when the source manifest removes all of [adPermissions].
+bool removesAdPermissions(String manifest) =>
+    adPermissions.every((p) => removesPermission(manifest, p));
+
+/// True when [manifest] mentions none of [adPermissions], or only to remove
+/// it (the debug and profile manifests must not add one back).
+bool addsNoAdPermission(String manifest) => adPermissions.every(
+  (p) => _usesOf(manifest, p).isEmpty || removesPermission(manifest, p),
+);
 
 /// Every `Content-Security-Policy` header value in a decoded `firebase.json`,
 /// whatever the nesting (`hosting` may be a map or a list).
