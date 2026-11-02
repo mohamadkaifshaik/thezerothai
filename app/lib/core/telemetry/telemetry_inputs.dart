@@ -111,3 +111,54 @@ class DatabaseTelemetryFlagMemory implements TelemetryFlagMemory {
   @override
   Future<void> forget(String uid) => _database.deleteSetting(key(uid));
 }
+
+/// The uid that last signed in on this device (F11 / TEL-8), so the controller
+/// can tell "a different account" from "the same account again" across
+/// launches. Device-level, one value.
+abstract interface class TelemetryLastUidStore {
+  Future<String?> read();
+  Future<void> write(String uid);
+
+  /// Drops the record when it still names [uid] (the account was deleted).
+  Future<void> forget(String uid);
+}
+
+/// In-memory store, for tests.
+class InMemoryTelemetryLastUidStore implements TelemetryLastUidStore {
+  InMemoryTelemetryLastUidStore([this.value]);
+
+  String? value;
+
+  @override
+  Future<String?> read() async => value;
+
+  @override
+  Future<void> write(String uid) async => value = uid;
+
+  @override
+  Future<void> forget(String uid) async {
+    if (value == uid) value = null;
+  }
+}
+
+/// Keeps the last uid in `AppSettingEntries` under `telemetry_last_uid`. 0 RPCs.
+class DatabaseTelemetryLastUidStore implements TelemetryLastUidStore {
+  DatabaseTelemetryLastUidStore(this._database);
+
+  final AppDatabase _database;
+
+  static const key = 'telemetry_last_uid';
+
+  @override
+  Future<String?> read() => _database.readSetting(key);
+
+  @override
+  Future<void> write(String uid) => _database.writeSetting(key, uid);
+
+  @override
+  Future<void> forget(String uid) async {
+    if (await _database.readSetting(key) == uid) {
+      await _database.deleteSetting(key);
+    }
+  }
+}

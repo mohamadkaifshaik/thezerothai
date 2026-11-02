@@ -113,14 +113,16 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		Poll:         pollInputOf(m.GetPoll()),
 		PollsEnabled: s.pollsEnabled(uid),
 
-		CommunityID:        m.GetCommunityId(),
-		CommunitiesEnabled: s.communitiesEnabled(uid),
+		CommunityID:            m.GetCommunityId(),
+		CommunitiesEnabled:     s.communitiesEnabled(uid),
+		CommunitiesGloballyOff: s.communitiesGloballyOff(),
 	})
 	if err != nil {
 		return nil, err
 	}
 	view := &postsv1.PostView{Post: ToProtoForViewer(post, uid)}
-	if h, ok := s.svc.(VisibilityHinter); ok { // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
+	view.Post.Community = communityRef(post, false) // the creator just passed the community gate: the flag is on for them
+	if h, ok := s.svc.(VisibilityHinter); ok {      // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
 		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
 	}
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
@@ -155,7 +157,9 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 // cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (ADR-0018 D5, ADR-0023 D5: with only
 // bookmarks on just bookmarked_by_viewer is set), else they are false and nothing is read.
 // viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
-// a reply in a restricted conversation is UNKNOWN. Never flag-gated.
+// a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation (ADR-0031 A7) is NOT_ALLOWED for a
+// viewer who is not a JOINED member: +1 read cold (the member doc), +0 warm, skipped while communities is globally off. PostView.post.community
+// (the label) is decided by ToView: absent when hidden or when communities is globally off. The community hint adds +1 read cold over the budget above (a community conversation has the EVERYONE policy, so it never adds to the FOLLOWING read), 0 writes.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -174,6 +178,9 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	v := ToView(post, vs, uid)
 	if h, ok := s.svc.(ReplyHinter); ok {
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
+	}
+	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7): NOT_ALLOWED, or UNKNOWN when the lookup failed; never loosens
+		v.ViewerReplyPermission = perm
 	}
 	if h, ok := s.svc.(EmbedHinter); ok {
 		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // 0 reads without an embed, else the cached graph; PROTECTED strips the copy
@@ -230,6 +237,31 @@ func (s *Server) communitiesEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, CommunitiesFlagName)
 }
 
+// communitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch). A checker that cannot tell (no GloballyOff) is "not off":
+// the label and the reply gate stay as stored, which only matters in tests.
+func (s *Server) communitiesGloballyOff() bool {
+	g, ok := s.flags.(GloballyOffChecker)
+	return ok && g.GloballyOff(CommunitiesFlagName)
+}
+
+// CommunityReplyHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the members-only viewer hint of a
+// community conversation (ADR-0031 A7). GetPost and GetThread ask it only while communities is not globally off; +1 read cold, +0 warm.
+type CommunityReplyHinter interface {
+	CommunityReplyPermission(ctx context.Context, viewer string, p *Post) (postsv1.ReplyPermission, bool)
+}
+
+// communityReplyHint overrides v.ViewerReplyPermission with the members-only hint when p's conversation is a community's and the lookup said something.
+func (s *Server) communityReplyHint(ctx context.Context, viewer string, p *Post, vs ViewerSet) (postsv1.ReplyPermission, bool) {
+	if vs.communitiesOff {
+		return 0, false
+	}
+	h, ok := s.svc.(CommunityReplyHinter)
+	if !ok {
+		return 0, false
+	}
+	return h.CommunityReplyPermission(ctx, viewer, p)
+}
+
 // ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE (ADR-0021 D2). It gates only SETTING a reply
 // policy on CreatePost; enforcing a stored policy and the viewer hint never consult it, so switching it off cannot
 // reopen a restricted conversation.
@@ -284,9 +316,13 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 		return nil, err
 	}
 	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
+	replyPerm := t.ReplyPermission
+	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7); +1 read cold
+		replyPerm = perm
+	}
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row
 		v := ToView(p, vs, uid)
-		v.ViewerReplyPermission = t.ReplyPermission
+		v.ViewerReplyPermission = replyPerm
 		if h, ok := s.svc.(EmbedHinter); ok {
 			ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, p))
 		}

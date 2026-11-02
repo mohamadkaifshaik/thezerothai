@@ -10,8 +10,10 @@
 // server_rpcs.go); and the lifecycle (W5-24: purge.go, the `communities` eraser step and export section, registered in
 // apiserver/lifecycle_communities.go, with the T11 rows). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go)
 // fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR; join, leave
-// and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). Still to come: the directory
-// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam), posting and the post fields (W5-26), the feed (W5-27, in the timeline module) and moderation (W5-28).
+// and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
+// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
+// (W5-26 and W5-26b: gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
+// Still to come: the feed (W5-27, in the timeline module) and moderation (W5-28).
 package communities
 
 import (
@@ -52,7 +54,7 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 
 // Reader is the read seam other modules and the handlers use (ADR-0031 D1): everything cached on this instance for at most 60 s (D12), so
 // a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline (W5-27),
-// posts' CommunityGate (W5-26) and moderation reach communities through it; *service implements it, next to Service.
+// posts' CommunityGate (W5-26; its member lookups use the cached MemberState, W5-26b) and moderation reach communities through it; *service implements it, next to Service.
 type Reader interface {
 	// Get is the cache-first community document: 0 reads warm, 1 cold (charged when the document is missing too, and a missing one is
 	// remembered for 60 s). ErrNotFound for a missing document. It does not apply the SUSPENDED rule: a caller that answers NOT_FOUND for

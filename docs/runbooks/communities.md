@@ -133,14 +133,42 @@ CreatePost: **+2 reads cold / +1 warm, +0 writes** (pinned by `TestCommunityPost
 | `RATE_LIMITED limit=community_posts_per_community_daily` | 20 posts per community per user per IST day per instance (`COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY`; effective x max-instances). The cap is drawn inside the transaction after the quota check, once per call: a refusal and a replay are not charged, a transaction retry is not charged twice, a commit that fails after the draw is | Wait for IST midnight; tune only with abuse numbers |
 | `QUOTA_EXCEEDED quota=community_posts` | 50 a day (10 for a new account), counted in `quotas.communityPosts` on top of `posts`; a refusal charges neither | Wait for IST midnight |
 | `PROTECTED_ACCOUNT` on a post | A protected caller cannot post into a public community (F6), 0 reads | Intended |
-| A reply in a community conversation is not gated yet | W5-26 only copies `conversationCommunityId` into replies (+0 reads); the members-only reply gate is W5-26b | Until W5-26b the flag stays off |
+| `FORBIDDEN reason=not_member` on a reply | W5-26b: the parent's `conversationCommunityId` names a community the caller has not JOINED (a banned user gets the same answer), from the 60 s member cache | Intended; see section 4d |
 
 `posts.Reader.ByCommunity` (the W5-27 feed's query) is `communityId == C ORDER BY __name__ DESC` with id-bound windows, on the automatic
 single-field index (proven on dev, ADR-0031 D3). If Firestore ever answers `FAILED_PRECONDITION "requires an index"` for it, **stop**: the
 fallback is the founder-gated composite `posts (communityId ASC, createdAt DESC)`; do not route it through `FirestoreRepo.run()`. The emulator
 does not enforce indexes, so only the dev smoke (W5-40: F1, F2b, F3b on real posts) proves it.
 
-## 4d. The community feed and the COMMUNITY Home tab (W5-27)
+## 4d. Members-only replies and the label kill switch (W5-26b)
+
+A reply whose parent carries `conversationCommunityId` (every reply inherits it; a hidden root keeps it) runs `CommunityGate.CanReply` in
+`posts.Create`, after the block and ADR-0021 reply-policy rules and before the transaction: the community status (SUSPENDED or missing is the one
+NOT_FOUND, ARCHIVED is `COMMUNITY_STATE community_archived`) and the caller's member doc, both from the 60 s caches. Not JOINED, and BANNED, is
+`FORBIDDEN reason=not_member`, 0 writes. Cost over the same reply in a plain conversation: **+2 reads cold / +0 warm, +0 writes** (pinned by
+`TestCommunityReply_MembersOnlyAndBudget`); a reply to a non-community post is unchanged. A ban or leave on another instance reaches the reply path
+within 60 s (posting, unlike replying, reads the member doc fresh).
+
+Request-line field `community_reply_gate` (replies into a community conversation only): `admitted`, `rejected:not_member`, `rejected:state`,
+`error`. `error` is a failed status or member read, returned as a wrapped Internal error that Error Reporting groups (no ids in the message).
+
+`viewer_reply_permission` (ADR-0031 A7, no new enum value): GetPost and GetThread answer `NOT_ALLOWED` for a viewer who is not a JOINED member of the
+conversation's community (+1 read cold for the member doc, +0 warm; a failed lookup is UNKNOWN). Home, profile, list, search and
+bookmark rows keep the ordinary answer, 0 reads.
+
+**The label kill switch.** `PostView.post.community` is decided only in `posts.ToView` (`communityRef`): present when the post carries `community`,
+`communityHidden` is absent and `FEATURE_COMMUNITIES` is not globally off (mode `off` only; an allowlist or percent rollout is not the kill switch).
+With the flag globally off, replies are not gated either (`CreateInput.CommunitiesGloballyOff`) and GetPost and GetThread skip the member read:
+community posts behave as ordinary posts. Turning the flag back on needs no data change.
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| A new member cannot reply right after joining | The serving instance's member cache (60 s) still says "not a member" | Wait up to 60 s; the join refreshes the joining instance at once |
+| A hidden post still blocks non-members from replying | By design: `conversationCommunityId` survives a hide | Intended |
+| Community labels vanish everywhere | `FEATURE_COMMUNITIES=off` (the kill switch) | Intended; set the flag back to `on`, `allowlist` or `percent` |
+| `community_reply_gate=error` spike | A failed Firestore read of the community or member doc | Check Firestore health; replies into community conversations fail closed, all other replies are unaffected |
+
+## 4e. The community feed and the COMMUNITY Home tab (W5-27)
 
 `TimelineService.GetCommunityTimeline` (`backend/internal/timeline/service_community.go`) reads a **shared per-community entry** (the newest 30
 posts, one per community per instance, `CACHE_COMMUNITY_FEED_ENTRIES` 100) for cold opens and `since` refreshes, and `posts.Reader.ByCommunity`

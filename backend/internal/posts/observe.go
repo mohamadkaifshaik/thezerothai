@@ -15,19 +15,20 @@ import (
 // Request-log fields for CreatePost (ADR-0010 D20). They ride on the mw.Logging line; every value is an enum, a
 // count or a boolean. Never log text, handles, hashtags, mention lists or uids.
 const (
-	fieldOp               = "posts_op"
-	fieldOutcome          = "outcome"
-	fieldMentionsResolved = "mentions_resolved"
-	fieldMentionsDropped  = "mentions_dropped"
-	fieldMentionsInURL    = "mentions_in_url"
-	fieldHashtagsCount    = "hashtags_count"
-	fieldTextLen          = "text_len"
-	fieldTxnAttempts      = "txn_attempts"
-	fieldFeature          = "feature"
-	fieldHasPoll          = "has_poll"
-	fieldCommunityRefused = "community_refused" // flag_off or not_wired; a set community_id only, never the id
-	fieldCommunityPost    = "community_post"    // bool: this CreatePost carries a community_id (ADR-0031 D13), never the id
-	fieldCommunityGate    = "community_gate"    // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:quota, rejected:cap
+	fieldOp                 = "posts_op"
+	fieldOutcome            = "outcome"
+	fieldMentionsResolved   = "mentions_resolved"
+	fieldMentionsDropped    = "mentions_dropped"
+	fieldMentionsInURL      = "mentions_in_url"
+	fieldHashtagsCount      = "hashtags_count"
+	fieldTextLen            = "text_len"
+	fieldTxnAttempts        = "txn_attempts"
+	fieldFeature            = "feature"
+	fieldHasPoll            = "has_poll"
+	fieldCommunityRefused   = "community_refused"    // flag_off or not_wired; a set community_id only, never the id
+	fieldCommunityPost      = "community_post"       // bool: this CreatePost carries a community_id (ADR-0031 D13), never the id
+	fieldCommunityGate      = "community_gate"       // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:quota, rejected:cap
+	fieldCommunityReplyGate = "community_reply_gate" // outcome enum of the members-only reply check (ADR-0031 D5): admitted, rejected:not_member, rejected:state, error
 )
 
 // outcomes of CreatePost (posts_op=create).

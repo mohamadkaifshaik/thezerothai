@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
@@ -34,6 +35,15 @@ type CommunityGate interface {
 	// AllowPost draws one unit of the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY, per instance, IST
 	// day): RATE_LIMITED limit=community_posts_per_community_daily when spent. Memory only, 0 reads.
 	AllowPost(ctx context.Context, uid, cid string) error
+
+	// CanReply is the members-only reply rule (ADR-0031 D5, F8; W5-26b), run by Create for a reply whose parent carries a
+	// conversationCommunityId. It checks the community status from the 60 s cache (SUSPENDED or missing is the one NOT_FOUND, ARCHIVED is
+	// community_archived) and then the caller's member doc from the 60 s cache: not JOINED, and BANNED, is FORBIDDEN reason=not_member.
+	// +2 reads cold, +0 warm; staleness bound 60 s, so a ban or leave on another instance reaches this path within a minute. 0 writes.
+	CanReply(ctx context.Context, uid, cid string) error
+	// IsMember reports whether uid is JOINED in cid, from the same 60 s member cache and without loading the community document (+1 read
+	// cold, +0 warm): the viewer_reply_permission hint of GetPost and GetThread (A7). An error is not a refusal; the caller reports UNKNOWN.
+	IsMember(ctx context.Context, uid, cid string) (bool, error)
 }
 
 // Gate outcomes on the request line (`community_gate`, ADR-0031 D13): enums only.
@@ -44,6 +54,12 @@ const (
 	gateNotMember = "rejected:forbidden"
 	gateQuota     = "rejected:quota"
 	gateCap       = "rejected:cap"
+
+	// Reply-gate outcomes (`community_reply_gate`, W5-26b): enums only.
+	replyGateAdmitted  = "admitted"
+	replyGateNotMember = "rejected:not_member"
+	replyGateState     = "rejected:state" // missing, suspended or archived community
+	replyGateError     = "error"
 )
 
 // zeroPostID is the all-zero sentinel id (ADR-0010 D13): the timeline's settle watermark is a position (W, zeroID).
@@ -157,4 +173,56 @@ func noteCommunityGateError(ctx context.Context, err error) {
 	case commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED:
 		logger.SetRequestField(ctx, fieldCommunityGate, gateCap)
 	}
+}
+
+// gateReply is the members-only reply check (ADR-0031 D5, F8) for a reply whose parent is in a community conversation. It keys on the
+// parent's conversationCommunityId, which every reply inherits, so a reply to a reply never loads the root and a hidden root (no
+// communityId) stays members-only. It runs after the reply-policy rules, so blocks and ADR-0021 refusals answer first. Reads: +2 cold
+// (community status, member doc, both 60 s caches), +0 warm; a conversation outside a community, communities globally off and an
+// unwired gate skip it with 0 reads. A refusal writes nothing.
+func (s *service) gateReply(ctx context.Context, uid string, parent *Post, off bool) error {
+	cid := parent.ConversationCommunityID
+	if cid == "" || off || s.community == nil {
+		return nil
+	}
+	err := s.community.CanReply(ctx, uid, cid)
+	switch {
+	case err == nil:
+		logger.SetRequestField(ctx, fieldCommunityReplyGate, replyGateAdmitted)
+		return nil
+	case isForbiddenReason(err):
+		logger.SetRequestField(ctx, fieldCommunityReplyGate, replyGateNotMember)
+		return err
+	}
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		logger.SetRequestField(ctx, fieldCommunityReplyGate, replyGateState)
+		return err
+	}
+	logger.SetRequestField(ctx, fieldCommunityReplyGate, replyGateError)
+	return logger.RedactErr(fmt.Errorf("posts: community reply gate: %w", err), uid)
+}
+
+func isForbiddenReason(err error) bool {
+	var ae *apierr.Error
+	return errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_FORBIDDEN
+}
+
+// CommunityReplyPermission is the viewer hint for a post whose conversation carries a conversationCommunityId (ADR-0031 A7, no new enum
+// value): NOT_ALLOWED for a viewer who is not a JOINED member, ALLOWED for a member. known is false (nothing to say) for a post outside a
+// community conversation or when the lookup fails, and the caller keeps the answer it had. +1 read cold (the member doc), +0 warm. A
+// hidden root keeps its conversation members-only. Implements CommunityReplyHinter; the caller never asks while communities is globally off.
+func (s *service) CommunityReplyPermission(ctx context.Context, viewer string, p *Post) (perm postsv1.ReplyPermission, known bool) {
+	cid := p.ConversationCommunityID
+	if cid == "" || s.community == nil || viewer == "" {
+		return postsv1.ReplyPermission_REPLY_PERMISSION_UNSPECIFIED, false
+	}
+	ok, err := s.community.IsMember(ctx, viewer, cid)
+	if err != nil {
+		return postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN, true
+	}
+	if ok {
+		return postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED, true
+	}
+	return postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED, true
 }

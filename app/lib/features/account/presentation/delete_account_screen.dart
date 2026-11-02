@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/telemetry/telemetry_device_forget.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../auth/data/auth_repository.dart';
@@ -79,6 +80,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
   // listener below can fire after the user is already gone).
   late final String? _uid;
   late final PushOptInStore _optInStore;
+  late final TelemetryDeviceForget _telemetryForget;
   late final DraftsRepository _drafts;
   late final UnexpectedErrorReporter _reportUnexpected;
 
@@ -87,6 +89,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     super.initState();
     _uid = context.read<AuthBloc>().state.user?.uid;
     _optInStore = context.read<PushOptInStore>();
+    _telemetryForget = TelemetryForgetScope.of(context);
     _drafts = context.read<DraftsRepository>();
     _reportUnexpected = context.read<UnexpectedErrorReporter>();
     _cubit = AccountCubit(
@@ -139,6 +142,9 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     } catch (error, stack) {
       _reportUnexpected.call(error, stack);
     }
+    // TEL-8: consent keys, unsent crash reports and the analytics ID of this
+    // device go with the account (never throws).
+    await _telemetryForget.call(uid);
   }
 
   @override

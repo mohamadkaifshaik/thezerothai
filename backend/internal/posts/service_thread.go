@@ -111,6 +111,8 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 // The viewer_reply_permission hint (ADR-0021 D2) adds <= +1 cold (R's author graph, FOLLOWING conversations only;
 // +0 warm, +0 for EVERYONE / MENTIONED_ONLY / the root author): 39 cold, 41 for a REPOST focal. A QUOTE or REPOST parent or root is
 // checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
+// A community conversation (ADR-0031 A7, W5-26b) adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
+// read), +0 warm: 40 cold, 42 for a REPOST focal. The handler applies it (communityReplyHint); GetThread itself does not know the flag.
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
 	defer func() {
