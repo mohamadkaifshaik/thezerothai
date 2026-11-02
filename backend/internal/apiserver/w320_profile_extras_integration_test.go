@@ -181,8 +181,8 @@ func TestW320_SharedProfileTextOverTheWire(t *testing.T) {
 		})
 	}
 	t.Logf("shared profile text over the wire: %d accepted rows, %d rejected rows", accepted, rejected)
-	if accepted != 61 || rejected != 126 {
-		t.Errorf("ran %d accept and %d reject rows; the fixture at W3-22 L-2/L-3 holds 61 and 126 (a fixture change must update this count on purpose)", accepted, rejected)
+	if accepted != 69 || rejected != 142 {
+		t.Errorf("ran %d accept and %d reject rows; the fixture at W3-22 L-2/L-3 holds 69 and 142 (W5-55 added 8 and 16 bio rows) (a fixture change must update this count on purpose)", accepted, rejected)
 	}
 }
 
