@@ -149,7 +149,7 @@ Method: `free-tier-budget` §2, and the margin method of `docs/reviews/cost-mode
 ## Abuse & security surface
 - **New public reads or writes on our API:** none. No endpoint, nothing to scrape or enumerate.
 - **New outbound flow:** device → Google (Crashlytics and Analytics endpoints), after consent only. TEL-9 proves "nothing before consent" with a network trace of a release-mode Android build.
-- **Personal data in crash reports:** F6 rules, plus canary tests for each leaky type (TEL-5): `NoSuchMethodError` prints `Receiver: <value>`; `ArgumentError.value` and `RangeError` print the value; `FormatException` from `jsonDecode` includes the source text; `PlatformException` can carry file paths; `FlutterErrorDetails.context` can render `Text("<data>")`; `ConnectException` messages come from the server.
+- **Personal data in crash reports:** F6 rules, plus canary tests for each leaky type (TEL-5): `NoSuchMethodError` prints `Receiver: <value>`; `ArgumentError.value` and `RangeError` print the value; `FormatException` from `jsonDecode` includes the source text; `PlatformException` can carry file paths; `FlutterErrorDetails.context` can render `Text("<data>")`; `ConnectException` messages come from the server. These rules cover Dart errors only. An uncaught Java or Kotlin exception in Android's own code carries its own message to Crashlytics, not scrubbed, which can include a file name (ADR-0032 note 2026-11-02, TEL-10 L-3, TEL-19).
 - **Linkability to accounts:**
   - no user id, no user properties, no flag list in custom keys (F3, F6);
   - the server stores an FCM token per uid (`deviceTokens`), and FCM tokens are issued per Firebase installation, so TEL-10 confirms that no Crashlytics or Analytics identifier can be joined to them;
@@ -724,7 +724,7 @@ The AAB `project_id` check runs on the first staged tag; the re-check with the r
 ## Risks
 | Risk | Mitigation |
 |---|---|
-| User text or ids leak through exception messages or Flutter error context | F6: no message by default; no `context` or `informationCollector`; scrubber; canaries per leaky type (TEL-5, TEL-9); TEL-10 |
+| User text or ids leak through exception messages or Flutter error context | F6: no message by default; no `context` or `informationCollector`; scrubber; canaries per leaky type (TEL-5, TEL-9); TEL-10. Dart errors only: a native (Java or Kotlin) crash's message is not scrubbed, so the policy discloses it, and TEL-9 Part B trace (b) checks what it carries (ADR-0032 note 2026-11-02, TEL-19) |
 | Data becomes linkable to accounts (custom keys, flag lists, FCM tokens, a shared device) | F3, F6, F11; the TEL-9 guards; the TEL-10 join check |
 | Something is collected before consent (native auto-init, persisted enable, cached reports) | the off keys, the bootstrap re-apply, `deleteUnsentReports` on every "off", network traces in TEL-3 and TEL-9 |
 | `firebase_analytics_collection_deactivated` used by mistake makes Analytics impossible to turn on | A5; the TEL-3 key list; the TEL-9 manifest guard |
