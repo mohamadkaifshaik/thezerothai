@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -88,6 +89,9 @@ type backends struct {
 	trends search.TrendsStore
 	// lists serves `lists hide|restore` (plan W5-44, security review W5-17 M-4): the lists module's platform hide of one list.
 	lists lists.Moderator
+	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user (ADR-0031 D14, plan W5-29).
+	communities communities.Platform
+	removals    communities.PlatformRemovals
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
@@ -119,7 +123,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})
 	postsRepo.SetRepostLinks(engagement.NewFirestoreRepo(client, engagement.WriteDeps{}))
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
-	msgRepo := messaging.NewFirestoreRepo(client, nil) // takedown and the placeholder migration: no quota store needed
+	communitiesRepo := communities.NewFirestoreRepo(client, nil) // the platform levers need no idempotency or quota store
+	msgRepo := messaging.NewFirestoreRepo(client, nil)           // takedown and the placeholder migration: no quota store needed
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -159,6 +164,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		profiles:      identityRepo,
 		trends:        search.NewTrendsRepo(client),
 		lists:         lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
+		communities:   communitiesRepo,
+		removals:      communitiesRepo,
 		retire:        retire,
 		retireMode:    retireMode,
 		retireErr:     retireErr,
@@ -180,7 +187,7 @@ const usage = `usage:
                           (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md.
                           A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
-` + modUsage + trendsUsage + listsUsage
+` + modUsage + trendsUsage + listsUsage + communityUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -193,24 +200,24 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore: print counts or the plan, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, community suspend|restore|archive: print counts|restore: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media: resume after this post id (the checkpoint a capped run printed)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
-	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide: also resolve this report id")
+	fs.StringVar(&ma.report, "report", "", "takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, community suspend: also resolve this report id")
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
-	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide: resolution note")
+	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, community suspend: resolution note")
 	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends", "polls", "lists":
+		"messages", "trends", "polls", "lists", "community":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -219,7 +226,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	// the message to take down) are the first positional arguments. They come off before the flags are parsed, so --project
 	// and --dry-run may follow them.
 	sub, msgTarget := "", ""
-	if (cmd == "reports" || cmd == "messages" || cmd == "trends" || cmd == "polls" || cmd == "lists") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+	if (cmd == "reports" || cmd == "messages" || cmd == "trends" || cmd == "polls" || cmd == "lists" || cmd == "community") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		sub, rest = rest[0], rest[1:]
 	}
 	if cmd == "polls" {
@@ -245,6 +252,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if cmd == "lists" && (sub == "hide" || sub == "restore") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
 		listID, rest = rest[0], rest[1:]
 	}
+	var communityID string
+	if cmd == "community" && (sub == "suspend" || sub == "restore" || sub == "archive") && len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		communityID, rest = rest[0], rest[1:]
+	}
 	if cmd == "messages" && sub != "takedown" && sub != "loghash" && sub != "migrate-placeholder" { // before the flags: a stray positional would otherwise be reported instead
 		fmt.Fprintf(errOut, "messages needs a sub-command: takedown, loghash or migrate-placeholder\n%s", usage)
 		return 2
@@ -261,7 +272,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	ma.dryRun = *dryRun
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "community" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -303,6 +314,12 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 			return 2
 		}
 	}
+	if cmd == "community" {
+		if err := parseCommunityArgs(sub, communityID, ma); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
+	}
 	var msgConvID, msgID string
 	if cmd == "messages" {
 		var err error
@@ -332,7 +349,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages" && cmd != "trends" && cmd != "lists"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "community"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -374,6 +391,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = trendsCommand(ctx, b, *project, sub, trendTag, out, now)
 	case "lists":
 		err = listsCommand(ctx, b, *project, sub, listID, ma, out, now)
+	case "community":
+		err = communityCommand(ctx, b, *project, sub, communityID, ma, out, now)
 	case "reports":
 		err = reportsCommand(ctx, b, sub, ma, out, now)
 	case "takedown-post":

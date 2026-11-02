@@ -117,6 +117,11 @@ type Evidence struct {
 	// handle and PostCreatedAt the list's creation time. No member id is copied. Empty for every other report.
 	ListName        string
 	ListDescription string
+	// COMMUNITY reports only (ADR-0031 D14, plan W5-29): the community's public text as the reporter saw it. AuthorHandle holds the owner's
+	// handle (empty when archived) and PostCreatedAt the community's creation time. No member or moderator id is copied. Empty for every other report.
+	CommunityName        string
+	CommunityDescription string
+	CommunityRules       []CommunityRule
 	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string
@@ -165,7 +170,7 @@ type Service interface {
 	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
 	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
 	// cold and 3 warm for a MESSAGE. LIST (plan W5-44): list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
-	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. Writes 2 (report, quotas); a repeat writes 0.
+	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY (ADR-0031 D14, W5-29): community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 
