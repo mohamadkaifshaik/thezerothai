@@ -13,7 +13,7 @@
 // and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
 // and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
 // (W5-26 and W5-26b: gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
-// Still to come: the feed (W5-27, in the timeline module) and moderation (W5-28).
+// The feed (W5-27: timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (W5-28: service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator, ADR-0031 N9: communities never imports posts) are built.
 package communities
 
 import (
