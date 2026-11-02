@@ -50,6 +50,7 @@ type Repo interface {
 	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
 	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
+	// A community post (p.Community) adds 1 read, the member doc read fresh in the transaction, and 0 writes.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	// DeleteOwn deletes posts/{id} and decrements the author's postsCount in one batch, with an Exists
 	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete

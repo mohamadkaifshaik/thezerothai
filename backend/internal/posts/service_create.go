@@ -41,8 +41,11 @@ import (
 // the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
 // nothing.
 //
-// Community (ADR-0031 D5, W5-22): a set community_id is FEATURE_DISABLED feature=communities, 0 reads and 0 writes, whatever the flag
-// says (see CreateInput.CommunityID); W5-26 replaces the refusal for a caller inside the flag with posts.CommunityGate.
+// Community (ADR-0031 D5, W5-26): a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
+// FEATURE_DISABLED feature=communities, 0 reads, 0 writes. Otherwise the shape is validated (0 reads), a protected caller is refused (0
+// reads), and the gate runs: +2 reads cold (community via the 60 s cache, member doc read fresh inside the transaction) / +1 warm over a
+// plain post, +0 writes (quotas.communityPosts rides the one quota Set). Every refusal (not a member, banned, archived, quota, per-community
+// cap) writes 0; a replay returns before the member read, so it costs a plain replay (+0, plus the cached community read).
 //
 // Reply policy (ADR-0021 D2): setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
 // FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,

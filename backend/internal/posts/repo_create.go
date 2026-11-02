@@ -3,6 +3,8 @@
 // One transaction, bounded by createTxTimeout (5 s):
 //
 //	reads : idempotency/{hash} (1), then, only on a first attempt, quotas/{uid} (1)
+//	        a community post (ADR-0031 D5): + communityMembers/{uid} (1, fresh, after the replay check; the community doc is read before the
+//	        transaction through the 60 s cache); posts and communityPosts share the one quota Set, so +0 writes
 //	        media/* (only with images: + len(media_ids) GetAll reads)
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
 //	        (+ one media/{id}.postId update per image, <= 4)
