@@ -11,7 +11,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const (
@@ -173,7 +172,7 @@ func TestCommunity_UsageAndValidation(t *testing.T) {
 func TestCommunity_SuspendRestoreCostAndOutput(t *testing.T) {
 	t.Parallel()
 	p := newPlatform(communities.StatusActive, "owner")
-	hash := logger.HashUID(testCommunityID)
+	hash := communityHashForAudit(testCommunityID)
 	steps := []struct {
 		name string
 		args []string
