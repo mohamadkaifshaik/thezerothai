@@ -358,7 +358,7 @@ Prod for both parts waits for the held prod apply (`docs/runbooks/credit-sunset-
 | W5-24 | Communities lifecycle: eraser step (memberships, member docs, counts, owner hand-over, modlog scrub), export, T11 rows, runbook (**same PR as W5-23**) | backend-developer | M | W5-22 | lifecycle wiring files serialise | Done (#601) |
 | W5-25 | Join / Leave (a leaving moderator leaves `moderatorIds`) / ListMyCommunities | backend-developer | M | W5-23 | yes | Done (#613) |
 | W5-25b | ListCommunities (directory) / ListCommunityMembers | backend-developer | S | W5-25 | yes | Open |
-| W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Open |
+| W5-26 | Posting into a community: `posts.CommunityGate`, `communityId`, label snapshot, `Reader.ByCommunity` | backend-developer | M | W5-23, W5-25 | **after W3-7** (every create path) | Done (#629) |
 | W5-26b | Members-only replies (F8) and the `ToView` label rules | backend-developer | S | W5-26 | reply path after W3-7 | Open |
 | W5-27 | `GetCommunityTimeline` + COMMUNITY kind in Home tabs | backend-developer | M | W5-26, W5-9 | timeline files after W5-8 | Open |
 | W5-28 | Community moderation: Hide / Restore post, SetMemberRole, ListModerationLog | backend-developer | M | W5-26 | yes | Open |
@@ -1072,7 +1072,7 @@ Part B can run alongside Part A once W5-21 is in; only the shared files below se
     - members: 43 / 103 cold at page 20 / 50, counting the profile hydration and the caller graph.
   - An owner or moderator also sees the members who block them (F14).
 
-### W5-26 — Posting into a community  [owner: backend-developer] [size: M] [depends: W5-23, W5-25]  Status: Open
+### W5-26 — Posting into a community  [owner: backend-developer] [size: M] [depends: W5-23, W5-25]  Status: Done (#629)
 - **Description.**
   - **`posts.CommunityGate`** (consumer-side, implemented by communities) inside CreatePost's transaction for a root post or quote with `community_id`:
     - the community is ACTIVE;
