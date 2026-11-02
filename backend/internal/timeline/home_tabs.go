@@ -12,6 +12,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -47,7 +48,10 @@ type HomeTabsDeps struct {
 	Store HomeTabsStore
 	// Lists validates a LIST tab the caller does not already hold (GetList's visibility rules, cache-first).
 	Lists lists.Reader
-	// Flags answers the per-caller FEATURE_LISTS question (lists.Guard and the hidden-kind rule).
+	// Communities validates a COMMUNITY tab the caller does not already hold (W5-27: any ACTIVE or ARCHIVED community; membership is not
+	// required). Set by Server.SetCommunities; nil refuses every COMMUNITY tab as VALIDATION tabs, as before W5-27.
+	Communities communities.Reader
+	// Flags answers the per-caller FEATURE_LISTS and FEATURE_COMMUNITIES questions (lists.Guard, communities.Guard and the hidden-kind rule).
 	Flags lists.FlagChecker
 	// Max is HOME_TABS_MAX_PINNED (0 = 5).
 	Max int
@@ -79,19 +83,37 @@ type tabKey struct{ kind, id string }
 
 // visibleKind reports whether stored tabs of this kind are shown (and so owned by the sent order) for uid.
 func (d *HomeTabsDeps) visibleKind(uid, kind string) bool {
-	return kind == identity.HomeTabKindList && d.Flags != nil && d.Flags.Enabled(uid, lists.FlagName)
+	if d.Flags == nil {
+		return false
+	}
+	switch kind {
+	case identity.HomeTabKindList:
+		return d.Flags.Enabled(uid, lists.FlagName)
+	case identity.HomeTabKindCommunity:
+		return d.Flags.Enabled(uid, communities.FlagName)
+	}
+	return false
 }
 
-// parseTabs checks the shape of the sent tabs (0 reads): kind LIST only (COMMUNITY is refused until its timeline ships), a
-// well-formed id, no duplicate. Titles in the request are ignored.
-func parseTabs(in []*commonv1.HomeTab) ([]tabKey, error) {
+// parseTabs checks the shape of the sent tabs (0 reads): kind LIST, or COMMUNITY once communities is wired (W5-27), a well-formed id,
+// no duplicate. Titles in the request are ignored.
+func (d *HomeTabsDeps) parseTabs(in []*commonv1.HomeTab) ([]tabKey, error) {
 	out := make([]tabKey, 0, len(in))
 	seen := map[tabKey]bool{}
 	for _, t := range in {
-		if t.GetKind() != commonv1.HomeTabKind_HOME_TAB_KIND_LIST || !ids.ValidPostID(t.GetId()) {
+		var kind string
+		switch {
+		case t.GetKind() == commonv1.HomeTabKind_HOME_TAB_KIND_LIST:
+			kind = identity.HomeTabKindList
+		case t.GetKind() == commonv1.HomeTabKind_HOME_TAB_KIND_COMMUNITY && d.Communities != nil:
+			kind = identity.HomeTabKindCommunity
+		default:
 			return nil, tabsValidation()
 		}
-		k := tabKey{identity.HomeTabKindList, t.GetId()}
+		if !ids.ValidPostID(t.GetId()) {
+			return nil, tabsValidation()
+		}
+		k := tabKey{kind, t.GetId()}
 		if seen[k] {
 			return nil, tabsValidation()
 		}
@@ -136,7 +158,7 @@ func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev
 	if !idempotency.KeyFormatValid(req.Msg.GetIdempotencyKey()) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16 to 64 characters of A-Z a-z 0-9 _ -")
 	}
-	sent, err := parseTabs(req.Msg.GetTabs())
+	sent, err := h.parseTabs(req.Msg.GetTabs())
 	if err != nil {
 		return nil, err
 	}
@@ -145,11 +167,19 @@ func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev
 		return nil, limitReached(ctx)
 	}
 	if len(sent) > 0 {
-		if err := lists.Guard(ctx, h.Flags, uid); err != nil {
-			return nil, err
+		// Each kind present needs its own flag (a community-only request with lists off is accepted).
+		if hasKind(sent, identity.HomeTabKindList) {
+			if err := lists.Guard(ctx, h.Flags, uid); err != nil {
+				return nil, err
+			}
 		}
-	} else if !h.visibleKind(uid, identity.HomeTabKindList) {
-		// W5-41/M-3: with lists off for the caller an empty request is a no-op (stored LIST tabs are kept and hidden), so the
+		if hasKind(sent, identity.HomeTabKindCommunity) {
+			if err := communities.Guard(ctx, h.Flags, uid); err != nil {
+				return nil, err
+			}
+		}
+	} else if !h.visibleKind(uid, identity.HomeTabKindList) && !h.visibleKind(uid, identity.HomeTabKindCommunity) {
+		// W5-41/M-3: with lists and communities off for the caller an empty request is a no-op (stored tabs are kept and hidden), so the
 		// answer is the empty visible order at 0 reads and 0 writes, with no idempotency document.
 		logger.SetRequestField(ctx, "outcome", "noop:kind_off")
 		return connect.NewResponse(&timelinev1.SetHomeTabsResponse{Tabs: []*commonv1.HomeTab{}}), nil
@@ -203,6 +233,21 @@ func (s *Server) validateNewTabs(ctx context.Context, h *HomeTabsDeps, uid strin
 		if have[k] {
 			continue
 		}
+		if k.kind == identity.HomeTabKindCommunity {
+			// ADR-0031 D6: any ACTIVE or ARCHIVED community; the title is always "" (the client labels the tab from the timeline header).
+			c, err := h.Communities.Get(ctx, k.id)
+			if err != nil {
+				if errors.Is(err, communities.ErrNotFound) {
+					return nil, tabsValidation()
+				}
+				return nil, err
+			}
+			if c.Status == communities.StatusSuspended {
+				return nil, tabsValidation()
+			}
+			titles[k] = ""
+			continue
+		}
 		v, err := h.Lists.Get(ctx, uid, k.id)
 		if err != nil {
 			if errors.Is(err, lists.ErrNotFound) {
@@ -254,11 +299,26 @@ func mergeTabs(h *HomeTabsDeps, uid string, sent []tabKey, titles map[tabKey]str
 func tabsToProto(h *HomeTabsDeps, uid string, tabs []identity.HomeTab) []*commonv1.HomeTab {
 	out := make([]*commonv1.HomeTab, 0, len(tabs))
 	for _, t := range tabs {
-		if h.visibleKind(uid, t.Kind) {
-			out = append(out, &commonv1.HomeTab{Kind: commonv1.HomeTabKind_HOME_TAB_KIND_LIST, Id: t.ID, Title: t.Title})
+		if !h.visibleKind(uid, t.Kind) {
+			continue
 		}
+		kind := commonv1.HomeTabKind_HOME_TAB_KIND_LIST
+		if t.Kind == identity.HomeTabKindCommunity {
+			kind = commonv1.HomeTabKind_HOME_TAB_KIND_COMMUNITY
+		}
+		out = append(out, &commonv1.HomeTab{Kind: kind, Id: t.ID, Title: t.Title})
 	}
 	return out
+}
+
+// hasKind reports whether any sent tab is of the kind.
+func hasKind(sent []tabKey, kind string) bool {
+	for _, k := range sent {
+		if k.kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // mapTabsErr maps the store and reader errors at the handler boundary (never a raw Firestore error to the client).
