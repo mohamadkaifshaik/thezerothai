@@ -83,6 +83,9 @@ func (s *service) moderatePost(ctx context.Context, op, uid string, in PostActio
 	noteOutcome(ctx, res.Outcome)
 	if res.Outcome == Written {
 		s.cache.put(res.Community)
+		if restore && s.d.OnPostRestored != nil {
+			s.d.OnPostRestored(in.CommunityID)
+		}
 	}
 	return nil
 }
