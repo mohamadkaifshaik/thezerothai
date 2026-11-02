@@ -8,12 +8,7 @@ the bootstrap wiring in `app/lib/app/bootstrap.dart`).
 
 Tester: tester agent. Branch `test/tel-9-telemetry-guards` on `main@e01885e5`.
 
-**VERDICT: PASS (code) — device evidence PENDING.** The guards, the decision matrix, the TEL-8 forget and reset, and the
-canaries all pass, and every guard and matrix rule fails when its rule is broken (20 mutations, section 4). No production
-defect was found, no production file was changed. Part B (release-mode device traces, forced crash, DebugView) was not run: no
-phone is connected. It is written as a procedure in section 6, and until its four traces are attached the ticket's own
-acceptance ("VERDICT PASS with the three traces attached") is not met. Two items in the ADR are still UNVERIFIED and only
-Part B can settle them: the real Google hosts (A-table "Host status") and Firebase Sessions traffic while Crashlytics is off (A5e).
+**VERDICT: PASS except state 2 first relaunch (finding F-1, procedure vs ADR-0032 C1 conflict + firebaselogging-pa after disable); C-4 and web trace not run.** The code part is unchanged: the guards, the decision matrix, the TEL-8 forget and reset, and the canaries all pass, and every guard and matrix rule fails when its rule is broken (20 mutations, section 4). No production file was changed. Part B (device evidence) was run on 2026-11-02 and its results are in section 6c. It settled A5e (no Sessions traffic on first launch) and learned the real hosts; M-2 part 2 is false. One finding is open: F-1. Not run: C-4 (notification events) and the C-1 web trace.
 
 ---
 
@@ -101,7 +96,7 @@ M1b is the valid one. Total valid mutations: 20 recorded above (13 guard, 5 matr
 
 `flutter test` (all of `app/test`, run before the last guard test was added): **9259 tests, All tests passed**, 5 min 27 s. After adding the last guard (G6) the guard file was re-run: 15 pass. `flutter analyze`: **No issues found** (0 new warnings; the first run had an unused import and an unnecessary `dart:ui` import in my files, both removed). `dart format --set-exit-if-changed` on the new and changed test files: clean. Coverage: this ticket adds tests only and no `lib/` code; `core/telemetry` coverage was not measured separately.
 
-### 6. Part B: device evidence (NOT RUN, no phone connected)
+### 6. Part B: device evidence (RUN 2026-11-02, results in section 6c; one open finding F-1)
 
 Owner to run: the founder or `production-deployer` (TEL-15 repeats it on an iPhone later). Do this on the **dev** project
 (`dzeroth-dev`) with a team test account that is on both dev allowlists. Do not use prod. Do not paste uids, emails or tokens
@@ -180,7 +175,7 @@ DebugView screenshot, the list of hosts learned. The final verdict line then cha
 
 ### 6b. Part B additions from the TEL-10 security review (`docs/reviews/security/security-client-telemetry.md`, CLEAR WITH CONDITIONS)
 
-Not run (no phone). These are added to the procedure above; none changes production code.
+Results are in section 6c. These items are added to the procedure above; none changes production code.
 
 - **C-1, hosts.** In states 1 and 2 assert no connection to `firebase-settings.crashlytics.com` (Sessions remote settings) as well as to the Crashlytics, Sessions and Analytics hosts of the fence. Record every host actually seen in each state, including the allowed existing ones.
 - **C-1, web trace.** In a browser on the dev web build (DevTools Network, cache disabled, fresh profile, signed in, 3 minutes of use): no request to `firebase-analytics.js`, `googletagmanager.com` or `google-analytics.com`, and no CSP violation in the console or the Issues tab. Attach the HAR host list. (The source guard checks the CSP text and `web/index.html` only.)
@@ -188,6 +183,55 @@ Not run (no phone). These are added to the procedure above; none changes product
 - **C-3 / M-2, FID versus FCM token.** On a debug device, with `adb shell setprop log.tag.FirebaseInstallations DEBUG` and `log.tag.FirebaseMessaging DEBUG`, read logcat and compare the FCM token prefix (the part before the first `:`) with the Firebase installation ID. Record only whether they are equal, never the values. Do not add a `getId` call to the app (the guard in section 3 forbids it). Then open the forced test crash in the dzeroth-dev Crashlytics console and check every field (device info, keys, logs) for the FID.
 - **C-4, notification events.** With analytics on in dev, receive one post push and one DM push. In DebugView confirm the `notification_*` events (`notification_receive`, `notification_open`, `notification_foreground`, `notification_dismiss`) carry no `actorId`, `postId`, `notificationId`, `conversationId`, title or body parameter.
 - **L-3, native crash.** In step 3, also record what a forced **native (Kotlin)** crash report shows in the console (title, stack, keys, logs), since the Dart scrubber does not apply to it. This depends on the same open question about a crash trigger.
+
+### 6c. Part B results (device session, 2026-11-02, run by the lead with the founder)
+
+Procedure of sections 6 and 6b, run once; nothing was re-run for this write-up. Times are IST. No uids, emails, tokens, FID or FCM values appear here.
+
+**Setup.** Redmi K20 Pro, Android 11, MIUI. Dev release APK from `main@4a29fffa`, `BUILD_NUMBER=tel9`. It was rebuilt once: the first build wrongly pointed `API_BASE_URL` at the PROD API; only 3 `GetMe` 401s reached prod, no writes. Every capture below is on the corrected build (API `https://api-7sf5r44tbq-el.a.run.app`). `FEATURE_CRASH_REPORTING` and `FEATURE_ANALYTICS` were `allowlist` for one test account (w7smoke1) through targeted dev applies and were set back to `off` at the end (revision `api-00496-mwj`). Capture: PCAPdroid `pcap_file` with `app_filter com.dzeroth.dzeroth`; hosts read from DNS and TLS SNI by a small parser (no tshark).
+
+**Blocker found and fixed first.** The dev Android API key was restricted to a different SHA-1 and did not allow `fcmregistrations`, so Firebase Installations answered 403 `API_KEY_ANDROID_APP_BLOCKED`. Fixed by a targeted dev apply (PR #659).
+
+| Item | Result | Evidence |
+|---|---|---|
+| C-2 merged-manifest permissions (`aapt2 dump permissions`, release APK) | **PASS** | `AD_ID`, `ACCESS_ADSERVICES_AD_ID`, `ACCESS_ADSERVICES_ATTRIBUTION` all absent; the 9 keys are `false`; no `*_collection_deactivated`. Observation: `BIND_GET_INSTALL_REFERRER_SERVICE` is present (from Play Install Referrer) |
+| State 1a: fresh install, not signed in, about 1 min | **PASS** | Only `firebaseinstallations.googleapis.com`. No Sessions traffic on first launch: settles ADR A5e |
+| State 1b: signed in, consent card shown, "Not now" tapped 17:07 | **PASS** | The tap is not in the capture, so it was re-captured with consent off, 3.5 min of use: `firebaseappcheck.googleapis.com`, the dev API, `storage.googleapis.com`. `firebaseappcheck` is not in the procedure's exclusion list; recorded as existing app traffic |
+| State 3: crash only, through the Settings switch | **PASS** | Crashlytics "collection ENABLED by API" 17:20:56.830; first `firebase-settings.crashlytics.com` DNS 17:20:56.859 (+29 ms). No Analytics hosts. Extra host seen: `www.googleapis.com` |
+| State 4: both, through the consent card on a fresh install | **PASS** | Consent 17:33:30.244; Crashlytics settings host +17 ms; Analytics measurement enabled 17:33:30.265. DebugView (founder): events present, no ids, handle or text in parameters; events stopped after usage was switched off at 17:36:04 (logcat "Event not sent since app measurement is disabled"). Limitation below |
+| State 2 / step 5, first relaunch after the flags went off server-side | **FAIL (finding F-1)** | See F-1 |
+| State 2, second relaunch | **PASS** | Only appcheck, the dev API, storage. Crashlytics DISABLED throughout; Sessions logged "SDK disabled through data collection". The Crashlytics SDK logged "userId set for session <id>": SDK-internal, not an app call; for the reviewer to confirm |
+| M-2 / C-3 part 1 (debug build, SDK storage read with `run-as`, values never printed) | FCM token prefix **EQUALS** the FID | |
+| Trace (a) / L-1 (TEL-18), scratch build | **PASS** | See below |
+| Trace (b) / L-3 and C-3 part 2, scratch build | **PASS** | See below |
+| C-4 notification events | **NOT RUN** | No pushes sent |
+| C-1 web trace | **NOT RUN** | |
+
+**Limitation (state 4).** Analytics events are handed to Google Play services ("Connected to remote service"), so no Analytics host appears in a per-app capture. "No Analytics host" in states 1 to 3 therefore cannot be proven from this capture alone; for Analytics the proof is DebugView and the logcat lines above.
+
+**Procedure note.** The consent card is hidden while the push opt-in card is offered (`telemetry_consent_card.dart:69`). Not a defect.
+
+**F-1 (state 2, first relaunch). Open; recorded as found, not tuned.** With the flags turned off server-side:
+- `firebase-settings.crashlytics.com` was contacted at 17:46:15.205, before Dart ran: Crashlytics had persisted "enabled" natively.
+- The SDK flip-flopped ENABLED, DISABLED, ENABLED, DISABLED, and Analytics went true to false, all within about 400 ms: the remembered flag was applied at bootstrap, then `GetMe` turned it off.
+- `firebaselogging-pa.googleapis.com` was contacted at 17:47:13, about 1 min after both were disabled. This call is unexplained.
+
+The procedure expected "no fence host after the relaunch", so this is a FAIL against the procedure. It conflicts with `docs/runbooks/client-telemetry.md:42-44` (ADR-0032 C1), which already says native capture stops at the next launch and the stored decision applies until the next `GetMe`. Owners: architect (procedure versus C1) and security-auditor (the `firebaselogging-pa` call after disable).
+
+**Trace (a) / L-1 (TEL-18).** A throwaway, never-merged scratch build throws a Kotlin `IllegalStateException` 10 s after launch, on an intent extra. Crash A at 18:16:40 with collection disabled. Flags on, relaunch: "Waiting for send/deleteUnsentReports to be called" 18:20:04.560, collection ENABLED 18:20:06.889; two launches; no `crashlyticsreports-pa` traffic; the console later shows 1 crash from 1 user (only crash B).
+
+**Trace (b) / L-3 and C-3 part 2.** Crash B at 18:25:08 with collection on: "report successfully enqueued to DataTransport"; `crashlyticsreports-pa.googleapis.com` at 18:25:23. Console (dzeroth-dev):
+- Title: "Fatal Exception: java.lang.IllegalStateException: TEL9 scratch native test crash". The native message is not scrubbed, as the ADR-0032 L-3 note says.
+- Keys: exactly `build_number=tel9-scratch`, `FIREBASE_ENV=dev`, `platform=android`.
+- Logs: one `screen_view` breadcrumb, `firebase_screen=home`, class `MainActivity`.
+- Data: device brand and model, RAM and disk free, Android 11, rooted no, crash date, app version 1.0.0 (1).
+- The FID was NOT FOUND in the stack trace, keys or data.
+
+**M-2 outcome.** Part 1 is true (prefix equals the FID); part 2 is false (the FID is not in the console view). Per the plan's M-2 outcome, no new TEL ticket is opened. The security-auditor records the evidence (C-3) before TEL-12.
+
+**Hosts learned (extend the fence).** `firebase-settings.crashlytics.com` (states 3 and 4, and F-1), `crashlyticsreports-pa.googleapis.com` (crash B), `firebaselogging-pa.googleapis.com` (F-1 only), `www.googleapis.com` (state 3). Existing app traffic: `firebaseinstallations.googleapis.com`, `firebaseappcheck.googleapis.com`, the dev API, `storage.googleapis.com`.
+
+**Remaining.** C-4 notification events (needs pushes); C-1 web trace; F-1 resolution (then repeat state 2, first relaunch).
 
 ### 7. Observations and gaps (for the owners; none is a defect)
 
@@ -198,4 +242,4 @@ Not run (no phone). These are added to the procedure above; none changes product
 - **O-5.** The CRLF warnings printed by git on this checkout are line-ending normalisation only.
 - **O-6.** The guards read source manifests. The merged manifest (plugins add their own meta-data and permissions) is only checked in Part B step 1.
 
-VERDICT: PASS (code) — device evidence PENDING
+VERDICT: PASS except state 2 first relaunch (finding F-1, procedure vs ADR-0032 C1 conflict + firebaselogging-pa after disable); C-4 and web trace not run

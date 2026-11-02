@@ -92,7 +92,8 @@ Run all three checks, in order, before a report or event counts as a leak or tri
 At every Firebase BoM bump (Dependabot PR for `app/android`, or any manual one), before the release that carries it:
 
 1. Build a release APK with the dev defines of the TEL-9 test report (section 6), from `app/`:
-   `flutter build apk --release --dart-define=FIREBASE_ENV=dev --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=<dev api> --dart-define=BUILD_NUMBER=tel9`
+   `flutter build apk --release --dart-define=FIREBASE_ENV=dev --dart-define=USE_EMULATORS=false --dart-define=API_BASE_URL=https://api-7sf5r44tbq-el.a.run.app --dart-define=BUILD_NUMBER=tel9`
+   **Warning:** the API host `api-1053765609011...` is PROD. A first TEL-9 build pointed at it by mistake and sent 3 `GetMe` 401s to prod. Check `API_BASE_URL` before every build. When capturing with PCAPdroid: it asks ALLOW on every CaptureCtrl start, so expect the prompt each time; and Analytics uploads go through Google Play services, so a per-app capture cannot see Analytics hosts (use DebugView and logcat for Analytics).
 2. Dump the merged permissions:
    `%LOCALAPPDATA%/Android/Sdk/build-tools/36.1.0/aapt2.exe dump permissions app/build/app/outputs/flutter-apk/app-release.apk`
    (In Git Bash: `"$LOCALAPPDATA/Android/Sdk/build-tools/36.1.0/aapt2.exe" dump permissions <apk>`.)
