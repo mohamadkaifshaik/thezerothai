@@ -6,7 +6,7 @@
 - what the app itself sends is verified;
 - the Firebase installation ID cannot be joined with a uid from any surface we can read (M-2 closed 2026-11-02, C-3 met).
 
-The TEL-9 device evidence is pending, because no phone is connected (C-1). Nothing here blocks code that serves traffic. Both flags are `off` in every project: this rests on the plan (TEL-15 Open) and the Terraform defaults, and was not checked against Cloud Run (no `gcloud`). So no telemetry flows today.
+The TEL-9 Android device evidence ran on 2026-11-02 (test report section 6c); the web trace and C-4 are still open (C-1, C-4). Nothing here blocks code that serves traffic. Both flags are `off` in every project: in dzeroth-dev this was checked against Cloud Run and `GetMe` after the TEL-9 session (both flags were allowlisted for one test account only during it); prod rests on the plan (TEL-15 Open) and the Terraform defaults. So no telemetry flows today.
 
 **Design:**
 - ADR-0032 (Accepted 2026-11-01): F1 to F11, C1 to C10 and D1 to D15.
