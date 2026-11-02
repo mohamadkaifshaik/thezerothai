@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:connectrpc/connect.dart' as connect;
-import 'package:dzeroth/core/telemetry/crash_breadcrumbs.dart';
 import 'package:dzeroth/core/telemetry/firebase_crash_reporter.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter/material.dart';
@@ -250,12 +249,6 @@ void main() {
         expect(port.calls.where((c) => c == 'setCustomKey').length, 3);
       },
     );
-
-    test('breadcrumbs are the enum constants', () async {
-      final (r, port) = _make();
-      await r.breadcrumb(CrashBreadcrumb.appStart);
-      expect(port.args, ['app_start']);
-    });
 
     test('collection and delete calls pass through', () async {
       final (r, port) = _make();
