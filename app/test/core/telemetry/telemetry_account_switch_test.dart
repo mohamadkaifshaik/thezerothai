@@ -91,17 +91,21 @@ void main() {
     expect(await rig.lastUid.read(), 'a');
   });
 
-  test(
-    'a restored uid that differs from the record resets once at launch',
-    () async {
-      final rig = _Rig(lastUid: 'a');
-      await rig.controller.applyAtBootstrap('b');
-      await pumpEventQueue();
+  test('a restored uid that differs from the record resets once at launch, '
+      'before usage switches on', () async {
+    final rig = _Rig(lastUid: 'a');
+    rig.consent.usage.add('b');
+    await rig.memory.write('b', const TelemetryFlags(analytics: true));
+    await rig.controller.applyAtBootstrap('b');
+    await pumpEventQueue();
 
-      expect(rig.resets, 1);
-      expect(await rig.lastUid.read(), 'b');
-    },
-  );
+    expect(rig.resets, 1);
+    expect(
+      rig.log.calls.indexOf('usage.reset'),
+      lessThan(rig.log.calls.indexOf('usage.setCollecting(true)')),
+    );
+    expect(await rig.lastUid.read(), 'b');
+  });
 
   test('a sign-out alone keeps the record and resets nothing', () async {
     final rig = _Rig(lastUid: 'a');

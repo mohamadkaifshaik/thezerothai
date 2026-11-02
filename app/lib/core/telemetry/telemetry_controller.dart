@@ -86,8 +86,11 @@ class TelemetryController {
     _flags = restoredUid == null
         ? TelemetryFlags.off
         : await _memory.read(restoredUid) ?? TelemetryFlags.off;
-    _decide(force: true);
+    // The reset goes first here: stored flags and consent can switch usage
+    // on right away, and the SDK's own automatic events must not run under
+    // the previous account's ID.
     if (restoredUid != null) _noteSignIn(restoredUid);
+    _decide(force: true);
     await _queue;
   }
 

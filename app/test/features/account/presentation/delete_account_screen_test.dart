@@ -287,8 +287,12 @@ void main() {
       await consent.dispose();
       await database.close();
     });
-    await consent.set('uid-1', TelemetryKind.crash, ConsentChoice.on);
-    await consent.set('uid-2', TelemetryKind.crash, ConsentChoice.on);
+    for (final uid in ['uid-1', 'uid-2']) {
+      await consent.setAll(uid, {
+        TelemetryKind.crash: ConsentChoice.on,
+        TelemetryKind.usage: ConsentChoice.on,
+      });
+    }
     log.clear();
     await pump(
       tester,
@@ -303,6 +307,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await database.readSetting('telemetry_consent:crash:uid-1'), isNull);
+    expect(await database.readSetting('telemetry_consent:usage:uid-1'), isNull);
     expect(await database.readSetting('telemetry_consent:crash:uid-2'), 'on');
     expect(log.calls, containsAll(['crash.deleteUnsent', 'usage.reset']));
     expect(find.text('Your account is being deleted'), findsOneWidget);
