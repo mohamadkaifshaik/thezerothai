@@ -3,12 +3,15 @@ package posts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -391,6 +394,43 @@ func TestCreate_UnexpectedErrorIsNotAnAPIError(t *testing.T) {
 	if len(e.events.created) != 0 {
 		t.Fatal("no event on failure")
 	}
+}
+
+// A lost transaction race (Firestore's Aborted, or the transaction running past createTxTimeout) is the retryable
+// UNAVAILABLE "temporarily busy" answer with retry-after 1 s, not an INTERNAL error. When the request's own context
+// has ended, the error is not relabelled as contention.
+func TestCreate_ContentionIsRetryableBusy(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"aborted", status.Error(codes.Aborted, "too much contention")},
+		{"transaction deadline (grpc)", status.Error(codes.DeadlineExceeded, "context deadline exceeded")},
+		{"transaction deadline (context)", fmt.Errorf("commit: %w", context.DeadlineExceeded)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newCreateEnv()
+			e.repo.createErr = tt.err
+			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+			ae := wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+			if ae.RetryAfter != time.Second || c.Writes() != 0 || len(e.events.created) != 0 {
+				t.Fatalf("retryAfter=%v writes=%d events=%d", ae.RetryAfter, c.Writes(), len(e.events.created))
+			}
+		})
+	}
+
+	t.Run("request context ended", func(t *testing.T) {
+		e := newCreateEnv()
+		e.repo.createErr = context.Canceled
+		ctx, cancel := context.WithCancel(googleCtx(context.Background(), testUID))
+		e.repo.onCreate = cancel // the caller goes away while the transaction runs
+		_, err := e.svc.Create(ctx, testUID, CreateInput{IdempotencyKey: key1, Text: "hi"})
+		var ae *apierr.Error
+		if errors.As(err, &ae) && ae.Code == connect.CodeUnavailable {
+			t.Fatalf("err = %v: a canceled request must not be reported as contention", err)
+		}
+	})
 }
 
 func TestCreate_Budget(t *testing.T) {
