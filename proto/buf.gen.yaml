@@ -5,20 +5,23 @@
 #       backend/gen/dzeroth/<pkg>/v1/<pkg>v1connect/*.go   Connect handlers + clients
 # Dart: app/lib/gen/dzeroth/<pkg>/v1/*.pb.dart, *.connect.client.dart (+ google/protobuf WKTs)
 #
-# Remote plugins run on the BSR (no local protoc plugins needed). Pin versions (`remote: ...:vX.Y.Z`) once the
-# first generate succeeds in CI so generated code is reproducible.
+# Remote plugins run on the BSR (no local protoc plugins needed). Every plugin is pinned so generated code is
+# reproducible: an unpinned plugin silently picks up the BSR's latest version on the next `make proto`.
+# The pins are the versions that produced the committed code. Bump one on purpose, regenerate, and commit the
+# generated diff in the same PR. Keep the Dart pins in step with the protobuf and connectrpc versions in
+# app/pubspec.yaml, and the Go pins with backend/go.mod.
 version: v2
 clean: false
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.12
     out: ../backend/gen
     opt: paths=source_relative
   - remote: buf.build/connectrpc/go:v1.19.1
     out: ../backend/gen
     opt: paths=source_relative
-  - remote: buf.build/protocolbuffers/dart
+  - remote: buf.build/protocolbuffers/dart:v25.1.0
     out: ../app/lib/gen
     include_imports: true
     include_wkt: true
-  - remote: buf.build/connectrpc/dart
+  - remote: buf.build/connectrpc/dart:v2.0.1
     out: ../app/lib/gen
