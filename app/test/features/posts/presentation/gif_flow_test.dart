@@ -16,7 +16,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/fake_drafts_repository.dart';
 import '../../../support/media_fixtures.dart';
 import '../../../support/posts_fixtures.dart';
-import '../../../support/w6_composer_rig.dart';
+import '../../../support/composer_rig.dart';
 
 class _MockPosts extends Mock implements PostsRepository {}
 

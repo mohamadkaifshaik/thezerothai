@@ -24,7 +24,7 @@ class _MockModerationRepository extends Mock implements ModerationRepository {}
 /// The strip now grows with the actions (laid out in the same pass as the rest,
 /// so nothing moves after the first frame) and is exactly as tall as before
 /// whenever the actions fit in 48 dp. The four cells of the repro
-/// (`w3_profile_matrix_test.dart`, behind its `d1Fixed` flag: own and other
+/// (`profile_matrix_test.dart`, behind its `d1Fixed` flag: own and other
 /// profile, light and dark, 360 dp x 2.0) are copied here with the same
 /// assertion, and the rest of that file's matrix (360 / 600 / 1200 dp, text
 /// scale 1.0 / 1.3 / 2.0) is checked too.

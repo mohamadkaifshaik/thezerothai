@@ -9,7 +9,7 @@ import '../../../support/media_fixtures.dart';
 
 /// The on-device picture of Edit profile (`ProfileCoverBand(bytes:)`),
 /// the one banner source that decodes in a widget test (a network banner
-/// cannot: see `w3_profile_banner_layout_test.dart`). It lives in its own file
+/// cannot: see `profile_banner_layout_test.dart`). It lives in its own file
 /// because decoding needs real time (`tester.runAsync`), and real time must not
 /// run in a file that also builds a `CachedNetworkImage`: its cache manager
 /// asks the path_provider plugin, which does not exist in the VM, and the

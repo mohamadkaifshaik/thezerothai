@@ -12,7 +12,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/geometry.dart';
 import '../../../support/theme_harness.dart';
-import '../../../support/w3_profile_rig.dart';
+import '../../../support/profile_rig.dart';
 
 /// A protected account's profile for a viewer who is not approved
 /// (ADR-0025 D4): the lock beside the name, "These posts are protected" in

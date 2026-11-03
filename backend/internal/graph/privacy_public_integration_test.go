@@ -3,7 +3,7 @@
 // privacy_public_integration_test.go exercises the privacy_public job against the Firestore emulator (ADR-0025
 // D8, D9): 0, 1, 100, 101 and 250 pending requests with the documented budget, a redelivery, a re-protect before and in
 // the middle of a run, a requester at the following cap and a requester that is gone. The full chain through
-// apiserver.Build (listener, Pub/Sub, push endpoint) is apiserver/w328b_privacy_public_integration_test.go.
+// apiserver.Build (listener, Pub/Sub, push endpoint) is apiserver/privacy_public_integration_test.go.
 package graph_test
 
 import (
