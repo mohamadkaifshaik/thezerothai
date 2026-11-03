@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../theme/app_theme.dart';
+
 import '../../features/account/domain/account_feature_flag.dart';
 import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
@@ -264,7 +266,7 @@ class AppRouter {
         pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
           key: state.pageKey,
           opaque: false,
-          barrierColor: Colors.black54,
+          barrierColor: context.appColors.scrim,
           transitionsBuilder: (context, animation, secondary, child) =>
               FadeTransition(opacity: animation, child: child),
           child: AuthGate(

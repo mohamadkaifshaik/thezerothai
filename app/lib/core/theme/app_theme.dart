@@ -231,6 +231,10 @@ class AppColors extends ThemeExtension<AppColors> {
   /// Barrier colour behind drawers, dialogs and sheets.
   final Color scrim;
 
+  /// Photo viewers retain a dark canvas in both light and dark themes.
+  static const photoBackground = Color(0xFF000000);
+  static const onPhotoBackground = Color(0xFFFFFFFF);
+
   static const AppColors dark = AppColors(
     like: _like,
     repost: _repost,

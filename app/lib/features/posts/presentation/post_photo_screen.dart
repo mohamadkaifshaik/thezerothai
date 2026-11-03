@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../media/domain/processed_image.dart' show kGifContentType;
 import 'post_detail_screen.dart';
@@ -18,7 +19,7 @@ class PostPhotoScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.black,
+    backgroundColor: AppColors.photoBackground,
     body: SafeArea(
       child: Stack(
         children: [
@@ -90,7 +91,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
       return const Center(
         child: Text(
           'This image is not available.',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: AppColors.onPhotoBackground),
         ),
       );
     }
@@ -133,7 +134,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                                 child: url.isEmpty
                                     ? const Icon(
                                         Icons.broken_image_outlined,
-                                        color: Colors.white,
+                                        color: AppColors.onPhotoBackground,
                                       )
                                     : CachedNetworkImage(
                                         imageUrl: url,
@@ -142,7 +143,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                                             const CircularProgressIndicator(),
                                         errorWidget: (_, _, _) => const Icon(
                                           Icons.broken_image_outlined,
-                                          color: Colors.white,
+                                          color: AppColors.onPhotoBackground,
                                         ),
                                       ),
                               ),
@@ -193,7 +194,9 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                           padding: const EdgeInsets.all(16),
                           child: Text(
                             '${widget.index} / ${media.length}',
-                            style: const TextStyle(color: Colors.white),
+                            style: const TextStyle(
+                              color: AppColors.onPhotoBackground,
+                            ),
                           ),
                         ),
                       ),
