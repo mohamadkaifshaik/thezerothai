@@ -168,8 +168,13 @@ python agents/orchestrator/agentctl.py stop          # waits until the run has s
 python agents/orchestrator/agentctl.py stop --no-wait
 ```
 
-**In the orchestrator's own terminal:** press **Ctrl+C** once. It runs the same graceful path. Press it only once;
-the orchestrator needs a few seconds to finish.
+**In the orchestrator's own terminal:** pressing **Ctrl+C** once usually runs the same graceful path. It is best
+effort, though: in some Windows terminals (for example Git Bash's mintty), Ctrl+C or closing the window kills the
+Python process outright. Prefer `stop` from a second terminal.
+
+**If the orchestrator dies anyway**, the engine keeps running. The lock records the engine's process id, so
+`status` warns about the orphaned engine, and `start`, `continue` and `recover` refuse to run beside it. End it with
+`stop`, or with `recover --kill`; either one checkpoints and writes the handoff.
 
 **What a stop does, in order:**
 1. `stop` drops a `.agent_state/STOP` file, which the orchestrator checks twice a second.
@@ -263,6 +268,7 @@ python agents/orchestrator/agentctl.py recover --clear-cooldowns --then-continue
 | Symptom | Fix |
 |---|---|
 | `continue` says another run holds the lock, but nothing is running | `agentctl.py recover` (clears the stale lock) |
+| `status` says the orchestrator is gone but its engine is still running | `agentctl.py stop`, or `agentctl.py recover --kill` |
 | `session.json` is corrupt | `agentctl.py recover` (restores the backup) |
 | You switched branches mid-session | `agentctl.py recover --accept-branch`, or `git switch <session branch>` |
 | The engines keep redoing finished work | Edit `.agent_state/progress.md` so the Tasks, Next and Blockers are true, then `continue` |
@@ -354,6 +360,17 @@ Everything lives in `agents/orchestrator.json`:
   and the engine records it as a blocker.
 - **Codex** runs in the `workspace-write` sandbox: it edits this checkout, and network access may be blocked.
 
+**What the Claude engine inherits from your machine:** `claude -p` normally loads your user-level setup too: MCP
+servers, plugins and skills, plus the auto-memory notes of this project. The engine is started with:
+- `--strict-mcp-config`, so no MCP servers load;
+- `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (the `env` block in `orchestrator.json`), so old memory notes do not steer it.
+
+Your user-level plugins and skills still load. `--bare` would drop them as well, but it also disables the normal
+`/login` sign-in and needs `ANTHROPIC_API_KEY`. Use it only if you run the engine on an API key.
+
+The Codex engine reads `~/.codex/config.toml` as usual. Add `"--ignore-user-config"` to its `command` for a clean
+profile.
+
 **Widening permissions:**
 - Add entries to `--allowedTools`, or switch Codex to `--sandbox danger-full-access`.
 - `bypassPermissions` and `--dangerously-bypass-approvals-and-sandbox` exist, but they remove every guard. Use them
@@ -387,6 +404,9 @@ python -m unittest discover -s agents/orchestrator/tests -v
 - a transient error (retry on the same engine);
 - a stop of a hung run (no orphaned process), then `continue` resuming the native session;
 - a stale lock and a corrupt `session.json` (`recover` repairs both);
+- an orphaned engine after its orchestrator is hard-killed (`start`, `continue` and `recover` refuse; `stop` and
+  `recover --kill` end it);
+- `start --force-new` during a live run (refused, ledger untouched);
 - checkpoints leaving the index and working tree untouched;
 - `end` and its summary.
 

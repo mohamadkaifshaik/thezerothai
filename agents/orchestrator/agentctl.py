@@ -201,10 +201,48 @@ def read_lock(ctx: Ctx) -> dict | None:
         return {"pid": -1} if ctx.lock_file.exists() else None
 
 
-def update_lock(ctx: Ctx, agent: str) -> None:
+def update_lock(ctx: Ctx, agent: str, engine_pid: int | None = None) -> None:
     lk = read_lock(ctx) or {}
-    lk.update({"pid": os.getpid(), "agent": agent})
+    lk.update({"pid": os.getpid(), "agent": agent, "engine_pid": engine_pid})
     atomic_write(ctx.lock_file, json.dumps(lk))
+
+
+def live_run(ctx: Ctx) -> dict | None:
+    """The lock, if its orchestrator OR its engine is still alive. An engine whose orchestrator died (terminal
+    closed, laptop slept) is still a live run: it keeps editing the tree until someone kills it."""
+    lk = read_lock(ctx)
+    if not lk:
+        return None
+    orch = pid_alive(int(lk.get("pid") or -1))
+    eng = pid_alive(int(lk.get("engine_pid") or -1))
+    if orch or eng:
+        return dict(lk, orchestrator_alive=orch, engine_alive=eng)
+    return None
+
+
+def kill_pid_tree(pid: int) -> None:
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(pid, sig)
+            except Exception:
+                pass
+            time.sleep(2)
+
+
+def refuse_if_live(ctx: Ctx) -> int | None:
+    lk = live_run(ctx)
+    if lk:
+        who = "the orchestrator" if lk["orchestrator_alive"] else "an orphaned engine (its orchestrator is gone)"
+        say(f"a run is active: {lk.get('agent')} via {who}; `stop` it"
+            + ("" if lk["orchestrator_alive"] else ", or `recover --kill`"))
+        return EXIT_LOCKED
+    if ctx.lock_file.exists():
+        say("a stale lock is left from a run that died; run `recover` first")
+        return EXIT_LOCKED
+    return None
 
 
 def release_lock(ctx: Ctx) -> None:
@@ -431,9 +469,11 @@ def run_engine(ctx: Ctx, s: dict, agent: str, mode: str, extra: str | None, stop
     say(f"starting {agent} ({mode}); transcript: {run['dir']}")
 
     flags = subprocess.CREATE_NEW_PROCESS_GROUP if IS_WINDOWS else 0
-    proc = subprocess.Popen(cmd, cwd=ctx.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    env = dict(os.environ, **{k: str(v) for k, v in (acfg.get("env") or {}).items()})
+    proc = subprocess.Popen(cmd, cwd=ctx.root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
                             creationflags=flags, start_new_session=not IS_WINDOWS)
+    update_lock(ctx, agent, proc.pid)
     watch = RunWatch(ctx, acfg["parser"])
     err_tail: list[str] = []
 
@@ -472,6 +512,7 @@ def run_engine(ctx: Ctx, s: dict, agent: str, mode: str, extra: str | None, stop
             break
         time.sleep(ctx.cfg.get("poll_seconds", 0.5))
     kill_tree(proc, ctx.cfg.get("grace_seconds", 15))
+    update_lock(ctx, agent, None)
     for t in threads:
         t.join(timeout=10)
 
@@ -663,6 +704,8 @@ def orchestrate(ctx: Ctx, s: dict, agent: str, mode: str, extra: str | None, cyc
 # --------------------------------------------------------------------------------------------- commands
 
 def cmd_start(ctx: Ctx, a: argparse.Namespace) -> int:
+    if (rc := refuse_if_live(ctx)) is not None:
+        return rc
     s = load_session(ctx)
     if s and s.get("status") not in ("ended", None) and not a.force_new:
         say(f"session {s['session_id'][:8]} is still open ({s['status']}). Use `continue`, or `end` it first "
@@ -686,6 +729,8 @@ def cmd_start(ctx: Ctx, a: argparse.Namespace) -> int:
 
 
 def cmd_continue(ctx: Ctx, a: argparse.Namespace) -> int:
+    if (rc := refuse_if_live(ctx)) is not None:
+        return rc
     s = load_session(ctx)
     if not s or s.get("status") == "ended":
         say("no open session: use `start --goal ...`")
@@ -707,11 +752,30 @@ def cmd_continue(ctx: Ctx, a: argparse.Namespace) -> int:
     return orchestrate(ctx, s, agent, mode, a.message, a.cycles)
 
 
+def stop_orphan(ctx: Ctx, lk: dict) -> int:
+    """The orchestrator died but its engine runs on: kill the engine tree, then checkpoint and hand off."""
+    say(f"the orchestrator (pid {lk.get('pid')}) is gone; killing its orphaned {lk.get('agent')} engine "
+        f"(pid {lk.get('engine_pid')})")
+    kill_pid_tree(int(lk["engine_pid"]))
+    ctx.lock_file.unlink(missing_ok=True)
+    ctx.stop_file.unlink(missing_ok=True)
+    s = load_session(ctx)
+    if s:
+        s["status"] = "stopped"
+        ref = checkpoint(ctx, s, "orphan-stopped")
+        compile_handoff(ctx, s, "stopped (orphaned engine killed)", lk.get("agent"), None, checkpoint_ref=ref)
+        save_session(ctx, s)
+    say("stopped; `continue` resumes from the handoff")
+    return EXIT_OK
+
+
 def cmd_stop(ctx: Ctx, a: argparse.Namespace) -> int:
-    lk = read_lock(ctx)
-    if not lk or not pid_alive(int(lk.get("pid", -1))):
-        say("no run is active" + (" (the lock is stale: run `recover`)" if lk else ""))
+    lk = live_run(ctx)
+    if not lk:
+        say("no run is active" + (" (the lock is stale: run `recover`)" if ctx.lock_file.exists() else ""))
         return EXIT_OK
+    if not lk["orchestrator_alive"]:
+        return stop_orphan(ctx, lk)
     ctx.stop_file.write_text(iso(now()) or "", encoding="utf-8")
     say(f"stop requested for {lk.get('agent')} (orchestrator pid {lk['pid']})")
     if a.no_wait:
@@ -737,7 +801,10 @@ def cmd_status(ctx: Ctx, a: argparse.Namespace) -> int:
         say("no session yet: `start --goal ...`")
         return EXIT_OK
     lg = ledger(ctx)
-    alive = bool(lk and pid_alive(int(lk.get("pid", -1))))
+    live = live_run(ctx)
+    alive = bool(live)
+    if live and not live["orchestrator_alive"]:
+        print("WARNING   the orchestrator is gone but its engine is still running: `stop` or `recover --kill`")
     print(f"session   {s['session_id']}  ({s['status']})\ngoal      {s['goal']}\nbranch    {s.get('branch')}"
           f"\nactive    {s.get('active_agent')}  running={alive}{'  STALE LOCK' if lk and not alive else ''}")
     for ag in ctx.agents():
@@ -780,10 +847,19 @@ def cmd_recover(ctx: Ctx, a: argparse.Namespace) -> int:
             say("session.json is corrupt and there is no backup; `start --force-new` to begin again")
             return EXIT_FATAL
     # 2. lock and stop file
-    lk = read_lock(ctx)
-    if lk and pid_alive(int(lk.get("pid", -1))):
-        say(f"a run is alive (pid {lk['pid']}); `stop` it first")
+    live = live_run(ctx)
+    if live and live["orchestrator_alive"]:
+        say(f"a run is alive (orchestrator pid {live['pid']}); `stop` it first")
         return EXIT_LOCKED
+    if live:
+        if not a.kill:
+            say(f"the orchestrator is gone but its {live.get('agent')} engine (pid {live.get('engine_pid')}) is "
+                "still editing files; `recover --kill` (or `stop`) ends it first")
+            return EXIT_LOCKED
+        kill_pid_tree(int(live["engine_pid"]))
+        say(f"killed the orphaned engine (pid {live['engine_pid']})")
+        fixes += 1
+    lk = read_lock(ctx)
     if lk:
         ctx.lock_file.unlink(missing_ok=True)
         say("removed a stale lock")
@@ -850,8 +926,7 @@ def cmd_end(ctx: Ctx, a: argparse.Namespace) -> int:
     if not s or s.get("status") == "ended":
         say("no open session")
         return EXIT_USAGE
-    lk = read_lock(ctx)
-    if lk and pid_alive(int(lk.get("pid", -1))):
+    if live_run(ctx):
         say("a run is still active: `stop` it first")
         return EXIT_LOCKED
     lg = ledger(ctx)
@@ -941,6 +1016,7 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--wait", action="store_true", help="sleep until the earliest reset, then continue")
     rc.add_argument("--then-continue", action="store_true", help="continue right after repairing")
     rc.add_argument("--clear-cooldowns", action="store_true")
+    rc.add_argument("--kill", action="store_true", help="kill an engine whose orchestrator died")
     rc.add_argument("--accept-branch", action="store_true")
     rc.add_argument("--restore", metavar="CHECKPOINT", help="restore tracked files from a checkpoint ref/commit")
     rc.add_argument("--cycles", type=int, default=1)

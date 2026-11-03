@@ -1,11 +1,17 @@
 {
   "primary": "claude",
-  "order": ["claude", "codex"],
+  "order": [
+    "claude",
+    "codex"
+  ],
   "state_dir": ".agent_state",
   "shared_protocol": "agents/shared/PROTOCOL.md",
   "max_failovers": 4,
   "transient_retries": 2,
-  "transient_backoff_seconds": [30, 120],
+  "transient_backoff_seconds": [
+    30,
+    120
+  ],
   "default_cooldown_minutes": 60,
   "grace_seconds": 15,
   "poll_seconds": 0.5,
@@ -15,43 +21,124 @@
       "instructions": "agents/claude/INSTRUCTIONS.md",
       "parser": "claude",
       "command": [
-        "claude", "-p",
-        "--output-format", "stream-json", "--verbose",
-        "--permission-mode", "acceptEdits",
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "acceptEdits",
         "--allowedTools",
-        "Read", "Edit", "Write", "Glob", "Grep",
-        "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)",
-        "Bash(make:*)", "Bash(go:*)", "Bash(flutter:*)", "Bash(dart:*)", "Bash(buf:*)"
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git add:*)",
+        "Bash(git commit:*)",
+        "Bash(make:*)",
+        "Bash(go:*)",
+        "Bash(flutter:*)",
+        "Bash(dart:*)",
+        "Bash(buf:*)"
       ],
       "resume_command": [
-        "claude", "-p", "--resume", "{session_id}",
-        "--output-format", "stream-json", "--verbose",
-        "--permission-mode", "acceptEdits",
+        "claude",
+        "-p",
+        "--resume",
+        "{session_id}",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--strict-mcp-config",
+        "--permission-mode",
+        "acceptEdits",
         "--allowedTools",
-        "Read", "Edit", "Write", "Glob", "Grep",
-        "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)",
-        "Bash(make:*)", "Bash(go:*)", "Bash(flutter:*)", "Bash(dart:*)", "Bash(buf:*)"
-      ]
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep",
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git add:*)",
+        "Bash(git commit:*)",
+        "Bash(make:*)",
+        "Bash(go:*)",
+        "Bash(flutter:*)",
+        "Bash(dart:*)",
+        "Bash(buf:*)"
+      ],
+      "env": {
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"
+      }
     },
     "codex": {
       "instructions": "agents/codex/INSTRUCTIONS.md",
       "parser": "codex",
-      "command": ["codex", "exec", "--json", "--sandbox", "workspace-write", "-"],
-      "resume_command": ["codex", "exec", "resume", "--json", "-c", "sandbox_mode=\"workspace-write\"", "{session_id}", "-"]
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--sandbox",
+        "workspace-write",
+        "-"
+      ],
+      "resume_command": [
+        "codex",
+        "exec",
+        "resume",
+        "--json",
+        "-c",
+        "sandbox_mode=\"workspace-write\"",
+        "{session_id}",
+        "-"
+      ],
+      "env": {}
     }
   },
   "patterns": {
     "limit": [
-      "usage limit", "rate[ _-]?limit", "\\b429\\b", "too many requests", "credit balance is too low",
-      "insufficient[_ ]quota", "quota exceeded", "out of credits", "hit your (usage )?limit", "billing"
+      "usage limit",
+      "rate[ _-]?limit",
+      "\\b429\\b",
+      "too many requests",
+      "credit balance is too low",
+      "insufficient[_ ]quota",
+      "quota exceeded",
+      "out of credits",
+      "hit your (usage )?limit",
+      "billing"
     ],
     "transient": [
-      "overloaded", "\\b529\\b", "\\b50[234]\\b", "service unavailable", "bad gateway", "gateway timeout",
-      "econnreset", "etimedout", "enotfound", "network error", "connection (reset|refused|closed)", "stream disconnected"
+      "overloaded",
+      "\\b529\\b",
+      "\\b50[234]\\b",
+      "service unavailable",
+      "bad gateway",
+      "gateway timeout",
+      "econnreset",
+      "etimedout",
+      "enotfound",
+      "network error",
+      "connection (reset|refused|closed)",
+      "stream disconnected"
     ],
     "fatal": [
-      "invalid api key", "not logged in", "please run .*login", "unauthori[sz]ed", "\\b401\\b", "\\b403\\b",
-      "unknown option", "unexpected argument", "unrecognized"
+      "invalid api key",
+      "not logged in",
+      "please run .*login",
+      "unauthori[sz]ed",
+      "\\b401\\b",
+      "\\b403\\b",
+      "unknown option",
+      "unexpected argument",
+      "unrecognized"
     ]
   }
 }

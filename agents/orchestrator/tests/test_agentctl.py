@@ -164,6 +164,67 @@ class AgentctlTest(unittest.TestCase):
         self.assertIn("--resume", second["argv"])                    # native session resumed
         self.assertEqual(self.session()["runs"][-1]["mode"], "resume")
 
+    def start_hang(self):
+        self.set_plan(claude=["hang", "ok"])
+        proc = subprocess.Popen([sys.executable, str(AGENTCTL), "start", "--goal", "long job"], cwd=self.root,
+                                env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        pid_file = self.log / "claude-0.pid"
+        for _ in range(200):
+            if pid_file.exists():
+                break
+            time.sleep(0.1)
+        self.assertTrue(pid_file.exists(), "the fake engine never started")
+        time.sleep(0.5)  # let the orchestrator record the engine pid in the lock
+        return proc, int(pid_file.read_text())
+
+    def test_commands_refuse_to_touch_state_during_a_live_run(self):
+        proc, fake_pid = self.start_hang()
+        progress = (self.root / ".agent_state" / "progress.md").read_bytes()
+        self.assertEqual(self.ctl("start", "--force-new", "--goal", "other").returncode, agentctl.EXIT_LOCKED)
+        self.assertEqual(self.ctl("continue").returncode, agentctl.EXIT_LOCKED)
+        self.assertEqual(self.ctl("recover").returncode, agentctl.EXIT_LOCKED)
+        self.assertEqual(self.ctl("end", "--force").returncode, agentctl.EXIT_LOCKED)
+        self.assertEqual((self.root / ".agent_state" / "progress.md").read_bytes(), progress)
+        self.assertEqual(self.ctl("stop").returncode, 0)
+        proc.communicate(timeout=60)
+        self.assertFalse(agentctl.pid_alive(fake_pid))
+
+    def test_orphaned_engine_counts_as_live_until_killed(self):
+        proc, fake_pid = self.start_hang()
+        proc.kill()                      # the orchestrator dies abruptly (terminal closed, laptop slept)
+        proc.communicate(timeout=30)
+        self.assertTrue(agentctl.pid_alive(fake_pid), "the engine should outlive a hard-killed orchestrator")
+        try:
+            self.assertEqual(self.ctl("continue").returncode, agentctl.EXIT_LOCKED)
+            self.assertEqual(self.ctl("recover").returncode, agentctl.EXIT_LOCKED)
+            self.assertEqual(self.calls("claude")[1:], [])       # no second engine was started
+            st = self.ctl("status")
+            self.assertIn("orchestrator is gone", st.stdout)
+            r = self.ctl("recover", "--kill")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            time.sleep(0.5)
+            self.assertFalse(agentctl.pid_alive(fake_pid))
+            self.assertFalse((self.root / ".agent_state" / "agent.lock").exists())
+            self.assertEqual(self.session()["status"], "stopped")
+        finally:
+            agentctl.kill_pid_tree(fake_pid)
+
+    def test_stop_kills_an_orphaned_engine(self):
+        proc, fake_pid = self.start_hang()
+        proc.kill()
+        proc.communicate(timeout=30)
+        try:
+            r = self.ctl("stop")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            time.sleep(0.5)
+            self.assertFalse(agentctl.pid_alive(fake_pid))
+            self.assertEqual(self.session()["status"], "stopped")
+            self.assertIn("orphaned engine", (self.root / ".agent_state" / "HANDOFF.md").read_text())
+            r = self.ctl("continue")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        finally:
+            agentctl.kill_pid_tree(fake_pid)
+
     def test_recover_clears_a_stale_lock_and_running_state(self):
         self.set_plan(claude=["ok"])
         self.assertEqual(self.ctl("start", "--goal", "x").returncode, 0)
