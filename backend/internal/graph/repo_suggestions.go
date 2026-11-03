@@ -12,7 +12,7 @@ import (
 // maxEdgesByFollowers is the most follower uids one ListEdgesByFollowers call may name: the Firestore `in` limit.
 const maxEdgesByFollowers = 30
 
-// maxEdgesLimit is the largest Limit a ListEdgesByFollowers call may ask for (CLAUDE.md rule 5: max 50).
+// maxEdgesLimit is the largest Limit a ListEdgesByFollowers call may ask for (the query-limit rule: max 50).
 const maxEdgesLimit = 50
 
 // ListEdgesByFollowers implements Repo for ListSuggestedUsers (ADR-0024 D8):

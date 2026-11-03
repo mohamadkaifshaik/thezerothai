@@ -20,7 +20,7 @@ import '../support/fake_transport.dart';
 import '../support/posts_fixtures.dart';
 
 /// The in-flight RPC of a user who signs out must never write into the next
-/// user's cache (CLAUDE.md rule 10). Each test starts an RPC held at a gate,
+/// user's cache (the privacy rule). Each test starts an RPC held at a gate,
 /// signs out (`wipeSessionData` + the in-memory `clearCache`), then lets the
 /// RPC complete.
 void main() {

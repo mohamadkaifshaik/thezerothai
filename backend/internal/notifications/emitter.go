@@ -52,7 +52,7 @@ func recipientFlagsOn(fl FlagChecker, uid string, t Type) bool {
 	return t != TypeMessage || fl.Enabled(uid, MessagingFlagName)
 }
 
-// RecipientCap is the per-actor daily cap on notification recipients (security audit N-1, CLAUDE.md rule 11). Every
+// RecipientCap is the per-actor daily cap on notification recipients (security audit N-1, the cost-caps-are-code rule). Every
 // recipient costs the project at least 1 + R reads and 1 write in the fan-out handler (more with devices), paid
 // from the shared free quota, so the actor is charged for them at the producer: 0 reads, in memory, before the
 // publish. An event is admitted or dropped whole. The count is per Cloud Run instance lifetime and resets at IST

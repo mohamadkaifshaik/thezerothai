@@ -5,7 +5,7 @@
 //	Q-V  reposts where uid == X LIMIT 100            -> automatic single-field index
 //	Q-X  export: the same with ORDER BY __name__, StartAfter(last), pages of 500
 //
-// The Limit(100) pages are an ops path (ADR-0003 purge rule; CLAUDE.md rule 5's maximum of 50 governs RPC
+// The Limit(100) pages are an ops path (ADR-0003 purge rule; the query-limit rule's maximum of 50 governs RPC
 // pagination only). The step runs after the posts step: the user's own REPOST posts are gone by then, so only the
 // reposts docs and the original's repostCount remain.
 package engagement

@@ -26,7 +26,7 @@ const (
 	notFoundTTL = 10 * time.Second
 )
 
-// Cache is identity's instance cache (ADR-0003: users/{uid} cached 60s; CLAUDE.md: "update the instance
+// Cache is identity's instance cache (ADR-0003: users/{uid} cached 60s; project rule: "update the instance
 // cache from written data instead of re-reading"). One per process; safe for concurrent use.
 type Cache struct {
 	profiles  *cache.LRU[string, Profile]

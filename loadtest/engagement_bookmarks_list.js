@@ -1,4 +1,4 @@
-// engagement_bookmarks_list: ListBookmarks paging smoke (W2-15, docs/plans/ui-w2-engagement-composer-basics.md; ADR-0023).
+// engagement_bookmarks_list: ListBookmarks paging smoke (W2-15; ADR-0023).
 //
 // Budget under test (engagement.proto ListBookmarks, ADR-0023 "Cost impact"): a COLD first page is 43 reads at page
 // 20 and 103 at page 50 (interceptor 1 + query page + GetMany page + caller graph 1 + userLikes 1); with the posts in
@@ -21,14 +21,13 @@
 //   limit=read_budget_daily (ADR-0010 D5; default READ_BUDGET_PER_UID_PER_DAY 2000), to show ListBookmarks is charged
 //   to the per-uid daily read budget. Each call is logged by the API with `read_budget_spent`.
 //
-// API requirements (a local `go run ./cmd/api` against the emulators, nothing else; load-testing skill):
+// API requirements (a local `go run ./cmd/api` against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_BOOKMARKS=on FEATURE_ENGAGEMENT=on
 //   RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares 127.0.0.1)
 //   seed only: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, RATE_LIMIT_BOOKMARKS_PER_MIN,
 //   QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY and QUOTA_BOOKMARKS_PER_DAY raised (new accounts: 20 posts/day, 50 bookmarks/day)
 //   MODE=latency: RATE_LIMIT_BOOKMARKS_LIST_PER_MIN (default 10/min/uid) and READ_BUDGET_PER_UID_PER_DAY raised (the
 //   load loops one viewer far past 2,000 reads); MODE=budget: only RATE_LIMIT_BOOKMARKS_LIST_PER_MIN raised.
-// The exact values used for the recorded run are in docs/reviews/cost-model.md section 11.
 //
 //   k6 run loadtest/engagement_bookmarks_list.js      # or: make loadtest SCENARIO=engagement_bookmarks_list
 import { check, sleep } from 'k6';

@@ -9,10 +9,10 @@ name: Release prod
 # workflow: `promote-prod.yml`. On GitHub Free (private repo) there is no
 # environment required-reviewers and no tag ruleset, so the founder clicking
 # "Run workflow" on promote-prod.yml for a given stage IS the human approval
-# — see docs/runbooks/cloud-bootstrap.md §6/6a and the release-rollout skill.
-# CLAUDE.md rule still holds: "Never shift prod traffic without a passing
+#
+# The rule still holds: "Never shift prod traffic without a passing
 # production-reviewer verdict" — promote-prod.yml enforces that by requiring
-# docs/reviews/release-<tag>-readiness.md to contain `VERDICT: GO`.
+# releases/<tag>-readiness.md to contain `VERDICT: GO`.
 #
 # Security note (M5/N7): there is deliberately no free-text `tag` input on
 # workflow_dispatch — that let any collaborator with write access type an
@@ -81,7 +81,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
-          # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
+          # Exact Cloud SDK pin (issue #46 / L6); bump with the pinned SHA.
           version: "587.0.0"
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -187,7 +187,7 @@ jobs:
       # TEL-14: the google-services Gradle plugin reads app/android/app/google-services.json
       # (dzeroth-dev's, used by every other build). Swap in the checked-in prod copy for this
       # job's build only; FIREBASE_ENV=prod alone switches just the Dart-side options. The file
-      # is client config (public). Refresh: docs/runbooks/cloud-bootstrap.md section 4.
+      # is client config (public).
       - name: Use dzeroth-prod google-services.json
         run: |
           set -euo pipefail

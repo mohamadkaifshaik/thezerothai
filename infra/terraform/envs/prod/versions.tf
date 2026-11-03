@@ -16,8 +16,8 @@ terraform {
     }
   }
 
-  # Partial config: the bucket is created once, manually, outside Terraform
-  # (see gcp-terraform skill). Supply the rest at `terraform init`:
+  # Partial config: the bucket is created once, manually, outside Terraform.
+  # Supply the rest at `terraform init`:
   #   terraform init -backend-config="bucket=<state-bucket-name>"
   backend "gcs" {
     prefix = "thezerothai/prod"

@@ -302,7 +302,7 @@ func TestSweepMediaHold_RunLineCountsHeldItemsAndLeaksNothing(t *testing.T) {
 // expire, and they are filtered before the per-author cap, so a few authors' held items can fill the whole window
 // (SCHEDULED_SWEEP_LIMIT x SCHEDULED_SWEEP_MAX_PAGES = 100). Every newer due item, text-only ones of uninvolved users
 // included, is then not read at all. Adaptive paging is tracked as a follow-up; when it lands, this test is the one to
-// change. Operator guidance: docs/runbooks/posts.md section 12, "Known limit".
+// change.
 func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
 	// 4 authors x 25 held image items (SCHEDULED_MAX_PENDING), all older than one text-only item of a fifth author.
 	setup := func(t *testing.T, mut ...func(*SweepDeps, *sweepEnv)) (*sweepEnv, *ScheduledPost) {

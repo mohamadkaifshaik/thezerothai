@@ -1,4 +1,4 @@
-// identity_getme: load test for IdentityService.GetMe (load-testing skill §1 "Local (default, $0)").
+// identity_getme: load test for IdentityService.GetMe.
 //
 // GetMe is the highest-frequency identity call (cost-model.md: 4 calls/DAU/day, every app open/resume)
 // and its budget is documented as 2 reads worst case / 1 typical (proto: identity.proto GetMe comment).
@@ -27,7 +27,7 @@ const profileRequiredErrors = new Counter('profile_required_errors');
 
 export const options = {
   scenarios: {
-    // Matches the load-testing skill's example shape: fixed request rate, not fixed VU count, so the
+    // Fixed request rate, not fixed VU count, so the
     // result is directly comparable to the cost-model's "calls/DAU/day" figures.
     getme: {
       executor: 'constant-arrival-rate',
@@ -40,7 +40,7 @@ export const options = {
   },
   thresholds: {
     http_req_failed: ['rate<0.01'],
-    // Emulator latency is indicative only (load-testing skill §1); this mirrors the Stage 0 pass
+    // Emulator latency is indicative only; this mirrors the Stage 0 pass
     // criterion (warm p95 < 400ms) so a regression is still visible locally before it reaches dev.
     http_req_duration: ['p(95)<400'],
     profile_required_errors: ['count==0'],

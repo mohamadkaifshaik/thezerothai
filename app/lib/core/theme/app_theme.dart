@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// The colour system follows the founder decision of 2026-10-22: match X's
 /// colouring (dark and light), no indigo seed and no gradient. Sizes are dp
 /// (X's CSS px; the research scale was verified at 1.25). The evidence is in
-/// `docs/x_research/` (`02_ui_design_tokens.md`, `10_light_dark_theme.md`).
+/// the X reference captures (`02_ui_design_tokens.md`, `10_light_dark_theme.md`).
 abstract final class AppSpacing {
   static const double xs = 4;
   static const double sm = 8;
@@ -81,7 +81,7 @@ abstract final class AppBreakpoints {
 }
 
 /// Sizes of the shared chrome (dp), measured on x.com 2026-10-22 and divided
-/// by the verified 1.25 display scale (`docs/x_research/04_spacing_and_layout.md`).
+/// by the verified 1.25 display scale.
 abstract final class AppSize {
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
@@ -162,7 +162,7 @@ const Color _accent = Color(0xFF1D9BF0);
 
 /// Small accent *text* on white fails 4.5:1 with [_accent] (3.00:1); this
 /// darker blue (4.72:1) is used for links and hashtags in the light theme
-/// (decision D1 of `docs/plans/ui-w0-foundations.md`). Icons, fills and the
+/// (decision D1 of the W0 plan). Icons, fills and the
 /// tab bar keep [_accent].
 const Color _lightAccentText = Color(0xFF1478BD);
 

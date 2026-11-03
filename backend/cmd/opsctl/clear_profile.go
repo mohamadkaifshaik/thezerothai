@@ -179,7 +179,7 @@ func quotedValues(values []string) string {
 // field only stops the profile from pointing at the image: the public objects stay reachable by URL (and in older posts'
 // author snapshots) until they are deleted. With the A4 retire step switched on (PROFILE_MEDIA_RETIRE covering the
 // image) that is the bucket lifecycle rule, 24-48 h after the clear; otherwise the operator deletes the printed objects by
-// hand, as docs/runbooks/moderation.md "Media on takedown" does (objects first, then the media/* docs). The names are
+// hand (objects first, then the media/* docs). The names are
 // always printed, for an image that must go at once. outcomes holds the retire step's outcome per field (empty when it did
 // not run); on a dry run the plan says whether it would.
 func printImageObjects(out io.Writer, project string, cleared []identity.ClearedField, outcomes map[identity.ProfileField]string, dryRun bool, mode config.ProfileMediaRetire) {

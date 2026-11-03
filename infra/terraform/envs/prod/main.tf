@@ -44,7 +44,7 @@ module "iam" {
   # ci_deploy_can_move_ar_tags is intentionally left at its default (false): prod's ci-deploy does not move AR tags (promote-prod only
   # reads them, release-prod only creates new ones) and must not be able to delete the v* release tags.
 
-  # prod deploys ONLY from version tags — see release-rollout skill
+  # prod deploys ONLY from version tags
   # (tag v* -> --no-traffic --tag candidate -> smoke -> VERDICT: GO -> founder dispatches promote-prod 10% then 100%).
   deploy_ref_condition   = "assertion.ref.startsWith('refs/tags/v')"
   deploy_ref_description = "version tags only (refs/tags/v*)"
@@ -60,7 +60,7 @@ module "iam" {
   # this WIF pin are the whole machine-enforced boundary — the human gate is
   # the founder running promote-prod.yml deliberately, plus the
   # production-reviewer `VERDICT: GO` file check inside that workflow. See
-  # docs/runbooks/cloud-bootstrap.md §6/6a; revisit with GitHub Pro/Team
+  #; revisit with GitHub Pro/Team
   # (required reviewers, tag rulesets) via an ADR if collaborators are added.
   deploy_extra_conditions = [
     "assertion.job_workflow_ref.startsWith('${var.github_repo}/.github/workflows/release-prod.yml@refs/tags/v') || assertion.job_workflow_ref.startsWith('${var.github_repo}/.github/workflows/promote-prod.yml@refs/tags/v')",
@@ -590,7 +590,7 @@ module "firebase" {
   hosting_site_id      = var.hosting_site_id
 
   # dzeroth.com serves the prod web app; www redirects to it (301). DNS is at Squarespace
-  # (manual); see the custom_domain_dns_records output and docs/runbooks/cloud-bootstrap.md section 7.
+  # (manual); see the custom_domain_dns_records output.
   custom_domains = {
     "dzeroth.com"     = {}
     "www.dzeroth.com" = { redirect_to = "dzeroth.com" }
@@ -601,7 +601,7 @@ module "firebase" {
 
 // Security audit M3: restrict the three Firebase-auto-created API keys
 // (imported by UID, see import_apikeys.tf) instead of leaving them open to
-// any referrer/app/API. See docs/runbooks/cloud-bootstrap.md section 9.
+// any referrer/app/API.
 // PLAN ONLY until the founder reviews dev's verified result -- do not apply
 // to prod without a separate, explicit go-ahead.
 module "apikeys" {
@@ -653,7 +653,7 @@ module "apikeys" {
 
   ios_bundle_id = var.ios_bundle_id
   # android_allowed_applications left at its default ([]): no Play Console
-  # signing cert yet. See docs/runbooks/cloud-bootstrap.md section 9.
+  # signing cert yet.
 
   depends_on = [module.project_services]
 }

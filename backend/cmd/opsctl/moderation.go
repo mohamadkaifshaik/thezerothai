@@ -77,7 +77,7 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
   opsctl suspend-user     --project P --uid U [--report REPORT] [--dry-run]   (hides every post, waits ~75 s, settle pass)
   opsctl unsuspend-user   --project P --uid U [--dry-run]                    (restores only suspension-hidden posts)
   opsctl messages takedown CONVERSATION_ID:MESSAGE_ID --project P [--report REPORT] [--note TEXT] [--dry-run]
-                          (tombstones one direct message as REMOVED: text cleared, both inbox previews rewritten; see docs/runbooks/messaging.md)
+                          (tombstones one direct message as REMOVED: text cleared, both inbox previews rewritten)
   opsctl messages loghash CONVERSATION_ID   (no --project, no Firestore: prints the keyed conversation_hash of the request logs; needs CURSOR_HMAC_KEY in the environment)
   opsctl polls loghash POST_ID   (no --project, no Firestore: prints the keyed post_hash of the VotePoll request line and the poll_vote_contention WARN; needs CURSOR_HMAC_KEY in the environment)
   opsctl messages migrate-placeholder --project P [--dry-run]   (DEV ONLY, one-off: placeholder "deleted" -> "_deleted" in conversations, messages and entries; refuses *-prod)
@@ -545,8 +545,7 @@ func printResetWarning(out io.Writer, cmd string, p int64) {
 	fmt.Fprintf(out, "WARNING: %d posts >= %d: the removal log cannot list them in one response, so the followers of this account\n"+
 		"  (and anyone viewing its profile) will have their since_token rejected once and cold-open that feed, about 30 reads each\n"+
 		"  (about followers x 30). Other users are not affected. A token issued before the burst, or up to %s after it,\n"+
-		"  is rejected. Usually ~0 for a spam account; check the follower count and run %s off-peak\n"+
-		"  (docs/runbooks/moderation.md section 3b).\n", p, posts.RemovalMaxIDs, posts.RemovalLag, cmd)
+		"  is rejected. Usually ~0 for a spam account; check the follower count and run %s off-peak.\n", p, posts.RemovalMaxIDs, posts.RemovalLag, cmd)
 }
 
 // unsuspendUser is unsuspend-user: ACTIVE again, then restore only the posts the suspension hid. With dryRun it

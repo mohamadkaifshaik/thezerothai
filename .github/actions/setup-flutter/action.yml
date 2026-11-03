@@ -8,7 +8,7 @@ inputs:
     description: Flutter release tag, e.g. 3.47.5
     required: true
   sha:
-    description: Expected commit SHA of that tag (bump both together; see docs/runbooks/dependency-updates.md)
+    description: Expected commit SHA of that tag (bump both together)
     required: true
 runs:
   using: composite

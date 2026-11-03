@@ -20,7 +20,7 @@ import 'connect_error_mapper.dart';
 import 'http_client_factory.dart';
 import 'interceptors.dart';
 
-/// Single Connect-RPC client for the whole app (CLAUDE.md: "one `ApiClient`
+/// Single Connect-RPC client for the whole app (project rule: "one `ApiClient`
 /// with Firebase ID token + App Check token, retry with backoff, request
 /// IDs"). Feature repositories depend on this, never on `connectrpc` or
 /// `dart:io`/`fetch` directly.

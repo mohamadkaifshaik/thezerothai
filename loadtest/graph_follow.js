@@ -1,4 +1,4 @@
-// graph_follow: Follow/Unfollow churn across NUM_USERS (default 50) users (T18, docs/plans/graph.md; ADR-0008).
+// graph_follow: Follow/Unfollow churn across NUM_USERS (default 50) users (T18; ADR-0008).
 //
 // Budget under test (ADR-0008 A2 table): Follow created = reads 4 cold / 2 warm / 3 planning, writes 5;
 // Unfollow = 0 reads, 3 writes, 1 delete. Acceptance: 20 rps for 2 min, Follow p95 < 500 ms, mean fs_reads per

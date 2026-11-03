@@ -77,7 +77,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
 
   /// Cache-first: render the locally cached profile instantly (if any) while
   /// `GetMe` refreshes it in the background — the client is our cheapest
-  /// cache (CLAUDE.md prime directive), so a warm start never blocks on the
+  /// cache (the cost-first directive), so a warm start never blocks on the
   /// network.
   Future<void> _loadMe(Emitter<OnboardingState> emit) async {
     final uid = _uid;
@@ -221,7 +221,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     if (!state.canSubmit) return;
     // Stable per attempt so a retried request after a dropped response is
     // deduplicated server-side instead of creating a second profile
-    // (CLAUDE.md rule 4).
+    // (the idempotency rule).
     _idempotencyKey ??= _uuid.v4();
     final uid = _uid;
     bool stale() => emit.isDone || _uid != uid;

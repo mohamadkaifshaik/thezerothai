@@ -1,5 +1,5 @@
 // Service accounts + Workload Identity Federation for GitHub Actions.
-// No service-account keys anywhere — WIF only (CLAUDE.md rule).
+// No service-account keys anywhere — WIF only (project rule).
 
 // ---------------------------------------------------------------------------
 // Runtime service account — used by the Cloud Run `api` service.
@@ -210,7 +210,7 @@ resource "google_project_iam_member" "ci_deploy_firebase_viewer" {
 // ---------------------------------------------------------------------------
 // Terraform plan-only service account — used by `terraform.yml` for
 // `fmt`/`validate`/`plan` on PRs. Read-only by design: this repo's CI never
-// applies Terraform (see gcp-terraform skill + release-rollout skill).
+// applies Terraform.
 // `terraform apply` is a deliberate, human-run action until an ADR adds a
 // gated apply pipeline.
 // ---------------------------------------------------------------------------
@@ -404,7 +404,7 @@ resource "google_billing_account_iam_member" "tf_plan_billing_viewer" {
 // this grant is deliberately NOT a Terraform resource. It must exist as an explicit BUCKET-level binding for each
 // env's tf-plan SA: `roles/storage.objectViewer` on gs://dzeroth-tfstate (the gcs backend needs objects.get and
 // objects.list). Do not rely on the project-viewer convenience binding on buckets (it vanished from tf-plan with
-// roles/viewer, W7-32). Steps: docs/runbooks/ci-enforcement.md section 13.
+// roles/viewer, W7-32).
 
 // ---------------------------------------------------------------------------
 // Workload Identity Federation — GitHub Actions OIDC, no JSON keys.
@@ -489,8 +489,7 @@ resource "google_iam_workload_identity_pool_provider" "plan" {
   # required reviewer, so no plan token exists until the founder has looked at the run. Without it, any same-repo
   # PR (or a workflow_dispatch) could mint a token carrying roles/serviceusage.serviceUsageConsumer before review
   # and bill paid APIs (Vision images:annotate) to this project. The condition, not the workflow, is the boundary:
-  # a PR that edits terraform.yml to drop `environment:` just gets no usable token. See
-  # docs/runbooks/ci-enforcement.md "Plan pool environment gate and Vision quota".
+  # a PR that edits terraform.yml to drop `environment:` just gets no usable token.
   attribute_condition = join(" && ", [
     "assertion.repository == '${var.github_repo}'",
     "assertion.actor != 'dependabot[bot]'",

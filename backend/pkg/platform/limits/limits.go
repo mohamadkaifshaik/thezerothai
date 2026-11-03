@@ -11,7 +11,7 @@ const (
 	// service handler (limits the *decompressed* size — guards a gzip-bomb: a tiny compressed body that
 	// inflates to something huge) and to http.MaxBytesHandler wrapping the mux (limits the raw bytes read
 	// off the socket before any decompression). No RPC in this API legitimately needs anywhere near 256
-	// KiB (posts are capped far smaller; media bytes never pass through the API — CLAUDE.md rule 7), so
+	// KiB (posts are capped far smaller; media bytes never pass through the API — the media rule), so
 	// this is generous headroom, not a tuned-per-RPC limit. See backend/internal/apiserver.Build.
 	MaxRequestBytes = 256 * 1024
 )

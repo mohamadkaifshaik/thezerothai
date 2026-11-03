@@ -2,7 +2,7 @@
 # Authenticated smoke of an API URL: signs in as a smoke account and calls GetMe and GetProfile with the signed Firebase ID token.
 #
 # Why: /health is a static handler, so only a real signed token exercises the paths a toolchain or dependency change can break
-# (the JWKS key fetch and the Firestore reads, both over outbound TLS). See docs/runbooks/authenticated-smoke.md.
+# (the JWKS key fetch and the Firestore reads, both over outbound TLS).
 #
 # Usage: authenticated-smoke.sh <base_url> [--handle <handle>]
 # Env (never arguments): SMOKE_EMAIL, SMOKE_PASSWORD, FIREBASE_API_KEY (public client config, not a secret).

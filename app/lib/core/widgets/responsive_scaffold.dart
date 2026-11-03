@@ -20,7 +20,7 @@ export 'app_nav_destination.dart';
 ///   between two hairlines, and the 350dp [sideColumn] when a screen provides
 ///   one. The cluster is centred.
 ///
-/// Mirrors X's web layout (`docs/x_research/screens/_shared.md`). The
+/// Mirrors X's web layout. The
 /// destinations are the high-frequency ones only; Settings/Sign out live in
 /// the drawer and the account chip menu. A destination marked
 /// `AppNavDestination.railOnly` (Bookmarks) is left out of the phone bar; one

@@ -20,7 +20,7 @@
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
 // [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
 // concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
-// bookmark mutations store it (CLAUDE.md rule 4, ADR-0023 D4). Acting on a REPOST post id acts
+// bookmark mutations store it (the idempotency rule, ADR-0023 D4). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").

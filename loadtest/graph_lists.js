@@ -1,4 +1,4 @@
-// graph_lists: ListFollowers pages + GetRelationships (T18, docs/plans/graph.md; ADR-0008).
+// graph_lists: ListFollowers pages + GetRelationships (T18; ADR-0008).
 //
 // Budget under test (ADR-0008 A2 table): ListFollowers page 20 = ~30 planning reads (102 cold / 50 warm at page
 // 50); GetRelationships = 1 cold / 0 warm / 0.5 planning. Acceptance: ListFollowers 20 rps for 2 min, p95 < 400 ms,

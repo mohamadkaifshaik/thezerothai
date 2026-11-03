@@ -28,7 +28,7 @@ RACE_FLAG := $(shell go env CGO_ENABLED 2>/dev/null | grep -qx 1 && echo -race |
 # requiring `npm install -g firebase-tools`. -y avoids the interactive "ok to install" prompt.
 FIREBASE := $(shell command -v firebase 2>/dev/null || echo "npx -y firebase-tools@latest")
 
-# Fixed demo-* project for every emulator run (testing-strategy skill: "demo-* projects are offline").
+# Fixed demo-* project for every emulator run ("demo-* projects are offline").
 # Without an explicit --project, firebase-tools falls back to .firebaserc's "default" alias
 # (dzeroth-dev) — a real-looking, non-demo project name; every emulator (Auth in particular, which is
 # locked to one project by firebase.json's singleProjectMode) would then be pinned to that name instead
@@ -41,7 +41,7 @@ EMULATOR_PROJECT := demo-dzeroth-local
 # keeps its blobs in os.tmpdir()/firebase/storage/blobs, shared by every suite on the machine whatever the ports and
 # project ids, so two concurrent suites wiped each other's blobs and the first one crashed mid-upload (ENOENT, then
 # the Auth emulator refused connections; test-report-w3 D-2). Run any raw `firebase emulators:*` the same way, and see
-# docs/runbooks/emulator-collisions.md. `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
+# `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
 EMULATOR_TMP := bash scripts/with-private-tmp.sh
 
 .PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test buf-check lint flutter-analyze flutter-test help
@@ -80,7 +80,7 @@ fmt:
 vet:
 	cd $(BACKEND_DIR) && go vet ./...
 
-## test: unit tests only (no emulator needed) with the race detector, per testing-strategy skill. Coverage
+## test: unit tests only (no emulator needed) with the race detector. Coverage
 ## is gated here at 70% but only over pkg/platform (-coverpkg): internal/<module>'s repo_firestore.go paths
 ## need the Firestore emulator to exercise at all, so a unit-only run can never reach 70% honestly on
 ## internal/ — that combined (unit + integration) number is gated in test-int instead (testing-strategy
@@ -92,7 +92,7 @@ test:
 	@echo "==> pkg/platform coverage gate ($(COVERAGE_THRESHOLD)%)"
 	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover.out $(COVERAGE_THRESHOLD) pkg/platform
 
-## ci: everything make ci must pass before any agent declares work done (CLAUDE.md). Prerequisites run left to right.
+## ci: everything make ci must pass before any agent declares work done. Prerequisites run left to right.
 ## .github/workflows/ci.yml runs the same targets as parallel jobs (flutter-test in shards) and reports them together
 ## under the required check "make ci (...)".
 ci: fmt vet test buf-check lint flutter-analyze flutter-test
@@ -141,7 +141,7 @@ emulators:
 	$(EMULATOR_TMP) $(FIREBASE) emulators:start --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage
 
 ## test-int: emulator integration tests, backend/**/*_integration_test.go (//go:build integration), plus
-## the combined (unit + integration) 70% coverage gate on internal/<module> (testing-strategy skill) that
+## the combined (unit + integration) 70% coverage gate on internal/<module> that
 ## `make test`/`make ci` can't honestly enforce alone (repo_firestore.go paths need the emulator to be
 ## exercised at all — see the `test` target's comment). The coverage/threshold step runs as a normal Make
 ## recipe line *after* emulators:exec finishes, not inside its quoted script: that script runs through the
@@ -194,12 +194,9 @@ dev:
 	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
 		'bash scripts/dev.sh'
 
-## cost: print the documented free-tier budget table, and (if PROJECT_ID is set) the last 24h of
+## cost: if PROJECT_ID is set, print the last 24h of
 ## request logs (fs_reads/fs_writes) from Cloud Logging for a quick live sanity check.
 cost:
-	@echo "=== Free-tier budget (docs/reviews/cost-model.md) ==="
-	@cat docs/reviews/cost-model.md 2>/dev/null || echo "docs/reviews/cost-model.md not found"
-	@echo ""
 	@echo "=== Last 24h usage ==="
 	@if [ -z "$${PROJECT_ID:-}" ]; then \
 		echo "Set PROJECT_ID=<gcp-project> (and run 'gcloud auth login' first) to query live usage, e.g.:"; \

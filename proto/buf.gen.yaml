@@ -1,5 +1,5 @@
 # Code generation (ADR-0002). Run from proto/: `buf generate` (wrapped by `make proto`).
-# Output paths are relative to proto/. Generated code is never edited by hand (.claude/hooks/guard.sh).
+# Output paths are relative to proto/. Generated code is never edited by hand.
 #
 # Go:   backend/gen/dzeroth/<pkg>/v1/*.pb.go               import path github.com/dzeroth/dzeroth/backend/gen/dzeroth/<pkg>/v1
 #       backend/gen/dzeroth/<pkg>/v1/<pkg>v1connect/*.go   Connect handlers + clients

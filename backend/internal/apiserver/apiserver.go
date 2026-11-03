@@ -88,7 +88,7 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 //	    -> logging -> recover -> App Check -> ID token -> rate limit (fine-grained, per-uid/IP, post-auth)
 //	       -> degraded mode -> account status -> errorMapping -> handler
 //
-// M1 (docs/reviews/security/security-audit-v0.1.0.md — distinct from ADR-0006 §2's own "Phase 0 review M1"
+// M1 of the v0.1.0 security audit — distinct from ADR-0006 §2's own "Phase 0 review M1"
 // amendment, coincidentally the same finding ID and date): the ADR-0006 §2 rate-limit interceptor still
 // sits *after* App Check/ID token verification, so on its own it can't stop an unauthenticated flood from
 // paying JWT-verify CPU. PreAuthIPMiddleware is a second, independent Limiter (never the same
@@ -747,7 +747,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
 	routes.internal("/internal/pubsub/notifications-fanout", notifFanout.Handler())
 
-	// M1 (docs/reviews/security/security-audit-v0.1.0.md): a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
+	// M1: a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
 	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated
 	// flood is rejected before it costs any App Check / ID token JWT-verify CPU (that verification happens
 	// only once a request reaches a Connect handler's own interceptor chain inside mux, below this layer).

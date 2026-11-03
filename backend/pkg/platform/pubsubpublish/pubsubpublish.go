@@ -19,7 +19,7 @@ import (
 	"google.golang.org/api/option"
 )
 
-// publishTimeout bounds every publish (CLAUDE.md: every outbound call has a deadline).
+// publishTimeout bounds every publish (project rule: every outbound call has a deadline).
 const publishTimeout = 5 * time.Second
 
 // Publisher publishes to one topic.

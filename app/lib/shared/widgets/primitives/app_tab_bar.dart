@@ -16,7 +16,7 @@ class AppTab {
 /// Profile, History, Explore): a 53dp row, the active label bold in the
 /// primary text colour, inactive labels in the secondary colour, and a 4dp
 /// accent bar **as wide as the label** under the active tab, flush with the
-/// 1px hairline below the row (`docs/x_research/screens/_shared.md`).
+/// 1px hairline below the row.
 ///
 /// Two layouts, as on X:
 /// - content-sized (default): labels keep their natural width with a

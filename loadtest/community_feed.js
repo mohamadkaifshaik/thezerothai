@@ -1,4 +1,4 @@
-// community_feed: W5 Part B emulator load smoke (W5-39, docs/plans/ui-w5-lists-communities.md "W5-39"; ADR-0031 "Cost impact").
+// community_feed: W5 Part B emulator load smoke (W5-39; ADR-0031 "Cost impact").
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it mints about 450 users and raises every community, post and read-budget cap.
 //
@@ -40,15 +40,14 @@
 //   curl -s -X POST "http://$AUTH_EMULATOR_HOST/identitytoolkit.googleapis.com/v1/projects/demo-dzeroth-local/accounts:update" \
 //     -H "Authorization: Bearer owner" -H "Content-Type: application/json" -d "{\"localId\":\"<uid>\",\"emailVerified\":true}"
 //
-// API requirements (a local API against the emulators; load-testing skill): ENV=local FEATURE_POSTS=on FEATURE_GRAPH=on
+// API requirements (a local API against the emulators): ENV=local FEATURE_POSTS=on FEATURE_GRAPH=on
 // FEATURE_ENGAGEMENT=on (the budget counts the userLikes read) FEATURE_COMMUNITIES=on FEATURE_REMOVED_IDS=on, COMMUNITY_CREATORS=<owner uid>,
 // and these raised (per instance / per user; every virtual user shares 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN,
 // RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN,
 // RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, RATE_LIMIT_COMMUNITIES_READ_PER_MIN, RATE_LIMIT_POST_CREATE_PER_MIN, READ_BUDGET_PER_UID_PER_DAY,
 // QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, QUOTA_COMMUNITY_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY,
 // QUOTA_COMMUNITY_JOINS_PER_DAY, QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY, COMMUNITY_MUTATIONS_PER_DAY, COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
-// COMMUNITY_MOD_ACTIONS_PER_DAY, COMMUNITIES_MAX_OWNED, COMMUNITIES_MAX_JOINED (all 1000000). The exact values of the recorded run are
-// in docs/reviews/cost-model.md section 18.
+// COMMUNITY_MOD_ACTIONS_PER_DAY, COMMUNITIES_MAX_OWNED, COMMUNITIES_MAX_JOINED (all 1000000).
 //
 //   k6 run loadtest/community_feed.js      # or: make loadtest SCENARIO=community_feed
 //   node loadtest/analyze_community_feed.js api.log k6.out

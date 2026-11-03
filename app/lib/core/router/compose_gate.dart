@@ -14,7 +14,7 @@ bool canComposeAt(BuildContext context, String location) =>
     !location.startsWith(AppRouter.settingsPath);
 
 /// Whether the narrow layout shows the floating compose button at [location]
-/// (decision D2 of `docs/plans/ui-w0-foundations.md`): wherever a way to post
+/// (decision D2 of the W0 plan): wherever a way to post
 /// is offered ([canComposeAt]) except where the screen has its own entry or
 /// no use for one: Home (the inline composer row), Notifications and
 /// Bookmarks (the button would sit over the Undo snackbar and the last row).

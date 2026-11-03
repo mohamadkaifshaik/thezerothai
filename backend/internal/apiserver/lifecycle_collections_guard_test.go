@@ -1,6 +1,6 @@
 package apiserver
 
-// T11 (docs/plans/account-deletion-export.md): the collection-coverage guard. Every Firestore collection and GCS
+// T11: the collection-coverage guard. Every Firestore collection and GCS
 // prefix ADR-0003 (and the slice ADRs after it) names must map to a registered deletion step (Eraser), a registered
 // export section, or an ADR-referenced residue allowlist entry (ADR-0011 Q10). The scan reads the Go sources of
 // backend/internal/* and backend/pkg/platform/* and fails, naming the constant, when a module names a collection that

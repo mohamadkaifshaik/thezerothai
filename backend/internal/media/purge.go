@@ -36,7 +36,7 @@ func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 // nameSuffix, W3-39): the recorded paths plus the
 // deterministic names for the document's own content type (the extension is fixed at upload init, so the other
 // extension can never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
-// after the copy) leaves public objects the document does not name (CLAUDE.md rule 10). Deduplicated, so a
+// after the copy) leaves public objects the document does not name (the privacy rule). Deduplicated, so a
 // READY document is 2 names.
 func publicNames(d *Doc) []string {
 	var out []string

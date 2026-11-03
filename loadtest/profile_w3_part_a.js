@@ -1,4 +1,4 @@
-// profile_w3_part_a: W3 Part A emulator smoke (W3-23, docs/plans/ui-w3-profile-graph-completion.md; ADR-0024 "Cost impact").
+// profile_w3_part_a: W3 Part A emulator smoke (W3-23; ADR-0024 "Cost impact").
 // One file, three MODEs, each seeding its own data in setup():
 //
 //   MODE=tabs          GetUserTimeline tab MEDIA and REPOSTS (profile_tabs), GetProfileRelationship. VIEWERS viewers (default 40) of
@@ -25,7 +25,7 @@
 // Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `read_budget_spent`, `source`, `candidates`,
 // `tab`), see loadtest/analyze_w3_part_a.js. Latency is emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators, nothing else; load-testing skill):
+// API requirements (a local API against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_GRAPH=on FEATURE_ENGAGEMENT=on FEATURE_PROFILE_TABS=on FEATURE_LIKES_LIST=on
 //   FEATURE_FOLLOW_SUGGESTIONS=on, RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares
 //   127.0.0.1). Seeding limits to raise: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY,
@@ -33,7 +33,7 @@
 //   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, GRAPH_MUTATIONS_PER_DAY and READ_BUDGET_PER_UID_PER_DAY (seeding spends the seeder's own
 //   budget; MODE=tabs runs at the default 2000). Per-RPC limits for the timed calls: RATE_LIMIT_USER_TIMELINE_PER_MIN,
 //   RATE_LIMIT_LIKES_LIST_PER_MIN, RATE_LIMIT_SUGGESTIONS_PER_MIN, RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
-//   SUGGESTIONS_CALLS_PER_DAY. The exact values of the recorded run are in docs/reviews/cost-model.md section 12.
+//   SUGGESTIONS_CALLS_PER_DAY.
 // The Media tab selects on `hasMedia`, which only the image-upload path writes; setup writes it through the Firestore emulator's
 // REST API (FIRESTORE_EMULATOR_HOST, default localhost:8080; FIREBASE_PROJECT_ID) so that no Cloud Vision path is involved.
 //

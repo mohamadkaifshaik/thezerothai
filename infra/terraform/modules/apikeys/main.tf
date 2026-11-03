@@ -5,7 +5,7 @@
 // (which must live in the root module, not here) attach the real resources by
 // UID before the first `apply`. Security audit M3: restrict the browser key's
 // HTTP referrers, the iOS key's bundle ID, and every key's api_targets;
-// document the Android SHA-1 step for later in docs/runbooks/cloud-bootstrap.md.
+// document the Android SHA-1 step for later.
 //
 // prevent_destroy: these UIDs are permanent and already embedded in shipped
 // app builds (google-services.json / GoogleService-Info.plist / firebase_options.dart).

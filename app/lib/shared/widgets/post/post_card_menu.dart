@@ -45,7 +45,7 @@ class _MenuTarget {
 
 /// The overflow menu. For another author it holds ONE [RelationshipCubit]
 /// for the card's lifetime (created on first open), so a retry after a
-/// failed Block/Mute reuses the same idempotency key (CLAUDE.md rule 4).
+/// failed Block/Mute reuses the same idempotency key (the idempotency rule).
 class _PostMenu extends StatefulWidget {
   const _PostMenu({
     required this.post,

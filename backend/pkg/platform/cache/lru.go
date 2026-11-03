@@ -1,5 +1,5 @@
 // Package cache is the in-process LRU-with-TTL used by every module for hot Firestore documents
-// (users/{uid}, graph/{uid}, ...). CLAUDE.md: "update the instance cache from written data instead of
+// (users/{uid}, graph/{uid}, ...). project rule: "update the instance cache from written data instead of
 // re-reading" — repos should call Set with the value they just wrote, not re-read it.
 //
 // It is intentionally process-local (no Redis at Stage 0): each of up to 3 Cloud Run instances keeps

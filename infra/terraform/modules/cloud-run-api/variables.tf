@@ -71,7 +71,7 @@ variable "container_port" {
 }
 
 variable "degraded_mode" {
-  description = "off | readonly | nomedia — see docs/runbooks/cost-spike.md."
+  description = "off | readonly | nomedia —"
   type        = string
   default     = "off"
 

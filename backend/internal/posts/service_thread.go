@@ -1,4 +1,4 @@
-// service_thread.go is the replies slice (P3, plan docs/plans/replies-and-threads.md): the reply path of
+// service_thread.go is the replies slice (P3): the reply path of
 // CreatePost (parent resolution), the parent's replyCount release on delete, and GetThread.
 //
 // Pull model (ADR-0004): a reply is an ordinary posts doc with isReply = true. It is never written to, nor
@@ -26,7 +26,7 @@ import (
 )
 
 // Thread page sizes (cost-model lever 6.2): the first page is small; the cap keeps GetThread's worst case well
-// inside the 55-read plan budget even with three author-profile reads (CLAUDE.md rule 5: <= 50).
+// inside the 55-read plan budget even with three author-profile reads (the query-limit rule: <= 50).
 const (
 	ThreadDefaultPageSize = 10
 	ThreadMaxPageSize     = 30

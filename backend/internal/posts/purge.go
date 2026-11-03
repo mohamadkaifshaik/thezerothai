@@ -3,7 +3,7 @@
 //
 // Q-E:  posts where authorId == uid ORDER BY createdAt DESC, __name__ DESC LIMIT 500. Descending, so it uses the
 // existing (authorId ASC, createdAt DESC) index (no firestore.indexes.json change). The Limit(500) is an ops path
-// (ADR-0003 purge rule); CLAUDE.md rule 5's maximum of 50 governs RPC pagination only.
+// (ADR-0003 purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
 package posts
 
 import (

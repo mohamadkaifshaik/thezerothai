@@ -22,7 +22,7 @@ class ReauthResult {
 }
 
 /// Wraps Firebase Auth + Google Sign-In + Sign in with Apple behind one
-/// interface. No phone/SMS auth (CLAUDE.md, ADR-0006): the sign-in surface is
+/// interface. No phone/SMS auth (ADR-0006): the sign-in surface is
 /// intentionally limited to email/password, Google and Apple.
 ///
 /// Also implements [AuthTokenProvider] so `core/network/api_client.dart` can

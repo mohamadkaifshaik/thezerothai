@@ -5,7 +5,7 @@
 	<!-- Push (FCM over APNs). "development" is rewritten to "production" by
 	     Xcode for App Store / TestFlight builds signed with a distribution
 	     profile. The APNs key itself is uploaded to Firebase by the founder
-	     (docs/plans/notifications.md T12 prerequisites). -->
+	     (T12 prerequisites). -->
 	<key>aps-environment</key>
 	<string>development</string>
 </dict>

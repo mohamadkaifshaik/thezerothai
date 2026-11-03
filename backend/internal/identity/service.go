@@ -836,7 +836,7 @@ func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[stri
 	return out, nil
 }
 
-// Forget implements Directory: evicts uid's cached profile and unread count on this instance (CLAUDE.md:
+// Forget implements Directory: evicts uid's cached profile and unread count on this instance (project rule:
 // "update the instance cache from written data instead of re-reading" — this is the eviction half, called
 // by another module right after its own commit changed users/{uid} through Counters).
 func (s *service) Forget(uids ...string) {

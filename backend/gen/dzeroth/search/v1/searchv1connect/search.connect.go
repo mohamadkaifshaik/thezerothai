@@ -38,8 +38,7 @@
 //     PROTECTED_SET_MAX_STALE), as every list does. Retry later.
 //
 // Firestore budgets below are ADR-0028 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget. Keep them in sync with
-// docs/reviews/cost-model.md.
+// interceptor; every call is charged to the per-uid daily read budget.
 package searchv1connect
 
 import (

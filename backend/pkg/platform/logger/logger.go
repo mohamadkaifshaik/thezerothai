@@ -1,6 +1,6 @@
 // Package logger provides a single slog JSON logger, shaped for Cloud Logging: "severity" and
 // "message" keys, a Cloud Trace correlation field, and a per-request line with rpc/uid_hash/
-// fs_reads/fs_writes/latency_ms/code (observability skill). No request/response bodies, no PII,
+// fs_reads/fs_writes/latency_ms/code. No request/response bodies, no PII,
 // tokens or post text are ever logged.
 package logger
 
@@ -133,7 +133,7 @@ type RequestInfo struct {
 	ViaHosting bool
 	// LimitName identifies which in-memory limiter rejected the request (set by ratelimit.Interceptor,
 	// e.g. "graph_list_daily" for the ADR-0008 T4 per-uid daily list cap), empty when nothing was rejected
-	// or the rejection came from elsewhere (a Firestore quota). Observability skill / ADR-0008: every graph
+	// or the rejection came from elsewhere (a Firestore quota). ADR-0008: every graph
 	// RPC logs limit_name so `abuse-spike.md` can query rejections by limiter.
 	LimitName string
 	// ProfileRequired is set by authn.AccountStatusInterceptor when the verified caller has no profile

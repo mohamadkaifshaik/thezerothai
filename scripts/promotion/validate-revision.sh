@@ -61,7 +61,7 @@ while read -r flag; do
   note "$flag mode=$mode (ceiling $cmode) allowlist=$count/$maxal percent=$pct/$maxpct"
 done <<<"$known"
 
-# 3. Shape: instance caps are cost caps (CLAUDE.md rule 11).
+# 3. Shape: instance caps are cost caps (the cost-caps-are-code rule).
 want_max=$(jqr --arg e "$env" '.envs[$e].max_instances' "$ceil")
 want_min=$(jqr --arg e "$env" '.envs[$e].min_instances' "$ceil")
 got_max=$(jqr '.metadata.annotations["autoscaling.knative.dev/maxScale"] // "unset"' "$rev")

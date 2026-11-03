@@ -85,7 +85,7 @@ type MessageEvent struct {
 	At             time.Time
 }
 
-// Events is messaging's outbound seam (CLAUDE.md "Events"): called after the commit of a send whose recipient side is
+// Events is messaging's outbound seam (the "Events" rule): called after the commit of a send whose recipient side is
 // accepted and not silent, never for a request, a muted sender or a replay. The composition root adapts it to
 // notifications.Emitter. Best effort: it never fails the send.
 type Events interface {

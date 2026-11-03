@@ -28,7 +28,7 @@ func newTestClient(t *testing.T) *firestore.Client {
 	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
 		t.Skip("FIRESTORE_EMULATOR_HOST not set; run via `make test-int`")
 	}
-	// A fresh demo-* project per test run avoids collisions between test runs (testing-strategy skill).
+	// A fresh demo-* project per test run avoids collisions between test runs.
 	projectID := fmt.Sprintf("demo-test-%d", rand.Int63())
 	client, err := firestore.NewClient(context.Background(), projectID)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 }
 
 // TestCreateProfile_Integration_HandleRace: two goroutines race to create a profile with the same handle
-// but different uids (double-submit / concurrent sign-up, testing-strategy skill: "double-submit with
+// but different uids (double-submit / concurrent sign-up: "double-submit with
 // same idempotency key" analog for a natural-key create). Firestore transactions retry on contention, so
 // exactly one must win the handle and the other must see ErrHandleTaken — never two winners, never zero.
 func TestCreateProfile_Integration_HandleRace(t *testing.T) {

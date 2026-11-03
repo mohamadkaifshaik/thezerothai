@@ -1,7 +1,7 @@
 // Package objstore is the thin Cloud Storage seam for buckets that the API itself writes and reads: write an
 // object, delete one, and sign a short-lived V4 GET URL (the account-export bucket, ADR-0011 D-B); and, for the
 // media pipeline (ADR-0005, P4), sign a V4 PUT URL, read object attributes and the first bytes of an object, and
-// copy an object to another bucket. Media bytes never pass through the API (CLAUDE.md rule 7): clients upload with
+// copy an object to another bucket. Media bytes never pass through the API (the media rule): clients upload with
 // signed PUT URLs and the API only reads attributes and a 512-byte head. The storage client is built lazily on first use, so no I/O happens before ListenAndServe, and
 // STORAGE_EMULATOR_HOST is honored by the client itself.
 package objstore
@@ -321,7 +321,7 @@ func (s *Store) SignedGetURL(ctx context.Context, object, filename string, ttl t
 //
 // The Storage emulator does not implement objects.patch (it answers 501). Against the emulator only (STORAGE_EMULATOR_HOST
 // set, never against GCS) that answer is treated as success, so local development and the integration tests can run
-// the whole retire flow; the tag itself is verified on a real bucket in dev (docs/runbooks/media.md).
+// the whole retire flow; the tag itself is verified on a real bucket in dev.
 func (s *Store) SetCustomTime(ctx context.Context, object string, t time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()

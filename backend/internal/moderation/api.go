@@ -1,4 +1,4 @@
-// Package moderation owns reports/{reportId} (ADR-0016, plan docs/plans/reports.md). It exposes Service (the
+// Package moderation owns reports/{reportId} (ADR-0016). It exposes Service (the
 // Connect handler's dependency: ReportContent), Ops (the moderator-facing list/show/resolve that opsctl uses; there
 // are no moderator RPCs at Stage 0) and the Eraser/Exporter seams the account-lifecycle job joins.
 //
@@ -80,7 +80,7 @@ const (
 	// L-6, W7-36): the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
 	// deletes it, open or not; resolving the report shortens it to at most resolvedAt + Retention. The report itself stays.
 	MessageEvidenceRetention = 180 * 24 * time.Hour
-	// MaxListLimit is the largest page of Ops.List (CLAUDE.md rule 5: every query Limit <= 50).
+	// MaxListLimit is the largest page of Ops.List (the query-limit rule: every query Limit <= 50).
 	MaxListLimit = 50
 	// DefaultListLimit is the default page of Ops.List.
 	DefaultListLimit = 20
@@ -89,7 +89,7 @@ const (
 // Evidence is the copy of the reported post (or, for an ACCOUNT report, of the reported profile) taken at report time, so
 // a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (0 reads:
 // they ride on the post the report already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
-// docs/runbooks/moderation.md for what a takedown does and does not preserve.
+// for what a takedown does and does not preserve.
 //
 // A MESSAGE report (ADR-0027 D12) keeps that one message: Text is its text (private content, ADR-0016 note 2026-10-28),
 // AuthorHandle the sender's handle ("" when the sender is no longer ACTIVE), PostCreatedAt the time it was sent (the

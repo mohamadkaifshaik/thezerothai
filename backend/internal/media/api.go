@@ -4,7 +4,7 @@
 // the account-lifecycle job uses.
 //
 // The pipeline (ADR-0005): CreateUpload reserves 1-4 media ids and signs PUT URLs for a PRIVATE upload bucket;
-// the client PUTs straight to GCS (media never passes through the API, CLAUDE.md rule 7); FinalizeUpload verifies
+// the client PUTs straight to GCS (media never passes through the API, the media rule); FinalizeUpload verifies
 // size, type, MD5 and magic bytes, screens the image with SafeSearch (bounded by VISION_MONTHLY_CAP), and only then
 // copies it into the PUBLIC bucket. Unmoderated bytes are therefore never publicly readable.
 package media

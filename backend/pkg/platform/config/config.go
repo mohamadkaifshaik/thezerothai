@@ -246,13 +246,13 @@ type Config struct {
 	// with a GIF media doc. It never ramps ahead of FEATURE_MEDIA. FEATURE_GIF[_ALLOWLIST|_PERCENT], default off.
 	FeatureGif flags.Spec
 
-	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020 / docs/plans/ui-w0-foundations.md D3)
+	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020, W0 plan D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
 	// navigation. No RPC is gated by it, it only reaches clients through GetMe.enabled_features. FEATURE_UI_SHELL
 	// [_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureUIShell flags.Spec
 
-	// FeatureShells is the client-only UI flag (wire name `shells`, docs/plans/ui-w8-shells.md) showing the W8
+	// FeatureShells is the client-only UI flag (wire name `shells`) showing the W8
 	// coming-soon pages (Creator tools, Premium, Advertise, Calls) and their drawer and rail entries. No RPC is gated by
 	// it, it only reaches clients through GetMe.enabled_features. FEATURE_SHELLS[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
@@ -261,18 +261,18 @@ type Config struct {
 	// FeatureCrashReporting is the client-only telemetry flag (wire name `crash_reporting`, ADR-0032 D11) gating the "Send crash reports"
 	// switch and Firebase Crashlytics collection in the Android app. No RPC is gated by it, it only reaches clients through
 	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_CRASH_REPORTING[_ALLOWLIST|_PERCENT], default off in
-	// every environment. Runbook: docs/runbooks/client-telemetry.md.
+	// every environment.
 	FeatureCrashReporting flags.Spec
 
 	// FeatureAnalytics is the client-only telemetry flag (wire name `analytics`, ADR-0032 D11) gating the "Share usage statistics"
 	// switch and Google Analytics for Firebase collection in the Android app. No RPC is gated by it, it only reaches clients through
 	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_ANALYTICS[_ALLOWLIST|_PERCENT], default off in every
-	// environment. Runbook: docs/runbooks/client-telemetry.md.
+	// environment.
 	FeatureAnalytics flags.Spec
 
 	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
-	// off in every environment: off means no log reads and no suspension-reset cost (docs/runbooks/moderation.md 3b).
+	// off in every environment: off means no log reads and no suspension-reset cost.
 	// The log is still WRITTEN on every hide/restore while this is off, so enabling it later needs no backfill.
 	FeatureRemovedIDs flags.Spec
 	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
@@ -1010,7 +1010,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// P3: replies are off everywhere until the founder ramps them (flag-rollout skill).
+	// P3: replies are off everywhere until the founder ramps them.
 	featureReplies, err := flags.LoadSpec("REPLIES", "replies", flags.Off)
 	if err != nil {
 		return Config{}, err

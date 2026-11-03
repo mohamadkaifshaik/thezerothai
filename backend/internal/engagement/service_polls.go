@@ -1,5 +1,5 @@
 // service_polls.go is VotePoll (ADR-0029 D6, ticket W6-7; Amendment 1 A1 and A2, ticket W6-36): one vote per account per poll, changeable until
-// the poll closes. The natural key pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of CLAUDE.md rule 4
+// the poll closes. The natural key pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of the idempotency rule
 // as ADR-0018's likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success. A different choice is a change only
 // when expected_choice names the stored vote (the compare-and-set of A2.2), else ALREADY_VOTED. The voter blocking the author is TARGET_BLOCKED (A1).
 package engagement

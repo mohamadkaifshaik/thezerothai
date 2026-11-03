@@ -391,7 +391,7 @@ func sortedPair(a, b string) []string {
 	return []string{a, b}
 }
 
-// requestCountCap bounds CountRequests (CLAUDE.md rule 5: every query has a Limit, aggregations included). Firestore bills
+// requestCountCap bounds CountRequests (the query-limit rule: every query has a Limit, aggregations included). Firestore bills
 // a count() as 1 read per 1,000 matches, so the cap keeps "Message requests (N)" at 1 read; the client shows "999+".
 const requestCountCap = 1000
 

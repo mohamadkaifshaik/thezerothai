@@ -166,23 +166,6 @@ func (e *searchChain) assertReads(t *testing.T, label, rpc string, max float64) 
 	return reads
 }
 
-func detailOf(t *testing.T, err error) *commonv1.ErrorDetail {
-	t.Helper()
-	var ce *connect.Error
-	if !asConnectErr(err, &ce) {
-		t.Fatalf("err = %v, want a Connect error", err)
-	}
-	for _, d := range ce.Details() {
-		if v, e := d.Value(); e == nil {
-			if det, ok := v.(*commonv1.ErrorDetail); ok {
-				return det
-			}
-		}
-	}
-	t.Fatalf("error %v has no ErrorDetail", err)
-	return nil
-}
-
 func wantReason(t *testing.T, err error, code connect.Code, reason commonv1.ErrorReason, key, val string) {
 	t.Helper()
 	d := wireError(t, err, code)

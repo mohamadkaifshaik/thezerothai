@@ -17,8 +17,7 @@ rules_version = '2';
 // (signed URLs / public HTTPS GET) directly, which Firebase Storage security rules cannot see or govern at all;
 // they only apply to requests through firebasestorage.googleapis.com. Registering these buckets with Firebase
 // Storage just to deploy this file would add a false sense of protection, not real protection. The real,
-// live-verified protection is IAM + public access prevention in Terraform — see
-// docs/runbooks/cloud-bootstrap.md section 10.
+// live-verified protection is IAM + public access prevention in Terraform.
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {

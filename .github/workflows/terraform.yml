@@ -1,8 +1,8 @@
 name: Terraform
 
 # fmt / validate / lint / plan ONLY. This workflow never runs `terraform
-# apply` — apply is a deliberate, human-run action (see gcp-terraform skill
-# and infra/terraform/envs/*/versions.tf comments) until an ADR adds a gated
+# apply` — apply is a deliberate, human-run action (see the
+# infra/terraform/envs/*/versions.tf comments) until an ADR adds a gated
 # apply pipeline. Plan uses a read-only service account (see modules/iam).
 
 on:
@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Skip an env until it has been bootstrapped (first apply is local; see docs/runbooks/cloud-bootstrap.md).
+      # Skip an env until it has been bootstrapped (first apply is local).
       - name: Env bootstrapped?
         id: gate
         env:

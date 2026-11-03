@@ -58,7 +58,7 @@ class ProfileRelationship {
 
 /// Talks to `GraphService` and keeps a session-lifetime relationship cache,
 /// so the client never re-asks "does the caller follow/block/mute this
-/// user?" for an id it already knows this session (CLAUDE.md prime
+/// user?" for an id it already knows this session (cost-first
 /// directive: the client is our cheapest cache). Follow rows and list rows
 /// prime this cache for free from data the server already sent
 /// (`UserListItem.relationship`, ADR-0008 D4), so most profile/list views
@@ -540,7 +540,7 @@ class GraphRepository {
   }
 
   /// Wipes the session cache. Call on sign-out so the next user on a shared
-  /// device never sees a stale relationship (privacy: CLAUDE.md rule 10).
+  /// device never sees a stale relationship (privacy: the privacy rule).
   void clearCache() {
     _relationships.clear();
     _followedBy.clear();

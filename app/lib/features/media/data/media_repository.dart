@@ -36,7 +36,7 @@ class FinalizeRequestItem {
 }
 
 /// Talks to `MediaService` and PUTs bytes to the signed GCS URLs (bytes never
-/// pass through the API, CLAUDE.md rule 7).
+/// pass through the API, the media rule).
 ///
 /// - With the media flag off no RPC is sent ([FeatureDisabledException]); a
 ///   server FEATURE_DISABLED calls [onFeatureDisabled] so the caller can

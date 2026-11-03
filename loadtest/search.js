@@ -1,4 +1,4 @@
-// search: W4 emulator load smoke (W4-23, docs/plans/ui-w4-discovery-search.md "W4-23"; ADR-0028 "Cost impact"). One file, one timeline of
+// search: W4 emulator load smoke (W4-23; ADR-0028 "Cost impact"). One file, one timeline of
 // phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or dzeroth-prod:
 // it creates about 2,300 posts and raises every search, post and read-budget cap.
 //
@@ -30,11 +30,11 @@
 // see loadtest/analyze_search.js. k6 prints `W4 PHASE <name> <iso>` and `W4 STEP <name> <iso>` lines (stdout/stderr) that the analyzer uses
 // to cut the log. Latency is emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators; load-testing skill): FEATURE_SEARCH=on FEATURE_TRENDS=on FEATURE_POSTS=on
+// API requirements (a local API against the emulators): FEATURE_SEARCH=on FEATURE_TRENDS=on FEATURE_POSTS=on
 // FEATURE_GRAPH=on, ENV=local, TRENDS_MIN_INTERVAL=30s, and these raised (they are per instance and per user, and every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_SEARCH_PEOPLE_PER_MIN,
 // RATE_LIMIT_SEARCH_POSTS_PER_MIN, SEARCH_CALLS_PER_DAY, READ_BUDGET_PER_UID_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY,
-// QUOTA_NEW_ACCOUNT_POSTS_PER_DAY. The exact values of the recorded run are in docs/reviews/cost-model.md section 15.
+// QUOTA_NEW_ACCOUNT_POSTS_PER_DAY.
 //
 //   k6 run loadtest/search.js      # or: make loadtest SCENARIO=search
 //   node loadtest/analyze_search.js api.log k6.out

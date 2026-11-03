@@ -15,7 +15,7 @@
 //   and return `next_page_token` ("" => no more). Tokens are opaque base64; never parse them on the client.
 // - Errors use Connect codes; machine-readable detail is attached as an `ErrorDetail` (below).
 // - Each RPC comment carries its Firestore budget: "reads worst/typical, writes worst/typical".
-//   Keep these in sync with docs/reviews/cost-model.md.
+//
 
 package commonv1
 

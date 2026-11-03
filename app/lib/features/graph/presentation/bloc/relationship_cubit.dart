@@ -25,7 +25,7 @@ extension RelationshipUpdate on graph.Relationship {
 }
 
 /// Drives one user's relationship: optimistic follow/unfollow/block/
-/// unblock/mute/unmute, with rollback on failure (CLAUDE.md: "Optimistic
+/// unblock/mute/unmute, with rollback on failure (project rule: "Optimistic
 /// updates with rollback"). One instance per (viewer, target) pair — created
 /// fresh for every profile header and every list row.
 class RelationshipCubit extends Cubit<RelationshipState> {
@@ -49,7 +49,7 @@ class RelationshipCubit extends Cubit<RelationshipState> {
   final bool targetIsPrivate;
   final Uuid _uuid;
 
-  // One idempotency key per user "intent" (CLAUDE.md rule 4 / ADR-0003):
+  // One idempotency key per user "intent" (the idempotency rule / ADR-0003):
   // generated on the first attempt, reused on every retry of that same
   // intent (including a user tapping the button again after a failed
   // attempt), and cleared only once the server confirms it — so a dropped
@@ -133,7 +133,7 @@ class RelationshipCubit extends Cubit<RelationshipState> {
       emit(RelationshipState(relationship: updated));
     } on AppException catch (e) {
       // Roll back to the pre-optimistic relationship. Never auto-retry
-      // DegradedModeException (CLAUDE.md); the caller decides whether to
+      // DegradedModeException; the caller decides whether to
       // offer a manual retry, which reuses the same key via [keyOf].
       if (isClosed) return;
       emit(state.copyWith(relationship: previous, isUpdating: false, error: e));

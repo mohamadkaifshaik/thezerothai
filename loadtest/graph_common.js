@@ -1,4 +1,4 @@
-// graph_common: shared setup helpers for graph_follow.js and graph_lists.js (T18, docs/plans/graph.md).
+// graph_common: shared setup helpers for graph_follow.js and graph_lists.js (T18).
 // Mints real Firebase Auth emulator ID tokens and creates profiles via IdentityService.CreateProfile, so the
 // timed scenarios only exercise GraphService. Never points at anything but the URLs given by env vars
 // (defaults are the local emulator + local API; see loadtest/README.md).

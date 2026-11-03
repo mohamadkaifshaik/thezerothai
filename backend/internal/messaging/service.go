@@ -25,7 +25,7 @@ const (
 	notGloballyOff
 )
 
-// Limits are the messaging numbers the service enforces itself. Every value is config (CLAUDE.md rule 11), none a literal.
+// Limits are the messaging numbers the service enforces itself. Every value is config (the cost-caps-are-code rule), none a literal.
 type Limits struct {
 	// RequestMaxUnanswered is MESSAGES_REQUEST_MAX_UNANSWERED: messages a requester may send before the recipient answers.
 	RequestMaxUnanswered int64

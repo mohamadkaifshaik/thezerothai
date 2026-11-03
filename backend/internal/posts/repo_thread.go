@@ -3,7 +3,7 @@
 //	Q-T  Conversation, conversationId == X ORDER BY createdAt ASC, __name__ ASC, StartAfter(cursor), LIMIT n
 //	     -> the existing (conversationId ASC, createdAt ASC) index; __name__ follows the last field's direction.
 //
-// and the parent's replyCount counter (FieldValue.Increment, CLAUDE.md rule 3).
+// and the parent's replyCount counter (FieldValue.Increment, the counter rule).
 package posts
 
 import (

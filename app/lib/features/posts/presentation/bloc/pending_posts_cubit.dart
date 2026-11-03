@@ -50,7 +50,7 @@ class PendingPostsCubit extends Cubit<List<PendingPost>> {
     ]);
   }
 
-  /// Sign-out: nothing of the previous session may linger (CLAUDE.md rule 10).
+  /// Sign-out: nothing of the previous session may linger (the privacy rule).
   void clear() {
     if (state.isNotEmpty) emit(const []);
   }

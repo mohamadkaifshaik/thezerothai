@@ -1,6 +1,6 @@
 // Package mw holds the cross-cutting Connect interceptors that are not specific to one platform
 // concern: panic recovery, request logging, and the final error-to-Connect-code mapping (ADR-0002,
-// ADR-0006 §2, observability skill). Wire order in apiserver.Build must match ADR-0006 §2 (as amended,
+// ADR-0006 §2). Wire order in apiserver.Build must match ADR-0006 §2 (as amended,
 // M1: rate limit moved before account status so a profile-less caller cannot bypass the limiter and burn
 // unauthenticated Firestore reads; degraded mode moved with it since it is also a free, in-memory check;
 // N5: logging moved outermost, ahead of recover, so a panicking request still gets its one log line):
@@ -36,7 +36,7 @@ import (
 
 // reportedErrorType shapes a log entry so Cloud Error Reporting recognizes it as a
 // google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent even though we log via plain slog JSON
-// rather than calling the Error Reporting API directly (observability skill: "Errors: Error Reporting
+// rather than calling the Error Reporting API directly ("Errors: Error Reporting
 // picks up severity=ERROR logs with stack traces automatically" — the explicit @type plus stack_trace
 // makes that pickup reliable instead of best-effort message sniffing).
 const reportedErrorType = "type.googleapis.com/google.devtools.clouderrorreporting.v1beta1.ReportedErrorEvent"
@@ -72,7 +72,7 @@ func ReportError(ctx context.Context, log *slog.Logger, op string, err error) {
 }
 
 // Recover converts a panic inside the handler chain into connect.CodeInternal instead of crashing the
-// process (CLAUDE.md: "no panics on request paths"). It logs the panic and stack as an Error
+// process (project rule: "no panics on request paths"). It logs the panic and stack as an Error
 // Reporting-shaped entry (M3) so it is never silently lost; the client only ever sees a generic message.
 func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -89,7 +89,7 @@ func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(interceptor)
 }
 
-// Logging emits exactly one JSON log line per request, always at INFO (observability skill: "One log line
+// Logging emits exactly one JSON log line per request, always at INFO ("One log line
 // per request, INFO"): rpc, uid_hash, latency_ms, code, fs_reads/fs_writes/fs_deletes, xff_hops,
 // via_hosting; cache_hit is left to callers via context if needed. It also seeds the request's
 // budget.Counter, trace correlation field, and logger.RequestInfo: uid_hash and app_check_failed are
@@ -99,7 +99,7 @@ func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 // invisible to an ancestor holding the original ctx). M2 (2026-09-27 security audit): xff_hops/via_hosting
 // used to only be logged at Debug from inside the rate limiter, a level Cloud Run's default (Info) drops
 // before it is ever written — folding them into this always-emitted line is what makes TRUSTED_PROXY_HOPS
-// measurable from real traffic without adding a second log line (observability skill: don't add custom log
+// measurable from real traffic without adding a second log line (don't add custom log
 // lines beyond what is needed).
 //
 // Logging is also the last-resort error shaper and Error-Reporting fallback (M3/N5 — see the package doc
@@ -181,7 +181,7 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 }
 
 // ErrorMapping is the place a service/handler error becomes a *connect.Error with an attached
-// dzeroth.common.v1.ErrorDetail (CLAUDE.md: map errors to Connect codes at the handler boundary only).
+// dzeroth.common.v1.ErrorDetail (project rule: map errors to Connect codes at the handler boundary only).
 // It must be the innermost interceptor (closest to the handler) so every interceptor above it — and the
 // client — only ever sees fully-shaped Connect errors for anything that actually reaches the handler.
 // (An interceptor positioned *before* ErrorMapping that short-circuits without calling next — e.g.

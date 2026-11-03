@@ -584,7 +584,7 @@ void main() {
     }, textScales: kMatrixTextScalesLarge);
   });
 
-  // D-1 (fixed in the W3-22 client PR, `docs/reviews/tests/test-report-w3-client.md`):
+  // D-1 (fixed in the W3-22 client PR):
   // at 360 dp and text scale 2.0 the header's action buttons grow taller than the 48 dp the
   // strip under the banner reserves for them ("Follow back" wraps to two lines
   // and is 84 dp tall, "Edit profile" is 56 dp), so they are painted over the

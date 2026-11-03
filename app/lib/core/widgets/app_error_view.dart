@@ -18,7 +18,7 @@ String rateLimitedMessage(RateLimitedException error) {
   return "You're doing that a bit too fast. Give it a moment and try again.";
 }
 
-/// Friendly, typed rendering of an [AppException] (CLAUDE.md: "Handle
+/// Friendly, typed rendering of an [AppException] (project rule: "Handle
 /// RESOURCE_EXHAUSTED and degraded mode with clear, friendly UI").
 ///
 /// Never shows a raw exception message from an unrecognized source; always

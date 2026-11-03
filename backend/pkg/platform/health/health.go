@@ -1,6 +1,6 @@
 // Package health exposes the Cloud Run startup/liveness probe target. It must have zero dependencies —
 // it answers even if Firestore, Auth, or any downstream is unavailable, and it is never logged
-// (observability skill: "Health checks not logged").
+// ("Health checks not logged").
 package health
 
 import "net/http"

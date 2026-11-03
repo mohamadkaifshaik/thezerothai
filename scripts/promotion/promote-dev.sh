@@ -4,7 +4,7 @@
 # Required env: PROJECT REGION SERVICE IMAGE (built image, pinned by @sha256 digest) REPO (Artifact Registry
 #   <host>/<project>/<repo>/<image>, no tag) DRY_RUN (true|false). Optional: CEILING (default flag-ceiling.json),
 #   SOAK_SECONDS (integer >= 0, default 120), SOAK_INTERVAL (integer >= 1, default 15), CHECK_INDEXES (default true).
-# Authenticated smoke env (docs/runbooks/authenticated-smoke.md): SMOKE_EMAIL, SMOKE_PASSWORD (both secrets; never arguments), optional
+# Authenticated smoke env: SMOKE_EMAIL, SMOKE_PASSWORD (both secrets; never arguments), optional
 #   FIREBASE_API_KEY (default: the web key of app/lib/firebase_options.dart, or FIREBASE_OPTIONS_FILE) and SMOKE_REFERER (default
 #   https://dzeroth-dev.web.app/). Missing secrets: a dry run skips it with a notice, promote mode FAILS CLOSED.
 # RECOVER=true (needs PROJECT REGION SERVICE REPO and PROMOTE_MARKER; IMAGE/DRY_RUN not needed): used by a workflow step that runs
@@ -83,7 +83,7 @@ smoke() {
   [ "$code" = "401" ] || { echo "unauthenticated GetMe returned '$code', expected 401" >&2; return 1; }
 }
 
-# Moves the protective `serving` tag (see docs/plans/serving-image-retention.md). `tags add` moves an existing tag. Never fatal: the
+# Moves the protective `serving` tag. `tags add` moves an existing tag. Never fatal: the
 # promotion state is already verified; a failure only means the image is protected by keep-last-3 alone, so it warns loudly.
 move_serving_tag() {
   local d=$1

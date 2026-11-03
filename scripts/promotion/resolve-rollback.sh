@@ -48,7 +48,7 @@ for flag in $(jqr '.rollback_floors // {} | keys[] | select(startswith("_") | no
   [ -n "$commits" ] || { echo "FAIL: image of '$target' has no commit tag, so it cannot be shown to be at or after the $flag rollback floor ${floor:0:8}; refusing (flag is $mode)" >&2; exit 1; }
   for c in $commits; do
     git -C "$repo" merge-base --is-ancestor "$floor" "$c" 2>/dev/null \
-      || { echo "FAIL: image of '$target' (commit ${c:0:8}) is older than, or not provably after, the $flag rollback floor ${floor:0:8} (flag is $mode); roll forward with a fix instead (docs/runbooks/rollback.md)" >&2; exit 1; }
+      || { echo "FAIL: image of '$target' (commit ${c:0:8}) is older than, or not provably after, the $flag rollback floor ${floor:0:8} (flag is $mode); roll forward with a fix instead" >&2; exit 1; }
   done
 done
 

@@ -178,7 +178,7 @@ type IdentityServiceClient interface {
 	// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
 	// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
 	// Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
-	// Never rejected by the read budget (charge-only, CLAUDE.md rule 10); bounded instead by account_ops_daily:
+	// Never rejected by the read budget (charge-only, the privacy rule); bounded instead by account_ops_daily:
 	// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
 	// metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6). DEGRADED_MODE=readonly rejects it (ADR-0011 Q8); a
 	// started deletion still finishes.
@@ -438,7 +438,7 @@ type IdentityServiceHandler interface {
 	// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
 	// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
 	// Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
-	// Never rejected by the read budget (charge-only, CLAUDE.md rule 10); bounded instead by account_ops_daily:
+	// Never rejected by the read budget (charge-only, the privacy rule); bounded instead by account_ops_daily:
 	// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
 	// metadata["limit"] = "account_ops_daily"; ADR-0010 D5 A6). DEGRADED_MODE=readonly rejects it (ADR-0011 Q8); a
 	// started deletion still finishes.

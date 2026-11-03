@@ -53,7 +53,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # cron_test_invoker        = "user:someone@example.com"
 # cron_test_invoker_expiry = "2026-11-24T00:00:00Z" # example: 30 days after the apply date
 
-# W3 Part A rollout, dev (ADR-0024, W3-24; runbook docs/runbooks/w3-part-a-rollout.md). OPT-IN, founder decision: leave these
+# W3 Part A rollout, dev (ADR-0024, W3-24). OPT-IN, founder decision: leave these
 # commented out and the four W3 flags stay `off` (the variable defaults). Never put real uids in this file or in any committed
 # file; they live only in the gitignored terraform.tfvars.
 # - The cohort is the same 3 testers as feature_bookmarks_allowlist / feature_engagement_allowlist / feature_media_allowlist
@@ -78,7 +78,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # feature_private_accounts           = "allowlist"
 # feature_private_accounts_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 
-# W8 coming-soon pages (ADR-0026, W8-11; runbook docs/runbooks/shells.md "Dev rollout"). OPT-IN: leave commented out and `shells`
+# W8 coming-soon pages (ADR-0026, W8-11). OPT-IN: leave commented out and `shells`
 # stays `off`. The cohort is the same 3 testers as feature_ui_shell_allowlist (entries need shells AND ui_shell). Dev ceiling:
 # allowlist, at most 3 uids, percent 0.
 # feature_shells           = "allowlist"

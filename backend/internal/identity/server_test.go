@@ -87,7 +87,7 @@ func newTestServerHTTPWithClaims(t *testing.T, svc Service, claims authn.Claims,
 	t.Helper()
 	mux := http.NewServeMux()
 	// mw.ErrorMapping is wired here to match the real chain (apiserver.Build, innermost before the
-	// handler): a handler is free to return a raw *apierr.Error (CLAUDE.md: "handlers just return the
+	// handler): a handler is free to return a raw *apierr.Error (project rule: "handlers just return the
 	// service error as-is"; see authn.RequireVerifiedEmail) and rely on ErrorMapping to
 	// shape it into a proper *connect.Error — without it here, connect-go has no idea how to encode an
 	// unrecognized error type and falls back to CodeUnknown, which every real deployment never sees.

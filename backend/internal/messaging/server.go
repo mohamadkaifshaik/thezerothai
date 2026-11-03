@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// rpcDeadline bounds one messaging call (<= 10 s, go-service skill).
+// rpcDeadline bounds one messaging call (<= 10 s).
 const rpcDeadline = 8 * time.Second
 
 // Server adapts Service to messagingv1connect.MessagingServiceHandler.

@@ -4,7 +4,7 @@
 //
 // Query:  posts ORDER BY __name__ ASC [StartAfter(checkpoint)] LIMIT page (page <= opsPage = 500). A collection-wide
 // scan in id order uses the automatic __name__ index (no firestore.indexes.json change). The Limit(500) is an ops path
-// (ADR-0003 purge rule); CLAUDE.md rule 5's maximum of 50 governs RPC pagination only.
+// (ADR-0003 purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
 //
 // Cost: 1 read per post scanned (the `Select` projection narrows the payload, not the billing) and 1 write per post whose
 // document lacks the key, never more than BackfillMaxWrites in one run. A rerun finds no missing key and writes 0.

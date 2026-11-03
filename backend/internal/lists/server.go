@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 )
 
-// rpcDeadline bounds one list call (<= 10 s, go-service skill); the transaction itself has 5 s.
+// rpcDeadline bounds one list call (<= 10 s); the transaction itself has 5 s.
 const rpcDeadline = 8 * time.Second
 
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,

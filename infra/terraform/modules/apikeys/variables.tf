@@ -68,7 +68,7 @@ variable "android_allowed_applications" {
       - Local debug builds (for testing only, never for the restriction itself):
         keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android
     Until this is set, the Android key has NO app restriction — only the
-    api_targets trim applies (see docs/runbooks/cloud-bootstrap.md).
+    api_targets trim applies.
   EOT
   type = list(object({
     package_name     = string

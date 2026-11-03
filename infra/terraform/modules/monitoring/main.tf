@@ -162,7 +162,7 @@ resource "google_monitoring_uptime_check_config" "healthz" {
 }
 
 // ---------------------------------------------------------------------------
-// Alert policies — kept to a small handful per the observability skill.
+// Alert policies — kept to a small handful.
 // ---------------------------------------------------------------------------
 
 // The three ops alert policies became conditional (R4, founder decision 2026-10-10: prod only). These keep the
@@ -214,7 +214,7 @@ resource "google_monitoring_alert_policy" "uptime_failing" {
 // 2. Cloud Run 5xx rate. NOTE: this is an absolute rate (5xx responses/sec,
 // summed across revisions), NOT a percentage of total traffic — computing a
 // true error *ratio* needs an MQL condition (dividing 5xx count by total
-// count) or a log-based metric, and the observability skill says not to add
+// count) or a log-based metric, and the rule is not to add
 // log-based/custom metrics without an ADR (they're billable beyond a small
 // free allotment). Named honestly so on-call doesn't misread the threshold
 // as "5% of requests"; revisit with an MQL ratio query if false
@@ -326,7 +326,7 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. Runbook: docs/runbooks (account lifecycle)."
+    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. (account lifecycle)."
   }
 
   alert_strategy {
@@ -365,7 +365,7 @@ resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; runbook docs/runbooks/credit-sunset-pause-resume.md, lever L2). Then investigate with docs/runbooks/abuse-spike.md and docs/runbooks/cost-spike.md. Restore the invoker afterwards."
+    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
   }
 
   alert_strategy {

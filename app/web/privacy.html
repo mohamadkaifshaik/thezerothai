@@ -10,7 +10,7 @@
   1. Legal/privacy review of the whole text (not done; this is not legal advice). No legal basis, transfer mechanism
      or jurisdiction is stated on purpose (founder decisions, W6-55 PR).
   2. Done: T27 (a deleted uid leaves other users' blocked[]/muted[] when the owner next opens the list) is built
-     (docs/runbooks/account-deletion.md 3b). The "until cleaned up" bullet below describes it.
+. The "until cleaned up" bullet below describes it.
   3. Age: no age check exists. The sign-up screen says "By signing up you confirm you're 18 or older"
      (sign_up_screen.dart), but Google/Apple sign-in from the sign-in screen does not show it, so the policy keeps
      "does not currently check your age". Legal review must decide what DPDP needs for under-18s.
@@ -24,14 +24,14 @@
   9. Deploy this policy before any real user is allowlisted on any flag.
   10. Export and deletion paths. Every export and deletion sentence describes the in-app path
       (FEATURE_ACCOUNT_LIFECYCLE: RequestAccountExport / DeleteAccount and every registered section and step). Prod
-      had the flag off at v0.4.0 (docs/releases/v0.4.0.md; prod tfvars are not in the repo, so re-check). The
-      manual email path (docs/runbooks/account-deletion.md 3a/3b) covers only the profile, the Auth record, the
+      had the flag off at v0.4.0 (prod tfvars are not in the repo, so re-check). The
+      manual email path covers only the profile, the Auth record, the
       graph and posts (media by hand); it misses likes, reposts, bookmarks, poll votes, lists, follow requests,
       messages, reports, notifications' other-user rows, deviceTokens and exports. So before ANY flag that creates
       such data leaves off in prod, FEATURE_ACCOUNT_LIFECYCLE must be on in prod for those users, or 3a/3b must be
       extended to every section and step. Otherwise the "Your rights" and deletion text is untrue for email requests.
       Decided 2026-11-01 (founder delegated the default): FEATURE_ACCOUNT_LIFECYCLE goes on in prod before any such
-      flag leaves off there; 3a/3b stay the fallback for email requests (docs/runbooks/account-deletion.md).
+      flag leaves off there; 3a/3b stay the fallback for email requests.
   11. Every feature section describes code merged on main; prod flags were all off at v0.4.0. Before a feature
       leaves off in prod, the Firestore TTL policies its retention sentence relies on must be applied there
       (Terraform modules/firestore ttl_fields: idempotency, notifications, media, exports, reports, report

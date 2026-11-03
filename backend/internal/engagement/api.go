@@ -273,7 +273,7 @@ type BookmarkRepo interface {
 	Prune(ctx context.Context, uid string, ids []string) error
 }
 
-// MaxListPage is the largest ListBookmarks page (CLAUDE.md rule 5).
+// MaxListPage is the largest ListBookmarks page (the query-limit rule).
 const MaxListPage = limits.MaxPageSize
 
 // LikesList is the likes-list seam of the module (ADR-0024 D6, ticket W3-10): the Connect handler depends on it, a later

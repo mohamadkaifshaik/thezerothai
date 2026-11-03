@@ -3,7 +3,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Artifact Registry region (asia-south1 per CLAUDE.md, colocated with Cloud Run)."
+  description = "Artifact Registry region (asia-south1 by project decision, colocated with Cloud Run)."
   type        = string
   default     = "asia-south1"
 }
