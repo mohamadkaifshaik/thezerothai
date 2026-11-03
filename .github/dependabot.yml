@@ -37,6 +37,10 @@ updates:
     ignore:
       - dependency-name: "firebase_*"
         update-types: ["version-update:semver-major"]
+      # firebase_app_check is still 0.x, so its breaking releases are "minor" (0.4 -> 0.5 needs firebase_core 5 and
+      # dragged the whole Firebase major bump in through #672). Hold those too, with the rest of the upgrade.
+      - dependency-name: "firebase_app_check"
+        update-types: ["version-update:semver-minor"]
     groups:
       pub-minor-patch:
         update-types: [minor, patch]
