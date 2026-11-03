@@ -242,9 +242,37 @@ func TestCreate_Integration_Replays(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	// A contended create takes 2 to 3 s on the emulator (lock waits and the SDK's backoff), so on a slow runner a
+	// racer can pass the 5 s transaction deadline. That racer gets the retryable UNAVAILABLE "busy" answer, which is
+	// correct; what must never happen is a second post or a second quota charge. So: at least one racer succeeds,
+	// every success has the same id, a busy racer's retry with the same key replays that id, and the counts below
+	// stay exact.
+	winner := ""
 	for i := range ids {
-		if errs[i] != nil || ids[i] != ids[0] {
-			t.Fatalf("call %d: id=%q err=%v (first id %q)", i, ids[i], errs[i], ids[0])
+		if errs[i] != nil {
+			var busy *apierr.Error
+			if !errors.As(errs[i], &busy) || busy.Code != connect.CodeUnavailable {
+				t.Fatalf("call %d: err=%v, want success or the retryable UNAVAILABLE", i, errs[i])
+			}
+			continue
+		}
+		if winner == "" {
+			winner = ids[i]
+		}
+		if ids[i] != winner {
+			t.Fatalf("call %d: id=%q, want %q", i, ids[i], winner)
+		}
+	}
+	if winner == "" {
+		t.Fatalf("no racer succeeded: %v", errs)
+	}
+	for i := range ids {
+		if errs[i] == nil {
+			continue
+		}
+		p, _, err := in.create(t, "uid-alice", key(2), "racing")
+		if err != nil || p.ID != winner {
+			t.Fatalf("retry of busy call %d: %v %v, want the replay of %q", i, p, err, winner)
 		}
 	}
 	// "once" + "racing" = 2 posts, postsCount 2, quotas.posts 2, idempotency docs 2.

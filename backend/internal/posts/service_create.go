@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
@@ -21,6 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Create implements Service (ADR-0010 D2, D7, D13, D18).
@@ -255,6 +258,9 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		if errors.As(err, &ae) {
 			return nil, err // quota exceeded and other already-shaped errors
 		}
+		if busy := createBusy(ctx, err, uid); busy != nil {
+			return nil, busy
+		}
 		return nil, logger.RedactErr(fmt.Errorf("posts: create: %w", err), uid)
 	}
 
@@ -427,4 +433,25 @@ func authorSnapshotOf(uid string, p identity.Profile) (AuthorSnapshot, int64) {
 	return AuthorSnapshot{
 		UserID: uid, Handle: p.Handle, DisplayName: p.DisplayName, AvatarURL: p.AvatarThumbURL, Verified: p.Verified,
 	}, p.SnapshotVersion
+}
+
+// outcomeContention is the request-line outcome of a CreatePost that lost a transaction race.
+const outcomeContention = "contention"
+
+// createBusy turns a lost transaction race into the retryable "temporarily busy" answer that lists, messaging and
+// graph give: Firestore gave up on contention (Aborted), or the transaction ran past createTxTimeout while the
+// request itself still had time. Nothing was written in either case, or the commit landed and the idempotency key
+// makes the client's retry a replay. It returns nil for any other error, and when the request's own context ended
+// (that is the caller's deadline or cancellation, not contention).
+func createBusy(ctx context.Context, err error, uid string) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	if !store.IsContention(err) && !errors.Is(err, context.DeadlineExceeded) && status.Code(err) != codes.DeadlineExceeded {
+		return nil
+	}
+	logger.SetRequestField(ctx, fieldOutcome, outcomeContention)
+	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
+		WithRetryAfter(time.Second).
+		WithCause(logger.RedactErr(fmt.Errorf("posts: create: %w", err), uid))
 }

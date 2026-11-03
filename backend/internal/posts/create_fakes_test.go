@@ -40,6 +40,9 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 			return CreateResult{Attempts: 1}, ErrParentGone
 		}
 	}
+	if r.onCreate != nil {
+		r.onCreate()
+	}
 	if r.createErr != nil {
 		return CreateResult{Attempts: 1}, r.createErr
 	}
