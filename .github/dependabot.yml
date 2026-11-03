@@ -31,6 +31,12 @@ updates:
     labels: [dependencies, flutter]
     commit-message:
       prefix: "chore(deps)"
+    # Firebase SDK majors (core 5, auth 7, messaging 17, ...) are held: they need a planned upgrade with an
+    # Android/iOS build and an on-device push check (firebase_messaging 17 deprecates getToken/onTokenRefresh/
+    # deleteToken). Remove this block when doing that upgrade. Minor and patch Firebase updates still arrive.
+    ignore:
+      - dependency-name: "firebase_*"
+        update-types: ["version-update:semver-major"]
     groups:
       pub-minor-patch:
         update-types: [minor, patch]
