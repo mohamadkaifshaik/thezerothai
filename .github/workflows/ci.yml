@@ -180,7 +180,7 @@ jobs:
 
       - name: Cache Firebase emulator binaries
         # The Firestore/Auth/Pub/Sub/Storage-rules emulators are JARs firebase-tools downloads on first
-        # use (testing-strategy skill "CI cost": "cache ... the emulator JARs"). Keyed on the pinned
+        # use ("cache ... the emulator JARs"). Keyed on the pinned
         # firebase-tools major version below plus firebase.json (the emulators it starts); restore-keys
         # falls back to any cache for this OS/version if firebase.json changes so a config tweak doesn't
         # cost a full re-download.

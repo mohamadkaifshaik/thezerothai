@@ -1,4 +1,4 @@
-# Load tests (load-testing skill: $0 by default, everything runs on emulators)
+# Load tests ($0 by default, everything runs on emulators)
 
 Every scenario here runs against the **Firebase Emulator Suite + a local `cmd/api` process** — never
 Cloud Run or real Firestore. Cost/budget conclusions come from reading
@@ -113,9 +113,9 @@ log. Record the machine used; emulator latency is indicative only.
    occasional `1`-`2` (cache eviction/TTL expiry across the `NUM_USERS` pool) — never above the documented
    worst case of 2 (`proto/dzeroth/identity/v1/identity.proto` GetMe comment). If it's consistently 2, the
    instance cache isn't warming as expected — that's a regression, not a loadtest artifact.
-3. **Capacity estimate, not brute force** (load-testing skill §3): don't chase a big `RATE` number here.
+3. **Capacity estimate, not brute force**: don't chase a big `RATE` number here.
    Use the observed reads/request together with the cost model `calls/DAU/day` figure to
    recompute the DAU at which Firestore's free quota is consumed, the same way that doc already does.
 
-Pass criteria (Stage 0, load-testing skill): `http_req_failed` rate < 1%, warm p95 < 400 ms at low
+Pass criteria (Stage 0): `http_req_failed` rate < 1%, warm p95 < 400 ms at low
 concurrency, and `fs_reads`/`fs_writes` per call never exceed the documented budget.

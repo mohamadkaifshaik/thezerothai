@@ -23,7 +23,7 @@
 // `protected_set_reads`), see loadtest/analyze_w3_part_b.js. k6 only checks status codes (the expected one per call). Latency is
 // emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators, nothing else; load-testing skill):
+// API requirements (a local API against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_GRAPH=on FEATURE_PRIVATE_ACCOUNTS=on FEATURE_ENGAGEMENT=on (for the 4 + 1 userLikes cold read of GetPost) and
 //   FEATURE_REPLIES not needed. CACHE_TTL=60s (default). Raise: RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN (every VU shares
 //   127.0.0.1), RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN, RATE_LIMIT_GRAPH_LIST_PER_MIN,

@@ -25,7 +25,7 @@
 // Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `read_budget_spent`, `source`, `candidates`,
 // `tab`), see loadtest/analyze_w3_part_a.js. Latency is emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators, nothing else; load-testing skill):
+// API requirements (a local API against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_GRAPH=on FEATURE_ENGAGEMENT=on FEATURE_PROFILE_TABS=on FEATURE_LIKES_LIST=on
 //   FEATURE_FOLLOW_SUGGESTIONS=on, RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares
 //   127.0.0.1). Seeding limits to raise: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY,

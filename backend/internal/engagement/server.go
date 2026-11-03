@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// rpcDeadline bounds one engagement call (<= 10 s, go-service skill); the transaction itself has 5 s.
+// rpcDeadline bounds one engagement call (<= 10 s); the transaction itself has 5 s.
 const rpcDeadline = 8 * time.Second
 
 // Server adapts Service to engagementv1connect.EngagementServiceHandler.

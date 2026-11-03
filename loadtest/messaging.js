@@ -29,7 +29,7 @@
 // the gzip response, the server gzips when the client sends Accept-Encoding: gzip) and the status of every call. Latency is emulator
 // latency, indicative only.
 //
-// API requirements (a local API against the emulators; load-testing skill): FEATURE_MESSAGING=on FEATURE_GRAPH=on, ENV=local, and these
+// API requirements (a local API against the emulators): FEATURE_MESSAGING=on FEATURE_GRAPH=on, ENV=local, and these
 // raised (they are per instance and per user, and every virtual user shares 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN,
 // RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_MESSAGES_SEND_PER_MIN, RATE_LIMIT_MESSAGES_READ_PER_MIN,
 // MESSAGES_SENDS_PER_DAY, MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY (freshly minted users are "new accounts", 50 a day), MESSAGES_MARK_READ_PER_DAY,

@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// rpcDeadline bounds every NotificationService call (<= 10 s, go-service skill).
+// rpcDeadline bounds every NotificationService call (<= 10 s).
 const rpcDeadline = 5 * time.Second
 
 // Server adapts Service to notificationsv1connect.NotificationServiceHandler.

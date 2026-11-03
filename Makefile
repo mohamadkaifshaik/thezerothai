@@ -28,7 +28,7 @@ RACE_FLAG := $(shell go env CGO_ENABLED 2>/dev/null | grep -qx 1 && echo -race |
 # requiring `npm install -g firebase-tools`. -y avoids the interactive "ok to install" prompt.
 FIREBASE := $(shell command -v firebase 2>/dev/null || echo "npx -y firebase-tools@latest")
 
-# Fixed demo-* project for every emulator run (testing-strategy skill: "demo-* projects are offline").
+# Fixed demo-* project for every emulator run ("demo-* projects are offline").
 # Without an explicit --project, firebase-tools falls back to .firebaserc's "default" alias
 # (dzeroth-dev) — a real-looking, non-demo project name; every emulator (Auth in particular, which is
 # locked to one project by firebase.json's singleProjectMode) would then be pinned to that name instead
@@ -80,7 +80,7 @@ fmt:
 vet:
 	cd $(BACKEND_DIR) && go vet ./...
 
-## test: unit tests only (no emulator needed) with the race detector, per testing-strategy skill. Coverage
+## test: unit tests only (no emulator needed) with the race detector. Coverage
 ## is gated here at 70% but only over pkg/platform (-coverpkg): internal/<module>'s repo_firestore.go paths
 ## need the Firestore emulator to exercise at all, so a unit-only run can never reach 70% honestly on
 ## internal/ — that combined (unit + integration) number is gated in test-int instead (testing-strategy
@@ -141,7 +141,7 @@ emulators:
 	$(EMULATOR_TMP) $(FIREBASE) emulators:start --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage
 
 ## test-int: emulator integration tests, backend/**/*_integration_test.go (//go:build integration), plus
-## the combined (unit + integration) 70% coverage gate on internal/<module> (testing-strategy skill) that
+## the combined (unit + integration) 70% coverage gate on internal/<module> that
 ## `make test`/`make ci` can't honestly enforce alone (repo_firestore.go paths need the emulator to be
 ## exercised at all — see the `test` target's comment). The coverage/threshold step runs as a normal Make
 ## recipe line *after* emulators:exec finishes, not inside its quoted script: that script runs through the

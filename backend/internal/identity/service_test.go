@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// fakeRepo is an in-memory Repo for service-layer unit tests (testing-strategy skill: "table-driven,
+// fakeRepo is an in-memory Repo for service-layer unit tests ("table-driven,
 // fakes"). No Firestore, no emulator.
 type fakeRepo struct {
 	profiles  map[string]Profile
@@ -373,7 +373,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 }
 
 // fakeBlockChecker is a table-driven-friendly BlockChecker fake (ADR-0008 T6): the ONLY fake in
-// service_test.go (testing-strategy skill: table-driven, fakes) exercising the GetProfile block-enforcement
+// service_test.go (table-driven, fakes) exercising the GetProfile block-enforcement
 // path independent of graph.Service, whose emulator-backed transactions are exercised separately.
 type fakeBlockChecker struct {
 	blockedBy map[string]map[string]bool // viewer -> set of targets that blocked viewer

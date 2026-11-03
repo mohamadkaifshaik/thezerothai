@@ -1010,7 +1010,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// P3: replies are off everywhere until the founder ramps them (flag-rollout skill).
+	// P3: replies are off everywhere until the founder ramps them.
 	featureReplies, err := flags.LoadSpec("REPLIES", "replies", flags.Off)
 	if err != nil {
 		return Config{}, err

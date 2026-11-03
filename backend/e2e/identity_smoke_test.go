@@ -2,7 +2,7 @@
 
 // Package e2e boots the real API handler — backend/internal/apiserver.Build, the exact wiring
 // cmd/api/main.go runs in production — inside an httptest.Server against the Firebase Emulator Suite
-// (testing-strategy skill: "Go e2e suite in backend/e2e: runs against emulators in CI"). No mocks: real
+// ("Go e2e suite in backend/e2e: runs against emulators in CI"). No mocks: real
 // Connect interceptor chain (ADR-0006 §2), a real Firebase Auth emulator-minted ID token, real Firestore.
 // Run via `make test-int`.
 package e2e

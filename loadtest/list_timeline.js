@@ -20,7 +20,7 @@
 // `list_members`, `timeline_chunks`, `authors_from_cache`, `cache_hit`), see loadtest/analyze_list_timeline.js. k6 prints
 // `W5 PHASE <name> <iso>` and `W5 STEP <name> <iso>` lines that the analyzer uses to cut the log. Latency is emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators; load-testing skill): ENV=local FEATURE_LISTS=on FEATURE_POSTS=on FEATURE_GRAPH=on
+// API requirements (a local API against the emulators): ENV=local FEATURE_LISTS=on FEATURE_POSTS=on FEATURE_GRAPH=on
 // FEATURE_ENGAGEMENT=on (the budget counts the userLikes read; FEATURE_REMOVED_IDS=on adds the removal-log window query to a refresh with an old token), and these raised (per instance / per user; every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_LISTS_WRITE_PER_MIN,
 // RATE_LIMIT_LISTS_READ_PER_MIN, RATE_LIMIT_LIST_TIMELINE_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN,

@@ -21,7 +21,7 @@
 //   limit=read_budget_daily (ADR-0010 D5; default READ_BUDGET_PER_UID_PER_DAY 2000), to show ListBookmarks is charged
 //   to the per-uid daily read budget. Each call is logged by the API with `read_budget_spent`.
 //
-// API requirements (a local `go run ./cmd/api` against the emulators, nothing else; load-testing skill):
+// API requirements (a local `go run ./cmd/api` against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_BOOKMARKS=on FEATURE_ENGAGEMENT=on
 //   RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares 127.0.0.1)
 //   seed only: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, RATE_LIMIT_BOOKMARKS_PER_MIN,

@@ -14,7 +14,7 @@ import 'processed_image.dart';
 const kMaxFullBytes = 2 * 1024 * 1024;
 const kMaxThumbBytes = 256 * 1024;
 
-/// Edge lengths per purpose (media-pipeline skill: post 1600/400, avatar
+/// Edge lengths per purpose (post 1600/400, avatar
 /// 400/96 center-cropped square).
 const kPostFullEdge = 1600;
 const kPostThumbEdge = 400;

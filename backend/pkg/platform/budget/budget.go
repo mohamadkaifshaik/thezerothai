@@ -1,6 +1,6 @@
 // Package budget counts Firestore reads/writes/deletes per request so the request log line carries
-// fs_reads/fs_writes (observability skill) and integration tests can assert an RPC's documented
-// worst-case budget (testing-strategy skill, ADR-0003).
+// fs_reads/fs_writes and integration tests can assert an RPC's documented
+// worst-case budget (ADR-0003).
 package budget
 
 import (

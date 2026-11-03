@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// fakeRepo is an in-memory Repo for service-layer unit tests (testing-strategy skill: table-driven, fakes).
+// fakeRepo is an in-memory Repo for service-layer unit tests (table-driven, fakes).
 // Follow/Unfollow (and Block/Mute/etc. as later tickets land) are controlled via the *Result/*Err fields so
 // each test can pin exactly what the "transaction" would have decided, without a real Firestore emulator.
 type fakeRepo struct {

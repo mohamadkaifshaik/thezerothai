@@ -162,7 +162,7 @@ resource "google_monitoring_uptime_check_config" "healthz" {
 }
 
 // ---------------------------------------------------------------------------
-// Alert policies — kept to a small handful per the observability skill.
+// Alert policies — kept to a small handful.
 // ---------------------------------------------------------------------------
 
 // The three ops alert policies became conditional (R4, founder decision 2026-10-10: prod only). These keep the
@@ -214,7 +214,7 @@ resource "google_monitoring_alert_policy" "uptime_failing" {
 // 2. Cloud Run 5xx rate. NOTE: this is an absolute rate (5xx responses/sec,
 // summed across revisions), NOT a percentage of total traffic — computing a
 // true error *ratio* needs an MQL condition (dividing 5xx count by total
-// count) or a log-based metric, and the observability skill says not to add
+// count) or a log-based metric, and the rule is not to add
 // log-based/custom metrics without an ADR (they're billable beyond a small
 // free allotment). Named honestly so on-call doesn't misread the threshold
 // as "5% of requests"; revisit with an MQL ratio query if false

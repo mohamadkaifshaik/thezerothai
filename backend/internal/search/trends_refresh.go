@@ -202,7 +202,7 @@ func (r *Refresher) Run(ctx context.Context) (RunResult, error) {
 
 func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 	if r.flags == nil || r.flags.GloballyOff(FlagTrends) {
-		return RunResult{Skipped: SkipFlagOff}, nil // only mode off is a job kill switch (flag-rollout skill)
+		return RunResult{Skipped: SkipFlagOff}, nil // only mode off is a job kill switch
 	}
 	if r.cfg.ReadOnly {
 		return RunResult{Skipped: SkipReadonly}, nil

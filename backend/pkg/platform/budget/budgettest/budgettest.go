@@ -1,5 +1,5 @@
 // Package budgettest is a reusable Firestore read/write/delete budget assertion for integration tests
-// (testing-strategy skill: "assert an RPC stays within its documented budget. A budget regression fails
+// ("assert an RPC stays within its documented budget. A budget regression fails
 // CI."). It depends on the "testing" package, so — like net/http/httptest — it must only ever be
 // imported from _test.go files, never from production code (backend/internal/*, backend/pkg/platform/*
 // outside tests). Not wired into any non-test build.

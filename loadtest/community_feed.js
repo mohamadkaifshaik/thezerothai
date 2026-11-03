@@ -40,7 +40,7 @@
 //   curl -s -X POST "http://$AUTH_EMULATOR_HOST/identitytoolkit.googleapis.com/v1/projects/demo-dzeroth-local/accounts:update" \
 //     -H "Authorization: Bearer owner" -H "Content-Type: application/json" -d "{\"localId\":\"<uid>\",\"emailVerified\":true}"
 //
-// API requirements (a local API against the emulators; load-testing skill): ENV=local FEATURE_POSTS=on FEATURE_GRAPH=on
+// API requirements (a local API against the emulators): ENV=local FEATURE_POSTS=on FEATURE_GRAPH=on
 // FEATURE_ENGAGEMENT=on (the budget counts the userLikes read) FEATURE_COMMUNITIES=on FEATURE_REMOVED_IDS=on, COMMUNITY_CREATORS=<owner uid>,
 // and these raised (per instance / per user; every virtual user shares 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN,
 // RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN,

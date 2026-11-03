@@ -14,7 +14,7 @@ resource "google_cloud_run_v2_service" "api" {
   # ADR-0022 (credit mode): SERVICE-level minimum instances, never revision-level. A revision-level minimum starts
   # every revision that holds a traffic tag (prod tags `candidate`) and keeps it warm; a service-level minimum is split
   # across the revisions that are in the traffic split (Cloud Run min-instances doc, "Apply minimum instances at
-  # service-level versus revision-level"). Default 0 = Stage 0 (scale to zero): cost-guard (gcp-terraform skill) blocks raising it
+  # service-level versus revision-level"). Default 0 = Stage 0 (scale to zero): cost-guard blocks raising it
   # without `# cost-approved: ADR-NNNN`, and the caller carries that marker on the line that passes a non-zero value.
   scaling {
     min_instance_count = var.min_instance_count
@@ -106,7 +106,7 @@ resource "google_cloud_run_v2_service" "api" {
 
     ignore_changes = [
       # Deploys happen via `gcloud run deploy` / `google-github-actions/deploy-cloudrun`
-      # in CI (see release-rollout skill); Terraform owns shape/caps, not the
+      # in CI; Terraform owns shape/caps, not the
       # image digest or the live traffic split (tagged-revision rollouts).
       template[0].containers[0].image,
       # `template[0].revision` is deliberately NOT ignored. Deploys name revisions (prod since the release workflow's
@@ -128,7 +128,7 @@ resource "google_cloud_run_v2_service" "api" {
   }
 }
 
-// Exact shared env contract (see cloud-bootstrap.md / release-rollout skill):
+// Exact shared env contract (see the deploy workflows):
 // ENV, FIREBASE_PROJECT_ID, DEGRADED_MODE, APP_CHECK_MODE, INTERNAL_OIDC_AUDIENCE,
 // INTERNAL_OIDC_ALLOWED_EMAILS, plus CURSOR_HMAC_KEY via secret_env_vars above and
 // any module-specific plain vars via extra_env_vars (e.g. MEDIA_UPLOAD_BUCKET).

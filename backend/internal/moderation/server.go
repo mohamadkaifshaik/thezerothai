@@ -23,7 +23,7 @@ type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
 
-// reportDeadline bounds one ReportContent call (<= 10 s, go-service skill).
+// reportDeadline bounds one ReportContent call (<= 10 s).
 const reportDeadline = 8 * time.Second
 
 // Server adapts Service to moderationv1connect.ModerationServiceHandler.

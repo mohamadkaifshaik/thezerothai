@@ -78,7 +78,7 @@ func (s *Server) viewerSet(ctx context.Context, uid string) ViewerSet {
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)
 
-// createDeadline bounds one CreatePost call (<= 10 s, go-service skill); the transaction itself has 5 s.
+// createDeadline bounds one CreatePost call (<= 10 s); the transaction itself has 5 s.
 const createDeadline = 8 * time.Second
 
 // CreatePost is behind the flag; everything else (validation order, mentions, the transaction) is
@@ -136,7 +136,7 @@ func (s *Server) mediaEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, mediaFlagName)
 }
 
-// readDeadline bounds DeletePost and GetPost (<= 10 s, go-service skill).
+// readDeadline bounds DeletePost and GetPost (<= 10 s).
 const readDeadline = 5 * time.Second
 
 // DeletePost is behind the flag; the rules (ownership, no-op cases, the batch) are Service.Delete (T9).

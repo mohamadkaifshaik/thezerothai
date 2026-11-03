@@ -210,7 +210,7 @@ resource "google_project_iam_member" "ci_deploy_firebase_viewer" {
 // ---------------------------------------------------------------------------
 // Terraform plan-only service account — used by `terraform.yml` for
 // `fmt`/`validate`/`plan` on PRs. Read-only by design: this repo's CI never
-// applies Terraform (see gcp-terraform skill + release-rollout skill).
+// applies Terraform.
 // `terraform apply` is a deliberate, human-run action until an ADR adds a
 // gated apply pipeline.
 // ---------------------------------------------------------------------------

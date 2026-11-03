@@ -1,8 +1,8 @@
 name: Terraform
 
 # fmt / validate / lint / plan ONLY. This workflow never runs `terraform
-# apply` — apply is a deliberate, human-run action (see gcp-terraform skill
-# and infra/terraform/envs/*/versions.tf comments) until an ADR adds a gated
+# apply` — apply is a deliberate, human-run action (see the
+# infra/terraform/envs/*/versions.tf comments) until an ADR adds a gated
 # apply pipeline. Plan uses a read-only service account (see modules/iam).
 
 on:

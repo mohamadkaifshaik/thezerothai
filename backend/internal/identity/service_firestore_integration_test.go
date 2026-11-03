@@ -1,6 +1,6 @@
 //go:build integration
 
-// Service-level RPC budget assertions (testing-strategy skill): these drive identity.Service — the exact
+// Service-level RPC budget assertions: these drive identity.Service — the exact
 // interface server.go (the Connect handler) calls — over a real Firestore emulator client, so the
 // instance cache (backend/internal/identity/cache.go) is exercised too, not just the repo. A repo-level
 // call alone (repo_firestore_integration_test.go) can't see the extra read a fresh (cold) cache adds on

@@ -233,7 +233,7 @@ jobs:
         run: bash scripts/promotion/promote-dev.sh
 
       # Rules and Hosting run only after a verified promotion (the step above succeeded and this was not a dry run).
-      # Rules must stay backward-compatible with the previous backend (expand/contract, release-rollout skill).
+      # Rules must stay backward-compatible with the previous backend (expand/contract).
       - name: Deploy Firestore rules (after promotion)
         if: success() && steps.mode.outputs.dry_run == 'false'
         env:

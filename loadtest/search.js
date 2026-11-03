@@ -30,7 +30,7 @@
 // see loadtest/analyze_search.js. k6 prints `W4 PHASE <name> <iso>` and `W4 STEP <name> <iso>` lines (stdout/stderr) that the analyzer uses
 // to cut the log. Latency is emulator latency, indicative only.
 //
-// API requirements (a local API against the emulators; load-testing skill): FEATURE_SEARCH=on FEATURE_TRENDS=on FEATURE_POSTS=on
+// API requirements (a local API against the emulators): FEATURE_SEARCH=on FEATURE_TRENDS=on FEATURE_POSTS=on
 // FEATURE_GRAPH=on, ENV=local, TRENDS_MIN_INTERVAL=30s, and these raised (they are per instance and per user, and every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_SEARCH_PEOPLE_PER_MIN,
 // RATE_LIMIT_SEARCH_POSTS_PER_MIN, SEARCH_CALLS_PER_DAY, READ_BUDGET_PER_UID_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY,
