@@ -34,3 +34,8 @@ go.work.sum
 # firebase auth:export dumps contain user PII; never commit
 users.json
 docs/x_research/
+
+# Dual-agent orchestrator runtime state (agents/orchestrator/agentctl.py); only the README is tracked
+.agent_state/*
+!.agent_state/README.md
+__pycache__/
