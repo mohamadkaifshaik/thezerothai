@@ -220,7 +220,6 @@ class GraphRepository {
         // (the skeleton behind its gate, until W3-11) and FEATURE_DISABLED
         // (the `graph` flag). Everything else, PROFILE_REQUIRED and
         // RESOURCE_EXHAUSTED included, is the caller's to handle.
-        // TODO(W3-11): drop the fallback once GetProfileRelationship is live
         // in every environment.
         final unimplemented =
             error is connect.ConnectException &&
