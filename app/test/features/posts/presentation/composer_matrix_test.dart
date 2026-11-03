@@ -13,7 +13,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/fake_drafts_repository.dart';
 import '../../../support/media_fixtures.dart';
 import '../../../support/theme_harness.dart';
-import '../../../support/w6_composer_rig.dart';
+import '../../../support/composer_rig.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 

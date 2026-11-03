@@ -15,7 +15,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/geometry.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
-import '../../../support/w3_profile_rig.dart';
+import '../../../support/profile_rig.dart';
 
 /// The whole W3 profile screen (banner, location, website, "Follows
 /// you" and "Follow back", the four tabs, the Pinned row and its menu rows) at

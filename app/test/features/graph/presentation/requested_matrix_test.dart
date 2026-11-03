@@ -38,7 +38,7 @@ class _NoThemeStore implements ThemeModeStore {
 
 /// "Requested" and its cancel confirm in a list row, and the wide
 /// layouts' account menu, in the matrix. The profile header's own
-/// Requested is `w3_protected_profile_test.dart`.
+/// Requested is `protected_profile_test.dart`.
 void main() {
   late _MockGraph graphRepo;
 

@@ -5,7 +5,7 @@ package apiserver
 // Follow requests through the account lifecycle (ADR-0025 D11) over the real Build chain: Firestore, Auth,
 // Pub/Sub and Storage emulators, the real graph.RequestEraser step and the real export section.
 //
-//   - the export of an account with requests both ways: a section golden (testdata/w335b_follow_requests_export_golden.json,
+//   - the export of an account with requests both ways: a section golden (testdata/follow_requests_export_golden.json,
 //     rewritten with -update-golden), newest-first order, and no other account's request in anyone's export;
 //   - the deletion of a requester: its request and the target's pending list are clean, the target keeps its other requests;
 //   - the deletion of a protected target with requests both ways: no request names it, the requesters' `requested` entries
@@ -181,7 +181,7 @@ func TestW335b_FollowRequestsThroughAccountLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	golden := gbuf.Bytes()
-	path := filepath.Join("testdata", "w335b_follow_requests_export_golden.json")
+	path := filepath.Join("testdata", "follow_requests_export_golden.json")
 	if *updateGolden {
 		if err := os.WriteFile(path, golden, 0o644); err != nil {
 			t.Fatal(err)

@@ -5,7 +5,7 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dar
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../support/w3_profile_rig.dart';
+import '../../../support/profile_rig.dart';
 
 /// The profile banner loads without a layout jump (ADR-0024 D2,
 /// "flat placeholder while loading, no layout jump").
@@ -23,7 +23,7 @@ import '../../../support/w3_profile_rig.dart';
 /// surface. A 403 and a 404 are the same case at this level: both go to
 /// `errorWidget`. The decoded (and corrupt) on-device picture of Edit profile,
 /// the one source that does decode in a widget test, is in
-/// `w3_profile_cover_band_test.dart` (it needs real time, which must not run
+/// `profile_cover_band_test.dart` (it needs real time, which must not run
 /// in a file that builds a `CachedNetworkImage`).
 void main() {
   late W3ProfileRig rig;

@@ -35,7 +35,7 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/poll_fixtures.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
-import '../../../support/w6_composer_rig.dart';
+import '../../../support/composer_rig.dart';
 
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}

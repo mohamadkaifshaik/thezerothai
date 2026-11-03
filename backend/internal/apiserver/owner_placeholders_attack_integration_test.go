@@ -3,7 +3,7 @@
 package apiserver
 
 // tester attacks (ADR-0025 note L-2) through the real Build chain on the emulators, beyond the author's
-// own file (w341a_owner_placeholders_integration_test.go): a REPOST by another user in the owner's lists, the protected
+// own file (owner_placeholders_integration_test.go): a REPOST by another user in the owner's lists, the protected
 // set unavailable, an overflowed blockedBy, the own REPOST on every tab and on since refreshes, the viewer flags after a
 // userLikes trim, and the wire bytes of a placeholder.
 
