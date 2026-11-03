@@ -1,6 +1,5 @@
-# Code owners for the files that act as safety gates. With the branch ruleset (code-owner review
-# required, no bypass actors) a change to any of these needs approval from the owner, who must be a DIFFERENT identity from the PR author
-# (the assistant works through its own GitHub App identity). The gate files themselves are listed so a gate cannot be weakened unseen.
+# Code owners for the files that act as safety gates. The branch ruleset on main does not require code-owner review
+# (as of 2026-11-03), so this file only auto-requests the owner as a reviewer on PRs that touch these paths.
 
 # fieldOverrides acknowledgement and the check that enforces it (a new single-field exemption can remove indexing: not additive)
 /firebase/field-overrides.ack                  @mohamadkaifshaik
