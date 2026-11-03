@@ -16,7 +16,7 @@ import 'app_shell_scope.dart';
 /// chip, and the bar shows just the title.
 ///
 /// The surface is the page colour at 92 % alpha, so content scrolls faintly
-/// under it like on X (decision D4 of `docs/plans/ui-w0-foundations.md`: no
+/// under it like on X (decision D4 of the W0 plan: no
 /// blur by default; a blur is costly on the web).
 ///
 /// Use [AppTopBar.new] as a `Scaffold.appBar`, or [AppTopBar.sliver] at the

@@ -563,7 +563,7 @@ module "firebase" {
   hosting_site_id      = var.hosting_site_id
 
   # dev.dzeroth.com serves the dev web app. DNS is at Squarespace (manual); see the
-  # custom_domain_dns_records output and docs/runbooks/cloud-bootstrap.md section 7.
+  # custom_domain_dns_records output.
   custom_domains = {
     "dev.dzeroth.com" = {}
   }
@@ -573,7 +573,7 @@ module "firebase" {
 
 // Security audit M3: restrict the three Firebase-auto-created API keys
 // (imported by UID, see import_apikeys.tf) instead of leaving them open to
-// any referrer/app/API. See docs/runbooks/cloud-bootstrap.md section 9.
+// any referrer/app/API.
 module "apikeys" {
   source         = "../../modules/apikeys"
   project_number = data.google_project.this.number
@@ -640,7 +640,7 @@ module "apikeys" {
 
   ios_bundle_id = var.ios_bundle_id
   # Debug signing keys only (dev never gets Play keys; one key, one project,
-  # docs/runbooks/cloud-bootstrap.md section 4). The b574... entry was set by
+  # Debug key note: the b574... entry was set by
   # hand on 2026-10-24 and is kept as found; 052eaf6c... is the debug key the
   # Firebase dev app already lists. SHA-1 is not secret.
   android_allowed_applications = [

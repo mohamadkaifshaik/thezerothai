@@ -1,5 +1,5 @@
-/// The one list of "forget the previous account" steps (privacy: CLAUDE.md
-/// rule 10).
+/// The one list of "forget the previous account" steps (privacy
+/// rule).
 ///
 /// Every holder of per-account **in-memory** state registers a step here once
 /// ([register]); `AppWidget` calls [run] when the session ends, and that is

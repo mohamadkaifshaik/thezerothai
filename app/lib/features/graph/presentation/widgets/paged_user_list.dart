@@ -17,7 +17,7 @@ import 'user_list_row.dart';
 /// following screen and Settings' managed-accounts screens.
 ///
 /// Prefetches the next page once the user has scrolled 70% of the way down
-/// (CLAUDE.md: incremental refresh, no eager over-fetching), and never
+/// (project rule: incremental refresh, no eager over-fetching), and never
 /// auto-retries a rate-limited response.
 class PagedUserList extends StatefulWidget {
   const PagedUserList({

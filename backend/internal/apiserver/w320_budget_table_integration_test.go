@@ -8,7 +8,7 @@ package apiserver
 //
 //	W320BUDGET rpc="..." case="..." reads=N writes=N deletes=N ceil_reads=N ceil_writes=N
 //
-// which docs/reviews/tests/test-report-w3.md quotes. The page-50 figures (54 / 53) are measured here too (50 rows of each kind
+// which the W3 test report quotes. The page-50 figures (54 / 53) are measured here too (50 rows of each kind
 // are seeded); the banner upload, finalize and resolve figures by the media package integration tests and
 // banner_matrix_integration_test.go (they cannot be reached through the chain: a signed PUT URL cannot be minted against the
 // emulators); the post_delete pin clean-up by identity.TestClearIfPinned_Integration; the backfill by W320BUDGET lines of

@@ -5,7 +5,7 @@
 //	reads : idempotency/{hash} (1), then, on a first attempt, quotas/{uid} (1)
 //	writes: Create idempotency doc, Set quotas/{uid}, Create media/{id} per image   (2 + n)
 //
-// A replay reads only the idempotency doc and writes nothing. Every query has a Limit (CLAUDE.md rule 5).
+// A replay reads only the idempotency doc and writes nothing. Every query has a Limit (the query-limit rule).
 package media
 
 import (

@@ -1,4 +1,4 @@
-// profile_w3_part_a: W3 Part A emulator smoke (W3-23, docs/plans/ui-w3-profile-graph-completion.md; ADR-0024 "Cost impact").
+// profile_w3_part_a: W3 Part A emulator smoke (W3-23; ADR-0024 "Cost impact").
 // One file, three MODEs, each seeding its own data in setup():
 //
 //   MODE=tabs          GetUserTimeline tab MEDIA and REPOSTS (profile_tabs), GetProfileRelationship. VIEWERS viewers (default 40) of
@@ -33,7 +33,7 @@
 //   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, GRAPH_MUTATIONS_PER_DAY and READ_BUDGET_PER_UID_PER_DAY (seeding spends the seeder's own
 //   budget; MODE=tabs runs at the default 2000). Per-RPC limits for the timed calls: RATE_LIMIT_USER_TIMELINE_PER_MIN,
 //   RATE_LIMIT_LIKES_LIST_PER_MIN, RATE_LIMIT_SUGGESTIONS_PER_MIN, RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
-//   SUGGESTIONS_CALLS_PER_DAY. The exact values of the recorded run are in docs/reviews/cost-model.md section 12.
+//   SUGGESTIONS_CALLS_PER_DAY.
 // The Media tab selects on `hasMedia`, which only the image-upload path writes; setup writes it through the Firestore emulator's
 // REST API (FIRESTORE_EMULATOR_HOST, default localhost:8080; FIREBASE_PROJECT_ID) so that no Cloud Vision path is involved.
 //

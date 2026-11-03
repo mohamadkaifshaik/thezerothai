@@ -47,7 +47,7 @@ const (
 	// actorCaller is the sign-up check: the authenticated caller's own request, not a job.
 	actorCaller = "caller"
 
-	// signupAuthTimeout bounds the one Auth lookup in CreateProfile (CLAUDE.md: every outbound call has a deadline).
+	// signupAuthTimeout bounds the one Auth lookup in CreateProfile (project rule: every outbound call has a deadline).
 	signupAuthTimeout = 3 * time.Second
 )
 

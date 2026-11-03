@@ -1,6 +1,6 @@
 //go:build integration
 
-// mutations_integration_test.go is ticket T16a (docs/plans/graph.md): emulator contract tests for the six
+// mutations_integration_test.go is ticket T16a: emulator contract tests for the six
 // graph mutations (Follow, Unfollow, Block, Unblock, Mute, Unmute) covering every documented ErrorReason
 // (ADR-0008), budget assertions (worst case and typical) on every call, replays, quotas (incl. the IST-midnight
 // rollover and new-account tiers), caps, races, and degraded mode. Every newWired test ends with the ADR-0008 D3

@@ -1,5 +1,5 @@
 // server.go is the thin Connect handler for EngagementService: caller uid, the FEATURE_POSTS and
-// FEATURE_ENGAGEMENT flags, Service, response mapping. No business logic and no Firestore here (CLAUDE.md).
+// FEATURE_ENGAGEMENT flags, Service, response mapping. No business logic and no Firestore here.
 package engagement
 
 import (

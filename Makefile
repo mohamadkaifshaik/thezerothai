@@ -41,7 +41,7 @@ EMULATOR_PROJECT := demo-dzeroth-local
 # keeps its blobs in os.tmpdir()/firebase/storage/blobs, shared by every suite on the machine whatever the ports and
 # project ids, so two concurrent suites wiped each other's blobs and the first one crashed mid-upload (ENOENT, then
 # the Auth emulator refused connections; test-report-w3 D-2). Run any raw `firebase emulators:*` the same way, and see
-# docs/runbooks/emulator-collisions.md. `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
+# `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
 EMULATOR_TMP := bash scripts/with-private-tmp.sh
 
 .PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test buf-check lint flutter-analyze flutter-test help
@@ -92,7 +92,7 @@ test:
 	@echo "==> pkg/platform coverage gate ($(COVERAGE_THRESHOLD)%)"
 	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover.out $(COVERAGE_THRESHOLD) pkg/platform
 
-## ci: everything make ci must pass before any agent declares work done (CLAUDE.md). Prerequisites run left to right.
+## ci: everything make ci must pass before any agent declares work done. Prerequisites run left to right.
 ## .github/workflows/ci.yml runs the same targets as parallel jobs (flutter-test in shards) and reports them together
 ## under the required check "make ci (...)".
 ci: fmt vet test buf-check lint flutter-analyze flutter-test
@@ -194,12 +194,9 @@ dev:
 	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
 		'bash scripts/dev.sh'
 
-## cost: print the documented free-tier budget table, and (if PROJECT_ID is set) the last 24h of
+## cost: if PROJECT_ID is set, print the last 24h of
 ## request logs (fs_reads/fs_writes) from Cloud Logging for a quick live sanity check.
 cost:
-	@echo "=== Free-tier budget (docs/reviews/cost-model.md) ==="
-	@cat docs/reviews/cost-model.md 2>/dev/null || echo "docs/reviews/cost-model.md not found"
-	@echo ""
 	@echo "=== Last 24h usage ==="
 	@if [ -z "$${PROJECT_ID:-}" ]; then \
 		echo "Set PROJECT_ID=<gcp-project> (and run 'gcloud auth login' first) to query live usage, e.g.:"; \

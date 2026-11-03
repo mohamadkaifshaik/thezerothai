@@ -11,7 +11,7 @@ import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
 
 /// Adds a fresh `X-Request-Id` to every call, so backend logs and client
-/// error reports can be correlated (CLAUDE.md rule 8).
+/// error reports can be correlated (the health and logging rule).
 final class RequestMetadataInterceptor {
   const RequestMetadataInterceptor();
 
@@ -158,7 +158,7 @@ final class InflightRetryInterceptor {
 /// e.g. GetMe, GetProfile, CheckHandleAvailability). Mutations are never
 /// retried automatically: a client-side retry of a write could double it
 /// unless it flows through the `idempotency_key` mechanism, which is a
-/// deliberate per-call decision, not a transport default (CLAUDE.md rule 4).
+/// deliberate per-call decision, not a transport default (the idempotency rule).
 final class RetryInterceptor {
   const RetryInterceptor({
     this.maxAttempts = 3,

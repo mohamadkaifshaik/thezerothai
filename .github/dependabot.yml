@@ -1,7 +1,7 @@
 # Dependabot version updates (free). Closes the v0.1.0 risk acceptances L6/L7.
 # Weekly, grouped minor+patch, small open-PR cap so review load stays bounded.
 # Majors are never grouped: each one arrives as its own PR for deliberate review.
-# See docs/runbooks/dependency-updates.md for the review procedure.
+# for the review procedure.
 version: 2
 updates:
   # Go module lives in backend/ (no go.work at the repo root).

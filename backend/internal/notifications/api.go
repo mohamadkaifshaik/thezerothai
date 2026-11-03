@@ -27,7 +27,7 @@ const (
 	MaxRecipientsPerEvent = 10
 	// TTL is how long a notification lives (the Firestore TTL policy on expireAt, ADR-0003).
 	TTL = 90 * 24 * time.Hour
-	// DefaultPageSize and MaxPageSize are CLAUDE.md rule 5.
+	// DefaultPageSize and MaxPageSize are the query-limit rule.
 	DefaultPageSize = 20
 	MaxPageSize     = 50
 	// SettleWindow is how far since_token trails the newest returned row, so a row committed by another instance a

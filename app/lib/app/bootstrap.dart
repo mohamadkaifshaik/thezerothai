@@ -162,7 +162,7 @@ Future<void> bootstrap() async {
   await database.claimCacheFor(restoredUid);
   // Warm the in-memory relationship cache from the caller's cached
   // `following` set before the first frame, so FollowButton can render
-  // "Following" instantly on a warm start (CLAUDE.md prime directive).
+  // "Following" instantly on a warm start (the cost-first directive).
   await graphRepository.primeFromDatabase();
 
   // The push cubit is built before the auth bloc so sign-out can unregister

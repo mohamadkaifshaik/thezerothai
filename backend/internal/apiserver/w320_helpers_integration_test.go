@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Shared helpers of the W3-20 matrix (ticket W3-20 of docs/plans/ui-w3-profile-graph-completion.md, ADR-0024). Every
+// Shared helpers of the W3-20 matrix (W3-20, ADR-0024). Every
 // package-level name here carries the w320 / W320 prefix so a symbol added by a parallel W3-22 fix branch can never
 // collide with it. The chain, the clients, the budget-from-log helper, rawRPC, tabCall, listLiked, like, unlike and the
 // rest are reused from the earlier files of this package.

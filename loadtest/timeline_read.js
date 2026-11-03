@@ -1,5 +1,5 @@
 // timeline_read: GetHomeTimeline (refresh with since_token, older page) + GetUserTimeline (T22,
-// docs/plans/posts-and-timeline.md; ADR-0004/0010).
+// ADR-0004/0010).
 //
 // Budget under test (timeline.proto): home refresh planning 4 + new posts (F=60), older page / cold open ~30
 // (page 20); GetUserTimeline planning 11 (3 + 20 cold / 0 warm). Acceptance: home refresh p95 < 400 ms warm

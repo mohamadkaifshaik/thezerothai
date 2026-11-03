@@ -29,7 +29,7 @@ const (
 // Amendment 2) and picks every row for all of its followers. A constant, not config: it is part of the ranking, like
 // minSuggestions. It does not free the window (a flooder's edges are still the newest EdgeLimit the one query
 // returns): it bounds the damage to three candidates, which
-// shows in the log as source=fof with candidates <= 3 (docs/runbooks/graph.md section 6).
+// shows in the log as source=fof with candidates <= 3.
 const maxCandidatesPerFollowee = 3
 
 // minSuggestions is the "fewer than 3" of ADR-0024 D8: the viewer needs at least this many followees to seed the

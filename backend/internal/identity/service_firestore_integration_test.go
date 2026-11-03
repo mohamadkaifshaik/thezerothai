@@ -122,7 +122,7 @@ func TestGetProfile_Integration_ServiceBudget(t *testing.T) {
 
 	// By handle, cold cache: handle resolve + profile = 2 reads. Phase 0 ceiling (service.go doc comment);
 	// the proto's stated worst case of 4 additionally covers the graph blocked-by check, not implemented
-	// in this bootstrap (see docs/code-map.md "Not implemented yet").
+	// in this bootstrap.
 	svcByHandle := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour)
 	ctx2, counter2 := budget.WithCounter(context.Background())
 	if _, err := svcByHandle.GetProfile(ctx2, "caller", identity.ProfileTarget{Handle: "ALICE"}); err != nil {
@@ -160,7 +160,7 @@ func TestUpdateProfile_Integration_ServiceBudget(t *testing.T) {
 // needs a pre-transaction cache read to decide those (it used to, via getProfileCached, which cost an
 // extra read on a cold cache: see git history / the phase0 code review for the prior 3-read behavior).
 // Every ChangeHandle call now costs exactly the repo's own 2 reads, matching the proto doc comment and
-// docs/reviews/cost-model.md, regardless of whether the caller's profile was already warm in this
+// the cost model, regardless of whether the caller's profile was already warm in this
 // instance's cache.
 func TestChangeHandle_Integration_ServiceBudget(t *testing.T) {
 	client := newTestClient(t)

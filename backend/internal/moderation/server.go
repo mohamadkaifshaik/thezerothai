@@ -1,5 +1,5 @@
 // server.go is the thin Connect handler for ModerationService: caller uid, the FEATURE_REPORTS flag, enum
-// conversion, Service. No business logic and no Firestore here (CLAUDE.md: handlers stay thin).
+// conversion, Service. No business logic and no Firestore here (project rule: handlers stay thin).
 package moderation
 
 import (

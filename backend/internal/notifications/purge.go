@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// opsPage is the ops page size and the batch bound (Firestore's 500 writes). CLAUDE.md rule 5's maximum of 50
+// opsPage is the ops page size and the batch bound (Firestore's 500 writes). the query-limit rule's maximum of 50
 // governs RPC pagination only (the same reading as posts/purge.go).
 const opsPage = 500
 

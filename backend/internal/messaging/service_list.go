@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// DefaultPageSize and MaxPageSize are CLAUDE.md rule 5 (0 => 20, clamped to 50).
+	// DefaultPageSize and MaxPageSize are the query-limit rule (0 => 20, clamped to 50).
 	DefaultPageSize = 20
 	MaxPageSize     = 50
 	// SettleWindow is how far since_token trails the newest returned entry, so an entry committed by another instance a

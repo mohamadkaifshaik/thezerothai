@@ -32,7 +32,7 @@ variable "firestore_location" {
     * data, delete the project's Firestore, and reimport elsewhere. *
     * CONFIRM this value with a human before the first apply.        *
     ****************************************************************
-    Defaults to "asia-south1" per CLAUDE.md — founder-confirmed 2026-09-27 (ADR-0007).(Cloud Run/Firestore/Artifact
+    Defaults to "asia-south1" by project decision — founder-confirmed 2026-09-27 (ADR-0007).(Cloud Run/Firestore/Artifact
     Registry colocated in Mumbai for Indian users; Firestore's free daily
     quota applies to the (default) database in any location).
   EOT
@@ -74,7 +74,7 @@ variable "image" {
 }
 
 variable "budget_amount" {
-  description = "Monthly budget alert threshold in budget_currency_code units. Stage 0 as configured costs about INR 434/month at 300 DAU (ADR-0022, docs/reviews/cost-model.md); this is an alert, not a fixed fee."
+  description = "Monthly budget alert threshold in budget_currency_code units. Stage 0 as configured costs about INR 434/month at 300 DAU (ADR-0022); this is an alert, not a fixed fee."
   type        = number
   default     = 500
 }
@@ -248,7 +248,7 @@ variable "feature_reports_percent" {
 }
 
 variable "feature_removed_ids" {
-  description = "FEATURE_REMOVED_IDS rollout mode for TimelineService removed_ids (ADR-0016 D10): off | allowlist | percent | on. Default off. Read docs/runbooks/moderation.md section 3b first: suspending an account with 50+ posts resets every client's cached feeds once."
+  description = "FEATURE_REMOVED_IDS rollout mode for TimelineService removed_ids (ADR-0016 D10): off | allowlist | percent | on. Default off. Suspending an account with 50+ posts resets every client's cached feeds once."
   type        = string
   default     = "off"
 
@@ -678,7 +678,7 @@ variable "feature_ui_shell_percent" {
 }
 
 variable "feature_shells" {
-  description = "FEATURE_SHELLS rollout mode for the W8 coming-soon pages (client-only; Creator tools, Premium, Advertise, Calls and their entries; docs/plans/ui-w8-shells.md): off | allowlist | percent | on. Default off; ramp deliberately."
+  description = "FEATURE_SHELLS rollout mode for the W8 coming-soon pages (client-only; Creator tools, Premium, Advertise, Calls and their entries): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string
   default     = "off"
 
@@ -942,7 +942,7 @@ variable "trends_min_authors" {
   }
 }
 variable "trends_denylist" {
-  description = "TRENDS_DENYLIST (ADR-0028 note 2026-10-31, W4-25): comma-separated hashtag bodies (no leading #) that never trend. GetTrends drops them at serve time (live on the new revision within the 10 min instance copy) and the sweep drops them too. Entries are matched after NFKC, lower-casing and removing U+200C, U+200D and underscores, so one entry covers its variants. Not a secret. Default empty. To remove a tag at once without a deploy use `opsctl trends hide` (docs/runbooks/search.md 4.3)."
+  description = "TRENDS_DENYLIST (ADR-0028 note 2026-10-31, W4-25): comma-separated hashtag bodies (no leading #) that never trend. GetTrends drops them at serve time (live on the new revision within the 10 min instance copy) and the sweep drops them too. Entries are matched after NFKC, lower-casing and removing U+200C, U+200D and underscores, so one entry covers its variants. Not a secret. Default empty. To remove a tag at once without a deploy use `opsctl trends hide`.3)."
   type        = string
   default     = ""
 }
@@ -1032,7 +1032,7 @@ variable "feature_gif_percent" {
 }
 
 variable "feature_crash_reporting" {
-  description = "FEATURE_CRASH_REPORTING rollout mode for client crash reporting (client-only, ADR-0032 D11; gates the crash switch and Firebase Crashlytics collection in the Android app, no RPC): off | allowlist | percent | on. Default off; nothing leaves off before the Before release list in docs/plans/client-crash-analytics.md. Runbook docs/runbooks/client-telemetry.md."
+  description = "FEATURE_CRASH_REPORTING rollout mode for client crash reporting (client-only, ADR-0032 D11; gates the crash switch and Firebase Crashlytics collection in the Android app, no RPC): off | allowlist | percent | on. Default off."
   type        = string
   default     = "off"
 
@@ -1060,7 +1060,7 @@ variable "feature_crash_reporting_percent" {
 }
 
 variable "feature_analytics" {
-  description = "FEATURE_ANALYTICS rollout mode for client usage analytics (client-only, ADR-0032 D11; gates the usage switch and Google Analytics for Firebase collection in the Android app, no RPC): off | allowlist | percent | on. Default off; nothing leaves off before the Before release list in docs/plans/client-crash-analytics.md. Runbook docs/runbooks/client-telemetry.md."
+  description = "FEATURE_ANALYTICS rollout mode for client usage analytics (client-only, ADR-0032 D11; gates the usage switch and Google Analytics for Firebase collection in the Android app, no RPC): off | allowlist | percent | on. Default off."
   type        = string
   default     = "off"
 

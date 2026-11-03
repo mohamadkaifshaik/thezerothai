@@ -2,7 +2,7 @@
 // middleware around the whole mux, not a Connect interceptor: preflight OPTIONS requests never carry a
 // Connect procedure and would never reach a Connect handler or its interceptor chain.
 //
-// CLAUDE.md / ADR-0007: Firebase Hosting's `/api/**` rewrite means dev/prod web traffic to the API is
+// ADR-0007: Firebase Hosting's `/api/**` rewrite means dev/prod web traffic to the API is
 // always same-origin, so CORS is off by default outside local dev — this package only ever does anything
 // when config.Config.CORSAllowedOrigins is non-empty (local dev's Flutter web client, or an explicit
 // CORS_ALLOWED_ORIGINS override for the rare case web needs to call the Cloud Run URL directly).

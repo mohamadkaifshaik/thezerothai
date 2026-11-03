@@ -426,7 +426,7 @@ func TestSuspendUnsuspend(t *testing.T) {
 			f := newModFixture()
 			f.plannedPosts = tc.posts
 			code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
-			if code != 0 || strings.Contains(out, "WARNING") != tc.warn || (tc.warn && !strings.Contains(out, "section 3b")) {
+			if code != 0 || strings.Contains(out, "WARNING") != tc.warn || (tc.warn && !strings.Contains(out, "off-peak.")) {
 				t.Fatalf("P=%d code=%d warn=%v out=%q", tc.posts, code, tc.warn, out)
 			}
 		}

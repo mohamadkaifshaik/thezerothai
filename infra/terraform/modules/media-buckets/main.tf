@@ -4,7 +4,7 @@
 //   upload: private, short-lived staging area for direct client PUTs via
 //           V4 signed URLs; objects here are never served publicly.
 //   media:  public-read, the durable home for moderated/approved media.
-// Clients never proxy media through the API (CLAUDE.md design rule 7).
+// Clients never proxy media through the API (the media rule).
 
 resource "google_storage_bucket" "upload" {
   project                     = var.project_id

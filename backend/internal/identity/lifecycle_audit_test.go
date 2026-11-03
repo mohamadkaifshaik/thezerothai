@@ -1,6 +1,6 @@
 package identity
 
-// Tester audit of the P8 acceptance criteria (docs/plans/account-deletion-export.md T5-T10, ADR-0011 C1 and Q1-Q9):
+// Tester audit of the P8 acceptance criteria (T5-T10, ADR-0011 C1 and Q1-Q9):
 // the cases the original tickets' tests left open. Uses the fakes of lifecycle_fakes_test.go.
 
 import (

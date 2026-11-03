@@ -579,7 +579,7 @@ func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, fol
 	b.Update(r.userRef(uid), updates)
 }
 
-// GetProfiles batch-reads uids via one GetAll (ADR-0008 T6; CLAUDE.md rule 6: "batch known IDs with GetAll
+// GetProfiles batch-reads uids via one GetAll (ADR-0008 T6; the read-budget rule: "batch known IDs with GetAll
 // after checking the cache"). Callers are responsible for capping len(uids) at 50 (identity.Directory's
 // caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,
 // not an error (Firestore's GetAll returns a non-existent snapshot for them, never a NotFound error).

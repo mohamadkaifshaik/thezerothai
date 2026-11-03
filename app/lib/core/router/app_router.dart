@@ -76,7 +76,7 @@ import 'main_shell.dart';
 
 /// Builds the app's `go_router`. Redirects branch purely on cached
 /// [AuthBloc]/[OnboardingBloc] state — never on a fresh network call — so
-/// navigation is instant and never burns an extra `GetMe` (CLAUDE.md prime
+/// navigation is instant and never burns an extra `GetMe` (cost-first
 /// directive: the client is our cheapest cache).
 class AppRouter {
   AppRouter({

@@ -15,7 +15,7 @@ const (
 
 // Cache is posts' instance cache (ADR-0010 D15): post docs by id, and per-author recent root posts. Both are
 // LRU-bounded with the CACHE_TTL expiry, filled by every read path, and updated in place by this instance's own
-// writes (CLAUDE.md: "update the instance cache from written data instead of re-reading"). Entries of the two
+// writes (project rule: "update the instance cache from written data instead of re-reading"). Entries of the two
 // caches share *Post pointers, and a *Post is immutable.
 type Cache struct {
 	mu     sync.Mutex // serialises the read-modify-write of author-recent entries (own writes)

@@ -18,7 +18,7 @@
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
 // [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
 // concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
-// bookmark mutations store it (CLAUDE.md rule 4, ADR-0023 D4). Acting on a REPOST post id acts
+// bookmark mutations store it (the idempotency rule, ADR-0023 D4). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").
@@ -237,7 +237,7 @@ type EngagementServiceClient interface {
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.
 	//
-	// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+	// Idempotency (the idempotency rule, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
 	// but not stored; pollVotes/{postId}_{uid} is the record.
 	// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
 	// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
@@ -531,7 +531,7 @@ type EngagementServiceHandler interface {
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.
 	//
-	// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+	// Idempotency (the idempotency rule, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
 	// but not stored; pollVotes/{postId}_{uid} is the record.
 	// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
 	// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),

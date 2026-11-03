@@ -133,7 +133,7 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 // FEATURE_BOOKMARKS is on): 24 at page 20, 54 at page 50, +1 when the caller's blockedBy overflowed; 20 warm at
 // page 20 (users, graph and userLikes cached 60 s, but no instance cache for the query: every open reads
 // Firestore); an empty tab reads 1 row. Planning 20. Writes 0. The two W3-2 indexes must be READY and the W3-8
-// backfill run before the flag leaves off (docs/runbooks/posts.md section 13).
+// backfill run before the flag leaves off.
 //
 // A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,
 // +1 to +50 once per instance per CACHE_TTL, +100 worst.

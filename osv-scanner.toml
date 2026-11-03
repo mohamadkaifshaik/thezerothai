@@ -1,7 +1,7 @@
 # osv-scanner config (used by the `osv-scanner` step in .github/workflows/ci.yml via --config).
 # Policy: CI fails on ANY finding not listed here (OSV often has no CVSS score for Go advisories, so a
 # "High/Critical only" gate would silently pass everything). Ignores must be narrow (one ID), carry a reason,
-# and expire (ignoreUntil) so they resurface. See docs/runbooks/dependency-updates.md.
+# and expire (ignoreUntil) so they resurface.
 
 # golang.org/x/crypto: the advisory is the unmaintained x/crypto/openpgp package. It has no fixed version and will
 # not get one. We do not import openpgp (it is only a transitive module), and `govulncheck ./...` (blocking in

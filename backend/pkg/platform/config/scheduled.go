@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// MaxScheduledSweepLimit is the largest SCHEDULED_SWEEP_LIMIT the sweep query takes (CLAUDE.md rule 5: every query
+// MaxScheduledSweepLimit is the largest SCHEDULED_SWEEP_LIMIT the sweep query takes (the query-limit rule: every query
 // has a Limit of at most 50). A larger configured value is clamped, as ADR-0021 Sweep step 2 says.
 const MaxScheduledSweepLimit = 50
 

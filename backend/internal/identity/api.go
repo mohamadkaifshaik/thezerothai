@@ -228,7 +228,7 @@ type BlockChecker interface {
 // Cache; no second cache"). GetProfiles silently drops uids with no profile or a non-ACTIVE status — callers
 // drop the corresponding row rather than erroring. Forget evicts uid's cached profile and unread count
 // immediately after another module's own commit changed users/{uid} counters (via Counters), so a
-// subsequent read on this instance reflects the write without waiting out the cache TTL (CLAUDE.md: "update
+// subsequent read on this instance reflects the write without waiting out the cache TTL (project rule: "update
 // the instance cache from written data instead of re-reading").
 type Directory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)

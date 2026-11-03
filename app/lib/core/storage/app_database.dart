@@ -7,7 +7,7 @@ part 'app_database.g.dart';
 
 /// Local cache of profiles (own profile + anyone looked up), so the client
 /// can render instantly and only re-fetch what changed. This is the
-/// "cheapest cache" CLAUDE.md talks about: every profile served from here is
+/// "cheapest cache" the design calls for: every profile served from here is
 /// a Firestore read (and a Cloud Run request) the API never sees.
 @DataClassName('CachedProfile')
 class ProfileCacheEntries extends Table {
@@ -35,7 +35,7 @@ class ProfileCacheEntries extends Table {
 /// Local cache of the signed-in user's own `following` set (ADR-0008 /
 /// graph plan T12), so `FollowButton` and follow lists can render
 /// "Following" instantly on a warm start, before `GetRelationships` or a
-/// list RPC ever runs (the client is our cheapest cache — CLAUDE.md prime
+/// list RPC ever runs (the client is our cheapest cache — the cost-first
 /// directive). Only ever holds the *current* signed-in user's own follows;
 /// wiped on sign-out along with [ProfileCacheEntries] (see [clearAll]).
 @DataClassName('CachedFollowing')
@@ -234,7 +234,7 @@ class MessagingStateEntries extends Table {
 /// account's graph (for example the cached "Who to follow" list). Unlike the
 /// other device settings these are wiped on sign-out ([AppDatabase.clearAll]),
 /// so the next user on a shared device never sees them and a deleted account
-/// leaves nothing behind (CLAUDE.md rule 10).
+/// leaves nothing behind (the privacy rule).
 const kAccountSettingPrefix = 'account:';
 
 /// The uid whose data the cache tables hold (W7-35, L-4). It is an account
@@ -245,7 +245,7 @@ const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
 ///
 /// Unlike every other table this one is **not** wiped on sign-out
 /// ([AppDatabase.clearAll]): it describes the device, not the account, and
-/// holds no personal data (CLAUDE.md rule 10 is about user data). The one
+/// holds no personal data (the privacy rule is about user data). The one
 /// exception is a key that starts with [kAccountSettingPrefix]: that is
 /// account-derived data and is wiped on sign-out.
 @DataClassName('DeviceSetting')
@@ -592,8 +592,8 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Wipes all cached data. Called on sign-out so the next user on a shared
-  /// device never sees a stale profile or follow list (privacy: CLAUDE.md
-  /// rule 10). Device settings ([AppSettingEntries]) are kept on purpose,
+  /// device never sees a stale profile or follow list (privacy
+  /// rule). Device settings ([AppSettingEntries]) are kept on purpose,
   /// except the account-derived ones under [kAccountSettingPrefix].
   /// Unsent posts ([ComposerDraftEntries]) are kept too, scoped by uid (F7).
   Future<void> clearAll() async {

@@ -63,7 +63,7 @@ func (c Claims) IdentityGate(allowAnonymous bool) string {
 	return GateProviderNotAllow
 }
 
-// RequireVerifiedEmail is the shared "verified email before you may <action>" check (CLAUDE.md, ADR-0006:
+// RequireVerifiedEmail is the shared "verified email before you may <action>" check (ADR-0006:
 // "email verification or Google/Apple sign-in required before posting"). It applies Claims.IdentityGate to the
 // caller in ctx and returns FAILED_PRECONDITION + EMAIL_NOT_VERIFIED, "please verify your email before
 // <action>", for anyone outside the allowlist. 0 Firestore reads. action completes the sentence, for example

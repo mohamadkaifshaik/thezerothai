@@ -105,7 +105,7 @@ void reportUnexpectedError(Object error, StackTrace stack) {
 /// identity writes of in-flight requests are then dropped) and clear the
 /// timeline's in-flight work, then wipe the
 /// local cache in one transaction, so nothing of the previous user survives
-/// or is written back (privacy: CLAUDE.md rule 10).
+/// or is written back (privacy: the privacy rule).
 Future<void> wipeSessionData({
   required AppDatabase database,
   required TimelineRepository timelineRepository,
@@ -180,7 +180,7 @@ StreamSubscription<AuthState> wireAuthSession({
     lastUser = user;
     if (previous != null && (user == null || user.uid != previous.uid)) {
       onboardingBloc.add(const OnboardingUserSignedOut());
-      // Privacy: CLAUDE.md rule 10. The epoch ends now (late writes of the
+      // Privacy: the privacy rule. The epoch ends now (late writes of the
       // old session are dropped); the wipe is awaited by the next step.
       final wipe = wipeSessionData(
         database: database,

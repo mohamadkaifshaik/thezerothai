@@ -1,5 +1,5 @@
 // server.go is the thin Connect handler: extract the caller's uid, do proto<->domain conversion, call
-// Service, convert the result back. No business logic and no Firestore here (CLAUDE.md: handlers stay
+// Service, convert the result back. No business logic and no Firestore here (project rule: handlers stay
 // thin; errors are mapped to Connect codes by pkg/platform/mw.ErrorMapping).
 package graph
 

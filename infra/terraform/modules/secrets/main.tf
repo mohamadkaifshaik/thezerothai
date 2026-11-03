@@ -1,5 +1,5 @@
 // Secret Manager — only for values that truly can't be plain env config
-// (CLAUDE.md: "most config is plain env vars"). Stay at or under 6 active
+// (project rule: "most config is plain env vars"). Stay at or under 6 active
 // versions total and 10k accesses/month (free tier); read once at startup,
 // don't poll. Terraform creates the secret container; the *value* is set
 // out-of-band (gcloud / console) so it never lands in state or a PR diff.

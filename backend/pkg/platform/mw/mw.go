@@ -72,7 +72,7 @@ func ReportError(ctx context.Context, log *slog.Logger, op string, err error) {
 }
 
 // Recover converts a panic inside the handler chain into connect.CodeInternal instead of crashing the
-// process (CLAUDE.md: "no panics on request paths"). It logs the panic and stack as an Error
+// process (project rule: "no panics on request paths"). It logs the panic and stack as an Error
 // Reporting-shaped entry (M3) so it is never silently lost; the client only ever sees a generic message.
 func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -181,7 +181,7 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 }
 
 // ErrorMapping is the place a service/handler error becomes a *connect.Error with an attached
-// dzeroth.common.v1.ErrorDetail (CLAUDE.md: map errors to Connect codes at the handler boundary only).
+// dzeroth.common.v1.ErrorDetail (project rule: map errors to Connect codes at the handler boundary only).
 // It must be the innermost interceptor (closest to the handler) so every interceptor above it — and the
 // client — only ever sees fully-shaped Connect errors for anything that actually reaches the handler.
 // (An interceptor positioned *before* ErrorMapping that short-circuits without calling next — e.g.

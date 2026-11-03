@@ -2,7 +2,7 @@
 
 package e2e
 
-// T21 (docs/plans/posts-and-timeline.md): posts + timeline E2E smoke. Same two modes as graph_smoke_test.go,
+// T21: posts + timeline E2E smoke. Same two modes as graph_smoke_test.go,
 // reusing its setup (setupGraphSmoke), idemKey and eventually helpers:
 //
 //   - Emulator mode (default, `make test-int`): boots the real handler with FEATURE_POSTS and FEATURE_GRAPH set

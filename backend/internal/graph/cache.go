@@ -21,7 +21,7 @@ const edgeCapacity = 5_000
 type edgeKey struct{ follower, followee string }
 
 // Cache is graph's instance cache: graph/{uid} Snapshots, 60s TTL (ADR-0008 D8), updated in place on this
-// instance's own commits (CLAUDE.md: "update the instance cache from written data instead of re-reading").
+// instance's own commits (project rule: "update the instance cache from written data instead of re-reading").
 // It also holds the "does this follow edge exist" answers behind GetProfileRelationship (ADR-0024 D7).
 type Cache struct {
 	snapshots *cache.LRU[string, Snapshot]

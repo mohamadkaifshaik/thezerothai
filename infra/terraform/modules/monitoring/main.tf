@@ -326,7 +326,7 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. Runbook: docs/runbooks (account lifecycle)."
+    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. (account lifecycle)."
   }
 
   alert_strategy {
@@ -365,7 +365,7 @@ resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; runbook docs/runbooks/credit-sunset-pause-resume.md, lever L2). Then investigate with docs/runbooks/abuse-spike.md and docs/runbooks/cost-spike.md. Restore the invoker afterwards."
+    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
   }
 
   alert_strategy {

@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Geometry assertions in logical pixels. They back the "X-like" numbers of
-/// `docs/x_research/` with tests that run everywhere (no pixel baselines).
+/// the X reference captures with tests that run everywhere (no pixel baselines).
 ///
 /// The default tolerance is 1dp: the research values are measured to +-1px
 /// and divided by the verified 1.25 display scale.

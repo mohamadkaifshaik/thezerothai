@@ -7,7 +7,7 @@ name: CI
 # `make test-int` runs. flutter test and test-int, the two slow suites, are split into shards by
 # scripts/ci/shard.sh (round robin, disjoint, together every test); the shard count is the length of each `matrix.shard`
 # list. Two summary jobs report the results under the check names these jobs had before the split: the main ruleset
-# requires "make ci (...)" by name (docs/runbooks/ci-enforcement.md, section 11).
+# requires "make ci (...)" by name.
 
 on:
   pull_request:
@@ -67,7 +67,7 @@ jobs:
           cd backend && govulncheck ./...
 
       # Exact release binary, sha256-verified (osv-scanner has no Dependabot ecosystem; bump per
-      # docs/runbooks/dependency-updates.md). Scans lock files only, so it needs no Go/Flutter toolchain state.
+      #  Scans lock files only, so it needs no Go/Flutter toolchain state.
       # Fails on ANY finding not listed in osv-scanner.toml (narrow, expiring ignores). Reachability
       # analysis is off: govulncheck above is the reachability gate, and this step must be deterministic.
       - name: osv-scanner (go.mod + pubspec.lock)
@@ -205,7 +205,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Summary under the check name test-int had before the split (not a required check: docs/runbooks/ci-enforcement.md),
+  # Summary under the check name test-int had before the split (not a required check),
   # plus the internal/ 70% coverage gate, which only means something over all shards together.
   emulator-integration:
     name: make test-int (Firebase emulators)
@@ -254,7 +254,7 @@ jobs:
           persist-credentials: false
 
       # Exact release binaries, sha256-verified (same approach as osv-scanner above; bump per
-      # docs/runbooks/dependency-updates.md). actionlint's hash matches the project's published checksums file;
+      #  actionlint's hash matches the project's published checksums file;
       # shellcheck publishes no checksum file, so its hash was computed from the release asset when pinned.
       - name: Install shellcheck + actionlint
         env:

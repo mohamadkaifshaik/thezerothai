@@ -58,7 +58,7 @@
 //
 // Firestore budgets below are ADR-0030 "Cost impact" (per RPC). Worst-case reads include the account-status
 // interceptor; every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
-// call can exceed config.ReadBudgetMaxCallReads (269). Keep them in sync with docs/reviews/cost-model.md.
+// call can exceed config.ReadBudgetMaxCallReads (269).
 
 package listsv1
 

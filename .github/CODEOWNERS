@@ -1,4 +1,4 @@
-# Code owners for the files that act as safety gates. With the ruleset described in docs/runbooks/ci-enforcement.md (code-owner review
+# Code owners for the files that act as safety gates. With the branch ruleset (code-owner review
 # required, no bypass actors) a change to any of these needs approval from the owner, who must be a DIFFERENT identity from the PR author
 # (the assistant works through its own GitHub App identity). The gate files themselves are listed so a gate cannot be weakened unseen.
 
@@ -18,7 +18,7 @@
 # mints the assistant's GitHub App credentials (signs a JWT with the App key and exchanges it for an installation token)
 /scripts/mint-app-token.sh                     @mohamadkaifshaik
 
-# the assistant's own instructions: CLAUDE.md and everything under .claude/ (agent definitions, skills, hooks, settings) define its rules,
+# agent instructions (CLAUDE.md, .claude/: removed 2026-11-03, kept owned so any re-added copy still needs review) define its rules,
 # so changing them always needs the owner's code-owner review, even if the ruleset is ever relaxed
 /CLAUDE.md                                     @mohamadkaifshaik
 /.claude/                                      @mohamadkaifshaik

@@ -43,7 +43,7 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
 
 /// Talks to `IdentityService` and keeps the local profile cache (drift) in
 /// sync, so `GetMe`/`GetProfile` are only ever a Firestore read the client
-/// couldn't avoid, never a redundant one (CLAUDE.md prime directive).
+/// couldn't avoid, never a redundant one (the cost-first directive).
 class IdentityRepository {
   IdentityRepository({
     required ApiClient apiClient,

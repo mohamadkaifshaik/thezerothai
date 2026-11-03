@@ -63,7 +63,7 @@ const (
 	// still safe: the reader refuses to answer for a token older than its coverage floor (truncated).
 	RemovalRetention = 32 * 24 * time.Hour
 
-	// RemovalMaxIDs is the most removed ids one response carries (and the page of every log query, CLAUDE.md rule 5).
+	// RemovalMaxIDs is the most removed ids one response carries (and the page of every log query, the query-limit rule).
 	RemovalMaxIDs = MaxLimit
 
 	// RemovalWorstReads is the most Firestore reads one RemovedSince call can charge: a full incremental page (50)

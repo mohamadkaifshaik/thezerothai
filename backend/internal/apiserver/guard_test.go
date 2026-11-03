@@ -22,7 +22,7 @@ import (
 )
 
 // allowedReadBudgetChargeOnly: procedure -> why the read budget charges but never rejects it (ADR-0010 D5
-// amendment, CLAUDE.md rule 10). Adding an entry here requires a reason and review; the wired
+// amendment, the privacy rule). Adding an entry here requires a reason and review; the wired
 // ratelimit.Config.ReadBudgetChargeOnly must equal this set exactly.
 var allowedReadBudgetChargeOnly = map[string]string{
 	identityv1connect.IdentityServiceDeleteAccountProcedure:        "right to delete: must work for a user who spent the day's budget (App Store, Play, DPDP)",
@@ -164,7 +164,7 @@ func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemp
 			out = append(out, "procedure "+p+" is on the read budget exemption list without an explanation")
 		}
 	}
-	// Charge-only procedures (right to delete / export, CLAUDE.md rule 10) are charged but never rejected: the
+	// Charge-only procedures (right to delete / export, the privacy rule) are charged but never rejected: the
 	// wired set must equal the reviewed set, so neither a silent addition nor a silent removal passes.
 	for p := range rl.ReadBudgetChargeOnly {
 		if allowedChargeOnly[p] == "" {

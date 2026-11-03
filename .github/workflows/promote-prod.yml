@@ -6,18 +6,18 @@ name: Promote prod
 # trigger, so it never runs automatically.
 #
 # GitHub Free (private repo) has neither environment required-reviewers nor
-# tag rulesets available (see docs/runbooks/cloud-bootstrap.md §6/6a). The
+# tag rulesets available. The
 # founder clicking "Run workflow" and picking a stage IS the human approval;
 # there is no second machine-enforced gate beyond:
 #   1. the `prod` GitHub Environment's deployment policy (tags matching `v*`
 #      only — this workflow declares `environment: prod` on its one job, so
 #      GitHub itself refuses to start the job from a branch ref), and
 #   2. the checks in this workflow: dispatch must be from a tag ref matching
-#      ^v[0-9]+\.[0-9]+\.[0-9]+$, a docs/reviews/release-<tag>-readiness.md
+#      ^v[0-9]+\.[0-9]+\.[0-9]+$, a releases/<tag>-readiness.md
 #      with `VERDICT: GO` must exist for that exact tag, and the revision
 #      currently holding the `candidate` traffic tag must be provably built from
 #      that same tag (not a stale candidate left over from a different release).
-# CLAUDE.md rule: "Never shift prod traffic without a passing
+# Rule: "Never shift prod traffic without a passing
 # production-reviewer verdict" — enforced by the VERDICT: GO check below on
 # every run (both the 10% and the 100% stage), since each stage is a
 # separate workflow_dispatch run with no `needs:` relationship to the other.
@@ -99,7 +99,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
         run: |
-          f="docs/reviews/release-${RELEASE_TAG}-readiness.md"
+          f="releases/${RELEASE_TAG}-readiness.md"
           if [ ! -f "$f" ]; then
             echo "::error::Missing $f — production-reviewer must record VERDICT: GO before any traffic can shift."
             exit 1
@@ -116,7 +116,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
         with:
-          # Exact Cloud SDK pin (issue #46 / L6); bump per docs/runbooks/dependency-updates.md.
+          # Exact Cloud SDK pin (issue #46 / L6); bump with the pinned SHA.
           version: "587.0.0"
 
       - name: Resolve the candidate revision and verify it matches this tag
@@ -287,6 +287,6 @@ jobs:
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
         run: |
-          echo "::error::Promotion failed. See docs/runbooks/rollback.md."
-          echo "::warning::Do not roll back past the first release that enforces reply audience once FEATURE_REPLY_AUDIENCE has left off (ADR-0021). See the forward-only floor in docs/runbooks/rollback.md."
+          echo "::error::Promotion failed."
+          echo "::warning::Do not roll back past the first release that enforces reply audience once FEATURE_REPLY_AUDIENCE has left off (ADR-0021). Roll forward with a fix instead."
           echo "gcloud run services update-traffic ${SERVICE} --project=${PROJECT} --region=${REGION} --to-revisions=<previous-stable-revision>=100"

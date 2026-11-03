@@ -303,7 +303,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {},
 			identityv1connect.IdentityServiceCreateProfileProcedure:           {},
 		},
-		// ADR-0010 D5 A6 (review M2, CLAUDE.md rule 10): charged, never rejected. Each entry needs a reason in
+		// ADR-0010 D5 A6 (review M2, the privacy rule): charged, never rejected. Each entry needs a reason in
 		// guard_test.go allowedReadBudgetChargeOnly and a DailyCaps entry below (account_ops_daily).
 		ReadBudgetChargeOnly: map[string]struct{}{
 			// Right to delete: must work for a user who has spent today's budget (App Store / Play / DPDP).

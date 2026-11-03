@@ -8,7 +8,7 @@ Makefile  text eol=lf
 # Promotion scripts, ceiling and fixtures: LF always, or CRLF breaks bash string comparisons and jq output diffs.
 scripts/promotion/** text eol=lf
 
-# Markdown stays LF: the release workflows grep whole lines in docs/reviews/release-*-readiness.md for `VERDICT: GO`, so a stray CR
+# Markdown stays LF: the release workflows grep whole lines in releases/*-readiness.md for `VERDICT: GO`, so a stray CR
 # would make them fail closed; core.autocrlf=true Windows checkouts would otherwise risk it.
 *.md      text eol=lf
 

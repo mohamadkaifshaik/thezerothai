@@ -4,7 +4,7 @@
 # and by the container's cgroup limits, not here.
 # Base image, pinned on purpose by digest: the multi-arch INDEX digest of the :nonroot tag as of 2026-10-21
 # (its linux/amd64 child is sha256:52dcfbabb7457ea47c82f6e13af8c8a4a1d9f7b0145142b3ecab20f2b888411d).
-# Bump by the procedure in docs/runbooks/dependency-updates.md (nothing bumps it automatically).
+# bump with the pinned SHA (nothing bumps it automatically).
 defaultBaseImage: gcr.io/distroless/static-debian12@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 builds:

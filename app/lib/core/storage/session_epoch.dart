@@ -4,7 +4,7 @@
 /// A writer reads [value] before it starts an RPC and passes it to the
 /// guarded write; the write is dropped when [end] ran in between, so an
 /// in-flight request of a signed-out user can never land in the next user's
-/// cache (privacy, CLAUDE.md rule 10).
+/// cache (privacy, the privacy rule).
 class SessionEpoch {
   int _value = 0;
 

@@ -188,7 +188,7 @@ const usage = `usage:
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
   opsctl backfill-has-media --project P [--dry-run] [--after POST_ID]   (one-off per project; <= 5,000 writes per run)
   opsctl clear-profile-fields --project P --uid U --fields website,location,banner,avatar,bio [--report R] [--note N] [--dry-run]
-                          (clears the named fields of one profile, skips empty ones; see docs/runbooks/abuse-spike.md.
+                          (clears the named fields of one profile, skips empty ones;
                           A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
 ` + modUsage + trendsUsage + listsUsage + communityUsage + communityHiddenUsage
@@ -520,7 +520,7 @@ func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
 }
 
 // purgePosts is purge-posts (ADR-0010 T10): the same dry-run and start-gate guards as purge-graph, then the posts
-// Eraser. Run it BEFORE purge-graph and before users/{uid} is deleted (docs/runbooks/account-deletion.md).
+// Eraser. Run it BEFORE purge-graph and before users/{uid} is deleted.
 func purgePosts(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, out io.Writer, now func() time.Time) error {
 	if dryRun {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)

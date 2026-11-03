@@ -144,8 +144,8 @@ String _threadStateKey(String conversationId) => 'thread:$conversationId';
 /// implements every merge rule in one place (one transaction per method).
 /// Mirrors `NotificationsStore`: every write takes the session it started
 /// under and is dropped when the epoch ended since, so an in-flight response
-/// of a signed-out user never lands in the next user's cache (CLAUDE.md
-/// privacy rule 10). Nothing here logs; message text never leaves the
+/// of a signed-out user never lands in the next user's cache (the
+/// privacy rule). Nothing here logs; message text never leaves the
 /// database.
 class MessagingStore {
   MessagingStore(this._db);

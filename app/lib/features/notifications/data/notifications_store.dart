@@ -76,7 +76,7 @@ String _sortKeyAbove(String sortKey) {
 /// half-merged list). Mirrors `TimelineStore`: every write takes the session
 /// it started under and is dropped when the epoch ended since, so an
 /// in-flight request of a signed-out user never lands in the next user's
-/// cache (CLAUDE.md privacy rule 10).
+/// cache (the privacy rule).
 class NotificationsStore {
   NotificationsStore(this._db);
 

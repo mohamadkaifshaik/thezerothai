@@ -1,4 +1,4 @@
-// messaging: W7 emulator load smoke (W7-23, docs/plans/ui-w7-messaging.md "W7-23"; ADR-0027 "Cost impact"). One file, one timeline
+// messaging: W7 emulator load smoke (W7-23; ADR-0027 "Cost impact"). One file, one timeline
 // of five phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it sends tens of thousands of messages and raises every messaging cap.
 //
@@ -34,7 +34,7 @@
 // RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_MESSAGES_SEND_PER_MIN, RATE_LIMIT_MESSAGES_READ_PER_MIN,
 // MESSAGES_SENDS_PER_DAY, MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY (freshly minted users are "new accounts", 50 a day), MESSAGES_MARK_READ_PER_DAY,
 // RATE_LIMIT_GRAPH_FOLLOW_PER_MIN, QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, READ_BUDGET_PER_UID_PER_DAY. Leave
-// MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR alone. The exact values of the recorded run are in docs/reviews/cost-model.md section 14.
+// MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR alone.
 //
 //   k6 run loadtest/messaging.js      # or: make loadtest SCENARIO=messaging
 //   node loadtest/analyze_messaging.js api.log k6.out

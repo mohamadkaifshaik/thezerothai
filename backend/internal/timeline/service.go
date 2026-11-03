@@ -46,7 +46,7 @@ const (
 // ProfileTabsFlagName is the wire name of FEATURE_PROFILE_TABS (ADR-0024 D9). GetUserTimeline with tab MEDIA or REPOSTS
 // needs it on for the caller; Posts and Replies stay ungated. The name is repeated here, not imported from another
 // module, because timeline may name only the posts, graph and identity seams. The flag must stay off in a project until
-// the two W3-2 composite indexes are READY there and `opsctl backfill-has-media` has run (docs/runbooks/posts.md
+// the two W3-2 composite indexes are READY there and `opsctl backfill-has-media` has run
 // section 13): Firestore, unlike the emulator, refuses the tab queries without them.
 const ProfileTabsFlagName = "profile_tabs"
 

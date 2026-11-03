@@ -10,7 +10,7 @@
 # and project ids they use. A second suite starting or stopping wipes it, and the first one crashes
 # mid-upload (`ENOENT ... Temp\firebase\storage\blobs\<id>` at Persistence.appendBytes, then "An
 # unexpected error has occurred", and the Auth emulator refuses connections). With a private temp
-# directory per run, two suites cannot touch each other's files. docs/runbooks/emulator-collisions.md.
+# directory per run, two suites cannot touch each other's files.
 #
 # How: mktemp -d under the caller's temp dir, then TEMP, TMP and TMPDIR point at it for <command> and
 # everything it starts (emulators, go test, go run, flutter run), and only for those: the caller's own

@@ -16,7 +16,7 @@ import '../domain/feed_key.dart';
 import '../domain/profile_tabs_feature_flag.dart';
 import 'timeline_store.dart';
 
-/// Talks to `TimelineService` and keeps feeds in drift (CLAUDE.md: the client
+/// Talks to `TimelineService` and keeps feeds in drift (project rule: the client
 /// is the cheapest cache; ADR-0004 / ADR-0010 D13-D14).
 ///
 /// - [cached] renders from disk with no network call (offline cold start).

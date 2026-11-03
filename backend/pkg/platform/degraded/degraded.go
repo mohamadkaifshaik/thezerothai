@@ -1,4 +1,4 @@
-// Package degraded implements the DEGRADED_MODE switch (CLAUDE.md, ADR-0007 cost-spike runbook):
+// Package degraded implements the DEGRADED_MODE switch (ADR-0007 cost-spike runbook):
 // "readonly" rejects mutating RPCs, "nomedia" rejects media-upload RPCs, "off" is normal operation.
 // Flipping it is a Cloud Run env var update (seconds, no image rebuild).
 package degraded

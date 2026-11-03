@@ -2,7 +2,7 @@ package config
 
 import "fmt"
 
-// DegradedMode gates writes/media at the platform level (CLAUDE.md "degraded-mode switch").
+// DegradedMode gates writes/media at the platform level (the "degraded-mode switch" rule).
 type DegradedMode string
 
 const (

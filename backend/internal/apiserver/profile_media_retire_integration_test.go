@@ -9,7 +9,7 @@ package apiserver
 //
 // The Storage emulator does not implement objects.patch (it answers 501), which objstore.SetCustomTime accepts against
 // the emulator only, so the customTime patches themselves are checked in the media package with a counting tagger and
-// on a real bucket in dev (docs/runbooks/media.md).
+// on a real bucket in dev.
 
 import (
 	"context"

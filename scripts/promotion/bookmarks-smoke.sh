@@ -3,7 +3,7 @@
 # the bookmark RPCs are routed, authenticated and gated on the candidate. Run by promote-dev.sh (step 4b) right after
 # authenticated-smoke.sh, against the same 0% candidate and with the same credentials. It is NOT run against prod: prod-smoke.sh only
 # runs authenticated-smoke.sh, which stays read-only and knows no bookmark RPC (live prod does not carry them yet).
-# See docs/runbooks/authenticated-smoke.md, "The dev-only bookmarks smoke".
+#
 #
 # Usage: bookmarks-smoke.sh <base_url>
 # Env (never arguments): SMOKE_EMAIL, SMOKE_PASSWORD, FIREBASE_API_KEY (public client config, not a secret), the same contract as
@@ -16,7 +16,7 @@
 #      400 FEATURE_DISABLED (the flag is globally off) or any row, fails at list-bookmarks.
 #   3. AddBookmark with a fresh key smoke-<epoch>-bm-<4 digits> and a FIXED dummy post id must be 400 failed_precondition carrying the
 #      ErrorDetail reason FEATURE_DISABLED with metadata feature=bookmarks (the bookmarks gate, not the FEATURE_POSTS one, which has no
-#      feature metadata). Account A is never allowlisted (docs/runbooks/smoke-accounts.md), and the gate runs before ANY Firestore
+#      feature metadata). Account A is never allowlisted, and the gate runs before ANY Firestore
 #      access or input check (backend/internal/engagement/server_bookmarks.go, guardBookmarks), so the answer does not depend on the post.
 #      That is also why no real post is needed and nothing is ever written: if A were allowlisted by mistake, the dummy id is
 #      not_found, which fails here with 0 writes. Anything else (a 200, LIMIT_REACHED, another code, no ErrorDetail) fails at add-bookmark.

@@ -1,7 +1,7 @@
 //go:build integration
 
 // replies_integration_test.go: the P3 reply path and GetThread against the Firestore emulator, with the
-// documented read/write budgets asserted (plan docs/plans/replies-and-threads.md).
+// documented read/write budgets asserted.
 package posts
 
 import (

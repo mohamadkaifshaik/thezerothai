@@ -162,7 +162,7 @@ func (j *PrivacyPublicJob) Run(ctx context.Context, uid string) (string, error) 
 	if tot.accepted+tot.skippedInactive == 0 { // a dropped (inactive) request is progress too: it leaves the query
 		// O-1 (W3-35b): every page up to the cap was skipped (requesters at the 5,000 following cap, or not ACTIVE), so a
 		// redelivery would only repeat the same scan until the DLQ. Ack with counts only; the owner declines the requests or
-		// the requesters unfollow someone (docs/runbooks/private-accounts.md section 6).
+		// the requesters unfollow someone.
 		j.log.WarnContext(ctx, "privacy_public", append([]any{
 			"uid_hash", logger.HashUID(uid), "pages", privacyPublicMaxPages, "scanned", tot.scanned,
 			"skipped_cap", tot.skippedCap, "skipped_inactive", tot.skippedInactive, "outcome", "stuck",

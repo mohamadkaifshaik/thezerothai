@@ -27,7 +27,7 @@ abstract interface class RecentSearchesStore {
 /// Keeps the list as JSON in `AppSettingEntries` under a per-uid key that
 /// starts with [kAccountSettingPrefix]: sign-out (`wipeSessionData` ->
 /// `AppDatabase.clearAll`) deletes it, so the next user on a shared device
-/// starts empty (CLAUDE.md rule 10). Writes are guarded by the session epoch,
+/// starts empty (the privacy rule). Writes are guarded by the session epoch,
 /// so a search typed just before sign-out cannot land after the wipe. 0 RPCs.
 class DatabaseRecentSearchesStore implements RecentSearchesStore {
   DatabaseRecentSearchesStore(this._database);

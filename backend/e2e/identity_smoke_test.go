@@ -123,7 +123,7 @@ func uniqueHandle(prefix string) string {
 }
 
 // authedRequest builds a connect.Request with the caller's ID token attached the way every real client
-// does (Authorization: Bearer <idToken>) — never a body field (CLAUDE.md: "the caller's uid comes from
+// does (Authorization: Bearer <idToken>) — never a body field (project rule: "the caller's uid comes from
 // the token, never the body").
 func authedRequest[T any](idToken string, msg *T) *connect.Request[T] {
 	req := connect.NewRequest(msg)
@@ -209,7 +209,7 @@ func assertErrorReason(t *testing.T, err error, wantCode connect.Code, wantReaso
 
 // TestE2E_Healthz: /health (and its /healthz alias) is a plain http.HandlerFunc outside the Connect interceptor chain (no auth,
 // no Firestore) — must always answer 200, in every degraded mode, so Cloud Run's liveness probe never
-// depends on downstream health (CLAUDE.md rule 8).
+// depends on downstream health (the health and logging rule).
 func TestE2E_Healthz(t *testing.T) {
 	skipIfNoEmulators(t)
 	_, baseURL := newTestServer(t, config.DegradedOff)
@@ -266,7 +266,7 @@ func TestE2E_SignUpThenGetMe(t *testing.T) {
 }
 
 // TestE2E_DegradedReadonly_RejectsWritesButAllowsReads exercises the DEGRADED_MODE=readonly switch
-// (CLAUDE.md "degraded-mode switch", pkg/platform/degraded) through the full stack: a mutating RPC must
+// (the "degraded-mode switch" rule, pkg/platform/degraded) through the full stack: a mutating RPC must
 // be rejected even though it would otherwise succeed, while a read-only RPC and /health keep working.
 func TestE2E_DegradedReadonly_RejectsWritesButAllowsReads(t *testing.T) {
 	skipIfNoEmulators(t)
@@ -375,7 +375,7 @@ func TestE2E_RateLimitRunsBeforeAccountStatus(t *testing.T) {
 	assertCode(t, err, connect.CodeResourceExhausted)
 }
 
-// TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected (H1, docs/reviews/security/security-audit-v0.1.0.md): the
+// TestE2E_CreateProfile_UnverifiedPasswordEmail_Rejected (H1): the
 // Firebase Auth emulator mints unverified email/password users by default, exactly like real Firebase —
 // real end-to-end proof that CreateProfile rejects such a caller with EMAIL_NOT_VERIFIED before ever
 // reaching Firestore, over the real Connect interceptor chain and real Admin-SDK token verification.
@@ -420,7 +420,7 @@ func doXFFRequest(t *testing.T, method, url, xff string, body []byte) *http.Resp
 	return resp
 }
 
-// TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth (M1, docs/reviews/security/security-audit-v0.1.0.md): a flood of
+// TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth (M1): a flood of
 // completely unauthenticated requests (no Authorization header at all) to a real RPC path must be rejected
 // once the caller's IP exceeds the pre-auth budget — proof the rejection happens as plain net/http
 // middleware in front of the Connect handler chain, not the post-auth ratelimit.Interceptor. /health must
@@ -452,7 +452,7 @@ func TestE2E_PreAuthIPLimiter_BlocksFloodExemptsHealth(t *testing.T) {
 	}
 }
 
-// TestE2E_MaxRequestBodyRejected (hardening, docs/reviews/security/security-audit-v0.1.0.md informational finding):
+// TestE2E_MaxRequestBodyRejected (hardening, of the v0.1.0 security audit:
 // a body over limits.MaxRequestBytes must never reach the handler/service layer — http.MaxBytesHandler
 // wraps the whole mux in apiserver.Build.
 func TestE2E_MaxRequestBodyRejected(t *testing.T) {

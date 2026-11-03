@@ -3,7 +3,7 @@ variable "project_id" {
 }
 
 variable "region" {
-  description = "Must be a US region for GCS Always Free storage (us-west1, us-central1, us-east1). See CLAUDE.md."
+  description = "Must be a US region for GCS Always Free storage (us-west1, us-central1, us-east1)."
   type        = string
   default     = "us-central1"
 

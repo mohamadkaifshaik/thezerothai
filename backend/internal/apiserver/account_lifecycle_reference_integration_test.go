@@ -2,7 +2,7 @@
 
 package apiserver
 
-// T16/T17 budget assertions on the plan's REFERENCE ACCOUNT (docs/plans/account-deletion-export.md "Cost": P = 300
+// T16/T17 budget assertions on the plan's REFERENCE ACCOUNT (plan "Cost": P = 300
 // posts, O = 100 followees, I = 100 followers, B = Bb = M = 0, E = 1 export), seeded through the production RPCs, then
 // exported and deleted over the real chain. The measured fs_reads/fs_writes/fs_deletes come from the same
 // `account_job` and request log lines production emits, so a budget regression here is a regression in the lines the
@@ -40,7 +40,7 @@ const (
 	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
 	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
 	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
-	// the account-deletion plan owner (docs/plans/account-deletion-export.md T16).
+	// the account-deletion plan owner (T16).
 	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */ + 1 /* bookmarks step, ADR-0023 D6 */ + 2 /* W3-32 follow_requests step, ADR-0025 D11 */ + 1 /* W7-6 messaging step, ADR-0027 D8 */ + 2 /* W5-5 lists step, ADR-0030 D8 */ + 1 /* W6-8 poll_votes step, ADR-0029 D8: the votes query, one read when empty */ + 1 /* W5-24 communities step, ADR-0031 D9: the memberships doc, one read when absent */
 	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
 	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The founder's terminal wrapper around authenticated-smoke.sh for PROD. Run it from your OWN terminal: never through the assistant's
-# `!` prefix, never in CI. See docs/runbooks/authenticated-smoke.md.
+# `!` prefix, never in CI.
 #
 # Usage: prod-smoke.sh <base_url> [1|2]        (account 1 by default)
 # Env file (default ~/.dzeroth-smoke/prod.env, override with SMOKE_ENV_FILE) defines SMOKE_EMAIL_1, SMOKE_PASSWORD_1, SMOKE_EMAIL_2,
@@ -23,7 +23,7 @@ account=${2:-1}
 case $account in 1 | 2) ;; *) die "account must be 1 or 2" ;; esac
 
 env_file=${SMOKE_ENV_FILE:-$HOME/.dzeroth-smoke/prod.env}
-[ -f "$env_file" ] || die "env file not found: $env_file (see docs/runbooks/authenticated-smoke.md)"
+[ -f "$env_file" ] || die "env file not found: $env_file"
 
 # Refuse a group- or world-accessible env file where the mode means something. On Windows (Git Bash) stat cannot tell the real ACL,
 # so the check is skipped there: make sure the file is readable by your user only (icacls).

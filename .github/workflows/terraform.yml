@@ -97,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Skip an env until it has been bootstrapped (first apply is local; see docs/runbooks/cloud-bootstrap.md).
+      # Skip an env until it has been bootstrapped (first apply is local).
       - name: Env bootstrapped?
         id: gate
         env:

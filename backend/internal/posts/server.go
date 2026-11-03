@@ -1,5 +1,5 @@
 // server.go is the thin Connect handler for PostService: extract the caller's uid, check the FEATURE_POSTS
-// flag, call Service, map the result. No business logic and no Firestore here (CLAUDE.md: handlers stay thin;
+// flag, call Service, map the result. No business logic and no Firestore here (project rule: handlers stay thin;
 // errors are mapped to Connect codes by pkg/platform/mw.ErrorMapping).
 //
 // T5 registers the service with every RPC behind the flag guard and otherwise Unimplemented; T8 (CreatePost)

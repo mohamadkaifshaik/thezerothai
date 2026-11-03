@@ -684,7 +684,7 @@ const (
 	MaxGetMany = 50
 	// MaxByAuthors is the most authors one ByAuthors query takes (Firestore `in` limit).
 	MaxByAuthors = 30
-	// MaxLimit is the largest query Limit (CLAUDE.md rule 5).
+	// MaxLimit is the largest query Limit (the query-limit rule).
 	MaxLimit = 50
 	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep, ADR-0028 D6).
 	MaxCreatedAfterLimit = 500

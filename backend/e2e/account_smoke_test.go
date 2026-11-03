@@ -2,7 +2,7 @@
 
 package e2e
 
-// T18 (docs/plans/account-deletion-export.md): account lifecycle E2E smoke.
+// T18: account lifecycle E2E smoke.
 //
 //	create profile -> follow -> post -> request export -> READY -> download -> delete -> poll until the account is gone
 //	-> residue check.

@@ -83,7 +83,7 @@ class TimelineStore {
   /// caches). Every write takes the generation its caller started under and
   /// is dropped when the epoch ended since, so an in-flight request of a
   /// signed-out user can never write back after the cache was wiped
-  /// (privacy, CLAUDE.md rule 10).
+  /// (privacy, the privacy rule).
   int get session => _db.sessionEpoch.value;
 
   /// Ends the shared epoch; the one entry point is

@@ -1,4 +1,4 @@
-// list_timeline: W5 Part A emulator load smoke (W5-18, docs/plans/ui-w5-lists-communities.md "W5-18"; ADR-0030 "Cost impact").
+// list_timeline: W5 Part A emulator load smoke (W5-18; ADR-0030 "Cost impact").
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it mints about 300 users and raises every list, post, graph and read-budget cap.
 //
@@ -26,8 +26,7 @@
 // RATE_LIMIT_LISTS_READ_PER_MIN, RATE_LIMIT_LIST_TIMELINE_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN,
 // LIST_MUTATIONS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY, QUOTA_LIST_ADDS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY,
 // QUOTA_LIST_CREATES_PER_DAY, READ_BUDGET_PER_UID_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY,
-// QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY. The exact values of the recorded run are in
-// docs/reviews/cost-model.md section 17.
+// QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY.
 //
 //   k6 run loadtest/list_timeline.js      # or: make loadtest SCENARIO=list_timeline
 //   node loadtest/analyze_list_timeline.js api.log k6.out

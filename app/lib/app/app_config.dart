@@ -11,7 +11,7 @@ import 'package:flutter/foundation.dart';
 /// ```
 ///
 /// Example (production web build served from Firebase Hosting, which
-/// rewrites `/api/**` to Cloud Run — see CLAUDE.md reference architecture):
+/// rewrites `/api/**` to Cloud Run — see the reference architecture):
 /// ```
 /// flutter build web \
 ///   --dart-define=USE_EMULATORS=false \

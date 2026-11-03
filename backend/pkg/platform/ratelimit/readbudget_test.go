@@ -245,7 +245,7 @@ func TestReadBudget_ChargedAndReleasedWhenHandlerPanics(t *testing.T) {
 	}
 }
 
-// TestReadBudget_ChargeOnlyProceduresAreNeverRejected (M2, CLAUDE.md rule 10): a charge-only procedure still
+// TestReadBudget_ChargeOnlyProceduresAreNeverRejected (M2, the privacy rule): a charge-only procedure still
 // succeeds for a uid whose budget is spent (and IP budget too), its reads are charged, and other procedures
 // are still rejected for the same uid.
 func TestReadBudget_ChargeOnlyProceduresAreNeverRejected(t *testing.T) {

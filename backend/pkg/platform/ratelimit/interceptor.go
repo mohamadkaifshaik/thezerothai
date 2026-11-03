@@ -63,7 +63,7 @@ type Config struct {
 	// ReadBudgetExempt lists procedures the read budget does not cover. Must stay empty (guard test).
 	ReadBudgetExempt map[string]struct{}
 	// ReadBudgetChargeOnly lists procedures that are charged against the budget but never rejected by it
-	// (CLAUDE.md rule 10: the right-to-delete and export paths must work for a user who has spent the day's
+	// (the privacy rule: the right-to-delete and export paths must work for a user who has spent the day's
 	// budget). Every entry needs a reason in the guard test's allowedReadBudgetChargeOnly. Their reads are
 	// small and still bounded by the per-minute bucket.
 	ReadBudgetChargeOnly map[string]struct{}
@@ -125,7 +125,7 @@ type NamedDailyCap struct {
 //
 // This is the *inside-the-Connect-chain* limiter (ADR-0006 §2/§3): it still does real JWT-verify work
 // upstream of it (App Check + ID token) before this ever runs. PreAuthIPMiddleware (httpmiddleware.go) is
-// the separate, coarser *pre-auth* limiter added for M1 (docs/reviews/security/security-audit-v0.1.0.md) that runs as plain
+// the separate, coarser *pre-auth* limiter added for M1 that runs as plain
 // net/http middleware in front of the whole Connect handler, before any of that verification work happens
 // — the two are independent Limiter instances (see apiserver.Build) so a request is never double-charged
 // against the same bucket.

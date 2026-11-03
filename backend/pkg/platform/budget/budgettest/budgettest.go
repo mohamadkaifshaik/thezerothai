@@ -12,9 +12,9 @@ import (
 )
 
 // Budget is an RPC's documented worst-case Firestore cost for one call, taken from the proto doc comment
-// and/or docs/reviews/cost-model.md. Every field is a ceiling (<=), not an exact match — pass the exact
+// and/or the cost model. Every field is a ceiling (<=), not an exact match — pass the exact
 // worst case from the documentation so a regression that reads/writes more than documented fails the
-// build, per CLAUDE.md rule 6 ("every RPC documents its worst-case Firestore reads/writes").
+// build, per the read-budget rule ("every RPC documents its worst-case Firestore reads/writes").
 type Budget struct {
 	Reads   int64
 	Writes  int64

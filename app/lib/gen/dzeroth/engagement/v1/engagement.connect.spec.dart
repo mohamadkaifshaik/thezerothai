@@ -209,7 +209,7 @@ abstract final class EngagementService {
   /// expected_choice and keeps a vote final, as steps 6 and 7 below say.
   /// 8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
   ///    the same idempotency_key.
-  /// Idempotency (CLAUDE.md rule 4, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+  /// Idempotency (the idempotency rule, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
   /// but not stored; pollVotes/{postId}_{uid} is the record.
   /// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
   /// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),

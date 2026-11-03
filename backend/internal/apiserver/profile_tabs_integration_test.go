@@ -12,7 +12,7 @@ package apiserver
 // same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold: the worst case the
 // documented budget describes. The emulator does not enforce composite indexes, so these tests prove the query shape and
 // the budget; Firestore itself needs the two W3-2 indexes READY and the W3-8 backfill run before profile_tabs leaves off
-// (docs/runbooks/posts.md section 13).
+//
 
 import (
 	"context"
