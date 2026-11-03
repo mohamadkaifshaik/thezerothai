@@ -217,9 +217,10 @@ class GraphRepository {
         rethrow;
       } catch (error) {
         // Only "this RPC is not there for this caller" degrades: UNIMPLEMENTED
-        // (the skeleton behind its gate, until W3-11) and FEATURE_DISABLED
+        // (the skeleton behind its gate) and FEATURE_DISABLED
         // (the `graph` flag). Everything else, PROFILE_REQUIRED and
         // RESOURCE_EXHAUSTED included, is the caller's to handle.
+        // Drop the fallback once GetProfileRelationship is live
         // in every environment.
         final unimplemented =
             error is connect.ConnectException &&
