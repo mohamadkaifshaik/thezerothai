@@ -152,7 +152,8 @@ class PostEngagementBar extends StatelessWidget {
               bookmarked: bookmarked,
               actions: PostActions(
                 onReply: replies && !replyBlocked
-                    ? onReply ?? () => context.push(AppRouter.postPath(target))
+                    ? onReply ??
+                          () => context.push(AppRouter.composeReplyPath(target))
                     : null,
                 onLike: () =>
                     cubit.setLiked(target, liked: !current.liked, shown: shown),

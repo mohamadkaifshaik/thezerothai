@@ -435,7 +435,16 @@ class PostCard extends StatelessWidget {
         ),
       if (media.isNotEmpty) ...[
         const SizedBox(height: AppSpacing.sm),
-        PostMedia(media: media, useFullImage: fullContent),
+        PostMedia(
+          media: media,
+          useFullImage: fullContent,
+          onOpenImage: (index) => context.push(
+            AppRouter.postPhotoPath(
+              isRepost ? embedded!.postId : _post.postId,
+              index + 1,
+            ),
+          ),
+        ),
       ],
       // A poll on this post (live card) or on the original of a
       // repost (the frozen definition: read-only, opens the original).

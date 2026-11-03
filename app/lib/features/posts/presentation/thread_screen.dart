@@ -19,6 +19,7 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
+import '../../../shared/widgets/post/conversation_row.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/pending_post_row.dart';
 import '../../../shared/widgets/post/post_card.dart';
@@ -350,25 +351,48 @@ class _ThreadList extends StatelessWidget {
         final isReply = focal.post.replyToPostId.isNotEmpty;
         final sameContext =
             isReply && focal.post.replyToPostId == focal.post.conversationId;
-        Widget slot(pb.PostView? view, bool unavailable, String key) =>
-            view != null
+        Widget slot(
+          pb.PostView? view,
+          bool unavailable,
+          String key, {
+          bool before = false,
+          bool after = false,
+        }) => view != null
             ? _ContextPost(
                 key: ValueKey('context-${view.post.postId}'),
                 view: view,
                 viewerUserId: viewerUserId,
                 graphEnabled: graphEnabled,
+                connectBefore: before,
+                connectAfter: after,
               )
             : (unavailable
                   ? _Tombstone(key: ValueKey(key))
                   : const SizedBox.shrink());
         final contextSlots = <Widget>[
           if (isReply && !sameContext)
-            slot(state.root, state.rootUnavailable, 'root-unavailable'),
+            slot(
+              state.root,
+              state.rootUnavailable,
+              'root-unavailable',
+              after:
+                  state.root != null &&
+                  state.parent?.post.replyToPostId == state.root!.post.postId,
+            ),
           if (isReply)
             slot(
               sameContext ? (state.parent ?? state.root) : state.parent,
               state.parentUnavailable || (sameContext && state.rootUnavailable),
               'parent-unavailable',
+              before:
+                  !sameContext &&
+                  state.root != null &&
+                  state.parent?.post.replyToPostId == state.root!.post.postId,
+              after:
+                  (state.parent ?? (sameContext ? state.root : null))
+                      ?.post
+                      .postId ==
+                  focal.post.replyToPostId,
             ),
         ];
 
@@ -398,25 +422,36 @@ class _ThreadList extends StatelessWidget {
                     key: ValueKey('focal-${focal.post.postId}'),
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (focal.post.replyToHandle.isNotEmpty)
+                      if (focal.post.replyToHandle.isNotEmpty &&
+                          state.parent == null &&
+                          state.root == null)
                         _ReplyingTo(handle: focal.post.replyToHandle),
                       BlockedPostGate(
                         authorId: focal.post.author.userId,
                         handle: focal.post.author.handle,
                         graphEnabled: graphEnabled,
-                        child: PostCard(
-                          view: focal,
-                          focal: true,
-                          viewerUserId: viewerUserId,
-                          graphActionsEnabled: graphEnabled,
-                          reportsEnabled: reportsEnabled,
-                          engagementEnabled: engagementEnabled,
-                          // Reply focuses the composer; with replies closed
-                          // there is no composer and no Reply.
-                          showReply: onReply != null,
-                          onReply: onReply,
-                          onDelete: cubit.deletePost,
-                          onRelationshipChanged: onRelationship,
+                        child: ConversationRow(
+                          connectBefore:
+                              isReply &&
+                              (state.parent ??
+                                          (sameContext ? state.root : null))
+                                      ?.post
+                                      .postId ==
+                                  focal.post.replyToPostId,
+                          child: PostCard(
+                            view: focal,
+                            focal: true,
+                            viewerUserId: viewerUserId,
+                            graphActionsEnabled: graphEnabled,
+                            reportsEnabled: reportsEnabled,
+                            engagementEnabled: engagementEnabled,
+                            // Reply focuses the composer; with replies closed
+                            // there is no composer and no Reply.
+                            showReply: onReply != null,
+                            onReply: onReply,
+                            onDelete: cubit.deletePost,
+                            onRelationshipChanged: onRelationship,
+                          ),
                         ),
                       ),
                       if (inlineComposer case final composer?)
@@ -437,29 +472,50 @@ class _ThreadList extends StatelessWidget {
                   },
                   itemBuilder: (context, index) {
                     final view = replies[index];
+                    final before =
+                        index > 0 &&
+                        view.post.replyToPostId ==
+                            replies[index - 1].post.postId;
+                    final after =
+                        index + 1 < replies.length &&
+                        replies[index + 1].post.replyToPostId ==
+                            view.post.postId;
                     return Column(
                       key: ValueKey('reply-${view.post.postId}'),
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (view.post.replyToPostId != focal.post.postId &&
+                        if (!before &&
+                            view.post.replyToPostId != focal.post.postId &&
                             view.post.replyToHandle.isNotEmpty)
                           _ReplyingTo(handle: view.post.replyToHandle),
                         InkWell(
                           onTap: () => context.push(
                             AppRouter.postPath(view.post.postId),
                           ),
-                          child: PostCard(
-                            view: view,
-                            viewerUserId: viewerUserId,
-                            graphActionsEnabled: graphEnabled,
-                            reportsEnabled: reportsEnabled,
-                            engagementEnabled: engagementEnabled,
-                            moderationControl: replyModeration,
-                            onDelete: cubit.deletePost,
-                            onRelationshipChanged: onRelationship,
+                          child: ConversationRow(
+                            connectBefore: before,
+                            connectAfter: after,
+                            child: PostCard(
+                              view: view,
+                              viewerUserId: viewerUserId,
+                              graphActionsEnabled: graphEnabled,
+                              reportsEnabled: reportsEnabled,
+                              engagementEnabled: engagementEnabled,
+                              moderationControl: replyModeration,
+                              onDelete: cubit.deletePost,
+                              onRelationshipChanged: onRelationship,
+                              onReply: () async {
+                                final created = await context.push<pb.PostView>(
+                                  AppRouter.composeReplyPath(view.post.postId),
+                                );
+                                if (created != null && !cubit.isClosed) {
+                                  cubit.replyPosted(created);
+                                }
+                              },
+                            ),
                           ),
                         ),
-                        const Divider(height: 1),
+                        if (!after) const Divider(height: 1),
                       ],
                     );
                   },

@@ -17,6 +17,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission;
 import 'package:flutter/material.dart';
+import 'package:dzeroth/shared/widgets/post/conversation_row.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -161,8 +162,22 @@ void main() {
     expect(find.text('the focal post'), findsOneWidget);
     expect(find.text('first reply'), findsOneWidget);
     expect(find.text('nested reply'), findsOneWidget);
-    // Only the nested reply says who it answers (focal replies are implied).
-    expect(find.text('Replying to @h2'), findsOneWidget);
+    // An adjacent child is connected to its parent rather than relabelled.
+    expect(find.text('Replying to @h2'), findsNothing);
+    expect(
+      tester
+          .widgetList<ConversationRow>(find.byType(ConversationRow))
+          .where((row) => row.connectAfter)
+          .length,
+      1,
+    );
+    expect(
+      tester
+          .widgetList<ConversationRow>(find.byType(ConversationRow))
+          .where((row) => row.connectBefore)
+          .length,
+      1,
+    );
     expect(find.text('Post your reply'), findsOneWidget);
     verifyNever(() => posts.getPost(any()));
   });
@@ -188,7 +203,7 @@ void main() {
     expect(find.text('the parent'), findsOneWidget);
     expect(find.text('This post is unavailable'), findsOneWidget);
     expect(find.text('focal reply'), findsOneWidget);
-    expect(find.text('Replying to @h5'), findsOneWidget);
+    expect(find.text('Replying to @h5'), findsNothing);
     // Root above parent above focal.
     expect(
       tester.getTopLeft(find.text('This post is unavailable')).dy,
