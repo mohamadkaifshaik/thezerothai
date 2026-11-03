@@ -34,14 +34,14 @@ type Config struct {
 	// config.Config.TrustedProxyHops (env TRUSTED_PROXY_HOPS).
 	TrustedProxyHops int
 
-	// DailyCaps applies an additional per-uid-per-instance daily cap (ADR-0008 D7/T4: "an extension of the
+	// DailyCaps applies an additional per-uid-per-instance daily cap (ADR-0008 D7/: "an extension of the
 	// existing limiter... don't write a second limiter") on top of the per-minute limiters above, keyed by
 	// fully-qualified Connect procedure. Checked after PerProcedure/Default so a burst is still rejected by
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
 	// per-request line can be queried by limiter (e.g. "graph_list_daily").
 	DailyCaps map[string]NamedDailyCap
 
-	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5, T3): the same DailyCap type as
+	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5): the same DailyCap type as
 	// DailyCaps, counting reads instead of calls. It covers EVERY procedure (there is no per-procedure
 	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt (never charged) and
 	// ReadBudgetChargeOnly (charged, never rejected) are the only escape hatches and must stay empty unless

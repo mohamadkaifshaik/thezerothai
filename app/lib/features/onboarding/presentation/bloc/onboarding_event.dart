@@ -53,7 +53,7 @@ final class OnboardingEmailVerificationDismissed extends OnboardingEvent {
   const OnboardingEmailVerificationDismissed();
 }
 
-/// The caller accepted or declined one follow request (W3-34): the drawer
+/// The caller accepted or declined one follow request: the drawer
 /// badge drops by one without another `GetMe`.
 final class OnboardingFollowRequestAnswered extends OnboardingEvent {
   const OnboardingFollowRequestAnswered();

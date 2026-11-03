@@ -134,7 +134,7 @@ func TestMessagesTakedown_TakesDownAndResolvesTheReport(t *testing.T) {
 }
 
 // The output carries one-way hashes of the ids and never the ids themselves, the message text, or a handle. The conversation
-// hash is the keyed one of the request logs (W7-34, L-7) when CURSOR_HMAC_KEY is set, and never the plain SHA-256.
+// hash is the keyed one of the request logs (L-7) when CURSOR_HMAC_KEY is set, and never the plain SHA-256.
 // Not parallel: it sets the environment and the logger's process-wide key.
 func TestMessagesTakedown_OutputHasNoIDsAndNoText(t *testing.T) {
 	t.Setenv(cursorKeyEnv, "test-cursor-hmac-key")
@@ -289,7 +289,7 @@ func TestReportsShow_MessageEvidence(t *testing.T) {
 	if strings.Contains(out, "evidence post by") {
 		t.Errorf("a message report printed as a post:\n%s", out)
 	}
-	// W7-36: the child document is gone (its TTL ran): say so, and never print an empty text as if it were the message.
+	// The child document is gone (its TTL ran): say so, and never print an empty text as if it were the message.
 	f.ops.report.Evidence.TextExpired, f.ops.report.Evidence.Text = true, ""
 	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence expired") || strings.Contains(out, "PRIVATE text") {
 		t.Errorf("expired evidence:\n%s", out)

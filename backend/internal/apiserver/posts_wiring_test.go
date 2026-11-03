@@ -24,7 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// TestPostsAndTimeline_DegradedReadonly (T5 acceptance, timeline bodies T12/T13): with DEGRADED_MODE=readonly the mutating RPCs
+// TestPostsAndTimeline_DegradedReadonly (acceptance, timeline bodies): with DEGRADED_MODE=readonly the mutating RPCs
 // (CreatePost, DeletePost) are rejected by the platform interceptor, and the read RPCs (GetPost, both
 // timelines) get through to the handler. This is mechanical: it follows each RPC's proto idempotency_level.
 // The handlers are the real posts/timeline servers behind the real flag registry (on).
@@ -68,7 +68,7 @@ func TestPostsAndTimeline_DegradedReadonly(t *testing.T) {
 		{"GetPost is not blocked", func() error {
 			_, err := postClient.GetPost(ctx, connect.NewRequest(&postsv1.GetPostRequest{}))
 			return err
-		}, connect.CodeInvalidArgument, false}, // reached the handler: T9 rejects the empty post_id before any read
+		}, connect.CodeInvalidArgument, false}, // reached the handler: rejects the empty post_id before any read
 		{"GetHomeTimeline is not blocked", func() error {
 			_, err := tlClient.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{}))
 			return err
@@ -102,7 +102,7 @@ func (emptyReader) ByAuthors(context.Context, []string, posts.Window, int) ([]*p
 	return nil, nil
 }
 
-// ByAuthorMedia and ByAuthorKind are the Media and Reposts tab queries (ADR-0024 D5, W3-9): empty, so a tab call that
+// ByAuthorMedia and ByAuthorKind are the Media and Reposts tab queries (ADR-0024 D5): empty, so a tab call that
 // passes the flag gate runs without a Firestore repo.
 func (emptyReader) ByAuthorMedia(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil

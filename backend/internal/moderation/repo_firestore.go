@@ -34,7 +34,7 @@ import (
 const (
 	reportsCollection = "reports"
 	// evidenceSubcollection / messageEvidenceDoc: the copied text of a MESSAGE report lives in reports/{id}/evidence/message
-	// with its own expireAt (W7-36); the TTL policy is keyed by the collection group "evidence".
+	// with its own expireAt; the TTL policy is keyed by the collection group "evidence".
 	evidenceSubcollection = "evidence"
 	messageEvidenceDoc    = "message"
 	// txTimeout bounds the ReportContent transaction.
@@ -86,7 +86,7 @@ type Repo interface {
 	// (a repeat: Existing=true, 0 writes, no charge). A RESOLVED report is reopened in the same transaction
 	// (Reopened=true: status OPEN, reason/note/evidence replaced, the resolution fields and expireAt
 	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
-	// quotas; 1 on a repeat), writes 2; a MESSAGE report adds 1 write (the evidence child, W7-36): 3.
+	// quotas; 1 on a repeat), writes 2; a MESSAGE report adds 1 write (the evidence child): 3.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	// IsOpen reports whether report id exists and is OPEN (1 read, 0 writes). The service uses it to answer a
 	// replay from a reporter whose quota is spent with AlreadyReported instead of QUOTA_EXCEEDED (rule 4).
@@ -110,10 +110,10 @@ type evidenceDoc struct {
 	Website     string `firestore:"website,omitempty"`
 	AvatarURL   string `firestore:"avatarUrl,omitempty"`
 	BannerURL   string `firestore:"bannerUrl,omitempty"`
-	// LIST reports only (plan W5-44); additive and omitempty. Inside the index-exempt evidence map.
+	// LIST reports only; additive and omitempty. Inside the index-exempt evidence map.
 	ListName        string `firestore:"listName,omitempty"`
 	ListDescription string `firestore:"listDescription,omitempty"`
-	// COMMUNITY reports only (ADR-0031 D14, W5-29); additive and omitempty, inside the index-exempt evidence map.
+	// COMMUNITY reports only (ADR-0031 D14); additive and omitempty, inside the index-exempt evidence map.
 	CommunityName        string          `firestore:"communityName,omitempty"`
 	CommunityDescription string          `firestore:"communityDescription,omitempty"`
 	CommunityRules       []communityRule `firestore:"communityRules,omitempty"`
@@ -181,7 +181,7 @@ func toDoc(r Report) reportDoc {
 			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription,
 			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules)}
 		if r.TargetType == TargetMessage {
-			d.Evidence.Text = "" // the text lives in the child document (W7-36)
+			d.Evidence.Text = "" // the text lives in the child document
 		}
 	}
 	return d
@@ -268,7 +268,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		} else {
 			b.Create(r.ref(p.Report.ID), toDoc(p.Report))
 		}
-		// W7-36: the private text of a MESSAGE report goes to a child document with its own TTL (a full Set, so a reopen
+		// The private text of a MESSAGE report goes to a child document with its own TTL (a full Set, so a reopen
 		// replaces the old copy and a leftover of a TTL-deleted parent cannot make the write fail). +1 write.
 		if p.Report.TargetType == TargetMessage && p.Report.Evidence != nil {
 			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: p.Report.Evidence.Text,
@@ -372,7 +372,7 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 		return Report{}, fmt.Errorf("moderation: decode report %s: %w", id, err)
 	}
 	rep := d.toReport(id)
-	// W7-36: a MESSAGE report's text is in the child document (+1 read); gone = its TTL ran.
+	// A MESSAGE report's text is in the child document (+1 read); gone = its TTL ran.
 	if rep.TargetType == TargetMessage && rep.Evidence != nil {
 		cs, err := r.evidenceRef(id).Get(ctx)
 		budget.FromContext(ctx).AddReads(1)
@@ -420,7 +420,7 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 			out = d.toReport(id)
 			return nil
 		}
-		// W7-36: read the child before any write; it must not outlive the report (a TTL'd parent does not delete it).
+		// Read the child before any write; it must not outlive the report (a TTL'd parent does not delete it).
 		var child *evidenceChild
 		if TargetType(d.TargetType) == TargetMessage {
 			cs, err := tx.Get(r.evidenceRef(id))

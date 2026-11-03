@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-26a: the is_private toggle (ADR-0025 D8) through the real Build chain on the emulators, budgets asserted from the
+// The is_private toggle (ADR-0025 D8) through the real Build chain on the emulators, budgets asserted from the
 // request lines: protect 4 reads cold (interceptor + users, quotas, set doc) and 3 writes; an equal value 0 writes and no
 // quota charge; unprotect from a caller outside the cohort accepted; the 5th toggle of an IST day QUOTA_EXCEEDED with 0
 // writes; the cap LIMIT_REACHED limit=private_accounts with 0 writes; the set doc and users.isPrivate agree throughout.

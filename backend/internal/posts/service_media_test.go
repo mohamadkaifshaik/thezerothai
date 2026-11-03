@@ -131,7 +131,7 @@ func TestCreate_MediaIdempotency(t *testing.T) {
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-// TestRequestHash_TextOnlyUnchanged pins the pre-P4 format, so idempotency records written before P4 still match.
+// TestRequestHash_TextOnlyUnchanged pins the earlier format, so idempotency records written earlier still match.
 func TestRequestHash_TextOnlyUnchanged(t *testing.T) {
 	want := idempotency.HashRequest(fmt.Sprintf("v1|text=%q|media=%q|alts=%q|reply=%q|quote=%q", "hello", "", "", "", ""))
 	if got := requestHash("hello", "", "", nil, nil, ReplyPolicyEveryone, false, false); got != want {

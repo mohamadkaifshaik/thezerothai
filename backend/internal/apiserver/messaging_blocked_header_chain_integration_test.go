@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W7-27 and W7-30 over the real chain and the real graph snapshot: a caller whose peer blocked them opens the thread for exactly
+// over the real chain and the real graph snapshot: a caller whose peer blocked them opens the thread for exactly
 // the reads of an unblocked caller (25 at page 20: interceptor, conversation, 20 messages, peer, graph, own entry), with the
 // header's unread_count from their own entry, can_reply false, and a peer that is a real snapshot (the frozen one).
 func TestMessagingChain_BlockedCallerFirstPageCostsTheSame(t *testing.T) {

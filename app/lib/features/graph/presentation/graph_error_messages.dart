@@ -30,7 +30,7 @@ String relationshipErrorMessage(AppException error) {
   };
 }
 
-/// The snackbar text of a failed Accept or Decline (W3-34), in the order the
+/// The snackbar text of a failed Accept or Decline, in the order the
 /// failures can be told apart; everything else is the generic graph message.
 String followRequestErrorMessage(AppException error, {required String handle}) {
   return switch (error) {

@@ -198,11 +198,11 @@ func (j *Jobs) Retire(ctx context.Context, m RetireMessage) (string, error) {
 
 // ImageObject is a public profile-image object name taken apart.
 type ImageObject struct {
-	// Name is the object name, "m/{id}.{ext}", "m/{id}_t.{ext}" or, for uploads from W3-39 on, "m/{id}-{suffix}.{ext}" / "m/{id}-{suffix}_t.{ext}".
+	// Name is the object name, "m/{id}.{ext}", "m/{id}_t.{ext}" or, for uploads from then on, "m/{id}-{suffix}.{ext}" / "m/{id}-{suffix}_t.{ext}".
 	Name string
 	// ID is the media id (19 digits).
 	ID string
-	// Suffix is the 32-hex-character random part of a W3-39 name, "" for an older name.
+	// Suffix is the 32-hex-character random part of a name, "" for an older name.
 	Suffix string
 	// Ext is "jpg" or "webp" (profile images only; extension() also returns "gif" for post media, which this parser never sees).
 	Ext string

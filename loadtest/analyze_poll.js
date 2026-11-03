@@ -1,4 +1,4 @@
-// analyze_poll.js: W6 reads, writes and server time per call from the API's JSON request log (W6-21; scenario poll_vote.js). Plain Node,
+// analyze_poll.js: W6 reads, writes and server time per call from the API's JSON request log (scenario poll_vote.js). Plain Node,
 // no dependencies.
 //
 //   node loadtest/analyze_poll.js api.log k6.out [--from-line N]

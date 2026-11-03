@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-22 L-2c at the service boundary: display name and bio refuse control and bidi characters and are stored in NFC,
+// L-2c at the service boundary: display name and bio refuse control and bidi characters and are stored in NFC,
 // on CreateProfile and UpdateProfile, whatever the profile_extras flag says (they are not extras). The per-rule
 // vectors live in the shared fixture (profile_text_fixture_test.go); these tests prove the rules are wired in.
 
@@ -116,7 +116,7 @@ func TestCreateProfile_DisplayNameRules(t *testing.T) {
 }
 
 // TestProfileText_NewWritesOnly: the rules run when a value is submitted, never when one is read. A profile stored
-// before W3-22 with a character the rules now refuse is returned as stored by GetProfile and GetMe, and an update that
+// before then with a character the rules now refuse is returned as stored by GetProfile and GetMe, and an update that
 // leaves the field out is not refused because of it.
 func TestProfileText_NewWritesOnly(t *testing.T) {
 	e := newExtrasEnv(t, extrasRegistry(flags.On))

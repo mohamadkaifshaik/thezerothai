@@ -1,4 +1,4 @@
-// purge.go implements Eraser, PurgePlan and Exporter on FirestoreRepo (ADR-0010 D19 Q-E, plan T10): the
+// purge.go implements Eraser, PurgePlan and Exporter on FirestoreRepo (ADR-0010 D19 Q-E): the
 // right-to-delete and right-to-access paths for `posts`.
 //
 // Q-E:  posts where authorId == uid ORDER BY createdAt DESC, __name__ DESC LIMIT 500. Descending, so it uses the
@@ -195,9 +195,9 @@ type exportedPost struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Hashtags  []string  `json:"hashtags"`
 	Mentions  []string  `json:"mentions"`
-	// ReplyToPostID is set for replies (P3); the parent's author is not exported (not the user's data).
+	// ReplyToPostID is set for replies; the parent's author is not exported (not the user's data).
 	ReplyToPostID string `json:"replyToPostId,omitempty"`
-	// Kind is set only for REPOST and QUOTE docs (P5), with the id of the post they copy, so plain posts export
+	// Kind is set only for REPOST and QUOTE docs, with the id of the post they copy, so plain posts export
 	// byte for byte as before. The copied text and its author are not the user's data and are not exported.
 	Kind       string `json:"kind,omitempty"`
 	RepostOfID string `json:"repostOfPostId,omitempty"`

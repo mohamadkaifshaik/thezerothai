@@ -21,7 +21,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W5-9 (ADR-0030 D6) through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
+// (ADR-0030 D6) through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
 // and DeleteList's unpin, and the flag modes. Request-line budgets include the account-status interceptor's read.
 
 func tabsListsOn(c *config.Config) {

@@ -1,4 +1,4 @@
-// messaging: W7 emulator load smoke (W7-23; ADR-0027 "Cost impact"). One file, one timeline
+// messaging: W7 emulator load smoke (ADR-0027 "Cost impact"). One file, one timeline
 // of five phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it sends tens of thousands of messages and raises every messaging cap.
 //
@@ -7,7 +7,7 @@
 //                  first page), a "thread" pair T and a "thread" pair S with THREAD_MSGS messages each (the thread pages of 20 and
 //                  50), a quiet pair Q (the empty poll), the burst pair X/Y, and PAIRS poller pairs (2 x PAIRS poller users).
 //   cold_pages     COLD_START s (default 70, so every per-instance cache older than CACHE_TTL 60 s is cold): the hub's inbox first
-//                  page cold then warm, a `since` refresh, the REQUESTS folder, MarkConversationRead; T1's thread page 20 cold then
+//                  page cold then warm, a `since` refresh, the REQUESTS folder, MarkConversationRead; the thread page 20 cold then
 //                  warm, an older page and a poll; S1's thread page 50 cold then warm. One virtual user, serial.
 //   empty_poll     EMPTY_START s (default 90): one virtual user polls the quiet pair's thread with the `since` token every 200 ms for
 //                  EMPTY_DURATION (default 60 s). No other traffic runs: this is the server time of a poll on an otherwise idle

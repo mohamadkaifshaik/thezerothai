@@ -20,7 +20,7 @@ import '../../../../support/scheduled_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// The schedule path of the composer cubit (CMP-D6, ADR-0021 D4): gating,
+/// The schedule path of the composer cubit (ADR-0021 D4): gating,
 /// what SchedulePost carries, the idempotency key per request, the reset on
 /// success and the failure handling.
 void main() {

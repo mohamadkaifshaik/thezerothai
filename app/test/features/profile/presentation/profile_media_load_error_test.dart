@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/failing_image_cache.dart';
 
-/// W3-22 M-1 / ADR-0024 Amendment 1 A4 point 5: the profile's banner and
+/// M-1 / ADR-0024 Amendment 1 A4 point 5: the profile's banner and
 /// avatar when their object is gone from the media bucket (a removed or
 /// replaced image is deleted 24-48 h later, `PROFILE_MEDIA_RETIRE`). Both
 /// show the flat placeholder, at the same size as before, and the header does

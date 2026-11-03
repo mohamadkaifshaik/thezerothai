@@ -2,8 +2,8 @@
 // flag, call Service, map the result. No business logic and no Firestore here (project rule: handlers stay thin;
 // errors are mapped to Connect codes by pkg/platform/mw.ErrorMapping).
 //
-// T5 registers the service with every RPC behind the flag guard and otherwise Unimplemented; T8 (CreatePost)
-// and T9 (DeletePost, GetPost) replace the bodies; GetThread and the reply path of CreatePost (P3) sit behind
+// The service is registered with every RPC behind the flag guard and otherwise Unimplemented. CreatePost,
+// DeletePost and GetPost have real bodies; GetThread and the reply path of CreatePost sit behind
 // the extra FEATURE_REPLIES flag.
 package posts
 
@@ -82,7 +82,7 @@ var _ postsv1connect.PostServiceHandler = (*Server)(nil)
 const createDeadline = 8 * time.Second
 
 // CreatePost is behind the flag; everything else (validation order, mentions, the transaction) is
-// Service.Create (T8).
+// Service.Create.
 func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.CreatePostRequest]) (*connect.Response[postsv1.CreatePostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func (s *Server) mediaEnabled(uid string) bool {
 // readDeadline bounds DeletePost and GetPost (<= 10 s).
 const readDeadline = 5 * time.Second
 
-// DeletePost is behind the flag; the rules (ownership, no-op cases, the batch) are Service.Delete (T9).
+// DeletePost is behind the flag; the rules (ownership, no-op cases, the batch) are Service.Delete.
 func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.DeletePostRequest]) (*connect.Response[postsv1.DeletePostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 	return connect.NewResponse(&postsv1.DeletePostResponse{}), nil
 }
 
-// GetPost is behind the flag; the visibility rules are Service.GetForViewer (T9). Viewer flags come from one
+// GetPost is behind the flag; the visibility rules are Service.GetForViewer. Viewer flags come from one
 // cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (ADR-0018 D5, ADR-0023 D5: with only
 // bookmarks on just bookmarked_by_viewer is set), else they are false and nothing is read.
 // viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
@@ -191,7 +191,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	return connect.NewResponse(&postsv1.GetPostResponse{Post: v}), nil
 }
 
-// RepliesFlagName is the wire name of FEATURE_REPLIES (P3). It is independent of FEATURE_POSTS but needs it:
+// RepliesFlagName is the wire name of FEATURE_REPLIES. It is independent of FEATURE_POSTS but needs it:
 // every RPC still passes GuardFeature first.
 const RepliesFlagName = "replies"
 
@@ -296,7 +296,7 @@ type VisibilityHinter interface {
 	ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool
 }
 
-// GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread (P3).
+// GetThread is behind FEATURE_POSTS and FEATURE_REPLIES; the rules are Service.GetThread.
 func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.GetThreadRequest]) (*connect.Response[postsv1.GetThreadResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err

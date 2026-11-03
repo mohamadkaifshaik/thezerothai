@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The `lists_member_of` part of the `lists` export section (ADR-0030 D8 as-built note, W5-46, W5-17 L-7; founder 2026-10-31:
+// The `lists_member_of` part of the `lists` export section (ADR-0030 D8 as-built note, L-7; founder 2026-10-31:
 // "export users' own membership records while redacting private-list details and other members").
 //
 // What the user is shown is only what D3 would let them read as a viewer: a list they can see (public, not hidden by
@@ -82,7 +82,7 @@ type SocialSource interface {
 	Snapshot(ctx context.Context, uid string) (graph.Snapshot, error)
 }
 
-// memberOfLookupChunk bounds one directory call (ADR-0008 T6: at most 50 ids).
+// memberOfLookupChunk bounds one directory call (ADR-0008: at most 50 ids).
 const memberOfLookupChunk = 50
 
 // ExportedMembership is one public membership row of `lists_member_of.public`.

@@ -1,5 +1,5 @@
 /// Dart port of the server's one-line text rules (`identity.singleLineIssue`,
-/// `backend/internal/identity/validate.go`; W5-45, ported by W5-49). Shared by
+/// `backend/internal/identity/validate.go`, ported later). Shared by
 /// display name, location, list name and list description. Both sides run
 /// `testdata/profile_text/single_line_text.json`, so a rule changed on one side
 /// fails on the other.
@@ -120,7 +120,7 @@ SingleLineIssue? singleLineIssue(String normalized) =>
     _scan(normalized, allowLf: false, requireVisible: true);
 
 /// The multi-line rule behind the bio, community description and rule text
-/// (W5-55b, `identity.BioText`): the same scan with LF kept (it counts as white
+/// (`identity.BioText`): the same scan with LF kept (it counts as white
 /// space for the joiner check) and no visible-rune requirement.
 SingleLineIssue? multiLineTextIssue(String normalized) =>
     _scan(normalized, allowLf: true, requireVisible: false);

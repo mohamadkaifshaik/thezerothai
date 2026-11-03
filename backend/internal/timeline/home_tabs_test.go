@@ -349,7 +349,7 @@ func TestSetHomeTabs_NotWiredAndUnauthenticated(t *testing.T) {
 	wantAPIErr(t, err, connect.CodeUnauthenticated, 0, nil)
 }
 
-// TestSetHomeTabs_EmptyRequestCost (W5-43, security M-3): with lists off for the caller an empty request touches the store
+// TestSetHomeTabs_EmptyRequestCost (security M-3): with lists off for the caller an empty request touches the store
 // not at all (0 reads, 0 writes, no idempotency document) and answers the empty visible order; with lists on it is the
 // transaction as before and unpins.
 func TestSetHomeTabs_EmptyRequestCost(t *testing.T) {

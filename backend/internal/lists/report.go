@@ -9,7 +9,7 @@ import (
 // ErrOwnList is what ListReporter answers when the caller owns the list they are reporting.
 var ErrOwnList = errors.New("lists: own list")
 
-// ReportedList is the evidence of one list at report time (plan W5-44): the owner (the report's target owner), the owner's
+// ReportedList is the evidence of one list at report time: the owner (the report's target owner), the owner's
 // handle and the list's name and description. No member ids, no member count: the evidence holds no uid but OwnerUID.
 type ReportedList struct {
 	// OwnerUID becomes the report's TargetOwnerID (so `suspend-user --report` accepts a list report). Never in a response or a log.

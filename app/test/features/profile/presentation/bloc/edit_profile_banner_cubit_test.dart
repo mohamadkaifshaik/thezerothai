@@ -10,7 +10,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/media_fixtures.dart';
 import '../../../../support/profile_edit_fixtures.dart';
 
-/// The banner flow of Edit profile (W3-15): pick, 3:1 prepare, upload on Save
+/// The banner flow of Edit profile: pick, 3:1 prepare, upload on Save
 /// (purpose BANNER, one item), UpdateProfile with the media id, Remove, and the
 /// retry memory (media id and idempotency key survive a failed UpdateProfile).
 void main() {

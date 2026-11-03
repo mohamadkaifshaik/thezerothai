@@ -33,7 +33,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-16: the profile's Reposts and Media tabs behind `profile_tabs`. Every
+/// The profile's Reposts and Media tabs behind `profile_tabs`. Every
 /// tab is its own cached feed (`FeedKey.user(uid, tab: ...)`).
 void main() {
   late _MockIdentityRepository identityRepository;

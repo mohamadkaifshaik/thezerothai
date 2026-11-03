@@ -42,7 +42,7 @@ func TestLoad_TimelineTokenTTL(t *testing.T) {
 	}
 }
 
-// TestLoad_TimelineSettleWindow (ADR-0010 D13, T8): default 15s; below 15s (3 x the 5 s transaction deadline)
+// TestLoad_TimelineSettleWindow (ADR-0010 D13): default 15s; below 15s (3 x the 5 s transaction deadline)
 // or unparsable fails startup.
 func TestLoad_TimelineSettleWindow(t *testing.T) {
 	tests := []struct {

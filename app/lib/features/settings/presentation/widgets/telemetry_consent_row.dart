@@ -7,7 +7,7 @@ import '../../../../core/telemetry/telemetry_consent_store.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 
 /// A "Send crash reports" or "Share usage statistics" switch of Settings >
-/// Privacy & safety (TEL-7). The caller decides visibility with
+/// Privacy & safety. The caller decides visibility with
 /// `telemetryRowVisible` (Android, the kind's flag on). Turning it off stops
 /// collection at once through the shared consent store. Needs a
 /// [TelemetryConsentCubit] above it.

@@ -546,7 +546,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): responsive matrix, rapid taps, sign-out and flag drop on
+  // (tester): responsive matrix, rapid taps, sign-out and flag drop on
   // the bookmark icon of the action row.
   // ---------------------------------------------------------------------
 

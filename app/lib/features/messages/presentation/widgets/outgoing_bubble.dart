@@ -10,8 +10,8 @@ const kOutgoingSendingText = 'Sending…';
 /// The status line (and the whole tap target) of a bubble that failed.
 const kOutgoingNotSentText = 'Not sent. Tap to retry';
 
-/// A message the caller just sent, before the thread holds the server's copy
-/// (W7-16). Presentational.
+/// A message the caller just sent, before the thread holds the server's copy.
+/// Presentational.
 ///
 /// - Sending: the own-message bubble dimmed, with "Sending…" under it.
 /// - Failed: the bubble with "Not sent. Tap to retry" under it in the error

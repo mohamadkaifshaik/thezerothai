@@ -5,7 +5,7 @@ import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../domain/feed_key.dart';
 
-/// Newest posts kept per feed (posts-and-timeline plan T14).
+/// Newest posts kept per feed (posts-and-timeline).
 const kTimelineRetention = 500;
 
 /// Past this many cached posts a feed is cut back to [kTimelineRetention]
@@ -293,7 +293,7 @@ class TimelineStore {
   }
 
   /// Writes the caller's own like/repost result into every cached copy of
-  /// [postId] (ADR-0018, plan T7), so a restart does not show an unliked post
+  /// [postId] (ADR-0018), so a restart does not show an unliked post
   /// the caller liked: a since-refresh never re-sends old rows. Null
   /// arguments leave that field alone. Rows that are REPOSTs of [postId]
   /// (their id differs) are not touched; their flags refresh with the feed.

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Voted and Cache.AdjustPoll build a NEW Post and Poll: the shared cached copies are never changed in place (W6-7).
+// Voted and Cache.AdjustPoll build a NEW Post and Poll: the shared cached copies are never changed in place.
 func TestPostVoted_CopyOnWrite(t *testing.T) {
 	orig := &Post{ID: "1", Poll: &Poll{Options: []string{"a", "b"}, Counts: []int64{3, 1}, Total: 4, ClosesAt: time.Now()}}
 	got := orig.Voted(1)

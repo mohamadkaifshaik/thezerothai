@@ -1,4 +1,4 @@
-// removals.go is the read side of the moderation removal log (ADR-0016 D10, plan T15): a bounded, instance-cached
+// removals.go is the read side of the moderation removal log (ADR-0016 D10): a bounded, instance-cached
 // view of postRemovals/{postId} that tells a refreshing timeline client which posts a moderator hid after the
 // client's since token was issued, so the client can drop those cards. The write side is in moderate.go (the
 // same transaction or batch as the moderation field, so a crash can never hide a post without logging it).

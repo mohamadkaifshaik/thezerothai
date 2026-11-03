@@ -15,7 +15,7 @@ import '../../../support/messaging_fixtures.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/thread_test_support.dart';
 
-/// W7-21: the cross-screen flows, on the real router, the real repositories,
+/// The cross-screen flows, on the real router, the real repositories,
 /// store and cubits, with only the wire faked ([FakeMessagingServer]).
 void main() {
   Future<void> openRequestThread(

@@ -48,7 +48,7 @@ class ThreadSnapshot {
 
   /// True only for the snapshot a refresh returns after it APPLIED a first
   /// ListMessages page (a cold open): the header's `unread_count` and `silent`
-  /// are then the server's (W7-27), 0 included. False for a cache read, a
+  /// are then the server's, 0 included. False for a cache read, a
   /// `since` refresh and an older page, whose cached count may be stale.
   final bool firstPageHeader;
 
@@ -75,7 +75,7 @@ String conversationSortKey(pb.Conversation c) {
 
 /// The conversation a thread cold open stores: the ListMessages header
 /// [fresh] merged into the cached row [cached] instead of overwriting it
-/// (W7-19, ADR-0027 D14).
+/// (ADR-0027 D14).
 ///
 /// ListMessages carries identity, peer, state, folder and `can_reply`; it does
 /// not carry the caller's `last_message` or `updated_at`, which
@@ -83,7 +83,7 @@ String conversationSortKey(pb.Conversation c) {
 /// cached entry is kept for what it omits. The sort key follows `updated_at`,
 /// so keeping it keeps the row where the Inbox put it.
 ///
-/// `unread_count` and `silent` depend on the page kind (W7-27, ADR-0027). The
+/// `unread_count` and `silent` depend on the page kind (ADR-0027). The
 /// FIRST page ([firstPage] true) carries the caller's entry, so both are taken
 /// as they are, including 0 and false: a 0 means the thread was read on
 /// another device. A `since` or older page leaves them unset, and a proto3
@@ -192,7 +192,7 @@ class MessagingStore {
     );
   }
 
-  /// Whether any conversation, in either folder, is cached (W7-26: a LIMIT 1
+  /// Whether any conversation, in either folder, is cached (a LIMIT 1
   /// query; the cache is the signed-in user's own, see
   /// `AppDatabase.claimCacheFor`).
   Future<bool> hasConversations() async {
@@ -217,7 +217,7 @@ class MessagingStore {
 
   /// Replaces [folder] with a first page (no tokens sent).
   /// The cached conversation with [peerUserId], whichever folder it is in
-  /// (W7-17: "open the existing one, never a duplicate"). The cache is the
+  /// ("open the existing one, never a duplicate"). The cache is the
   /// inbox and requests pages only, so this is a scan of at most a few dozen
   /// rows; the newest activity wins if two entries ever named the same peer.
   Future<pb.Conversation?> conversationWithPeer(String peerUserId) async {
@@ -260,7 +260,7 @@ class MessagingStore {
   }
 
   /// Bumped by every local request-count change, so a refresh that was sent
-  /// before it does not write its older count over it (W7-37b).
+  /// before it does not write its older count over it.
   int _requestCountGeneration = 0;
 
   int get requestCountGeneration => _requestCountGeneration;
@@ -353,7 +353,7 @@ class MessagingStore {
   }
 
   /// Removes only [id]'s row from the cached lists; its messages and thread
-  /// state stay (W7-18: a blocked requester's open thread keeps working).
+  /// state stay (a blocked requester's open thread keeps working).
   /// Unguarded on purpose: removing rows can never leak data.
   Future<void> removeConversationEntry(String id) {
     return (_db.delete(
@@ -434,7 +434,7 @@ class MessagingStore {
       if (conversation != null && conversation.id.isNotEmpty) {
         // Merged, not overwritten: the header omits the preview and sort key,
         // which the cached Inbox row holds. This is always a first page, so
-        // its unread_count and silent are the server's (W7-27), 0 included.
+        // its unread_count and silent are the server's, 0 included.
         await _putConversation(
           mergeThreadHeader(
             await this.conversation(conversation.id),

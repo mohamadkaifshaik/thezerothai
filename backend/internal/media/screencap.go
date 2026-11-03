@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// The Vision attempt cap and the per-uid Vision-units cap (W6-40, ADR-0029 Amendment 1 A5; revises W6-27, security H-3).
+// The Vision attempt cap and the per-uid Vision-units cap (ADR-0029 Amendment 1 A5; revises, security H-3).
 //
 // Counters on the media doc, at +0 writes (A5.4):
 //   - screenAttempts counts CLAIMS. ClaimScreening increments it before any Vision call, so a lost release write or a dead instance cannot
@@ -38,7 +38,7 @@ const (
 	limitVisionUnitsDaily = "media_vision_units_daily"
 	// screeningRetryAfter is the retry_after of the screening UNAVAILABLE; the client retries the same FinalizeUpload after it.
 	screeningRetryAfter = 5 * time.Second
-	// minVisionBudget is the least request time that must be left for the Vision calls to be started (W6-49, W6-42 L-3). The calls get the lesser of
+	// minVisionBudget is the least request time that must be left for the Vision calls to be started (L-3). The calls get the lesser of
 	// visionTimeout (10 s) and what is left of FinalizeUpload's 20 s deadline; the GIF slot wait, the object read and the decode all spend that
 	// deadline first, so a slow GIF can reach Vision with almost nothing left. A SafeSearch call answers in 1 to 2 s, so with under 3 s left it can only
 	// time out: it would be billed (possibly), cost 2 units on the per-uid cap and take a retry. Not starting it costs the retry only.
@@ -119,7 +119,7 @@ func (s *service) isNewAccount(ctx context.Context, uid string) bool {
 }
 
 // isNewAccountAt is the module's one definition of the new-account tier, shared by the upload quota (CreateUpload) and the per-uid Vision-units cap
-// (chargeUnits), so an account never gets the wider limit of one and the narrower of the other (W6-50, W6-42 L-4). A zero createdAt (a users doc written
+// (chargeUnits), so an account never gets the wider limit of one and the narrower of the other (L-4). A zero createdAt (a users doc written
 // without it; signup always sets it) is NEW: an unknown age proves nothing about the account, so it takes the stricter tier, the same fail-closed answer the
 // unreadable age gets above and that establishedAccount gives for the unscreened publish (zero is not established).
 func (s *service) isNewAccountAt(created, now time.Time) bool {
@@ -133,7 +133,7 @@ func screeningUnavailable(cause error) error {
 }
 
 // unbilled reports whether a failed Vision call is known not to have been billed, so its unit goes back to BOTH counters (the per-uid cap and
-// VISION_MONTHLY_CAP; one "possibly billed" definition, W6-42 H-1). Only two classes qualify (W6-42 L-1, W6-49):
+// VISION_MONTHLY_CAP; one "possibly billed" definition, H-1). Only two classes qualify (L-1):
 //   - an HTTP answer of 429 (the project's own quota) or 5xx from Google (a *googleapi.Error), the behaviour since #535;
 //   - a failure before any request was written: the Vision service could not be built (errNotSent) or the TCP connect failed (a *net.OpError
 //     with Op "dial", which covers a DNS failure and a refused or unreachable host).

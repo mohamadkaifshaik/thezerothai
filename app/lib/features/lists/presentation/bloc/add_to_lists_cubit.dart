@@ -56,7 +56,7 @@ class AddToListsState {
   );
 }
 
-/// The "Add to Lists" sheet of one person (W5-13): 1 `ListUserLists` with
+/// The "Add to Lists" sheet of one person: 1 `ListUserLists` with
 /// `contains_user_id` per [load], then one Add or Remove per toggle.
 ///
 /// A toggle is optimistic and rolls back on any error with the reason in

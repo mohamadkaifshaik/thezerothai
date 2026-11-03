@@ -241,7 +241,7 @@ func TestSearchPosts_Budgets(t *testing.T) {
 	})
 }
 
-// A blocked author's rows are dropped against the real graph. Page 1 filters the whole 25-row entry first (W4-27), so the 5
+// A blocked author's rows are dropped against the real graph. Page 1 filters the whole 25-row entry first, so the 5
 // visible rows come back and, the entry not being full, no token follows (the old cut returned an empty page and a token).
 func TestSearchPosts_BlockedAuthorAgainstTheRealGraph(t *testing.T) {
 	client := newClient(t)
@@ -261,7 +261,7 @@ func TestSearchPosts_BlockedAuthorAgainstTheRealGraph(t *testing.T) {
 	exact(t, "20 of 25 rows dropped", c, 1+25+1) // graph + the 25-post entry + userLikes (5 rows returned)
 }
 
-// LATEST windows are fixed tiers (W4-27, ADR-0028 note 2026-10-31 part 3). Reads here are the document figures minus the
+// LATEST windows are fixed tiers (ADR-0028 note 2026-10-31 part 3). Reads here are the document figures minus the
 // interceptor's read: page 1 at k <= 30 cold 32 (graph 1 + entry 30 + userLikes 1), at k 31..50 52; an older page 22 at
 // k <= 20 (the graph is cached on the instance) and 52 at k 21..50; a tail page 1 + the rows left + userLikes.
 func TestSearchPosts_LatestWindowBudgets(t *testing.T) {

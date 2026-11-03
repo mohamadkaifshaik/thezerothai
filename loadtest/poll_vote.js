@@ -1,4 +1,4 @@
-// poll_vote: W6 emulator load smoke (W6-21; ADR-0029 "Cost impact"). One file, one
+// poll_vote: W6 emulator load smoke (ADR-0029 "Cost impact"). One file, one
 // timeline of phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it creates about 3,500 users and raises every vote, post and read-budget cap.
 //

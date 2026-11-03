@@ -161,7 +161,7 @@ void main() {
     final s = kBase.millisecondsSinceEpoch ~/ 1000;
     final executor = NativeDatabase.memory(
       setup: (raw) {
-        // The v10 shape (W6-39 send-key columns), key {draft_id}, one row
+        // The v10 shape (send-key columns), key {draft_id}, one row
         // with every column set and a pending send key, one with none.
         raw.execute('''
           CREATE TABLE composer_draft_entries (

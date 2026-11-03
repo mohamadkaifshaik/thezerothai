@@ -47,7 +47,7 @@ class PagedUserList extends StatefulWidget {
   final Widget Function(BuildContext context, graph.UserListItem item)?
   rowBuilder;
 
-  /// Shows only the loaded rows this accepts (W7-17: the new-message picker
+  /// Shows only the loaded rows this accepts (the new-message picker
   /// filters the Following rows by what is typed; no request is made). A
   /// parent that changes it rebuilds the list. When it hides every loaded
   /// row, [emptyMessage] is the answer.

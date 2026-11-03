@@ -19,7 +19,7 @@ import 'graph_error_messages.dart';
 import 'widgets/paged_user_list.dart';
 import 'widgets/user_list_row.dart';
 
-/// `/follow-requests` (W3-34): the people who asked to follow a protected
+/// `/follow-requests`: the people who asked to follow a protected
 /// account, newest first, 20 per page, each with Accept and Decline.
 ///
 /// - One `ListFollowRequests` per open and one `RespondToFollowRequest` per
@@ -172,7 +172,7 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
 
 /// Decline (outlined) and Accept (filled), each at least 88 x 48dp. The row
 /// measures this at its natural width and moves it under the name when the
-/// name column would get too narrow (W3-33d), so it never pushes the name out
+/// name column would get too narrow, so it never pushes the name out
 /// at a large text scale.
 class _AnswerButtons extends StatelessWidget {
   const _AnswerButtons({

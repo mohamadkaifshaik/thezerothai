@@ -49,7 +49,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// W5-16: the flag product `lists` x `ui_shell` x `engagement` on the REAL
+/// The flag product `lists` x `ui_shell` x `engagement` on the REAL
 /// router with the REAL `ListsRepository` / `HomeTabsRepository` over a
 /// recording transport. Every Lists route needs `lists` (Manage pinned also
 /// `ui_shell`); with `lists` off nothing may leave the device: not one

@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/shells_copy_guard.dart';
 import '../../support/shells_harness.dart';
 
-/// W8-8: the copy guard over all four pages, the drawer rows and the More
+/// The copy guard over all four pages, the drawer rows and the More
 /// menu (ADR-0026 D3). The Premium pop-up is the only place a rupee amount may
 /// appear, and only the ones in `kPremiumPlans`. Runs on every copy change.
 void main() {

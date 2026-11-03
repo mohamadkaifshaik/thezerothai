@@ -22,7 +22,7 @@ enum _AccountAction { profile, followRequests, settings, signOut }
 /// The account chip at the bottom of the navigation rail on wide layouts:
 /// the 40dp avatar with, when [extended], the display name, the handle and a
 /// "more" glyph. Tapping it opens a menu with Profile, Follow requests (a protected account, with its
-/// pending count; W3-34b), Settings and Sign out (the destinations that are
+/// pending count), Settings and Sign out (the destinations that are
 /// not in the rail), like the drawer on phones.
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs.

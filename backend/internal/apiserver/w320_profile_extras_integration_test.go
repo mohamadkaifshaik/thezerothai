@@ -2,10 +2,10 @@
 
 package apiserver
 
-// W3-20: UpdateProfile extras (ADR-0024 D1-D3, D9) over the real Build chain with the Pub/Sub emulator for the
+// UpdateProfile extras (ADR-0024 D1-D3, D9) over the real Build chain with the Pub/Sub emulator for the
 // post_delete job: the location and website (and name and bio) validation driven by the shared fixture
 // testdata/profile_text (61 accept / 126 reject rows) over the wire, the per-account daily cap and the no-op skip of
-// W3-22 L-4, the pin rules (own POST, QUOTE and REPLY pin; another user's post, a REPOST, a hidden, deleted, unknown or
+// L-4, the pin rules (own POST, QUOTE and REPLY pin; another user's post, a REPOST, a hidden, deleted, unknown or
 // malformed id do not, with one identical answer), "" unpins, a takedown keeps the pin and a restore brings it back, the
 // post_delete job clearing a pin (also while profile_extras is OFF: the clean-up is never gated), forged jobs doing
 // nothing, and the request-log contract (pin_check carries the outcome only; profile_fields_changed carries names, never
@@ -74,7 +74,7 @@ func w320Deliver(t *testing.T, url string, msg any) int {
 	return resp.StatusCode
 }
 
-// The shared profile text fixture (testdata/profile_text/*.json, W3-22 L-2 and L-3), loaded the way the identity runner
+// The shared profile text fixture (testdata/profile_text/*.json, L-2 and L-3), loaded the way the identity runner
 // does and driven over the WIRE: every row is one UpdateProfile through the production chain (interceptors, flag gate,
 // validators, repo), so what the Dart client's mirrored rules and the server disagree on shows up here. `host` (the
 // website's displayed host, a client-side value) is not on the wire and is not compared; identity's own runner checks it.
@@ -120,7 +120,7 @@ func w320LoadProfileText(t *testing.T, field string) w320TextFile {
 	return f
 }
 
-// TestW320_SharedProfileTextOverTheWire: ticket W3-20 "website and location validation tables", driven by the shared
+// TestW320_SharedProfileTextOverTheWire: "website and location validation tables", driven by the shared
 // fixture instead of a private table (display name and bio ride along: same file format, same validators). An accepted row
 // is stored as the fixture's `stored` value and GetProfile of ANOTHER user returns the same; a rejected row is
 // INVALID_ARGUMENT VALIDATION with metadata field=<field>, changes nothing and costs no write. The row counts are
@@ -186,7 +186,7 @@ func TestW320_SharedProfileTextOverTheWire(t *testing.T) {
 	}
 }
 
-// TestW320_UpdateProfileDailyCapAndNoOpWrites: W3-22 L-4 through the production chain. (a) A request that changes nothing
+// TestW320_UpdateProfileDailyCapAndNoOpWrites: L-4 through the production chain. (a) A request that changes nothing
 // costs 1 read and 0 writes (a changed one 1 and 1), UpdatedAt does not move, and the request log names no changed
 // field. (b) The (cap+1)-th UpdateProfile of the day is RESOURCE_EXHAUSTED RATE_LIMITED limit=profile_update_daily at 0
 // reads and 0 writes, another user and GetMe are untouched, and a no-op call counts against the cap like any other.

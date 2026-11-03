@@ -1,6 +1,6 @@
 package apiserver
 
-// T11: the collection-coverage guard. Every Firestore collection and GCS
+// The collection-coverage guard. Every Firestore collection and GCS
 // prefix ADR-0003 (and the slice ADRs after it) names must map to a registered deletion step (Eraser), a registered
 // export section, or an ADR-referenced residue allowlist entry (ADR-0011 Q10). The scan reads the Go sources of
 // backend/internal/* and backend/pkg/platform/* and fails, naming the constant, when a module names a collection that
@@ -39,15 +39,15 @@ type disposition int
 const (
 	// erasedByStep: a registered deletion step (collectionRow.Step) removes the user's documents.
 	erasedByStep disposition = iota + 1
-	// pendingEraser: the collection belongs to a slice that has not shipped its Eraser yet (ADR-0011 Q1 order: P4
-	// media, P5 engagement, P6 notifications, P7 reports). Allowed only while no code path writes it; the emulator
+	// pendingEraser: the collection belongs to a slice that has not shipped its Eraser yet (ADR-0011 Q1 order:
+	// media, engagement, notifications, reports). Allowed only while no code path writes it; the emulator
 	// sweep fails the day one does without the Eraser.
 	pendingEraser
 	// notPersonal: holds no user data, or only what the Q10 allowlist accepts (platform records with a TTL).
 	notPersonal
 )
 
-// collectionRow is one line of the T11 table.
+// collectionRow is one line of the table.
 type collectionRow struct {
 	Name string
 	// Sub marks a subcollection (users/{uid}/<Name>); it is scanned with a collection-group query.
@@ -64,8 +64,8 @@ type collectionRow struct {
 	Cite  string
 }
 
-// lifecycleCollections is the T11 table: every collection in ADR-0003 (data model) plus the ones the code names
-// today. A slice that adds a collection adds its row in its own PR (plan T11).
+// lifecycleCollections is the table: every collection in ADR-0003 (data model) plus the ones the code names
+// today. A slice that adds a collection adds its row in its own PR.
 var lifecycleCollections = []collectionRow{
 	{Name: "users", Disposition: erasedByStep, Step: "users_doc", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 7 (users/{uid} last)"},
 	{Name: "private", Sub: true, Disposition: erasedByStep, Step: "identity", ExportNote: "reserved for PII, none at Stage 0 (ADR-0003 row users/{uid}/private)", Owner: "identity", Cite: "ADR-0011 Q1 step 5"},
@@ -77,18 +77,18 @@ var lifecycleCollections = []collectionRow{
 	{Name: "graph", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "follows", Disposition: erasedByStep, Step: "graph", Section: "graph", Owner: "graph", Cite: "ADR-0011 Q1 step 3, ADR-0008 purge"},
 	{Name: "posts", Disposition: erasedByStep, Step: "posts", Section: "posts", Owner: "posts", Cite: "ADR-0011 Q1 step 2, ADR-0010 purge"},
-	// P6 (ADR-0017 D10): one step erases the user's devices and token index, their own notifications and the rows other
+	// ADR-0017 D10: one step erases the user's devices and token index, their own notifications and the rows other
 	// users hold about them (collection-group array-contains on actorIds).
 	{Name: "notifications", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", Cite: "ADR-0017 D10, ADR-0011 Q1"},
 	{Name: "devices", Sub: true, Disposition: erasedByStep, Step: "notifications", ExportNote: "FCM tokens are never exported; platform and timestamps are in the notifications section", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 	{Name: "deviceTokens", Disposition: erasedByStep, Step: "notifications", ExportNote: "reverse index sha256(token) -> uid; the token itself is never exported", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 
 	// Declared in ADR-0003, no code yet.
-	// ADR-0025 D11 (W3-32): followRequests/{followerId}_{followeeId} holds {followerId, followeeId, createdAt}, both uids of
+	// ADR-0025 D11: followRequests/{followerId}_{followeeId} holds {followerId, followeeId, createdAt}, both uids of
 	// a pending request. The `follow_requests` step (graph.RequestEraser, BeforeIdentity after bookmarks) deletes the docs
 	// on both sides and removes the deleted uid from each requester's graph.requested; the section lists sent and received.
 	{Name: "followRequests", Disposition: erasedByStep, Step: "follow_requests", Section: "follow_requests", Owner: "graph", Cite: "ADR-0025 D11"},
-	// P5 (ADR-0018 D7): one `engagement` step erases the user's likes and reposts (each with its post's counter) and
+	// ADR-0018 D7: one `engagement` step erases the user's likes and reposts (each with its post's counter) and
 	// userLikes/{uid}; the posts step also removes the copies of the user's content inside other users' docs.
 	{Name: "likes", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
 	{Name: "reposts", Disposition: erasedByStep, Step: "engagement", Section: "engagement", Owner: "engagement", Cite: "ADR-0018 D7, ADR-0011 Q1"},
@@ -98,28 +98,28 @@ var lifecycleCollections = []collectionRow{
 	// ADR-0016 D10 + amendment 2026-10-18 (b): a log keyed by post id (state, createdAt, expireAt) whose entries carry
 	// the post author's uid (authorId, a pseudonymous link) so readers can scope them per feed. The posts step deletes
 	// them by authorId (PurgeUser phase 2); the 32-day TTL is only the backstop, so no residue allowlist entry exists.
-	// W7-36 (security L-6): reports/{id}/evidence/message holds only the copied text of a MESSAGE report and its expireAt (no uid
+	// Security L-6: reports/{id}/evidence/message holds only the copied text of a MESSAGE report and its expireAt (no uid
 	// field). A TTL on the collection group deletes it 180 days after filing, or by resolved + 90 days. PurgeReporter keeps no
 	// reference to it; nothing in it names the reporter, so there is nothing to erase at account deletion.
 	{Name: "evidence", Sub: true, Disposition: notPersonal, Owner: "moderation", Cite: "ADR-0016 note 2026-10-30 (W7-36): text only, no uid field, TTL <= 180 d"},
 	{Name: "postRemovals", Disposition: erasedByStep, Step: "posts", ExportNote: "operator-internal moderation log (post id, state, timestamps, author uid); not user content, not exported", Owner: "posts", Cite: "ADR-0016 amendment 2026-10-18 (b), ADR-0011 Q10"},
-	// ADR-0021 D4 (CMP-D2): scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
+	// ADR-0021 D4: scheduled posts live under users/{uid}/scheduled, a subcollection that deleting users/{uid}
 	// does not remove. The `scheduled` step (posts.ScheduledEraser, BeforeIdentity after reports) deletes every
 	// document; the export section lists every document and the draft wherever one is still held. The documents hold
 	// only the owner's data (no other user's uid, D2 copies none), so no residue allowlist entry exists.
 	{Name: "scheduled", Sub: true, Disposition: erasedByStep, Step: "scheduled", Section: "scheduled", Owner: "posts", Cite: "ADR-0021"},
-	// ADR-0023 D6, D8 (W2-5): bookmarks live under users/{uid}/bookmarks as {createdAt} keyed by the post id, a subcollection
+	// ADR-0023 D6, D8: bookmarks live under users/{uid}/bookmarks as {createdAt} keyed by the post id, a subcollection
 	// that deleting users/{uid} does not remove. The `bookmarks` step (engagement.BookmarkEraser, BeforeIdentity after
 	// scheduled) deletes every document and clears userLikes.bookmarks; the export section lists post id and time. The
 	// documents hold only the owner's data (no other user's uid), so no residue allowlist entry exists, and a post's
 	// deletion fans nothing out to its bookmarkers (the owner's list hides and prunes the row).
 	{Name: "bookmarks", Sub: true, Disposition: erasedByStep, Step: "bookmarks", Section: "bookmarks", Owner: "engagement", Cite: "ADR-0023 D6, D8"},
-	// ADR-0029 D8 (W6-8): pollVotes/{postId}_{uid} is a top-level collection of {postId, uid, choice, createdAt, expireAt}. The
+	// ADR-0029 D8: pollVotes/{postId}_{uid} is a top-level collection of {postId, uid, choice, createdAt, expireAt}. The
 	// `poll_votes` step (engagement.PollVoteEraser, BeforeIdentity, appended after messaging) deletes every vote the user cast
 	// (`uid ==`, pages of 500); the export section lists post id, choice and time. Counts on the posts stay as anonymous totals (F6),
 	// and a vote on a deleted poll post names only its voter and expires by TTL. userLikes.pollVotes goes with the userLikes row.
 	{Name: "pollVotes", Disposition: erasedByStep, Step: "poll_votes", Section: "poll_votes", Owner: "engagement", Cite: "ADR-0029 D8"},
-	// ADR-0027 D8 (W7-5 + W7-6): direct messages. `conversations/{convId}` (root; participants hold both uids) with its
+	// ADR-0027 D8: direct messages. `conversations/{convId}` (root; participants hold both uids) with its
 	// `messages` subcollection and the per-user `dmInbox` and `dmRequests` entries, none of which deleting users/{uid}
 	// removes. The `messaging` step (messaging.Eraser, BeforeIdentity after follow_requests) marks the conversation gone,
 	// tombstones the user's messages, rewrites the peer's entry, deletes the user's own entries and, when both
@@ -131,13 +131,13 @@ var lifecycleCollections = []collectionRow{
 	{Name: "messages", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmInbox", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
 	{Name: "dmRequests", Sub: true, Disposition: erasedByStep, Step: "messaging", Section: "messages", Owner: "messaging", Cite: "ADR-0027 D8"},
-	// ADR-0030 D8 (W5-4 + W5-5): lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
+	// ADR-0030 D8: lists/{listId} (ownerId, memberIds[] holding other users' uids). Deleting users/{uid} removes none of it. The
 	// `lists` step (lists.Eraser, BeforeIdentity after messaging) deletes the user's own lists and then removes the uid from every other
 	// list that names it (memberIds array-contains, ArrayRemove, LastUpdateTime precondition), so the sweep finds no ownerId or memberIds
 	// residue and needs no allowlist entry. The `lists` section exports the user's own lists with member ids; lists the user is a member
 	// of belong to their owners and are not exported. quotas.listCreates and listAdds are covered by the `quotas` row.
 	{Name: "lists", Disposition: erasedByStep, Step: "lists", Section: "lists", Owner: "lists", Cite: "ADR-0030 D8"},
-	// ADR-0031 D9 (W5-23 + W5-24): communities/{cid} (ownerId, moderatorIds[], modlog[] with actor and target uids), its communityMembers
+	// ADR-0031 D9: communities/{cid} (ownerId, moderatorIds[], modlog[] with actor and target uids), its communityMembers
 	// subcollection (uid, state) and communityMemberships/{uid} (doc id = uid; joined, owned, banned, modlogged). Deleting users/{uid} removes
 	// none of it. The `communities` step (communities.Eraser, BeforeIdentity after poll_votes) reads the memberships doc and, per community
 	// of joined, owned, banned and modlogged, in one transaction deletes the member doc (memberCount -1 when it was JOINED), removes the uid
@@ -150,8 +150,8 @@ var lifecycleCollections = []collectionRow{
 	{Name: "communityMembers", Sub: true, Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
 	{Name: "communityMemberships", Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
-	// ADR-0028 D6 (W4-9): trends/current holds tags and counts only (distinct authors are counted in memory and never
-	// persisted), and trends/hidden (W4-25) holds the operator hide list as folded tag keys: no uid, no actor. So there is
+	// ADR-0028 D6: trends/current holds tags and counts only (distinct authors are counted in memory and never
+	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is
 	// no uid to erase and nothing to export.
 	{Name: "trends", Disposition: notPersonal, ExportNote: "tags and counts only (trends/current), folded tag keys (trends/hidden); no uid; not exported", Owner: "search", Cite: "ADR-0028 D6, note 2026-10-31"},
 }
@@ -358,7 +358,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	return l.StepNames(), l.ExportSectionNames()
 }
 
-// TestLifecycleCollections_EveryCollectionHasARow is the T11 gate: it fails `make ci` naming any collection constant
+// TestLifecycleCollections_EveryCollectionHasARow is the gate: it fails `make ci` naming any collection constant
 // or Collection("...") literal in backend/internal or backend/pkg/platform that has no row, any row whose Eraser or
 // export section is not registered, and any pendingEraser row whose collection the code started writing.
 func TestLifecycleCollections_EveryCollectionHasARow(t *testing.T) {
@@ -407,7 +407,7 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 			}
 		})
 	}
-	// W3-32: the followRequests row is only green while the follow_requests step and section are registered.
+	// The followRequests row is only green while the follow_requests step and section are registered.
 	without := func(in []string, name string) []string {
 		return slices.DeleteFunc(slices.Clone(in), func(s string) bool { return s == name })
 	}
@@ -417,14 +417,14 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "follow_requests")), "\n"); !strings.Contains(p, `export section "follow_requests" is not registered`) {
 		t.Errorf("dropping the follow_requests section went unnoticed: %q", p)
 	}
-	// W7-6: the four messaging rows are only green while the messaging step and the messages section are registered ...
+	// The four messaging rows are only green while the messaging step and the messages section are registered ...
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "messaging"), sections), "\n"); !strings.Contains(p, `step "messaging" is not registered`) {
 		t.Errorf("dropping the messaging step went unnoticed: %q", p)
 	}
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "messages")), "\n"); !strings.Contains(p, `export section "messages" is not registered`) {
 		t.Errorf("dropping the messages section went unnoticed: %q", p)
 	}
-	// W5-5: the lists row is only green while the lists step and the lists section are registered, and the guard names the collection
+	// The lists row is only green while the lists step and the lists section are registered, and the guard names the collection
 	// when the row is removed.
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "lists"), sections), "\n"); !strings.Contains(p, `step "lists" is not registered`) {
 		t.Errorf("dropping the lists step went unnoticed: %q", p)
@@ -432,7 +432,7 @@ func TestLifecycleCollections_GuardCatchesGaps(t *testing.T) {
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, steps, without(sections, "lists")), "\n"); !strings.Contains(p, `export section "lists" is not registered`) {
 		t.Errorf("dropping the lists section went unnoticed: %q", p)
 	}
-	// W5-23 + W5-24: the three communities rows are only green while the communities step and section are registered, and the guard names
+	// The three communities rows are only green while the communities step and section are registered, and the guard names
 	// each collection when its row is removed.
 	if p := strings.Join(coverageProblems(nil, lifecycleCollections, without(steps, "communities"), sections), "\n"); !strings.Contains(p, `step "communities" is not registered`) {
 		t.Errorf("dropping the communities step went unnoticed: %q", p)

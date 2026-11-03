@@ -139,7 +139,7 @@ class Conversation extends $pb.GeneratedMessage {
   $0.AuthorSnapshot ensurePeer() => $_ensure(2);
 
   /// ListConversations: from the caller's entry. A REQUESTS row is REQUEST; an INBOX row is REQUEST for a request the caller sent
-  /// that the peer has not accepted yet (ADR-0027 note W7-25), else ACCEPTED. SendMessage and ListMessages: from the
+  /// that the peer has not accepted yet (ADR-0027 note), else ACCEPTED. SendMessage and ListMessages: from the
   /// conversation (ListMessages through the 60 s instance copy, so up to 60 s behind an accept made on another instance).
   @$pb.TagNumber(4)
   ConversationState get state => $_getN(3);
@@ -1421,7 +1421,7 @@ class MessagingServiceApi {
   /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
   /// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
   /// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
-  /// at once on every instance; ADR-0027 note W7-33),
+  /// at once on every instance; ADR-0027 note),
   /// the recipient is not ACTIVE or has messaging off, the conversation is gone (the peer deleted the account).
   /// Routing: a new conversation is ACCEPTED when the two follow each other, else REQUEST (the recipient's entry goes
   /// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
@@ -1454,8 +1454,8 @@ class MessagingServiceApi {
   /// blocks the caller; INBOX keeps every entry, with can_reply = false when either side blocks. Filtering runs after
   /// the page query, so a page may be short or empty while next_page_token is non-empty: keep following it.
   /// request_count is set on every INBOX first page and since refresh (an empty refresh included); 0 on an older page and
-  /// on REQUESTS. Clients treat the INBOX value as authoritative, 0 included (W7-37).
-  /// There is no gap_page_token here (plan W7-2): a since refresh returns at most page_size entries.
+  /// on REQUESTS. Clients treat the INBOX value as authoritative, 0 included.
+  /// There is no gap_page_token here: a since refresh returns at most page_size entries.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListMessages.
   /// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),

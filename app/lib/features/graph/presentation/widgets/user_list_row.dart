@@ -34,11 +34,11 @@ class UserListRow extends StatelessWidget {
     this.followSource = FollowSource.list,
   });
 
-  /// Where the row is shown, for the `follow` usage event (TEL-6).
+  /// Where the row is shown, for the `follow` usage event.
   final FollowSource followSource;
 
   /// A second control after the follow button (or the trailing one), measured
-  /// with it (the List members page: Remove for the owner, W5-12).
+  /// with it (the List members page: Remove for the owner).
   final Widget? extraAction;
 
   final graph.UserListItem item;
@@ -56,7 +56,7 @@ class UserListRow extends StatelessWidget {
 
   /// Called, once and with no message, when the follow is refused with
   /// NOT_FOUND: the account is blocked, suspended or deleted (the server
-  /// answers the same for all three, W3-22 L-1). A caller that offers
+  /// answers the same for all three, L-1). A caller that offers
   /// accounts, like the "Who to follow" card, removes the row on this call.
   /// Ignored with a [trailing].
   final VoidCallback? onGone;
@@ -107,7 +107,7 @@ class UserListRow extends StatelessWidget {
             top: AppSpacing.sm,
             bottom: AppSpacing.sm,
           ),
-          // W3-33d: the control keeps its natural width at the user's text
+          // The control keeps its natural width at the user's text
           // scale and the name column gives way first; only when the name
           // column would drop under [_minNameColumnWidth] does the control
           // move under the name (see [_AdaptiveRow]).
@@ -121,7 +121,7 @@ class UserListRow extends StatelessWidget {
             body: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // A hint from the server (W3-25c): false draws nothing and
+                // A hint from the server: false draws nothing and
                 // never means "public". The name ellipsizes first so the lock
                 // stays; the row wraps the control before the column is too
                 // narrow for the lock.

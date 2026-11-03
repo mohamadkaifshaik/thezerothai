@@ -14,7 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// fakeSet is the protected set of a test (the W3-26a loader is built in parallel).
+// fakeSet is the protected set of a test (the loader is built in parallel).
 type fakeSet map[string]bool
 
 func (s fakeSet) Has(uid string) bool { return s[uid] }
@@ -112,7 +112,7 @@ func TestAudienceDecide(t *testing.T) {
 		{"P quotes own post", quoteOf(prot, prot), following(prot), SurfaceDirect, nil, Show, none, false},
 		{"quote of P, set unavailable", quoteOf(other, prot), graph.Snapshot{}, SurfaceDirect, errBoom, 0, none, true},
 		{"embedded author blocks viewer", quoteOf(other, "uid-b"), graph.Snapshot{BlockedBy: map[string]bool{"uid-b": true}}, SurfaceDirect, nil, NotFound, none, false},
-		// W3-36 L-2: the owner surfaces (Withheld on the caller's own lists, a kept PROTECTED REPOST on their own profile).
+		// L-2: the owner surfaces (Withheld on the caller's own lists, a kept PROTECTED REPOST on their own profile).
 		{"own list, post by P, unapproved: withheld", root(prot), graph.Snapshot{}, SurfaceOwnList, nil, Withheld, none, false},
 		{"own list, post by P, follower: full row", root(prot), following(prot), SurfaceOwnList, nil, Show, none, false},
 		{"own list, public author: full row", root(other), graph.Snapshot{}, SurfaceOwnList, nil, Show, none, false},
@@ -334,7 +334,7 @@ type cachedProtected struct {
 
 func (c *cachedProtected) Cached() (identity.ProtectedSet, bool) { return c.set, c.fresh }
 
-// TestAudienceProtectedAuthorSkipsSetForOwnAndFollowed is W3-40b L-4: own and followed authors are answered from the
+// TestAudienceProtectedAuthorSkipsSetForOwnAndFollowed is L-4: own and followed authors are answered from the
 // loader's cached copy (0 Current calls); everyone else, and any row without a fresh copy, asks Current; the wire value
 // is the same either way.
 func TestAudienceProtectedAuthorSkipsSetForOwnAndFollowed(t *testing.T) {
@@ -375,7 +375,7 @@ func TestAudienceProtectedAuthorOutageIsFalse(t *testing.T) {
 	}
 }
 
-// ApplyWithheld leaves post_id, kind and the author snapshot and nothing else (W3-36 L-2).
+// ApplyWithheld leaves post_id, kind and the author snapshot and nothing else (L-2).
 func TestApplyWithheldStripsEverythingButIDKindAuthor(t *testing.T) {
 	p := post("42", "uid-prot")
 	p.Author = AuthorSnapshot{UserID: "uid-prot", Handle: "prot"}
@@ -401,7 +401,7 @@ func TestApplyWithheldStripsEverythingButIDKindAuthor(t *testing.T) {
 	ApplyWithheld(&postsv1.PostView{}) // nil post: no panic
 }
 
-// The owner's kept PROTECTED REPOST carries no bit of the protected original (W3-41a M1): the reply hint is UNKNOWN
+// The owner's kept PROTECTED REPOST carries no bit of the protected original (M1): the reply hint is UNKNOWN
 // whatever the original's policy, and reposted_by_viewer is true; a QUOTE keeps its own hint.
 func TestApplyEmbedStateProtectedRepost(t *testing.T) {
 	for _, pol := range []ReplyPolicy{ReplyPolicyEveryone, ReplyPolicyFollowing, ReplyPolicyMentionedOnly} {

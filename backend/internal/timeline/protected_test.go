@@ -1,6 +1,6 @@
 package timeline
 
-// ADR-0025 D4 (W3-30): GetUserTimeline answers author_protected for a protected account's unapproved viewers before any
+// ADR-0025 D4: GetUserTimeline answers author_protected for a protected account's unapproved viewers before any
 // cache or page is read, and the feeds drop a REPOST of such an author and strip a QUOTE of one through posts.Audience.
 
 import (
@@ -296,7 +296,7 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 		for _, v := range resp.GetPosts() {
 			got[v.GetPost().GetPostId()] = v
 		}
-		// W3-36 L-2: the owner's own REPOST stays as an undoable PROTECTED row; another user's profile still drops it.
+		// L-2: the owner's own REPOST stays as an undoable PROTECTED row; another user's profile still drops it.
 		own := who == "me"
 		if (got[s.rep.ID] != nil) != own || got[s.ctl.ID] == nil || got[s.qt.ID] == nil ||
 			got[s.qt.ID].GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED {
@@ -318,7 +318,7 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 	}
 }
 
-// Without a wired loader (the pre-W3-26a state) nobody is protected and nothing is dropped.
+// Without a wired loader (the earlier state) nobody is protected and nothing is dropped.
 func TestProtected_NoLoaderChangesNothing(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -346,7 +346,7 @@ func (c *cachedProtected) Cached() (identity.ProtectedSet, bool) {
 	return s, c.fresh
 }
 
-// TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn is W3-40b L-4: a Home page of followed authors, one of them
+// TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn is L-4: a Home page of followed authors, one of them
 // protected, makes 0 Current calls while a fresh copy is held and still marks the protected author's row FOLLOWERS;
 // without a fresh copy the same page asks Current and the wire values are identical.
 func TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn(t *testing.T) {

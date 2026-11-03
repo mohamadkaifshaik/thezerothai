@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
-/// A post the user just sent that the server has not confirmed yet (T16
-/// optimistic insert). Lives in memory only: when `CreatePost` succeeds the
+/// A post the user just sent that the server has not confirmed yet
+/// (optimistic insert). Lives in memory only: when `CreatePost` succeeds the
 /// repository has already put the real post into the cached feeds and the
 /// pending entry is dropped; on failure it is dropped too (rollback).
 @immutable
@@ -33,8 +33,8 @@ class PendingPost {
 }
 
 /// Session-wide list of [PendingPost]s, newest first. Home and the own
-/// profile's Posts tab render `PendingPostsSection` above their feed
-/// (T17/T18), so an optimistic post shows at the top without touching drift.
+/// profile's Posts tab render `PendingPostsSection` above their feed,
+/// so an optimistic post shows at the top without touching drift.
 class PendingPostsCubit extends Cubit<List<PendingPost>> {
   PendingPostsCubit() : super(const []);
 

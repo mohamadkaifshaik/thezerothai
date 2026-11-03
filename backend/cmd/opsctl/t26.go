@@ -22,7 +22,7 @@ const (
 	t26Batch = 100
 )
 
-// authUser is the only per-user data the T26 scan keeps: the provider ids and the email-verified flag. The uid
+// authUser is the only per-user data the scan keeps: the provider ids and the email-verified flag. The uid
 // never reaches this type; the scan holds uids only in a batch slice, in memory, and never prints them.
 type authUser struct {
 	UID           string
@@ -41,7 +41,7 @@ type t26Result struct {
 	Total, Allowed, NotAllowed, NotAllowedWithUsersDoc, FirestoreReads int
 }
 
-// pass reports the T26 verdict: no not-allowed account may own a users doc.
+// pass reports the verdict: no not-allowed account may own a users doc.
 func (r t26Result) pass() bool { return r.NotAllowedWithUsersDoc == 0 }
 
 // allowedAccount applies the ADR-0010 D5 A10 allowlist to an Auth user's provider list by reusing the single

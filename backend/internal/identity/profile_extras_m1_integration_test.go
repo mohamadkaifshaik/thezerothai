@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-22 M-1 (ADR-0024 Amendment 1 A2 and A3) against the Firestore emulator: a clear costs 1 read / 1 write for a caller
+// M-1 (ADR-0024 Amendment 1 A2 and A3) against the Firestore emulator: a clear costs 1 read / 1 write for a caller
 // outside the cohort and under a globally pulled kill switch, and the operator's ClearProfileFields is one field-level
 // update that skips empty fields.
 

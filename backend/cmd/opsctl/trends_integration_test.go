@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 )
 
-// End-to-end emulator test of `opsctl trends` (W4-25): the real run() flag handling and output over the real
+// End-to-end emulator test of `opsctl trends`: the real run flag handling and output over the real
 // search.TrendsStore. The cost line is the budget assertion: hide and unhide 1 read and, when the list changes, 1 write;
 // list 1 read.
 func TestTrends_Integration_CLI(t *testing.T) {

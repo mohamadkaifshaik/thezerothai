@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// MaxCacheTTL is the upper bound for CACHE_TTL (ADR-0009 T33): the account-deletion start gate is 120 s, so
+// MaxCacheTTL is the upper bound for CACHE_TTL (ADR-0009): the account-deletion start gate is 120 s, so
 // instance caches must expire well inside it.
 const MaxCacheTTL = 60 * time.Second
 
@@ -24,7 +24,7 @@ const MaxCacheTTL = 60 * time.Second
 // transaction deadline (ADR-0010 D13).
 const MinTimelineSettleWindow = 15 * time.Second
 
-// MaxTimelineTokenTTL is the upper bound for TIMELINE_TOKEN_TTL (90 days, T28 follow-up): a typo must not make
+// MaxTimelineTokenTTL is the upper bound for TIMELINE_TOKEN_TTL (90 days, follow-up): a typo must not make
 // timeline tokens effectively immortal.
 const MaxTimelineTokenTTL = 2160 * time.Hour
 
@@ -157,15 +157,15 @@ type Config struct {
 	// and on in dev and local, like FeatureGraph.
 	FeaturePosts flags.Spec
 
-	// FeatureAccountLifecycle is the P8 T4 server flag (wire name `account_lifecycle`) gating DeleteAccount,
+	// FeatureAccountLifecycle is the server flag (wire name `account_lifecycle`) gating DeleteAccount,
 	// RequestAccountExport and GetAccountExport. FEATURE_ACCOUNT_LIFECYCLE[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureAccountLifecycle flags.Spec
 
-	// FeatureReports is the P7 server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
+	// FeatureReports is the server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
 	// FEATURE_REPORTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureReports flags.Spec
-	// FeatureEngagement is the P5 server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
+	// FeatureEngagement is the server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
 	// quote path of CreatePost and viewer-flag hydration. FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT], default off.
 	FeatureEngagement flags.Spec
 	// FeatureQuotes is the quote-creation flag (wire name `quotes`, ADR-0018 amendment 2026-10-18) gating only the
@@ -208,11 +208,10 @@ type Config struct {
 	FeatureCommunities flags.Spec
 	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
-	// default off in every environment. W3-4 registers it; W3-5 and W3-6 add the gates.
+	// default off in every environment.
 	FeatureProfileExtras flags.Spec
 	// FeatureProfileTabs is the ADR-0024 D9 flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
 	// (Posts and Replies stay ungated). FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT], default off in every environment.
-	// W3-4 registers it; W3-9 adds the gate.
 	FeatureProfileTabs flags.Spec
 	// FeatureLikesList is the ADR-0024 D9 flag (wire name `likes_list`) gating EngagementService.ListLikedPosts (on for the
 	// caller; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT). FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT], default off in
@@ -275,7 +274,7 @@ type Config struct {
 	// off in every environment: off means no log reads and no suspension-reset cost.
 	// The log is still WRITTEN on every hide/restore while this is off, so enabling it later needs no backfill.
 	FeatureRemovedIDs flags.Spec
-	// FeatureReplies is the P3 server flag (wire name `replies`) gating the reply path of CreatePost and
+	// FeatureReplies is the server flag (wire name `replies`) gating the reply path of CreatePost and
 	// GetThread. FEATURE_REPLIES[_ALLOWLIST|_PERCENT], default off in every environment. It is independent of
 	// FEATURE_POSTS but needs it (the posts guard runs first).
 	FeatureReplies flags.Spec
@@ -284,7 +283,7 @@ type Config struct {
 	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
 
-	// FeatureProfileSnapshot is the P2 server flag (wire name `profile_snapshot`) gating the
+	// FeatureProfileSnapshot is the server flag (wire name `profile_snapshot`) gating the
 	// profile-snapshot-refresh job and the snapshot-edit quota. FEATURE_PROFILE_SNAPSHOT[_ALLOWLIST|_PERCENT],
 	// default off in every environment (UpdateProfile/ChangeHandle themselves are not gated).
 	FeatureProfileSnapshot flags.Spec
@@ -302,7 +301,7 @@ type Config struct {
 	// JobsTopic is JOBS_TOPIC, the shared Pub/Sub topic account deletion and export jobs self-chain on (default "jobs").
 	JobsTopic string
 
-	// FeatureNotifications is the P6 server flag (wire name `notifications`, ADR-0017 D7) gating the
+	// FeatureNotifications is the server flag (wire name `notifications`, ADR-0017 D7) gating the
 	// NotificationService RPCs, the event producers and the fan-out handler.
 	// FEATURE_NOTIFICATIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureNotifications flags.Spec
@@ -320,7 +319,7 @@ type Config struct {
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
 	AuthEmulator bool
 
-	// FeatureMedia is the P4 server flag (wire name `media`) gating MediaService, CreatePost media_ids and the
+	// FeatureMedia is the server flag (wire name `media`) gating MediaService, CreatePost media_ids and the
 	// avatar path of UpdateProfile. FEATURE_MEDIA[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureMedia flags.Spec
 	// MediaUploadBucket is MEDIA_UPLOAD_BUCKET (private, 2-day lifecycle) and MediaBucket is MEDIA_BUCKET
@@ -354,7 +353,7 @@ const (
 	MaxExportRetention = 7 * 24 * time.Hour
 )
 
-// MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE (P8 T4).
+// MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE.
 const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
 
 // Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
@@ -447,7 +446,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// ADR-0009 T33: the account-deletion start gate is 120 s; instance caches must expire well inside it so
+	// ADR-0009: the account-deletion start gate is 120 s; instance caches must expire well inside it so
 	// a purge cannot race a stale cache entry.
 	if cacheTTL > MaxCacheTTL {
 		return Config{}, fmt.Errorf(
@@ -499,7 +498,7 @@ func Load() (Config, error) {
 	if rl.TimelinePerUserPerMinute <= 0 {
 		return Config{}, fmt.Errorf("config: RATE_LIMIT_TIMELINE_PER_MIN must be > 0 (got %d)", rl.TimelinePerUserPerMinute)
 	}
-	// ADR-0010 T4 / Handoff: GetUserTimeline 30/min, CreatePost 10/min, DeletePost 20/min.
+	// ADR-0010 / Handoff: GetUserTimeline 30/min, CreatePost 10/min, DeletePost 20/min.
 	for _, b := range []struct {
 		key string
 		def int
@@ -508,7 +507,7 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_USER_TIMELINE_PER_MIN", 30, &rl.UserTimelinePerMinute},
 		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
 		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
-		// ADR-0029 Amendment 1 A5.5 (W6-40): FinalizeUpload has its own bucket, split from CreateUpload's (10/min per instance, 30 with 3).
+		// ADR-0029 Amendment 1 A5.5: FinalizeUpload has its own bucket, split from CreateUpload's (10/min per instance, 30 with 3).
 		{"RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", 10, &rl.MediaFinalizePerMinute},
 		{"RATE_LIMIT_REPORT_PER_MIN", 5, &rl.ReportPerMinute},
 		// ADR-0023 D4: AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
@@ -571,7 +570,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	rl.GraphMutationsPerDay = int64(graphMutationsPerDay)
-	// W2-14 M-1: ONE daily cap over AddBookmark + RemoveBookmark (limit_name "bookmark_mutation_daily"); see
+	// M-1: ONE daily cap over AddBookmark + RemoveBookmark (limit_name "bookmark_mutation_daily"); see
 	// RateLimitConfig.BookmarkMutationsPerDay for the default's math. A cap of 0 would lock every user out of the RPCs.
 	bookmarkMutationsPerDay, err := getInt("BOOKMARK_MUTATIONS_PER_DAY", 1500)
 	if err != nil {
@@ -591,7 +590,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: MESSAGES_SENDS_PER_DAY must be > 0 (got %d)", messagesSendsPerDay)
 	}
 	rl.MessagesSendsPerDay = int64(messagesSendsPerDay)
-	// W7-29 (security review W7-22 M-1): MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
+	// Security review M-1: MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
 	// cap shared by AcceptMessageRequest + DeleteConversation (limit_name "messages_mutation_daily"); see
 	// RateLimitConfig.MessagesMarkReadPerDay / MessagesMutationsPerDay for the defaults' math. A cap of 0 would lock every
 	// user out of the RPCs.
@@ -662,7 +661,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SEARCH_CALLS_PER_DAY must be > 0 (got %d)", searchCallsPerDay)
 	}
 	rl.SearchCallsPerDay = int64(searchCallsPerDay)
-	// ADR-0028 note 2026-10-31 part 4 (W4-28, review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
+	// ADR-0028 note 2026-10-31 part 4 (review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
 	// RateLimitConfig.TrendsCallsPerDay for the default's math. A cap of 0 would lock every user out of trends.
 	trendsCallsPerDay, err := getInt("TRENDS_CALLS_PER_DAY", 400)
 	if err != nil {
@@ -672,7 +671,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: TRENDS_CALLS_PER_DAY must be > 0 (got %d)", trendsCallsPerDay)
 	}
 	rl.TrendsCallsPerDay = int64(trendsCallsPerDay)
-	// W3-22 L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
+	// L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
 	// for the default's math. A cap of 0 would lock every user out of the RPC.
 	profileUpdatesPerDay, err := getInt("PROFILE_UPDATES_PER_DAY", 100)
 	if err != nil {
@@ -948,13 +947,13 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// ADR-0010 D1: same rollout shape as graph (dev on, prod off; Terraform sets it explicitly in T26).
+	// ADR-0010 D1: same rollout shape as graph (dev on, prod off; Terraform sets it explicitly).
 	featurePosts, err := flags.LoadSpec("POSTS", "posts", graphDefaultMode)
 	if err != nil {
 		return Config{}, err
 	}
 
-	// P8 T4: off everywhere until the founder turns it on; the reauth window is bounded so a typo cannot
+	// Off everywhere until the founder turns it on; the reauth window is bounded so a typo cannot
 	// quietly disable the recent-sign-in check.
 	featureAccountLifecycle, err := flags.LoadSpec("ACCOUNT_LIFECYCLE", "account_lifecycle", flags.Off)
 	if err != nil {
@@ -975,7 +974,7 @@ func Load() (Config, error) {
 	case notifDelivery == "inline" && env != "local":
 		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY=inline is only allowed in env local (got %q)", env)
 	}
-	// P4: media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard (ADR-0005), so
+	// Media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard (ADR-0005), so
 	// a negative value or an unknown policy name fails startup instead of silently changing what is published.
 	featureMedia, err := flags.LoadSpec("MEDIA", "media", flags.Off)
 	if err != nil {
@@ -1010,7 +1009,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// P3: replies are off everywhere until the founder ramps them.
+	// Replies are off everywhere until the founder ramps them.
 	featureReplies, err := flags.LoadSpec("REPLIES", "replies", flags.Off)
 	if err != nil {
 		return Config{}, err

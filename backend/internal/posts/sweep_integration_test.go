@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota (ADR-0021 "Sweep", CMP-D4). The
+// Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota (ADR-0021 "Sweep"). The
 // clock is real: items are seeded relative to time.Now(), so nothing sleeps. Budgets are the RUN's: the due query plus the
 // publish transactions, matching the "Sweep run" and "Publish one item" rows of the ADR cost table.
 

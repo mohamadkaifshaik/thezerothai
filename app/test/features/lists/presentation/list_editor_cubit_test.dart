@@ -7,7 +7,7 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockLists extends Mock implements ListsRepository {}
 
-/// W5-11: one idempotency key per user action, reused on retry (rule 4).
+/// One idempotency key per user action, reused on retry (rule 4).
 void main() {
   late _MockLists repo;
   final keys = <String>[];

@@ -15,7 +15,7 @@ import (
 const hiddenPageMax = 50
 
 // HiddenRowFunc sees one hidden post or reply of a community: its id, whether it is a reply (a root otherwise), the server time of the
-// hide (the zero time when the post was hidden before W5-51b wrote communityHiddenAt: "unknown", no backfill), and whether `moderation` is
+// hide (the zero time when the post was hidden before then wrote communityHiddenAt: "unknown", no backfill), and whether `moderation` is
 // set (a platform takedown or suspended author, ADR-0031 D5a), and whether the row is `other` (a REPOST or a root labelled with another community: never restored). It never receives text or a uid. For RestoreHiddenPage the answer says
 // whether to restore the row (a moderated or other row is never restored, whatever the answer); ListHidden ignores it.
 type HiddenRowFunc = func(id string, reply bool, hiddenAt time.Time, moderated, other bool) bool
@@ -41,7 +41,7 @@ type hiddenDoc struct {
 
 // hiddenQuery is `posts where conversationCommunityId == cid AND communityHidden == true ORDER BY __name__ LIMIT n`, after the post `after`
 // (ADR-0031 D14a). A hidden root keeps conversationCommunityId and every reply carries it, so one query covers both. Two equalities and the
-// document id order is served by merging the automatic single-field indexes; the dev proof of this shape is recorded in the W5-52b ticket.
+// document id order is served by merging the automatic single-field indexes; the dev proof of this shape is recorded in the ticket.
 func (m *firestoreModerator) hiddenQuery(cid, after string, limit int) firestore.Query {
 	if limit <= 0 || limit > hiddenPageMax {
 		limit = hiddenPageMax

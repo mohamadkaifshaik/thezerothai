@@ -16,7 +16,7 @@ type ExportSource interface {
 	ExportConversations(ctx context.Context, uid string) ([]ExportConv, error)
 	ExportMessages(ctx context.Context, uid, convID string, after *ExportMsg) ([]ExportMsg, error)
 	// GetEntry reads the caller's own entry of one conversation (folder from ExportConv.Folder): 1 read, found false when missing.
-	// Only a conversation whose peer is blocked needs it (the frozen peer snapshot, W7-30).
+	// Only a conversation whose peer is blocked needs it (the frozen peer snapshot).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
 }
 
@@ -27,7 +27,7 @@ type HandleSource interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)
 }
 
-// peerLookupChunk bounds one directory call (ADR-0008 T6: at most 50 ids).
+// peerLookupChunk bounds one directory call (ADR-0008: at most 50 ids).
 const peerLookupChunk = 50
 
 // exportConversation is one element of the section's `conversations` list. It names the peer by handle at export time
@@ -56,7 +56,7 @@ type exporter struct {
 }
 
 // NewExporter builds the `messages` export section (ADR-0027 D8, F5) on an ExportSource, a handle lookup and the caller's social
-// context (W7-30: a peer who blocked the caller is named by the handle frozen on the caller's entry, never the live one).
+// context (a peer who blocked the caller is named by the handle frozen on the caller's entry, never the live one).
 func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter {
 	return &exporter{src: src, handles: handles, social: social}
 }
@@ -137,7 +137,7 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 }
 
 // peerHandles maps each peer uid to the handle the export shows. A peer who is blocked either way (the caller's Blocked, the
-// caller's BlockedBy, or every peer when BlockedByOverflow) is never looked up in the directory (W7-30, security review M-2: a
+// caller's BlockedBy, or every peer when BlockedByOverflow) is never looked up in the directory (security review M-2: a
 // renamed handle of someone who blocked the caller must not leak): the handle is the one frozen on the caller's own entry, read
 // once for that conversation, or none when the entry is gone or names another peer (frozenPeer, the same rule as the thread
 // header). Every other live peer is looked up in directory calls of at most 50; a deleted or suspended peer is absent (empty).

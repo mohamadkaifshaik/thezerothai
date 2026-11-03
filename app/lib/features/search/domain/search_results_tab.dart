@@ -1,6 +1,6 @@
 import 'search_query.dart';
 
-/// The tabs of the results screen `/search` (plan W4-15), in display order.
+/// The tabs of the results screen `/search`, in display order.
 enum SearchResultsTab {
   top('Top'),
   latest('Latest'),

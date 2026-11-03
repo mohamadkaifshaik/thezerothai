@@ -4592,15 +4592,15 @@ class ComposerDraftRow extends DataClass
   final bool paidPartnership;
   final bool madeWithAi;
 
-  /// The community the post was going into (W5-34); '' = Everyone.
+  /// The community the post was going into; '' = Everyone.
   final String communityId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  /// The send in flight or lost (W6-39, ADR-0029 Amendment 1 A4): the
+  /// The send in flight or lost (ADR-0029 Amendment 1 A4): the
   /// idempotency key claimed for the last send of this draft, null when no
   /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
-  /// by `clearSend`; never touches [updatedAt] (W6-45). Not personal data and
+  /// by `clearSend`; never touches [updatedAt]. Not personal data and
   /// never logged.
   final String? sendKey;
 

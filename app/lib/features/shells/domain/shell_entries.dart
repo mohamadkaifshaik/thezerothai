@@ -19,7 +19,7 @@ Set<ShellKind> kVisibleShells = Set.unmodifiable(ShellKind.values);
 /// The type of [kShellPushExtra]. Deliberately not JSON-encodable: go_router
 /// stores an `extra` it cannot encode as `null` in the browser history entry,
 /// so a push restored by web Back / Forward arrives without it (security
-/// review W8-9 M-1).
+/// review M-1).
 final class ShellPush {
   const ShellPush._();
 }

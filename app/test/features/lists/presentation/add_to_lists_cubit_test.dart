@@ -12,7 +12,7 @@ class _MockLists extends Mock implements ListsRepository {}
 pb.ListInfo _list(int i, {int members = 2}) =>
     pb.ListInfo(listId: 'l$i', name: 'List $i', memberCount: members);
 
-/// W5-13: the Add-to-Lists state. 1 ListUserLists per load, optimistic
+/// The Add-to-Lists state. 1 ListUserLists per load, optimistic
 /// toggles with rollback, one idempotency key per user action.
 void main() {
   late _MockLists repo;

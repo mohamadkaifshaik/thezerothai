@@ -12,7 +12,7 @@ import (
 const maxTrackedDailyKeys = 100_000
 
 // DailyCap is an in-memory, per-instance, per-key counter that resets at the IST calendar-day boundary
-// (quota.TodayAt) rather than continuously refilling like Limiter's token bucket (ADR-0008 D7/T4: "an
+// (quota.TodayAt) rather than continuously refilling like Limiter's token bucket (ADR-0008 D7/: "an
 // extension of the existing limiter... don't write a second limiter" — this reuses the same cache.LRU
 // building block Limiter itself is built on, just with day-boundary semantics a token bucket cannot
 // express). It counts calls (Allow) or arbitrary units such as Firestore reads (Reserve + Charge, the
@@ -176,7 +176,7 @@ func (d *DailyCap) Spent(key string) int64 {
 }
 
 // Refund returns n units to key's count for today (IST), never below 0. n <= 0 is a no-op. It is the inverse of
-// AllowN/Charge for units that were counted up front but never spent (W6-40: a Vision-units charge taken before a call
+// AllowN/Charge for units that were counted up front but never spent (a Vision-units charge taken before a call
 // that was never sent). A refund that crosses IST midnight lands on the new day's counter and is floored at 0, so it can
 // never grant more than one day's allowance.
 func (d *DailyCap) Refund(key string, n int64) {

@@ -6,7 +6,7 @@ import 'analytics_event.dart';
 import 'telemetry_controller.dart';
 import 'telemetry_interfaces.dart';
 
-/// What call sites use to report usage (ADR-0032, TEL-6): fire and forget,
+/// What call sites use to report usage (ADR-0032): fire and forget,
 /// never throws, never awaited. Behind it the [TelemetryController] drops
 /// everything while collection is off.
 class UsageReporter {

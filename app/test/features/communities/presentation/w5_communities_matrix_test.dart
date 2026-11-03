@@ -62,8 +62,8 @@ const _names = <String, String>{
       'AndGoingAndGoing',
 };
 
-/// W5-37: the Part B responsive matrix for the states the developers' own
-/// tests (W5-31..W5-35b) covered in one cell only or not at all: every state
+/// The Part B responsive matrix for the states the developers' own
+/// tests covered in one cell only or not at all: every state
 /// at 360 / 600 / 1200 dp, light and dark, text scale 1.0 / 1.3 / 2.0. The
 /// overlays (menus, dialogs, sheets) run at the same text scale as the page
 /// (`pumpThemed` sets the platform scale; see the test report, "Harness").

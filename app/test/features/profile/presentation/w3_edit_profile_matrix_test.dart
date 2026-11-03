@@ -14,14 +14,14 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// W3-21: Edit profile with the W3 additions (banner editor, Location,
+/// Edit profile with the W3 additions (banner editor, Location,
 /// Website, their counters, helper and inline errors) at every cell of the
 /// matrix: 360 / 600 / 1200 dp, light and dark, text scale 1.0 / 1.3 / 2.0.
 /// `edit_profile_extras_gating_test` covers 1.0 and 2.0 only, and only that
 /// the screen does not overflow; this file also checks that every control is
 /// reachable by scrolling, inside the screen, and a 48 dp target.
 ///
-/// W3-22 M-1 (c) (ADR-0024 Amendment 1 A2): without `profile_extras` a saved
+/// M-1 (c) (ADR-0024 Amendment 1 A2): without `profile_extras` a saved
 /// banner, location and website are shown read-only with Remove, and a saved
 /// banner has Remove (no Change) when media is off; the two groups below that
 /// cover those cells assert the Remove affordance and that nothing editable is

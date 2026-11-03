@@ -1,4 +1,4 @@
-// purge_requests.go is the right-to-delete path of followRequests (ADR-0025 D11, ticket W3-32): the `follow_requests`
+// purge_requests.go is the right-to-delete path of followRequests (ADR-0025 D11): the `follow_requests`
 // account-deletion step. It is its own step, appended after `bookmarks` and before `identity`, because step names are
 // persisted in users/{uid}.deletionJob.step; it never joins graph's Checkpoint (the ADR-0023 D6 precedent).
 //

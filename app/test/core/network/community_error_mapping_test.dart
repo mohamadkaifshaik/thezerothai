@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/posts_fixtures.dart';
 
-/// W5-30 (ADR-0031 N1, N6): FORBIDDEN and COMMUNITY_STATE are mapped by
+/// ADR-0031 N1, N6: FORBIDDEN and COMMUNITY_STATE are mapped by
 /// `metadata["reason"]`; the other community refusals ride the existing
 /// reasons and their metadata names.
 void main() {

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W5-27 (ADR-0031 D6): GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs over the real Build chain on the emulators. The package
+// ADR-0031 D6: GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs over the real Build chain on the emulators. The package
 // tests in internal/timeline run below the interceptors, so the figures here are the WHOLE-request figures of the proto doc comment
 // (interceptor read included), read from the request line of a FRESH Build over the same emulator project (cold caches) with budgettest.
 

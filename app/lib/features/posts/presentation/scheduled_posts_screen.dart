@@ -36,7 +36,7 @@ const kScheduledEmptyBody = 'Schedule a post and it will show up here.';
 /// no Retry (pull down to check again).
 const kScheduledUnavailableBody = 'Please check back later.';
 
-/// `/scheduled` (CMP-D6, ADR-0021 D4): the caller's PENDING and
+/// `/scheduled` (ADR-0021 D4): the caller's PENDING and
 /// FAILED scheduled posts, oldest first. Cancel a pending one (after a
 /// confirmation) or dismiss a failed one; a failed post is never rescheduled.
 /// Reached from Settings, the composer's Schedule dialog and the "View" action
@@ -93,7 +93,7 @@ class _ScheduledPostsView extends StatelessWidget {
   }
 }
 
-/// The Scheduled list without a Scaffold or header (CMP-D6, W6-15): the
+/// The Scheduled list without a Scaffold or header: the
 /// Scheduled screen puts a back header over it and the Drafts screen puts it
 /// under its Scheduled tab. Needs a [ScheduledPostsCubit] above it; owns its
 /// one scroll view (refresh, paging, Cancel / Dismiss).

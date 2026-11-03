@@ -23,7 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Member writes (W5-6). What is measured here: the service's own Firestore operations on a cold path with the real graph
+// Member writes. What is measured here: the service's own Firestore operations on a cold path with the real graph
 // repository (graph.FirestoreRepo.GetSnapshot, one real read per call, no instance cache) and a directory that charges one
 // read for every profile but the owner's (the account-status interceptor has loaded the owner's own). The interceptor's one read
 // is not part of this harness: add 1 to compare with lists.proto (AddListMember 6 cold, RemoveListMember 3 cold + the graph).
@@ -205,7 +205,7 @@ func TestAddMember_Integration_AlreadyMember(t *testing.T) {
 	}
 }
 
-// A replay answers with 0 writes and 4 reads (graph, profile, idempotency, the list for its current header, W5-45 / L-3), spends no quota, even after the
+// A replay answers with 0 writes and 4 reads (graph, profile, idempotency, the list for its current header, / L-3), spends no quota, even after the
 // member was removed in between (a late retry never re-adds) and even after the target started blocking the owner.
 func TestAddMember_Integration_Replay(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
@@ -371,7 +371,7 @@ func TestAddMember_Integration_Quota(t *testing.T) {
 		e.seedQuota(t, "owner", 50)
 		_, err := e.add(context.Background(), 1, id, "u2")
 		if ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED); ae.Metadata["quota"] != "list_adds" {
-			t.Errorf("new-account tier metadata = %v, want quota=list_adds", ae.Metadata) // W5-15: the wire name, not the field name listAdds
+			t.Errorf("new-account tier metadata = %v, want quota=list_adds", ae.Metadata) // The wire name, not the field name listAdds
 		}
 		e.seedQuota(t, "owner", 49)
 		if _, err := e.add(context.Background(), 2, id, "u2"); err != nil {
@@ -625,7 +625,7 @@ func TestRemoveMember_Integration(t *testing.T) {
 
 // txProfilesFromMap is identity.TxProfiles over the harness's profile map (the real users documents are not seeded): it
 // charges the one read ProfileInTx costs and answers the map's status, so a test can make the fresh read disagree with the
-// cache-first directory (W5-45 / L-4).
+// cache-first directory (/ L-4).
 type txProfilesFromMap struct{ profiles map[string]identity.Profile }
 
 func (t txProfilesFromMap) ProfileInTx(ctx context.Context, _ *firestore.Transaction, uid string) (identity.Profile, error) {
@@ -637,7 +637,7 @@ func (t txProfilesFromMap) ProfileInTx(ctx context.Context, _ *firestore.Transac
 	return p, nil
 }
 
-// L-4 (W5-45): the cache-first directory still says u2 is ACTIVE (a 60 s old entry), but users/{u2} read fresh inside the
+// L-4: the cache-first directory still says u2 is ACTIVE (a 60 s old entry), but users/{u2} read fresh inside the
 // transaction says DELETING: the add is the same NOT_FOUND as a missing user, nothing is written, no quota is spent. The fresh
 // read is the +1 of a real add and is also charged on the refusal (5 reads: graph, directory, idempotency, list, fresh status).
 func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
@@ -667,7 +667,7 @@ func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
 	wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
-// L-3 (W5-45): the idempotency record of every list mutation holds the list id and nothing else, and a replay after the list
+// L-3: the idempotency record of every list mutation holds the list id and nothing else, and a replay after the list
 // was deleted is NOT_FOUND instead of the old name.
 func TestListMutations_Integration_IdempotencyHoldsIDOnly(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))

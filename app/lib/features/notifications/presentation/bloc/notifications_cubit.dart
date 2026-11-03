@@ -95,7 +95,7 @@ class NotificationsState {
 
 const Object _keep = Object();
 
-/// Drives the notifications list over [NotificationsRepository] (P6, ADR-0017).
+/// Drives the notifications list over [NotificationsRepository] (ADR-0017).
 ///
 /// - [load] renders the cache at once, then refreshes unless the list was
 ///   refreshed less than [kNotificationsRefreshInterval] ago.

@@ -5,7 +5,7 @@ import '../../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../data/lists_repository.dart';
 import 'lists_state.dart';
 
-/// The caller's own Lists (W5-11): 1 `ListUserLists` per [load]. The owner has
+/// The caller's own Lists: 1 `ListUserLists` per [load]. The owner has
 /// at most 20 lists, so one page of 50 holds them all; the token is still
 /// followed (a short page can carry one) up to [_maxPages] pages.
 class ListsCubit extends Cubit<ListsState> {
@@ -14,7 +14,7 @@ class ListsCubit extends Cubit<ListsState> {
       super(const ListsState());
 
   /// Whose lists: empty = the caller's own; a user id = that user's public
-  /// lists (W5-13, `/u/:id/lists`).
+  /// lists (`/u/:id/lists`).
   final String ownerId;
 
   static const _pageSize = 50;

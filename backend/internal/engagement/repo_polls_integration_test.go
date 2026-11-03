@@ -394,7 +394,7 @@ func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
 	}
 }
 
-// The daily sweep (W6-29): documents with a due day in the window are cleaned, an open poll's vote and the other lists survive,
+// The daily sweep: documents with a due day in the window are cleaned, an open poll's vote and the other lists survive,
 // a document with only future days is not even read, a document without due days is not read, and the budget holds.
 func TestRepoSweepPollVotes(t *testing.T) {
 	e := newRepoEnv(t)
@@ -456,8 +456,8 @@ func TestRepoSweepPollVotes(t *testing.T) {
 	budgettest.Assert(t, "SweepPollVotes idle", c, budgettest.Budget{Reads: 1, Writes: 0})
 }
 
-// A change replaces a legacy two-part entry (written before W6-29, dev only) with the three-part one, and adds the new entry's expiry
-// day to pollVotesDueDays so the daily sweep sees it (W6-29 with W6-36).
+// A change replaces a legacy two-part entry (written earlier, dev only) with the three-part one, and adds the new entry's expiry
+// day to pollVotesDueDays so the daily sweep sees it.
 func TestRepoChangeVote_ReplacesLegacyEntry(t *testing.T) {
 	e := newRepoEnv(t)
 	const pid, uid = "0000000000000000041", "voter"

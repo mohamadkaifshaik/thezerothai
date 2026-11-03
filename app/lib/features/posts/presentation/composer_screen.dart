@@ -71,11 +71,11 @@ const kCommunityNotAddedMessage =
 /// paste never makes every keystroke expensive.
 const kComposerInputCap = 1000;
 
-/// `/compose` (T16): write a text post. 280 code points counted after NFC
+/// `/compose`: write a text post. 280 code points counted after NFC
 /// (ADR-0010 D9), at most 10 lines; Post is disabled otherwise. The server
 /// stays authoritative.
 ///
-/// With [quoteOfPostId] (`/compose?quote=<id>`, P5) it is the quote
+/// With [quoteOfPostId] (`/compose?quote=<id>`) it is the quote
 /// composer: the same screen and the same 280 limit, with a preview of the
 /// quoted post ([quotePreview], a frozen snapshot passed by the router; null
 /// after a page reload) under the text field. It needs the `engagement` flag
@@ -93,12 +93,12 @@ class ComposerScreen extends StatelessWidget {
 
   final String quoteOfPostId;
 
-  /// The community to preselect as the audience (`/compose?community=<id>`,
-  /// W5-34), or empty. Used only while `communities` is on and the caller is
+  /// The community to preselect as the audience (`/compose?community=<id>`),
+  /// or empty. Used only while `communities` is on and the caller is
   /// in it; any other id opens on Everyone with a notice.
   final String communityId;
 
-  /// The saved draft to continue (`/compose?draft=<id>`, W6-15), or empty for
+  /// The saved draft to continue (`/compose?draft=<id>`), or empty for
   /// a new post. Used only while `drafts` is on. A draft that is gone (or
   /// belongs to another account) opens a new post under a fresh id.
   final String draftId;
@@ -131,7 +131,7 @@ class ComposerScreen extends StatelessWidget {
         ),
       );
     }
-    // Unsent posts (W6-15): `drafts` on, a signed-in account, and a new root
+    // Unsent posts: `drafts` on, a signed-in account, and a new root
     // post (a quote never has a draft). Nothing draft-related is read from
     // the tree otherwise.
     final uid =
@@ -155,7 +155,7 @@ class ComposerScreen extends StatelessWidget {
     ComposerDraft? initial,
   }) {
     final profile = context.read<OnboardingBloc>().state.profile;
-    // The photo button exists only with FEATURE_MEDIA on (P4 plan D3); with
+    // The photo button exists only with FEATURE_MEDIA on (plan D3); with
     // it off nothing media-related is created or read from the tree.
     // The posts gate may already know the media sub-feature is off (a
     // FEATURE_DISABLED earlier this session): then no photo button either.
@@ -164,7 +164,7 @@ class ComposerScreen extends StatelessWidget {
         context.read<PostsRepository>().subFeatureEnabled(
           kPostsSubFeatureMedia,
         );
-    // The audience picker (W5-34): `communities` on and the caller not
+    // The audience picker: `communities` on and the caller not
     // protected (the server answers PROTECTED_ACCOUNT to a community post).
     final communitiesOn =
         featureEnabledSnapshot(context, kFeatureCommunities) &&
@@ -212,7 +212,7 @@ class ComposerScreen extends StatelessWidget {
             scheduleEnabled:
                 featureEnabledSnapshot(context, kFeaturePosts) &&
                 featureEnabledSnapshot(context, kFeatureScheduledPosts),
-            // The toolbar rules (W6-11) read these raw flags; the cubit adds
+            // The toolbar rules read these raw flags; the cubit adds
             // the gate's memory of a FEATURE_DISABLED (`ComposerCubit.rules`).
             pollsFlag: featureEnabledSnapshot(context, kFeaturePolls),
             engagementOn: featureEnabledSnapshot(context, kFeatureEngagement),
@@ -549,7 +549,7 @@ class _ComposerViewState extends State<_ComposerView> {
     }
   }
 
-  /// A draft send was stopped, or the server knew its key (W6-39): the user
+  /// A draft send was stopped, or the server knew its key: the user
   /// looks at what was sent, sends again on purpose, or keeps editing.
   Future<void> _askSendConflict(
     BuildContext context,
@@ -702,7 +702,7 @@ class _ComposerViewState extends State<_ComposerView> {
           ExcludeSemantics(child: AppAvatar(url: widget.avatarUrl)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            // The audience pill (W5-34) sits above the text, next to the
+            // The audience pill sits above the text, next to the
             // avatar, as on X; without it the field is laid out as before.
             child: !cubit.canChooseCommunity
                 ? field
@@ -829,7 +829,7 @@ class _ComposerViewState extends State<_ComposerView> {
                 (c) => (c.state.hasGif, c.state.isBusy),
               )
             : (false, false);
-        // One rule decides which toolbar buttons are on (W6-11); the cubit
+        // One rule decides which toolbar buttons are on; the cubit
         // owns it so its own guards read the same answer.
         final rules = cubit.rules;
         final poll = state.poll;

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Frame-sampled GIF screening (ADR-0029 D11, F11 a, plan W6-10). Cloud Vision looks at the first frame of an animated
+// Frame-sampled GIF screening (ADR-0029 D11, F11 a). Cloud Vision looks at the first frame of an animated
 // GIF only, so FinalizeUpload builds a contact sheet of up to four sampled frames (t = 0, T/3, 2T/3 and always the last frame) and sends it by bytes.
 //
 // The code here is pure (bytes in, JPEG out, no I/O, no globals) so it can move to a separate job unchanged. It has
@@ -63,14 +63,14 @@ type gifScan struct {
 	width, height int
 	header        []byte // signature, logical screen descriptor and global colour table
 	frames        []gifFrame
-	loops         int // loop blocks seen (W6-58: at most one)
+	loops         int // loop blocks seen (at most one)
 }
 
 func le16(b []byte) int { return int(b[0]) | int(b[1])<<8 }
 
 // scanGIF parses the container of data without decoding pixels. It refuses (a *gifRefusal) above lim, a frame
 // outside the logical screen, a comment / plain-text / non-loop application block,
-// bytes after the trailer (W6-30), and anything it cannot parse to the trailer. The work is linear in len(data) (at most
+// bytes after the trailer, and anything it cannot parse to the trailer. The work is linear in len(data) (at most
 // 2 MiB) and allocates one gifFrame per frame, at most lim.maxFrames.
 func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 	if len(data) < 13 || (string(data[:6]) != "GIF87a" && string(data[:6]) != "GIF89a") {
@@ -105,7 +105,7 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			if len(sc.frames) == 0 {
 				return nil, refuseInvalid("no_frames")
 			}
-			if pos+1 != len(data) { // W6-30 (security L-4): nothing may follow the trailer
+			if pos+1 != len(data) { // Security L-4: nothing may follow the trailer
 				return nil, refuseInvalid("trailing_bytes")
 			}
 			return sc, nil
@@ -115,7 +115,7 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 			}
 			label := data[pos+1]
 			pos += 2
-			// W6-30 (security L-4): only the graphic control extension and the two loop blocks render anything. A
+			// Security L-4: only the graphic control extension and the two loop blocks render anything. A
 			// comment (0xFE), plain text (0x01), any other application block (XMP, ICC, ...) and any undefined label are
 			// refused: they are where metadata and smuggled data live, and the client strips them byte-level (no re-encode).
 			switch label {
@@ -124,7 +124,7 @@ func scanGIF(data []byte, lim gifLimits) (*gifScan, error) {
 				if !isLoopBlock(data, pos) {
 					return nil, refuseInvalid("application_block")
 				}
-				// W6-58 (W6-20 re-review N-1): a loop block carries only its loop count, once. Extra sub-blocks are free
+				// re-review N-1: a loop block carries only its loop count, once. Extra sub-blocks are free
 				// space for smuggled data that Go's image/gif and browsers skip; the client rewrites the block to this form.
 				if sc.loops++; sc.loops > 1 || !isCanonicalLoopData(data, pos) {
 					return nil, refuseInvalid("loop_block")
@@ -214,7 +214,7 @@ func skipSubBlocks(data []byte, pos int) (int, error) {
 
 // sampleIndices picks the frames to screen: the frame visible at t = 0, T/3 and 2T/3 of the display time T (the sum of
 // the delays, a delay under 2 cs counted as 10 cs = 100 ms, as browsers and the Flutter codec play it) and ALWAYS the
-// last frame (W6-28, security M-2): a GIF with no loop block or a finite loop count plays once and then rests on its
+// last frame (security M-2): a GIF with no loop block or a finite loop count plays once and then rests on its
 // last frame, so that frame is on screen indefinitely however short its own delay. Sorted, without repeats, so at most
 // gifSamples (4) indices and the 2 x 2 sheet is unchanged. A GIF with up to four frames samples each frame once.
 func sampleIndices(frames []gifFrame) []int {
@@ -227,7 +227,7 @@ func sampleIndices(frames []gifFrame) []int {
 		return out
 	}
 	delay := func(f gifFrame) int64 {
-		if f.delayCS < 2 { // W6-18 D-1: browsers play 0 and 1 cs as 10 cs, so the sampler must see the time a viewer sees
+		if f.delayCS < 2 { // D-1: browsers play 0 and 1 cs as 10 cs, so the sampler must see the time a viewer sees
 			return 10
 		}
 		return int64(f.delayCS)
@@ -413,7 +413,7 @@ func encodeSheet(tiles []*image.RGBA) ([]byte, error) {
 
 // isCanonicalLoopData reports whether the loop block whose block size byte is at pos continues, after its 11-byte
 // identifier, with exactly one 3-byte sub-block with sub-block id 1 (the loop count) and the zero terminator:
-// 03 01 LL LL 00 (W6-58).
+// 03 01 LL LL 00.
 func isCanonicalLoopData(data []byte, pos int) bool {
 	p := pos + 12
 	return p+5 <= len(data) && data[p] == 3 && data[p+1] == 1 && data[p+4] == 0

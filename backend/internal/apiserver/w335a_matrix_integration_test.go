@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-35a (ADR-0025 D4) the visibility matrix: one protected account P, ten viewer classes, every read path, on cold
+// (ADR-0025 D4) the visibility matrix: one protected account P, ten viewer classes, every read path, on cold
 // instances through the real Build chain, the real protected-set loader and the real UpdateProfile(is_private) toggle.
 //
 // The expected cells are the ADR-0025 D4 table, written down per class below (not read off the code):
@@ -16,7 +16,7 @@ package apiserver
 //
 // Cells that depend on ADR-0010 block and mute behaviour rather than on protection are asserted only where that
 // behaviour is documented (GetPost shows a muted author's post: D6; a list drops it); the rest of such a class is held
-// to the leak scan. Notification fan-out (W3-31) and the lifecycle paths have their own files.
+// to the leak scan. Notification fan-out and the lifecycle paths have their own files.
 
 import (
 	"context"
@@ -64,7 +64,7 @@ const (
 	na tri = iota
 	yes
 	no
-	// held (bookmarks and likes only): the row is there as a withheld placeholder, stripped to post_id, kind and author (W3-41a).
+	// held (bookmarks and likes only): the row is there as a withheld placeholder, stripped to post_id, kind and author.
 	held
 )
 
@@ -498,7 +498,7 @@ func TestW335a_SuspendedAuthorAndTakenDownPostHideFromApprovedFollowers(t *testi
 	}
 }
 
-// Owed by W3-29b (it covered this only with fakes): following a protected account again, request then accept, brings
+// Earlier tests covered this only with fakes: following a protected account again, request then accept, brings
 // that account's rows back in the follower's ListBookmarks and ListLikedPosts; until the accept they stay hidden.
 func TestW335a_RefollowRequestAcceptBringsBackBookmarksAndLikes(t *testing.T) {
 	ctx := context.Background()

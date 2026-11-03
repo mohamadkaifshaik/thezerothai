@@ -1,7 +1,7 @@
 //go:build integration
 
-// purge_requests_edges_integration_test.go is the W3-35b attack list against the `follow_requests` eraser and export
-// (ADR-0025 D11, W3-32): the page boundaries (exactly 250 incoming and exactly 500 outgoing, each a full page that needs
+// purge_requests_edges_integration_test.go is the attack list against the `follow_requests` eraser and export
+// (ADR-0025 D11): the page boundaries (exactly 250 incoming and exactly 500 outgoing, each a full page that needs
 // one more empty query), a requester whose graph doc is gone between calls and inside a page, a redelivery after the step
 // finished, two loops on one account at the same time, a requester that keeps requests to other accounts, and the export
 // across its 500-row page.

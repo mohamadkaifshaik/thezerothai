@@ -17,8 +17,8 @@ enum PushOptInPlacement { home, notifications }
 
 /// Whether the "Turn on notifications" card is on screen on Home right now
 /// (the same conditions as [PushOptInCard] for [PushPermission.notDetermined]).
-/// The telemetry consent card waits on it: one card at a time, push first
-/// (TEL-7). False when the cubits are not in scope.
+/// The telemetry consent card waits on it: one card at a time, push first.
+/// False when the cubits are not in scope.
 bool isPushOptInOffered(BuildContext context) {
   if (!PushOptIn.supportedOnThisPlatform ||
       !isFeatureEnabled(context, kFeatureNotifications)) {
@@ -37,7 +37,7 @@ bool isPushOptInOffered(BuildContext context) {
   );
 }
 
-/// The "Turn on notifications" card (W2-12): an [AppSurface] with the title,
+/// The "Turn on notifications" card: an [AppSurface] with the title,
 /// one line of copy, a "Turn on" pill and a "Not now" text action. Not a
 /// sliver: wrap it in a `SliverToBoxAdapter`.
 ///

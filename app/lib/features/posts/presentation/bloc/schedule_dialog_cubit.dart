@@ -34,7 +34,7 @@ class ScheduleDialogState {
   String? get helper => problem?.message ?? notice;
 }
 
-/// The state of the Schedule dialog (CMP-D6): which date and time are picked
+/// The state of the Schedule dialog: which date and time are picked
 /// and whether Confirm may be pressed. Pure logic over an injected clock; the
 /// dialog widget owns only the picker calls.
 class ScheduleDialogCubit extends Cubit<ScheduleDialogState> {

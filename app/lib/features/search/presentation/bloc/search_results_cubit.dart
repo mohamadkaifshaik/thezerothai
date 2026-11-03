@@ -27,7 +27,7 @@ AppException searchErrorToApp(Object error) {
   return const UnknownApiException('Something went wrong.');
 }
 
-/// One results tab (plan W4-15, ADR-0028): `SearchPeople` for People, one
+/// One results tab (ADR-0028): `SearchPeople` for People, one
 /// `SearchPosts` per post tab, nothing else.
 ///
 /// - **Cost.** One call on first show; a post tab asks the next page only on

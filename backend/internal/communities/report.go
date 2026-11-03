@@ -13,7 +13,7 @@ import (
 // ErrOwnCommunity is what CommunityReporter answers when the caller owns the community they are reporting (VALIDATION target_id).
 var ErrOwnCommunity = errors.New("communities: own community")
 
-// ReportedCommunity is the evidence of one community at report time (ADR-0031 D14, W5-29): the owner (the report's target owner, ""
+// ReportedCommunity is the evidence of one community at report time (ADR-0031 D14): the owner (the report's target owner, ""
 // when ARCHIVED), the owner's handle ("" when none or not ACTIVE) and the community's public text. No member id and no moderator id.
 type ReportedCommunity struct {
 	// OwnerUID becomes the report's TargetOwnerID. Never in a response or a log.

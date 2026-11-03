@@ -119,7 +119,7 @@ expect "tag-pinned image" 1 "$R" "$fx/service-ok.json" "$tmp/lg4" "$fx/images-ok
 jq '.metadata.name="api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' "$fx/revision-ok.json" >"$tmp/lg5"
 expect "rollback target over ceiling" 1 "$R" "$fx/service-ok.json" "$tmp/lg5" "$fx/images-ok.json" "$ceil" dev
 
-# --- resolve-rollback.sh rollback floors (W3-42): a throwaway git repo with commits before, at and after the floor
+# --- resolve-rollback.sh rollback floors: a throwaway git repo with commits before, at and after the floor
 fr=$tmp/floorrepo
 git init -q "$fr" && git -C "$fr" config user.email t@example.invalid && git -C "$fr" config user.name t && git -C "$fr" config commit.gpgsign false
 git -C "$fr" commit -q --allow-empty -m before && c_before=$(git -C "$fr" rev-parse HEAD)

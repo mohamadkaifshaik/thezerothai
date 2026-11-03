@@ -1,6 +1,6 @@
 package posts
 
-// W3-41a tester probes (ADR-0025 note W3-36 L-2) on the timeline's audience: NewSnapshotAudience, whose block test is
+// tester probes (ADR-0025 note L-2) on the timeline's audience: NewSnapshotAudience, whose block test is
 // the caller's graph snapshot alone, with the caller's blockedBy set overflowed.
 
 import (

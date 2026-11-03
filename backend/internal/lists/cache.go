@@ -12,15 +12,15 @@ import (
 // once on the instance that took the write). Behind the cache.LRU seam, so Memorystore can replace it by ADR.
 const cacheTTL = 60 * time.Second
 
-// negativeTTL is the staleness bound of a negative entry (a missing list id), W5-45.
+// negativeTTL is the staleness bound of a negative entry (a missing list id),.
 const negativeTTL = 60 * time.Second
 
-// docCache is the per-instance list-doc cache (CACHE_LISTS_ENTRIES entries, cacheTTL). W5-4 only fills and evicts it from
-// the data a write produced (never re-reading); the read side (GetList, lists.Reader) is W5-7. Entries are copies, so a
+// docCache is the per-instance list-doc cache (CACHE_LISTS_ENTRIES entries, cacheTTL). only fills and evicts it from
+// the data a write produced (never re-reading); the read side (GetList, lists.Reader) comes later. Entries are copies, so a
 // caller can not change a cached member slice.
 type docCache struct {
 	lru *cache.LRU[string, List]
-	// miss is the negative cache (W5-45, security review L-1): ids whose point read found no document, for negativeTTL. A
+	// miss is the negative cache (security review L-1): ids whose point read found no document, for negativeTTL. A
 	// missing id then costs 0 reads on a repeat probe and answers as fast as a cached private list, so latency tells the two
 	// apart no better than the byte-identical NOT_FOUND does. Staleness bound 60 s on every instance. A list created after an
 	// entry is visible at once on the creating instance (put clears the entry); on another instance the bound is the TTL,

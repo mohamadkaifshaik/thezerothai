@@ -25,7 +25,7 @@ class _MockGraph extends Mock implements GraphRepository {}
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W4-19: the "Who to follow" slot of Explore renders W3's card from W3's
+/// The "Who to follow" slot of Explore renders W3's card from W3's
 /// shared cubit; W4 adds no call and no cache of its own.
 void main() {
   late FakeSuggestionsRepository repo;

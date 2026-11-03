@@ -50,7 +50,7 @@ func (s *Server) GetCommunityTimeline(ctx context.Context, req *connect.Request[
 		return nil, apierr.New(connect.CodeUnauthenticated, 0, "unauthenticated")
 	}
 	if s.community == nil {
-		// A process that does not wire communities keeps the route's pre-W5-27 answer.
+		// A process that does not wire communities keeps the route's earlier answer.
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timeline.v1.TimelineService.GetCommunityTimeline is not implemented"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)

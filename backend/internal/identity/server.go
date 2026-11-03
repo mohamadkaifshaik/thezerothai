@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// AccountLifecycleFlag is the wire name of FEATURE_ACCOUNT_LIFECYCLE (P8 T4), the flag guarding DeleteAccount,
+// AccountLifecycleFlag is the wire name of FEATURE_ACCOUNT_LIFECYCLE, the flag guarding DeleteAccount,
 // RequestAccountExport and GetAccountExport.
 const AccountLifecycleFlag = "account_lifecycle"
 
@@ -190,7 +190,7 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 	return connect.NewResponse(&identityv1.ChangeHandleResponse{Profile: toProtoProfile(profile)}), nil
 }
 
-// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (P8, ADR-0011).
+// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (ADR-0011).
 // Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). They stay
 // in the charge-only set and account_ops_daily (apiserver/ratelimit_config.go), so a rejected call still counts
 // against the daily cap. The job handlers behind them are never gated (Q9).
@@ -320,7 +320,7 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 	}
 }
 
-// toProtoHomeTabs converts GetMe's visible tabs (W5-9). A kind this build cannot name is skipped.
+// toProtoHomeTabs converts GetMe's visible tabs. A kind this build cannot name is skipped.
 func toProtoHomeTabs(tabs []HomeTab) []*commonv1.HomeTab {
 	var out []*commonv1.HomeTab
 	for _, t := range tabs {

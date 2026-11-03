@@ -17,7 +17,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 
 class _MockModerationRepository extends Mock implements ModerationRepository {}
 
-/// W3-14: what the header shows from the profile's data: the banner, the
+/// What the header shows from the profile's data: the banner, the
 /// location / website / Joined meta row, and the "Follows you" chip with the
 /// "Follow back" button. (Which fields a profile carries, and `followed_by`,
 /// are the server's and the cubit's business; the header only renders them.)

@@ -93,7 +93,7 @@ class ChangeHandleState {
   );
 }
 
-/// Drives Change handle (P2-T5): local format/reserved checks first, then a
+/// Drives Change handle: local format/reserved checks first, then a
 /// debounced `CheckHandleAvailability`, then `ChangeHandle` with one
 /// idempotency key per distinct handle. The 7-day cooldown is enforced by the
 /// server; its answer carries the time left, which is kept in state so Save

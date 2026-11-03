@@ -1,6 +1,6 @@
 //go:build integration
 
-// people_integration_test.go: SearchPeople (ADR-0028 D2, ticket W4-5) against the Firestore emulator with the real
+// people_integration_test.go: SearchPeople (ADR-0028 D2) against the Firestore emulator with the real
 // identity repo (SearchHandles) and the real graph service (Snapshot, Block, Follow): the filters on real documents and
 // the read budgets with budgettest. The account-status interceptor is not part of this wiring, so every ceiling below is
 // the documented worst case minus its 1 read (22 at limit 20 is 21 here, 7 at limit 5 is 6).

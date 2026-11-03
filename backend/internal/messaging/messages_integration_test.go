@@ -68,7 +68,7 @@ func idsOf(r *messagingv1.ListMessagesResponse) []string {
 }
 
 // Given 45 messages, then 20 / 20 / 5, newest first, no overlap. Budget (ADR-0027 table): first or older page of 20
-// 25 reads (interceptor, conversation, query 20, peer, caller graph, caller entry; W7-27), 0 writes; a page of 50 is 55; an
+// 25 reads (interceptor, conversation, query 20, peer, caller graph, caller entry), 0 writes; a page of 50 is 55; an
 // older page is 24 / 54 (no entry read).
 func TestListMessages_PagesWithinBudget(t *testing.T) {
 	e := newIT(t, nil)
@@ -303,7 +303,7 @@ func TestListMessages_NotFoundByteIdentical(t *testing.T) {
 	for name, c := range map[string]*budget.Counter{"non-participant": cNon, "unknown": cUnk} {
 		budgettest.Assert(t, "ListMessages NOT_FOUND "+name, c, budgettest.Budget{Reads: 2})
 	}
-	// Warm (W7-28, review H-1): a participant caches the conversation on this instance, and the non-participant still pays
+	// Warm (review H-1): a participant caches the conversation on this instance, and the non-participant still pays
 	// the interceptor and one fresh conversation read, the same 2 as cold, with the same bytes; nothing it read is cached.
 	warmSvc := e.msgSvc()
 	e.mustListMsgs(warmSvc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})

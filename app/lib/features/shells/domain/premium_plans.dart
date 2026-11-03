@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
-/// One planned paid plan shown (never sold) in the Premium pop-up (W8-5,
-/// ADR-0026 D3). Prices are in paise, monthly, inclusive of GST.
+/// One planned paid plan shown (never sold) in the Premium pop-up
+/// (ADR-0026 D3). Prices are in paise, monthly, inclusive of GST.
 class PremiumPlan {
   const PremiumPlan({required this.name, required this.pricePaise});
 

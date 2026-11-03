@@ -10,8 +10,7 @@ import '../../data/communities_repository.dart';
 import '../../domain/community_role.dart';
 import 'community_detail_state.dart';
 
-/// Header, About data and Join / Leave / Pin state of one community page
-/// (W5-32).
+/// Header, About data and Join / Leave / Pin state of one community page.
 ///
 /// - **Open.** One `GetCommunity` per [load] (header, rules, owner,
 ///   moderators). Nothing else here makes an RPC until the user acts.

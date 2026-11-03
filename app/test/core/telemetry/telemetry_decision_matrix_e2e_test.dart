@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/telemetry_e2e_rig.dart';
 
-/// TEL-9: the TEL-4 decision matrix and TEL-8's forget/reset, end to end over
+/// The decision matrix and the forget/reset, end to end over
 /// the real controller, hooks, consent and database stores, and the real
 /// Crashlytics payload code. Only the SDK edges are fakes. 0 RPCs.
 const _both = {kFeatureCrashReporting, kFeatureAnalytics};

@@ -8,7 +8,7 @@ import '../../../../shared/format/relative_time.dart';
 import '../../../lists/presentation/widgets/list_unavailable_view.dart'
     show kListOutlinedButtonStyle;
 
-/// "@mod removed a post" for one log entry (W5-35). A deleted actor or target
+/// "@mod removed a post" for one log entry. A deleted actor or target
 /// reads "Deleted account"; an action this build does not know reads
 /// "Moderation action". The log never names a post's author.
 String moderationLogSentence(pb.ModerationLogEntry e) {
@@ -47,7 +47,7 @@ String moderationLogSentence(pb.ModerationLogEntry e) {
   };
 }
 
-/// One moderation-log entry (W5-35): the sentence, a muted time, and for a
+/// One moderation-log entry: the sentence, a muted time, and for a
 /// HIDE entry a Restore button (or "Restored"). A custom row (no `ListTile`).
 /// [now] is injected so the time is deterministic.
 class ModerationLogRow extends StatelessWidget {

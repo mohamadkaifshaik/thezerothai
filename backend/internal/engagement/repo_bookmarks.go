@@ -253,7 +253,7 @@ func (r *FirestoreRepo) ListPage(ctx context.Context, uid string, after *posts.P
 	return r.pageBookmarks(ctx, "list", uid, after, min(max(limit, 1), MaxListPage))
 }
 
-// Prune implements BookmarkRepo (ADR-0023 D2, the ListBlockedUsers T27 precedent): one batch holding a blind Delete of
+// Prune implements BookmarkRepo (ADR-0023 D2, the ListBlockedUsers precedent): one batch holding a blind Delete of
 // each bookmark doc and one field-level update of userLikes.bookmarks (Set with MergeAll + ArrayRemove, so the
 // liked and reposted sets are untouched and a missing doc is created holding only the empty set, as RemoveBookmark
 // does). 0 reads; 1 write and len(ids) deletes. Blind on purpose: an Exists precondition would fail the whole batch

@@ -101,7 +101,7 @@ func TestBuckets_RefuseSameBucket(t *testing.T) {
 	}
 }
 
-// W6-27: an answered per-image error is a VisionAnsweredError (billed, counted); an HTTP failure is not (never billed).
+// An answered per-image error is a VisionAnsweredError (billed, counted); an HTTP failure is not (never billed).
 func TestVision_AnsweredErrorsAreTyped(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// P5 x account lifecycle (ADR-0018 D7, D14, ADR-0011): a user with likes, a self-like and a repost is exported and
+// x account lifecycle (ADR-0018 D7, D14, ADR-0011): a user with likes, a self-like and a repost is exported and
 // deleted while other users repost and quote their post. Asserts the surviving counters, that nothing of the user
 // remains, and the export's engagement section.
 

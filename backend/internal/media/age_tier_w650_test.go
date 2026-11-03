@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// W6-50 (security W6-42, L-4): the upload quota (CreateUpload) and the per-uid Vision-units cap (FinalizeUpload) must put an account in the same
+// Security, L-4: the upload quota (CreateUpload) and the per-uid Vision-units cap (FinalizeUpload) must put an account in the same
 // tier. A users doc without createdAt (zero) used to be "established" for the first (20 images a day) and "new" for the second (12 units): the
 // same account got the wider upload quota and the narrower units cap. Zero is now the new-account tier in both, the safer side, because an
 // unknown age proves nothing about the account.
@@ -69,7 +69,7 @@ func TestW650_UploadQuotaAndUnitsCapUseTheSameTier(t *testing.T) {
 	}
 }
 
-// An age the directory cannot read stays an error for CreateUpload (the quota cannot be chosen) and the stricter tier for the units cap: unchanged by W6-50.
+// An age the directory cannot read stays an error for CreateUpload (the quota cannot be chosen) and the stricter tier for the units cap: unchanged later.
 func TestW650_UnreadableAgeBehaviourIsUnchanged(t *testing.T) {
 	e := newEnv(t, envOpts{dirErr: context.DeadlineExceeded})
 	_, err := e.svc.CreateUpload(context.Background(), uidA, CreateUploadInput{

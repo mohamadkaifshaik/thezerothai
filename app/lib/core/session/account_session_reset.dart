@@ -9,7 +9,7 @@
 /// second place.
 ///
 /// Inventory of per-account state and how each is handled (keep in step with
-/// the PR that introduced this class, W5-50):
+/// the PR that introduced this class):
 ///
 /// - Registered (in-memory, reset by [run]): `PendingPostsCubit`,
 ///   `EngagementCubit`, `PollCubit` (+ `PollRepository` voting memory),
@@ -20,13 +20,13 @@
 /// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in
 ///   `wireAuthSession` (runs on sign-out and on a switch; writes in flight are
 ///   dropped by the shared `SessionEpoch`): `TimelineRepository` (also its
-///   in-flight maps, throttles, `RateLimitHold` and, since W5-50, the
+///   in-flight maps, throttles, `RateLimitHold` and, since then, the
 ///   list-header hand-off), `NotificationsRepository`, `MessagingRepository`
 ///   (+ tables), identity and graph writes, `EngagementRepository` (writes
 ///   through the epoch-guarded timeline store, no memory of its own), recent
 ///   searches (a drift table, removed by `clearAll`, no epoch).
 /// - Safe without a reset: drafts (`DraftsRepository`: every query filters by
-///   uid, W6-14); `PushOptInCubit` (keyed by uid, reloaded on every auth
+///   uid); `PushOptInCubit` (keyed by uid, reloaded on every auth
 ///   state); the theme choice and `ServicePausedCubit` (device-wide);
 ///   `MediaUploader` reservations (keyed by a per-composition intent id, never
 ///   reused by another account); `IdentityRepository`, `PostsRepository`,

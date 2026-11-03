@@ -1,4 +1,4 @@
-// export_requests.go builds the `follow_requests` export section (ADR-0025 D11, ticket W3-32): the requests the
+// export_requests.go builds the `follow_requests` export section (ADR-0025 D11): the requests the
 // subject sent and received, newest first, as {userId, handle, requestedAt}. The graph section and its golden are
 // unchanged and the privacy/protectedAuthors set doc is never exported (it lists other users).
 package graph

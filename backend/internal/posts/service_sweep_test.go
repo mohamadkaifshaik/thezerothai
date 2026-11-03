@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// Unit tests of the sweep's orchestration (ADR-0021 "Sweep" steps 1, 2 and 6, CMP-D4): the no-op cases, fetch-then-
+// Unit tests of the sweep's orchestration (ADR-0021 "Sweep" steps 1, 2 and 6): the no-op cases, fetch-then-
 // dispatch, the per-author queues and caps, bounded concurrency, the deadline guard and the query-failure contract.
 // Clock-injected (e.now), no sleeps: the only timers are timeouts that fail a hung test.
 

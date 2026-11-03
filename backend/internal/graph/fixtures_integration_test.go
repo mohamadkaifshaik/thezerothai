@@ -1,7 +1,7 @@
 //go:build integration
 
 // fixtures_integration_test.go holds the shared emulator fixtures for every graph integration suite
-// (T7/T8/T10/T11 tests, T16a, and T16b, which must not grow a second seeding helper): the wired
+// (every graph integration suite; none may grow a second seeding helper): the wired
 // identity+graph pair, profile/graph/quota seeding, the budget-measuring call wrapper and the API-error
 // assertion. The invariant checker lives next to it in invariants_integration_test.go.
 package graph_test
@@ -69,7 +69,7 @@ type graphSvcHandle struct {
 	counter identity.FollowRequestCounter
 	// setDirectory re-wires the service's identity.Directory (e.g. with a test decorator).
 	setDirectory func(identity.Directory)
-	// privacyJob builds the privacy_public job (W3-28b) over the concrete service.
+	// privacyJob builds the privacy_public job over the concrete service.
 	privacyJob func(graph.PendingAccepter) *graph.PrivacyPublicJob
 }
 
@@ -79,7 +79,7 @@ type wiredOption func(*graph.Deps)
 func withFlags(f graph.FlagChecker) wiredOption { return func(d *graph.Deps) { d.Flags = f } }
 
 // withProtected wires the instance's protected-author loader (ADR-0025 D3) into the graph service; withEvents wires the
-// post-commit FollowEvents hook (W3-28a asserts FollowRequestAccepted).
+// post-commit FollowEvents hook (asserts FollowRequestAccepted).
 func withProtected(p identity.ProtectedAuthors) wiredOption {
 	return func(d *graph.Deps) { d.Protected = p }
 }
@@ -266,7 +266,7 @@ func seedUserField(t *testing.T, w wired, uid, field string, value interface{}) 
 }
 
 // measured runs fn with a fresh budget counter, logs "BUDGET <rpc> reads=.. writes=.. deletes=.." (grep the
-// -v output; these numbers feed T21's cost report) and asserts the call stayed within b. On a regression the
+// -v output; these numbers feed the cost report) and asserts the call stayed within b. On a regression the
 // failure names the RPC with the actual vs documented value (budgettest.Assert). Use one call per invocation.
 func measured(t *testing.T, rpc string, b budgettest.Budget, fn func(ctx context.Context)) {
 	t.Helper()

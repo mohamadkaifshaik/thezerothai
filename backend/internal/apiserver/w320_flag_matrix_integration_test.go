@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-20: the flag-mode matrix of the four ADR-0024 D9 flags over the real Build chain (Firestore and Auth emulators):
+// The flag-mode matrix of the four ADR-0024 D9 flags over the real Build chain (Firestore and Auth emulators):
 // every mode (off, allowlist with a member and a non-member, an empty allowlist, percent 0, percent 50 on both sides of
 // the bucket, percent 50 plus an allowlisted uid, percent 100, on) against every gated RPC of each flag, with a refusal
 // asserted as FAILED_PRECONDITION + FEATURE_DISABLED with the right feature= metadata at EXACTLY 0 reads, 0 writes and 0
@@ -54,7 +54,7 @@ func w320DrawGates(t *testing.T, setup *w320Chain) w320Gates {
 	return w320DrawGatesFor(t, setup, w320FlagNames)
 }
 
-// w320DrawGatesFor is w320DrawGates for any list of flag names (W3-35b draws the private_accounts cohort per rollout state).
+// w320DrawGatesFor is w320DrawGates for any list of flag names (draws the private_accounts cohort per rollout state).
 func w320DrawGatesFor(t *testing.T, setup *w320Chain, names []string) w320Gates {
 	t.Helper()
 	g := w320Gates{in: map[string]bmUser{}, out: map[string]bmUser{}}
@@ -141,7 +141,7 @@ type w320GatedCall struct {
 	rpc  string
 	// pass checks the answer of a call the gate let through.
 	pass func(t *testing.T, what string, err error)
-	// clear is true for an UpdateProfile that only sends "" (W3-22 M-1, #354: always allowed from any caller, whatever the flag).
+	// clear is true for an UpdateProfile that only sends "" (M-1, #354: always allowed from any caller, whatever the flag).
 	clear bool
 }
 
@@ -251,7 +251,7 @@ func TestW320_FlagModeMatrix(t *testing.T) {
 							err := c.call(r, u, target.uid)
 							refused := !on
 							if c.clear && !w320ClearsNeedProfileExtras {
-								refused = false // W3-22 M-1(b), #354: a clear is always allowed
+								refused = false // M-1(b), #354: a clear is always allowed
 							}
 							if refused {
 								w320Disabled(t, what, err, f)
@@ -365,7 +365,7 @@ func TestW320_CompanionFlagPrecedence(t *testing.T) {
 	})
 }
 
-// TestW320_M1KillSwitchWebsiteAndClears: W3-22 M-1 (ADR-0024 Amendment 1 A1 and A2, #354) through the production chain.
+// TestW320_M1KillSwitchWebsiteAndClears: M-1 (ADR-0024 Amendment 1 A1 and A2, #354) through the production chain.
 //
 //	A1: while profile_extras is globally off (mode off ONLY) the website and the pin are blanked in every Profile identity
 //	    returns, the owner's own view included, at no extra read; the location stays; a rollout (an allowlist, even an empty

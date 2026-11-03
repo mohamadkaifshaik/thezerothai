@@ -1,4 +1,4 @@
-// snapshot.go implements the posts side of the profile-snapshot-refresh job (P2, ADR-0003 "Author snapshot
+// snapshot.go implements the posts side of the profile-snapshot-refresh job (ADR-0003 "Author snapshot
 // refresh"): rewrite `author` (and snapshotVersion) on an author's newest posts after a profile edit.
 package posts
 

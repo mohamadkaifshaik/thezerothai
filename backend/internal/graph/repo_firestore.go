@@ -293,7 +293,7 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 
 var _ TxReader = (*FirestoreRepo)(nil)
 
-// SnapshotInTx implements TxReader (ADR-0027 note W7-33): graph/{uid} read through tx, 1 read, no cache involved. A
+// SnapshotInTx implements TxReader (ADR-0027 note): graph/{uid} read through tx, 1 read, no cache involved. A
 // missing document is an empty Snapshot. Errors carry no uid (a Firestore error text would name the document path).
 func (r *FirestoreRepo) SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error) {
 	snap, err := tx.Get(r.graphRef(uid))
@@ -321,7 +321,7 @@ type followHooks struct {
 	afterTargetRead func(ctx context.Context, attempt int)
 }
 
-// Follow runs the whole Follow transaction (ADR-0008 T7/D2/D9, ADR-0025 D6). The target's users doc is read INSIDE the
+// Follow runs the whole Follow transaction (ADR-0008/D2/D9, ADR-0025 D6). The target's users doc is read INSIDE the
 // transaction (identity.TxProfiles.ProfileInTx, never the 60 s cache) so a protect that commits while a Follow is in
 // flight conflicts with it and the retry sees isPrivate: no Follow can slip past a just-committed protect. Precedence:
 // target missing or not ACTIVE / blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> already
@@ -470,7 +470,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 	return rel, outcome, nil
 }
 
-// Unfollow is a blind batch (ADR-0008 T7/D3): delete the follows doc with an Exists precondition, so a
+// Unfollow is a blind batch (ADR-0008/D3): delete the follows doc with an Exists precondition, so a
 // replay (already unfollowed, or never followed) fails the whole batch atomically and costs 0 writes — the
 // precondition also makes this safe to race against Block, which deletes the same edge with the same
 // precondition (ADR-0008 D3 invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").

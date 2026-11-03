@@ -92,7 +92,7 @@ func TestRepo_Integration_DocRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRepo_Integration_GetManyBudget (T5 acceptance): 20 ids with 12 cached = 8 reads in one GetAll; a missing
+// TestRepo_Integration_GetManyBudget (acceptance): 20 ids with 12 cached = 8 reads in one GetAll; a missing
 // id is billed too, and absence is not cached.
 func TestRepo_Integration_GetManyBudget(t *testing.T) {
 	client := newTestClient(t)

@@ -2,7 +2,7 @@
 //
 // Source: dzeroth/notifications/v1/notifications.proto
 
-// In-app notifications and push-device registration (ADR-0017, Phase 1 slice P6).
+// In-app notifications and push-device registration (ADR-0017, Phase 1).
 // Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
 // and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
 // (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.

@@ -33,7 +33,7 @@ const kLikesEndNote =
 const kLikesUnavailableTitle = "Likes aren't available right now";
 const kLikesUnavailableBody = 'Please check back later.';
 
-/// The Likes tab of the History screen (`/bookmarks`, plan W3-18, ADR-0024
+/// The Likes tab of the History screen (`/bookmarks`, ADR-0024
 /// D6): the caller's most recent likes as live post cards, newest like first.
 ///
 /// - Created the first time the tab is selected (not with the screen), and

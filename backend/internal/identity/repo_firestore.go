@@ -346,7 +346,7 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 }
 
 // UpdateProfile: 1 read, 1 write (whole document, in one transaction; the extras are in userDoc, so they survive it), or
-// 1 read and 0 writes when mutate leaves the profile exactly as it was read (W3-22 L-4: a save of unchanged values must
+// 1 read and 0 writes when mutate leaves the profile exactly as it was read (L-4: a save of unchanged values must
 // not rewrite the document, so the service moves UpdatedAt only when something changed).
 func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error) {
 	var result Profile
@@ -522,7 +522,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 		d.Handle = newHandle
 		d.HandleLower = newHandleLower
 		d.HandleChangedAt = now
-		d.SnapshotVersion++ // posts carry the handle in their author snapshot (P2)
+		d.SnapshotVersion++ // posts carry the handle in their author snapshot
 		d.UpdatedAt = now
 
 		b := store.NewFirestoreTxBatch(tx, counter)
@@ -579,7 +579,7 @@ func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, fol
 	b.Update(r.userRef(uid), updates)
 }
 
-// GetProfiles batch-reads uids via one GetAll (ADR-0008 T6; the read-budget rule: "batch known IDs with GetAll
+// GetProfiles batch-reads uids via one GetAll (ADR-0008; the read-budget rule: "batch known IDs with GetAll
 // after checking the cache"). Callers are responsible for capping len(uids) at 50 (identity.Directory's
 // caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,
 // not an error (Firestore's GetAll returns a non-existent snapshot for them, never a NotFound error).
@@ -635,7 +635,7 @@ func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string,
 	return out.Count, nil
 }
 
-// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at (P6, ADR-0017 D8): 0 reads, 1 write. identity
+// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at (ADR-0017 D8): 0 reads, 1 write. identity
 // owns the field, so the notifications module reaches it through this method (notifications.SeenStore) instead of
 // writing users/* itself. A field-level Update never clobbers a concurrent profile edit; a missing profile is
 // ErrNotFound.

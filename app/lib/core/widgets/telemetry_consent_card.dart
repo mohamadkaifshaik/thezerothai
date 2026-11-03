@@ -20,7 +20,7 @@ String telemetryFlagOf(TelemetryKind kind) => switch (kind) {
 };
 
 /// Whether the Settings row of [kind] shows: Android, the matching flag on and
-/// the consent cubit in scope (TEL-7). Reactive to the flags.
+/// the consent cubit in scope. Reactive to the flags.
 bool telemetryRowVisible(
   BuildContext context,
   TelemetryKind kind, {
@@ -33,7 +33,7 @@ bool telemetryRowVisible(
   return (supported ?? TelemetryPlatforms.current) && enabled && hasCubit;
 }
 
-/// The "Help us fix and improve" card at the top of Home (TEL-7, ADR-0032 F1
+/// The "Help us fix and improve" card at the top of Home (ADR-0032 F1
 /// option A): two switches, both off, "Save" and "Not now", one sentence each
 /// on what is sent, and the Privacy Policy link. Not a sliver: wrap it in a
 /// `SliverToBoxAdapter`.

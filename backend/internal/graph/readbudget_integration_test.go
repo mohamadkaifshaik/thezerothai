@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// TestReadBudget_Integration_ChargesRealCounterReads (ADR-0010 D5 / T3): against the Firestore emulator the
+// TestReadBudget_Integration_ChargesRealCounterReads (ADR-0010 D5 /): against the Firestore emulator the
 // per-uid read budget is charged with the reads budget.Counter actually recorded (a cold GetProfile charges
 // 1-3), for identity and graph RPCs alike, and an exhausted uid is rejected with 0 Firestore reads.
 func TestReadBudget_Integration_ChargesRealCounterReads(t *testing.T) {

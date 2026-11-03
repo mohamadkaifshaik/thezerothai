@@ -213,7 +213,7 @@ class FakeMessagingServer {
 /// The whole messaging client over one fake server: the real [AppRouter], the
 /// real [MessagingRepository], [GraphRepository] and [ModerationRepository]
 /// (one in-memory drift database, one [FakeTransport]), with only the auth
-/// and onboarding blocs mocked. It is the rig of the W7-21 cross-screen
+/// and onboarding blocs mocked. It is the rig of the cross-screen
 /// flows; per-screen tests use mocked repositories instead.
 ///
 /// Create it inside a test or `setUp` (it registers its own teardown).
@@ -229,7 +229,7 @@ class MessagingFlowRig {
     messagingRepository = MessagingRepository(
       apiClient: api,
       store: MessagingStore(database),
-      // The flag follows [flags] (W7-26); without `messaging` the gate is
+      // The flag follows [flags]; without `messaging` the gate is
       // hidden until a probe (see [probeReadOnly]).
       gate: MessagingFeatureGate(
         isMessagingEnabled: () => this.flags.contains('messaging'),
@@ -289,7 +289,7 @@ class MessagingFlowRig {
       .last
       .matchedLocation;
 
-  /// W7-26: a caller outside the rollout whose device holds conversations:
+  /// A caller outside the rollout whose device holds conversations:
   /// loads the Inbox into the cache (as an earlier session did), then runs the
   /// session-start probe. [server].calls is cleared first, so a test counts
   /// only what follows.

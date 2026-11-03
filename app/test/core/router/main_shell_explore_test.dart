@@ -45,7 +45,7 @@ class _MemoryThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// W4-17/18: the Explore destination of `MainShell` (second after Home, needs
+/// The Explore destination of `MainShell` (second after Home, needs
 /// `search` + `ui_shell`), the screen at the responsive widths and text scales,
 /// and the desktop side column's search pill (hidden on Explore itself).
 void main() {

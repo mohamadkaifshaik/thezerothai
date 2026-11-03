@@ -1,6 +1,6 @@
 package identity
 
-// Tester audit of the P8 acceptance criteria (T5-T10, ADR-0011 C1 and Q1-Q9):
+// Tester audit of the acceptance criteria (ADR-0011 C1 and Q1-Q9):
 // the cases the original tickets' tests left open. Uses the fakes of lifecycle_fakes_test.go.
 
 import (
@@ -199,7 +199,7 @@ func TestJobs_GateClock(t *testing.T) {
 	})
 }
 
-// TestBackstop_ResumesFromTheCheckpoint (T8 acceptance: "a job that has used up retries (DLQ), when the backstop
+// TestBackstop_ResumesFromTheCheckpoint (acceptance: "a job that has used up retries (DLQ), when the backstop
 // runs, then the job resumes from its checkpoint"): the republished message carries the stored seq, and the
 // delivery continues the saved step with the saved checkpoint instead of starting over.
 func TestBackstop_ResumesFromTheCheckpoint(t *testing.T) {
@@ -277,7 +277,7 @@ func TestBackstop_Boundaries(t *testing.T) {
 	}
 }
 
-// TestExportJob_NoObjectLeftBehind (T10: "a DELETING user -> FAILED and no object", "a crash mid-write -> exactly
+// TestExportJob_NoObjectLeftBehind ("a DELETING user -> FAILED and no object", "a crash mid-write -> exactly
 // one complete object"): every FAILED outcome also removes whatever object an earlier crashed attempt may have
 // left under the deterministic path, and a failure to remove it keeps the job retrying instead of reporting FAILED.
 func TestExportJob_NoObjectLeftBehind(t *testing.T) {

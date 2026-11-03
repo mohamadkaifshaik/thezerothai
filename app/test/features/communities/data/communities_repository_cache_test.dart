@@ -20,7 +20,7 @@ pb.Community _c(
   viewerRole: role,
 );
 
-/// W5-34: the caller's communities are a session cache, so the composer's
+/// The caller's communities are a session cache, so the composer's
 /// audience picker costs 0 calls once they are known.
 void main() {
   late FakeTransport transport;

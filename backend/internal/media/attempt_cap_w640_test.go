@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// W6-40 (ADR-0029 Amendment 1 A5, revises W6-27 / security H-3): an attempt is consumed only by a valid assessment; outages, timeouts, internal
+// ADR-0029 Amendment 1 A5, revises / security H-3: an attempt is consumed only by a valid assessment; outages, timeouts, internal
 // errors, billed-but-invalid answers and a busy GIF slot consume none; a blocking verdict is final; a per-uid units cap refuses before the claim.
 
 func ptr[T any](v T) *T { return &v }
@@ -213,7 +213,7 @@ func TestW640_PublishFailureAfterACompletedScreeningConsumesAnAttempt(t *testing
 	}
 }
 
-// TestW640_BlockingVerdictIsFinalEvenIfTheOtherCallFailed: A5.3 row 2. Before W6-40 the other call's error won and the doc retried.
+// TestW640_BlockingVerdictIsFinalEvenIfTheOtherCallFailed: A5.3 row 2. Before the other call's error won and the doc retried.
 func TestW640_BlockingVerdictIsFinalEvenIfTheOtherCallFailed(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
@@ -291,7 +291,7 @@ func TestW640_UnitsCapTierFollowsTheAccountAge(t *testing.T) {
 	}
 }
 
-// Refunds (A5.5, narrowed by W6-49): a call that never went out, or that Google answered with 429 or 5xx, is refunded; a timeout, a reset and an answered call are not.
+// Refunds (A5.5, narrowed later): a call that never went out, or that Google answered with 429 or 5xx, is refunded; a timeout, a reset and an answered call are not.
 func TestW640_UnitsAreRefundedOnlyWhenNothingWasSent(t *testing.T) {
 	t.Run("Vision 5xx outages never exhaust the cap", func(t *testing.T) {
 		e := newEnv(t, envOpts{screenThumb: true, unitsPerDay: 4, maxAttempts: 3, maxRetries: ptr(10)})
@@ -369,7 +369,7 @@ func TestW640_PerDocBillableUnitsAreAtMost16(t *testing.T) {
 	}
 }
 
-// W6-42 H-1: the monthly counter and the per-uid cap use one "possibly billed" definition, and the counter write survives a hung-up client.
+// H-1: the monthly counter and the per-uid cap use one "possibly billed" definition, and the counter write survives a hung-up client.
 
 // A context cancelled after the moderator answered still adds the units to the monthly counter.
 func TestW640_CancelledAfterAnswerStillCountsMonthlyUnits(t *testing.T) {

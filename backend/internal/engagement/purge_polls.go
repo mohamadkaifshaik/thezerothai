@@ -1,5 +1,5 @@
-// purge_polls.go is the right-to-delete and right-to-access path of pollVotes/{postId}_{uid} (ADR-0029 D8, ADR-0011, ticket
-// W6-8). The `poll_votes` account-deletion step (PollVoteEraser, registered BeforeIdentity after the existing steps, so it runs
+// purge_polls.go is the right-to-delete and right-to-access path of pollVotes/{postId}_{uid} (ADR-0029 D8, ADR-0011).
+// The `poll_votes` account-deletion step (PollVoteEraser, registered BeforeIdentity after the existing steps, so it runs
 // after `engagement`, which already deleted userLikes and with it userLikes.pollVotes) deletes every vote document the user cast,
 // and the `poll_votes` export section lists post id, choice, time and (once changed) changedAt per row.
 //
@@ -58,7 +58,7 @@ type ExportedPollVote struct {
 	CreatedAt time.Time `json:"createdAt"`
 	// ChangedAt is the time of the last vote change, present only once the vote was changed (ADR-0029 Amendment 1 A2.6). No earlier choice is kept.
 	ChangedAt *time.Time `json:"changedAt,omitempty"`
-	// Changes is the stored change count of the vote (W6-53, ADR-0029 N12); present exactly when ChangedAt is, so a never-changed vote exports byte-identically to before.
+	// Changes is the stored change count of the vote (ADR-0029 N12); present exactly when ChangedAt is, so a never-changed vote exports byte-identically to before.
 	Changes *int `json:"changes,omitempty"`
 	// id is the document id, the page cursor (not exported).
 	id string
@@ -163,7 +163,7 @@ func NewPollVoteExporter(src PollVoteExportSource) *PollVoteExporter {
 	return &PollVoteExporter{src: src}
 }
 
-// WithChoices adds the account's own record, userLikes.pollVotes, to the section as `current_choices` (security L-2, W6-29): the
+// WithChoices adds the account's own record, userLikes.pollVotes, to the section as `current_choices` (security L-2): the
 // voter's current choice per poll, {postId, choice}, with no time. load is Repo.LoadUserLikes (1 read, also for a missing
 // document), read fresh and never from the cache; ttl and now decide which entries are still live (an expired one is not
 // exported, as it is not shown). A nil now means time.Now.

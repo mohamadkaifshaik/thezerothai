@@ -15,7 +15,7 @@ const kFeatureDrafts = 'drafts';
 /// whatever the `drafts` flag says.
 const kDraftExpiry = Duration(days: 30);
 
-/// Most drafts one account keeps on a device (ADR-0029, W6-14); the 51st
+/// Most drafts one account keeps on a device (ADR-0029); the 51st
 /// removes the oldest.
 const kMaxDrafts = 50;
 
@@ -93,7 +93,7 @@ class ComposerDraft {
   final bool paidPartnership;
   final bool madeWithAi;
 
-  /// The community the post was going into (W5-34, ADR-0029 F8), or empty for
+  /// The community the post was going into (ADR-0029 F8), or empty for
   /// Everyone. The id only: the name is read from the caller's communities when
   /// the draft opens, and a community the caller is not in is dropped then.
   final String communityId;

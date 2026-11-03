@@ -10,7 +10,7 @@ class _MockIdentityRepository extends Mock implements IdentityRepository {}
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-/// W3-17: what the profile header keeps in step with the pin.
+/// What the profile header keeps in step with the pin.
 void main() {
   late _MockIdentityRepository identityRepository;
 

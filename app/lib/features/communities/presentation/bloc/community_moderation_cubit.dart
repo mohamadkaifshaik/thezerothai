@@ -29,8 +29,8 @@ class RoleChange {
   final pb.Community community;
 }
 
-/// Hide, restore, ban, unban, make and remove moderator for one community
-/// (W5-35). Every method returns the failure (or null) for the screen's
+/// Hide, restore, ban, unban, make and remove moderator for one community.
+/// Every method returns the failure (or null) for the screen's
 /// snackbar and keeps the state honest: nothing here decides who may act (the
 /// server does, FORBIDDEN `not_moderator` / `not_owner`).
 ///

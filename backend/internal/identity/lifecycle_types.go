@@ -28,7 +28,7 @@ type JobMessage struct {
 	Seq int64  `json:"seq"`
 	// ExportID is set for account_export.
 	ExportID string `json:"exportId,omitempty"`
-	// SnapshotVersion is set for profile_snapshot_refresh (P2): the users.snapshotVersion the edit produced. It
+	// SnapshotVersion is set for profile_snapshot_refresh: the users.snapshotVersion the edit produced. It
 	// is informational: the job always rewrites the profile's current version.
 	SnapshotVersion int64 `json:"snapshotVersion,omitempty"`
 }
@@ -151,7 +151,7 @@ const (
 	AfterIdentity
 )
 
-// JobHandler handles one message of a job kind registered with Lifecycle.RegisterJobHandler (P4: `post_delete`).
+// JobHandler handles one message of a job kind registered with Lifecycle.RegisterJobHandler (`post_delete`).
 // The shared `jobs` topic and its push endpoint are identity's (ADR-0011 D-A); other modules' kinds ride on them
 // instead of getting a topic of their own. Handle runs one delivery: a nil error acknowledges (outcome is the log
 // value, for example "done" or "duplicate"), a non-nil error nacks and Pub/Sub redelivers. It must be idempotent

@@ -7,8 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/w3_profile_rig.dart';
 
-/// W3-21: the profile banner loads without a layout jump (ADR-0024 D2,
-/// W3-14: "flat placeholder while loading, no layout jump").
+/// The profile banner loads without a layout jump (ADR-0024 D2,
+/// "flat placeholder while loading, no layout jump").
 ///
 /// The mechanism under test: `ProfileHeader` gives the band a fixed
 /// `width / 3` box, so no state of the image (not requested, loading, loaded,

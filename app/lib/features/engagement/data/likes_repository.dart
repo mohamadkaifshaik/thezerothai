@@ -14,7 +14,7 @@ import '../domain/engagement_entry.dart' show engagementTargetId;
 import '../domain/likes_list_feature_flag.dart';
 
 /// How long an UNIMPLEMENTED answer to `ListLikedPosts` keeps the Likes tab
-/// away (the RPC is a skeleton on an environment where W3-10 is not deployed
+/// away (the RPC is a skeleton on an environment where is not deployed
 /// yet while the flag is already on). No call is sent meanwhile, nothing is
 /// reported, no `GetMe` refresh is asked for.
 const kLikesUnavailableBackoff = Duration(minutes: 10);
@@ -39,8 +39,8 @@ class LikesPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The caller's own likes, most recent first (`ListLikedPosts`, ADR-0024 D6,
-/// plan W3-18): the one caller of that RPC.
+/// The caller's own likes, most recent first (`ListLikedPosts`, ADR-0024 D6):
+/// the one caller of that RPC.
 ///
 /// - **Session memory only.** Nothing is stored on the device: the list is
 ///   asked for again on every open (page 1 replaces what was there) and the

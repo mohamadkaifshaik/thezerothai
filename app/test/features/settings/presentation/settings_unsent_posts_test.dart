@@ -42,7 +42,7 @@ class _FailingDrafts extends FakeDraftsRepository {
   Future<void> deleteAll(String uid) async => throw StateError('disk');
 }
 
-/// W6-31 (security L-5 fixes 1 and 2): the sign-out notice and the delete path
+/// Security L-5 fixes 1 and 2: the sign-out notice and the delete path
 /// that does not depend on the `drafts` flag (no feature flags in the tree =
 /// every flag off, so `/drafts` would redirect Home).
 void main() {

@@ -16,10 +16,10 @@ import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_row.dart';
 
-/// `/u/:userId/lists` (W5-13): another person's public Lists. 1 `ListUserLists`
-/// per open. A row opens the list (`/lists/:id`, W5-12). The `lists` flag gates
+/// `/u/:userId/lists`: another person's public Lists. 1 `ListUserLists`
+/// per open. A row opens the list (`/lists/:id`). The `lists` flag gates
 /// the route. A protected owner you do not follow answers PROTECTED_ACCOUNT
-/// (the protected-account view, W5-42). A person who is hidden from you
+/// (the protected-account view). A person who is hidden from you
 /// (blocked, gone) answers NOT_FOUND, shown as one fixed text that hints at no
 /// cause.
 class UserListsScreen extends StatefulWidget {
@@ -95,7 +95,7 @@ class _UserListsScreenState extends State<UserListsScreen> {
           );
         }
         if (error is ProtectedAccountException) {
-          // W5-42: a protected owner's Lists are for approved followers only.
+          // A protected owner's Lists are for approved followers only.
           return ProtectedPostsView(
             title: 'These Lists are protected',
             message: widget.handle == null || widget.handle!.isEmpty

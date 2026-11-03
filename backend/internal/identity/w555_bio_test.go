@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// W5-55: the rule runs on write only; a stored bio with an invisible character is returned as stored, and a read writes nothing.
+// The rule runs on write only; a stored bio with an invisible character is returned as stored, and a read writes nothing.
 func TestW555_StoredBioReadsUnchanged(t *testing.T) {
 	repo := newFakeRepo()
 	stored := "old\u200bbio"

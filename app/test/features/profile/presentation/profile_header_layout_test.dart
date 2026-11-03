@@ -247,7 +247,7 @@ void main() {
       await open(tester);
 
       // Identity first (name, handle, bio, counts), then the actions: the
-      // overflow menu and the Follow button (W1-3 moved them below the
+      // overflow menu and the Follow button (moved them below the
       // banner). The count links used to be
       // announced twice ("54 Following | 54 Following"); now once.
       expect(semanticLabels(tester), [

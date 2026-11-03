@@ -25,10 +25,10 @@ enum DraftSaveResult {
 
 /// Which RPC a draft send goes to. `CreatePost` and `SchedulePost` keep
 /// separate idempotency key spaces on the server, so a pending key belongs to
-/// exactly one of them (W6-39).
+/// exactly one of them.
 enum SendKind { post, schedule }
 
-/// Why a send was refused before any RPC (W6-39).
+/// Why a send was refused before any RPC.
 enum SendBlock {
   /// The draft row is gone although this process knew it: another composer
   /// sent it (or it was deleted). G5: never mint a key for it.
@@ -75,8 +75,8 @@ const kPostSendKeyWindow = Duration(hours: 23);
 /// state (ADR-0029 A4); the window ends that long after its publish time.
 const kScheduleSendKeyAfterPublish = Duration(days: 7);
 
-/// The only reader and writer of unsent posts on this device (ADR-0029, W6-14).
-/// Drafts live in `ComposerDraftEntries`, keyed `{uid, draftId}` (W6-31): every
+/// The only reader and writer of unsent posts on this device (ADR-0029).
+/// Drafts live in `ComposerDraftEntries`, keyed `{uid, draftId}`: every
 /// query is filtered by uid, the table survives sign-out (F7) unless the user
 /// chose "Delete them" there, and is wiped for one uid by [deleteAll] when that
 /// account is deleted or the user deletes the rows from Settings. 0 RPCs, 0
@@ -114,13 +114,13 @@ class DraftsRepository {
     ).join();
   }
 
-  /// The oldest `updatedAt` a draft may have and still be shown or loaded
-  /// (W6-45): a draft at or before this instant is 30 days or more past its
+  /// The oldest `updatedAt` a draft may have and still be shown or loaded:
+  /// a draft at or before this instant is 30 days or more past its
   /// last user edit.
   DateTime get _cutoff => _now().subtract(kDraftExpiry);
 
   /// Deletes [uid]'s drafts whose last user edit is [kDraftExpiry] or more
-  /// ago (W6-45, L-5). Only that uid's rows; runs whatever the `drafts` flag
+  /// ago (L-5). Only that uid's rows; runs whatever the `drafts` flag
   /// says. Returns how many were removed. 0 RPCs.
   Future<int> purgeExpired(String uid) {
     final cutoff = _cutoff;
@@ -149,7 +149,7 @@ class DraftsRepository {
 
   /// How many rows [uid] has on this device, expired ones not yet purged
   /// included: what "Delete them" at sign-out and Settings' "Delete unsent
-  /// posts on this device" would remove (W6-31). Only that uid's rows. Reads
+  /// posts on this device" would remove. Only that uid's rows. Reads
   /// nothing of the content and does not mark any id as seen. 0 RPCs.
   Future<int> count(String uid) => _countQuery(uid).getSingle();
 
@@ -226,7 +226,7 @@ class DraftsRepository {
 
   /// Removes every draft of [uid]: "Delete all", a successful DeleteAccount on
   /// this device, "Delete them" at sign-out and Settings' "Delete unsent posts
-  /// on this device" (W6-31). Whatever the `drafts` flag says. Only that uid's
+  /// on this device". Whatever the `drafts` flag says. Only that uid's
   /// rows.
   Future<void> deleteAll(String uid) {
     cancelPending();
@@ -241,9 +241,9 @@ class DraftsRepository {
   /// An id leaves the set only when its own empty content removes the row.
   final Set<String> _seen = {};
 
-  /// Claims the idempotency key for one send of [draft] (W6-39, ADR-0029
+  /// Claims the idempotency key for one send of [draft] (ADR-0029
   /// Amendment 1 A4), in one local transaction, before the RPC leaves. 0 RPCs.
-  /// `updatedAt` is never touched (W6-45): a claim is not an edit.
+  /// `updatedAt` is never touched: a claim is not an edit.
   ///
   /// - Row present with a key of the same [kind] inside its window: that key
   ///   comes back with `reused: true`, whatever the content now is. The
@@ -367,7 +367,7 @@ class DraftsRepository {
                 (t) => t.uid.equals(draft.uid) & t.draftId.equals(draft.id),
               ))
               .getSingleOrNull();
-      // updatedAt is the last USER edit (W6-45): saving content identical to
+      // updatedAt is the last USER edit: saving content identical to
       // the stored row keeps the old stamp, so an autosave never extends the
       // draft's 30 days. (Media and a schedule are never part of a draft.)
       final clamped = _clamp(draft.text);

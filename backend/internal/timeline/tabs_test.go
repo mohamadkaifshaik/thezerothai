@@ -1,6 +1,6 @@
 package timeline
 
-// GetUserTimeline tabs (ADR-0024 D5, ticket W3-9): the effective tab, the Media and Reposts queries, the flag gate,
+// GetUserTimeline tabs (ADR-0024 D5): the effective tab, the Media and Reposts queries, the flag gate,
 // the tab-bound tokens, the drop rules and the budget, over the fakes. The documented figures (24 reads at page 20,
 // 54 at page 50 cold) include the account-status interceptor and the caller's userLikes read; the fake rig has the
 // second (a charging viewer) but not the first, so it asserts 23 and 53. The apiserver integration test

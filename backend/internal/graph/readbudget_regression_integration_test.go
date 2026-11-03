@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults (T3 acceptance "no legitimate call is
+// TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults (acceptance "no legitimate call is
 // rejected" + "every graph and identity RPC still passes its existing budget assertions"): every identity and
 // graph RPC's happy path runs over HTTP through ratelimit.Interceptor with the ADR-0010 D5 read budget ENABLED at
 // the shipped defaults (2,000 reads/uid/day with the A1 hold armed, the IP meter on profile-exempt procedures, 100 CheckHandle

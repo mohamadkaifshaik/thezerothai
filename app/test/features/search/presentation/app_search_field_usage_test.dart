@@ -7,7 +7,7 @@ import '../../../support/fake_search_repository.dart';
 import '../../../support/recording_usage_analytics.dart';
 import '../../../support/search_field_rig.dart';
 
-/// TEL-6: a submitted search reports its kind only, never the text.
+/// A submitted search reports its kind only, never the text.
 void main() {
   late RecordingUsageAnalytics analytics;
 

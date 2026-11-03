@@ -85,7 +85,7 @@ func TestHashPost(t *testing.T) {
 	}
 }
 
-// W6-56: composite <postId>_<uid> document ids render as HashPost(postId)_HashUID(uid); no plain id, no unkeyed post hash.
+// Composite <postId>_<uid> document ids render as HashPost(postId)_HashUID(uid); no plain id, no unkeyed post hash.
 func TestRedactErrPostDocs(t *testing.T) {
 	t.Parallel()
 	const uid = "uidAbc123"
@@ -129,7 +129,7 @@ func TestRedactErrPostDocs(t *testing.T) {
 	}
 }
 
-// W5-52: community and target hashes are keyed, domain-separated and 16 hex.
+// Community and target hashes are keyed, domain-separated and 16 hex.
 func TestHashCommunityAndTarget(t *testing.T) {
 	if err := SetConversationKey([]byte("k-one")); err != nil {
 		t.Fatal(err)

@@ -46,7 +46,7 @@ class _MockPosts extends Mock implements PostsRepository {}
 
 class _MockEngagement extends Mock implements EngagementRepository {}
 
-/// W6-19: the poll card inside real feed rows (`FeedPostRow` -> `PostCard` ->
+/// The poll card inside real feed rows (`FeedPostRow` -> `PostCard` ->
 /// `PostPoll` -> `PollCubit` -> `PollRepository` -> transport), the error
 /// paths the unit tests leave out, and the cross-screen flow compose -> post
 /// -> card -> vote -> results.

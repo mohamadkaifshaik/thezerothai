@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// W5-42 (W5-17 M-2): the lists of a protected owner are visible to the owner and to followers only. A refusal on a single
+// M-2: the lists of a protected owner are visible to the owner and to followers only. A refusal on a single
 // list is the D3 NOT_FOUND, byte-identical to a missing list; ListUserLists answers PROTECTED_ACCOUNT (the ListFollowing
 // precedent). The rule reads nothing beyond what the D3 checks already read.
 func TestProtectedOwner_Matrix(t *testing.T) {
@@ -95,7 +95,7 @@ func TestProtectedOwner_Matrix(t *testing.T) {
 	}
 }
 
-// I-3 (W5-17): a viewer who blocked a PUBLIC owner can still read that owner's lists, like viewing a blocked profile. Only the
+// I-3: a viewer who blocked a PUBLIC owner can still read that owner's lists, like viewing a blocked profile. Only the
 // owner blocking the viewer, or the viewer's blockedBy naming the owner, refuses.
 func TestPublicOwner_ViewerWhoBlockedTheOwnerStillSees(t *testing.T) {
 	t.Parallel()

@@ -51,7 +51,7 @@ class AppTabBar extends StatelessWidget {
   final Widget? trailing;
 
   /// A widget after the tabs that stays visible at the end of the row while
-  /// the tabs scroll (Home's "+" for Manage pinned, W5-14). Content-sized
+  /// the tabs scroll (Home's "+" for Manage pinned). Content-sized
   /// layout only.
   final Widget? fixedTrailing;
 

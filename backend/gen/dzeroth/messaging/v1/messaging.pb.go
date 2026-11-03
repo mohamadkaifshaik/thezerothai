@@ -297,7 +297,7 @@ type Conversation struct {
 	// frozen snapshot there. A peer who deleted the account reads "Deleted account".
 	Peer *v1.AuthorSnapshot `protobuf:"bytes,3,opt,name=peer,proto3" json:"peer,omitempty"`
 	// ListConversations: from the caller's entry. A REQUESTS row is REQUEST; an INBOX row is REQUEST for a request the caller sent
-	// that the peer has not accepted yet (ADR-0027 note W7-25), else ACCEPTED. SendMessage and ListMessages: from the
+	// that the peer has not accepted yet (ADR-0027 note), else ACCEPTED. SendMessage and ListMessages: from the
 	// conversation (ListMessages through the 60 s instance copy, so up to 60 s behind an accept made on another instance).
 	State ConversationState `protobuf:"varint,4,opt,name=state,proto3,enum=dzeroth.messaging.v1.ConversationState" json:"state,omitempty"`
 	// The folder of the caller's entry.

@@ -57,7 +57,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/messages`, `/messages/requests` (W7-14) and `/messages/:id` (W7-15) on the
+/// `/messages`, `/messages/requests` and `/messages/:id` on the
 /// real router: behind the `messaging` flag, redirecting Home without it.
 void main() {
   const user = AppUser(
@@ -414,7 +414,7 @@ void main() {
     });
   });
 
-  // W7-19: re-checked. A conversation is a full-screen route outside the
+  // Re-checked. A conversation is a full-screen route outside the
   // shell (no bar or rail under a composer); the inbox and its Requests folder
   // are the shell's children, which is why the Messages tab can mark them.
   group('shell placement (W7-19)', () {

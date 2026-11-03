@@ -2,7 +2,7 @@
 
 package apiserver
 
-// T17: export privacy and access over the real Build chain (Firestore, Auth, Storage and Pub/Sub emulators).
+// Export privacy and access over the real Build chain (Firestore, Auth, Storage and Pub/Sub emulators).
 //   - TestAccountLifecycle_ExportContentsGolden: the whole export of an account with relationships to six other
 //     accounts, uids/handles/emails/ids/times normalized, compared with testdata/account_export_golden.json; plus the
 //     privacy greps (ADR-0008 D12: who blocked the subject is never listed; no third party's email, muted[] or
@@ -213,16 +213,16 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 
-	// ADR-0030 D8 (W5-15): the `lists` section carries the account's OWN list with its member ids; a list that another user
+	// ADR-0030 D8: the `lists` section carries the account's OWN list with its member ids; a list that another user
 	// owns and A is only a member of belongs to its owner and is absent. Fixed ids keep the golden stable.
 	e.seedList(t, "0000000000000000604", a.uid, []string{f.uid, g.uid})
 	e.seedList(t, "0000000000000000605", f.uid, []string{a.uid, g.uid})
-	// W5-46: `lists_member_of` lists A's public membership (606: id, owner handle, name) and only counts the private (605) and moderator-hidden
+	// `lists_member_of` lists A's public membership (606: id, owner handle, name) and only counts the private (605) and moderator-hidden
 	// (607) ones; no member other than A appears anywhere in it.
 	e.seedListWith(t, "0000000000000000606", f.uid, []string{a.uid, g.uid}, false, false)
 	e.seedListWith(t, "0000000000000000607", f.uid, []string{a.uid, g.uid}, false, true)
 
-	// ADR-0027 F5 (W7-6): an accepted conversation with f and a request from g in the `messages` section. A's own messages
+	// ADR-0027 F5: an accepted conversation with f and a request from g in the `messages` section. A's own messages
 	// are exported in full; f's and g's only as a time and "received"; neither uid appears.
 	e.seedConversation(t, a.uid, f.uid, "ACCEPTED", "", "", dmMsg{a.uid, "hello f, from A"}, dmMsg{f.uid, "SECRET-RECEIVED-REPLY from f"}, dmMsg{a.uid, "second message from A"})
 	gReq := e.seedConversation(t, g.uid, a.uid, "REQUEST", a.uid, "", dmMsg{g.uid, "SECRET-RECEIVED-REQUEST from g"})
@@ -250,7 +250,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com/me"},
 		{Path: "pinnedPostId", Value: "0000000000000000602"},
-		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}}, // ADR-0030 D8 (W5-9)
+		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}}, // ADR-0030 D8
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)
 	}

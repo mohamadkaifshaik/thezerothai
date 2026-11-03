@@ -84,7 +84,7 @@ func TestGuardFeature_LogsTheRejection(t *testing.T) {
 	}
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; GetThread (P3) reaches the service when on.
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; GetThread reaches the service when on.
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreatePost": func(s *Server, ctx context.Context) error {
@@ -120,7 +120,7 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 			}
 		})
 		if name != "GetThread" {
-			continue // implemented in T8/T9; see TestServer_CreatePost, TestServer_DeleteAndGetPost
+			continue // implemented later; see TestServer_CreatePost, TestServer_DeleteAndGetPost
 		}
 		t.Run(name+" flag on", func(t *testing.T) {
 			err := call(NewServer(svc, &fakeFlags{on: true}), callerCtx("u1"))

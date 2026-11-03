@@ -35,7 +35,7 @@ var listReadProcedures = []string{
 	listsv1connect.ListServiceListListMembersProcedure,
 }
 
-// listsRateLimitViolations asserts the W5-3 wiring (ADR-0030 D10): the six mutations share one limiter and one named DailyCap;
+// listsRateLimitViolations asserts the wiring (ADR-0030 D10): the six mutations share one limiter and one named DailyCap;
 // the three reads share another limiter and have no daily cap; GetListTimeline has its own limiter and no daily cap; the three
 // limiters are three different objects.
 func listsRateLimitViolations(rl ratelimit.Config) []string {

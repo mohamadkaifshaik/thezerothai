@@ -21,7 +21,7 @@ import '../../support/theme_harness.dart';
 
 const _labels = ['Creator tools', 'Premium', 'Advertise', 'Calls'];
 
-/// W8-2: the shell entry points. Under 600 dp four drawer rows; from 600 dp a
+/// The shell entry points. Under 600 dp four drawer rows; from 600 dp a
 /// rail-only "More" item that opens a menu (the account chip menu is left
 /// alone); `shells` and `ui_shell` both gate them; `kVisibleShells` chooses
 /// which shells exist.
@@ -475,7 +475,7 @@ void main() {
         matchesSemantics(
           label: 'Premium',
           isHeader: true,
-          // W8-5: the screen-reader / keyboard focus starts on the title.
+          // The screen-reader / keyboard focus starts on the title.
           isFocusable: true,
           isFocused: true,
           hasFocusAction: true,
@@ -546,7 +546,7 @@ void main() {
                   textScale: scale,
                 );
 
-                // The Calls page also has a "Calls" group title (W8-7).
+                // The Calls page also has a "Calls" group title.
                 expect(
                   find.descendant(
                     of: find.byType(AppMainColumn),

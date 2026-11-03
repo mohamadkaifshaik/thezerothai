@@ -13,7 +13,7 @@ import 'messaging_fixtures.dart';
 import 'thread_test_support.dart';
 
 /// A [MessagingRepository] with a tiny in-memory "server" for the composer
-/// tests (W7-16): it stores one message per idempotency key (a retry with the
+/// tests: it stores one message per idempotency key (a retry with the
 /// same key answers the stored one, as the real server does), can fail a send
 /// before the server saw it ([failures]) or after it stored it
 /// ([lostResponses], the dropped-response timeout), and can hold a send open
@@ -40,13 +40,13 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   final List<Object> lostResponses = [];
 
   /// Every `recipient_user_id` a send carried (null for a send to a
-  /// conversation), in order (W7-17).
+  /// conversation), in order.
   final List<String?> sendRecipients = [];
 
   /// The conversation the "server" opens for a send that names a recipient.
   String createdConversationId = hexId(0xd1);
 
-  /// Conversations the cache holds, by peer user id (W7-17).
+  /// Conversations the cache holds, by peer user id.
   final Map<String, pb.Conversation> cachedByPeer = {};
 
   /// When set, a send waits for it (the "Sending…" state).

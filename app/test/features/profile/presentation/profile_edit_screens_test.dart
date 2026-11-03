@@ -132,7 +132,7 @@ void main() {
       expect(find.text('Kaif'), findsOneWidget);
       expect(find.text('hello there'), findsOneWidget);
       expect(save(tester).onPressed, isNull);
-      // Avatar is not editable until P4.
+      // Avatar is not editable until it ships.
       expect(find.textContaining('photo'), findsNothing);
     });
 

@@ -25,7 +25,7 @@ import (
 // Reads: +0 on every path. The set comes from identity.ProtectedAuthors.Current, a detached instance-cached loader
 // (protected_set_reads), and is consulted only for an author who is neither the viewer nor followed.
 type Audience struct {
-	authors   identity.ProtectedAuthors // nil: no loader wired, nobody is protected (the pre-W3-26a state)
+	authors   identity.ProtectedAuthors // nil: no loader wired, nobody is protected (the earlier state)
 	blockedBy func(ctx context.Context, snap graph.Snapshot, viewer, other string) (bool, error)
 }
 
@@ -38,7 +38,7 @@ const (
 	SurfaceDirect Surface = iota
 	// SurfaceList is a row in a feed or list: a refusal is Drop, and rows by authors the viewer blocked or muted drop too.
 	SurfaceList
-	// SurfaceOwnProfile is a row on the caller's OWN profile (ADR-0025 note W3-36 L-2): like SurfaceDirect, except the
+	// SurfaceOwnProfile is a row on the caller's OWN profile (ADR-0025 note L-2): like SurfaceDirect, except the
 	// caller's own REPOST of a post whose author they may no longer see is shown with Embed = PROTECTED so it can be
 	// undone, instead of being refused. Owner-only: no other surface ever passes it.
 	SurfaceOwnProfile
@@ -164,7 +164,7 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 			switch {
 			case surface == SurfaceOwnProfile && p.AuthorID == viewer:
 				// The caller's own REPOST on their own profile: kept, stripped like a PROTECTED embed, so Undo repost
-				// has a row to act on (W3-36 L-2). Block and mute come first and keep today's outcome (dropped). An
+				// has a row to act on (L-2). Block and mute come first and keep today's outcome (dropped). An
 				// overflowed blockedBy set cannot prove the author does not block the caller, so it fails closed
 				// (embedAllowed is skipped on the own profile); it is checked before blockedBy so no Audience pays a
 				// read to drop the row anyway. Only timeline.filterEmbeds passes SurfaceOwnProfile. Another viewer,
@@ -216,7 +216,7 @@ func (a *Audience) EmbedState(ctx context.Context, viewer string, snap graph.Sna
 // and a followed author (the rows Decide never asks the set about) it answers from the loader's cached copy when one is
 // fresh (identity.ProtectedAuthorsCached: no refresh, no log), so a Home page makes no Current call; with no fresh copy
 // it asks Current like any other row, so the wire value never changes. A set outage logs one ERROR per request
-// (the loader's fallback), WARN after that (W3-36 L-4).
+// (the loader's fallback), WARN after that (L-4).
 func (a *Audience) ProtectedAuthor(ctx context.Context, viewer, author string, following bool) bool {
 	if !a.Enabled() {
 		return false
@@ -263,7 +263,7 @@ func setUnavailable(ctx context.Context, err error) error {
 func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 	v.EmbedViewerState = st
 	if st == postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED && v.GetPost().GetKind() == postsv1.PostKind_POST_KIND_REPOST {
-		// The only PROTECTED REPOST that reaches a view is the caller's own on their own profile (W3-36 L-2; every other
+		// The only PROTECTED REPOST that reaches a view is the caller's own on their own profile (L-2; every other
 		// surface drops it). The reply hint is computed from the protected original's policy, so it must not leave the
 		// server (one bit of P's post): UNKNOWN. The caller did repost it, so Undo repost acts on it even when the capped
 		// userLikes list no longer holds the id.
@@ -277,7 +277,7 @@ func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 	v.Post.Embedded = &postsv1.EmbeddedPost{PostId: e.PostId, Unavailable: e.Unavailable, Author: e.Author}
 }
 
-// ApplyWithheld turns v into the owner's placeholder row (ADR-0025 note W3-36 L-2): the post keeps only its id, kind
+// ApplyWithheld turns v into the owner's placeholder row (ADR-0025 note L-2): the post keeps only its id, kind
 // and author snapshot, and every other field of the view is cleared (text, media, labels, hashtags, mentions, counts,
 // reply fields, visibility, embed, timestamp, embed state, reply permission, poll choice). The viewer's liked, reposted and
 // bookmarked flags are left to the caller, which knows which list the row is in. The only place this strip happens.
@@ -302,7 +302,7 @@ func ApplyWireVisibility(v *postsv1.PostView, protectedAuthor bool) {
 }
 
 // Audience returns the service's Audience, for the owner-only lists of other modules that decide rows through the
-// same predicate (engagement ListBookmarks and ListLikedPosts, W3-29b).
+// same predicate (engagement ListBookmarks and ListLikedPosts).
 func (s *service) Audience() *Audience { return s.aud }
 
 // AudienceOf returns the Audience of a posts Service built by New, or nil for any other implementation (a test fake).
@@ -314,7 +314,7 @@ func AudienceOf(svc Service) *Audience {
 }
 
 // NewSnapshotAudience builds an Audience for a read path that already holds the viewer's graph snapshot and must not
-// spend a read on a block check (the timelines, W3-30). The block test is the snapshot's blockedBy set alone: a caller
+// spend a read on a block check (the timelines). The block test is the snapshot's blockedBy set alone: a caller
 // whose blockedBy set overflowed is handled by the caller's own fail-closed rule (timeline.embedAllowed), not here. A
 // nil loader means nobody is protected. The protected rule itself is still CanSee, written once on identity.ProtectedSet.
 func NewSnapshotAudience(a identity.ProtectedAuthors) *Audience {

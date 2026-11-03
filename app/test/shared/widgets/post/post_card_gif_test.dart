@@ -14,7 +14,7 @@ import '../../../support/posts_fixtures.dart';
 const _still = 'https://cdn.example/m/g1-abc_t.jpg';
 const _full = 'https://cdn.example/m/g1-abc.gif';
 
-/// A GIF inside a post row (W6-16): the tap on the GIF plays it, the tap
+/// A GIF inside a post row: the tap on the GIF plays it, the tap
 /// elsewhere on the row still opens the post.
 void main() {
   Set<String> urls(WidgetTester tester) => {

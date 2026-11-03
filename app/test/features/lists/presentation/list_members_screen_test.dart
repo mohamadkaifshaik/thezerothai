@@ -33,7 +33,7 @@ graph.UserListItem _member(int i) => graph.UserListItem(
   ),
 );
 
-/// W5-12: `/lists/:id/members` at 360 / 600 / 1200 dp, light and dark, text
+/// `/lists/:id/members` at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockLists lists;

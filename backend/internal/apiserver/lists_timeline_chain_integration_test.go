@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W5-8 (ADR-0030 D5): GetListTimeline over the real Build chain on the emulators. The package tests in internal/timeline run
+// ADR-0030 D5: GetListTimeline over the real Build chain on the emulators. The package tests in internal/timeline run
 // the service below the interceptors, so the figures asserted here are the WHOLE-request figures of the proto doc comment
 // (interceptor read included), read from the request line's fs_reads / fs_writes / fs_deletes of a FRESH Build over the same
 // emulator project (cold caches) with budgettest, and the NOT_FOUND bytes are what a client receives.

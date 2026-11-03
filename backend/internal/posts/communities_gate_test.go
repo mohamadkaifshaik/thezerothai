@@ -13,9 +13,9 @@ import (
 
 const testCommunityID = "1234567890123456789"
 
-// TestCreate_CommunitiesGate (ADR-0031 D10, W5-22): a request with community_id set is FEATURE_DISABLED feature=communities with 0
+// TestCreate_CommunitiesGate (ADR-0031 D10): a request with community_id set is FEATURE_DISABLED feature=communities with 0
 // reads, 0 writes and no repo call. With the flag off for the caller that is the permanent answer; with it on it is the temporary
-// "not built yet" refusal (W5-26 builds the gate), so a set community_id can never create an ordinary public post. It comes after
+// "not built yet" refusal (builds the gate), so a set community_id can never create an ordinary public post. It comes after
 // polls in the ADR-0010 D2 order. A request without community_id is unaffected either way.
 func TestCreate_CommunitiesGate(t *testing.T) {
 	tests := []struct {

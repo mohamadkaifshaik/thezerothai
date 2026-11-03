@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// fakeBadge is a MessageBadge fake (ADR-0027 D10, W7-11).
+// fakeBadge is a MessageBadge fake (ADR-0027 D10).
 type fakeBadge struct {
 	n     int64
 	err   error
@@ -31,7 +31,7 @@ func badgeSvc(t *testing.T, enabled []string, b MessageBadge) (*service, *Cache)
 	return New(repo, c, time.Hour, opts...).(*service), c
 }
 
-// W7-11 acceptance: 3 unread -> 3, flag off -> 0 with 0 badge calls, no badge wired -> 0, a failure -> 0 and not cached.
+// acceptance: 3 unread -> 3, flag off -> 0 with 0 badge calls, no badge wired -> 0, a failure -> 0 and not cached.
 func TestGetMe_UnreadConversationCount(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

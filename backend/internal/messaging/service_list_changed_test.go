@@ -1,6 +1,6 @@
 package messaging
 
-// ListConversations `since` follows the entry's changedAt (ADR-0027 note 2026-10-29, W7-12): a takedown or an erasure changes
+// ListConversations `since` follows the entry's changedAt (ADR-0027 note 2026-10-29): a takedown or an erasure changes
 // an entry without moving its lastMessageAt, and only the change stamp can surface it to a cached device.
 
 import (

@@ -48,7 +48,7 @@ pb.ListInfo _header({String ownerId = 'owner'}) => pb.ListInfo(
   ),
 );
 
-/// W5-48: "Report List" in the List detail overflow menu.
+/// "Report List" in the List detail overflow menu.
 void main() {
   final feed = FeedKey.list('77');
   late MockTimelineRepository timeline;

@@ -1,4 +1,4 @@
-// list_timeline_sizes.js: response sizes of the list RPCs, byte-exact, for the egress line of the cost model (W5-18, ADR-0030 "about 18.7 KB
+// list_timeline_sizes.js: response sizes of the list RPCs, byte-exact, for the egress line of the cost model (ADR-0030 "about 18.7 KB
 // per DAU per day"). Plain Node (v18+), no dependencies. Emulators and a local API only, like every file in loadtest/.
 //
 //   API_URL=http://localhost:8081 AUTH_EMULATOR_HOST=localhost:9099 node loadtest/list_timeline_sizes.js

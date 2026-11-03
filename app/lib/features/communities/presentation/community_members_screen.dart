@@ -25,13 +25,13 @@ import 'widgets/community_member_actions.dart';
 import 'widgets/community_row.dart';
 import 'widgets/community_unavailable_view.dart';
 
-/// `/communities/:id/members` (W5-32, W5-35): the joined members, 1
+/// `/communities/:id/members`: the joined members, 1
 /// `ListCommunityMembers` per page, each with a Follow button; the owner and
 /// moderators carry a role badge. NOT_FOUND shows the same "This Community is
 /// unavailable" as the page; FEATURE_DISABLED / UNIMPLEMENTED shows "not
 /// available yet".
 ///
-/// **Moderation (W5-35).** One `GetCommunity` on open gives the viewer's
+/// **Moderation.** One `GetCommunity` on open gives the viewer's
 /// `viewer_role` (the only source of authority; if it fails there are simply
 /// no moderator rows). Owner and moderators then get a Members / Banned switch
 /// (the BANNED page is moderator-only) and a "more" menu per row from

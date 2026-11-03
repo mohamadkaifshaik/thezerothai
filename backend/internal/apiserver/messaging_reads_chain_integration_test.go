@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W7-20 (ADR-0027): the read side of messaging, the caps and the block/overflow matrix over the real Build chain on the
+// ADR-0027: the read side of messaging, the caps and the block/overflow matrix over the real Build chain on the
 // emulators. The package-level tests in internal/messaging run the service behind fake graph and directory seams and
 // without the interceptors, so they cannot see the interceptor's read, the graph snapshot reads or the rate limiters.
 // This file measures ListConversations, ListMessages and MarkConversationRead with budgettest on the logged fs_reads /
@@ -154,7 +154,7 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 		if err != nil || len(r.GetMessages()) != 20 || r.GetConversation() == nil {
 			t.Fatalf("messages = %d, conversation %v, err = %v", len(r.GetMessages()), r.GetConversation(), err)
 		}
-		// W7-27: the caller's own entry rides the first page; heavy sent 55 messages nobody read.
+		// The caller's own entry rides the first page; heavy sent 55 messages nobody read.
 		if n := r.GetConversation().GetUnreadCount(); n != 55 {
 			t.Errorf("first page unread_count = %d, want 55", n)
 		}

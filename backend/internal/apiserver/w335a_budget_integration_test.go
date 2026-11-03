@@ -2,12 +2,12 @@
 
 package apiserver
 
-// W3-35a: the Part B budget table, in two parts, every figure measured on a cold instance (a fresh Build chain per call, the
+// The Part B budget table, in two parts, every figure measured on a cold instance (a fresh Build chain per call, the
 // account-status interceptor's read included) and asserted at the ADR-0025 Cost impact ceilings:
-//   - TestW335a_BudgetTableWithPartBOn runs the whole W3-20 table again with FEATURE_PRIVATE_ACCOUNTS on and a protected
-//     account in the set: every existing read path keeps its W3-20 ceiling ("+0", the predicate costs no read);
+//   - TestW335a_BudgetTableWithPartBOn runs the whole table again with FEATURE_PRIVATE_ACCOUNTS on and a protected
+//     account in the set: every existing read path keeps its ceiling ("+0", the predicate costs no read);
 //   - TestW335a_PartBBudgetTable measures each Part B RPC and each modified read path against its own row.
-// Its rows run on noFanout chains (W3-35d), so no inline notification fan-out leaks reads into a measured line.
+// Its rows run on noFanout chains, so no inline notification fan-out leaks reads into a measured line.
 // Every case logs a W320BUDGET line (rpc, case, reads, writes, deletes and the ceiling); the report's table is those lines.
 
 import (
@@ -28,7 +28,7 @@ import (
 
 func TestW335a_BudgetTableWithPartBOn(t *testing.T) { w320BudgetTable(t, w335aOn) }
 
-// noFanout is w335aOn with FEATURE_NOTIFICATIONS off, for the rows of TestW335a_PartBBudgetTable (W3-35d). The test
+// noFanout is w335aOn with FEATURE_NOTIFICATIONS off, for the rows of TestW335a_PartBBudgetTable. The test
 // chain delivers notifications with notifications.InlineEmitter, a goroutine that carries the request's budget counter
 // and runs after the response; the fan-out's reads (the actor's profile, the recipient's settings) land in the
 // measured request's line or not, depending on a race. In production the fan-out is a separate Pub/Sub push request
@@ -107,11 +107,11 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 	})
 
 	// Respond. Each row states its own state and builds it on its own instance, so no row depends on an earlier row or on
-	// another test (W3-35d): a warm row is a fresh instance plus one ListFollowRequests (the client flow: open the requests
+	// another test: a warm row is a fresh instance plus one ListFollowRequests (the client flow: open the requests
 	// screen, then tap); a cold row is a fresh instance and nothing else. One thing is worth knowing when reading the
 	// numbers: an accept calls Directory.Forget(requester, caller) (the follower counters moved), which evicts the CALLER's
 	// own profile too, so the next call on that instance pays the account-status interceptor's read again. That is why a
-	// decline measured after an accept on the same instance reads 3, not 2 (production behaviour, W3-35d D-1 in
+	// decline measured after an accept on the same instance reads 3, not 2 (production behaviour, D-1 in
 	// the W3 Part B test report), and why every row below starts a new instance.
 	respond := func(r *w320Chain, who bmUser, accept bool) {
 		if _, err := r.w328Respond(w.p, who.uid, accept); err != nil {
@@ -137,7 +137,7 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 	r = afterList()
 	respond(r, reqs[1], false)
 	r.w320Measure(t, rpcRespondToFollowReq, "Respond decline, warm (after List)", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1})
-	// A fully cold standalone Respond reads up to 5 (ADR-0025 W3-28a implementation note); writes unchanged.
+	// A fully cold standalone Respond reads up to 5 (ADR-0025 implementation note); writes unchanged.
 	meas(rpcRespondToFollowReq, "Respond accept, standalone cold (W3-28a note: up to 5)", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(r *w320Chain) {
 		respond(r, reqs[2], true)
 	})

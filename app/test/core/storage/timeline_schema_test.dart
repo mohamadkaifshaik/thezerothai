@@ -9,7 +9,7 @@ import '../../support/posts_fixtures.dart';
 void main() {
   test('migrates a v2 database to v3, keeping data and adding the timeline '
       'tables', () async {
-    // Build the schema exactly as v2 shipped it (graph plan T12), with data.
+    // Build the schema exactly as v2 shipped it (graph), with data.
     final executor = NativeDatabase.memory(
       setup: (raw) {
         raw.execute('''

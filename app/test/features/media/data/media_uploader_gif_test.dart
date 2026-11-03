@@ -9,7 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// A GIF's FinalizeUpload (W6-16): the server screens one GIF at a time and
+/// A GIF's FinalizeUpload: the server screens one GIF at a time and
 /// answers a retryable MEDIA_NOT_READY while its slot is busy.
 void main() {
   setUpAll(registerMediaFallbacks);

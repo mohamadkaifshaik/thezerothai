@@ -29,7 +29,7 @@ class _MemoryThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// The "Scheduled posts" entry of Settings (CMP-D6): only with BOTH the
+/// The "Scheduled posts" entry of Settings: only with BOTH the
 /// `posts` and `scheduled_posts` flags, and it opens the list route.
 void main() {
   Future<void> open(WidgetTester tester, Set<String> flags) async {

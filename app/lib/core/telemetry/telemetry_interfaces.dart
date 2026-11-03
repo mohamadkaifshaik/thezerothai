@@ -1,6 +1,6 @@
 import 'analytics_event.dart';
 
-/// Crash and non-fatal reporting behind the seam (ADR-0032, TEL-4). Only
+/// Crash and non-fatal reporting behind the seam (ADR-0032). Only
 /// `firebase_crash_reporter.dart` talks to the SDK; a web or other-vendor
 /// reporter replaces an implementation with no caller change.
 ///
@@ -8,7 +8,7 @@ import 'analytics_event.dart';
 /// which only forwards while collecting is on.
 abstract interface class CrashReporter {
   /// Records [error]. [fatal] is true for an error that escaped every handler.
-  /// TEL-5's payload rules (type and stack only, scrubbed message) live in the
+  /// The payload rules (type and stack only, scrubbed message) live in the
   /// implementation, not in callers.
   Future<void> record(Object error, StackTrace stack, {bool fatal = false});
 
@@ -19,12 +19,12 @@ abstract interface class CrashReporter {
   Future<void> deleteUnsentReports();
 }
 
-/// Usage analytics behind the seam (ADR-0032, TEL-4). Same rules as
+/// Usage analytics behind the seam (ADR-0032). Same rules as
 /// [CrashReporter].
 abstract interface class UsageAnalytics {
   Future<void> log(AnalyticsEvent event);
 
-  /// [name] comes from a fixed table (TEL-6), never a URL.
+  /// [name] comes from a fixed table, never a URL.
   Future<void> screen(String name);
 
   /// Turns SDK collection on or off at runtime.
@@ -35,7 +35,7 @@ abstract interface class UsageAnalytics {
   Future<void> resetDevice();
 }
 
-/// Does nothing and touches no SDK: web, iOS (until TEL-16) and tests.
+/// Does nothing and touches no SDK: web, iOS (until it ships) and tests.
 class NoopCrashReporter implements CrashReporter {
   const NoopCrashReporter();
 

@@ -14,7 +14,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../../support/media_fixtures.dart';
 
-/// W6-40 (ADR-0029 Amendment 1 A5.6): a tile whose image could not be checked
+/// ADR-0029 Amendment 1 A5.6: a tile whose image could not be checked
 /// shows "Couldn't check this image" and a Retry that checks the same upload
 /// again, with no re-upload.
 void main() {

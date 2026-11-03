@@ -160,7 +160,7 @@ func TestToProto_ActorCountPrefersTheStoredCount(t *testing.T) {
 	}
 }
 
-// W3-28c: Notification.actor is a frozen copy and never carries AuthorSnapshot.is_private.
+// Notification.actor is a frozen copy and never carries AuthorSnapshot.is_private.
 func TestToProto_ActorLeavesIsPrivateUnset(t *testing.T) {
 	got := ToProto(Notification{ID: "i", Type: TypeFollow, Actor: Actor{UserID: "u", Handle: "h", DisplayName: "D", Verified: true}, CreatedAt: t0})
 	if got.GetActor().GetIsPrivate() || got.GetActor().GetUserId() != "u" {

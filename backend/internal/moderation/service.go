@@ -45,11 +45,11 @@ type Deps struct {
 	Posts     PostViewer
 	Accounts  AccountViewer
 	Directory identity.Directory
-	// Messages resolves a MESSAGE target (ADR-0027 D12, W7-12); nil makes a message report an internal error.
+	// Messages resolves a MESSAGE target (ADR-0027 D12); nil makes a message report an internal error.
 	Messages MessageLookup
-	// Lists resolves a LIST target (plan W5-44); nil makes a list report an internal error.
+	// Lists resolves a LIST target; nil makes a list report an internal error.
 	Lists ListLookup
-	// Communities resolves a COMMUNITY target (ADR-0031 D14, plan W5-29); nil makes a community report an internal error.
+	// Communities resolves a COMMUNITY target (ADR-0031 D14); nil makes a community report an internal error.
 	Communities CommunityLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
@@ -285,7 +285,7 @@ func (s *service) reportedMessage(ctx context.Context, uid, targetID string) (Re
 	case errors.Is(err, ErrMessageNotFound):
 		return ReportedMessage{}, messageNotFound()
 	case err != nil:
-		return ReportedMessage{}, logger.RedactErrKeyed(fmt.Errorf("moderation: load message: %w", err), []string{convID, msgID}, uid) // the conversation id is guessable from a uid pair: keyed hash, never the plain one (W7-34, L-7)
+		return ReportedMessage{}, logger.RedactErrKeyed(fmt.Errorf("moderation: load message: %w", err), []string{convID, msgID}, uid) // the conversation id is guessable from a uid pair: keyed hash, never the plain one (L-7)
 	}
 	return m, nil
 }

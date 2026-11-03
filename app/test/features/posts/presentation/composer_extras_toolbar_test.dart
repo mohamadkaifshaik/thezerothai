@@ -49,9 +49,9 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// The Poll and GIF buttons of `/compose` (W6-11, ADR-0029): flag gates, the
+/// The Poll and GIF buttons of `/compose` (ADR-0029): flag gates, the
 /// disabled reasons, and the layout across widths, themes and text scales.
-/// The poll builder (W6-12) is tested here too; the GIF picker is W6-16.
+/// The poll builder is tested here too; the GIF picker comes later.
 void main() {
   setUpAll(() {
     registerMediaFallbacks();
@@ -273,7 +273,7 @@ void main() {
       await tester.tap(find.byTooltip('Remove GIF'));
       await tester.pumpAndSettle();
       expect(enabled(tester, gif()), isTrue);
-      // The Poll button has no handler until W6-12, so it is off either way;
+      // The Poll button has no handler until it ships, so it is off either way;
       // what changes is its reason.
       expect(tooltip(tester, poll()), 'Add poll');
     });
@@ -346,7 +346,7 @@ void main() {
       await open(tester);
       expect(enabled(tester, poll()), isTrue);
       expect(tooltip(tester, poll()), 'Add poll');
-      // W6-16: the GIF button opens the picker.
+      // The GIF button opens the picker.
       expect(enabled(tester, gif()), isTrue);
     });
 

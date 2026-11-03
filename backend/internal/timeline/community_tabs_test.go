@@ -1,6 +1,6 @@
 package timeline
 
-// SetHomeTabs with COMMUNITY tabs (ADR-0031 D6, ADR-0030 D6; W5-27).
+// SetHomeTabs with COMMUNITY tabs (ADR-0031 D6, ADR-0030 D6).
 
 import (
 	"slices"

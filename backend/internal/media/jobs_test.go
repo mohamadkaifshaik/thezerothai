@@ -208,7 +208,7 @@ func TestJobsPostDeleted_PublishesTheContract(t *testing.T) {
 	if m.Kind != "post_delete" || m.UID != uidA || m.PostID != postP || len(m.MediaIDs) != 2 {
 		t.Fatalf("message = %+v", m)
 	}
-	// The wire keys are the P5 contract: pin them.
+	// The wire keys are the contract: pin them.
 	for _, k := range []string{`"kind":"post_delete"`, `"uid":`, `"postId":`, `"mediaIds":`} {
 		if !bytes.Contains(pub.msgs[0], []byte(k)) {
 			t.Fatalf("wire message %s lacks %s", pub.msgs[0], k)

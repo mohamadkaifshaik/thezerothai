@@ -32,7 +32,7 @@ func newTestClient(t *testing.T) *firestore.Client {
 	return client
 }
 
-// TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot (T5 acceptance): a doc created by InitGraph
+// TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot (acceptance): a doc created by InitGraph
 // decodes to five empty sets with no error, and GetSnapshot's cache-miss path costs exactly 1 read.
 func TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot(t *testing.T) {
 	client := newTestClient(t)
@@ -74,7 +74,7 @@ func TestGetSnapshot_Integration_MissingDocIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestSnapshot_Integration_ServiceCachesWithin60s (ADR-0008 D8/T5): two Reader.Snapshot calls within the
+// TestSnapshot_Integration_ServiceCachesWithin60s (ADR-0008 D8/): two Reader.Snapshot calls within the
 // cache TTL cost exactly 1 Firestore read.
 func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 	client := newTestClient(t)

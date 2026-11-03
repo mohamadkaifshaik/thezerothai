@@ -92,7 +92,7 @@ class SettingsRow extends StatelessWidget {
   /// The row whose page is open in the detail pane (master-detail layout).
   final bool selected;
 
-  /// Makes the row a switch (W3-33b): non-null shows a [Switch] in place of
+  /// Makes the row a switch: non-null shows a [Switch] in place of
   /// the chevron and announces on / off. [onTap] flips it (null = disabled,
   /// e.g. while saving).
   final bool? toggled;

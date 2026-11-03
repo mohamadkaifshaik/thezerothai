@@ -19,7 +19,7 @@ func (e *itEnv) migrate(after string, dryRun bool) (PlaceholderPage, *budget.Cou
 	return p, c, err
 }
 
-// legacyErase turns a seeded conversation into what the pre-W7-34 eraser left behind for `erased`: the legacy placeholder in
+// legacyErase turns a seeded conversation into what the earlier eraser left behind for `erased`: the legacy placeholder in
 // participants (position kept), gone and requestFrom/requestTo, in the erased user's messages and in the survivor's entry.
 func (e *itEnv) legacyErase(id, erased, survivor, folder string) {
 	e.t.Helper()
@@ -54,7 +54,7 @@ func (e *itEnv) legacyErase(id, erased, survivor, folder string) {
 	e.setEntry(survivor, folder, id, firestore.Update{Path: "peerId", Value: legacyDeletedUID})
 }
 
-// W7-34 L-2: the dev data migration. Two legacy conversations (an accepted one with 2 erased-sender messages, a request whose
+// L-2: the dev data migration. Two legacy conversations (an accepted one with 2 erased-sender messages, a request whose
 // requester was erased with 1) and one untouched conversation. A dry run reads and writes nothing; the real run rewrites exactly
 // the documents that hold the legacy value (1 write each); a rerun is 1 read and 0 writes.
 func TestMigratePlaceholder_RewritesOnlyLegacyDocumentsAndIsIdempotent(t *testing.T) {

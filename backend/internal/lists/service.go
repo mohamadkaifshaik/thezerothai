@@ -52,20 +52,20 @@ type Limits struct {
 	NewAccountCreatesPerDay int64
 	NewAccountWindow        time.Duration
 	// MaxMembers is LIST_MAX_MEMBERS (150); AddsPerDay and NewAccountAddsPerDay are the quota.ListAdds daily limits (300, and 50
-	// inside NewAccountWindow). Used by AddMember (W5-6).
+	// inside NewAccountWindow). Used by AddMember.
 	MaxMembers                       int
 	AddsPerDay, NewAccountAddsPerDay int64
 	// CacheEntries is CACHE_LISTS_ENTRIES.
 	CacheEntries int
 }
 
-// Deps is everything New needs. Pins may be nil (W5-9 wires it).
+// Deps is everything New needs. Pins may be nil (wires it).
 type Deps struct {
 	Repo      Repo
 	Directory identity.Directory
 	IDs       IDSource
 	Pins      Pins
-	// Graph is the owner's social context (cache-first, 60 s): the block and follow checks of AddMember and the lazy drop (W5-6).
+	// Graph is the owner's social context (cache-first, 60 s): the block and follow checks of AddMember and the lazy drop.
 	Graph graph.Reader
 	// CursorKey seals the page tokens of ListUserLists and ListListMembers (cfg.CursorHMACKey).
 	CursorKey []byte
@@ -332,7 +332,7 @@ func (s *service) UpdateList(ctx context.Context, uid string, in UpdateInput) (V
 
 // DeleteList implements Service. Deleting a list that is not the caller's, or is already gone, is success with no effect
 // (the client may be retrying after a lost response). When this call removed the list, the owner's own pin goes through
-// Pins after the commit (best effort: a failure leaves a dangling tab that GetMe drops lazily, W5-9).
+// Pins after the commit (best effort: a failure leaves a dangling tab that GetMe drops lazily).
 func (s *service) DeleteList(ctx context.Context, uid, key, listID string) error {
 	begin(ctx, "delete")
 	if err := validateKey(key); err != nil {

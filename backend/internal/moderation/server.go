@@ -40,7 +40,7 @@ var _ moderationv1connect.ModerationServiceHandler = (*Server)(nil)
 
 // ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads, when off). A MESSAGE report
 // also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS and a COMMUNITY report FEATURE_COMMUNITIES (guardNotGloballyOff, feature=messaging, lists or communities). Worst case reads and writes per
-// target are on Service.Report: COMMUNITY 5 reads cold / 2 warm, 2 writes; LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text, W7-36).
+// target are on Service.Report: COMMUNITY 5 reads cold / 2 warm, 2 writes; LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text).
 func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderationv1.ReportContentRequest]) (*connect.Response[moderationv1.ReportContentResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -88,7 +88,7 @@ func secondFlag(t TargetType) string {
 	return MessagingFlagName
 }
 
-// guardNotGloballyOff is the second flag gate of a MESSAGE report (ADR-0027 D6, F6) and of a LIST report (plan W5-44): the
+// guardNotGloballyOff is the second flag gate of a MESSAGE report (ADR-0027 D6, F6) and of a LIST report: the
 // feature (messaging or lists) only has to be not
 // globally off, so a user dropped from the allowlist or percent bucket can still report what they received. A checker
 // without GloballyOff (posts.GloballyOffChecker) gets the stricter per-caller answer. Disabled is FAILED_PRECONDITION +

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-28a (ADR-0025 D5, D7, D9, D12) through the real Build chain on the emulators, with the real protected-set loader and
+// (ADR-0025 D5, D7, D9, D12) through the real Build chain on the emulators, with the real protected-set loader and
 // the real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - Follow of a protected P is REQUESTED; ListFollowRequests shows the requests newest first at the documented reads;
 //   - an unapproved viewer (a stranger, or a mere requester) gets PROTECTED_ACCOUNT on P's followers and following at 3
@@ -259,7 +259,7 @@ func TestW328a_FollowRequestsThroughTheChain(t *testing.T) {
 	}
 }
 
-// w328Count is the pending count the graph service reports for u; the GetMe badge wiring is W3-26b, so it is read from the
+// w328Count is the pending count the graph service reports for u; the GetMe badge wiring is tested elsewhere, so it is read from the
 // request list here.
 func (e *bmChain) w328Count(t *testing.T, u bmUser) int {
 	t.Helper()

@@ -66,7 +66,7 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 	wg.Wait()
 	// The Vision counter is the cost meter: record what was actually spent even when another item failed.
 	if units > 0 {
-		// Detached from the request (W6-42 H-1): a client that hangs up after Vision answered must not hide the spend from the cap.
+		// Detached from the request (H-1): a client that hangs up after Vision answered must not hide the spend from the cap.
 		vctx, vcancel := context.WithTimeout(context.WithoutCancel(ctx), claimReleaseTimeout)
 		defer vcancel()
 		if err := s.Repo.AddVisionUnits(vctx, monthKey(s.Now()), units); err != nil {
@@ -130,20 +130,20 @@ func validateFinalize(items []FinalizeItem) error {
 	return nil
 }
 
-// screeningClaimTTL is how long a FinalizeUpload owns the SafeSearch spend for one image (W3-22 M-3). It is far above a
+// screeningClaimTTL is how long a FinalizeUpload owns the SafeSearch spend for one image (M-3). It is far above a
 // healthy run (two parallel Vision calls with a 10 s deadline each, then two copies) and short enough that a call
 // that died holding the claim blocks a client retry for at most this long. A run that outlives it is not unsafe: a
 // second call may claim and screen again, and the first one's Resolve then loses its UpdateTime precondition and
 // converges on the second's result (the pre-fix behaviour, now the rare case).
 //
-// A GIF (W6-10) takes longer. The claim window (from the claim write to the release or the resolve) covers a 5 s object read, a 2 s sampling
+// A GIF takes longer. The claim window (from the claim write to the release or the resolve) covers a 5 s object read, a 2 s sampling
 // deadline, the Vision calls (10 s each, in parallel) and the two copies, resolve and deletes: about 17 s of timeouts plus those ordinary calls.
-// The request is longer than the claim window by what comes BEFORE the claim (W6-40 moved the GIF slot wait there): verify's four object calls, the
+// The request is longer than the claim window by what comes BEFORE the claim (moved the GIF slot wait there): verify's four object calls, the
 // units charge and the slot wait of up to 5 s. Adding those up, a GIF whose every step ran to its timeout would need about 22 s or more, but the
 // request's own deadline is the 20 s finalizeDeadline (server.go), and that binds first: it ends the request, and with it the claim window, at 20 s
 // from the start, well under this 30 s TTL and under Cloud Run's 30 s request timeout. What the slot wait takes is taken from the Vision calls,
 // which get the lesser of their own 10 s and what is left (about 8 s in that worst case): screenAll does not start them with under minVisionBudget (3 s)
-// left, so the tail costs a retry, not units (W6-49, W6-42 L-3; the shape of the worst case is ADR-0029 N4, the founder's decision to measure it
+// left, so the tail costs a retry, not units (L-3; the shape of the worst case is ADR-0029 N4, the founder's decision to measure it
 // before raising the deadline). A GIF that runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
 const screeningClaimTTL = 30 * time.Second
 
@@ -157,7 +157,7 @@ type flightResult struct {
 	spent int64
 }
 
-// finalizeShared is finalizeOne behind a per-instance single-flight keyed by media id (W3-22 M-3, part a): N
+// finalizeShared is finalizeOne behind a per-instance single-flight keyed by media id (M-3, part a): N
 // concurrent calls for one PENDING image on this instance run the verify, claim, screen and publish steps once and
 // all receive the leader's result, so a double tap or a client retry is answered READY instead of MEDIA_NOT_READY.
 // Only the leader reports the Vision units it spent (the caller adds them to the month's counter), followers report
@@ -189,11 +189,11 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	// 0. Another call (usually on another instance: this instance's calls are collapsed by finalizeShared) holds the
 	// screening claim: do not verify, reserve or screen. The document is read again in case it was resolved since
-	// this call loaded it; otherwise the client retries (W3-22 M-3).
+	// this call loaded it; otherwise the client retries (M-3).
 	if d.ScreeningUntil != nil && d.ScreeningUntil.After(s.Now()) {
 		return s.screeningElsewhere(ctx, uid, d)
 	}
-	// 0b. Attempt cap (W6-27 security H-3, revised by W6-40, ADR-0029 Amendment 1 A5.4): a document with MEDIA_MAX_SCREEN_ATTEMPTS assessed attempts, or
+	// 0b. Attempt cap (security H-3, revised later, ADR-0029 Amendment 1 A5.4): a document with MEDIA_MAX_SCREEN_ATTEMPTS assessed attempts, or
 	// that took MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES claims, is REJECTED here, before verify, the units cap, the claim and any
 	// Vision call, so a looped FinalizeUpload cannot bill forever. Outages and busy slots consume no attempt, only (at most) a retry.
 	if which := s.attemptsExhausted(d); which != "" {
@@ -224,7 +224,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	refundUnits := units // nothing has been sent yet: the whole charge comes back unless a call below goes out
 	defer func() { unitsCap.Refund(uid, refundUnits) }()
 
-	// 1b. A GIF takes the instance's screening slot BEFORE the claim (A5.1, W6-40): a busy slot means no claim and no write, so a client that
+	// 1b. A GIF takes the instance's screening slot BEFORE the claim (A5.1): a busy slot means no claim and no write, so a client that
 	// retries at 2, 4 and 8 s can never burn attempts on it. The slot is released once the contact sheet is encoded (screenGIF), and here on
 	// every early return.
 	releaseSlot := func() {}
@@ -242,7 +242,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		defer releaseSlot()
 	}
 
-	// 1c. Claim the image before spending anything (W3-22 M-3): one UpdateTime-preconditioned write that exactly one
+	// 1c. Claim the image before spending anything (M-3): one UpdateTime-preconditioned write that exactly one
 	// concurrent call wins. A loser's precondition fails here, before any Vision call, and it answers like a client
 	// that finalized too early (MEDIA_NOT_READY, retryable) or, when the winner has finished, with the winner's result.
 	// The write moves the document's UpdateTime, so everything below works on the claimed copy. A failed attempt
@@ -280,7 +280,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	if ok {
 		res, err := s.screen(ctx, d, gens, releaseSlot)
-		// One "possibly billed" definition for both counters (W6-42 H-1, W6-49 L-1): every call that is not known to be unbilled counts, answered or not,
+		// One "possibly billed" definition for both counters (H-1, L-1): every call that is not known to be unbilled counts, answered or not,
 		// so a deadline or a hung-up client (a call that may have been billed) stays in VISION_MONTHLY_CAP, as it does in the per-uid cap.
 		// Only calls unbilled() recognises (res.refundable: never sent, or a 429 or 5xx answer) are returned. Over-counts by at most 2 units per honest timeout or reset.
 		spent = units - res.refundable
@@ -383,18 +383,18 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	return s.resultOf(&out), spent, nil
 }
 
-// fieldChangedAfterVerify marks a finalize whose upload object was replaced after verify (W6-25): REJECTED, nothing published.
+// fieldChangedAfterVerify marks a finalize whose upload object was replaced after verify: REJECTED, nothing published.
 const fieldChangedAfterVerify = "changed_after_verify"
 
 // rejectChanged is the REJECTED outcome (reason "invalid") for an upload object that is no longer the generation verify
-// approved and screening saw: the swapped bytes were never screened, so they are never published (W6-25, H-1).
+// approved and screening saw: the swapped bytes were never screened, so they are never published (H-1).
 func (s *service) rejectChanged(ctx context.Context, d *Doc) (Result, error) {
 	logger.SetRequestField(ctx, fieldChangedAfterVerify, true)
 	return s.reject(ctx, d, reasonInvalid)
 }
 
 // screeningElsewhere answers a finalize that found another call holding the screening claim, or lost the race for it
-// (W3-22 M-3). It spends nothing and writes nothing: the document is read once (1 read) and the answer is the
+// (M-3). It spends nothing and writes nothing: the document is read once (1 read) and the answer is the
 // idempotent result when the other call has finished, otherwise the retryable MEDIA_NOT_READY (uploadMissing with
 // afterVerify false), which the client already handles as "try again shortly".
 func (s *service) screeningElsewhere(ctx context.Context, uid string, d *Doc) (Result, int64, error) {
@@ -403,7 +403,7 @@ func (s *service) screeningElsewhere(ctx context.Context, uid string, d *Doc) (R
 }
 
 // releaseClaim clears the screening claim after a failed attempt (best effort, 1 write). The write is conditional on
-// the claim's own UpdateTime, so it never undoes a newer state; when assessed it also increments screenAssessed (W6-40, +0 writes); a conflict means the document already moved on
+// the claim's own UpdateTime, so it never undoes a newer state; when assessed it also increments screenAssessed (+0 writes); a conflict means the document already moved on
 // (another call resolved it, or the claim expired and was retaken) and is not an error. A failure is only logged:
 // the claim expires on its own after screeningClaimTTL.
 func (s *service) releaseClaim(ctx context.Context, d *Doc, assessed bool) {
@@ -503,7 +503,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 			return "", gens, fmt.Errorf("media: object attrs: %w", err)
 		}
 		if a.Generation <= 0 {
-			// Fail closed (W6-25, M-4): without a generation there is nothing to pin the read and the copy to, so nothing is published.
+			// Fail closed (M-4): without a generation there is nothing to pin the read and the copy to, so nothing is published.
 			return "", gens, errors.New("media: object attributes carry no generation")
 		}
 		want, derr := base64.StdEncoding.DecodeString(o.md5)
@@ -515,7 +515,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		case derr != nil || string(a.MD5) != string(want):
 			return reasonInvalid, gens, nil
 		}
-		head, err := s.Objects.UploadHead(ctx, o.object, headBytesFor(o.contentType), a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (same one call; a WebP reads 32 KiB, W6-26)
+		head, err := s.Objects.UploadHead(ctx, o.object, headBytesFor(o.contentType), a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (same one call; a WebP reads 32 KiB)
 		switch {
 		case errors.Is(err, objstore.ErrGenerationChanged):
 			return reasonInvalid, gens, nil // replaced between the attributes and the sniff
@@ -528,7 +528,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 			return reasonInvalid, gens, nil
 		}
 		if o.contentType == ContentTypeWebP && !webpIsStill(head) {
-			// Animated, or not provably a still (W6-26, security H-2): refused here, before any Vision unit is reserved.
+			// Animated, or not provably a still (security H-2): refused here, before any Vision unit is reserved.
 			return reasonInvalid, gens, nil
 		}
 		// This generation is what the size, type and MD5 above describe; Vision, the GIF read and Publish are tied to it.
@@ -542,7 +542,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 }
 
 // screensThumb reports whether the thumbnail is screened too: always for a BANNER (ADR-0024 D1: 2 Vision units, the
-// thumb is a separate upload) and for a GIF (ADR-0029 D11, W6-10: sheet by bytes + thumbnail = 2 units; the thumbnail is
+// thumb is a separate upload) and for a GIF (ADR-0029 D11,: sheet by bytes + thumbnail = 2 units; the thumbnail is
 // a client-made still that lists show, and nothing ties it to the GIF's frames), otherwise per VISION_SCREEN_THUMB.
 func (s *service) screensThumb(d *Doc) bool {
 	return s.ScreenThumb || d.Purpose == string(PurposeBanner) || d.ContentType == ContentTypeGIF
@@ -578,12 +578,12 @@ func (s *service) maxScreenAttempts() int {
 	return 3
 }
 
-// screenResult is what one attempt's Vision calls produced (W6-40, A5.2 and A5.5).
+// screenResult is what one attempt's Vision calls produced (A5.2 and A5.5).
 type screenResult struct {
 	// blocked: a VALID assessment is blocked by the policy. It holds even when another call failed (A5.3 row 2).
 	blocked bool
 	// answered is the number of calls Vision answered, with a verdict or with a per-image error (VisionAnsweredError): Google bills each of
-	// them, so the VISION_MONTHLY_CAP counter takes them (W6-27, security H-3).
+	// them, so the VISION_MONTHLY_CAP counter takes them (security H-3).
 	answered int64
 	// valid is the number of calls that returned a SafeSearchAnnotation (a verdict, blocking or not): a valid assessment (A5.2).
 	valid int64
@@ -595,7 +595,7 @@ type screenResult struct {
 // screenAll runs the Vision calls in parallel (a bounded 1 or 2). err is the first failure, preferring an answered INVALID_ARGUMENT, so a
 // broken image is not mistaken for a retryable outage. The result is meaningful even when err is non-nil.
 func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Context) (SafeSearch, error)) (screenResult, error) {
-	// W6-49 (W6-42 L-3): each call gets the lesser of visionTimeout and what is left of the request, so with under minVisionBudget left it could
+	// L-3: each call gets the lesser of visionTimeout and what is left of the request, so with under minVisionBudget left it could
 	// only time out. Not started: nothing is sent, both counters keep their units (refundable = all calls) and the attempt is a retry.
 	if left, ok := visionTimeLeft(ctx); ok && left < minVisionBudget {
 		return screenResult{refundable: int64(len(calls))}, errNoVisionTime
@@ -654,7 +654,7 @@ func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 }
 
 // establishedAccount reports whether uid may publish unscreened once the cap is spent (ADR-0005): the policy
-// allows it and the account is older than 7 days. There is no upheld-report signal until the reports slice (P7).
+// allows it and the account is older than 7 days. There is no upheld-report signal until the reports slice.
 func (s *service) establishedAccount(ctx context.Context, uid string) (bool, error) {
 	if s.Policy != config.VisionPolicyEstablished {
 		return false, nil
@@ -682,7 +682,7 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 		return Result{}, logger.RedactErr(fmt.Errorf("media: reject: %w", err), d.OwnerID)
 	}
 	s.deleteUploads(ctx, d)
-	// W6-32: this call won the REJECTED write, so nothing can publish this document any more. A public copy may still
+	// This call won the REJECTED write, so nothing can publish this document any more. A public copy may still
 	// exist from an earlier call that copied the full image and then lost its changed-thumbnail reject to a retaken
 	// claim (rejectChanged returned PENDING, so dropOrphanedCopies could not delete safely: the claim holder may be
 	// about to publish the same names). The names are deterministic, so sweep both: 2 idempotent DELETEs (free, a
@@ -717,8 +717,8 @@ func finalizeContentType(docs map[string]*Doc, ids []string) string {
 	return t
 }
 
-// dropPublicNames deletes the deterministic public full and thumbnail objects of a document this call just REJECTED
-// (W6-32). Best effort and only logged on failure, like dropOrphanedCopies.
+// dropPublicNames deletes the deterministic public full and thumbnail objects of a document this call just REJECTED.
+// Best effort and only logged on failure, like dropOrphanedCopies.
 func (s *service) dropPublicNames(ctx context.Context, d *Doc) {
 	pub := publicObject(d.ID, d.NameSuffix, extension(d.ContentType))
 	pubThumb := publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))

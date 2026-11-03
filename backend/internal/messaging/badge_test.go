@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// UnreadBadge (ADR-0027 D10, W7-11): the count of inbox entries with unreadCount > 0, capped at 100; requests and read
+// UnreadBadge (ADR-0027 D10): the count of inbox entries with unreadCount > 0, capped at 100; requests and read
 // entries never count; one repo call (1 read) each.
 func TestUnreadBadge(t *testing.T) {
 	t.Parallel()

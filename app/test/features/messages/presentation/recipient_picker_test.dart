@@ -43,7 +43,7 @@ class _MockGraph extends Mock implements GraphRepository {}
 
 const _me = 'u-me';
 
-/// The picker inside a router, over fakes (W7-17).
+/// The picker inside a router, over fakes.
 class _Rig {
   _Rig({FakePeopleSource? source})
     : source =

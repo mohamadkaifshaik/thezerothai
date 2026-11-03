@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestResolveHandles_Integration_Budget (T7 acceptance, on the real repo): 10 handles with 6 resolved before
+// TestResolveHandles_Integration_Budget (acceptance, on the real repo): 10 handles with 6 resolved before
 // cost exactly 4 reads in one GetAll; a repeat costs 0; an unknown handle costs 1 and is then free for 10 s.
 func TestResolveHandles_Integration_Budget(t *testing.T) {
 	client := newTestClient(t)

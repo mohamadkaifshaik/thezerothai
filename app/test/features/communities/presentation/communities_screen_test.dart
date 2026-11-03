@@ -28,7 +28,7 @@ pb.Community _community(
   viewerRole: role,
 );
 
-/// W5-31: the Communities screen at 360 / 600 / 1200 dp, light and dark, text
+/// The Communities screen at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockCommunities repo;

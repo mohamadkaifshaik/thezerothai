@@ -23,7 +23,7 @@ class _MockPosts extends Mock implements PostsRepository {}
 const _still = 'https://cdn.example/m/g1-abc_t.jpg';
 const _full = 'https://cdn.example/m/g1-abc.gif';
 
-/// W6-19: GIF attach in the composer -> upload -> CreatePost -> the feed row
+/// GIF attach in the composer -> upload -> CreatePost -> the feed row
 /// shows a still with a GIF badge -> a tap plays it (and does not open the
 /// post).
 void main() {

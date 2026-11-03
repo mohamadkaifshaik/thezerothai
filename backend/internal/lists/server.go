@@ -20,7 +20,7 @@ const rpcDeadline = 8 * time.Second
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
 // rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS, ADR-0030 D9) before anything
 // else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
-// gate every RPC calls the Service (W5-4 list writes, W5-6 member writes, W5-7 reads); a Server built without one answers
+// gate every RPC calls the Service (list writes, member writes, reads); a Server built without one answers
 // Unimplemented.
 type Server struct {
 	listsv1connect.UnimplementedListServiceHandler
@@ -164,7 +164,7 @@ func (s *Server) memberWrite(ctx context.Context, rpc string, call func(ctx cont
 	return toListInfo(v), nil
 }
 
-// AddListMember is gated by FEATURE_LISTS; owner only (W5-6).
+// AddListMember is gated by FEATURE_LISTS; owner only.
 //
 //nolint:dupl // mirrors RemoveListMember over distinct generated proto types
 func (s *Server) AddListMember(ctx context.Context, req *connect.Request[listsv1.AddListMemberRequest]) (*connect.Response[listsv1.AddListMemberResponse], error) {
@@ -178,7 +178,7 @@ func (s *Server) AddListMember(ctx context.Context, req *connect.Request[listsv1
 	return connect.NewResponse(&listsv1.AddListMemberResponse{List: info}), nil
 }
 
-// RemoveListMember is gated by FEATURE_LISTS; owner only (W5-6).
+// RemoveListMember is gated by FEATURE_LISTS; owner only.
 //
 //nolint:dupl // mirrors AddListMember over distinct generated proto types
 func (s *Server) RemoveListMember(ctx context.Context, req *connect.Request[listsv1.RemoveListMemberRequest]) (*connect.Response[listsv1.RemoveListMemberResponse], error) {

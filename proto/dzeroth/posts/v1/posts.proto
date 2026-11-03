@@ -36,7 +36,7 @@ service PostService {
   // Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
   // into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
   // with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
-  // Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
+  // Quotes (plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   // to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   // original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
   // kind QUOTE, a root post for feeds (never a reply), carries an embedded one-level snapshot of the quoted post
@@ -47,7 +47,7 @@ service PostService {
   // a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
   // follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
   // follower is allowed and is public: it shows its own text, never the parent's.
-  // Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
+  // Replies (plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
   // FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
   // rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
   // "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
@@ -60,7 +60,7 @@ service PostService {
   // A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
   // 0 writes, same reads as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
   // deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
-  // Media (P4, FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
+  // Media (FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
   // and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
   // used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
   // parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
@@ -83,7 +83,7 @@ service PostService {
   // the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
   // candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
   // TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
-  // With n images (P4): + n reads (one GetAll of media/* inside the transaction) and + n writes (media/{id}.postId),
+  // With n images: + n reads (one GetAll of media/* inside the transaction) and + n writes (media/{id}.postId),
   // so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
   // Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   // notification writes: 1 per mentioned user + 1 for the parent/quoted author).
@@ -147,7 +147,7 @@ service PostService {
   // likes and reposts documents (and the REPOST posts docs those created), and replaces the embedded snapshot of
   // quotes of it with an unavailable tombstone. Async cost: 2 post reads + n media + 3 queries (1 read minimum
   // each) + 1 read and 1 delete per dependant.
-  // Deleting a REPOST post doc is UndoRepost (P5): its reposts/{originalId}_{uid} doc goes in the same batch and the
+  // Deleting a REPOST post doc is UndoRepost: its reposts/{originalId}_{uid} doc goes in the same batch and the
   // original's repostCount is decremented best effort after the commit. Deleting a QUOTE decrements the quoted
   // post's quoteCount best effort, like a reply's parent replyCount.
   // Firestore (request path): reads 2 cold / 0 warm, planning 1 (interceptor caller users + post); writes 1/1,
@@ -214,8 +214,7 @@ service PostService {
   // Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
   // here: VALIDATION field "media_ids" (ADR-0029 D10).
   // Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
-  // field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode
-  // (plan W5-34).
+  // field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode.
   // Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   // reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
   // truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION
@@ -260,7 +259,7 @@ enum PostKind {
   POST_KIND_POST = 1;
   POST_KIND_REPLY = 2;
   POST_KIND_QUOTE = 3;
-  // Created by EngagementService.RepostPost (P5); stored as a post doc authored by the reposter, with an
+  // Created by EngagementService.RepostPost; stored as a post doc authored by the reposter, with an
   // embedded snapshot of the original, so pull timelines include it with no extra query. Its own counters stay 0:
   // like, repost and quote actions apply to embedded.post_id, the original.
   POST_KIND_REPOST = 4;
@@ -325,7 +324,7 @@ enum EmbedViewerState {
   // stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
   // render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
   // lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
-  // reposted_by_viewer = true) so it can be undone (ADR-0025 note W3-36 L-2); GetPost answers NOT_FOUND for it.
+  // reposted_by_viewer = true) so it can be undone (ADR-0025 note L-2); GetPost answers NOT_FOUND for it.
   EMBED_VIEWER_STATE_PROTECTED = 3;
 }
 
@@ -497,7 +496,7 @@ message PostView {
   // client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
   // or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
   // QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
-  // own REPOST on the caller's own profile (ADR-0025 note W3-36 L-2).
+  // own REPOST on the caller's own profile (ADR-0025 note L-2).
   EmbedViewerState embed_viewer_state = 5;
   // Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
   // REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
@@ -507,7 +506,7 @@ message PostView {
   // stay false.
   bool bookmarked_by_viewer = 6;
   // The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
-  // its protected author (ADR-0025 note W3-36 L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+  // its protected author (ADR-0025 note L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
   // embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
   // liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
   // or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
@@ -584,7 +583,7 @@ message GetThreadResponse {
   repeated PostView replies = 4;
   string next_page_token = 5;
   // True when the focal post is a reply whose parent no longer exists or cannot be shown to the caller
-  // (deleted, author suspended/blocking, not public). Render a tombstone. Additive in P3.
+  // (deleted, author suspended/blocking, not public). Render a tombstone. Additive.
   bool parent_unavailable = 6;
   // Same for the conversation root when the focal post is a reply.
   bool root_unavailable = 7;

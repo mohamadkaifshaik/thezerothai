@@ -37,7 +37,7 @@ type TakedownResult struct {
 	Wrote bool
 }
 
-// Moderator is messaging's operator seam (ADR-0027 D12, plan W7-12): `opsctl messages takedown` takes one message down. The
+// Moderator is messaging's operator seam (ADR-0027 D12): `opsctl messages takedown` takes one message down. The
 // FirestoreRepo implements it; it is not part of the Repo the service uses.
 type Moderator interface {
 	// TakedownMessage tombstones one message. Reads: the message 1, and for a VISIBLE one the conversation 1 and each

@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// TestMessagingRateLimitWiring (ADR-0027 D13, W7-4): SendMessage has its own bucket and the shared messages_daily cap;
+// TestMessagingRateLimitWiring (ADR-0027 D13): SendMessage has its own bucket and the shared messages_daily cap;
 // ListConversations and ListMessages share one read bucket and have no daily cap (reads: the read budget covers them);
 // the guard enumeration sees both reads and the budget covers every messaging RPC.
 func TestMessagingRateLimitWiring(t *testing.T) {
@@ -63,7 +63,7 @@ func TestMessagingRateLimitWiring(t *testing.T) {
 	}
 }
 
-// TestMessagingReadBucketLimitsPolls (W7-8): the 31st ListMessages call of one user inside a minute is refused by the
+// TestMessagingReadBucketLimitsPolls: the 31st ListMessages call of one user inside a minute is refused by the
 // shared read bucket (30/min per instance), and another user's bucket is untouched.
 func TestMessagingReadBucketLimitsPolls(t *testing.T) {
 	rl := RateLimitConfig(defaultRateLimitCfg())
@@ -135,7 +135,7 @@ func wantCapRefusal(t *testing.T, err error, name string) {
 	t.Errorf("no ErrorDetail on the refusal: %v", err)
 }
 
-// TestMessagingDailyCaps (W7-29, security review W7-22 M-1): MarkConversationRead has its own per-uid daily cap
+// TestMessagingDailyCaps (security review M-1): MarkConversationRead has its own per-uid daily cap
 // (messages_mark_read_daily) and AcceptMessageRequest + DeleteConversation share ONE (messages_mutation_daily). Through the
 // real interceptor the (cap+1)-th call of a uid is RATE_LIMITED with the cap's name, another uid is untouched, and the
 // three caps (with SendMessage's messages_daily) are separate counters.

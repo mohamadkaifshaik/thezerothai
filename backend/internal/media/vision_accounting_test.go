@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// W6-27 (security H-3): Vision units are counted for every call that got an answer; only calls that never reached
+// Security H-3: Vision units are counted for every call that got an answer; only calls that never reached
 // Vision are released; an undecodable image is terminal; screening attempts per document are capped.
 
 func (e *env) finalizeErr(t *testing.T, id string) (Result, error) {

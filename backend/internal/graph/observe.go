@@ -27,13 +27,13 @@ const (
 	fieldConfirmedMissing = "confirmed_missing"
 	fieldLazyGone         = "lazy_removed"
 	fieldTxnAttempt       = "txn_attempts"
-	// ADR-0025 W3-27: how a Follow ended (edge, requested or replay), whether an Unfollow withdrew a request (request or
+	// ADR-0025: how a Follow ended (edge, requested or replay), whether an Unfollow withdrew a request (request or
 	// none), the pending requests a Block deleted, and the hash of the Follow target (the D6 contention signal).
 	fieldFollowOutcome = "follow_outcome"
 	fieldWithdraw      = "withdraw"
 	fieldRequestsGone  = "requests_removed"
 	fieldTargetHash    = "target_uid_hash"
-	// ADR-0025 W3-28a: how a RespondToFollowRequest ended (accept, decline, replay, requester_inactive, drift or
+	// ADR-0025: how a RespondToFollowRequest ended (accept, decline, replay, requester_inactive, drift or
 	// requester_cap) and how many rows a follower, following or request page dropped after hydration. Enum and count only.
 	fieldRespond     = "respond"
 	fieldRowsDropped = "rows_dropped"
@@ -100,7 +100,7 @@ func rejectReason(err error) string {
 	return "error"
 }
 
-// noteTxnAttempts records txn_attempts on the request line and WARNs above store.TxnWarnAttempts (plan T7);
+// noteTxnAttempts records txn_attempts on the request line and WARNs above store.TxnWarnAttempts;
 // the WARN fires only under real contention and carries no uids.
 func noteTxnAttempts(ctx context.Context, attempts int) {
 	store.NoteTxnAttempts(ctx, "graph_txn_contention", attempts)

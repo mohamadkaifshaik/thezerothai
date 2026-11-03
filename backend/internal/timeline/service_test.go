@@ -696,7 +696,7 @@ func TestUser_ColdBudgetWarmFirstPageAndCacheHit(t *testing.T) {
 	if len(r.posts.queries) != 0 || counter2.Reads() != 2 { // users + graph are always charged by the fakes
 		t.Fatalf("warm first page ran queries %v reads %d, want 0 queries", r.posts.queries, counter2.Reads())
 	}
-	wantCacheHit(t, r, true) // T12 AC: the warm first page is served from the author-recent entry
+	wantCacheHit(t, r, true) // AC: the warm first page is served from the author-recent entry
 	if fmt.Sprint(userIDs(resp2)) != fmt.Sprint(userIDs(resp)) {
 		t.Fatal("cache-served page differs from the queried page")
 	}
@@ -980,7 +980,7 @@ func wantClamped(t *testing.T, r *rig, want bool) {
 	}
 }
 
-// TestSinceClampedIsLogged (T13 AC): since_clamped is true exactly when the newest returned post is inside the
+// TestSinceClampedIsLogged (AC): since_clamped is true exactly when the newest returned post is inside the
 // settle window (so it will come back on the next refresh), for both feeds.
 func TestSinceClampedIsLogged(t *testing.T) {
 	t.Parallel()

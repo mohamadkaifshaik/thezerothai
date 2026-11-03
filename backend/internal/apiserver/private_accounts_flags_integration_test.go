@@ -2,12 +2,12 @@
 
 package apiserver
 
-// Wire contract of the ADR-0025 D12 flag gate (ticket W3-25b) over the real Build chain on the emulators:
+// Wire contract of the ADR-0025 D12 flag gate over the real Build chain on the emulators:
 // FEATURE_PRIVATE_ACCOUNTS (private_accounts) is listed in startup feature_flags and in GetMe.enabled_features only for
 // the allowlisted caller; UpdateProfile(is_private=true) is FEATURE_DISABLED feature=private_accounts with 0 reads past the
 // interceptor and 0 writes for everyone else; is_private=false is accepted whatever the flag; ListFollowRequests and
 // RespondToFollowRequest are FEATURE_DISABLED for a public caller while the flag is globally off and past the
-// gate otherwise they run (W3-28a: an empty page, and INVALID_ARGUMENT for an empty respond request). The toggle itself (W3-26a) is in privacy_toggle_integration_test.go.
+// gate otherwise they run (an empty page, and INVALID_ARGUMENT for an empty respond request). The toggle itself is in privacy_toggle_integration_test.go.
 
 import (
 	"context"
@@ -99,7 +99,7 @@ func TestPrivateAccountsContract_AllowlistCohort(t *testing.T) {
 	name := "Renamed"
 	_, err := env.identity.UpdateProfile(context.Background(), authed(outsideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-out-key-00000001", IsPrivate: &yes, DisplayName: &name}))
 	paAssertDisabled(t, "outside UpdateProfile(is_private=true)", err)
-	// Inside: past the gate the toggle commits (W3-26a; its budget is TestPrivacyToggle_Chain). Undo it so the shared emulator
+	// Inside: past the gate the toggle commits (its budget is TestPrivacyToggle_Chain). Undo it so the shared emulator
 	// set does not keep this uid.
 	if _, err = env.identity.UpdateProfile(context.Background(), authed(insideToken, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-in-key-000000001", IsPrivate: &yes})); err != nil {
 		t.Fatalf("inside UpdateProfile(is_private=true): %v", err)

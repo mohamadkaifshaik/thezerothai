@@ -1,7 +1,7 @@
 //go:build integration
 
 // block_integration_test.go exercises Block/Unblock/Mute/Unmute against the Firestore emulator (ADR-0008
-// T8 acceptance criteria and budgets).
+// acceptance criteria and budgets).
 package graph_test
 
 import (

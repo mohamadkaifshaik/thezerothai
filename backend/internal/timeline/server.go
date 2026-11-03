@@ -63,9 +63,9 @@ type Server struct {
 	now    func() time.Time
 	// aud is the ADR-0025 visibility predicate (posts.Audience); WithProtectedAuthors gives it the protected set.
 	aud *posts.Audience
-	// community wires GetCommunityTimeline (service_community.go, W5-27, set by SetCommunities); nil = Unimplemented.
+	// community wires GetCommunityTimeline (service_community.go, set by SetCommunities); nil = Unimplemented.
 	community *communityFeedState
-	// homeTabs wires SetHomeTabs (home_tabs.go, W5-9); nil = Unimplemented.
+	// homeTabs wires SetHomeTabs (home_tabs.go); nil = Unimplemented.
 	homeTabs *HomeTabsDeps
 }
 
@@ -132,7 +132,7 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 // Limit(page) query on the hasMedia or kind composite index, and the caller's userLikes when FEATURE_ENGAGEMENT or
 // FEATURE_BOOKMARKS is on): 24 at page 20, 54 at page 50, +1 when the caller's blockedBy overflowed; 20 warm at
 // page 20 (users, graph and userLikes cached 60 s, but no instance cache for the query: every open reads
-// Firestore); an empty tab reads 1 row. Planning 20. Writes 0. The two W3-2 indexes must be READY and the W3-8
+// Firestore); an empty tab reads 1 row. Planning 20. Writes 0. The two indexes must be READY and the
 // backfill run before the flag leaves off.
 //
 // A since_token refresh also reads the removal log (removed_ids, ADR-0016 D10), same cost as GetHomeTimeline: 0 warm,

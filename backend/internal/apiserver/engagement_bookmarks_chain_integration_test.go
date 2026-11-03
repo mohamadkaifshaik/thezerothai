@@ -2,7 +2,7 @@
 
 package apiserver
 
-// AddBookmark / RemoveBookmark (ADR-0023, ticket W2-3) over the real Build chain on the emulators: the transaction's
+// AddBookmark / RemoveBookmark (ADR-0023) over the real Build chain on the emulators: the transaction's
 // documents, replay, the cap and the quota, visibility (byte-identical to GetPost), REPOST resolution, and the
 // budget table of the RPC doc comments (Add 7 reads / 4 writes, Remove 2 reads / 2 writes / 1 delete), asserted with
 // budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line.

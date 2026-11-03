@@ -1,6 +1,6 @@
 package apiserver
 
-// W3-35a: the audience guard (ADR-0025 D3, D4, AQ2; plan Part B rules 5 and 6). A source scan of every non-test Go file
+// The audience guard (ADR-0025 D3, D4, AQ2; plan Part B rules 5 and 6). A source scan of every non-test Go file
 // under backend/internal that fails `make ci` the day a new read path (W4 search, W5 lists, W7 DMs) decides post
 // visibility on its own. No emulator is needed. It fails when any of these is true:
 //
@@ -14,7 +14,7 @@ package apiserver
 //	    the set) and notifications.AudienceChecker.CanSee (four arguments, with ctx) are different methods and are not
 //	    matched; the heuristic is the call's arity, because the scan has no type information.
 //
-// Each allowlist entry carries the reason and goes stale (and fails) when the call it excuses disappears, like the T11
+// Each allowlist entry carries the reason and goes stale (and fails) when the call it excuses disappears, like the
 // guard. The self-tests below prove every rule fires on a synthetic violation and stays quiet on the clean shape.
 
 import (

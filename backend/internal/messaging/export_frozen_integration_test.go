@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W7-30 export part on the emulator (security review M-2): carol blocked alice and then renamed; alice's export shows the
+// export part on the emulator (security review M-2): carol blocked alice and then renamed; alice's export shows the
 // handle frozen on her entry ("h-uid-carol"), never the live "carol-renamed", while bob (not blocked) shows the live handle.
 // Budget: 2 conversations + 1 message each + 1 caller graph read + 1 entry read for the one blocked conversation = 6; 0 writes.
 func TestExport_BlockedPeerFrozenHandleOnEmulator(t *testing.T) {

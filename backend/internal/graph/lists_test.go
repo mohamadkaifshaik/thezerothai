@@ -306,7 +306,7 @@ func TestListOwnArray_HidesBlockedByUsers(t *testing.T) {
 	}
 }
 
-// W3-28c: every UserListItem is built by toProtoAuthorSnapshot, so one mapping carries the lock badge on all six lists.
+// Every UserListItem is built by toProtoAuthorSnapshot, so one mapping carries the lock badge on all six lists.
 func TestToProtoAuthorSnapshot_IsPrivateFromTheHydratedProfile(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

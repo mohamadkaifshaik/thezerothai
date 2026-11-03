@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ListSuggestedUsers (ADR-0024 D8, ticket W3-12) over the real Build chain on the emulators: the whole-request read cap
+// ListSuggestedUsers (ADR-0024 D8) over the real Build chain on the emulators: the whole-request read cap
 // including the account-status interceptor (32 cold at the default EdgeLimit 20, <= 1 warm), the request-log fields, the wire shape and the Follow
 // eviction. The measured calls go through a SECOND Build over the same emulator project, so its instance caches
 // (identity profiles, graph snapshots) start empty even though the first Build created every profile. Helpers come from
@@ -66,7 +66,7 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 	// The viewer follows the four followees. Followee fi follows 8 candidates, number (3*fi + k) mod 14 for k = 0..7, newer
 	// with k and, within one k, with fi (edge number k*4 + fi): 32 edges, so the newest 20 (the default EdgeLimit, ADR-0024
 	// Amendment 2 B1(b)) are k = 3..7 of ALL four followees (this order is what keeps all four in the window; followee-major
-	// order would leave followees 1 to 3 and 9 candidates), and the newest 3 of each (the per-followee cap, W3-22 L-5) are
+	// order would leave followees 1 to 3 and 9 candidates), and the newest 3 of each (the per-followee cap, L-5) are
 	// k = 5..7: 12 distinct candidates, more than the 10 that get hydrated.
 	base := time.Now().Add(-48 * time.Hour).UTC()
 	for i, f := range followees {
@@ -170,7 +170,7 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 	}
 	last := env.logs.requestLines(rpc)
 	// Follow evicted the caller's profile (the interceptor's read, 1) and graph snapshot (the warm hit's re-filter loads it
-	// again, W3-22 L-1, 1): a cache hit with at most those two reads, no edge query and no hydration.
+	// again, L-1, 1): a cache hit with at most those two reads, no edge query and no hydration.
 	if got := last[len(last)-1]; got["suggestions_cache_hit"] != true || logNum(got, "fs_reads") > 2 {
 		t.Errorf("after Follow: suggestions_cache_hit=%v fs_reads=%v, want a cache hit and <= 2 reads", got["suggestions_cache_hit"], got["fs_reads"])
 	}

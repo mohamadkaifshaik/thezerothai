@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// The send stamp (W7-9 B2): a message and both entries are stamped strictly after either participant's clearedAt, so a
+// The send stamp (B2): a message and both entries are stamped strictly after either participant's clearedAt, so a
 // DeleteConversation that committed between a send's clock read and its transaction cannot hide the message it recreates.
 func TestStampAfterClear(t *testing.T) {
 	t0 := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)

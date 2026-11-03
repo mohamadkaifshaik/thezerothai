@@ -23,7 +23,7 @@ class _MockGraph extends Mock implements GraphRepository {}
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-34: the Follow requests screen.
+/// The Follow requests screen.
 void main() {
   late _MockGraph graphRepo;
   late _MockOnboarding onboarding;

@@ -29,7 +29,7 @@ func communityThreadEnv(g *fakeGate) *createEnv {
 	return e
 }
 
-// TestCreate_MembersOnlyReply: the rule keys on the parent's conversationCommunityId (W5-26b, ADR-0031 D5, F8).
+// TestCreate_MembersOnlyReply: the rule keys on the parent's conversationCommunityId (ADR-0031 D5, F8).
 func TestCreate_MembersOnlyReply(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -1,4 +1,4 @@
-// list_timeline: W5 Part A emulator load smoke (W5-18; ADR-0030 "Cost impact").
+// list_timeline: W5 Part A emulator load smoke (ADR-0030 "Cost impact").
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it mints about 300 users and raises every list, post, graph and read-budget cap.
 //
@@ -224,7 +224,7 @@ export function coldCalls(d) {
   mark('PHASE', 'idle_3');
   sleep(COLD_SETTLE);
 
-  // --- List reads (W5-5..W5-7) -------------------------------------------------------------------------------------
+  // --- List reads -------------------------------------------------------------------------------------
   // GetMe of the viewer who pinned tabs earlier, now cold again (ADR-0030: GetMe.home_tabs adds 0 reads over the profile read).
   mark('STEP', 'getme_with_tabs_cold');
   expect(rpcCall(IDENTITY, 'GetMe', {}, T.idToken, 'GetMe'), 'getme');
@@ -246,7 +246,7 @@ export function coldCalls(d) {
   call('listmembers_nonowner_p20_next_page', 'ListListMembers', { listId: lb, pageSize: 20, pageToken: m20.json('nextPageToken') }, v[10]);
   call('listmembers_owner_p50_cold', 'ListListMembers', { listId: la, pageSize: 50 }, o1);
 
-  // --- List writes (W5-4) ------------------------------------------------------------------------------------------
+  // --- List writes ------------------------------------------------------------------------------------------
   const ck = key('wc');
   const cr = call('createlist_cold', 'CreateList', { idempotencyKey: ck, name: 'W5 writes', isPrivate: false }, o2);
   const wl = cr.json('list.listId');

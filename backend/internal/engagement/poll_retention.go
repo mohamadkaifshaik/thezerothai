@@ -1,11 +1,11 @@
 // poll_retention.go is the retention of the per-account copy of a poll vote, userLikes/{uid}.pollVotes (ADR-0029 D3, D8; security
-// L-2, ticket W6-29). The vote document pollVotes/{postId}_{uid} expires by TTL at closesAt + POLL_VOTE_TTL_AFTER_CLOSE; the copy
+// L-2). The vote document pollVotes/{postId}_{uid} expires by TTL at closesAt + POLL_VOTE_TTL_AFTER_CLOSE; the copy
 // goes on the same schedule:
 //
 //   - Each entry is "<postId>:<choice>:<closesAtUnix>". closesAt is immutable per post, so the entry string can always be rebuilt
 //     from the post (ArrayRemove needs the exact string, and one entry per post is replaced when a vote may change, A2), and the
 //     entry expires at closesAt + the TTL in force (the TTL is at least 24 hours, so the poll is closed by then). An older
-//     two-part entry "<postId>:<choice>" (written before W6-29, dev only) expires at its post's creation time + 30 days (the
+//     two-part entry "<postId>:<choice>" (written earlier, dev only) expires at its post's creation time + 30 days (the
 //     POLL_MAX_DURATION ceiling) + the TTL, a bound that is never early.
 //   - An expired entry is never shown (the viewer set is built from live entries only) and is removed on the next read or write of
 //     the document by this module (service.state, one field-level write, once).
@@ -41,7 +41,7 @@ const (
 	PollSweepLimit = 50
 )
 
-// pollEntry is the userLikes.pollVotes entry of a vote: "<postId>:<index>:<closesAtUnix>" (ADR-0029 D3, W6-29). A zero closesAt
+// pollEntry is the userLikes.pollVotes entry of a vote: "<postId>:<index>:<closesAtUnix>" (ADR-0029 D3). A zero closesAt
 // gives the two-part form.
 func pollEntry(postID string, choice int, closesAt time.Time) string {
 	e := postID + ":" + strconv.Itoa(choice)

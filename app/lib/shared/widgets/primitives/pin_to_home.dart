@@ -6,8 +6,8 @@ import '../../../features/lists/presentation/widgets/list_unavailable_view.dart'
     show kListOutlinedButtonStyle;
 import 'app_pill_button.dart';
 
-/// The "Pin to Home" / "Unpin from Home" button of a List or Community page
-/// (W5-12, W5-32). Pin is the strong compact pill, disabled at the cap, while
+/// The "Pin to Home" / "Unpin from Home" button of a List or Community page.
+/// Pin is the strong compact pill, disabled at the cap, while
 /// the write is unavailable or in flight; Unpin is an outlined button. Pair it
 /// with [pinToHomeHint] under the row.
 class PinToHomeButton extends StatelessWidget {

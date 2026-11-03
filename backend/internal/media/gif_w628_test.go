@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// W6-28 (security M-2): the last frame is always one of the sampled frames. A GIF without a loop block, or with a finite
+// Security M-2: the last frame is always one of the sampled frames. A GIF without a loop block, or with a finite
 // loop count, plays once and then rests on its last frame, so an animation must not be able to hide its payload there.
 
 // TestW628_OnlyTheLastFrameIsExplicit: whatever the length, a GIF whose only unsafe content is its final frame (even with
@@ -64,7 +64,7 @@ func TestW628_HarmlessLongGIFStaysReady(t *testing.T) {
 	}
 }
 
-// worstCaseGIF is the W6-18 accepted worst case: 300 frames (GIF_MAX_FRAMES) of 400 x 400 on a 1,280 x 1,280 screen.
+// worstCaseGIF is the accepted worst case: 300 frames (GIF_MAX_FRAMES) of 400 x 400 on a 1,280 x 1,280 screen.
 func worstCaseGIF() []byte {
 	var fr []testFrame
 	for i := 0; i < 300; i++ {

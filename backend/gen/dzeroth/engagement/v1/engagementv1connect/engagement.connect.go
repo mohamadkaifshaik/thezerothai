@@ -2,7 +2,7 @@
 //
 // Source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
+// Engagement: likes and reposts (Phase 1, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
 // module: backend/internal/engagement.
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
 // users/{uid}/bookmarks/{postId}, and (ADR-0029) pollVotes/{postId}_{uid}. The counters (likeCount,
@@ -217,7 +217,7 @@ type EngagementServiceClient interface {
 	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
 	//     userLikes.
 	//
-	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives with W6-36): a vote is changeable until
+	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives later): a vote is changeable until
 	// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
 	// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
 	// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
@@ -232,7 +232,7 @@ type EngagementServiceClient interface {
 	//	cs != c and e != cs+1 (0 from an older client, or a stale value) => FAILED_PRECONDITION + ALREADY_VOTED with
 	//	  metadata["choice"] = cs, 0 writes.
 	//
-	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until W6-36 lands the server ignores
+	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until lands the server ignores
 	// expected_choice and keeps a vote final, as steps 6 and 7 below say.
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.
@@ -511,7 +511,7 @@ type EngagementServiceHandler interface {
 	//     choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
 	//     userLikes.
 	//
-	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives with W6-36): a vote is changeable until
+	// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives later): a vote is changeable until
 	// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
 	// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
 	// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
@@ -526,7 +526,7 @@ type EngagementServiceHandler interface {
 	//	cs != c and e != cs+1 (0 from an older client, or a stale value) => FAILED_PRECONDITION + ALREADY_VOTED with
 	//	  metadata["choice"] = cs, 0 writes.
 	//
-	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until W6-36 lands the server ignores
+	// After closes_at every call answers POLL_CLOSED, changes and replays included. Until lands the server ignores
 	// expected_choice and keeps a vote final, as steps 6 and 7 below say.
 	//  8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
 	//     the same idempotency_key.

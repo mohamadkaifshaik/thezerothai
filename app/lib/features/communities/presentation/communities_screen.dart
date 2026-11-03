@@ -19,7 +19,7 @@ import 'communities_error_messages.dart';
 import 'widgets/community_join_control.dart';
 import 'widgets/community_row.dart';
 
-/// `/communities` (W5-31): "My Communities" and "Explore Communities" (the
+/// `/communities`: "My Communities" and "Explore Communities" (the
 /// directory, top 50) with Join pills, and a Create entry for creators.
 ///
 /// - 1 `ListMyCommunities` + 1 `ListCommunities` per open ([CommunitiesCubit]);

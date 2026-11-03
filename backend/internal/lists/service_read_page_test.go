@@ -388,7 +388,7 @@ func TestListListMembers_ShortPageKeepsToken(t *testing.T) {
 	}
 }
 
-// TestListUserLists_OtherOwnerNeverPaged (W5-41, security M-1): another owner's lists come back whole with no token whatever
+// TestListUserLists_OtherOwnerNeverPaged (security M-1): another owner's lists come back whole with no token whatever
 // page_size is, so a private list can neither be counted nor located; the owner's own listing still pages.
 func TestListUserLists_OtherOwnerNeverPaged(t *testing.T) {
 	t.Parallel()

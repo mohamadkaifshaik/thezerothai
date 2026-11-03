@@ -1,6 +1,6 @@
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
-/// What a poll card shows (ADR-0029 D4, W6-13). The rules live here so the
+/// What a poll card shows (ADR-0029 D4). The rules live here so the
 /// widget only draws.
 enum PollMode {
   /// Open, the viewer may vote: outlined choice buttons, no counts.

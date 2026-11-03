@@ -2,7 +2,7 @@
 
 package e2e
 
-// P6 (T8): through apiserver.Build, the real interceptor chain, the real flag registry
+// Through apiserver.Build, the real interceptor chain, the real flag registry
 // and the in-process (inline) delivery that ENV=local selects. Two accounts; B follows A; A's list shows the follow,
 // the unread badge counts it and MarkNotificationsSeen clears it; the device RPCs register and unregister.
 

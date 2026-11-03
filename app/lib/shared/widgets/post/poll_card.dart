@@ -5,11 +5,11 @@ import '../../../features/engagement/domain/poll_display.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../format/poll_time.dart';
 
-/// W6-44 (founder, 2026-10-31, finding L-3): shown under the results. Never
+/// Founder, 2026-10-31, finding L-3: shown under the results. Never
 /// promise secrecy of votes: in a small poll the totals can reveal a choice.
 const kPollPrivacyNote = 'Individual choices are hidden from other users';
 
-/// The poll of a post (ADR-0029, W6-13): choice buttons while the viewer may
+/// The poll of a post (ADR-0029): choice buttons while the viewer may
 /// vote, result bars once the server sent counts, and plain labels in between.
 /// Presentational: it draws a [PollDisplay] and calls [onVote] /
 /// [onSeeFinalResults]; it reads no bloc and calls no RPC (`PostPoll` wires

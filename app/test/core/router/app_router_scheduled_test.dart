@@ -41,7 +41,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/scheduled` and its flag redirect (CMP-D6): the Scheduled posts list
+/// `/scheduled` and its flag redirect: the Scheduled posts list
 /// needs only `posts` (ADR-0021 L-A option b: a caller dropped from the
 /// `scheduled_posts` allowlist can still list and cancel what they already
 /// scheduled); without `posts` the router sends the caller to Settings.

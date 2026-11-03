@@ -11,7 +11,7 @@ import '../../../../core/widgets/app_drawer.dart'
         followRequestsEntryVisible;
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 
-/// "Follow requests · N" at the top of the Notifications list (W3-34b): the
+/// "Follow requests · N" at the top of the Notifications list: the
 /// entry to `/follow-requests` that works at every width (the drawer is a
 /// phone surface). Drawn only under the shared rule
 /// (`followRequestsEntryVisible`) and with a pending count above 0; the count

@@ -27,13 +27,13 @@ import '../../timeline/presentation/timeline_feed_view.dart';
 import 'widgets/home_composer_entry.dart';
 import 'widgets/home_tabs_view.dart';
 
-/// The Home timeline (T17, ADR-0004 section 7): the cached feed renders at
+/// The Home timeline (ADR-0004 section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
 /// resume and a 60 s foreground auto-refresh bring new posts behind an
 /// "N new posts" pill. With the posts flag off the Phase 0 placeholder stays.
 ///
 /// With `lists` and `ui_shell` both on, the tab bar also carries the user's
-/// pinned Lists (W5-14, ADR-0030 D6): Following first and fixed, then the
+/// pinned Lists (ADR-0030 D6): Following first and fixed, then the
 /// pinned tabs, then "+" for Manage pinned. With either off Home is the one
 /// Following feed and makes no Lists call.
 class HomeScreen extends StatelessWidget {
@@ -141,15 +141,15 @@ class _FollowingFeed extends StatelessWidget {
             // drawer) and the title, over the theme's bottom hairline.
             AppTopBar.sliver(title: 'Home'),
             SliverToBoxAdapter(child: tabBar),
-            // One opt-in card above the feed (W2-12); hidden unless the
+            // One opt-in card above the feed; hidden unless the
             // notifications flag is on and push can be offered.
             const SliverToBoxAdapter(
               child: PushOptInCard(placement: PushOptInPlacement.home),
             ),
-            // The telemetry consent card (TEL-7): same slot, push first; draws
+            // The telemetry consent card: same slot, push first; draws
             // nothing unless a telemetry flag is on, on Android, unasked.
             const SliverToBoxAdapter(child: TelemetryConsentCard()),
-            // "Who to follow" (W3-19): once, under the opt-in card; draws
+            // "Who to follow": once, under the opt-in card; draws
             // nothing unless `follow_suggestions` + `graph` are on and the
             // shared list has rows.
             const SliverToBoxAdapter(

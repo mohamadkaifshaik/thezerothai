@@ -2,7 +2,7 @@
 ///
 /// Three events. Every parameter is a Dart enum or a bool, so a person's text,
 /// handle, id or query cannot be passed (it would not compile). A new event or
-/// parameter changes the policy in the same PR (ADR-0032 F4, TEL-12).
+/// parameter changes the policy in the same PR (ADR-0032 F4).
 ///
 /// [name] and [parameters] are the wire form. `firebase_usage_analytics.dart`
 /// sends them as they are; nothing else is added (no user id, no user

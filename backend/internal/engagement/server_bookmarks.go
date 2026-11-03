@@ -1,6 +1,6 @@
 // server_bookmarks.go holds the Connect handlers of bookmarks (ADR-0023): AddBookmark, RemoveBookmark and
-// ListBookmarks. The flag gate (W2-2) runs first on every RPC; Add and Remove then call the Bookmarks service (W2-3).
-// ListBookmarks (W2-4) then calls Bookmarks.ListBookmarks and renders each row with posts.ToView.
+// ListBookmarks. The flag gate runs first on every RPC; Add and Remove then call the Bookmarks service.
+// ListBookmarks then calls Bookmarks.ListBookmarks and renders each row with posts.ToView.
 package engagement
 
 import (

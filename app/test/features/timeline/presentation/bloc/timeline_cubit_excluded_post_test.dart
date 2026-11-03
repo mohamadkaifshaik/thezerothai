@@ -10,7 +10,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/posts_fixtures.dart';
 import '../../../../support/timeline_fixtures.dart';
 
-/// W3-17: the profile's Posts tab leaves out the post its Pinned row shows
+/// The profile's Posts tab leaves out the post its Pinned row shows
 /// (a filter on the visible rows, like removed and blocked authors).
 void main() {
   final feed = FeedKey.user('u1');

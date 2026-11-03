@@ -45,7 +45,7 @@ class FollowButton extends StatelessWidget {
 
   final bool followedBy;
 
-  /// Where this button sits, for the `follow` usage event (TEL-6). Reported
+  /// Where this button sits, for the `follow` usage event. Reported
   /// once, when the server confirmed a follow (never the optimistic step, never
   /// a rolled-back one).
   final FollowSource source;
@@ -105,7 +105,7 @@ class FollowButton extends StatelessWidget {
               ? null
               : () async {
                   await cubit.follow();
-                  // Only a confirmed follow is reported (TEL-6): a refusal rolls
+                  // Only a confirmed follow is reported: a refusal rolls
                   // back with an `error`, and a cubit closed mid-request is left
                   // in its optimistic, still-updating state.
                   if (cubit.state.isConfirmedFollow) {

@@ -964,7 +964,7 @@ void main() {
         expect(box.right, lessThanOrEqualTo(env.size.width));
       }
       expect(find.text('Sam Rivera wants to message you'), findsOneWidget);
-      // W7-31: the disclosure is in the banner, inside the same container.
+      // The disclosure is in the banner, inside the same container.
       expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
       expect(
         tester.getRect(find.text(kMessagesNotEncryptedText)).right,
@@ -1626,7 +1626,7 @@ void main() {
         tester.getRect(find.byKey(RequestBanner.acceptKey)).left,
         lessThan(tester.getRect(find.byKey(RequestBanner.deleteKey)).left),
       );
-      // The live region announces the title and the W7-31 line together.
+      // The live region announces the title and the line together.
       expect(
         find.bySemanticsLabel(
           RegExp(

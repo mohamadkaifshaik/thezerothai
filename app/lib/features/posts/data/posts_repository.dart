@@ -123,8 +123,8 @@ class PostsRepository {
           FeedKey.user(authorId),
           FeedKey.user(authorId, includeReplies: true),
         ],
-        // A post into a community also tops that community's loaded feed
-        // (W5-34), so going back to its page shows it with no refetch.
+        // A post into a community also tops that community's loaded feed,
+        // so going back to its page shows it with no refetch.
         if (view.post.hasCommunity() && view.post.community.id.isNotEmpty)
           FeedKey.community(view.post.community.id),
       ],
@@ -293,7 +293,7 @@ class PostsRepository {
 
   /// Drops [postId] from every cached feed and tells the open feeds, with no
   /// RPC. Used when the post is already gone on the server (delete confirmed,
-  /// or the caller's REPOST was undone: W3-41c).
+  /// or the caller's REPOST was undone:).
   Future<void> forgetPostLocally(String postId) async {
     await _store.removePost(postId);
     _removed.add(postId);

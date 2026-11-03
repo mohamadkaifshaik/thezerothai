@@ -8,7 +8,7 @@ import '../../domain/lists_feature_flag.dart';
 /// state, [error] the fetch failed and there is nothing to show.
 enum ListsStatus { loading, ready, error }
 
-/// The "Your Lists" screen state (W5-11).
+/// The "Your Lists" screen state.
 @immutable
 class ListsState {
   const ListsState({

@@ -20,7 +20,7 @@ class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockTimeline extends Mock implements TimelineRepository {}
 
-/// W6-19: unsent posts across the REAL sign-out path (ADR-0029 F7): the auth
+/// Unsent posts across the REAL sign-out path (ADR-0029 F7): the auth
 /// stream goes through `wireAuthSession`, which ends the session epoch, wipes
 /// the cache and claims it for the next uid, against a real drift database
 /// and a real `DraftsRepository`. Plain `test()`: drift does not complete in

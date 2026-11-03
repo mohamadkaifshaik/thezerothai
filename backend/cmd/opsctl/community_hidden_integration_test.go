@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// W5-52b: `opsctl community hidden` and `restore-hidden` over the real communities and posts repositories on the emulator. The emulator never
+// `opsctl community hidden` and `restore-hidden` over the real communities and posts repositories on the emulator. The emulator never
 // demands an index, so the query shape itself is proven on dev Firestore (recorded in the plan ticket), not here.
 
 type hiddenEnv struct {
@@ -131,7 +131,7 @@ func TestCommunityHidden_Integration_List(t *testing.T) {
 	t0 := e.now.Add(-time.Hour)
 	e.post("0000000000000007101", cid, false, t0, "")
 	e.post("0000000000000007102", cid, true, t0, "")
-	e.post("0000000000000007103", cid, false, time.Time{}, "") // before W5-51b: no time
+	e.post("0000000000000007103", cid, false, time.Time{}, "") // before then: no time
 	e.post("0000000000000007104", cid, true, t0, "")
 	e.post("0000000000000007105", cid, false, t0, "TAKEN_DOWN")
 	e.post("0000000000000007199", other, false, t0, "")

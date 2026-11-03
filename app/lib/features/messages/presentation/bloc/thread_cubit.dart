@@ -72,10 +72,10 @@ class ThreadState {
   final bool peerBlocked;
   final bool deleting;
 
-  /// AcceptMessageRequest is in flight (W7-18): the request banner is busy.
+  /// AcceptMessageRequest is in flight: the request banner is busy.
   final bool accepting;
 
-  /// A send was refused with CANNOT_MESSAGE (W7-16): read-only from now on,
+  /// A send was refused with CANNOT_MESSAGE: read-only from now on,
   /// without waiting for a header refresh.
   final bool cannotMessage;
 
@@ -133,7 +133,7 @@ class ThreadState {
 const Object _keep = Object();
 
 /// Drives one conversation over [MessagingRepository] and a [ThreadPoller]
-/// (W7-15, ADR-0027 D7, D14). Those two are its only dependencies.
+/// (ADR-0027 D7, D14). Those two are its only dependencies.
 ///
 /// - [load] renders the cache at once, starts the poller (which does not pull
 ///   by itself) and refreshes once.
@@ -171,7 +171,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
   /// Called once, when the conversation is first seen with unread messages on
-  /// open (W7-19: the Messages badge drops it). Not for messages that arrive
+  /// open (the Messages badge drops it). Not for messages that arrive
   /// while the thread is open.
   final void Function(String conversationId)? onOpenedUnread;
   bool _reportedUnread = false;
@@ -193,7 +193,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   /// Opens the screen: cache first, then one refresh.
   Future<void> load() async {
     if (!isConversationId(conversationId)) return;
-    // W7-25b: the header follows the cached row, so a sent request's waiting
+    // The header follows the cached row, so a sent request's waiting
     // note goes when an Inbox refresh brings the accept. Local re-read only.
     _changes ??= _repository.conversationsChanged.listen(
       (_) => unawaited(_followRow()),
@@ -219,7 +219,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   }
 
   /// Takes `state`, `folder` and `can_reply` from the cached list row into the
-  /// header when they differ (W7-25b). The row is what ListConversations wrote,
+  /// header when they differ. The row is what ListConversations wrote,
   /// so it carries REQUEST for a sent request and ACCEPTED after the accept.
   /// Nothing else on the header moves, and nothing is fetched.
   Future<void> _followRow() async {
@@ -353,7 +353,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       // A first page's count is the server's, 0 included (read on another
       // device): it replaces what the cached row said, so a stale cached
       // unread row sends no needless mark-read. Any other snapshot keeps the
-      // larger of the two (W7-27).
+      // larger of the two.
       _unread = snapshot.firstPageHeader
           ? conversation.unreadCount.toInt()
           : math.max(_unread, conversation.unreadCount.toInt());
@@ -367,7 +367,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     _latest = messages;
 
-    // W7-25b: a peer message that arrives in a request the caller sent can
+    // A peer message that arrives in a request the caller sent can
     // only be the recipient's reply, and that reply accepts the request
     // (ADR-0027 D4 step 5). So the request is answered: ACCEPTED here and in
     // the cached row. A cold open never counts (arrivedFromPeer is 0 then).
@@ -507,7 +507,7 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// The caller blocked the peer from this screen (the graph flow ran): the
   /// thread is read-only now, without waiting for a header refresh. A blocked
-  /// requester's row leaves the cached Requests list at once (W7-18, no RPC;
+  /// requester's row leaves the cached Requests list at once (no RPC;
   /// the repository ignores a conversation that is not a cached request).
   void markPeerBlocked() {
     if (isClosed || state.peerBlocked) return;
@@ -523,14 +523,14 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
   }
 
-  /// A send was refused with CANNOT_MESSAGE (W7-16, ADR-0027 D4): the thread
+  /// A send was refused with CANNOT_MESSAGE (ADR-0027 D4): the thread
   /// is read-only from now on (one answer for every cause, so none shows).
   void markCannotMessage() {
     if (isClosed || state.cannotMessage) return;
     emit(state.copyWith(cannotMessage: true));
   }
 
-  /// A send succeeded (W7-16): the repository cached the message, so read it
+  /// A send succeeded: the repository cached the message, so read it
   /// back and show it at once, deduped by id with what is on screen. The
   /// screen scrolls to the newest on send, so nothing is held back.
   Future<void> noteSent() async {
@@ -570,7 +570,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
   }
 
-  /// Accepts the request this conversation is (W7-18). Returns null on
+  /// Accepts the request this conversation is. Returns null on
   /// success, else the failure to tell the user about; the same idempotency
   /// key is reused if the user retries. On success the header becomes an
   /// ACCEPTED inbox conversation at once (what the repository just wrote to the
@@ -601,7 +601,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
       if (isClosed) return error;
       emit(state.copyWith(accepting: false));
-      // The W7-15 rule: NOT_FOUND means the conversation is not available.
+      // The rule: NOT_FOUND means the conversation is not available.
       if (error is NotFoundException) _becameUnavailable();
       return error;
     }

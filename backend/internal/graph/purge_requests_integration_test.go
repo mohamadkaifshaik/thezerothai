@@ -1,7 +1,7 @@
 //go:build integration
 
 // purge_requests_integration_test.go exercises the `follow_requests` eraser step and export section against the
-// Firestore emulator (ADR-0025 D11, ticket W3-32). Nothing in the product writes followRequests yet (W3-27), so the
+// Firestore emulator (ADR-0025 D11). Nothing in the product writes followRequests yet, so the
 // fixtures write the documents and the matching graph.requested entries directly, in the ADR-0025 D2 shape.
 package graph_test
 

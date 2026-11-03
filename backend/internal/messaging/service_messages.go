@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line fields of ListMessages and MarkConversationRead (ADR-0027 D11, plan W7-8). Counts and booleans only: never
+// Request-line fields of ListMessages and MarkConversationRead (ADR-0027 D11). Counts and booleans only: never
 // message text, a uid or a conversation id in clear (conversation_hash is the one-way hash).
 const (
 	kindListMessages = "list_messages"
@@ -38,14 +38,14 @@ func messagesPageBinding(uid, convID string) string {
 	return "messaging|messages|page|" + uid + "|" + convID
 }
 
-// ListMessages implements Service.ListMessages (ADR-0027 D4 "On read", D7, D11; plan W7-8).
+// ListMessages implements Service.ListMessages (ADR-0027 D4 "On read", D7, D11).
 //
 // Flag: not globally off. Validation before any read: conversation_id is 32 lower-case hex (VALIDATION
 // "conversation_id"), page_token and since_token not both, then the token itself (sealed, bound to the uid, the
 // conversation and the token kind, 30 days; a foreign, tampered or expired token is VALIDATION, 0 reads).
 //
 // Participant check: the conversation document (instance cache 60 s for a participant, so a clearedAt set on another instance is seen
-// within 60 s; a non-participant never reads from or writes to it, W7-28). A missing document and a non-participant answer one
+// within 60 s; a non-participant never reads from or writes to it). A missing document and a non-participant answer one
 // byte-identical NOT_FOUND after exactly 2 reads (interceptor, conversation), warm or cold.
 //
 // Thread revision (ADR-0027 note 2026-10-29): a since token carries the conversation's `rev` as its issuer saw it. After the
@@ -64,13 +64,13 @@ func messagesPageBinding(uid, convID string) string {
 // caller graph, cached 60 s) and unset on a since refresh, a gap fill included, which reads neither. An erased peer
 // (DeletedUID) is "Deleted account", never looked up, and can_reply is false.
 //
-// First page only (W7-27): one more read, the caller's own entry (users/{uid}/dmInbox/{id}, or dmRequests when entryFolder
+// First page only: one more read, the caller's own entry (users/{uid}/dmInbox/{id}, or dmRequests when entryFolder
 // says the caller is the recipient of an unaccepted request). The folder comes from the 60 s conversation copy, so an accept
 // on another instance is seen within 60 s, and a stale answer is only a missing entry, which reads 0. The entry fills
 // Conversation.unread_count and silent; a missing entry (delete-for-me, never created) is 0 / false. It runs after the
 // participant check, so NOT_FOUND is unchanged. A since refresh and an older page never read it.
 //
-// Blocked peer (W7-30, security review M-2): when the caller's graph says the peer blocked them (BlockedBy, or
+// Blocked peer (security review M-2): when the caller's graph says the peer blocked them (BlockedBy, or
 // BlockedByOverflow, where the list cannot be trusted), the live directory profile is dropped from the answer and the peer is
 // the frozen snapshot on the caller's own entry, what they already saw at the last message. Order: an erased peer
 // (DeletedUID) is the placeholder; else a block decides, whatever the directory says (so the blocked caller cannot tell whether
@@ -300,12 +300,12 @@ func messageOf(r MessageRow, convID, uid string) *messagingv1.Message {
 }
 
 // threadConversation is Conversation as ListMessages carries it: identity, peer, state, folder and can_reply. The counters
-// and the preview live on the caller's entry; the caller fills unread_count and silent from it on a first page (W7-27), and
+// and the preview live on the caller's entry; the caller fills unread_count and silent from it on a first page, and
 // ListConversations owns the rest. The folder is the caller's entry's: the recipient of an unaccepted request sees it in
 // REQUESTS, everyone else in INBOX. An erased peer, or one the directory no longer lists as ACTIVE, reads "Deleted account"
 // and the thread is read-only, whoever asks. When blocked (the peer blocked the caller, or the block list overflowed) the peer is,
 // whatever the directory says, the snapshot frozen on own, the caller's entry (nil on an older page or when it is gone), and only
-// if that entry names this peer; anything else is the placeholder. The live profile is never shown to a blocked caller (W7-30),
+// if that entry names this peer; anything else is the placeholder. The live profile is never shown to a blocked caller,
 // and neither is the blocker's account status. can_reply is false for a blocked caller, an overflow caller included (canReply).
 func threadConversation(convID string, conv ConvDoc, uid, peer string, prof identity.Profile, live, blocked bool, snap graph.Snapshot, own *EntryDoc) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{
@@ -318,7 +318,7 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 			c.Folder = messagingv1.Folder_FOLDER_REQUESTS
 		}
 	}
-	// The order matters (security audit of W7-27): an erased peer first; then a block, whatever the directory says about the
+	// The order matters (security audit): an erased peer first; then a block, whatever the directory says about the
 	// peer, so a blocked caller learns nothing about the blocker's account status (GetProfile hides it too); only then liveness.
 	if peer == DeletedUID {
 		c.Peer = &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}
@@ -347,12 +347,12 @@ func threadConversation(convID string, conv ConvDoc, uid, peer string, prof iden
 
 // messagesErr turns a repo, directory or graph error into the wire answer through the shared tail (failure): ErrNotFound is
 // the one NOT_FOUND of an unknown id and a non-participant (D11), and ids are redacted from anything that reaches a log. redact adds
-// ids known only later (the peer uid, W7-34 L-7: a peer profile or graph error can carry it in a document path).
+// ids known only later (the peer uid, L-7: a peer profile or graph error can carry it in a document path).
 func (s *service) messagesErr(ctx context.Context, uid, convID string, err error, redact ...string) error {
 	return s.failure(ctx, "list_messages", uid, convID, err, redact...)
 }
 
-// MarkRead implements Service.MarkRead (ADR-0027 D4, D10; plan W7-8).
+// MarkRead implements Service.MarkRead (ADR-0027 D4, D10).
 //
 // Flag: not globally off. idempotency_key (16-64 of [A-Za-z0-9_-]) and conversation_id (32 lower-case hex) are VALIDATION with 0
 // reads; the key is format-validated but not stored (founder decision 2026-10-29, option (a): ADR-0021's rule for a key the
@@ -361,7 +361,7 @@ func (s *service) messagesErr(ctx context.Context, uid, convID string, err error
 // Update of the caller's own dmInbox entry, else dmRequests, with an Exists precondition: the path comes from the token
 // uid, so a non-participant or an unknown or deleted conversation simply has no entry and the answer is success with 0
 // writes, the same as a conversation that is already read. After a write the badge cache of this instance is evicted
-// (Deps.Badge, W7-11; nil until then). The read time is never shown to the peer.
+// (Deps.Badge; nil until then). The read time is never shown to the peer.
 //
 // Worst-case Firestore cost: reads 0 here (1 for the interceptor, planning 0.3); writes 1, 0 when the entry is missing.
 // Under DEGRADED_MODE=readonly the interceptor refuses before this runs.
@@ -392,14 +392,14 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 	return &messagingv1.MarkConversationReadResponse{}, nil
 }
 
-// peerBlockedCaller is the one rule for "the peer blocked the caller, or the list cannot say" (W7-30, security review M-2):
+// peerBlockedCaller is the one rule for "the peer blocked the caller, or the list cannot say" (security review M-2):
 // BlockedBy[peer], or BlockedByOverflow (the list is truncated, so it fails closed). The thread header and the account export
 // both decide through it.
 func peerBlockedCaller(snap graph.Snapshot, peer string) bool {
 	return snap.BlockedBy[peer] || snap.BlockedByOverflow
 }
 
-// frozenPeer is the one rule for the peer snapshot of a blocked caller (W7-30): the snapshot frozen on own, the caller's entry,
+// frozenPeer is the one rule for the peer snapshot of a blocked caller: the snapshot frozen on own, the caller's entry,
 // only when the entry exists and names this peer (an eraser rewriting the entry's peerId to DeletedUID, or a missing entry, is
 // not ok). The live directory profile is never a fallback. The thread header and the account export both use it.
 func frozenPeer(peer string, own *EntryDoc) (PeerDoc, bool) {

@@ -1001,12 +1001,12 @@ func (in *instance) userTabOn(t *testing.T, srv *timeline.Server, uid, target st
 	return resp.Msg, c, nil
 }
 
-// ADR-0024 D5 (W3-9) against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
+// ADR-0024 D5 against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
 // images included), the Reposts tab the author's REPOST items, both newest first, one Limit(page) query each with no
 // instance cache, so a cold or warm open costs target users 1 + caller graph 1 + the rows (22 at page 20, 32 for the 30
 // media rows at page 50, 8 for 6 reposts; the interceptor and the engagement viewer, absent here, add 2 more to the
 // documented 24 / 54 asserted in internal/apiserver/profile_tabs_integration_test.go). The emulator does not enforce the
-// two W3-2 composite indexes, so this proves the query shape and the window, not index coverage.
+// two composite indexes, so this proves the query shape and the window, not index coverage.
 func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)

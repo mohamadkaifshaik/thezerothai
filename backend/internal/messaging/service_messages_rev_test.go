@@ -1,6 +1,6 @@
 package messaging
 
-// The thread revision in ListMessages since tokens (ADR-0027 note 2026-10-29, W7-12): a takedown or an erasure increments
+// The thread revision in ListMessages since tokens (ADR-0027 note 2026-10-29): a takedown or an erasure increments
 // conversations/{id}.rev, a since token carries the revision its issuer saw, and a poll whose token is behind is retired
 // with the answer of an expired token.
 

@@ -14,8 +14,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-25b (ADR-0025 D12): ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
-// private_accounts not globally off or the caller protected now; past the gate they run (W3-28a); this test pins the gate only.
+// ADR-0025 D12: ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
+// private_accounts not globally off or the caller protected now; past the gate they run; this test pins the gate only.
 
 func TestFollowRequestsGate_FlagModes(t *testing.T) {
 	const uid = "uid-a"

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-35a (ADR-0025 D4, D12, AQ5; plan Part B rules 9 and 10) through the real Build chain on the emulators:
+// (ADR-0025 D4, D12, AQ5; plan Part B rules 9 and 10) through the real Build chain on the emulators:
 //   - flag off keeps protection: with FEATURE_PRIVATE_ACCOUNTS off everywhere a protected P stays protected on every
 //     read path, and can still unprotect, list and answer requests (undo is never gated);
 //   - the stale set: a set that cannot be refreshed is served for PROTECTED_SET_MAX_STALE, then UNAVAILABLE for a viewer

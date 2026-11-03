@@ -2,7 +2,7 @@
 
 package apiserver
 
-// P5 over the real Build chain (Firestore, Auth, Pub/Sub emulators): like, repost, quote, viewer flags, the
+// over the real Build chain (Firestore, Auth, Pub/Sub emulators): like, repost, quote, viewer flags, the
 // post_delete job and FEATURE_ENGAGEMENT off. The budget assertions here are the logged fs_reads / fs_writes of the
 // request line, kept in sync with the engagement plan's table.
 

@@ -12,7 +12,7 @@ import 'fake_push_messaging.dart';
 class _MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
 
-/// The app-wide cubits the messaging screens read since W7-19: the push cubit
+/// The app-wide cubits the messaging screens read since then: the push cubit
 /// (a message push nudges the open inbox or conversation, and says whether
 /// push covers the thread poll) and the Messages badge. `AppWidget` provides
 /// them in the app; a screen test provides them with [providers].

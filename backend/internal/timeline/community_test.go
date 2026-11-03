@@ -13,8 +13,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// TestGetCommunityTimeline_Stub: the W5-22 stub gates on FEATURE_COMMUNITIES first, then FEATURE_POSTS, both FEATURE_DISABLED with 0
-// reads; past them it is Unimplemented (W5-27 implements the feed). The flag matrix: off, allowlist (listed, unlisted), on, a nil
+// TestGetCommunityTimeline_Stub: the stub gates on FEATURE_COMMUNITIES first, then FEATURE_POSTS, both FEATURE_DISABLED with 0
+// reads; past them it is Unimplemented (implements the feed). The flag matrix: off, allowlist (listed, unlisted), on, a nil
 // checker (off for everyone) and posts off.
 func TestGetCommunityTimeline_Stub(t *testing.T) {
 	every := map[string]bool(nil)

@@ -2,12 +2,12 @@
 
 package apiserver
 
-// P4 over the real Build chain (Firestore, Auth, Pub/Sub emulators): CreatePost with media_ids, UpdateProfile with an
+// over the real Build chain (Firestore, Auth, Pub/Sub emulators): CreatePost with media_ids, UpdateProfile with an
 // avatar, DeletePost -> post_delete job -> cleanup, the FEATURE_MEDIA flag and DEGRADED_MODE=nomedia.
 //
 // A signed PUT URL cannot be minted against the emulators (no signing credentials), so the finished media
 // documents are seeded straight into Firestore the way FinalizeUpload leaves them; the signing path is covered by
-// the objstore unit test and the dev-project smoke (plan T-P4-8). The upload -> finalize logic itself is covered
+// the objstore unit test and the dev-project smoke (plan T--8). The upload -> finalize logic itself is covered
 // by the media package's own integration tests with the real repo.
 
 import (

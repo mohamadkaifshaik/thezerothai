@@ -1,5 +1,5 @@
-// repo_privacy_public.go is the Firestore side of the privacy_public job (ADR-0025 D8, W3-28b): one page of a protected
-// account's pending follow requests, accepted in a single transaction through the W3-28a pieces (classifyAccept,
+// repo_privacy_public.go is the Firestore side of the privacy_public job (ADR-0025 D8): one page of a protected
+// account's pending follow requests, accepted in a single transaction through the pieces (classifyAccept,
 // queueAccept). No second accept path exists: this file only reads the page and feeds those pieces.
 package graph
 

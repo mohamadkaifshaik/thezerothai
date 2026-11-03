@@ -6,7 +6,7 @@ import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../moderation/presentation/report_sheet.dart';
 import 'bloc/thread_cubit.dart' show isConversationId;
 
-/// The toast after a report was sent (W7-18): the thread does not change.
+/// The toast after a report was sent: the thread does not change.
 const kReportSentText = 'Report sent';
 
 /// The sentence the message report sheet adds under its intro: the reviewers
@@ -34,7 +34,7 @@ String messageReportTargetId(String conversationId, pb.Message message) {
   return '$conversationId:${message.id}';
 }
 
-/// Opens the report sheet for one peer [message] (W7-18): the shared
+/// Opens the report sheet for one peer [message]: the shared
 /// [showReportSheet] with `REPORT_TARGET_TYPE_MESSAGE`. A sent report ends
 /// with the [kReportSentText] toast; the thread is not touched. No Block
 /// follow-up is offered: Block is one tap away in the conversation menu.

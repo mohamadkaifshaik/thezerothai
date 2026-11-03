@@ -25,7 +25,7 @@ class PostDetailState {
   final AppException? error;
 }
 
-/// Loads one post for `/post/:id` (T18). NOT_FOUND (missing, deleted, or
+/// Loads one post for `/post/:id`. NOT_FOUND (missing, deleted, or
 /// hidden by a block of the author, ADR-0010 D6) is a final state, not an
 /// error: the repository already pruned the caches and nothing retries.
 class PostDetailCubit extends Cubit<PostDetailState> {

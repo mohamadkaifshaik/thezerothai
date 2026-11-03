@@ -9,7 +9,7 @@ import (
 )
 
 // The instance conversation cache is shared by every caller and a conversation id is a public function of two public uids,
-// so a non-participant's probe must neither read from it nor write to it (security review W7-22, H-1): whether the
+// so a non-participant's probe must neither read from it nor write to it (security review, H-1): whether the
 // conversation exists, is warm, is cold or is missing, the probe costs exactly one repo read and leaves the cache as it
 // found it. A participant's warm path stays at 0 reads.
 func TestConversationCache_NonParticipantProbeIsOneReadAndLeavesNoTrace(t *testing.T) {

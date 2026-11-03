@@ -688,7 +688,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): the alt text editor (W2-10) across the full responsive
+  // (tester): the alt text editor across the full responsive
   // matrix, with the soft keyboard open, and across a resize over 600 dp.
   // ---------------------------------------------------------------------
 

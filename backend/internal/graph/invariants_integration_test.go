@@ -1,9 +1,9 @@
 //go:build integration
 
-// invariants_integration_test.go is the reusable graph invariant checker (ADR-0008 D3, T16a). The pure checker
+// invariants_integration_test.go is the reusable graph invariant checker (ADR-0008 D3). The pure checker
 // (graphInvariantViolations) has negative self-tests proving it can fail; the Firestore loader is used by the
 // integration suites (newWired registers assertGraphInvariants as a t.Cleanup, so every emulator scenario ends
-// with a full invariant sweep; T16b and the T25 runbook drill call assertGraphInvariants directly).
+// with a full invariant sweep; and the runbook drill call assertGraphInvariants directly).
 package graph_test
 
 import (
@@ -28,7 +28,7 @@ func isPad(uid string) bool { return strings.HasPrefix(uid, seedPadPrefix) }
 type graphState struct {
 	// Edges maps follows doc ID -> its stored (followerId, followeeId).
 	Edges map[string][2]string
-	// Requests maps followRequests doc ID -> its stored (followerId, followeeId) (ADR-0025 D2, W3-35b).
+	// Requests maps followRequests doc ID -> its stored (followerId, followeeId) (ADR-0025 D2).
 	Requests map[string][2]string
 	// Graphs maps uid -> graph/{uid}. A uid absent from the map has no graph doc.
 	Graphs map[string]graphDocState
@@ -334,7 +334,7 @@ func strsField(s *firestore.DocumentSnapshot, path string) []string {
 	return out
 }
 
-// assertGraphInvariants is the entry point for every emulator scenario (and the T25 drill): it loads the
+// assertGraphInvariants is the entry point for every emulator scenario (and the drill): it loads the
 // whole graph state and fails t with every violated ADR-0008 D3 invariant. Uses t.Errorf, so it can also be
 // called from a t.Cleanup.
 func assertGraphInvariants(t *testing.T, client *firestore.Client) {

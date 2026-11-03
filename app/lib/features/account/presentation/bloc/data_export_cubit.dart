@@ -110,7 +110,7 @@ class DataExportState {
       'error: ${error?.runtimeType}, jobFailed: $jobFailed)';
 }
 
-/// Request + bounded polling for "Download my data" (plan T15).
+/// Request + bounded polling for "Download my data".
 ///
 /// Budget: 1 RequestAccountExport + at most [maxPolls] GetAccountExport per
 /// export (<= 11 requests) in one go, well under the shared 20-call

@@ -1,4 +1,4 @@
-// graph_common: shared setup helpers for graph_follow.js and graph_lists.js (T18).
+// graph_common: shared setup helpers for graph_follow.js and graph_lists.js.
 // Mints real Firebase Auth emulator ID tokens and creates profiles via IdentityService.CreateProfile, so the
 // timed scenarios only exercise GraphService. Never points at anything but the URLs given by env vars
 // (defaults are the local emulator + local API; see loadtest/README.md).
@@ -47,7 +47,7 @@ export function mintUsers(n, handlePrefix) {
   return users;
 }
 
-// rpcCall posts a Connect JSON unary call to any service (T22 reuses it for PostService/TimelineService).
+// rpcCall posts a Connect JSON unary call to any service (reuses it for PostService/TimelineService).
 // extraTags (optional) adds k6 tags next to rpc, e.g. { pass: 'cold', page_size: '20' } (engagement_bookmarks_list).
 export function rpcCall(service, method, body, idToken, rpcTag, extraTags) {
   return http.post(`${API_URL}/${service}/${method}`, JSON.stringify(body), {

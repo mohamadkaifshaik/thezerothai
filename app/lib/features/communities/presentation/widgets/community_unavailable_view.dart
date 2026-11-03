@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
 
-/// "This Community is unavailable" (W5-32): the one calm state for a community
+/// "This Community is unavailable": the one calm state for a community
 /// the server answers NOT_FOUND for. The server uses the same answer for a
 /// missing, suspended and hidden community, so the text never says which.
 /// [onUnpin] adds an "Unpin from Home" button (a pinned community the user can

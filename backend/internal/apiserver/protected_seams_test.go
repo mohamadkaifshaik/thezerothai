@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// W3-36 L-5: requireProtectedSeams names every missing seam, typed nils included.
+// L-5: requireProtectedSeams names every missing seam, typed nils included.
 func TestRequireProtectedSeams(t *testing.T) {
 	t.Parallel()
 	var typedNil *identity.ProtectedSetLoader
@@ -46,7 +46,7 @@ func TestRequireProtectedSeams(t *testing.T) {
 	}
 }
 
-// The W3-35a guard for L-5: apiserver.go still passes the protected set or audience to all eight seams and checks them.
+// The guard for L-5: apiserver.go still passes the protected set or audience to all eight seams and checks them.
 // A source scan (no emulator), so a refactor that drops a site fails `make ci`, not only the integration suite.
 func TestProtectedSeamsAllWiredInBuild(t *testing.T) {
 	t.Parallel()

@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W7-9 integration tests: AcceptMessageRequest and DeleteConversation on the real FirestoreRepo (ADR-0027 D1, D4, D6, D14).
+// integration tests: AcceptMessageRequest and DeleteConversation on the real FirestoreRepo (ADR-0027 D1, D4, D6, D14).
 // In every test alice is the requester and bob the recipient, as in the plan's A and B. Each RPC runs under its own budget
 // counter pre-charged with the account-status interceptor's 1 read, so the budgets are the per-RPC table of ADR-0027.
 
@@ -81,8 +81,8 @@ func (e *itEnv) threadTexts(svc *service, uid, convID string) []string {
 }
 
 // Given B accepts, then both see the conversation in the Inbox, B's unread count is kept, the state is ACCEPTED, A's own
-// entry loses requestPending and gets the accept changedAt (W7-25), nothing is emitted, and B's next reply pushes to A. A second message of A lands in B's Inbox, not in
-// Requests, and the unanswered-request cap no longer applies. Budget (ADR-0027 note W7-25): 4 reads, 3 writes, 1 delete.
+// entry loses requestPending and gets the accept changedAt, nothing is emitted, and B's next reply pushes to A. A second message of A lands in B's Inbox, not in
+// Requests, and the unanswered-request cap no longer applies. Budget (ADR-0027 note): 4 reads, 3 writes, 1 delete.
 func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(2)

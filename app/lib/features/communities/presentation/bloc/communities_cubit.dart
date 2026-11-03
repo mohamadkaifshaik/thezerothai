@@ -7,7 +7,7 @@ import '../../data/communities_repository.dart';
 import '../../domain/community_role.dart';
 import 'communities_state.dart';
 
-/// `/communities` (W5-31): the caller's communities and the directory, one
+/// `/communities`: the caller's communities and the directory, one
 /// RPC each per [load] (ListMyCommunities, ListCommunities; nothing else on
 /// open).
 ///

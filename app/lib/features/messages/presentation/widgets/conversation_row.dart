@@ -28,7 +28,7 @@ String conversationSnippet(pb.Conversation conversation) {
   return last.fromSelf ? '$kConversationSelfPrefix$text' : text;
 }
 
-/// One conversation in the inbox (W7-14), presentational: a 72dp pitch, no
+/// One conversation in the inbox, presentational: a 72dp pitch, no
 /// dividers, a 48dp avatar, the bold name, the muted handle and relative time
 /// on the first line and the snippet on the second.
 ///

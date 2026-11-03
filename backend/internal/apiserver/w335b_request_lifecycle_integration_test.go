@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-35b: follow requests through the account lifecycle (ADR-0025 D11, W3-32) over the real Build chain: Firestore, Auth,
+// Follow requests through the account lifecycle (ADR-0025 D11) over the real Build chain: Firestore, Auth,
 // Pub/Sub and Storage emulators, the real graph.RequestEraser step and the real export section.
 //
 //   - the export of an account with requests both ways: a section golden (testdata/w335b_follow_requests_export_golden.json,
@@ -10,10 +10,10 @@ package apiserver
 //   - the deletion of a requester: its request and the target's pending list are clean, the target keeps its other requests;
 //   - the deletion of a protected target with requests both ways: no request names it, the requesters' `requested` entries
 //     are gone, the queue it had joined is clean, its entry is gone from privacy/protectedAuthors (the identity step), and
-//     the T11 residue sweep finds nothing;
+//     the residue sweep finds nothing;
 //   - the deletion of the second protected account closes the set entry too, and the whole followRequests collection holds
 //     no pair of the cohort (I-R: no request without its `requested` entry, nothing left over).
-// The wiring lists (steps, sections) and the T11 coverage guard are lifecycle_wiring_test.go and
+// The wiring lists (steps, sections) and the coverage guard are lifecycle_wiring_test.go and
 // lifecycle_collections_guard_test.go; the minimum cost of the step on an empty account is in the reference-account budgets.
 
 import (

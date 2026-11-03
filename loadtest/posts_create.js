@@ -1,4 +1,4 @@
-// posts_create: CreatePost at 20 rps for 2 min (T22; ADR-0010).
+// posts_create: CreatePost at 20 rps for 2 min (ADR-0010).
 //
 // Budget under test (posts.proto CreatePost): reads 14 cold / 2 warm / 2.5 planning, writes 4 (idempotency, post,
 // users.postsCount, quotas). Acceptance: CreatePost p95 < 500 ms (emulator, note the machine), mean fs_reads per

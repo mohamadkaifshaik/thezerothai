@@ -6,8 +6,8 @@
 //	Q-H  ByAuthors, authorId in [...] AND isReply == false      -> (authorId ASC, isReply ASC, createdAt DESC)
 //	Q-P  ByAuthor,  authorId == X AND isReply == false          -> (authorId ASC, isReply ASC, createdAt DESC)
 //	Q-R  ByAuthor,  authorId == X (Replies tab)                 -> (authorId ASC, createdAt DESC)
-//	Q-M  ListAuthorMedia,   authorId == X AND hasMedia == true  -> (authorId ASC, hasMedia ASC, createdAt DESC)  [W3-2]
-//	Q-B  ListAuthorReposts, authorId == X AND kind == "REPOST"  -> (authorId ASC, kind ASC, createdAt DESC)      [W3-2]
+//	Q-M ListAuthorMedia, authorId == X AND hasMedia == true -> (authorId ASC, hasMedia ASC, createdAt DESC) []
+//	Q-B ListAuthorReposts, authorId == X AND kind == "REPOST" -> (authorId ASC, kind ASC, createdAt DESC) []
 //
 // Reads are charged to the request's budget.Counter: one per document returned, and 1 for a query that
 // returns nothing (Firestore bills an empty query as one read).
@@ -38,7 +38,7 @@ type Repo interface {
 	// ByAuthor is Q-P (includeReplies=false) or Q-R (true). Reads: len(result), minimum 1.
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, w Window, limit int) ([]*Post, error)
 	// ByAuthorMedia is Q-M and ByAuthorKind is Q-B (kind is KindRepost for the Reposts tab). Reads: len(result), minimum 1.
-	// They need the W3-2 composite indexes READY (the emulator does not enforce indexes).
+	// They need the composite indexes READY (the emulator does not enforce indexes).
 	ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error)
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
 	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
@@ -94,7 +94,7 @@ func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 var _ Repo = (*FirestoreRepo)(nil)
 
 // postDoc is the posts/{postId} shape (ADR-0003); counters start at 0. Embedded and mentionIds are not
-// written yet (ADR-0010 D2, D12); media is written from P4 (empty unless the post has images).
+// written yet (ADR-0010 D2, D12); media is written from (empty unless the post has images).
 type postDoc struct {
 	AuthorID       string    `firestore:"authorId"`
 	Author         authorDoc `firestore:"author"`
@@ -232,7 +232,7 @@ type mediaDoc struct {
 	ContentType string `firestore:"contentType,omitempty"`
 }
 
-// toDoc converts a domain Post to its stored shape (used by writers, T8, and by integration-test seeding).
+// toDoc converts a domain Post to its stored shape (used by writers, and by integration-test seeding).
 func toDoc(p *Post) postDoc {
 	d := postDoc{
 		AuthorID: p.AuthorID,
@@ -422,7 +422,7 @@ func (r *FirestoreRepo) run(ctx context.Context, q firestore.Query, w Window, li
 
 // HasMediaFor is the one definition of posts.hasMedia (ADR-0024 D4): a post's own stored images are non-empty, and a
 // REPOST never has its own (the original's images are in `embedded`). toDoc writes it on every create path (CreatePost
-// root, reply and quote, the scheduled publish sweep, the REPOST doc); `opsctl backfill-has-media` (W3-8) must call it
+// root, reply and quote, the scheduled publish sweep, the REPOST doc); `opsctl backfill-has-media` must call it
 // with a legacy doc's kind and len(media), so there is exactly one rule.
 func HasMediaFor(kind Kind, storedMedia int) bool {
 	return kind != KindRepost && storedMedia > 0

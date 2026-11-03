@@ -6,8 +6,8 @@ import 'package:dzeroth/features/profile/domain/profile_extras_rules.dart';
 import 'package:dzeroth/shared/format/single_line_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Runs every row of `testdata/profile_text/single_line_text.json` (W5-45
-/// vectors, ported by W5-49) through each place the client pre-validates a
+/// Runs every row of `testdata/profile_text/single_line_text.json`
+/// (vectors, ported later) through each place the client pre-validates a
 /// one-line field: display name, location, List name and List description. The
 /// Go side runs the same file (`identity.SingleLineText`), so a rule changed on
 /// one side fails on the other. Tests run from `app/`. A file whose decoded

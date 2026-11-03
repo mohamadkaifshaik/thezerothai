@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/fake_transport.dart';
 
-/// W3-22 M-1 (c): what Edit profile really puts on the wire when it removes a
+/// M-1 (c): what Edit profile really puts on the wire when it removes a
 /// saved banner, location or website without `profile_extras` (ADR-0024
 /// Amendment 1 A2). The other Edit profile tests use a recording fake
 /// repository, which cannot tell a present empty field from an absent one; the

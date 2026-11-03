@@ -19,7 +19,7 @@ import '../../../engagement/presentation/engagement_error_messages.dart';
 /// Pinned row, so a post looks and acts the same in both places.
 ///
 /// A REPOST of a protected author's post (`embed_viewer_state = PROTECTED`,
-/// the caller's own REPOST on their own profile, W3-41b) is the exception: it
+/// the caller's own REPOST on their own profile) is the exception: it
 /// opens nothing (the original answers NOT_FOUND), and with `engagement` on
 /// its box carries Undo repost, which removes the row at once and puts it
 /// back, with the failure's snackbar, if the undo fails. With `engagement` off

@@ -1,7 +1,7 @@
 //go:build integration
 
 // lists_integration_test.go exercises GetRelationships and the own-list RPCs against the Firestore emulator
-// (ADR-0008 T9 acceptance criteria and budgets).
+// (ADR-0008 acceptance criteria and budgets).
 package graph_test
 
 import (

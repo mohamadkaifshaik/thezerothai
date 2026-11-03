@@ -3,9 +3,9 @@
 // users/{uid}/dmInbox/{convId} and users/{uid}/dmRequests/{convId}. Other modules reach it through the interfaces in
 // this file only (ADR-0027 D15).
 //
-// W7-4 shipped the skeleton: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers. W7-5 adds SendMessage
-// (service_send.go, repo_firestore.go) and W7-6 the lifecycle (eraser.go, export.go), W7-7 ListConversations
-// (service_list.go), W7-8 ListMessages and MarkConversationRead (service_messages.go), W7-9 AcceptMessageRequest and
+// Layout: the flag gate (FEATURE_MESSAGING, D6) and the six Connect handlers (server.go); SendMessage
+// (service_send.go, repo_firestore.go) and the lifecycle (eraser.go, export.go), ListConversations
+// (service_list.go), ListMessages and MarkConversationRead (service_messages.go), AcceptMessageRequest and
 // DeleteConversation (service_accept_delete.go, repo_accept_delete.go).
 package messaging
 
@@ -34,7 +34,7 @@ type FlagChecker interface {
 
 // Service is the Connect handler's dependency (ADR-0027 D15). Each method takes the caller's uid from the token (never
 // from the request), checks the flag before any Firestore access (FEATURE_DISABLED feature=messaging, 0 reads) and then
-// applies the rules. The request and response are the wire messages: there is no domain model before W7-5 needs one.
+// applies the rules. The request and response are the wire messages: there is no domain model before then needs one.
 //
 // Flag class per method (D6): Send and Accept need the flag on for the caller; ListConversations, ListMessages, MarkRead
 // and Delete only need it not globally off, so a caller dropped from an allowlist can still read and clean up.
@@ -50,21 +50,21 @@ type Service interface {
 	Delete(ctx context.Context, uid string, req *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error)
 }
 
-// Eraser is messaging's step in the account-deletion cascade (ADR-0027 D8, plan W7-6, the `messaging` step between
+// Eraser is messaging's step in the account-deletion cascade (ADR-0027 D8, the `messaging` step between
 // follow_requests and identity). PurgeUser is resumable: call again with the returned opaque checkpoint (JSON of
 // Checkpoint) until done is true, like identity.StepEraser. NewEraser builds it.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, checkpoint []byte) (next []byte, done bool, err error)
 }
 
-// Exporter writes the `messages` section of the account export (ADR-0027 F5, plan W7-6) as one JSON value. NewExporter
+// Exporter writes the `messages` section of the account export (ADR-0027 F5) as one JSON value. NewExporter
 // builds it.
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }
 
 // Social is the seam to graph.Reader (*graph.service satisfies it): the 60 s cached social context of the CALLER, used for
-// the caller-side block, mute and follow rules of a send (ADR-0027 D4 step 3). The recipient's graph is TxSocial (W7-33).
+// the caller-side block, mute and follow rules of a send (ADR-0027 D4 step 3). The recipient's graph is TxSocial.
 type Social interface {
 	Snapshot(ctx context.Context, uid string) (graph.Snapshot, error)
 }
@@ -92,7 +92,7 @@ type Events interface {
 	MessageSent(ctx context.Context, e MessageEvent)
 }
 
-// BadgeCache is the seam to the unread-conversation badge cache (ADR-0027 D10, W7-11): Forget evicts the cached
+// BadgeCache is the seam to the unread-conversation badge cache (ADR-0027 D10): Forget evicts the cached
 // unread_conversation_count of these users on this instance. identity.MessageBadgeCache implements it; the Service skips
 // the call while Deps.Badge is nil.
 type BadgeCache interface {
@@ -104,7 +104,7 @@ type UnreadCounter interface {
 	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
 }
 
-// UnreadBadge implements identity.MessageBadge (ADR-0027 D10, W7-11) without importing identity: the method has exactly the
+// UnreadBadge implements identity.MessageBadge (ADR-0027 D10) without importing identity: the method has exactly the
 // interface's shape, so apiserver passes it to identity.WithMessageBadge. It is the count() of dmInbox entries with
 // unreadCount > 0, Limit 100 (1 read). It does not check the flag: identity calls it only for a caller with messaging on.
 type UnreadBadge struct{ counter UnreadCounter }
@@ -119,7 +119,7 @@ func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int6
 
 // TxSocial is the seam to graph.TxReader (*graph.FirestoreRepo satisfies it): the recipient's graph/{uid} read INSIDE
 // the send transaction, uncached, so a Block, Mute or Unfollow by the recipient that committed on any instance decides
-// the send, and a concurrent one conflicts with it (ADR-0027 note W7-33, A8). messaging never builds a graph path.
+// the send, and a concurrent one conflicts with it (ADR-0027 note, A8). messaging never builds a graph path.
 type TxSocial interface {
 	SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (graph.Snapshot, error)
 }

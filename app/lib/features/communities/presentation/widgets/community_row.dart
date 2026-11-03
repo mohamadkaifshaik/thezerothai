@@ -22,11 +22,11 @@ String? communityRoleBadge(CommunityRole role) => switch (role) {
   _ => null,
 };
 
-/// One community in a list (W5-31): the default tile, a bold name, a muted
+/// One community in a list: the default tile, a bold name, a muted
 /// "N members", a role badge for the owner and moderators, and an optional
 /// [trailing] control (the Join pill of the directory). A custom row (no
 /// `ListTile`); the whole text area is the tap target (>= 48dp) and speaks
-/// name, members and role as one label. The audience picker (W5-34) reuses it
+/// name, members and role as one label. The audience picker reuses it
 /// without [trailing], with [role] `menuItem` and [selected] for the chosen
 /// one.
 class CommunityRow extends StatelessWidget {

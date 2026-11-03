@@ -42,7 +42,7 @@ variable "ttl_fields" {
       collection = "reports"
       field      = "expireAt"
     }
-    # ADR-0016 note 2026-10-30 (W7-36): the copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
+    # ADR-0016 note 2026-10-30: the copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
     # filing + 180 days, shortened to resolvedAt + 90 days when the report is resolved. Collection-group key; the report stays.
     report_evidence_expire_at = {
       collection = "evidence"

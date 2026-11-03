@@ -31,7 +31,7 @@ const (
 	fieldRowsDroppedProtected = "rows_dropped_protected"
 	fieldRowsPruned           = "rows_pruned"
 	fieldRowsReturned         = "rows_returned"
-	// fieldRowsWithheld counts rows kept as owner placeholders (W3-36 L-2); they are also in rows_returned.
+	// fieldRowsWithheld counts rows kept as owner placeholders (L-2); they are also in rows_returned.
 	fieldRowsWithheld = "rows_withheld"
 )
 
@@ -79,7 +79,7 @@ type RowHint struct {
 	Embed     postsv1.EmbedViewerState
 	Protected bool
 	// Withheld: the caller may no longer see the row's protected author; the row is a stripped placeholder (ADR-0025 note
-	// W3-36 L-2). Set only by dropRows for the owner lists.
+	// L-2). Set only by dropRows for the owner lists.
 	Withheld bool
 }
 
@@ -97,7 +97,7 @@ func (h RowHint) Apply(v *postsv1.PostView) {
 // or the QUOTE/REPOST's embedded author is in the caller's blocked or blockedBy set, causeMuted when in the muted set,
 // "" otherwise. The caller's own posts are kept, copies of others included (as timeline.embedAllowed does). When the
 // caller's blockedBy overflowed it cannot prove a foreign author (the post's own, or the embedded copy's) does not
-// block it, so a foreign row fails closed, with no extra read per row (as posts contextUsable and GetThread do; W2-14 L-1).
+// block it, so a foreign row fails closed, with no extra read per row (as posts contextUsable and GetThread do; L-1).
 func blockCause(snap graph.Snapshot, uid string, p *posts.Post) string {
 	if p.AuthorID == uid {
 		return ""
@@ -180,7 +180,7 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 				return dropResult{}, err
 			}
 			if d.Verdict == posts.Withheld {
-				// Kept as a placeholder the owner can undo (W3-36 L-2); never pruned, a follow or an unprotect brings the full row back.
+				// Kept as a placeholder the owner can undo (L-2); never pruned, a follow or an unprotect brings the full row back.
 				res.Tally.withheld++
 				res.Kept = append(res.Kept, i)
 				res.Hints = append(res.Hints, RowHint{Withheld: true})

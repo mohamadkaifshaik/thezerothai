@@ -51,7 +51,7 @@ import 'widgets/thread_push_scope.dart';
 const kThreadReadOnlyText = "You can't reply to this conversation";
 
 /// The line that replaces the composer when messaging is off for this caller
-/// but not for everyone (W7-26, ADR-0027 F6(a)): list, read, delete, report and
+/// but not for everyone (ADR-0027 F6(a)): list, read, delete, report and
 /// block still work.
 const kMessagingReadOnlyText = "You can't send messages right now.";
 
@@ -59,7 +59,7 @@ const kMessagingReadOnlyText = "You can't send messages right now.";
 /// conversation alike.
 const kThreadUnavailableText = "This conversation isn't available";
 
-/// The toast after a request was deleted (W7-18), as W7-15's "Conversation
+/// The toast after a request was deleted, as the "Conversation
 /// deleted". Accept has none: the composer appearing is the answer.
 const kRequestDeletedText = 'Request deleted';
 
@@ -78,7 +78,7 @@ typedef ThreadPollerBuilder = ThreadPoller Function(
   MessagingRepository repository,
 );
 
-/// Builds the request area at the bottom of a conversation (W7-18): the
+/// Builds the request area at the bottom of a conversation: the
 /// received-request banner (it replaces the composer), the sender's waiting
 /// note (above the composer), or null for none. [actions] is what its buttons
 /// call.
@@ -88,7 +88,7 @@ typedef ThreadBannerBuilder = Widget? Function(
   ThreadRequestActions actions,
 );
 
-/// `/messages/:id` (W7-15, ADR-0027 D7, D11, D14): one conversation.
+/// `/messages/:id` (ADR-0027 D7, D11, D14): one conversation.
 ///
 /// - A reversed message list (newest at the bottom): own bubbles on the
 ///   accent, the peer's on the raised surface, grouped by sender with the time
@@ -100,30 +100,30 @@ typedef ThreadBannerBuilder = Widget? Function(
 /// - New messages while the reader is at the bottom just appear; otherwise a
 ///   "New messages" pill. MarkConversationRead runs on open and when messages
 ///   arrive while visible, only with unread above 0.
-/// - Info menu: Block (the graph flow), Report (the [onReport] seam, W7-18;
+/// - Info menu: Block (the graph flow), Report (the [onReport] seam;
 ///   hidden with `reports` off, disabled until it is wired) and Delete
 ///   conversation.
-/// - A long press on a peer's visible bubble offers "Report message" (W7-18,
-///   `reports` on): the shared report sheet with the message target; the
+/// - A long press on a peer's visible bubble offers "Report message"
+///   (`reports` on): the shared report sheet with the message target; the
 ///   thread does not change.
 /// - Read-only (`can_reply` false, or a send answered CANNOT_MESSAGE): no
 ///   composer, the line [kThreadReadOnlyText].
-/// - Sends (W7-16): a [MessageComposerCubit] is provided next to the
+/// - Sends: a [MessageComposerCubit] is provided next to the
 ///   `ThreadCubit`. Its outgoing rows draw at the bottom of the list as
 ///   [OutgoingBubble]s, hidden once the thread holds the server's message (deduped
 ///   by id); a send scrolls to the newest.
 ///
 /// Seams for later tickets:
-/// - [composerBuilder] (W7-16) draws the composer under the list when the
+/// - [composerBuilder] draws the composer under the list when the
 ///   conversation can be replied to (the router passes a `MessageComposer`).
-/// - [bannerBuilder] (W7-18) draws the request area at the bottom: the
+/// - [bannerBuilder] draws the request area at the bottom: the
 ///   "`name` wants to message you" banner with Accept, Delete and Block
 ///   replaces the composer of a received request; the sender's waiting note
 ///   sits above the composer. Accept moves the conversation to the Inbox and
 ///   the composer appears.
-/// - [onReport] (W7-18) opens the report sheet for the peer's account.
+/// - [onReport] opens the report sheet for the peer's account.
 /// - The cubit is provided above [ThreadScreen]'s view, so `ThreadCubit`
-///   methods (`onPush` for W7-19) can be reached with `context.read`.
+///   methods (`onPush`) can be reached with `context.read`.
 class ThreadScreen extends StatelessWidget {
   const ThreadScreen({
     super.key,
@@ -141,14 +141,14 @@ class ThreadScreen extends StatelessWidget {
   /// Test seam: the poller. Defaults to a [TimerThreadPoller].
   final ThreadPollerBuilder? pollerBuilder;
 
-  /// W7-16: the composer, shown only when the conversation can be replied to.
+  /// The composer, shown only when the conversation can be replied to.
   final Widget Function(BuildContext context, pb.Conversation? conversation)?
   composerBuilder;
 
-  /// W7-18: the request banner or note at the bottom (null for none).
+  /// The request banner or note at the bottom (null for none).
   final ThreadBannerBuilder? bannerBuilder;
 
-  /// W7-18: opens the report flow for the peer's account. Null leaves "Report"
+  /// Opens the report flow for the peer's account. Null leaves "Report"
   /// in the menu disabled (with `reports` off the item is not shown at all).
   final void Function(BuildContext context, pb.Conversation conversation)?
   onReport;
@@ -161,7 +161,7 @@ class ThreadScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // W7-26: `readOnly` keeps the thread (read, delete, report, block) and
+    // `readOnly` keeps the thread (read, delete, report, block) and
     // drops the composer and Accept.
     return MessagingAccessBuilder(
       builder: (context, access) => access == MessagingAccess.hidden
@@ -196,7 +196,7 @@ class ThreadScreen extends StatelessWidget {
           },
         ),
       ],
-      // W7-19: the badge knows this conversation is open; a foreground push
+      // The badge knows this conversation is open; a foreground push
       // for it pulls the thread.
       child: ThreadPushScope(
         conversationId: conversationId,
@@ -892,7 +892,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     final canBlock =
         graphEnabled && peer.userId.isNotEmpty && !state.peerBlocked;
     return ThreadRequestActions(
-      // W7-26: no Accept in read-only mode (it needs `messaging`).
+      // No Accept in read-only mode (it needs `messaging`).
       accept: canAccept ? () => unawaited(_accept(cubit)) : null,
       delete: () => unawaited(_delete(cubit, request: true)),
       block: canBlock ? () => unawaited(_block(cubit, peer)) : null,
@@ -936,7 +936,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 }
 
 /// Avatar, name and handle in the header; one button to the profile. Public
-/// since W7-17: the draft thread draws the same header.
+/// since then: the draft thread draws the same header.
 class ThreadPeerHeader extends StatelessWidget {
   const ThreadPeerHeader({super.key, required this.peer});
 
@@ -1083,11 +1083,11 @@ class _DaySeparator extends StatelessWidget {
 }
 
 /// Replaces the composer on a conversation nobody can reply to (public since
-/// W7-17: the draft thread uses it too).
+/// the draft thread uses it too).
 class ThreadReadOnlyLine extends StatelessWidget {
   const ThreadReadOnlyLine({super.key, this.text = kThreadReadOnlyText});
 
-  /// The line; [kMessagingReadOnlyText] for read-only Messages (W7-26).
+  /// The line; [kMessagingReadOnlyText] for read-only Messages.
   final String text;
 
   @override

@@ -27,8 +27,8 @@ import '../theme/app_theme.dart';
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
-/// the profile header. Bookmarks (W2-7) sits between Profile and Settings
-/// with the `bookmarks` and `posts` flags on; Lists (W5-11) follows it with `lists` on;
+/// the profile header. Bookmarks sits between Profile and Settings
+/// with the `bookmarks` and `posts` flags on; Lists follows it with `lists` on;
 /// behind its flag. With `shells` and `ui_shell` on, the shell rows (Creator
 /// tools, Premium, Advertise, Calls) follow under a divider, before Settings.
 class AppDrawer extends StatelessWidget {
@@ -63,7 +63,7 @@ class AppDrawer extends StatelessWidget {
                   () => context.go(AppRouter.profilePath(handle)),
                 ),
               ),
-            // W3-34: a protected account's requests (or any pending count). Needs
+            // A protected account's requests (or any pending count). Needs
             // `graph`; never `private_accounts` for a protected caller (undo rule).
             if (showFollowRequests)
               _DrawerRow(
@@ -90,7 +90,7 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),
-            // W5-11: needs `lists` (the drawer only exists with `ui_shell`).
+            // Needs `lists` (the drawer only exists with `ui_shell`).
             if (isFeatureEnabled(context, kFeatureLists))
               _DrawerRow(
                 key: const ValueKey('drawer-lists'),
@@ -99,7 +99,7 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.listsPath)),
               ),
-            // W5-31: needs `communities` (the drawer only exists with `ui_shell`).
+            // Needs `communities` (the drawer only exists with `ui_shell`).
             if (isFeatureEnabled(context, kFeatureCommunities))
               _DrawerRow(
                 key: const ValueKey('drawer-communities'),
@@ -108,7 +108,7 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.communitiesPath)),
               ),
-            // The read-only shells (W8-2): after every feature row, before
+            // The read-only shells: after every feature row, before
             // Settings, under a hairline. Needs `shells` and `ui_shell`.
             if (shellEntries.isNotEmpty) ...[
               const Divider(height: 1),
@@ -335,7 +335,7 @@ String followRequestBadgeSpoken(int count) => count >= kPendingRequestsCap
     ? '$kPendingRequestsCap or more pending'
     : '$count pending';
 
-/// `GetMe.pending_follow_request_count` stops counting at this (W3-26b).
+/// `GetMe.pending_follow_request_count` stops counting at this.
 const kPendingRequestsCap = 1000;
 
 /// A small strong pill (AA contrast, like the primary pill button) with a count; the number is also in the row's spoken
@@ -373,8 +373,8 @@ class FollowRequestCountBadge extends StatelessWidget {
 
 /// Whether the "Follow requests" entry is shown (drawer row, account menu of
 /// wide layouts): [followRequestsAllowed] for the caller, and not while
-/// `ListFollowRequests` is backed off for the session (`followRequestsUnavailable`,
-/// W3-34b). Reads the caller from `OnboardingBloc` and the backoff from the
+/// `ListFollowRequests` is backed off for the session (`followRequestsUnavailable`).
+/// Reads the caller from `OnboardingBloc` and the backoff from the
 /// `GraphRepository` in the tree; 0 RPCs. Call it at build or open time.
 bool followRequestsEntryVisible(BuildContext context) {
   final features = context.select(

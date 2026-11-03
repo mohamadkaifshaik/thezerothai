@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// ReportableList (plan W5-44) applies the same D3 rules as GetList: what a caller cannot see they cannot report, and the
+// ReportableList applies the same D3 rules as GetList: what a caller cannot see they cannot report, and the
 // refusal is the same ErrNotFound for every cause.
 func TestReportableList_D3Matrix(t *testing.T) {
 	t.Parallel()

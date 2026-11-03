@@ -252,7 +252,7 @@ func TestCreate_ReplayWritesNothingAndAnotherBodyIsRefused(t *testing.T) {
 }
 
 // Four racers on one key: a racer that loses the transaction and exhausts its re-runs answers a retryable
-// UNAVAILABLE ("temporarily busy"); what must never happen is a second community. As in lists (W5-15), this used to
+// UNAVAILABLE ("temporarily busy"); what must never happen is a second community. As in lists, this used to
 // demand that all four succeed, and a slow CI runner failed it with a correct product answer. Now: at least one
 // succeeds, every success is the same community, a busy racer's retry with the same key replays it, and there is
 // exactly one community, owned and joined once.

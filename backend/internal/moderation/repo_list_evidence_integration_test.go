@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Plan W5-44 against the Firestore emulator: a LIST report keeps the list's name and description (and the owner's handle) in
+// Plan against the Firestore emulator: a LIST report keeps the list's name and description (and the owner's handle) in
 // the report document, with the same 2 reads and 2 writes as a POST or ACCOUNT report, no evidence child document, and the
 // post evidence's retention (resolved + 90 days).
 func TestRepo_ListEvidenceRoundTripAndRetention(t *testing.T) {

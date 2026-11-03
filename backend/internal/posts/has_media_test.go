@@ -10,7 +10,7 @@ import (
 )
 
 // TestHasMediaFor pins the one definition of posts.hasMedia (ADR-0024 D4): the post's own stored images, never for a
-// REPOST. The W3-8 backfill calls the same function.
+// REPOST. The backfill calls the same function.
 func TestHasMediaFor(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -83,7 +83,7 @@ func TestToDoc_HasMedia(t *testing.T) {
 	}
 }
 
-// TestPostDoc_HasMediaTag: the stored field is `hasMedia` (the name the W3-2 composite index and the backfill use) and
+// TestPostDoc_HasMediaTag: the stored field is `hasMedia` (the name the composite index and the backfill use) and
 // has no omitempty, so false is written explicitly (a text-only post and a REPOST are "false", a legacy doc is
 // "missing": the only difference the backfill's "where missing" and "rerun writes 0" rely on).
 func TestPostDoc_HasMediaTag(t *testing.T) {

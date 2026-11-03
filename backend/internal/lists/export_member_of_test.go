@@ -77,7 +77,7 @@ func exportMemberOf(t *testing.T, rows []MemberOfDoc, profs map[string]identity.
 	return buf.String(), h, s
 }
 
-// W5-46: public memberships are listed with id, owner handle and name; private, hidden, inactive-owner and unapproved
+// Public memberships are listed with id, owner handle and name; private, hidden, inactive-owner and unapproved
 // protected-owner memberships are only counted; nothing names another member or the private list.
 func TestExportMemberOf_RedactsAndNeverNamesOthers(t *testing.T) {
 	t.Parallel()

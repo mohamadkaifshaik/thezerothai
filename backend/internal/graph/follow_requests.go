@@ -1,5 +1,5 @@
 // follow_requests.go is the service layer of ListFollowRequests, RespondToFollowRequest and the pending-request count
-// (ADR-0025 D7, AQ3; ticket W3-28a), plus the PROTECTED_ACCOUNT rule of the follower and following lists (D5). The D12
+// (ADR-0025 D7, AQ3), plus the PROTECTED_ACCOUNT rule of the follower and following lists (D5). The D12
 // gate (follow_requests_gate.go) comes first in both RPCs; accept and decline are undo-class and never need
 // FEATURE_PRIVATE_ACCOUNTS from a protected caller. The accept transaction is repo_requests.go.
 package graph

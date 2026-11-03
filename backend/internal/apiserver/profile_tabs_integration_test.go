@@ -2,7 +2,7 @@
 
 package apiserver
 
-// GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5, ticket W3-9) over the real Build chain on the emulators: the rows
+// GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5) over the real Build chain on the emulators: the rows
 // and their order, the documented cold budget (24 reads at page 20, 54 at page 50: account-status interceptor 1, target
 // users 1, caller graph 1, one Limit(page) query, the caller's userLikes 1), the 20-read warm figure (no instance cache
 // for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules, asserted with
@@ -11,7 +11,7 @@ package apiserver
 // The data is written through one chain (the "writer") and read through a freshly booted chain (the "reader") on the
 // same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold: the worst case the
 // documented budget describes. The emulator does not enforce composite indexes, so these tests prove the query shape and
-// the budget; Firestore itself needs the two W3-2 indexes READY and the W3-8 backfill run before profile_tabs leaves off
+// the budget; Firestore itself needs the two indexes READY and the backfill run before profile_tabs leaves off
 //
 
 import (
@@ -95,7 +95,7 @@ type tabWorld struct {
 	media, plain, reposts []string // oldest first
 }
 
-// seedTabWorld writes nMedia posts with hasMedia true (CreatePost then the field the W3-7 media path writes: the chain
+// seedTabWorld writes nMedia posts with hasMedia true (CreatePost then the field the media path writes: the chain
 // has no image upload), nPlain text posts, and nRepost REPOSTs of nRepost posts by `other`, through the real RepostPost.
 func seedTabWorld(t *testing.T, w *bmChain, nMedia, nPlain, nRepost int) tabWorld {
 	t.Helper()

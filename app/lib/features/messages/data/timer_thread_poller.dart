@@ -46,7 +46,7 @@ class TimerThreadPoller implements ThreadPoller {
   final bool pushRegistered;
 
   /// Asked on every schedule, and overrides [pushRegistered] when set: true
-  /// while a push can reach this thread (W7-19: not when it is muted, a
+  /// while a push can reach this thread (not when it is muted, a
   /// request, or the flag is off), so the interval follows the thread.
   final bool Function()? pushCoverage;
 

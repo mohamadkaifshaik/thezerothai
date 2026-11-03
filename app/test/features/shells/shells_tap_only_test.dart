@@ -60,7 +60,7 @@ List<File> _dartFiles(String dir) =>
 
 String _name(File f) => f.path.replaceAll(r'\', '/').split('lib/').last;
 
-/// W8-8, F7 and ADR-0026 D4: the Premium pop-up opens only when the user taps
+/// F7 and ADR-0026 D4: the Premium pop-up opens only when the user taps
 /// the Premium entry. Structural tests on `lib/` plus widget tests that the
 /// moments an automatic pop-up would use never open it.
 void main() {
@@ -104,7 +104,7 @@ void main() {
 
     test('the push extra is held only by the router and shell_entries', () {
       // shell_entries defines and pushes kShellPushExtra; the router checks
-      // its type (`extra is ShellPush`, review W8-9 M-1), not the constant.
+      // its type (`extra is ShellPush`, review M-1), not the constant.
       Set<String> usersOf(String symbol) => {
         for (final f in lib)
           if (RegExp('\\b$symbol\\b').hasMatch(_code(f))) _name(f),

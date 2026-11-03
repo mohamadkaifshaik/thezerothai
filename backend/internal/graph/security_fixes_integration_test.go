@@ -132,7 +132,7 @@ func TestSecurity_Integration_ReservedIDsAreValidation(t *testing.T) {
 	assertBadIDsAreValidation(t, "__x__", true)
 }
 
-// T28 / ADR-0008 A3: a uid containing the `_` edge separator is the same VALIDATION on every uid-taking RPC,
+// / ADR-0008 A3: a uid containing the `_` edge separator is the same VALIDATION on every uid-taking RPC,
 // 0 Firestore ops, 0 ERROR lines, so the a_b -> c vs a -> b_c collision can never be constructed. (`a_b` is a
 // legal HANDLE, so the handle probe is skipped.)
 func TestT28_Integration_UnderscoreUIDIsValidation(t *testing.T) {

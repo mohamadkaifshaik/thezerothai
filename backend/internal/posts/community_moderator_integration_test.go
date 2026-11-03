@@ -120,7 +120,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	if listed, _, _ := state("0000000000000000903"); !listed {
 		t.Error("a hide in the wrong community changed the post")
 	}
-	// F16 (W5-53): the guard sees the author before any write and its error stops the write, hide and restore alike, listed or not
+	// F16: the guard sees the author before any write and its error stops the write, hide and restore alike, listed or not
 	gotAuthor, guardErr = "", errors.New("refused")
 	for _, listed := range []bool{false, true} {
 		bctx, c := budget.WithCounter(ctx)
@@ -150,7 +150,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	}
 }
 
-// W5-51b (ADR-0031 Amendment 1 D4a): a reply qualifies through conversationCommunityId; it has no communityId, so hidden is communityHidden alone
+// ADR-0031 Amendment 1 D4a: a reply qualifies through conversationCommunityId; it has no communityId, so hidden is communityHidden alone
 // (plus communityHiddenAt, server time); reply is reported; a REPOST, a foreign conversation and a moderated reply are not found.
 func TestCommunityModerator_SetCommunityListing_Replies(t *testing.T) {
 	client := newTestClient(t)

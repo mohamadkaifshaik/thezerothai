@@ -41,7 +41,7 @@ enum DraftLoadResult {
 }
 
 /// Why a draft send was stopped before, or after, the RPC without an error
-/// message of its own (W6-39, ADR-0029 Amendment 1 A4). The screen asks the
+/// message of its own (ADR-0029 Amendment 1 A4). The screen asks the
 /// user what to do; nothing is sent until they choose.
 enum SendConflict {
   /// The server knows the key with another body: an earlier version of this
@@ -66,7 +66,7 @@ enum SendConflict {
   bool get canSendAnyway => this != draftGone;
 }
 
-/// What leaving the composer needs (W6-15).
+/// What leaving the composer needs.
 enum LeaveAction {
   /// Nothing is lost: leave.
   none,
@@ -115,7 +115,7 @@ class ComposerState {
   /// cleared by the next edit or submit.
   final AppException? error;
 
-  /// At least one image is attached (P4). An image-only post is valid
+  /// At least one image is attached. An image-only post is valid
   /// (empty text is accepted exactly when an image is attached, plan D2).
   final bool hasAttachments;
 
@@ -136,7 +136,7 @@ class ComposerState {
   /// the user once and nothing else changes.
   final bool replyPolicyNotApplied;
 
-  /// The time the post is to be sent (CMP-D6, ADR-0021 D4): a UTC instant at
+  /// The time the post is to be sent (ADR-0021 D4): a UTC instant at
   /// minute precision, or null for "post now". Set only while
   /// [ComposerCubit.canSchedule]; the primary button then reads "Schedule".
   final DateTime? scheduledAt;
@@ -147,9 +147,9 @@ class ComposerState {
   /// [ComposerCubit.scheduledNoticeShown].
   final pb.ScheduledPost? scheduledNotice;
 
-  /// The poll being built (ADR-0029, W6-12), as typed: choice rows may be
+  /// The poll being built (ADR-0029), as typed: choice rows may be
   /// empty while editing. Null: no poll. It is mapped to the generated
-  /// `PollDraft` only by the repository; drafts (W6-14) keep the same model.
+  /// `PollDraft` only by the repository; drafts keep the same model.
   final DraftPoll? poll;
 
   /// The length the user asked for was under the 5 minute minimum and was
@@ -161,11 +161,11 @@ class ComposerState {
   /// to delete the post.
   final bool pollNotAdded;
 
-  /// A draft send that needs the user's decision (W6-39), shown once and
+  /// A draft send that needs the user's decision, shown once and
   /// cleared by [ComposerCubit.sendConflictShown].
   final SendConflict? sendConflict;
 
-  /// Where the post goes (W5-34): Everyone, or one joined community. Sent as
+  /// Where the post goes: Everyone, or one joined community. Sent as
   /// `community_id` only while [ComposerCubit.canChooseCommunity].
   final ComposeAudience audience;
 
@@ -255,7 +255,7 @@ class ComposerState {
   );
 }
 
-/// Drives the compose screen (T16): live D9 counter, optimistic insert via
+/// Drives the compose screen: live D9 counter, optimistic insert via
 /// [PendingPostsCubit], rollback on error, and one idempotency key per
 /// intent.
 ///
@@ -266,8 +266,8 @@ class ComposerState {
 /// edit-and-revert cannot mint a second key for a post that may already
 /// exist. A different intent gets its own key (the server would answer
 /// IDEMPOTENCY_KEY_REUSED for a different body), and an intent's key is
-/// dropped once its post succeeded. Attached images are uploaded first
-/// (P4): the uploader reuses finished uploads on retry, so the media ids and
+/// dropped once its post succeeded. Attached images are uploaded first:
+/// the uploader reuses finished uploads on retry, so the media ids and
 /// therefore the key stay the same.
 /// [DegradedModeException] is never retried automatically; the user may tap
 /// Post again.
@@ -328,7 +328,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     _watchAttachments();
   }
 
-  /// A reply to [replyToPostId] (P3 thread screen). Replies never appear on
+  /// A reply to [replyToPostId] (thread screen). Replies never appear on
   /// Home, so there is no optimistic item here: the thread screen shows its
   /// own pending row while [ComposerState.isSubmitting].
   ComposerCubit.reply({
@@ -478,7 +478,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// Puts [draft] into the composer (picked from the Drafts list): text, poll
   /// and audience, under the draft's own id. Nothing is saved by this.
   ///
-  /// The same exclusions as the toolbar apply (W6-11): a poll is loaded only
+  /// The same exclusions as the toolbar apply: a poll is loaded only
   /// when the rules offer one now (flags, gate memory, a root post), is
   /// refused while photos or a GIF are attached, and clears a schedule time
   /// (a schedule is never part of a draft, and a scheduled post has no poll).
@@ -628,8 +628,8 @@ class ComposerCubit extends Cubit<ComposerState> {
       !state.audience.isCommunity &&
       _repository.subFeatureEnabled(kFeatureReplyAudience);
 
-  /// `posts` and `scheduled_posts` are both on for this viewer (CMP-D6,
-  /// ADR-0021 D4). Only then, and only for a new root post, may the user
+  /// `posts` and `scheduled_posts` are both on for this viewer
+  /// (ADR-0021 D4). Only then, and only for a new root post, may the user
   /// schedule it.
   final bool scheduleEnabled;
 
@@ -651,7 +651,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   final bool gifFlag;
   final bool mediaOn;
 
-  /// The one answer to "which toolbar buttons are on" (W6-11): the screen and
+  /// The one answer to "which toolbar buttons are on": the screen and
   /// every cubit guard read it, none restates a rule. Reads the gate live, so
   /// a `FEATURE_DISABLED feature=polls` hides the button for the session.
   ComposerAttachmentRules get rules => ComposerAttachmentRules(
@@ -972,7 +972,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     emit(state.copyWith(replyAudience: audience));
   }
 
-  /// Whether the audience picker is offered (W5-34): `communities` is on and
+  /// Whether the audience picker is offered: `communities` is on and
   /// the caller is not protected (both decided by the screen), a new root post
   /// or quote (never a reply), no schedule time set (SchedulePost takes no
   /// community), the caller is in at least one community, and the server has
@@ -1099,7 +1099,7 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   bool get _hasAttached => _attachments != null && !_attachments.state.isEmpty;
 
-  /// Uploads the attached images first (P4) and returns their ids and alt
+  /// Uploads the attached images first and returns their ids and alt
   /// texts (empty without attachments). Null when the upload failed or the
   /// screen went away: the failure is then already in the state, and the
   /// caller just stops. Shared by Post and Schedule.
@@ -1336,7 +1336,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     }
   }
 
-  /// Schedules the post for [publishAt] (CMP-D6): the same uploads as Post,
+  /// Schedules the post for [publishAt]: the same uploads as Post,
   /// then `SchedulePost` with a key kept per request (text, media, audience
   /// AND time). A retry of the same request reuses its key, also after a
   /// LIMIT_REACHED / QUOTA_EXCEEDED that may have been a near-simultaneous

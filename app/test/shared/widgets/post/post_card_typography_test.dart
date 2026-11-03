@@ -26,7 +26,7 @@ pb.PostView _view(String text) => pb.PostView(
   ),
 );
 
-/// W0-2 acceptance: the post body is X's 15dp on a 20dp line pitch, in both
+/// acceptance: the post body is X's 15dp on a 20dp line pitch, in both
 /// themes, and nothing overflows at text scale 1.3.
 void main() {
   Future<void> pumpCard(WidgetTester tester, MatrixEnv env, String text) =>

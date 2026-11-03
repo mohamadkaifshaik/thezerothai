@@ -2,9 +2,9 @@
 
 package apiserver
 
-// T11/T16: the emulator residue sweep and the cross-module invariant check that every deletion scenario ends with.
+// The emulator residue sweep and the cross-module invariant check that every deletion scenario ends with.
 //
-// sweepResidue reads EVERY root collection the project holds (not only the ones in the T11 table, so a collection the
+// sweepResidue reads EVERY root collection the project holds (not only the ones in the table, so a collection the
 // table does not know fails the sweep by name), every subcollection under users/{deleted uid}, and the collection
 // groups of the table's subcollection rows, and reports any document whose path, ID or nested string value contains
 // the deleted uid, minus the ADR-0011 Q10 allowlist (lifecycle_collections_guard_test.go).
@@ -13,7 +13,7 @@ package apiserver
 // maintain, for a cohort of uids (the apiserver tests share one Firestore project, so the check is scoped to the
 // accounts a scenario created). It is the same contract as graph's invariants_integration_test.go and posts'
 // invariants_integration_test.go, restated here because those helpers are unexported in packages this slice must not
-// touch (no shared helper package, per the T16 brief).
+// touch (no shared helper package, per the brief).
 
 import (
 	"context"
@@ -86,7 +86,7 @@ type sweepT interface {
 	Fatalf(format string, args ...any)
 }
 
-// sweepResidue is the T11 emulator sweep over client c. Root collections without a row in lifecycleCollections, and
+// sweepResidue is the emulator sweep over client c. Root collections without a row in lifecycleCollections, and
 // subcollections under users/{uid} without a Sub row, are reported through t.Errorf (the runtime twin of the
 // source-scanning guard).
 func sweepResidue(t sweepT, c *firestore.Client, uid string) []residueHit {

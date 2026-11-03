@@ -94,7 +94,7 @@ func (c *trendsCache) get(ctx context.Context) (list *trendsServed, hit bool, er
 	}
 	// The shared load runs on the first caller's context (and its budget counter): the others wait for it and are not
 	// charged, which matches "one load per instance per TTL". The copy is checked again inside the load: a caller that
-	// saw it stale just before another load finished would otherwise start a second read (W4-20 D-1).
+	// saw it stale just before another load finished would otherwise start a second read (D-1).
 	v, err, _ := c.sf.Do("current", func() (any, error) {
 		if l, ok := c.fresh(); ok {
 			return trendsLoad{list: l, hit: true}, nil

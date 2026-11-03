@@ -1,7 +1,7 @@
 // Package posts owns posts/{postId} (ADR-0003 data model, ADR-0010 slice decisions). It exposes Service
 // (consumed by server.go, the Connect handler), Reader (consumed by the timeline module and other modules; they
-// never query `posts` directly, ADR-0004 handoff), PostEvents (a no-op post-commit hook until notifications,
-// P6) and the Eraser/Exporter seams the account-lifecycle job and opsctl use (implemented in T10).
+// never query `posts` directly, ADR-0004 handoff), PostEvents (a no-op post-commit hook until notifications)
+// and the Eraser/Exporter seams the account-lifecycle job and opsctl use (implemented later).
 //
 // posts depends on identity's api.go interfaces (Directory, Counters) and graph.Reader only; neither imports
 // posts, and timeline imports only this file's interfaces.
@@ -47,7 +47,7 @@ const (
 	KindRepost Kind = "REPOST"
 )
 
-// Visibility mirrors postsv1.Visibility. P1 writes only VisibilityPublic (private accounts are deferred,
+// Visibility mirrors postsv1.Visibility. Posts are written as VisibilityPublic only (private accounts are deferred,
 // ADR-0008 D1).
 type Visibility string
 
@@ -71,7 +71,7 @@ const (
 )
 
 // AuthorSnapshot is the author's denormalised profile copy stored in the post (ADR-0003: refreshed lazily by a
-// job when a profile changes, P2), so rendering a post never joins to users/*.
+// job when a profile changes), so rendering a post never joins to users/*.
 type AuthorSnapshot struct {
 	UserID      string
 	Handle      string
@@ -91,7 +91,7 @@ type Mention struct {
 //
 // Embedded posts are not modelled yet: root posts write kind POST, isReply false, conversationId = postId,
 // visibility PUBLIC, all counters 0 (ADR-0010 D2), and the replies and engagement slices add their fields. Media
-// (P4) is the published image refs the post carries, in request order.
+// is the published image refs the post carries, in request order.
 type Post struct {
 	ID            string
 	AuthorID      string
@@ -146,7 +146,7 @@ type Post struct {
 	Poll *Poll
 	// CommunityID is the community feed key (ADR-0031 D2, D5): set only on a root POST or QUOTE created into a community, never on a reply
 	// or a REPOST. Absent = not a community post (no backfill). Community is the label snapshot taken at post time; ConversationCommunityID
-	// is the conversation's community, set on the community root and inherited by every reply (the members-only reply key, W5-26b).
+	// is the conversation's community, set on the community root and inherited by every reply (the members-only reply key).
 	CommunityID             string
 	Community               *CommunityLabel
 	ConversationCommunityID string
@@ -263,7 +263,7 @@ type Reader interface {
 	// ByAuthorMedia returns authorID's posts that carry their own images (hasMedia == true: root posts, replies and
 	// quotes with images, never a REPOST), newest first, inside window (Before resumes strictly older; After is the
 	// since bound), at most limit (clamped to 1..50). Query: authorId == X && hasMedia == true ORDER BY createdAt DESC,
-	// __name__ DESC, served by the W3-2 composite index posts(authorId, hasMedia, createdAt desc) (ADR-0024 D14). Reads:
+	// __name__ DESC, served by the composite index posts(authorId, hasMedia, createdAt desc) (ADR-0024 D14). Reads:
 	// len(result), minimum 1 (charged with AddQueryReads); no cache read and no cache write other than filling the posts
 	// cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline applies the drop rules,
 	// ADR-0010 D6) and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
@@ -272,7 +272,7 @@ type Reader interface {
 	ByAuthorMedia(ctx context.Context, authorID string, window Window, limit int) ([]*Post, error)
 	// ByAuthorKind returns authorID's posts of one kind (the Reposts tab passes KindRepost), newest first, inside
 	// window, at most limit (clamped to 1..50). Query: authorId == X && kind == K ORDER BY createdAt DESC, __name__
-	// DESC, served by the W3-2 composite index posts(authorId, kind, createdAt desc). An empty or unknown kind is
+	// DESC, served by the composite index posts(authorId, kind, createdAt desc). An empty or unknown kind is
 	// refused before any read. Reads, filtering and the index precondition are ByAuthorMedia's: the timeline drops a
 	// REPOST whose embedded author the viewer blocks or mutes (or who blocks the viewer) and every !Visible() row.
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, window Window, limit int) ([]*Post, error)
@@ -282,8 +282,8 @@ type Reader interface {
 	// array-contains tag ORDER BY createdAt DESC, __name__ DESC on the existing composite index posts(hashtags CONTAINS,
 	// createdAt DESC); no new index. A REPOST stores hashtags [] so it never matches. Reads: len(result), minimum 1;
 	// results fill the posts cache like ByAuthor. Unfiltered: NO visibility, block, mute or audience filtering; posts a
-	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search,
-	// W4-7) must drop !Visible() and decide each post through posts.Audience with SurfaceList (ADR-0025, ADR-0028 D3).
+	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search)
+	// must drop !Visible and decide each post through posts.Audience with SurfaceList (ADR-0025, ADR-0028 D3).
 	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
 	// ByCommunity returns the posts listed in community cid (communityId == cid: root posts and quotes, never a reply or a REPOST; a
 	// moderator hide removes the key), newest first, inside window, at most limit (clamped to 1..50). It is its own query, `communityId == cid
@@ -335,14 +335,14 @@ type Removals interface {
 	RemovedSince(ctx context.Context, cutoff time.Time, scope RemovalScope) (ids []string, truncated bool, err error)
 }
 
-// Service is the Connect handler's dependency: the Reader plus CreatePost (T8), DeletePost and GetPost (T9).
+// Service is the Connect handler's dependency: the Reader plus CreatePost, DeletePost and GetPost.
 type Service interface {
 	Reader
-	// Create writes one root post for uid (ADR-0010 D2, T8). It returns the stored post, or, for a replayed
+	// Create writes one root post for uid (ADR-0010 D2). It returns the stored post, or, for a replayed
 	// idempotency key, the post the first call created. Worst-case Firestore cost: see the CreatePost proto
 	// comment (14 reads cold / 2 warm, 4 writes; replay 14 cold / 1 warm, 0 writes).
 	Create(ctx context.Context, uid string, in CreateInput) (*Post, error)
-	// Delete removes uid's own post (ADR-0010 D4, T9). Success for every other case (another user's post, an
+	// Delete removes uid's own post (ADR-0010 D4). Success for every other case (another user's post, an
 	// unknown or already-deleted id) with 0 writes: no existence oracle. Firestore: reads 1 (the post; 0 when
 	// cached) plus the interceptor's profile read; writes 1 (users.postsCount -1) + 1 delete (Exists precondition).
 	Delete(ctx context.Context, uid, idempotencyKey, postID string) error
@@ -351,7 +351,7 @@ type Service interface {
 	// Firestore: reads post 1 + author users 1 + caller graph 1 cold (+1 author graph if the caller's blockedBy
 	// overflowed), 0 warm; writes 0.
 	GetForViewer(ctx context.Context, callerUID, postID string) (*Post, error)
-	// GetThread returns a post with its parent, conversation root and a page of the conversation (P3, plan
+	// GetThread returns a post with its parent, conversation root and a page of the conversation (plan
 	// replies-and-threads.md). Same visibility rules as GetForViewer for the focal post; an unavailable
 	// parent/root is flagged, not an error. Reads: see ThreadBudget in service_thread.go; writes 0.
 	GetThread(ctx context.Context, callerUID string, in ThreadInput) (*Thread, error)
@@ -367,7 +367,7 @@ type CreateInput struct {
 	ReplyToPostID  string
 	QuoteOfPostID  string
 	// MediaEnabled is FEATURE_MEDIA for the caller (set by server.go from the flag registry). When false, media
-	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before P4.
+	// ids and alt texts are rejected FEATURE_DISABLED("media"), exactly as before then.
 	MediaEnabled bool
 	// GifEnabled is FEATURE_GIF for the caller, made by server.go (never from the request). A GIF media doc with it false is
 	// FEATURE_DISABLED (metadata feature=gif); the content type is only known from the claim, so the refusal happens in the
@@ -442,7 +442,7 @@ type MediaAttacher interface {
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (MediaClaim, error)
 }
 
-// PostDeleteJobs publishes the post_delete background job (P4 media, P5 likes/reposts/quotes; ADR-0018 D6). It is
+// PostDeleteJobs publishes the post_delete background job (media, likes/reposts/quotes; ADR-0018 D6). It is
 // called once, after DeletePost's commit, for every deleted post (mediaIDs may be empty). An error is logged and
 // never fails the delete: the post is already gone and the dependants are also removed by the account purge.
 type PostDeleteJobs interface {
@@ -516,7 +516,7 @@ func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 		if !ok || id == "" {
 			continue
 		}
-		choice, _, _ := strings.Cut(rest, ":") // the optional third part is the closing time (W6-29): not needed here
+		choice, _, _ := strings.Cut(rest, ":") // the optional third part is the closing time: not needed here
 		n, err := strconv.Atoi(choice)
 		if err != nil || n < 0 || n >= MaxPollChoices {
 			continue
@@ -702,7 +702,7 @@ var ErrNotFound = errors.New("posts: post not found")
 // refused before any cache lookup or read. RPC handlers validate ids (^[0-9]{19}$) first; this is the backstop.
 var ErrInvalidID = errors.New("posts: invalid post id")
 
-// PostEvents is a post-commit hook, a no-op until notifications (P6, ADR-0010): "CreatePost calls
+// PostEvents is a post-commit hook, a no-op until notifications (ADR-0010): "CreatePost calls
 // PostEvents.Created after a commit; replays don't". Never called inside the transaction or its budget.
 type PostEvents interface {
 	Created(ctx context.Context, p *Post)
@@ -716,7 +716,7 @@ type Checkpoint struct {
 	// Deleted counts posts removed so far across calls.
 	Deleted int
 	// Phase is 0 while the user's own posts are being deleted and 1 while the copies of the user's content that
-	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written before P5
+	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written earlier
 	// decodes as phase 0. Phase 2 deletes the user's postRemovals entries (amendment 2026-10-18 (b)).
 	Phase int `json:"Phase,omitempty"`
 	// Copies counts REPOST docs removed and QUOTE embeds tombstoned in phase 1.
@@ -725,12 +725,12 @@ type Checkpoint struct {
 
 // Eraser is the delete-cascade building block (ADR-0010 D19 Q-E), used by opsctl purge-posts now and later the
 // account-lifecycle job. PurgeUser is resumable: call again with the returned checkpoint until done is true.
-// Implemented in T10.
+// Implemented.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, checkpoint Checkpoint) (next Checkpoint, done bool, err error)
 }
 
-// Exporter writes one user's posts as the manual data export (ADR-0003 "Deletes & privacy"). Implemented in T10.
+// Exporter writes one user's posts as the manual data export (ADR-0003 "Deletes & privacy"). Implemented.
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }

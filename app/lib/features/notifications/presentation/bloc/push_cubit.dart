@@ -44,7 +44,7 @@ class PushState {
   /// off.
   final bool registered;
 
-  /// Foreground direct-message pushes received this session (W7-19), counted
+  /// Foreground direct-message pushes received this session, counted
   /// apart from [received]: they never refresh the notifications list. The
   /// open inbox or conversation reacts when it grows (an FCM nudge, never
   /// polling); [lastMessageConversationId] says which conversation.
@@ -88,8 +88,8 @@ class PushState {
 ///   kept in drift, never the token.
 /// - A tap on a push (background or cold start) is handed to [onOpen] as an
 ///   app location; a foreground message is handed to [onForeground] (the
-///   badge) and bumps [PushState.received]. A direct-message push (W7-19,
-///   `type=message`) is different: it goes to [onMessagePush] and bumps
+///   badge) and bumps [PushState.received]. A direct-message push
+///   (`type=message`) is different: it goes to [onMessagePush] and bumps
 ///   [PushState.messagePushes] only, so it never reaches [onForeground] (the
 ///   notifications badge) or [PushState.received] (the notifications list).
 /// - [unregister] is best effort and never throws: sign-out must not wait on
@@ -196,7 +196,7 @@ class PushCubit extends Cubit<PushState> {
 
   /// A refreshed FCM token: the server still holds the old one until the new
   /// one is answered, so this device is not known to be reachable meanwhile
-  /// (W7-19: threads poll at the faster interval) and, if the call fails, not
+  /// (threads poll at the faster interval) and, if the call fails, not
   /// afterwards either. `registered` is true again only on success.
   void _onTokenRefresh(String token) {
     if (isClosed) return;
@@ -207,7 +207,7 @@ class PushCubit extends Cubit<PushState> {
   void _onForegroundMessage(PushMessage message) {
     if (isClosed) return;
     if (message.isMessage) {
-      // A direct message (W7-19): its own badge and its own nudge. A push
+      // A direct message: its own badge and its own nudge. A push
       // without a well-formed conversation id names nothing; drop it.
       if (message.location == null) return;
       onMessagePush?.call(message.conversationId);
@@ -247,7 +247,7 @@ class PushCubit extends Cubit<PushState> {
         fcmToken: token,
         platform: _messaging.platform,
       );
-      // Answered: the server pushes this device (W7-19: threads may poll at
+      // Answered: the server pushes this device (threads may poll at
       // the slower hot interval). Not after a sign-out that raced the call.
       if (!stale() && !state.registered) {
         emit(state.copyWith(registered: true));

@@ -3,7 +3,7 @@ import 'package:dzeroth/features/messages/domain/people_source.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 
-/// One Following row: `user<i>` / "User <i>" (W7-17 tests).
+/// One Following row: `user<i>` / "User <i>" (tests).
 graph.UserListItem person(int i, {String? handle, String? name}) =>
     graph.UserListItem(
       user: common.AuthorSnapshot(

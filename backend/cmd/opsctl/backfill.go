@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// backfillHasMedia is `opsctl backfill-has-media` (ADR-0024 D4, W3-8): it gives every post document that lacks `hasMedia`
+// backfillHasMedia is `opsctl backfill-has-media` (ADR-0024 D4): it gives every post document that lacks `hasMedia`
 // the field, through posts.HasMediaBackfiller (the one definition, posts.HasMediaFor). Pages of <= 500 posts by __name__;
 // at most posts.BackfillMaxWrites (5,000) writes per run, after which it stops, prints the checkpoint and says to rerun
 // with --after on another day. A rerun (or a run after it finished) finds nothing missing and writes 0. --dry-run scans

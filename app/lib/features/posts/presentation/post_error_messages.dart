@@ -28,7 +28,7 @@ String createPostErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
-    // ADR-0031 (W5-30): a post or reply into a community the caller may not
+    // ADR-0031: a post or reply into a community the caller may not
     // write to. Fixed text per reason; never "restricted" or the profile flow.
     final CommunityForbiddenException e => e.reason.userMessage,
     final CommunityStateException e => e.reason.userMessage,

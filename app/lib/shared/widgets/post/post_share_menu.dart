@@ -22,7 +22,7 @@ Rect trailingTargetRect(BuildContext context) {
   return Rect.fromLTWH(left, origin.dy, side, box.size.height);
 }
 
-/// The menu behind a post's Share button (X-style, W2-8): "Copy link" and,
+/// The menu behind a post's Share button (X-style): "Copy link" and,
 /// where the device has a native share sheet ([NativeShare.isAvailable]),
 /// "Share via...". Under [AppBreakpoints.mobile] it is a bottom sheet with a
 /// title; from 600dp up it is a menu anchored at [anchor] (the Share button).

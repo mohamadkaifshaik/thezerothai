@@ -2,14 +2,14 @@
 
 package media
 
-// W3-20: the banner moderation path (ADR-0024 D1) against the REAL Firestore repo on the emulator, with the fake object
+// The banner moderation path (ADR-0024 D1) against the REAL Firestore repo on the emulator, with the fake object
 // store and the scripted SafeSearch of the unit tests. The cells that banner_test.go (fakes) and
 // TestIntegration_BannerBudgetsAndResolver / _BannerErasureAndExport (real repo, happy path) leave open:
 //   - the Racy rule table on each of the two images, for a BANNER, an AVATAR and a POST, with the Vision calls made and
 //     the units recorded in the real monthly counter (banner 2, avatar 1, post 1 while VISION_SCREEN_THUMB is off);
 //   - the exhausted-cap paths on the real counter: 2 units left, 1 unit left (a banner needs 2), at the cap, with the
 //     "established" policy for an old account, a 6-day-old account and a 7-day-old one, and the "reject" policy;
-//   - concurrent FinalizeUpload of one banner on ONE instance (W3-22 M-3, fixed in #351): all callers get READY, one
+//   - concurrent FinalizeUpload of one banner on ONE instance (M-3, fixed in #351): all callers get READY, one
 //     screening is paid (exactly 2 units, 2 SafeSearch calls); a claim held by another instance answers the retryable
 //     MEDIA_NOT_READY at 0 writes and 0 Vision units, an expired claim is taken over, and a failed screening releases
 //     its claim so the client's retry is not locked out (the cross-instance race itself is main's
@@ -17,7 +17,7 @@ package media
 //   - the FinalizeUpload BANNER budget through the real repo (reads <= 2, writes exactly 3: claim, resolve, counter);
 //   - purge coverage: every status a banner can be in, PENDING included, with its objects, and nobody else's.
 //
-// Names carry the w320 prefix so a symbol added by a W3-22 fix branch cannot collide.
+// Names carry the w320 prefix so a symbol added by a fix branch cannot collide.
 
 import (
 	"context"
@@ -250,7 +250,7 @@ func TestW320Banner_VisionCapPathsOnTheRealCounter(t *testing.T) {
 }
 
 // TestW320Banner_ConcurrentFinalizeUnits: 8 concurrent FinalizeUpload calls for one PENDING banner on ONE instance
-// (W3-22 M-3 part a, fixed in #351). The per-instance single flight collapses them: every call is answered READY (no
+// (M-3 part a, fixed in #351). The per-instance single flight collapses them: every call is answered READY (no
 // MEDIA_NOT_READY for the losers, no error), the banner is published once, and exactly one screening is paid: 2 Vision
 // units and 2 SafeSearch calls (the full image and the thumbnail), not one screening per caller.
 func TestW320Banner_ConcurrentFinalizeUnits(t *testing.T) {
@@ -298,7 +298,7 @@ func TestW320Banner_ConcurrentFinalizeUnits(t *testing.T) {
 	}
 }
 
-// TestW320Banner_ClaimHeldElsewhereAndFailureRelease: the screening claim on the real repo (W3-22 M-3 part b). (a) A claim
+// TestW320Banner_ClaimHeldElsewhereAndFailureRelease: the screening claim on the real repo (M-3 part b). (a) A claim
 // held by another instance (stamped straight onto the PENDING document) makes FinalizeUpload answer the retryable
 // MEDIA_NOT_READY after reading only, with 0 writes, 0 SafeSearch calls and 0 Vision units, and leaves the claim alone.
 // (b) Once the claim has expired the next call takes the image over and publishes it (units 2, claim cleared by the

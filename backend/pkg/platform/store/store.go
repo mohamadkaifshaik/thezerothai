@@ -22,7 +22,7 @@ type Batch interface {
 	Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch
 	Create(ref *firestore.DocumentRef, data interface{}) Batch
 	Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch
-	// Delete's variadic preconditions (added for ADR-0008 T7/D10) let a caller require firestore.Exists so
+	// Delete's variadic preconditions (added for ADR-0008/D10) let a caller require firestore.Exists so
 	// a whole atomic batch/transaction fails (0 writes) instead of silently deleting nothing when the
 	// document is already gone — Unfollow's blind-batch replay safety and the purge cascade's
 	// two-concurrent-runs safety both depend on this. Existing callers passing no preconditions are

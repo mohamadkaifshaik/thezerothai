@@ -13,8 +13,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W7-25a integration tests: the requester's pending request reads REQUEST in their own Inbox through the requestPending flag
-// on the requester's dmInbox entry (ADR-0027 note W7-25). alice is the requester, bob the recipient.
+// integration tests: the requester's pending request reads REQUEST in their own Inbox through the requestPending flag
+// on the requester's dmInbox entry (ADR-0027 note). alice is the requester, bob the recipient.
 
 func (e *itEnv) rowState(svc *service, uid string, req *messagingv1.ListConversationsRequest, convID string) (messagingv1.ConversationState, messagingv1.Folder, bool) {
 	e.t.Helper()
@@ -29,7 +29,7 @@ func (e *itEnv) rowState(svc *service, uid string, req *messagingv1.ListConversa
 
 // Given A sends one to three request messages, then A's INBOX row reads REQUEST in the INBOX folder on a first page and on
 // a since refresh, the recipient's entry never carries the flag, and Send costs what it did (the flag rides the entry writes;
-// the reads include W7-33's recipient graph read in the transaction).
+// the reads include the recipient graph read in the transaction).
 func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 	e := newIT(t, nil)
 	svc := e.listSvc()
@@ -151,8 +151,8 @@ func TestRequestPending_RecipientDeleteKeepsRequest(t *testing.T) {
 	}
 }
 
-// Given the mutual path, then no flag is written and the row reads ACCEPTED. Given an entry without the field (written before
-// W7-25a), then it reads ACCEPTED as before.
+// Given the mutual path, then no flag is written and the row reads ACCEPTED. Given an entry without the field (written before),
+// then it reads ACCEPTED as before.
 func TestRequestPending_MutualAndLegacyReadAccepted(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)

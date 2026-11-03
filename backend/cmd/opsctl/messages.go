@@ -33,7 +33,7 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 	return convID, msgID, nil
 }
 
-// takedownMessage is `opsctl messages takedown` (ADR-0027 D12, plan W7-12): it tombstones one direct message (state REMOVED,
+// takedownMessage is `opsctl messages takedown` (ADR-0027 D12): it tombstones one direct message (state REMOVED,
 // text and request digest cleared, field-level updates only) and rewrites the inbox preview of each participant whose last
 // message it was, in one transaction. It also bumps the conversation's revision and stamps the rewritten entries, so both
 // participants' devices that cached the thread or the inbox drop the text at their next poll or inbox refresh (the thread
@@ -45,7 +45,7 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 // An unknown message, or one whose conversation is gone, is an error (exit 1).
 //
 // Output never contains the message text or a uid. Ids are printed only as one-way hashes (conversation_hash and
-// message_hash, the same fields messaging logs; conversation_hash is the keyed hash and needs CURSOR_HMAC_KEY in the shell, W7-34); the last line before the cost line is a fixed-shape audit line.
+// message_hash, the same fields messaging logs; conversation_hash is the keyed hash and needs CURSOR_HMAC_KEY in the shell); the last line before the cost line is a fixed-shape audit line.
 //
 // Cost: the transaction reads the message (1) and, for a VISIBLE one, the conversation (1) and each participant's entry that
 // still exists (at most 2), and writes the message (1), the conversation revision (1) and each preview that named it (at most 2): at most 4 reads, 4

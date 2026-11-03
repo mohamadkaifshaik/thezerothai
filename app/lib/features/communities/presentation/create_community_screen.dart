@@ -13,7 +13,7 @@ import '../domain/communities_feature_flag.dart';
 import '../domain/community_text_rules.dart';
 import 'bloc/create_community_cubit.dart';
 
-/// `/communities/new` (W5-31): name, description and a rules editor (up to
+/// `/communities/new`: name, description and a rules editor (up to
 /// [kMaxCommunityRules], each a title and a text), and Create.
 ///
 /// - 1 `CreateCommunity` per submit, one idempotency key per action (reused on

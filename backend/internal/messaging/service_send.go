@@ -57,13 +57,13 @@ const (
 //
 // Worst-case Firestore cost (budget.Counter, interceptor read included as the proto comment counts it):
 //   - accepted conversation: reads 5 cold (interceptor, caller graph, recipient profile through the directory,
-//     conversation and the recipient.s graph in the transaction, W7-33), 2 warm, planning 3.5; writes 3 (message, two entries)
+//     conversation and the recipient's graph in the transaction), 2 warm, planning 3.5; writes 3 (message, two entries)
 //   - existing REQUEST, the requester's next message: writes 4 (+ requestCount); the reply that accepts it: 4 writes and
 //     1 delete (the replier's dmRequests entry moves to dmInbox)
 //   - new conversation: reads 7 (+ the recipient.s users doc in the transaction, quotas), writes 5 (message, conversation, two entries,
 //     quotas.dmNew)
 //   - by conversation_id: +1 read (the participant check) with a cold conversation cache, warm +0 for a participant; a
-//     non-participant always pays that 1 read (the cache never answers or learns from it, W7-28)
+//     non-participant always pays that 1 read (the cache never answers or learns from it)
 //   - replay: +1 read (the stored message), 0 writes; refused: at most 5 reads, 0 writes
 func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
@@ -143,7 +143,7 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		}
 	}
 
-	// Step 3: the caller's graph snapshot (60 s cache; the recipient's graph is read inside the transaction, W7-33) and
+	// Step 3: the caller's graph snapshot (60 s cache; the recipient's graph is read inside the transaction) and
 	// both profiles (the caller's is warm behind the account-status interceptor, the recipient's is the one directory read).
 	mine, err := s.d.Social.Snapshot(ctx, uid)
 	if err != nil {
@@ -199,7 +199,7 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 
 // afterSend is steps 6 and 7 and the request line: the instance cache is updated from the written data, the badge
 // cache of both participants is evicted, and the push event leaves only for an accepted, non-silent, non-replayed
-// message (a request never pushes, F7). silent is the transaction's own read of the recipient's Muted set (W7-33), never a
+// message (a request never pushes, F7). silent is the transaction's own read of the recipient's Muted set, never a
 // value computed before it, so a mute made 59 s ago on another instance no longer pushes.
 func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res SendResult) {
 	logger.SetRequestField(ctx, fieldReplay, res.Replay)
@@ -236,7 +236,7 @@ func (s *service) conversation(ctx context.Context, uid, id string) (ConvDoc, er
 // conversationHit is conversation that also says whether the instance cache answered (the cache_hit log field).
 //
 // The cache is per instance and shared by every caller, and conversation ids are a public function of two public uids, so
-// it must not tell a non-participant anything (security review W7-22, H-1: a probe that warms the cache and times a second
+// it must not tell a non-participant anything (security review, H-1: a probe that warms the cache and times a second
 // probe is an existence oracle for "does A talk to B"). Hence: a cached copy answers only a caller who is in its
 // participants; every other caller (a non-participant against a warm copy, or any miss) pays one fresh GetConversation,
 // found or not, and a document read for a non-participant is never put into the cache. A non-participant probe therefore
@@ -324,7 +324,7 @@ func isTxOp(op string) bool { return op == "send" || op == "accept" || op == "de
 // Reporting must see it, and the client's RetryInterceptor retries a read-only RPC on UNAVAILABLE, which would multiply
 // the polls against an already degraded Firestore.
 //
-// W7-38: "busy" means "outcome unknown, retry with the same idempotency key", not "nothing was written". A lost transaction
+// "busy" means "outcome unknown, retry with the same idempotency key", not "nothing was written". A lost transaction
 // (ErrContended, Aborted) wrote nothing, but a DeadlineExceeded may come from a commit that was already applied; the retry
 // replays it (send: deterministic message id; accept and delete: idempotent by state). A replay pushes nothing, so the
 // recipient's FCM push for a message whose sender saw busy is not sent; the recipient's next poll shows it.

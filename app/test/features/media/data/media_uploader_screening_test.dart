@@ -10,7 +10,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// W6-40 (ADR-0029 Amendment 1 A5.6): FinalizeUpload answers "image checks are
+/// ADR-0029 Amendment 1 A5.6: FinalizeUpload answers "image checks are
 /// temporarily unavailable" with a retry_after. The client repeats the same
 /// call (same media id, nothing re-uploaded) three times after that delay,
 /// then offers a manual Retry on the tile, which calls it again.

@@ -23,7 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// SetHomeTabs (ADR-0030 D6, W5-9) lives in this file so it stays out of the feed code. The timeline never touches users/{uid}:
+// SetHomeTabs (ADR-0030 D6) lives in this file so it stays out of the feed code. The timeline never touches users/{uid}:
 // the pinned tabs are stored by identity behind HomeTabsStore.
 
 // limitHomeTabs is the `limit` metadata of the LIMIT_REACHED answer.
@@ -48,8 +48,8 @@ type HomeTabsDeps struct {
 	Store HomeTabsStore
 	// Lists validates a LIST tab the caller does not already hold (GetList's visibility rules, cache-first).
 	Lists lists.Reader
-	// Communities validates a COMMUNITY tab the caller does not already hold (W5-27: any ACTIVE or ARCHIVED community; membership is not
-	// required). Set by Server.SetCommunities; nil refuses every COMMUNITY tab as VALIDATION tabs, as before W5-27.
+	// Communities validates a COMMUNITY tab the caller does not already hold (any ACTIVE or ARCHIVED community; membership is not
+	// required). Set by Server.SetCommunities; nil refuses every COMMUNITY tab as VALIDATION tabs, as before then.
 	Communities communities.Reader
 	// Flags answers the per-caller FEATURE_LISTS and FEATURE_COMMUNITIES questions (lists.Guard, communities.Guard and the hidden-kind rule).
 	Flags lists.FlagChecker
@@ -57,7 +57,7 @@ type HomeTabsDeps struct {
 	Max int
 }
 
-// WithHomeTabs wires SetHomeTabs (W5-9).
+// WithHomeTabs wires SetHomeTabs.
 func WithHomeTabs(d HomeTabsDeps) Option {
 	return func(s *Server) {
 		if d.Max <= 0 {
@@ -95,7 +95,7 @@ func (d *HomeTabsDeps) visibleKind(uid, kind string) bool {
 	return false
 }
 
-// parseTabs checks the shape of the sent tabs (0 reads): kind LIST, or COMMUNITY once communities is wired (W5-27), a well-formed id,
+// parseTabs checks the shape of the sent tabs (0 reads): kind LIST, or COMMUNITY once communities is wired, a well-formed id,
 // no duplicate. Titles in the request are ignored.
 func (d *HomeTabsDeps) parseTabs(in []*commonv1.HomeTab) ([]tabKey, error) {
 	out := make([]tabKey, 0, len(in))
@@ -179,7 +179,7 @@ func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev
 			}
 		}
 	} else if !h.visibleKind(uid, identity.HomeTabKindList) && !h.visibleKind(uid, identity.HomeTabKindCommunity) {
-		// W5-41/M-3: with lists and communities off for the caller an empty request is a no-op (stored tabs are kept and hidden), so the
+		// M-3: with lists and communities off for the caller an empty request is a no-op (stored tabs are kept and hidden), so the
 		// answer is the empty visible order at 0 reads and 0 writes, with no idempotency document.
 		logger.SetRequestField(ctx, "outcome", "noop:kind_off")
 		return connect.NewResponse(&timelinev1.SetHomeTabsResponse{Tabs: []*commonv1.HomeTab{}}), nil

@@ -1,4 +1,4 @@
-// sweep.go holds the types of the scheduled-post publish sweep (ADR-0021 "Sweep", CMP-D4): the storage seam, the
+// sweep.go holds the types of the scheduled-post publish sweep (ADR-0021 "Sweep"): the storage seam, the
 // limits and collaborators the wiring supplies, the Sweeper interface the cron route calls, and the per-run counters.
 // The orchestration is service_sweep.go, the per-item rules service_sweep_item.go, the HTTP route sweep_http.go and the
 // publish transaction repo_publish_scheduled.go.

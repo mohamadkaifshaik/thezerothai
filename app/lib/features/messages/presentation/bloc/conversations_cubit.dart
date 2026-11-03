@@ -92,15 +92,15 @@ class ConversationsState {
 
 const Object _keep = Object();
 
-/// Drives one folder of the inbox over [MessagingRepository] (W7-14,
-/// ADR-0027 D7, D14).
+/// Drives one folder of the inbox over [MessagingRepository]
+/// (ADR-0027 D7, D14).
 ///
 /// - [load] renders the cache at once, then refreshes (opening always does).
 /// - [refreshIfStale] is for resume and a message push: throttled to one
 ///   attempt per [kConversationsRefreshInterval], quiet, and skipped while a
 ///   RATE_LIMITED hold is set. There is no timer and no periodic poll.
 /// - [refresh] is pull-to-refresh and Retry (unthrottled). A foreground message
-///   push calls [refreshIfStale] (W7-19, from the screen).
+///   push calls [refreshIfStale] (from the screen).
 /// - Errors with nothing cached are blocking; otherwise a notice over the
 ///   cached rows.
 class ConversationsCubit extends Cubit<ConversationsState> {
@@ -113,7 +113,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   }) : _repository = repository,
        _now = now ?? DateTime.now,
        super(const ConversationsState()) {
-    // An accepted or deleted request (W7-18) changed the cache: re-read it,
+    // An accepted or deleted request changed the cache: re-read it,
     // no network.
     _changes = _repository.conversationsChanged.listen(
       (_) => unawaited(_reloadFromCache()),
@@ -128,7 +128,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
   /// Called with the cached INBOX rows after every successful INBOX refresh
-  /// (W7-19: the Messages badge re-syncs from them, ADR-0027 D10). [hasMore] is
+  /// (the Messages badge re-syncs from them, ADR-0027 D10). [hasMore] is
   /// true when older pages exist, so the rows are only a lower bound.
   final void Function(List<pb.Conversation> rows, {required bool hasMore})?
   onInboxSynced;

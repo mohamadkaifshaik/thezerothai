@@ -429,7 +429,7 @@ func TestIsBlockedBy_OverflowButNotActuallyBlocked(t *testing.T) {
 	}
 }
 
-// TestFlagGuard_DisabledRejectsEveryRPC (ADR-0008 T3): every GraphService RPC returns FEATURE_DISABLED
+// TestFlagGuard_DisabledRejectsEveryRPC (ADR-0008): every GraphService RPC returns FEATURE_DISABLED
 // with 0 reads when the flag is off for the caller.
 func TestFlagGuard_DisabledRejectsEveryRPC(t *testing.T) {
 	repo := newFakeRepo()
@@ -469,7 +469,7 @@ func TestFlagGuard_DisabledRejectsEveryRPC(t *testing.T) {
 	}
 }
 
-// TestFlagGuard_EnabledPassesThrough uses GetRelationships (still Unimplemented pending T9) so it only
+// TestFlagGuard_EnabledPassesThrough uses GetRelationships (still Unimplemented pending) so it only
 // exercises the guard itself, not a fully-wired RPC's own dependencies (e.g. Follow needs identity.Directory).
 func TestFlagGuard_EnabledPassesThrough(t *testing.T) {
 	repo := newFakeRepo()
@@ -517,7 +517,7 @@ func (f *fakeRepo) FollowEdgeExists(_ context.Context, followerUID, followeeUID 
 	return f.followEdges[edgeKey{followerUID, followeeUID}], nil
 }
 
-// TestIsFollowing (W3-26b, ADR-0025 AQ2): answered from the viewer's own snapshot, one read cold and none after.
+// TestIsFollowing (ADR-0025 AQ2): answered from the viewer's own snapshot, one read cold and none after.
 func TestIsFollowing(t *testing.T) {
 	repo := newFakeRepo()
 	repo.snapshots["uid-a"] = Snapshot{Following: map[string]bool{"uid-b": true}}

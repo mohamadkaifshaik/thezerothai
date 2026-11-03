@@ -4,7 +4,7 @@ import '../../../shared/format/profile_website.dart';
 import '../../../shared/format/single_line_text.dart';
 
 /// Client checks for the profile text fields, mirroring the server
-/// (`backend/internal/identity/validate.go`, ADR-0024 D2, W3-22 L-2 / L-3).
+/// (`backend/internal/identity/validate.go`, ADR-0024 D2, L-2 / L-3).
 /// Both sides run the vectors in `testdata/profile_text/` (see its README.md),
 /// so a rule changed here without the server, or the other way round, fails a
 /// test. The server stays authoritative: a disagreement comes back as
@@ -31,8 +31,8 @@ enum DisplayNameIssue {
   /// line or paragraph separator or a bidi formatting control.
   forbiddenCharacter,
 
-  /// An invisible format character, a filler, or no visible character (W5-45,
-  /// W5-49): the name would render blank or hide text.
+  /// An invisible format character, a filler, or no visible character:
+  /// the name would render blank or hide text.
   invisibleCharacter,
 }
 
@@ -44,7 +44,7 @@ enum BioIssue {
   /// paragraph separator or a bidi formatting control.
   forbiddenCharacter,
 
-  /// An invisible format character or a filler (W5-55, W5-55b): the bio would
+  /// An invisible format character or a filler: the bio would
   /// hide text. A joiner between two real neighbours and a flag tag sequence
   /// stay valid.
   invisibleCharacter,
@@ -59,7 +59,7 @@ enum LocationIssue {
   /// control.
   forbiddenCharacter,
 
-  /// An invisible format character or a filler (W5-45, W5-49).
+  /// An invisible format character or a filler.
   invisibleCharacter,
 }
 
@@ -160,7 +160,7 @@ LocationIssue? locationIssue(String raw) {
 /// Why [raw] cannot be saved as a website, or null (empty is a valid clear).
 /// It must be one `parseProfileWebsite` accepts, the same parser the profile
 /// header uses before it ever shows or opens a link, so a saved website always
-/// renders. The server runs the same rules (W3-22 L-2 / L-3), so the two agree
+/// renders. The server runs the same rules (L-2 / L-3), so the two agree
 /// on every row of `testdata/profile_text/website.json`.
 WebsiteIssue? websiteIssue(String raw) {
   final text = normalizeProfileWebsite(raw);

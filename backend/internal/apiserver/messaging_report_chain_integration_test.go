@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Report a message (ADR-0027 D12, plan W7-12) over the real Build chain on the emulators: ReportContent with a MESSAGE target
+// Report a message (ADR-0027 D12) over the real Build chain on the emulators: ReportContent with a MESSAGE target
 // through the account-status, rate-limit and degraded-mode interceptors, the flag matrix (reports on for the caller, messaging
 // only not globally off), the participant matrix with byte-identical NOT_FOUND, the evidence and the report log line (no
 // text), the budget of the RPC doc comment (6 reads cold, 3 warm, 3 writes) asserted with budgettest on the logged fs_reads /
@@ -69,7 +69,7 @@ func (e *dmChain) reportDoc(t *testing.T, reportID string) map[string]any {
 		t.Fatalf("report %s: %v", reportID, err)
 	}
 	data := snap.Data()
-	// W7-36: a MESSAGE report keeps its private text in the child reports/{id}/evidence/message, not in the report; put it back
+	// A MESSAGE report keeps its private text in the child reports/{id}/evidence/message, not in the report; put it back
 	// into the evidence map so the assertions read the report as a whole.
 	if cs, err := e.fs.Collection("reports").Doc(reportID).Collection("evidence").Doc("message").Get(context.Background()); err == nil {
 		if ev, ok := data["evidence"].(map[string]any); ok {
@@ -326,7 +326,7 @@ func TestMessageReport_BlockedPeerIsStillReportable(t *testing.T) {
 }
 
 // The budget of the RPC doc comment, through the whole chain: 6 reads cold (interceptor, conversation, message, sender profile,
-// report, quotas) and 3 writes (report, quotas, the evidence child, W7-36); a second message in the same conversation on the same instance 3 reads (the conversation, the
+// report, quotas) and 3 writes (report, quotas, the evidence child); a second message in the same conversation on the same instance 3 reads (the conversation, the
 // sender's profile and the caller's profile are cached; the message, the report and the quotas are not); a repeat 2 reads
 // (message, report) and 0 writes.
 func TestMessageReport_BudgetColdWarmAndDuplicate(t *testing.T) {
@@ -430,7 +430,7 @@ func TestMessageReport_TakedownAndReporterErasure(t *testing.T) {
 	if want := resolvedAt.Add(moderation.Retention); !rr.ExpireAt.Equal(want) || rr.Evidence == nil {
 		t.Errorf("resolved report = expire %v evidence %+v, want expire %v with the evidence kept until then", rr.ExpireAt, rr.Evidence, want)
 	}
-	// W7-36: the text is in the child, whose expiry is not later than the report's.
+	// The text is in the child, whose expiry is not later than the report's.
 	if got, err := mrepo.Get(context.Background(), res.GetReportId()); err != nil || got.Evidence == nil || got.Evidence.Text != "secret text three from b" {
 		t.Errorf("evidence after resolve = %+v err=%v", got.Evidence, err)
 	}
@@ -532,7 +532,7 @@ func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
 }
 
 // A non-participant gets the very same bytes, and the very same cost, whether the instance has the conversation cached or not
-// (W7-28, security review W7-22 H-1): the cache answers only a participant, so a probe is always the interceptor's read plus one
+// (security review H-1): the cache answers only a participant, so a probe is always the interceptor's read plus one
 // fresh conversation read (2 cold, 2 warm) and leaves nothing in the cache. No read count or timing separates "exists" from
 // "missing" for a caller who is not in the conversation.
 func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {

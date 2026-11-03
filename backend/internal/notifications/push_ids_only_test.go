@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// W3-35a (ADR-0025 D4, plan Part B rule 9): a push carries ids and a static per-type line, never post text, a handle or a
+// ADR-0025 D4, plan Part B rule 9: a push carries ids and a static per-type line, never post text, a handle or a
 // media URL. Push has no text-bearing field, and the FCM message built from it for every notification type (the Part B
 // request and accept types included) has the same four data keys, and a title and body that name nobody.
 func TestPush_CarriesIdsOnlyForEveryType(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The community feed (ADR-0031 D6, W5-27). Everything GetCommunityTimeline needs lives in this file: the shared per-community entry, the
+// The community feed (ADR-0031 D6). Everything GetCommunityTimeline needs lives in this file: the shared per-community entry, the
 // per-viewer keep rule, the community's removed_ids and the reply hint. The Home merge, the token codec, the settle watermark and the
 // audience filter are reused as they are.
 
@@ -60,9 +60,9 @@ type communityFeedState struct {
 	entries *cache.LRU[string, *communityEntry]
 }
 
-// SetCommunities wires communities.Reader into GetCommunityTimeline and into SetHomeTabs' COMMUNITY kind (W5-27). feedEntries is
+// SetCommunities wires communities.Reader into GetCommunityTimeline and into SetHomeTabs' COMMUNITY kind. feedEntries is
 // CACHE_COMMUNITY_FEED_ENTRIES (<= 0 means 100). Call it once at startup, before ListenAndServe (it is not synchronised); a server
-// without it keeps both answering as before W5-27 (Unimplemented behind the flag gates, and VALIDATION tabs for a COMMUNITY tab).
+// without it keeps both answering as before then (Unimplemented behind the flag gates, and VALIDATION tabs for a COMMUNITY tab).
 func (s *Server) SetCommunities(r communities.Reader, feedEntries int) {
 	if r == nil {
 		return

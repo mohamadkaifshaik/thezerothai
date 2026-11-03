@@ -167,7 +167,7 @@ func TestRemovalLog_ReadCounts(t *testing.T) {
 	}
 }
 
-// TestRemovalLog_WarmInstanceSeesLaterEntryAfterTTL is plan T15 (e): an entry written after the cache filled is
+// TestRemovalLog_WarmInstanceSeesLaterEntryAfterTTL is (e): an entry written after the cache filled is
 // not served before the TTL expires and is served right after (fake clock).
 func TestRemovalLog_WarmInstanceSeesLaterEntryAfterTTL(t *testing.T) {
 	t.Parallel()

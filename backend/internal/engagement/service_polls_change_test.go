@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ADR-0029 Amendment 1, ticket W6-36: the block rule (A1) and the vote change (A2) at the service, over fakes.
+// ADR-0029 Amendment 1,: the block rule (A1) and the vote change (A2) at the service, over fakes.
 
 const voterKey = "viewer"
 
@@ -251,7 +251,7 @@ func TestVotePoll_ChangeMatrix(t *testing.T) {
 // poll alone, and costs the vote doc read plus one write batch: the documented budget (typical 1 vote read, 0 extra, writes counted at the repo).
 func TestVotePoll_ChangeEffects(t *testing.T) {
 	e := newPollEnv(t) // counts 5/2/0, total 7
-	// Three-part entries (W6-29) on open polls, so none of them has expired and nothing is pruned.
+	// Three-part entries on open polls, so none of them has expired and nothing is pruned.
 	open := e.now.Add(time.Hour)
 	closes := e.closes
 	other1, other2 := pollEntry("0000000000000000901", 3, open), pollEntry("0000000000000000902", 0, open)

@@ -19,13 +19,13 @@ import 'bloc/lists_state.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_row.dart';
 
-/// `/lists` (W5-11): "Your Lists" with a Create button, one row per list and
+/// `/lists`: "Your Lists" with a Create button, one row per list and
 /// an Edit button per row.
 ///
 /// - 1 `ListUserLists` per open; Create / Edit / Delete are one RPC each, in
 ///   the editor ([showListEditor]).
 /// - Create is disabled at 20 lists, with the reason as its tooltip.
-/// - Tapping a row opens `/lists/:id` (the list detail, W5-12).
+/// - Tapping a row opens `/lists/:id` (the list detail).
 /// - The `lists` flag gates the route (the router redirects Home) and every
 ///   entry point; FEATURE_DISABLED or UNIMPLEMENTED shows the calm
 ///   "not available yet" state.

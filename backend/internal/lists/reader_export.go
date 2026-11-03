@@ -5,7 +5,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// This file is the part of the module that timeline.GetListTimeline (W5-8) may use besides Reader and Guard: the one NOT_FOUND,
+// This file is the part of the module that timeline.GetListTimeline may use besides Reader and Guard: the one NOT_FOUND,
 // the list_id check and the header converter. Each is the same code GetList runs, exported rather than copied, so the three
 // RPCs cannot drift apart.
 
@@ -17,7 +17,7 @@ func NotFoundError() *apierr.Error { return notFound() }
 func ValidateListID(id string) error { return validateListID(id) }
 
 // MembersInfo renders the header a Reader.Members answer already holds as the wire ListInfo, with no further read.
-// PinnedByViewer comes from the viewer's tabs (W5-9, service.pinned). The member count is the one Members computed, net of the
+// PinnedByViewer comes from the viewer's tabs (service.pinned). The member count is the one Members computed, net of the
 // members who block the owner, which for the owner is one lower than GetList's stored count only while such a member exists.
 func MembersInfo(m ListMembers) *listsv1.ListInfo {
 	return toListInfo(View{Header: m.Header, Owner: m.Owner, PinnedByViewer: m.PinnedByViewer})

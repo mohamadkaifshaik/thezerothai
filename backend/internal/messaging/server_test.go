@@ -74,7 +74,7 @@ func asConnect(err error, target **connect.Error) bool {
 // TestServer_AllSixHandlers drives each RPC over the wire in allowlist mode with a caller outside the allowlist:
 // SendMessage and AcceptMessageRequest are FAILED_PRECONDITION FEATURE_DISABLED feature=messaging, the other four reach
 // their own validation (the flag is not globally off). With the flag off, all six are FEATURE_DISABLED. An allowlisted
-// caller gets past the gate on all six: every RPC answers its own validation of the empty request (W7-9 implemented the
+// caller gets past the gate on all six: every RPC answers its own validation of the empty request (implemented the
 // last two).
 func TestServer_AllSixHandlers(t *testing.T) {
 	ctx := context.Background()

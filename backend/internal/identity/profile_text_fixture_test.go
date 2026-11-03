@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// The shared profile text fixture (W3-22 L-2/L-3): testdata/profile_text/{location,website,display_name,bio}.json at the
+// The shared profile text fixture (L-2/L-3): testdata/profile_text/{location,website,display_name,bio}.json at the
 // repo root, one file per field. The Dart client runs the same files (its runner lands in the frontend follow-up), so a
 // rule changed on one side fails on the other. See testdata/profile_text/README.md for the schema.
 
@@ -130,7 +130,7 @@ func TestPunycodeEncode(t *testing.T) {
 	}
 }
 
-// The single-line rules (W5-45, W5-17 L-2): visible rune, format characters, fillers. Run through the shared helper lists
+// The single-line rules (L-2): visible rune, format characters, fillers. Run through the shared helper lists
 // use and through the display name validator, which must agree.
 func TestSharedProfileText_SingleLine(t *testing.T) {
 	t.Parallel()

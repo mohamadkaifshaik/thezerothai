@@ -15,7 +15,7 @@ import '../../../timeline/presentation/widgets/feed_post_row.dart';
 import '../bloc/pinned_post_cubit.dart';
 import '../bloc/pinned_post_state.dart';
 
-/// The profile's Pinned row (W3-17, ADR-0024 D3): a muted pin icon and
+/// The profile's Pinned row (ADR-0024 D3): a muted pin icon and
 /// "Pinned" above the pinned post, which is a normal feed row. Reads the
 /// given [PinnedPostCubit] and shows nothing for no pin or a post that is
 /// gone (silently), a one-row skeleton while it loads and a notice with Retry

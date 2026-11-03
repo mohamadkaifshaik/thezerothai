@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// Content disclosure (ADR-0021 D3, CMP-C2/C4): two user-asserted labels, stored on the post doc, frozen into the
+// Content disclosure (ADR-0021 D3,/C4): two user-asserted labels, stored on the post doc, frozen into the
 // Embedded snapshot, hashed only when set, gated by FEATURE_CONTENT_DISCLOSURE on SETTING only.
 
 func disclosureRegistry(disclosure flags.Spec) *flags.Registry {

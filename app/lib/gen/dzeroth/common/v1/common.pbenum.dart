@@ -26,7 +26,7 @@ class HomeTabKind extends $pb.ProtobufEnum {
   /// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
   /// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
   /// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
-  /// caller and keeps them in storage. Until GetCommunityTimeline ships (plan W5-27), SetHomeTabs answers VALIDATION
+  /// caller and keeps them in storage. Until GetCommunityTimeline ships, SetHomeTabs answers VALIDATION
   /// "tabs" for it and GetMe never returns it.
   static const HomeTabKind HOME_TAB_KIND_COMMUNITY =
       HomeTabKind._(2, _omitEnumNames ? '' : 'HOME_TAB_KIND_COMMUNITY');

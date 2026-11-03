@@ -16,9 +16,9 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/fake_posts_server.dart';
 import '../../../../support/media_fixtures.dart';
 
-/// W6-38: the drafts duplicate-publication matrix (ADR-0029 Amendment 1, A4).
+/// The drafts duplicate-publication matrix (ADR-0029 Amendment 1, A4).
 ///
-/// S1-S4 pin what is safe. G1-G6 are tests of the FIXED behaviour: W6-39
+/// S1-S4 pin what is safe. G1-G6 are tests of the FIXED behaviour:
 /// persists the send key on the draft row (they were skipped until then).
 /// Each asserts only what the server saw (how many items it accepted), never
 /// the cubit's internals, and they passed unchanged when the fix landed.
@@ -355,7 +355,7 @@ void main() {
         expect(server.accepted, hasLength(1), reason: 'media is single use');
         // The stored key is reused, so the server answers with the earlier
         // send (IDEMPOTENCY_KEY_REUSED) before it looks at the media: the
-        // user is told an earlier version went out. (Before W6-39 a new
+        // user is told an earlier version went out. (Before a new
         // key reached the media check and got MEDIA_NOT_READY.)
         expect(c.cubit.state.sendConflict, SendConflict.earlierVersionSent);
       });

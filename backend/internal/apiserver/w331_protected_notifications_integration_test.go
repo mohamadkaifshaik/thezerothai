@@ -2,11 +2,11 @@
 
 package apiserver
 
-// W3-31 (ADR-0025 D10, AQ5) through the real Build chain with the inline emitter and the real protected-set loader and
+// (ADR-0025 D10, AQ5) through the real Build chain with the inline emitter and the real protected-set loader and
 // toggle (FEATURE_PRIVATE_ACCOUNTS on): a protected actor P's mention, reply, quote and repost reach a follower of P
 // and nobody else. A recipient who does not follow P gets no row, and because the push is sent only by the call that
 // created the row, no push either. (The request and accept types are covered in the notifications package; graph does
-// not emit them until W3-27 and W3-28a.)
+// not emit them until it ships.)
 
 import (
 	"context"

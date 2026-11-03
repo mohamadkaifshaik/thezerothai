@@ -151,13 +151,13 @@ func TestPollVoteExporter_ChangedAt(t *testing.T) {
 	if len(doc.Votes[1]) != 3 || doc.Votes[1]["changedAt"] != nil || doc.Votes[1]["changes"] != nil {
 		t.Fatalf("unchanged row = %v, want no changedAt", doc.Votes[1])
 	}
-	// Byte-identical to the pre-W6-53 output: the never-changed row carries exactly postId, choice and createdAt.
+	// Byte-identical to the earlier output: the never-changed row carries exactly postId, choice and createdAt.
 	if want := `{"postId":"p2","choice":0,"createdAt":"2026-10-02T02:04:05Z"}`; !bytes.Contains(buf.Bytes(), []byte(want)) {
 		t.Fatalf("unchanged row bytes changed: %s, want %s", buf.String(), want)
 	}
 }
 
-// W6-54: an error naming pollVotes/<postId>_<uid> must carry HashPost(postId)_HashUID(uid) and none of the plain post id, the
+// An error naming pollVotes/<postId>_<uid> must carry HashPost(postId)_HashUID(uid) and none of the plain post id, the
 // plain uid or the unkeyed hash of the post id, on the purge commit, the export query and the export decode paths.
 func TestPurgePollVotes_RedactsDocIDsKeyed(t *testing.T) {
 	t.Parallel()

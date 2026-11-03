@@ -76,7 +76,7 @@ func toProtoAuthorSnapshot(p identity.Profile) *commonv1.AuthorSnapshot {
 		// AuthorSnapshot.avatar_url is documented as the 96px thumbnail (common.proto).
 		AvatarUrl: p.AvatarThumbURL,
 		Verified:  p.Verified,
-		// W3-28c (ADR-0025 implementation note, W3-25c): the lock badge, from the profile this list already hydrated (0 extra
+		// ADR-0025 implementation note,: the lock badge, from the profile this list already hydrated (0 extra
 		// reads). Display only, never an access decision; at most as stale as the Directory cache (CACHE_TTL, 60 s). Set ONLY here:
 		// the frozen copies (posts.v1.Post.author, EmbeddedPost.author, Notification.actor) leave it false.
 		IsPrivate: p.IsPrivate,
@@ -263,7 +263,7 @@ func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Reques
 
 // ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9); the
 // logic is in suggestions.go. Hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= 10), 12
-// on the curated path, 1 warm (2 when the 60 s snapshot has expired: every warm hit is re-filtered, W3-22 L-1); 0 writes. At
+// on the curated path, 1 warm (2 when the 60 s snapshot has expired: every warm hit is re-filtered, L-1); 0 writes. At
 // most 5 rows, no cursor, Since unset, possibly none.
 func (s *Server) ListSuggestedUsers(ctx context.Context, req *connect.Request[graphv1.ListSuggestedUsersRequest]) (*connect.Response[graphv1.ListSuggestedUsersResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListSuggestedUsersResponse, error) {

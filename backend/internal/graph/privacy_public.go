@@ -1,7 +1,7 @@
-// privacy_public.go is the `privacy_public` job (ADR-0025 D8, AQ1, W3-28b): when an account switches from protected to
+// privacy_public.go is the `privacy_public` job (ADR-0025 D8, AQ1): when an account switches from protected to
 // public, every pending follow request addressed to it is accepted. identity only says "this account went public"
 // (identity.PrivacyListener, implemented by PrivacyListener below, which publishes to the shared `jobs` topic); graph owns
-// the requests, so graph owns the job (the ADR-0024 A4 media retire split). The accept itself is the W3-28a code
+// the requests, so graph owns the job (the ADR-0024 A4 media retire split). The accept itself is the code
 // (classifyAccept, queueAccept) run by FirestoreRepo.AcceptPendingPage for a page of requests; this file pages, keeps the
 // caches honest and reports.
 package graph
@@ -116,7 +116,7 @@ func (j *PrivacyPublicJob) Handle(ctx context.Context, data []byte) (string, err
 // Run accepts uid's pending requests, one transaction per page of 100, until a short page. Outcomes: "done" (every
 // request answered, or none), "stopped:protected" (the account is protected again; the job accepts nothing from then on),
 // "stopped:target_gone", "stopped:target_inactive", "stuck" (the whole delivery, every page up to the cap, accepted nothing and dropped nothing: acked,
-// never nacked, because a redelivery would scan the same skipped requests; W3-40b O-1). A delivery that accepted at least one
+// never nacked, because a redelivery would scan the same skipped requests; O-1). A delivery that accepted at least one
 // request and still has more returns ErrPrivacyPublicMore (nack), so the next delivery continues. Idempotent: an accepted request has dropped out of the query, a
 // redelivery re-reads only what is left, and a crash between pages loses nothing and doubles nothing, because the
 // followersCount increment is in the same transaction as the edges it counts.
@@ -160,7 +160,7 @@ func (j *PrivacyPublicJob) Run(ctx context.Context, uid string) (string, error) 
 		cur = res.Last
 	}
 	if tot.accepted+tot.skippedInactive == 0 { // a dropped (inactive) request is progress too: it leaves the query
-		// O-1 (W3-35b): every page up to the cap was skipped (requesters at the 5,000 following cap, or not ACTIVE), so a
+		// O-1: every page up to the cap was skipped (requesters at the 5,000 following cap, or not ACTIVE), so a
 		// redelivery would only repeat the same scan until the DLQ. Ack with counts only; the owner declines the requests or
 		// the requesters unfollow someone.
 		j.log.WarnContext(ctx, "privacy_public", append([]any{

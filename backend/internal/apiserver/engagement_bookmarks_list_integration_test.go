@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ListBookmarks (ADR-0023 D2, D6, ticket W2-4) over the real Build chain on the emulators: paging (25 bookmarks give
+// ListBookmarks (ADR-0023 D2, D6) over the real Build chain on the emulators: paging (25 bookmarks give
 // 20 + a token, then 5 + ""), the clamp, the caller-bound token, the drop rules, the lazy prune and the budget table
 // of the RPC doc comment (43 reads at page 20, 103 at page 50, 2 for an empty list), asserted with budgettest on the
 // logged fs_reads / fs_writes / fs_deletes of the request line.

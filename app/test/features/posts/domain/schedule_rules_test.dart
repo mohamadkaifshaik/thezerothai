@@ -1,7 +1,7 @@
 import 'package:dzeroth/features/posts/domain/schedule_rules.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The client mirror of the server's scheduling window (CMP-D6). The clock is
+/// The client mirror of the server's scheduling window. The clock is
 /// a parameter of every function; the base date is built from the current
 /// year only so no fixed absolute date appears in the test.
 void main() {

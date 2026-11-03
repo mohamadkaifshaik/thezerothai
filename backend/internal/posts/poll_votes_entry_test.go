@@ -2,7 +2,7 @@ package posts
 
 import "testing"
 
-// WithPollVotes reads the choice from "<postId>:<index>" (before W6-29) and "<postId>:<index>:<closesAtUnix>" entries alike, and
+// WithPollVotes reads the choice from "<postId>:<index>" (before then) and "<postId>:<index>:<closesAtUnix>" entries alike, and
 // skips what it cannot read (security L-2: the third part is the retention clock, owned by the engagement module).
 func TestWithPollVotes_EntryForms(t *testing.T) {
 	t.Parallel()

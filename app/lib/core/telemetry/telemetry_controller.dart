@@ -8,7 +8,7 @@ import 'telemetry_inputs.dart';
 import 'telemetry_interfaces.dart';
 
 /// The one place that decides whether crash reports and usage statistics are
-/// collected (ADR-0032, TEL-4).
+/// collected (ADR-0032).
 ///
 /// Collecting a kind is on only when ALL of these hold:
 /// 1. the platform is supported (Android),
@@ -142,11 +142,11 @@ class TelemetryController {
     return _enqueue(() => _analytics.screen(name));
   }
 
-  /// F11 / TEL-8: reset the device's analytics id. Allowed while off, because
+  /// F11 /: reset the device's analytics id. Allowed while off, because
   /// deletion and account switches happen then too.
   Future<void> resetDevice() => _enqueue(_analytics.resetDevice);
 
-  /// TEL-8, in-app deletion of [uid] (the consent keys go through the consent
+  /// In-app deletion of [uid] (the consent keys go through the consent
   /// store): drop the reports not yet sent, reset the analytics ID and forget
   /// the uid's flags and last-uid record. Allowed while off.
   Future<void> forgetDevice(String uid) async {
@@ -161,8 +161,8 @@ class TelemetryController {
   /// F11: a different account than the last one on this device gets a fresh
   /// analytics ID. Queued right after the "off" decision of the switch and ahead
   /// of anything the new uid can log (its flags are off until its own `GetMe`),
-  /// so the reset runs before that account's first event. No record yet (F12,
-  /// TEL-18) or an unreadable one counts as a different account and resets; the
+  /// so the reset runs before that account's first event. No record yet (F12)
+  /// or an unreadable one counts as a different account and resets; the
   /// same uid again resets nothing.
   void _noteSignIn(String uid) {
     unawaited(
@@ -196,7 +196,7 @@ class TelemetryController {
     if (force || crash != _appliedCrash) {
       _appliedCrash = crash;
       _debugLog('telemetry: crash reports ${crash ? 'on' : 'off'}');
-      // ADR-0032 D3 step 1 (TEL-18, L-1): reports from before consent never
+      // ADR-0032 D3 step 1 (L-1): reports from before consent never
       // upload. A no-op once native collection is on, so safe in every state.
       if (crash) unawaited(_enqueue(_crash.deleteUnsentReports));
       unawaited(_enqueue(() => _crash.setCollecting(crash)));

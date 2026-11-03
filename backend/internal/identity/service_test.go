@@ -26,7 +26,7 @@ type fakeRepo struct {
 
 	createCalls      int
 	updateCalls      int
-	updateWrites     int // UpdateProfile calls that changed the profile (the real repo writes only then, W3-22 L-4)
+	updateWrites     int // UpdateProfile calls that changed the profile (the real repo writes only then, L-4)
 	changeCalls      int
 	getProfileCalls  int
 	getProfilesCalls int
@@ -372,12 +372,12 @@ func TestGetProfile_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-// fakeBlockChecker is a table-driven-friendly BlockChecker fake (ADR-0008 T6): the ONLY fake in
+// fakeBlockChecker is a table-driven-friendly BlockChecker fake (ADR-0008): the ONLY fake in
 // service_test.go (table-driven, fakes) exercising the GetProfile block-enforcement
 // path independent of graph.Service, whose emulator-backed transactions are exercised separately.
 type fakeBlockChecker struct {
 	blockedBy map[string]map[string]bool // viewer -> set of targets that blocked viewer
-	following map[string]map[string]bool // viewer -> set of targets the viewer follows (W3-26b)
+	following map[string]map[string]bool // viewer -> set of targets the viewer follows
 	followErr error
 	err       error
 	calls     int
@@ -468,7 +468,7 @@ func TestGetProfile_OwnProfile_SkipsBlockCheck(t *testing.T) {
 	}
 }
 
-// fakeFeatureFlags is a minimal FeatureFlags fake for GetMe tests (ADR-0008 T3/D6).
+// fakeFeatureFlags is a minimal FeatureFlags fake for GetMe tests (ADR-0008/D6).
 type fakeFeatureFlags struct{ enabled []string }
 
 func (f *fakeFeatureFlags) EnabledFeatures(string) []string { return f.enabled }
@@ -503,7 +503,7 @@ func TestGetMe_NilFeatureFlags_NoOp(t *testing.T) {
 	}
 }
 
-// TestGetProfiles_CacheFirstThenBatch (ADR-0008 T6): cached hits cost 0 repo calls; misses go through one
+// TestGetProfiles_CacheFirstThenBatch (ADR-0008): cached hits cost 0 repo calls; misses go through one
 // GetProfiles (GetAll) call; missing/non-ACTIVE ids are silently dropped.
 func TestGetProfiles_CacheFirstThenBatch(t *testing.T) {
 	repo := newFakeRepo()
@@ -892,7 +892,7 @@ func assertNotFound(t *testing.T, err error) {
 	}
 }
 
-// TestLookupProfiles_MissingVsInactive (ADR-0008 T27): missing means "GetAll confirmed no doc"; SUSPENDED and
+// TestLookupProfiles_MissingVsInactive (ADR-0008): missing means "GetAll confirmed no doc"; SUSPENDED and
 // DELETING are in neither found nor missing; a uid only negatively cached is not reported missing again.
 func TestLookupProfiles_MissingVsInactive(t *testing.T) {
 	repo := newFakeRepo()
@@ -923,7 +923,7 @@ func TestLookupProfiles_MissingVsInactive(t *testing.T) {
 	}
 }
 
-// TestProfileNotFoundError_IsTheGetProfileError: other modules reuse the exact NOT_FOUND bytes (ADR-0010 T9).
+// TestProfileNotFoundError_IsTheGetProfileError: other modules reuse the exact NOT_FOUND bytes (ADR-0010).
 func TestProfileNotFoundError_IsTheGetProfileError(t *testing.T) {
 	var a, b *apierr.Error
 	if !errors.As(ProfileNotFoundError(), &a) || !errors.As(notFoundErr(), &b) || a.Code != b.Code || a.Reason != b.Reason || a.Message != b.Message {

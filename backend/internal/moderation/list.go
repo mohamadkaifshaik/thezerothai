@@ -1,4 +1,4 @@
-// list.go is moderation's side of "report a list" (security review W5-17 M-4, plan W5-44): the target type, the shape check
+// list.go is moderation's side of "report a list" (security review M-4): the target type, the shape check
 // of the list id and the consumer-side seam through which moderation reaches a list. moderation never reads lists/* itself:
 // lists implements ListReporter and the composition root adapts it (the MessageLookup pattern, ADR-0027 D15).
 package moderation

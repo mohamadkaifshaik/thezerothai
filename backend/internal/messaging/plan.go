@@ -48,7 +48,7 @@ func decideSend(conv *ConvDoc, uid string, mutual bool, maxUnanswered int64) (se
 }
 
 // decideAccept applies the AcceptMessageRequest rules to the conversation document the accept transaction read (ADR-0027
-// D4, D11; plan W7-9). conv is nil when the document is missing. Only the recipient of the request (requestTo) may accept:
+// D4, D11). conv is nil when the document is missing. Only the recipient of the request (requestTo) may accept:
 // an unknown id, a non-participant, the requester and a conversation that never was a request (mutual follows, no
 // requestTo) are all ErrNotFound, so they share one wire answer. A conversation that is already ACCEPTED is success
 // with nothing to write (Already), whatever its gone list says. A request whose peer deleted the account is

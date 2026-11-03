@@ -1,4 +1,4 @@
-// analyze_search.js: W4 reads and server time per call from the API's JSON request log (W4-23; scenario search.js). Plain Node, no
+// analyze_search.js: W4 reads and server time per call from the API's JSON request log (scenario search.js). Plain Node, no
 // dependencies.
 //
 //   node loadtest/analyze_search.js api.log k6.out [--from-line N]

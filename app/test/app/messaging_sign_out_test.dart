@@ -11,7 +11,7 @@ import '../support/thread_test_support.dart';
 
 class _MockTimeline extends Mock implements TimelineRepository {}
 
-/// W7-21: sign-out wipes the three messaging drift tables through the real
+/// Sign-out wipes the three messaging drift tables through the real
 /// `wipeSessionData` (the function `bootstrap` calls), with the messaging
 /// repository passed in. The repository-level tests call `clearAll` directly;
 /// these prove the wiring.

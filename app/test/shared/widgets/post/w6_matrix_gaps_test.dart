@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/poll_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// W6-19: the widgets of W6 that had no 360 / 600 / 1200 x light / dark x
+/// The widgets of W6 that had no 360 / 600 / 1200 x light / dark x
 /// 1.0 / 1.3 / 2.0 matrix of their own: the compact poll embed and the
 /// "Save post?" dialog with each of its notes.
 void main() {

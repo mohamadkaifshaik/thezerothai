@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// W6-30 (security L-4): the byte-level GIF stripper, against the same
+/// Security L-4: the byte-level GIF stripper, against the same
 /// fixture the Go pre-scan runs (`testdata/gif_strip.json`). No re-encode:
 /// every dirty input must come out as exactly the clean bytes.
 void main() {

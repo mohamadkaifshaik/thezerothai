@@ -227,7 +227,7 @@ class ModerationServiceApi {
   /// the same target again is a success with already_reported=true, 0 writes and no quota charge, regardless of
   /// idempotency_key. idempotency_key (required, <= 64 chars) is still validated for contract uniformity.
   /// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
-  /// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target (plan W5-44) reads the
+  /// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target reads the
   /// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. A COMMUNITY target
   /// (ADR-0031 D14) reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
   /// create, quotas); replay 0. No async work. Nothing here loops over documents.

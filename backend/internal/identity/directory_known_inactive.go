@@ -8,7 +8,7 @@ package identity
 //
 // It is NOT part of the Directory interface: widening Directory would break every fake in every module. A consumer
 // asserts it as an optional extension on the value it already holds (graph's friends-of-friends suggester skips
-// sampled followees this reports, W3-22 L-5). Safe for concurrent use.
+// sampled followees this reports, L-5). Safe for concurrent use.
 func (s *service) KnownInactive(uids []string) map[string]bool {
 	var out map[string]bool
 	for _, uid := range uids {

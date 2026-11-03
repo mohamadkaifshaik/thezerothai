@@ -72,7 +72,7 @@ type Deps struct {
 	// ReadOnly (DEGRADED_MODE=readonly) skips the lazy prune. Without Graph or CursorKey the list answers an internal
 	// error; Flags nil hydrates nothing.
 	Graph graph.Reader
-	// Audience decides the protected-account rows of both lists (ADR-0025 D4, W3-29b): apiserver passes
+	// Audience decides the protected-account rows of both lists (ADR-0025 D4): apiserver passes
 	// posts.AudienceOf(postsSvc). Nil drops no row for a protected author (the pre-ADR-0025 state).
 	Audience  RowAudience
 	Flags     posts.FlagChecker
@@ -80,7 +80,7 @@ type Deps struct {
 	ReadOnly  bool
 
 	// CacheTTL and CacheEntries size the userLikes cache (config.CacheTTL; 0 entries = default).
-	// VotePoll (ADR-0029 D6, W6-7): PollRepo is its storage (FirestoreRepo), PollVoteTTLAfterClose the vote doc TTL beyond closesAt
+	// VotePoll (ADR-0029 D6): PollRepo is its storage (FirestoreRepo), PollVoteTTLAfterClose the vote doc TTL beyond closesAt
 	// (POLL_VOTE_TTL_AFTER_CLOSE), PollViewerVotesKept the lazy trim size of userLikes.pollVotes (POLL_VIEWER_VOTES_KEPT, 0 = never
 	// trim). PollVoteCap is the interceptor's poll_votes_daily counter and NewAccountPollVotesPerDay the lower limit it is compared
 	// with for an account inside NewAccountWindow (POLL_VOTES_PER_DAY_NEW_ACCOUNT, 0 or a nil cap = not enforced here).
@@ -253,8 +253,8 @@ func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*pos
 // the write is never gated): the post for the returned counts, cache first. found is false when the post is gone, and
 // id is then the id to act on: the original's id when postID was a REPOST whose original is gone, else postID itself.
 // visible is false when the caller may not see what was found (a hidden post, an author who blocks the caller, a
-// protected author the caller does not follow, on the post or on the original behind a REPOST id; W3-40a, W3-36 L-1):
-// the caller then answers the missing-post shape with id, byte-identical to a deleted original (W3-40b: the same PostID for a
+// protected author the caller does not follow, on the post or on the original behind a REPOST id, L-1):
+// the caller then answers the missing-post shape with id, byte-identical to a deleted original (the same PostID for a
 // REPOST id whose original is gone and one whose original is hidden), so the counts of a post the caller
 // cannot see are no oracle. id is still the id to write on (the original behind a REPOST id), so an undo always lands.
 // Reads: +0 warm, +1 cold (the caller's graph snapshot, cached 60 s); a protected-set error answers as not visible.
@@ -544,7 +544,7 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 		return Result{PostID: id}, nil
 	}
 	if !visible {
-		return Result{PostID: id}, nil // the missing-post shape (W3-36 L-1): id is the original behind a REPOST id, exactly as when it is gone (W3-40b)
+		return Result{PostID: id}, nil // the missing-post shape (L-1): id is the original behind a REPOST id, exactly as when it is gone
 	}
 	return s.result(ctx, uid, target, delta, 0), nil
 }
@@ -660,7 +660,7 @@ func (s *service) undoRepost(ctx context.Context, uid, key, postID string) (_ Re
 		return Result{PostID: id}, nil
 	}
 	if !visible {
-		return Result{PostID: id}, nil // the missing-post shape (W3-36 L-1): id is the original behind a REPOST id, exactly as when it is gone (W3-40b)
+		return Result{PostID: id}, nil // the missing-post shape (L-1): id is the original behind a REPOST id, exactly as when it is gone
 	}
 	delta := int64(0)
 	if res.Removed {

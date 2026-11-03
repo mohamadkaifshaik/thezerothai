@@ -24,7 +24,7 @@ import 'package:flutter/foundation.dart';
 /// Firebase project a build is wired to (see `lib/firebase_options*.dart`).
 enum FirebaseEnv { dev, prod }
 
-/// The default share origins (founder, W2-8): the prod custom domain and the
+/// The default share origins (founder): the prod custom domain and the
 /// dev Hosting site.
 const String kProdShareOrigin = 'https://dzeroth.com';
 const String kDevShareOrigin = 'https://dzeroth-dev.web.app';

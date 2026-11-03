@@ -1,6 +1,6 @@
 //go:build integration
 
-// visibility_t16b_integration_test.go (T16b) is the ADR-0008 D9 block-visibility matrix, run over real
+// visibility_t16b_integration_test.go is the ADR-0008 D9 block-visibility matrix, run over real
 // Connect handlers, plus the "NOT_FOUND is byte-identical", "blockedBy never serialized" and L9 checks.
 package graph_test
 
@@ -121,7 +121,7 @@ var matrixScenarios = []struct {
 			rel: map[string][2]bool{uidE: {false, true}}, ownMuted: []string{uidE}},
 	},
 	{
-		// B blocking A wins (NOT_FOUND before TARGET_BLOCKED, plan T7 order); A's own blocking bit stays
+		// B blocking A wins (NOT_FOUND before TARGET_BLOCKED, order); A's own blocking bit stays
 		// visible to A, but B is hidden from A's own blocked list (D9 "own lists").
 		name: "A_blocked_B_and_B_blocked_A",
 		ops:  []matrixOp{{"block", uidA, uidB}, {"block", uidB, uidA}},
@@ -511,7 +511,7 @@ func TestBlockedBy_Integration_NeverSerialized(t *testing.T) {
 }
 
 // TestUpdateProfile_Integration_PrivateRejected closes L9 (ADR-0008 D1): is_private=true is rejected with 0
-// writes (W3-25b: FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
+// writes (FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
 // answer Unimplemented past the gate with 0 reads; Follow on
 // a legacy private target is FEATURE_DISABLED while lists treat it as public.
 func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
@@ -529,7 +529,7 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	yes := true
 	_, err = a.id.UpdateProfile(ctx, connect.NewRequest(&identityv1.UpdateProfileRequest{IdempotencyKey: t16bKey(1), IsPrivate: &yes}))
 	info := decodeErr(t, err)
-	// W3-25b (ADR-0025 D12): no private_accounts flag wired in this fixture, so is_private=true is FEATURE_DISABLED
+	// ADR-0025 D12: no private_accounts flag wired in this fixture, so is_private=true is FEATURE_DISABLED
 	// feature=private_accounts before any read; the old "coming soon" VALIDATION is only reachable past the flag.
 	if info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
 		info.Meta["feature"] != "private_accounts" {
@@ -554,7 +554,7 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 		t.Error("profile is private after is_private=false")
 	}
 
-	// Follow-request RPCs (W3-25b gate, built by W3-28a): this fixture's checker enables every flag, so they pass the gate.
+	// Follow-request RPCs (gate): this fixture's checker enables every flag, so they pass the gate.
 	// An empty inbox is an empty page; responding to a request that does not exist is a replay (the full matrix is
 	// follow_requests_respond_integration_test.go).
 	if resp, err := a.graph.ListFollowRequests(ctx, connect.NewRequest(&graphv1.ListFollowRequestsRequest{})); err != nil || len(resp.Msg.GetRequests()) != 0 {

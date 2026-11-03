@@ -19,7 +19,7 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   /// still names them) or whom the caller mutes are dropped; the caller's own posts are always kept. Authors
   /// who are SUSPENDED or DELETING are not filtered at Stage 0 (moderation takedown / purge removes their posts).
   /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
-  /// with either on, one cached userLikes read hydrates the page (P5; liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
+  /// with either on, one cached userLikes read hydrates the page (liked / reposted only with engagement, bookmarked_by_viewer with either). A REPOST or QUOTE whose embedded author the caller
   /// blocks or mutes, or who blocks the caller, is dropped like a post by that author; a REPOST item's flags
   /// describe its original. Protected authors (ADR-0025 D4): Home rows are by the caller and followed accounts only,
   /// so none is hidden; a REPOST whose original is by a protected author the caller does not follow is dropped, and a

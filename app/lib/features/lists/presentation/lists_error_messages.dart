@@ -2,8 +2,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/lists_feature_flag.dart';
 
-/// Friendly, typed text for a failed Lists action (W5-11; W5-12 to W5-14
-/// reuse it). Never the raw server message, and one fixed text for
+/// Friendly, typed text for a failed Lists action
+/// (reuse it). Never the raw server message, and one fixed text for
 /// [NotFoundException] whatever the cause (private, hidden, blocked, gone).
 String listsErrorMessage(AppException error) {
   return switch (error) {

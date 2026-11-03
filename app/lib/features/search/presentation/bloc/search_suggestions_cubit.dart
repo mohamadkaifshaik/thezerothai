@@ -70,7 +70,7 @@ class SearchSuggestionsState {
   );
 }
 
-/// Drives the search field's overlay (W4-14): recents from the local store,
+/// Drives the search field's overlay: recents from the local store,
 /// debounced people and hashtag suggestions. Depends on [SearchRepository]
 /// and [RecentSearchesStore] only.
 ///

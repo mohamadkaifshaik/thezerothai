@@ -2,7 +2,7 @@ import 'package:dzeroth/features/posts/domain/schedule_rules.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/schedule_dialog_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The Schedule dialog's logic (CMP-D6): default, validation window and the
+/// The Schedule dialog's logic: default, validation window and the
 /// re-check on Confirm. The clock is injected.
 void main() {
   final year = DateTime.now().year;

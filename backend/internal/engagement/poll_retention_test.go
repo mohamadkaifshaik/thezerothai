@@ -40,7 +40,7 @@ func TestPollEntryExpiry(t *testing.T) {
 			}
 		})
 	}
-	// A two-part entry (before W6-29) expires at creation + 30 d + ttl: never early for a poll of at most 30 d.
+	// A two-part entry (before then) expires at creation + 30 d + ttl: never early for a poll of at most 30 d.
 	exp, ok := pollEntryExpiry(pidA+":1", retentionTTL)
 	if !ok || exp.Before(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("legacy expiry = %v,%v", exp, ok)

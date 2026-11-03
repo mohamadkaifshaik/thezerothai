@@ -1,4 +1,4 @@
-// profile_snapshot_wiring.go adapts posts to identity's consumer-side SnapshotWriter (P2, ADR-0003 "Author
+// profile_snapshot_wiring.go adapts posts to identity's consumer-side SnapshotWriter (ADR-0003 "Author
 // snapshot refresh"): identity cannot import posts, so the field mapping lives here (the lifecycle_wiring.go
 // pattern).
 package apiserver

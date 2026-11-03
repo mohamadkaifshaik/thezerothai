@@ -8,7 +8,7 @@ const kFollowingTabKey = 'following';
 /// The text of a pinned tab whose list has no known name yet.
 const kUnnamedListTabLabel = 'List';
 
-/// What the Home tab bar and "Manage pinned" show (W5-14).
+/// What the Home tab bar and "Manage pinned" show.
 @immutable
 class HomeTabsState {
   const HomeTabsState({

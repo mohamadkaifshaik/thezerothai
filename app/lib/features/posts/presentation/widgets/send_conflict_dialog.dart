@@ -12,7 +12,7 @@ enum SendConflictChoice {
   sendAnyway,
 }
 
-/// The words of one [SendConflict] (W6-39, ADR-0029 Amendment 1 A4).
+/// The words of one [SendConflict] (ADR-0029 Amendment 1 A4).
 class SendConflictCopy {
   const SendConflictCopy({
     required this.title,

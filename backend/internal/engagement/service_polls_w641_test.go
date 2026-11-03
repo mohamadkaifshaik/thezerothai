@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect"
 )
 
-// W6-41, security-w6-36-poll-changes.md L-1 at the service: the author blocks a voter who HAD voted. Viewable answers the one NOT_FOUND (the fake
+// Security-w6-36-poll-changes.md L-1 at the service: the author blocks a voter who HAD voted. Viewable answers the one NOT_FOUND (the fake
 // models it with a hidden post), so every shape of the request, replay, change, stale and old client, is the whole error of a missing post: code,
 // reason, message, metadata and retry_after, and nothing is read from the vote doc or written.
 func TestW641_L1_AuthorBlocksAVoterWhoVoted_SameErrorAsAMissingPost(t *testing.T) {

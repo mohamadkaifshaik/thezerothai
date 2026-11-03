@@ -263,7 +263,7 @@ void main() {
       },
     );
 
-    // W7-27 / W7-19 F-5: a thread opened from a push with nothing cached gets
+    // / F-5: a thread opened from a push with nothing cached gets
     // the count from the first ListMessages page.
     group('cold open from a push, nothing cached (W7-27)', () {
       late MessagesBadgeCubit badge;

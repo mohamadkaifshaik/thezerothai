@@ -659,7 +659,7 @@ func assertPostHash(t *testing.T, fields *logger.RequestInfo, want string) {
 	}
 }
 
-// W6-52 (security review L-2): an internal poll error names the post through the keyed HashPost, never the raw id and never the
+// Security review L-2: an internal poll error names the post through the keyed HashPost, never the raw id and never the
 // unkeyed HashUID of it (which would undo the keyed post_hash of the request line).
 func TestMapVoteErr_RedactsPostIDKeyed(t *testing.T) {
 	e := newPollEnv(t)

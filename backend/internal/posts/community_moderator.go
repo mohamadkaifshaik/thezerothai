@@ -17,10 +17,10 @@ import (
 //
 // SetCommunityListing reads the post FRESH inside tx (1 read, never the cache), then:
 //   - found=false (and no error) when the post is missing, carries `moderation` (a platform takedown or suspended author: a community hide and
-//     restore must never touch it, W5-53 L-2), is a REPOST or a plain post, is a root whose community.id is not cid, or is a reply
-//     (kind REPLY) whose conversationCommunityId is not cid (ADR-0031 Amendment 1 D4a, W5-51b); reply reports which of the two it was;
+//     restore must never touch it, L-2), is a REPOST or a plain post, is a root whose community.id is not cid, or is a reply
+//     (kind REPLY) whose conversationCommunityId is not cid (ADR-0031 Amendment 1 D4a); reply reports which of the two it was;
 //   - guard (when non-nil) is called with the post's authorId once the post is found and BEFORE any write, whether or not the call would change
-//     anything; its error is returned unchanged and nothing is written (F16, W5-53: the communities module passes the author-vs-actor role check,
+//     anything; its error is returned unchanged and nothing is written (F16,: the communities module passes the author-vs-actor role check,
 //     so the decision costs 0 extra reads and posts never learns what a role is). It applies to replies unchanged;
 //   - listed=false (hide) of a root: when communityId is present, one field-level Update deletes communityId and sets communityHidden and
 //     communityHiddenAt (server time); when it is already absent (hidden), nothing is written and changed is false;
@@ -39,7 +39,7 @@ import (
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
 	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
-	// ListHidden and RestoreHiddenPage are the platform's side (ADR-0031 D14a, W5-52b); see community_hidden.go.
+	// ListHidden and RestoreHiddenPage are the platform's side (ADR-0031 D14a); see community_hidden.go.
 	ListHidden(ctx context.Context, cid, after string, limit int, each HiddenRowFunc) (rows int, last string, err error)
 	RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want HiddenRowFunc) (res HiddenPageResult, err error)
 }

@@ -28,9 +28,9 @@ const (
 	gifFramesCeiling    = 1000
 	gifEdgeCeiling      = 4096
 	gifFrameAreaCeiling = 200_000_000
-	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (W6-27, H-3).
+	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (H-3).
 	mediaScreenAttemptsCeiling = 10
-	// mediaScreenRetriesCeiling bounds MEDIA_MAX_SCREEN_RETRIES (W6-40, ADR-0029 Amendment 1 A5.4): with the attempts it sets the claims
+	// mediaScreenRetriesCeiling bounds MEDIA_MAX_SCREEN_RETRIES (ADR-0029 Amendment 1 A5.4): with the attempts it sets the claims
 	// ceiling, and every claim can bill up to 2 Vision units (8 claims x 2 = 16 per document at the defaults).
 	mediaScreenRetriesCeiling = 10
 	// mediaVisionUnitsDayCeiling and mediaVisionUnitsDayNewAccountCeiling bound the per-uid daily Vision-units caps (A5.5).
@@ -66,8 +66,8 @@ type ComposerConfig struct {
 	GifMaxEdge         int
 	GifMaxFrameAreaSum int
 	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (default 3, 1..10): the most screening attempts (FinalizeUpload
-	// claims) one media document gets; after that it is REJECTED with no further Vision call (W6-27, security H-3).
-	// MediaMaxScreenAttempts, revised by W6-40 (ADR-0029 Amendment 1 A5.4): the attempts that produced a valid assessment without ending
+	// claims) one media document gets; after that it is REJECTED with no further Vision call (security H-3).
+	// MediaMaxScreenAttempts, revised later (ADR-0029 Amendment 1 A5.4): the attempts that produced a valid assessment without ending
 	// the document (screenAssessed). A document with that many is REJECTED with no Vision call.
 	MediaMaxScreenAttempts int
 	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES (default 5, 0..10): the claimed attempts that produced no valid assessment (an

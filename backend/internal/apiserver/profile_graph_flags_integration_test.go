@@ -2,13 +2,13 @@
 
 package apiserver
 
-// Wire contract of the ADR-0024 D9 flag gates (ticket W3-4) over the real Build chain on the emulators: GetMe.enabled_features
+// Wire contract of the ADR-0024 D9 flag gates over the real Build chain on the emulators: GetMe.enabled_features
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
 // caller outside the list is refused while the one inside gets through the gate: ListLikedPosts then answers an empty
-// list (W3-10), GetProfileRelationship is live since W3-11 and answers NOT_FOUND for an unknown target, and
-// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list. Helpers
+// list, GetProfileRelationship is live since then and answers NOT_FOUND for an unknown target, and
+// ListSuggestedUsers answers an empty list for a caller with no follows and no curated list. Helpers
 // come from posts_restricted_test.go and posts_contract_test.go.
 
 import (
@@ -58,7 +58,7 @@ func w3AssertDisabled(t *testing.T, name string, err error) {
 func w3AssertUnimplemented(t *testing.T, who, name string, err error) {
 	t.Helper()
 	if name == "GetProfileRelationship" {
-		// Live since W3-11: past the gate an unknown target is NOT_FOUND, the answer GetProfile gives.
+		// Live since then: past the gate an unknown target is NOT_FOUND, the answer GetProfile gives.
 		if connect.CodeOf(err) != connect.CodeNotFound {
 			t.Errorf("%s %s: err = %v, want NOT_FOUND (gate open, unknown target)", who, name, err)
 		}
@@ -89,7 +89,7 @@ func w3NoWrites(t *testing.T, env *chainEnv, rpc string, maxReads ...float64) {
 	}
 }
 
-// w3StartupFlags returns the flags map of the startup `feature_flags` log line (ADR-0008 D6; W3-4 observability).
+// w3StartupFlags returns the flags map of the startup `feature_flags` log line (ADR-0008 D6; observability).
 func w3StartupFlags(t *testing.T, env *chainEnv) map[string]any {
 	t.Helper()
 	env.logs.mu.Lock()
@@ -169,8 +169,8 @@ func TestProfileGraphContract_AllowlistCohort(t *testing.T) {
 
 	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, env.url)
 	g := graphv1connect.NewGraphServiceClient(http.DefaultClient, env.url)
-	// Inside: every RPC passes the gate. ListLikedPosts (W3-10) answers an empty list for a caller with no likes, and
-	// ListSuggestedUsers (W3-12) answers an empty list for a caller with no follows and no curated list; the rest are
+	// Inside: every RPC passes the gate. ListLikedPosts answers an empty list for a caller with no likes, and
+	// ListSuggestedUsers answers an empty list for a caller with no follows and no curated list; the rest are
 	// live (GetProfileRelationship, NOT_FOUND for an unknown target) or Unimplemented.
 	for name, err := range w3RPCs(eng, g, insideToken) {
 		if name == "ListLikedPosts" || name == "ListSuggestedUsers" {

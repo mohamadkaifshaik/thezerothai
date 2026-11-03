@@ -1,4 +1,4 @@
-// analyze_community_feed.js: W5 Part B reads, writes and server time per call from the API's JSON request log (W5-39; scenario
+// analyze_community_feed.js: W5 Part B reads, writes and server time per call from the API's JSON request log (scenario
 // community_feed.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_community_feed.js api.log k6.out

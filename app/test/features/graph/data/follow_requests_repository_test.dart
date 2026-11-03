@@ -15,7 +15,7 @@ import '../../../support/suggestions_fixtures.dart' show suggestedUser;
 
 class _MockDb extends Mock implements AppDatabase {}
 
-/// W3-34: `ListFollowRequests` and `RespondToFollowRequest` on the repository.
+/// `ListFollowRequests` and `RespondToFollowRequest` on the repository.
 void main() {
   late _MockDb database;
   late List<String> calls;

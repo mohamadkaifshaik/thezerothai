@@ -54,7 +54,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/lists` on the real router (W5-11): needs the `lists` flag, else Home.
+/// `/lists` on the real router: needs the `lists` flag, else Home.
 void main() {
   const user = AppUser(
     uid: 'uid-1',

@@ -30,7 +30,7 @@ const communityEntryBound = "5 minutes"
 // hiddenPageTokenPrefix versions the --page-token (the id of the last row printed).
 const hiddenPageTokenPrefix = "h1."
 
-// hiddenCommunityHash is the community_hash of the hidden commands: the keyed hash of W5-52 (CURSOR_HMAC_KEY), else the unavailable marker.
+// hiddenCommunityHash is the community_hash of the hidden commands: the keyed hash (CURSOR_HMAC_KEY), else the unavailable marker.
 func hiddenCommunityHash(cid string) string { return communityHashForAudit(cid) }
 
 func isHiddenSub(sub string) bool { return sub == "hidden" || sub == "restore-hidden" }
@@ -85,7 +85,7 @@ func decodeHiddenToken(tok string) (string, error) {
 
 func hiddenToken(id string) string { return hiddenPageTokenPrefix + id }
 
-// hiddenCommand is `opsctl community hidden|restore-hidden` (ADR-0031 Amendment 1 D14a, plan W5-52b), the platform recovery of what a rogue or
+// hiddenCommand is `opsctl community hidden|restore-hidden` (ADR-0031 Amendment 1 D14a), the platform recovery of what a rogue or
 // hijacked moderator hid, or a raid cleaned badly. Output holds ids and times only: never text, a name or a uid; the community appears only as
 // community_hash. It works in any community status and any flag state (it touches documents only).
 //

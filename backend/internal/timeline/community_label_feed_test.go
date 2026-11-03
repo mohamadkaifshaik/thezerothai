@@ -22,7 +22,7 @@ func (c *commRig) labelled(p *posts.Post) *posts.Post {
 	return p
 }
 
-// W5-27 (a): a community-hidden post is dropped by the per-viewer keep rule even when a cached entry still holds it, so it never reaches the
+// A: a community-hidden post is dropped by the per-viewer keep rule even when a cached entry still holds it, so it never reaches the
 // wire, with or without a label. The visible post keeps its label.
 func TestCommunity_HiddenPostDroppedAndNeverLabelled(t *testing.T) {
 	t.Parallel()
@@ -53,7 +53,7 @@ type globalOffFlags struct{ posts.FlagChecker }
 
 func (globalOffFlags) GloballyOff(name string) bool { return name == communities.FlagName }
 
-// W5-27 (b): communities globally off carries no label. With the real registry the call is refused before any read, so no post and no label
+// B: communities globally off carries no label. With the real registry the call is refused before any read, so no post and no label
 // can leave; and (c) the mark reaches the ViewerSet through HydrateViewer/toViews: with Enabled true and GloballyOff true the posts come
 // back without a label, while the control (not globally off) carries it.
 func TestCommunity_GloballyOffCarriesNoLabel(t *testing.T) {

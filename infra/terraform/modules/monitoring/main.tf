@@ -283,7 +283,7 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
 // 4. ADR-0011 control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
 // disable/delete ANY Auth user (IAM cannot scope it to one uid); code controls C1-C3 limit it to the caller's own
 // uid, and this alert detects misuse after the fact. Expected ~9 deletions/month; the metric counts successful deletes (op=delete, outcome=ok: one per deletion) plus ERROR refusals. The read-only `get` op (export, M2 sign-up check) never matches.
-// Response (runbook, T22): set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
+// Response (runbook): set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
 // Cost: the only recurring charge in ADR-0011, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
 // alert and relies on log inspection). The label-free log-based counter is inside the free metric ingestion
 // allotment, so it stays in both envs at $0. Founder-approved 2026-10-07, prod-only 2026-10-08.

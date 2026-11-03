@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-22 L-4: an UpdateProfile that changes nothing is 1 read and 0 writes on the real repo (it used to rewrite the whole
+// L-4: an UpdateProfile that changes nothing is 1 read and 0 writes on the real repo (it used to rewrite the whole
 // users document every time). The first save and any later real change still cost the documented 1 write.
 func TestUpdateProfile_Integration_NoOpSaveWritesNothing(t *testing.T) {
 	client, svc, _ := newExtrasService(t, flags.On)

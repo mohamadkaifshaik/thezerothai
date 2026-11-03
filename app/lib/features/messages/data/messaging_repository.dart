@@ -28,7 +28,7 @@ class ConversationsResult {
   final ConversationsSnapshot snapshot;
 
   /// `request_count` of an INBOX first page or since refresh ("Message requests
-  /// (N)", W7-37); null for every other answer (an older page, REQUESTS), where
+  /// (N)"); null for every other answer (an older page, REQUESTS), where
   /// the server sends 0 and the stored count is kept.
   final int? requestCount;
 }
@@ -85,9 +85,9 @@ class MessagingRepository {
   bool get enabled => _gate.canSend;
 
   /// Fires after the cached conversation lists changed by a local action, after
-  /// every Accept, every Delete, and dropBlockedRequest (W7-18), after an Inbox
+  /// every Accept, every Delete, and dropBlockedRequest, after an Inbox
   /// refresh that changed a cached row's state and after
-  /// noteSentRequestAnswered (W7-25b), so an open
+  /// noteSentRequestAnswered, so an open
   /// inbox or requests list re-reads the cache (no network) instead of showing
   /// a stale row or count.
   /// Not a poll and not a server push: nothing here is live.
@@ -115,11 +115,11 @@ class MessagingRepository {
 
   // --- conversations -------------------------------------------------------
 
-  /// Whether the cache holds any conversation. Local only (W7-26).
+  /// Whether the cache holds any conversation. Local only.
   Future<bool> hasCachedConversations() => _store.hasConversations();
 
-  /// The one session-start probe of a caller outside the rollout (W7-26,
-  /// ADR-0027 F6(a)): [MessagingFeatureGate.probe] with the cache check and
+  /// The one session-start probe of a caller outside the rollout
+  /// (ADR-0027 F6(a)): [MessagingFeatureGate.probe] with the cache check and
   /// one INBOX refresh. Sends nothing when messaging is enabled or the cache
   /// is empty. Never throws.
   Future<void> probeAccess() => _gate.probe(
@@ -167,7 +167,7 @@ class MessagingRepository {
     if (page.conversations.length >= _effectivePageSize) {
       return _conversationsColdOpen(folder, session);
     }
-    // INBOX only (W7-37): 0 is authoritative there. REQUESTS never carries it.
+    // INBOX only: 0 is authoritative there. REQUESTS never carries it.
     final int? requestCount = folder == Folder.FOLDER_INBOX
         ? page.requestCount.toInt()
         : null;
@@ -188,7 +188,7 @@ class MessagingRepository {
     );
   }
 
-  /// W7-25b: whether an INBOX answer moves a cached row to another state (the
+  /// Whether an INBOX answer moves a cached row to another state (the
   /// requester sees the peer accept). Local reads only. When it does, the
   /// caller fires [conversationsChanged] after the write so an open thread
   /// re-reads its row. Any other refresh stays quiet.
@@ -295,14 +295,14 @@ class MessagingRepository {
     return current;
   }
 
-  /// The cached conversation with [peerUserId] (W7-17), or null. Never
+  /// The cached conversation with [peerUserId], or null. Never
   /// touches the network: a conversation that was never loaded here is not
   /// found, and the first send then names the recipient, which the server
   /// resolves to the same deterministic conversation (no duplicate).
   Future<pb.Conversation?> cachedConversationWith(String peerUserId) =>
       _store.conversationWithPeer(peerUserId);
 
-  /// The cached conversation [conversationId] (W7-19: a foreground push checks
+  /// The cached conversation [conversationId] (a foreground push checks
   /// whether the Inbox row already shows it unread), or null. Never touches
   /// the network.
   Future<pb.Conversation?> cachedConversation(String conversationId) =>
@@ -397,7 +397,7 @@ class MessagingRepository {
     final snapshot = await _store.readThread(conversationId);
     // Marked only when the write landed (null = the session ended) and the
     // page carried a header: then the cached header is the server's
-    // first-page one (W7-27).
+    // first-page one.
     final applied = added != null && page.hasConversation();
     return _ThreadRefresh(
       applied ? snapshot.asFirstPage() : snapshot,
@@ -544,7 +544,7 @@ class MessagingRepository {
     _notifyConversationsChanged();
   }
 
-  /// The caller blocked the sender of a received request (W7-18): drops its row
+  /// The caller blocked the sender of a received request: drops its row
   /// from the cached lists at once (no RPC), because a `since` refresh never
   /// removes a row and the server hides blocked requesters only on read. Its
   /// messages and thread state stay, so the open thread keeps working. The
@@ -556,7 +556,7 @@ class MessagingRepository {
     _notifyConversationsChanged();
   }
 
-  /// The peer's first reply reached a request the caller sent (W7-25b). Only
+  /// The peer's first reply reached a request the caller sent. Only
   /// the recipient's reply can add a peer message, and it accepts the request
   /// (ADR-0027 D4 step 5), so the cached row becomes an ACCEPTED inbox row now
   /// instead of at the next Inbox refresh. Local only, no RPC. A conversation

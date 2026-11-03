@@ -1,6 +1,6 @@
 //go:build integration
 
-// replies_integration_test.go: the P3 reply path and GetThread against the Firestore emulator, with the
+// replies_integration_test.go: the reply path and GetThread against the Firestore emulator, with the
 // documented read/write budgets asserted.
 package posts
 
@@ -66,7 +66,7 @@ func TestReplies_Integration_CreateShapeBudgetAndPull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cold ceiling 15 reads / 5 writes (plan P3); warm profile here, parent cold.
+	// Cold ceiling 15 reads / 5 writes; warm profile here, parent cold.
 	budgettest.Assert(t, "CreatePost(reply)", c, budgettest.Budget{Reads: 15, Writes: 5})
 	if c.Writes() != 5 {
 		t.Fatalf("writes = %d, want 5 (idempotency, post, postsCount, quotas, parent replyCount)", c.Writes())

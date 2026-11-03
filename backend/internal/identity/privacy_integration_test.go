@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-26a on the emulator: the toggle transaction's exact reads and writes, the set doc it maintains, the loader's
+// on the emulator: the toggle transaction's exact reads and writes, the set doc it maintains, the loader's
 // detached read, and the identity eraser step's ArrayRemove.
 
 func privacyService(t *testing.T, client *firestore.Client, limits identity.PrivacyLimits) (identity.Service, *identity.FirestoreRepo, *identity.ProtectedSetLoader) {

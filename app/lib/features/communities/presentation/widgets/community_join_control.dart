@@ -12,7 +12,7 @@ enum CommunityJoinState { join, joined, banned }
 const kCommunityBannedText = "You can't join this Community";
 
 /// The one Join / Joined / Banned control of a community, shared by the
-/// directory rows and the community header (W5-31, W5-32).
+/// directory rows and the community header.
 ///
 /// - [CommunityJoinState.join]: the strong "Join" pill.
 /// - [CommunityJoinState.joined]: an outlined "Joined" pill; with [onLeave] it

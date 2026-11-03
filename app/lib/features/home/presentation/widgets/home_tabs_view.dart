@@ -6,7 +6,7 @@ import '../../../lists/presentation/bloc/home_tabs_state.dart';
 import 'home_list_tab.dart';
 import 'home_tab_bar.dart';
 
-/// The body of Home with pinned timelines (W5-14): Following, then one
+/// The body of Home with pinned timelines: Following, then one
 /// [HomeListTab] per pinned tab, all fed by the [HomeTabsCubit] above.
 ///
 /// - Following is built at once (as without tabs); a list tab is built the

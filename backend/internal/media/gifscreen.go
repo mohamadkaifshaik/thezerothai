@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// GIF screening glue (ADR-0029 D11, W6-10): the per-instance semaphore, the object read, the deadlines, the panic
+// GIF screening glue (ADR-0029 D11): the per-instance semaphore, the object read, the deadlines, the panic
 // recover and the gif_screen log line around the pure sampler in gifscan.go.
 //
 // Worst-case memory, per instance, whatever the request concurrency (the semaphore admits one GIF at a time and is held

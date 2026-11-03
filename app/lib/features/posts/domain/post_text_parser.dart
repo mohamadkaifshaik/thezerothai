@@ -1,6 +1,6 @@
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
-/// What a run of post text is, for rendering (ADR-0010 D7/D8, T15).
+/// What a run of post text is, for rendering (ADR-0010 D7/D8).
 enum PostSpanKind { plain, link, mention, hashtag }
 
 /// One contiguous run of a post's text. Concatenating every span's [text]

@@ -3,9 +3,9 @@
 // People come from identity (Directory.SearchHandles) and posts from posts.Reader.ByHashtag; search never queries
 // another module's collection directly, and other modules reach it through the interfaces in this file only.
 //
-// W4-3 ships the skeleton: the two flag gates (FEATURE_SEARCH and FEATURE_TRENDS, ADR-0028 D8) and the three Connect
-// handlers. A caller the flag lets through gets Unimplemented until W4-5 (People), W4-7 (Posts) and W4-9 (Trends and
-// the refresher) fill the methods in.
+// The skeleton: the two flag gates (FEATURE_SEARCH and FEATURE_TRENDS, ADR-0028 D8) and the three Connect
+// handlers; service.go implements People, Posts and Trends, and trends_refresh.go
+// the refresher.
 package search
 
 import (
@@ -44,7 +44,7 @@ type Service interface {
 }
 
 // TrendsRefresher recomputes trends/current from the posts created since the last run (ADR-0028 D6). A scheduled step
-// calls it; the cron host is wiring only. W4-9 implements it; the skeleton only names the seam.
+// calls it; the cron host is wiring only.
 type TrendsRefresher interface {
 	Refresh(ctx context.Context) error
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // convHashInfo is the HKDF info label of the conversation-hash key. It is distinct from the cursor module's own label, so
-// the two derived keys are unrelated (ADR-0027 W7-34, security review L-7).
+// the two derived keys are unrelated (ADR-0027, security review L-7).
 const convHashInfo = "dzeroth log conversation_hash v1"
 
 // convHashKey is the process's derived key; nil until SetConversationKey (or the first HashConversation, which then
@@ -106,7 +106,7 @@ func RedactErrKeyed(err error, convIDs []string, ids ...string) error {
 	return &redactedError{msg: msg, cause: err}
 }
 
-// RedactErrPosts is RedactErr for an error that names post ids (W6-52, security review L-2): every occurrence of a post id in
+// RedactErrPosts is RedactErr for an error that names post ids (security review L-2): every occurrence of a post id in
 // postIDs becomes HashPost(id), the keyed pseudonym of the request line, and every occurrence of a uid in ids becomes
 // HashUID(id). An unkeyed hash of a public post id next to the uid hash would let a log reader rebuild who voted in which poll.
 func RedactErrPosts(err error, postIDs []string, ids ...string) error {
@@ -128,7 +128,7 @@ func RedactErrPosts(err error, postIDs []string, ids ...string) error {
 }
 
 // RedactErrPostDocs is RedactErrPosts for an error that names documents with the composite id <postId>_<uid> (likes, reposts,
-// pollVotes; W6-56): the post part of each id is mapped through the keyed HashPost and the uid through HashUID, so a document id
+// pollVotes): the post part of each id is mapped through the keyed HashPost and the uid through HashUID, so a document id
 // renders as HashPost(postId)_HashUID(uid). Redacting the uid first breaks the id apart and leaves the plain post id next to the
 // uid hash. A uid never contains "_" (ADR-0008 A3), so the post id is everything before the last "_"; an id without one is
 // skipped (it is not a composite id).
@@ -142,8 +142,8 @@ func RedactErrPostDocs(err error, uid string, docIDs ...string) error {
 	return RedactErrPosts(err, postIDs, uid)
 }
 
-// HashCommunity is the log pseudonym of a community id (community_hash on the Communities moderation request lines, ADR-0031 D13a,
-// W5-52): the first 8 bytes of HMAC-SHA256(key, "community|" + id), the same key as HashConversation. A community id is a public
+// HashCommunity is the log pseudonym of a community id (community_hash on the Communities moderation request lines, ADR-0031 D13a):
+// the first 8 bytes of HMAC-SHA256(key, "community|" + id), the same key as HashConversation. A community id is a public
 // Snowflake; an unkeyed hash next to the actor's uid_hash would let a log reader rebuild who moderated what. `opsctl community
 // loghash` and the opsctl community commands reproduce it. "" in, "" out.
 func HashCommunity(id string) string {
@@ -153,7 +153,7 @@ func HashCommunity(id string) string {
 	return hashKeyed("community|" + id)
 }
 
-// HashTarget is the log pseudonym of the user a role action is applied to (target_hash on the SetMemberRole request line, W5-52):
+// HashTarget is the log pseudonym of the user a role action is applied to (target_hash on the SetMemberRole request line):
 // the first 8 bytes of HMAC-SHA256(key, "target|" + uid). It is keyed, not HashUID, because the plain hash of a target beside the
 // actor's uid_hash would show who acted on whom to anyone holding a pair of uids. "" in, "" out.
 func HashTarget(uid string) string {

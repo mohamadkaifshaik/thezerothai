@@ -15,7 +15,7 @@ import '../../../../support/scheduled_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// TEL-6: the composer reports `post_created` on the success path only.
+/// The composer reports `post_created` on the success path only.
 void main() {
   setUpAll(() {
     registerFallbackValue(ReplyPolicy.REPLY_POLICY_UNSPECIFIED);

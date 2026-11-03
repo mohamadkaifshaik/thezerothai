@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// W3-6 (ADR-0024 D1-D3, D9): UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
+// ADR-0024 D1-D3, D9: UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
 // Firestore-backed paths are covered by the integration tests (repo budgets) and the apiserver chain test.
 
 const (

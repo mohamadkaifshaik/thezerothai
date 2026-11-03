@@ -1,4 +1,4 @@
-// Command opsctl is the founder's manual-runbook CLI (ADR-0008 T11): purge-graph deletes one user's social
+// Command opsctl is the founder's manual-runbook CLI (ADR-0008): purge-graph deletes one user's social
 // graph (the graph.Eraser cascade) and export-graph writes their graph data as JSON. It runs on the
 // founder's machine with Application Default Credentials (or against the emulator via
 // FIRESTORE_EMULATOR_HOST); it is never deployed. Every command requires an explicit --project, and a
@@ -51,25 +51,25 @@ type backends struct {
 	exporter interface {
 		ExportUser(ctx context.Context, uid string) (graph.Export, error)
 	}
-	// posts (ADR-0010 T10): the Eraser/Exporter seams and the dry-run counter.
+	// posts (ADR-0010): the Eraser/Exporter seams and the dry-run counter.
 	postsEraser  posts.Eraser
 	postsPlanner interface {
 		PlanPurge(ctx context.Context, uid string) (posts.PurgePlan, error)
 	}
 	postsExporter posts.Exporter
 	profile       func(ctx context.Context, uid string) (identity.Profile, error)
-	// moderation (ADR-0016 T6): report list/show/resolve, post takedown, and the account status change.
+	// moderation (ADR-0016): report list/show/resolve, post takedown, and the account status change.
 	reports   moderation.Ops
 	moderator posts.Moderator
-	// messages takes one direct message down (`opsctl messages takedown`, ADR-0027 D12, W7-12).
+	// messages takes one direct message down (`opsctl messages takedown`, ADR-0027 D12).
 	messages messaging.Moderator
-	// placeholder serves `messages migrate-placeholder` (W7-34, L-2): the dev-only rewrite of the legacy erased-user placeholder.
+	// placeholder serves `messages migrate-placeholder` (L-2): the dev-only rewrite of the legacy erased-user placeholder.
 	placeholder messaging.PlaceholderMigrator
-	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6, T10).
+	// cleanup removes the REPOSTs and tombstones the quote embeds of a taken-down post (ADR-0018 D6).
 	cleanup posts.Cleanup
 	// copied lists the suspended author's posts that have copies, for suspend-user's copy cleanup (#151).
 	copied posts.CopiedLister
-	// backfiller serves backfill-has-media (ADR-0024 D4, W3-8): the posts repo helper that owns the hasMedia rule.
+	// backfiller serves backfill-has-media (ADR-0024 D4): the posts repo helper that owns the hasMedia rule.
 	backfiller posts.HasMediaBackfiller
 	accounts   accountStatusSetter
 	// profiles serves clear-profile-fields (ADR-0024 Amendment 1 A3): identity's field-level clear of users/{uid}.
@@ -85,14 +85,14 @@ type backends struct {
 	actorSweeper notifications.ActorSweeper
 	// sleep replaces the real wait of suspend-user's settle pass in tests (nil = real timer).
 	sleep func(ctx context.Context, d time.Duration) error
-	// trends serves `trends hide|unhide|list` (ADR-0028 note 2026-10-31, W4-25): search's store of trends/hidden.
+	// trends serves `trends hide|unhide|list` (ADR-0028 note 2026-10-31): search's store of trends/hidden.
 	trends search.TrendsStore
-	// lists serves `lists hide|restore` (plan W5-44, security review W5-17 M-4): the lists module's platform hide of one list.
+	// lists serves `lists hide|restore` (security review M-4): the lists module's platform hide of one list.
 	lists lists.Moderator
-	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user (ADR-0031 D14, plan W5-29).
+	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user (ADR-0031 D14).
 	communities communities.Platform
 	removals    communities.PlatformRemovals
-	// hidden serves `community hidden|restore-hidden` (ADR-0031 D14a, plan W5-52b).
+	// hidden serves `community hidden|restore-hidden` (ADR-0031 D14a).
 	hidden communities.HiddenRecovery
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
@@ -121,13 +121,13 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	graphRepo.SetProfiles(identityRepo)
 	graphRepo.SetTxProfiles(identityRepo)
 	postsRepo := posts.NewFirestoreRepo(client)
-	// Takedown and the purge copy phase drive posts' clean-up (P5): counters and the reposts-doc delete.
+	// Takedown and the purge copy phase drive posts' clean-up: counters and the reposts-doc delete.
 	postsRepo.SetWriters(posts.WriteDeps{Counters: identityRepo})
 	postsRepo.SetRepostLinks(engagement.NewFirestoreRepo(client, engagement.WriteDeps{}))
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
 	communitiesRepo := communities.NewFirestoreRepo(client, nil)         // the platform levers need no idempotency or quota store
 	msgRepo := messaging.NewFirestoreRepo(client, nil)                   // takedown and the placeholder migration: no quota store needed
-	communitiesRepo.WithHiddenPosts(posts.NewCommunityModerator(client)) // the platform recovery of hidden posts (W5-52b)
+	communitiesRepo.WithHiddenPosts(posts.NewCommunityModerator(client)) // the platform recovery of hidden posts
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
 		_ = client.Close()
@@ -519,7 +519,7 @@ func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
 	return errors.New("purge did not finish within the call limit")
 }
 
-// purgePosts is purge-posts (ADR-0010 T10): the same dry-run and start-gate guards as purge-graph, then the posts
+// purgePosts is purge-posts (ADR-0010): the same dry-run and start-gate guards as purge-graph, then the posts
 // Eraser. Run it BEFORE purge-graph and before users/{uid} is deleted.
 func purgePosts(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, out io.Writer, now func() time.Time) error {
 	if dryRun {
@@ -581,7 +581,7 @@ func export(ctx context.Context, b *backends, uid, outFile string, out io.Writer
 	})
 }
 
-// exportPosts is export-posts (ADR-0010 T10): the posts exporter streams its JSON straight to --out (or stdout).
+// exportPosts is export-posts (ADR-0010): the posts exporter streams its JSON straight to --out (or stdout).
 func exportPosts(ctx context.Context, b *backends, uid, outFile string, out io.Writer) error {
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()

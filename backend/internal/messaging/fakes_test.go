@@ -33,16 +33,16 @@ type fakeRepo struct {
 	sendErr  error
 	freshErr error // what FreshRecipient returned when the fake ran it
 
-	// entries is users/{uid}/{folder} keyed "uid|folder" (W7-7); lists and counts record the calls, queries the queries.
+	// entries is users/{uid}/{folder} keyed "uid|folder"; lists and counts record the calls, queries the queries.
 	entries  map[string][]EntryRow
 	lists    int
 	counts   int
 	unreads  int // CountUnreadConversations calls
 	queries  []ListQuery
 	listErr  error
-	countErr error // CountRequests fails with it (W7-37)
+	countErr error // CountRequests fails with it
 
-	// msgs is conversations/{id}/messages (W7-8); msgQueries records the queries. marked records MarkRead calls as
+	// msgs is conversations/{id}/messages; msgQueries records the queries. marked records MarkRead calls as
 	// "uid|convID"; markFound is what it answers (default found).
 	msgs        map[string][]MessageRow
 	msgQueries  []MessageQuery
@@ -51,11 +51,11 @@ type fakeRepo struct {
 	markMissing bool
 	markErr     error
 
-	// entryGets records GetEntry calls as "uid|folder|convID" (W7-27); entryErr is what it answers when set.
+	// entryGets records GetEntry calls as "uid|folder|convID"; entryErr is what it answers when set.
 	entryGets []string
 	entryErr  error
 
-	// accepts and deletes record the W7-9 calls; lifeErr is returned by both when set; writes and deletedDocs count the
+	// accepts and deletes record the calls; lifeErr is returned by both when set; writes and deletedDocs count the
 	// documents the fake wrote and deleted (the budget the real repo reports).
 	accepts     []AcceptParams
 	deletes     []DeleteParams
@@ -315,7 +315,7 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if f.sendErr != nil {
 		return SendResult{}, f.sendErr
 	}
-	// The transaction's reads, in the real order (W7-33): the recipient's graph (block, mute, mutual), then for a new
+	// The transaction's reads, in the real order: the recipient's graph (block, mute, mutual), then for a new
 	// conversation the recipient's users doc.
 	theirs, err := p.RecipientGraphInTx(ctx, nil)
 	if err != nil {
@@ -546,7 +546,7 @@ func (f *fakeTxProfiles) ProfileInTx(_ context.Context, _ *firestore.Transaction
 }
 
 // verifiedCtx is a context whose caller passed the verified-identity gate (a Google sign-in), which Send and Accept re-check
-// themselves (W7-33, L-8). A context without claims is refused with EMAIL_NOT_VERIFIED.
+// themselves (L-8). A context without claims is refused with EMAIL_NOT_VERIFIED.
 func verifiedCtx() context.Context {
 	return authn.WithClaims(context.Background(), authn.Claims{SignInProvider: authn.SignInProviderGoogle})
 }

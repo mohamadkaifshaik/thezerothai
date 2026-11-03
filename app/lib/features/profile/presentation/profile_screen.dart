@@ -47,7 +47,7 @@ import '../../../shared/widgets/post/protected_posts_view.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
-/// tab (T18, ADR-0008 D13: the posts plan owns the body below the header).
+/// tab (ADR-0008 D13: the posts plan owns the body below the header).
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, this.handle, this.userId})
     : assert(
@@ -154,7 +154,7 @@ class _ProfileViewState extends State<_ProfileView> {
       appBar: AppBar(
         // The sticky header: the display name over the post count once the
         // profile is loaded (X), the requested @handle until then. The name
-        // fades in only after the real one scrolls under the bar (B-05).
+        // fades in only after the real one scrolls under the bar.
         title: BlocBuilder<ProfileCubit, ProfileState>(
           buildWhen: (a, b) =>
               a.profile?.handle != b.profile?.handle ||
@@ -317,9 +317,9 @@ ProfileHeader _header(
     showPostsCount: showPostsCount,
     nameKey: nameKey,
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),
-    // W5-13: the Lists rows of the overflow menu.
+    // The Lists rows of the overflow menu.
     listsEnabled: isFeatureEnabled(context, kFeatureLists),
-    // W7-17: the envelope button, only with `messaging` on for the caller.
+    // The envelope button, only with `messaging` on for the caller.
     onMessage:
         !state.isOwnProfile && isFeatureEnabled(context, kFeatureMessaging)
         ? () => unawaited(
@@ -382,12 +382,12 @@ class _ScrollColumn extends StatelessWidget {
 }
 
 /// The id of the Posts tab: the default selection, and the tab whose cubit
-/// the Pinned row filters (W3-17).
+/// the Pinned row filters.
 const _postsTabId = 'posts';
 
 /// One tab of the profile: everything the scroll scaffold needs to show it.
 /// The tab list is data, so another tab is one more entry in
-/// [_profileTabSpecs], with no change to the scroll structure (W3-16 added
+/// [_profileTabSpecs], with no change to the scroll structure (added
 /// Reposts and Media that way).
 @immutable
 class _ProfileTabSpec {
@@ -417,7 +417,7 @@ class _ProfileTabSpec {
   /// The own profile's pending posts and "Write a post" belong to this tab.
   final bool ownPosts;
 
-  /// The Pinned row (W3-17) sits above this tab's posts, and the post it shows
+  /// The Pinned row sits above this tab's posts, and the post it shows
   /// is left out of them.
   final bool showsPinned;
 
@@ -493,7 +493,7 @@ List<_ProfileTabSpec> _profileTabSpecs({
 /// tabs and shows Posts and Replies; the repository sends nothing more for
 /// them until the next `GetMe`.
 ///
-/// Scrolling (W3-13): one `NestedScrollView`. The header scrolls away, the
+/// Scrolling: one `NestedScrollView`. The header scrolls away, the
 /// tab bar pins under the app bar, and only the selected tab's list is
 /// mounted; each tab keeps its own offset (a `PageStorageKey`) and its own
 /// cubit, which this state holds, so switching back shows the same rows
@@ -529,7 +529,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   /// (0 requests for a tab nobody opens), closed with the screen.
   final Map<String, TimelineCubit> _cubits = {};
 
-  /// The profile's Pinned row (W3-17), created on the first build that shows
+  /// The profile's Pinned row, created on the first build that shows
   /// posts (never while the blocked banner stands in for them) and told about
   /// every change of the profile's `pinned_post_id`.
   PinnedPostCubit? _pinned;
@@ -609,7 +609,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
               timeline: context.read<TimelineRepository>(),
               posts: context.read<PostsRepository>(),
               viewerUserId: viewerUserId,
-              // An undone repost leaves the tab (W3-41c).
+              // An undone repost leaves the tab.
               engagement: _engagementOrNull(context),
               // The header's post count follows a delete at once (a deleted post
               // can only be the viewer's own).
@@ -973,7 +973,7 @@ class _BlockedPostsBanner extends StatelessWidget {
 
 /// The session's engagement overlay, or null when no session is above (a
 /// profile shown outside the app, as in some tests): then an undone repost is
-/// only dropped by the next refresh, as before W3-41c.
+/// only dropped by the next refresh, as before then.
 EngagementCubit? _engagementOrNull(BuildContext context) {
   try {
     return context.read<EngagementCubit>();

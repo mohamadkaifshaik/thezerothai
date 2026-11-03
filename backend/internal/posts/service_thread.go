@@ -1,4 +1,4 @@
-// service_thread.go is the replies slice (P3): the reply path of
+// service_thread.go is the replies slice: the reply path of
 // CreatePost (parent resolution), the parent's replyCount release on delete, and GetThread.
 //
 // Pull model (ADR-0004): a reply is an ordinary posts doc with isReply = true. It is never written to, nor
@@ -111,9 +111,9 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 // The viewer_reply_permission hint (ADR-0021 D2) adds <= +1 cold (R's author graph, FOLLOWING conversations only;
 // +0 warm, +0 for EVERYONE / MENTIONED_ONLY / the root author): 39 cold, 41 for a REPOST focal. A QUOTE or REPOST parent or root is
 // checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
-// A community conversation (ADR-0031 A7, W5-26b) adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
+// A community conversation (ADR-0031 A7) adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
 // read), +0 warm: 40 cold, 42 for a REPOST focal. The handler applies it (communityReplyHint); GetThread itself does not know the flag.
-// A reply a community moderator hid (communityHidden, ADR-0031 Amendment 1 D4a, W5-51b) is dropped from the page for every viewer but its author and
+// A reply a community moderator hid (communityHidden, ADR-0031 Amendment 1 D4a) is dropped from the page for every viewer but its author and
 // leaves the parent slot as ParentUnavailable: +0 reads (every row is already read), cause audience_dropped_community_hidden, whatever the flag state (R5).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
@@ -215,7 +215,7 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	return out, nil
 }
 
-// audienceTally counts the thread rows GetThread dropped, by cause (ADR-0025 W3-29b observability): counts only.
+// audienceTally counts the thread rows GetThread dropped, by cause (ADR-0025 observability): counts only.
 type audienceTally struct{ protected, blocked, muted, hidden, communityHidden int }
 
 func (t audienceTally) total() int {
@@ -505,7 +505,7 @@ func replyAllowed(snap graph.Snapshot, caller, author string) bool {
 // The page token uses cursor.TTL (24 h): a thread is read in one sitting, and a stale token only restarts the
 // page (VALIDATION, the client reloads the thread).
 
-// applyReply turns a root-post draft into a reply to parent (P3): kind, isReply, the parent link, the
+// applyReply turns a root-post draft into a reply to parent: kind, isReply, the parent link, the
 // "Replying to @handle" label and the parent's conversation (a reply to a root starts the conversation at that
 // root; deeper replies share it). The parent's replyCount increment rides in the CreatePost transaction.
 func applyReply(p *CreateParams, parent *Post) {
@@ -520,7 +520,7 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.ConversationID = conv
 	p.Draft.ReplyPolicy = parent.ReplyPolicy // inherited, 0 reads; never a user id (ADR-0021 D2)
 	// ADR-0031 D5: the conversation's community is inherited like the policy (+0 reads: the parent is read). Only the key is copied here; the
-	// members-only gate on the reply path is W5-26b. A hidden root keeps it (a hide never changes conversationCommunityId).
+	// members-only gate on the reply path comes later. A hidden root keeps it (a hide never changes conversationCommunityId).
 	p.Draft.ConversationCommunityID = parent.ConversationCommunityID
 }
 
@@ -562,7 +562,7 @@ func (s *service) PollBlockedAuthors(ctx context.Context, viewer string, p *Post
 // visibility, ADR-0025 D2). 0 reads for the caller (the loader is detached). The viewer's own posts need no graph
 // read; for another author the viewer's snapshot is the one GetPost or GetThread just cached (0 reads on the hit, never
 // a new read for an anonymous viewer), and a followed author is then answered from the loader's cached copy
-// (W3-36 L-4). An unknown follow state is treated as not following: the set is asked through Current.
+// (L-4). An unknown follow state is treated as not following: the set is asked through Current.
 func (s *service) ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool {
 	following := false
 	if viewer != "" && p.AuthorID != viewer && s.aud.Enabled() {
@@ -584,7 +584,7 @@ func embedStateFor(snap graph.Snapshot, embeddedAuthor string) postsv1.EmbedView
 	return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 }
 
-// communityHiddenFor is the reply drop of ADR-0031 Amendment 1 D4a (W5-51b): p is a reply a community moderator hid (communityHidden on a REPLY;
+// communityHiddenFor is the reply drop of ADR-0031 Amendment 1 D4a: p is a reply a community moderator hid (communityHidden on a REPLY;
 // a root carries the flag too but keeps its thread, and a hide never touches Hidden() or Visible()) and the viewer is not its author. 0 reads: the
 // flag arrived with the document. It sits in GetThread's conversation loop and threadContext's parent check only, never in contextUsable, so
 // reply enforcement is unchanged and replying to a hidden reply stays allowed. It does not read the communities flag: the kill switch must

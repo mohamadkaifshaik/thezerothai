@@ -15,7 +15,7 @@ import '../../../../support/posts_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// The poll path of the composer cubit (W6-12, ADR-0029): the builder's
+/// The poll path of the composer cubit (ADR-0029): the builder's
 /// edits, the rules that gate Post, the idempotency key, the exclusions with
 /// photos and a schedule, FEATURE_DISABLED and the echo check.
 void main() {

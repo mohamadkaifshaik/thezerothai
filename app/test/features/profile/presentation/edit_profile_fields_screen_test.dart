@@ -11,7 +11,7 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// The location and website fields of Edit profile (W3-15): counters in code
+/// The location and website fields of Edit profile: counters in code
 /// points, local checks as inline errors, the host preview, and the server's
 /// VALIDATION answers as inline errors, at 360/600/1200 dp.
 void main() {

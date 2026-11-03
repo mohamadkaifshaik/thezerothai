@@ -69,7 +69,7 @@ pb.GetCommunityResponse _answer({
   moderators: [_person('m1', 'mo', 'Mo')],
 );
 
-/// W5-32: `/communities/:id` at 360 / 600 / 1200 dp, light and dark, text
+/// `/communities/:id` at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0.
 void main() {
   final feed = FeedKey.community('77');

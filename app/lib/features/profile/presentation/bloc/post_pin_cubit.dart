@@ -27,7 +27,7 @@ class PostPinState {
 
 /// Pins and unpins the viewer's own posts through `UpdateProfile`
 /// (`pinned_post_id`; `""` unpins) for the Pin / Unpin rows of a post's
-/// overflow menu (W3-17, ADR-0024 D3).
+/// overflow menu (ADR-0024 D3).
 ///
 /// - One idempotency key per intent (`pin:<post id>` or `unpin`), reused when
 ///   the same intent is retried after a failure and dropped once it

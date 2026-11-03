@@ -15,7 +15,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../support/media_fixtures.dart';
 import '../../support/theme_harness.dart';
 
-/// W6-19: what happens to a GIF upload after the busy-slot retries run out
+/// What happens to a GIF upload after the busy-slot retries run out
 /// (the existing path re-signs and PUTs again), and the rejected tile of a
 /// PHOTO (the server's reason, an empty reason, semantics).
 void main() {

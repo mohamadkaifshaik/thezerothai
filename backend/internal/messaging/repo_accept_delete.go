@@ -14,10 +14,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Accept implements Repo: one transaction (ADR-0027 D4, D6, D11; plan W7-9).
+// Accept implements Repo: one transaction (ADR-0027 D4, D6, D11).
 //
 // Reads, fresh and before any write: conversations/{convId} (1), then the caller's dmRequests entry (1), then the requester's
-// own dmInbox entry (1, W7-25; it carries requestPending): 3 in all, 4 with the interceptor. The
+// own dmInbox entry (1; it carries requestPending): 3 in all, 4 with the interceptor. The
 // rules of decideAccept apply to the conversation first, so an unknown id, a non-participant and the requester are
 // ErrNotFound after 1 read, and an ACCEPTED conversation is success after 1 read with nothing written. A missing
 // dmRequests entry (the recipient deleted the request for themselves) is ErrNotFound as well: a deleted conversation
@@ -26,8 +26,8 @@ import (
 // Writes: the conversation (state ACCEPTED, updatedAt) and the caller's dmInbox entry, a copy of the request entry as
 // read (unreadCount, lastReadAt and the rest kept, changedAt = the accept stamp so the accepter's other devices pick the
 // conversation up in their next INBOX since refresh; a whole-document Set, so an inbox entry that should not exist cannot
-// make it fail); the requester's dmInbox entry as a field-level Update (requestPending deleted, changedAt = the accept stamp,
-// W7-25), only when it exists (never created: +1 write, 2 when the requester deleted it for themselves); 1 delete: the
+// make it fail); the requester's dmInbox entry as a field-level Update (requestPending deleted, changedAt = the accept stamp),
+// only when it exists (never created: +1 write, 2 when the requester deleted it for themselves); 1 delete: the
 // dmRequests entry. The requester's own entry already lives in the requester's dmInbox, so
 // the move makes both sides see the conversation in the Inbox. Nothing is emitted: a request message never pushed (F7) and
 // accepting is not a message.
@@ -66,7 +66,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 				return fmt.Errorf("messaging: read request entry: %w", err)
 			}
 
-			// The requester's own dmInbox entry (W7-25), read fresh and before any write: it carries requestPending, which this
+			// The requester's own dmInbox entry, read fresh and before any write: it carries requestPending, which this
 			// accept clears. A missing entry (the requester deleted the conversation for themselves) is left missing: a blind Update
 			// would fail the whole transaction and a Set would create a ghost entry the changedAt query returns.
 			reqRef := r.inboxRef(conv.RequestFrom, p.ConvID)
@@ -107,7 +107,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 	return res, nil
 }
 
-// Delete implements Repo: DeleteConversation, "delete for me" (ADR-0027 D1, D14; plan W7-9), one transaction.
+// Delete implements Repo: DeleteConversation, "delete for me" (ADR-0027 D1, D14), one transaction.
 //
 // Reads, fresh and before any write: conversations/{convId} (1), then the caller's own entry (1), in the folder the
 // conversation document says it lives in (decideDelete: dmRequests for the recipient of an unaccepted request, dmInbox

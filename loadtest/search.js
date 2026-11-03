@@ -1,4 +1,4 @@
-// search: W4 emulator load smoke (W4-23; ADR-0028 "Cost impact"). One file, one timeline of
+// search: W4 emulator load smoke (ADR-0028 "Cost impact"). One file, one timeline of
 // phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or dzeroth-prod:
 // it creates about 2,300 posts and raises every search, post and read-budget cap.
 //

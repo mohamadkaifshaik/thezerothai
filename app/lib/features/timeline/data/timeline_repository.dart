@@ -69,14 +69,14 @@ class TimelineRepository {
   final TimelineStore _store;
   final PostsFeatureGate _gate;
 
-  /// The `lists` gate (W5-12): a list feed is fetched through it, never the
+  /// The `lists` gate: a list feed is fetched through it, never the
   /// posts gate. Null = lists are not wired, a list feed is "not available".
   final ServiceFeatureGate? _listsGate;
 
   /// Every list header a `GetListTimeline` answer carries.
   final void Function(lists_pb.ListInfo list)? _onListSeen;
 
-  /// The `communities` gate (W5-32): a community feed is fetched through it,
+  /// The `communities` gate: a community feed is fetched through it,
   /// never the posts gate. Null = communities are not wired, a community feed
   /// is "not available".
   final ServiceFeatureGate? _communitiesGate;

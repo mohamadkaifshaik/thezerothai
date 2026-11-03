@@ -25,7 +25,7 @@ import (
 )
 
 // TestRestrictedAllowedProcedures_IsExactlyDeleteAccount is the guard of ADR-0011 Q2/Q3: the interceptor exemption
-// for SUSPENDED and DELETING callers is one procedure, DeleteAccount. Adding a second needs an ADR (security-auditor T20).
+// for SUSPENDED and DELETING callers is one procedure, DeleteAccount. Adding a second needs an ADR (security-auditor).
 func TestRestrictedAllowedProcedures_IsExactlyDeleteAccount(t *testing.T) {
 	got := RestrictedAllowedProcedures()
 	if want := []string{identityv1connect.IdentityServiceDeleteAccountProcedure}; !slices.Equal(got, want) {

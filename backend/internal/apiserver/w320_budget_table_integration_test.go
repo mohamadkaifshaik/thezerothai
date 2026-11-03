@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-20: the read / write / delete budget of every Part A RPC against the ADR-0024 "Cost impact" ceilings, measured on a
+// The read / write / delete budget of every Part A RPC against the ADR-0024 "Cost impact" ceilings, measured on a
 // COLD instance (a chain booted after the data was written, so no cache is warm) and asserted with budgettest. Each
 // measurement prints one machine-readable line,
 //
@@ -43,8 +43,8 @@ func (e *bmChain) w320Measure(t *testing.T, rpc, label string, ceil budgettest.B
 
 func TestW320_BudgetTable(t *testing.T) { w320BudgetTable(t, nil) }
 
-// w320BudgetTable is the W3-20 table. partB (W3-35a) is an extra config applied to every chain it builds: with Part B on
-// and a protected account in the set, every existing read path keeps its W3-20 ceiling (ADR-0025: the predicate adds 0).
+// w320BudgetTable is the table. partB is an extra config applied to every chain it builds: with Part B on
+// and a protected account in the set, every existing read path keeps its ceiling (ADR-0025: the predicate adds 0).
 func w320BudgetTable(t *testing.T, partB func(*config.Config)) {
 	ctx := context.Background()
 	allOn := func(c *config.Config) {

@@ -28,7 +28,7 @@ typedef FetchGraphPage = Future<GraphPage> Function({
 });
 
 /// How long the client stops asking `ListFollowRequests` after the server
-/// answered FEATURE_DISABLED or UNIMPLEMENTED (W3-34).
+/// answered FEATURE_DISABLED or UNIMPLEMENTED.
 const kFollowRequestsBackoff = Duration(minutes: 10);
 
 /// The most `GetRelationships` accepts per call (ADR-0008).
@@ -41,7 +41,7 @@ const kFollowedByTtl = Duration(minutes: 5);
 
 /// How long the client stops asking `GetProfileRelationship` after the server
 /// answered UNIMPLEMENTED or FEATURE_DISABLED (the RPC is a flag-gated
-/// skeleton until W3-11), so each profile view is one request, not two.
+/// skeleton until it ships), so each profile view is one request, not two.
 const kProfileRelationshipBackoff = Duration(minutes: 10);
 
 /// What the profile header knows about the viewer and one other user.
@@ -177,7 +177,7 @@ class GraphRepository {
   /// `followed_by`; everyone the viewer follows and every list row is cached),
   /// so the call is made whenever `followed_by` is unknown or older than
   /// [kFollowedByTtl]. UNIMPLEMENTED and FEATURE_DISABLED (the RPC is a
-  /// skeleton, or its flag is off, until W3-11 lands) mean "unknown": the
+  /// skeleton, or its flag is off, until it ships) mean "unknown": the
   /// existing [relationshipFor] answers, the chip stays hidden, and the RPC is
   /// not tried again for [kProfileRelationshipBackoff]. Any other failure
   /// throws as usual; the caller falls back to [cached].
@@ -430,7 +430,7 @@ class GraphRepository {
     return until != null && _now().isBefore(until);
   }
 
-  /// The caller's incoming follow requests, newest first (W3-34). A page may
+  /// The caller's incoming follow requests, newest first. A page may
   /// be short (the server drops requesters who are gone or blocked), so an
   /// empty page that still has a token is followed, at most
   /// [_maxEmptyPages] times. The token goes back unchanged. FEATURE_DISABLED
@@ -470,7 +470,7 @@ class GraphRepository {
     }
   }
 
-  /// Accepts or declines the pending request from [requesterUserId] (W3-34).
+  /// Accepts or declines the pending request from [requesterUserId].
   /// Never flag-gated for a protected caller (the undo rule). Returns the
   /// caller's relationship to the requester, so the screen can offer "Follow
   /// back". An accept makes the requester follow the caller, so the cached

@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// RemoveOwnArrayEntries implements Repo (ADR-0008 D10 refinement, T27): one ArrayRemove on the caller's OWN
+// RemoveOwnArrayEntries implements Repo (ADR-0008 D10 refinement): one ArrayRemove on the caller's OWN
 // graph/{callerUID} for the given kind ("blocked" or "muted"), plus updatedAt. It is blind on purpose: no
 // read, no transaction. ArrayRemove is idempotent and commutes with concurrent Mute/Unmute/Block, so a
 // concurrent removal or a re-add of the same uid can't corrupt the array; the worst case for a uid that

@@ -47,7 +47,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 
 class _MockGraph extends Mock implements GraphRepository {}
 
-/// The shell's layout rules (W0-6): which navigation, compose control and
+/// The shell's layout rules: which navigation, compose control and
 /// drawer each width gets, and where each destination leads.
 void main() {
   late _MockOnboardingBloc onboarding;
@@ -640,7 +640,7 @@ void main() {
       expect(find.text('You might like'), findsOneWidget);
     });
 
-    // W3-21: the card in the real right column at every cell of the matrix
+    // The card in the real right column at every cell of the matrix
     // (the column exists from 1200dp; below it nothing is drawn or asked).
     forEachThemeAndWidth(
       '1200dp: the card fits the column and its targets '

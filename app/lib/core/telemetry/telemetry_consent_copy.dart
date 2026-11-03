@@ -1,7 +1,7 @@
 import 'telemetry_consent_store.dart';
 
-/// Every user-visible string of the consent card and the Settings switches
-/// (TEL-7). The founder approves this text together with TEL-12; keep each
+/// Every user-visible string of the consent card and the Settings switches.
+/// The founder approves this text together; keep each
 /// string here so the PR lists them verbatim.
 abstract final class TelemetryConsentCopy {
   static const cardTitle = 'Help us fix and improve Dzeroth';

@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Where the SDKs may run (ADR-0032 F2): Android only. iOS waits for TEL-16
+/// Where the SDKs may run (ADR-0032 F2): Android only. iOS waits
 /// (its off-switch keys are already in `Info.plist`); web has neither.
 abstract final class TelemetryPlatforms {
   static const Set<TargetPlatform> supportedOn = {TargetPlatform.android};

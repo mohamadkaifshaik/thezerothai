@@ -405,7 +405,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): the opt-in card across the responsive matrix, and a
+  // (tester): the opt-in card across the responsive matrix, and a
   // fast double tap on "Turn on".
   // ---------------------------------------------------------------------
 

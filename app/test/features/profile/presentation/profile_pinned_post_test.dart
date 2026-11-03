@@ -37,7 +37,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-17: the Pinned row on the profile's Posts tab and the Pin / Unpin rows
+/// The Pinned row on the profile's Posts tab and the Pin / Unpin rows
 /// of an own post's menu.
 void main() {
   late _MockIdentityRepository identityRepository;
@@ -463,7 +463,7 @@ void main() {
       expect(find.text('Unpin from profile'), findsNothing);
     });
 
-    // ADR-0024 Amendment 1 A2 (W3-22 M-1): Unpin is a clear, which the server
+    // ADR-0024 Amendment 1 A2 (M-1): Unpin is a clear, which the server
     // accepts whatever the flag says; only Pin (a set) needs profile_extras.
     testWidgets('Unpin from profile is on the pinned post without '
         'profile_extras, and sends "" (Pin is not offered)', (tester) async {

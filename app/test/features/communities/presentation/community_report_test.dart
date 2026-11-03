@@ -36,7 +36,7 @@ class _MockGraph extends Mock implements GraphRepository {}
 
 class _MockModeration extends Mock implements ModerationRepository {}
 
-/// W5-35b: "Report Community" in the community header menu.
+/// "Report Community" in the community header menu.
 void main() {
   final feed = FeedKey.community('77');
   late MockTimelineRepository timeline;

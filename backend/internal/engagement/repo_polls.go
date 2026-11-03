@@ -115,7 +115,7 @@ func (r *FirestoreRepo) ChangeVote(ctx context.Context, p ChangeParams) (ChangeO
 		}, firestore.LastUpdateTime(p.Version))
 		r.w.Writer.StagePollChange(b, p.PostID, p.From, p.To)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
-			// Both forms of the old entry: the three-part one (W6-29) and a two-part one written before it (dev only).
+			// Both forms of the old entry: the three-part one and a two-part one written before it (dev only).
 			"pollVotes": firestore.ArrayRemove(pollEntry(p.PostID, p.From, p.ClosesAt), pollEntry(p.PostID, p.From, time.Time{})), "updatedAt": now,
 		}, firestore.MergeAll)
 		b.Set(r.userLikesRef(p.UID), map[string]any{
@@ -136,7 +136,7 @@ func (r *FirestoreRepo) ChangeVote(ctx context.Context, p ChangeParams) (ChangeO
 }
 
 // TrimPollVotes implements PollRepo: one field-level Update (an Exists precondition), no read. It never creates the document: a
-// trim or prune that races the account-deletion eraser must not bring a userLikes document back (W6-29). A missing document is
+// trim or prune that races the account-deletion eraser must not bring a userLikes document back. A missing document is
 // success.
 func (r *FirestoreRepo) TrimPollVotes(ctx context.Context, uid string, drop []string) error {
 	if len(drop) == 0 {

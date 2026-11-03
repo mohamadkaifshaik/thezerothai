@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// W5-15 / rule 5: every list page is limited, default 20, max 50, whatever page_size the client sends (0, negative, over the
+// / rule 5: every list page is limited, default 20, max 50, whatever page_size the client sends (0, negative, over the
 // max). ListListMembers and ListUserLists share limits.ClampPageSize; this pins both entry points to it so a new path that
 // reads page_size directly fails here.
 var pageSizeCases = []struct {

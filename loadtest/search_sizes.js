@@ -1,4 +1,4 @@
-// search_sizes.js: response sizes of the search RPCs, byte-exact, for the egress line of the cost model (W4-23, ADR-0028 "about 41 KB
+// search_sizes.js: response sizes of the search RPCs, byte-exact, for the egress line of the cost model (ADR-0028 "about 41 KB
 // per DAU per day"). Plain Node (v18+), no dependencies. Emulators and a local API only, like every file in loadtest/.
 //
 //   API_URL=http://localhost:8081 AUTH_EMULATOR_HOST=localhost:9099 node loadtest/search_sizes.js

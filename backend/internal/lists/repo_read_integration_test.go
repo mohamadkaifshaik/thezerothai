@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// List reads (W5-7). As in the member-write tests, what is measured is the service's own Firestore operations on a cold path:
+// List reads. As in the member-write tests, what is measured is the service's own Firestore operations on a cold path:
 // the real graph repository (one real read per snapshot, no instance cache), the real lists repository, and a directory that
 // charges one read for every profile except the caller's own (the account-status interceptor loaded it). The interceptor's one
 // read is not in this harness: add 1 to compare with lists.proto and ADR-0030 (GetList 5 / 2, ListUserLists 24 / 21,
@@ -205,7 +205,7 @@ func TestListUserLists_Integration_Budget(t *testing.T) {
 		exact(t, fmt.Sprintf("ListUserLists other, page %d", size), c, 23)
 	}
 
-	// page_size 1 for another owner: same single 20-doc query, all 9 public lists, no token (W5-41)
+	// page_size 1 for another owner: same single 20-doc query, all 9 public lists, no token
 	c1 := budgetCall(func(ctx context.Context) {
 		got, err := e.svcFor("viewer").ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "owner", PageSize: 1})
 		if err != nil || len(got.Lists) != 9 || got.NextPageToken != "" {

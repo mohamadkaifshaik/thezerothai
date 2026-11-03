@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W6-6: ListBookmarks and ListLikedPosts hydrate the viewer through the real registry and render through posts.ToView, so the
+// ListBookmarks and ListLikedPosts hydrate the viewer through the real registry and render through posts.ToView, so the
 // poll rule (voted / author / closed / polls globally off / engagement off) is the converter's on both lists.
 func TestLists_PollViewerRule(t *testing.T) {
 	reg := func(eng, polls flags.Mode) posts.FlagChecker {

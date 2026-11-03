@@ -21,7 +21,7 @@ type fakeGate struct {
 	name     string
 	admits   int
 	lastCID  string
-	// W5-26b: the reply side. replyErr is what CanReply returns; member and memberErr answer IsMember.
+	// The reply side. replyErr is what CanReply returns; member and memberErr answer IsMember.
 	replyErr    error
 	member      bool
 	memberErr   error

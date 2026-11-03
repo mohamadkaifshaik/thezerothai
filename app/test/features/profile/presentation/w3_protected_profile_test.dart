@@ -14,7 +14,7 @@ import '../../../support/geometry.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/w3_profile_rig.dart';
 
-/// W3-33a: a protected account's profile for a viewer who is not approved
+/// A protected account's profile for a viewer who is not approved
 /// (ADR-0025 D4): the lock beside the name, "These posts are protected" in
 /// place of every tab, and Follow -> Requested -> withdraw. The flag
 /// `private_accounts` is not in any flag set here: rendering and withdrawing

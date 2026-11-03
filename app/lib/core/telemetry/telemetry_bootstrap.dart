@@ -5,7 +5,7 @@ import 'telemetry_controller.dart';
 import 'telemetry_inputs.dart';
 import 'telemetry_platforms.dart';
 
-/// Installs the error hooks (TEL-4), with no loop:
+/// Installs the error hooks, with no loop:
 ///
 /// - [FlutterError.onError] is the single sink for framework errors AND for
 ///   `reportUnexpectedError` (which calls `FlutterError.reportError`). In debug

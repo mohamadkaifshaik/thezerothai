@@ -2,7 +2,7 @@
 
 package apiserver
 
-// T16/T17 budget assertions on the plan's REFERENCE ACCOUNT (plan "Cost": P = 300
+// budget assertions on the plan's REFERENCE ACCOUNT (plan "Cost": P = 300
 // posts, O = 100 followees, I = 100 followers, B = Bb = M = 0, E = 1 export), seeded through the production RPCs, then
 // exported and deleted over the real chain. The measured fs_reads/fs_writes/fs_deletes come from the same
 // `account_job` and request log lines production emits, so a budget regression here is a regression in the lines the
@@ -22,8 +22,8 @@ import (
 const (
 	refPosts, refFollowing, refFollowers = 300, 100, 100
 	// ADR-0011 budget table, reference row, as constants of the formula. Steps added after ADR-0011, each one read
-	// per empty query on the reference account: P6 notifications +3 (devices, own rows, rows naming the user;
-	// ADR-0017 D10) and P7 reports +1 (reports the account filed, ADR-0016 D5). P4's media step is inside 509 + D.
+	// per empty query on the reference account: notifications +3 (devices, own rows, rows naming the user;
+	// ADR-0017 D10) and reports +1 (reports the account filed, ADR-0016 D5). The media step is inside 509 + D.
 	refDeleteReadsBase = refPosts + refFollowing + refFollowers + 2 /* 2*ceil((max(B,Bb)+1)/500) */ + 2 + 3 + 2 /* identity */ + 1 /* max(E,1) */ +
 		3 /* P6 notifications step */ +
 		1 /* P7 reports step */ +
@@ -37,19 +37,19 @@ const (
 		1 /* W5-24 communities step: the memberships doc read, one read when absent (ADR-0031 D9) */
 	refDeleteWrites  = refFollowing + 2*refFollowers
 	refDeleteDeletes = refPosts + refFollowing + refFollowers + 1 + 3 + 1 + 1 /* P5 userLikes doc */
-	// Plan T16 acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
-	// +3 R for the P6 notifications step (ADR-0017 D10) and +1 R for the P7 reports step (ADR-0016 D5): 513 R +
-	// job state. The P4 media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
-	// the account-deletion plan owner (T16).
+	// Plan acceptance criterion: <= 509 R + job state (D, one per delivery), <= 300 W + checkpoints, <= 505 D;
+	// +3 R for the notifications step (ADR-0017 D10) and +1 R for the reports step (ADR-0016 D5): 513 R +
+	// job state. The media step's read was already absorbed by 509 + D on main. Amendment pending sign-off by
+	// the account-deletion plan owner.
 	planDeleteReads = 509 + 3 + 1 + 3 /* P5 engagement, ADR-0018 D7 */ + 1 /* postRemovals by authorId */ + 1 /* scheduled step, ADR-0021 */ + 1 /* bookmarks step, ADR-0023 D6 */ + 2 /* W3-32 follow_requests step, ADR-0025 D11 */ + 1 /* W7-6 messaging step, ADR-0027 D8 */ + 2 /* W5-5 lists step, ADR-0030 D8 */ + 1 /* W6-8 poll_votes step, ADR-0029 D8: the votes query, one read when empty */ + 1 /* W5-24 communities step, ADR-0031 D9: the memberships doc, one read when absent */
-	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the P4 media
-	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the P6
+	// Export job: 1 users + 1 exports + P + O + I + 1 graph + distinct handles (O + I) = 703, + 1 for the media
+	// section (one read even when the account has no images; ceil(M/100) pages otherwise) = 704, + 2 for the
 	// notifications section (ADR-0017 D10: the devices query and one notifications page; an empty query bills 1
-	// read), + 1 for the P7 reports section (ADR-0016 D5: one read per page of reports the account filed, minimum 1
-	// for the empty page) = 707, + 2 for the P5 engagement section (ADR-0018 D7: the likes and reposts queries, one
+	// read), + 1 for the reports section (ADR-0016 D5: one read per page of reports the account filed, minimum 1
+	// for the empty page) = 707, + 2 for the engagement section (ADR-0018 D7: the likes and reposts queries, one
 	// read each when empty) = 709, + 1 for the ADR-0021 scheduled section (one read per page of users/{uid}/scheduled
 	// documents, minimum 1 for the empty page) = 710, + 1 for the ADR-0023 bookmarks section (one read per page of
-	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (W3-32: the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (W7-6: the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (W5-5: one read per page of own lists, minimum 1 for the empty page) = 715, + 1 for the ADR-0029 D8 poll_votes section (W6-8: one read per page of the account's votes, minimum 1 for the empty page) = 716, + 1 for the poll_votes section current_choices (W6-29: the userLikes read, billed even when the document is missing) = 717, + 1 for the ADR-0030 D8 lists_member_of part (W5-46: one read per page of lists that name the account, minimum 1 for the empty page) = 718, + 1 for the ADR-0031 D9 communities section (W5-24: the memberships doc, one read when absent) = 719 (+ the lease claim and status writes of the L-4 amendment).
+	// users/{uid}/bookmarks, minimum 1 for the empty page) = 711, + 2 for the ADR-0025 D11 follow_requests section (the sent and received queries, one read each when empty) = 713, + 1 for the ADR-0027 F5 messages section (the conversations query, one read when empty) = 714, + 1 for the ADR-0030 D8 lists section (one read per page of own lists, minimum 1 for the empty page) = 715, + 1 for the ADR-0029 D8 poll_votes section (one read per page of the account's votes, minimum 1 for the empty page) = 716, + 1 for the poll_votes section current_choices (the userLikes read, billed even when the document is missing) = 717, + 1 for the ADR-0030 D8 lists_member_of part (one read per page of lists that name the account, minimum 1 for the empty page) = 718, + 1 for the ADR-0031 D9 communities section (the memberships doc, one read when absent) = 719 (+ the lease claim and status writes of the L-4 amendment).
 	refExportReads  = 1 + 1 + refPosts + refFollowing + refFollowers + 1 + refFollowing + refFollowers + 1 + 2 + 1 + 2 + 1 + 1 + 2 + 1 + 1 + 1 + 1 /* W6-29: poll_votes current_choices reads userLikes */ + 1 /* W5-46: lists_member_of */ + 1 /* W5-24: communities section, the memberships doc read, one read when absent (ADR-0031 D9) */
 	refExportWrites = 2
 )
@@ -79,7 +79,7 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 	}
 	e.requireInvariants(t, cohort) // the seed itself is consistent before anything is deleted
 
-	// --- export of the reference account (T17 budget) ---
+	// --- export of the reference account (budget) ---
 	exp, err := e.identity.RequestAccountExport(ctx, authed(a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "reference-export-key-0001"}))
 	if err != nil {
 		t.Fatal(err)
@@ -161,8 +161,8 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 	if reads > float64(planDeleteReads+deleteLines) {
 		t.Errorf("delete job reads = %.0f, over the plan T16 criterion %d (509 + P7 reports) + job state (D=%d)", reads, planDeleteReads, deleteLines)
 	}
-	// refDeleteWrites + 1: the identity step's ArrayRemove on privacy/protectedAuthors (W3-26a, ADR-0025 D11), a real write
-	// because the setup creates the set doc as dev and prod always have it (W3-35a D-2).
+	// refDeleteWrites + 1: the identity step's ArrayRemove on privacy/protectedAuthors (ADR-0025 D11), a real write
+	// because the setup creates the set doc as dev and prod always have it (D-2).
 	if writes != float64(refDeleteWrites+1+progressed) {
 		t.Errorf("delete job writes = %.0f, want exactly %d + 1 (set ArrayRemove) + %d checkpoints", writes, refDeleteWrites, progressed)
 	}

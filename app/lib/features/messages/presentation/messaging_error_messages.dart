@@ -31,7 +31,7 @@ String messagingErrorMessage(AppException error) {
 }
 
 /// Text of the non-blocking banner the inbox shows over cached conversations
-/// when a refresh or page failed (W7-14). Branches on the exception type,
+/// when a refresh or page failed. Branches on the exception type,
 /// never on its text; never auto-retried by the UI.
 String conversationsNoticeMessage(AppException error) {
   return switch (error) {

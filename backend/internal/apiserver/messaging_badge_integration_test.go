@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W7-11 (ADR-0027 D10, D14): GetMe.unread_conversation_count over the real Build chain on the emulators. Cold: 3 reads
+// ADR-0027 D10, D14: GetMe.unread_conversation_count over the real Build chain on the emulators. Cold: 3 reads
 // (account-status profile, notification count, the dmInbox count()), warm 0, a send on this instance evicts it through
 // messaging.Deps.Badge so the next GetMe recounts (2 with the send's own notification-count eviction), messaging off for the caller 2 reads and 0.
 
@@ -59,14 +59,14 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	}
 
 	// A send to `me` on this instance evicts the cached count (Deps.Badge), so the next GetMe recounts. The send's own fresh
-	// recipient check (Profiles.Forget, W7-5) also evicts the notification count, so the call reads 2: that count and this one.
+	// recipient check (Profiles.Forget) also evicts the notification count, so the call reads 2: that count and this one.
 	chain.mustSend(t, p4, me, "four")
 	if got := chain.getMe(t, me).GetUnreadConversationCount(); got != 4 {
 		t.Fatalf("count after a send = %d, want 4", got)
 	}
 	budgettest.Assert(t, "GetMe after a send (recount)", chain.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 2})
 
-	// Messaging off for the caller: 0 and no count() (the 2 reads of before W7-11).
+	// Messaging off for the caller: 0 and no count (the 2 reads of before then).
 	offChain := newDMChain(t, func(c *config.Config) {
 		c.FeatureMessaging = flags.Spec{Name: "messaging", Mode: flags.Allowlist, Allowlist: map[string]struct{}{p1.uid: {}}}
 	})

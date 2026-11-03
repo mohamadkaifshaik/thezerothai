@@ -6,7 +6,7 @@ void main() {
   test(
     'migrates a v3 database to v4, adding the account export table',
     () async {
-      // The schema exactly as v3 shipped it (posts plan T14), with data.
+      // The schema exactly as v3 shipped it (posts), with data.
       final executor = NativeDatabase.memory(
         setup: (raw) {
           raw.execute('''

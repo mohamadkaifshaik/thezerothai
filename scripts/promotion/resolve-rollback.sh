@@ -31,7 +31,7 @@ pkg=${image%@*}
 [ "$(jqr --arg d "$digest" --arg p "$pkg" '[.[] | select(.version == $d and .package == $p)] | length' "$images")" -ge 1 ] \
   || { echo "FAIL: image digest of '$target' is no longer in Artifact Registry" >&2; exit 1; }
 
-# Rollback floors (W3-42, W3-36 M-1(b)): a flag with a floor in <flag-ceiling.json> may only be rolled back to an image built
+# Rollback floors (M-1(b)): a flag with a floor in <flag-ceiling.json> may only be rolled back to an image built
 # from the floor commit or later, unless the flag is `off` on the rollback target. The revision pins only @sha256:, so the image's
 # commit is its 40-hex Artifact Registry tag (the github.sha IMAGE_TAG). Everything unreadable or unproven REFUSES.
 # ROLLBACK_REPO (default: the repo holding this script) is where `git merge-base --is-ancestor` runs; it needs full history.

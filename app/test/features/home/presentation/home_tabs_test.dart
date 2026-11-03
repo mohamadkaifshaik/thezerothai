@@ -59,7 +59,7 @@ common.HomeTab _wire(String id, [String title = '']) => common.HomeTab(
 pb.ListInfo _info(String id, String name) =>
     pb.ListInfo(listId: id, name: name, memberCount: 2);
 
-/// W5-14: the Home tab bar with pinned Lists and Manage pinned.
+/// The Home tab bar with pinned Lists and Manage pinned.
 void main() {
   const home = FeedKey.home();
   final friends = FeedKey.list('L1');

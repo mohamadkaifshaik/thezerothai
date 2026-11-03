@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-41a tester attacks (ADR-0025 note W3-36 L-2) through the real Build chain on the emulators, beyond the author's
+// tester attacks (ADR-0025 note L-2) through the real Build chain on the emulators, beyond the author's
 // own file (w341a_owner_placeholders_integration_test.go): a REPOST by another user in the owner's lists, the protected
 // set unavailable, an overflowed blockedBy, the own REPOST on every tab and on since refreshes, the viewer flags after a
 // userLikes trim, and the wire bytes of a placeholder.
@@ -319,7 +319,7 @@ func TestW341aAttack_BlockedByOverflow(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Control (pre-existing, not W3-41a): P still public, so the own REPOST is kept in full on the own profile.
+	// Control (pre-existing, not): P still public, so the own REPOST is kept in full on the own profile.
 	if ctl, err := newW320Chain(t, w335aOn).tabCall(s, s.uid, tabRepostsPB, 20, "", ""); err == nil {
 		row := w341aRow(ctl.GetPosts(), repostID)
 		t.Logf("CONTROL (P public, P blocks S, overflow): own REPOST present=%v, embedded text %q", row != nil, row.GetPost().GetEmbedded().GetText())

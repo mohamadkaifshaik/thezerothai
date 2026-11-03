@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// Reply audience (ADR-0021 D2, CMP-B2/B4): who may reply, set on a root post or quote, inherited by replies,
+// Reply audience (ADR-0021 D2,/B4): who may reply, set on a root post or quote, inherited by replies,
 // enforced in service.Create after replyParent, hinted to viewers. FEATURE_REPLY_AUDIENCE gates SETTING only.
 
 // rPolRepost is dave's REPOST of rRoot.
@@ -897,7 +897,7 @@ func TestEnforceReplyPolicy_DependencyFailuresAreInternal(t *testing.T) {
 	})
 }
 
-// TestCreate_ReplyReplayAfterPermissionLost pins the founder-accepted behaviour (CMP-B2 review, MINOR 2): enforcement
+// TestCreate_ReplyReplayAfterPermissionLost pins the founder-accepted behaviour (review, MINOR 2): enforcement
 // runs before the idempotency lookup, so a replay of a reply that was created while allowed answers REPLY_NOT_ALLOWED
 // (or NOT_FOUND once the root is unusable) after the permission is gone. It fails closed and never grants access;
 // the reply itself still exists.

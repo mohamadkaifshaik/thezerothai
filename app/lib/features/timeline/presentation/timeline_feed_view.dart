@@ -31,7 +31,7 @@ import '../../../shared/widgets/post/timeline_gap_row.dart';
 /// most one request per `kAutoRefreshInterval`. Stopped while backgrounded.
 const kFeedTickInterval = Duration(seconds: 30);
 
-/// The scrolling body of a cached feed (T17 Home, T18 profile Posts tab):
+/// The scrolling body of a cached feed (Home, profile Posts tab):
 /// pull-to-refresh, "N new posts" pill, non-blocking notice, optimistic
 /// pending posts, gap rows, infinite scroll and the empty state. It reads the
 /// [TimelineCubit] above it and renders everything as slivers, so a screen
@@ -66,7 +66,7 @@ class TimelineFeedView extends StatefulWidget {
   });
 
   /// Whether this feed is the one on screen. A feed kept alive behind another
-  /// (the Home tabs, W5-14) passes false: its 30 s tick and resume refresh
+  /// (the Home tabs) passes false: its 30 s tick and resume refresh
   /// stand still, and becoming active again asks once for the throttled
   /// refresh (no RPC when it was refreshed less than 60 s ago).
   final bool active;
@@ -85,7 +85,7 @@ class TimelineFeedView extends StatefulWidget {
   /// Slivers shown above the posts (they scroll with the feed).
   final List<Widget> headerSlivers;
 
-  /// Show the viewer's optimistic posts above the feed (T16).
+  /// Show the viewer's optimistic posts above the feed.
   final bool showPending;
 
   /// Only show pending posts of this author (the own profile); null shows
@@ -123,11 +123,11 @@ class TimelineFeedView extends StatefulWidget {
   /// Replies tabs, whose pages are full.
   final bool fillViewport;
 
-  /// Pin / Unpin rows on the viewer's own posts (W3-17): the own profile
+  /// Pin / Unpin rows on the viewer's own posts: the own profile
   /// passes one; every other feed leaves it null.
   final PostPinControl? pinControl;
 
-  /// "Remove from Community" rows for a community moderator (W5-35): only the
+  /// "Remove from Community" rows for a community moderator: only the
   /// community screen passes one.
   final PostModerationControl? moderationControl;
 

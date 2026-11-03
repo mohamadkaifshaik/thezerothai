@@ -2,11 +2,11 @@
 
 package apiserver
 
-// W3-6 over the real Build chain (Firestore, Auth, Pub/Sub emulators): UpdateProfile with a banner, location, website
+// over the real Build chain (Firestore, Auth, Pub/Sub emulators): UpdateProfile with a banner, location, website
 // and pinned post, the profile_extras gate, the pin kill switch (Profile.pinned_post_id omitted while the flag is
 // globally off), and the post_delete job's identity step that clears the pin of a deleted post (ADR-0024 D1-D3, D9).
 //
-// As in the P4 chain test, finished media documents are seeded straight into Firestore the way FinalizeUpload leaves
+// As in the chain test, finished media documents are seeded straight into Firestore the way FinalizeUpload leaves
 // them (a signed PUT URL cannot be minted against the emulators).
 
 import (

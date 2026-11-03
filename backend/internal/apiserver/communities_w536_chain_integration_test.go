@@ -2,9 +2,9 @@
 
 package apiserver
 
-// W5-36 (Part B backend tests): communities over the real Build chain on the emulators. The package tests below the interceptors pin the
+// Part B backend tests: communities over the real Build chain on the emulators. The package tests below the interceptors pin the
 // repositories and the feed; what only the chain can prove is pinned here: flag gates and the creators list at the interceptor's one read,
-// W5-29 acceptance 3 end to end, a suspension in the middle of a pagination, the COMMUNITY report with its evidence and budget, the F14
+// acceptance 3 end to end, a suspension in the middle of a pagination, the COMMUNITY report with its evidence and budget, the F14
 // reply-hint edge with a real block, and the removal-log overflow reset on the wire.
 //
 // Caches: the community document is cached 60 s per instance and the platform levers (opsctl) write Firestore directly, so every read
@@ -147,7 +147,7 @@ func (e *w536) feedBudget(t *testing.T, u ltUser, cid string, size int32, since,
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// W5-29 acceptance 3 end to end: a takedown of a community post, then the next GetCommunityTimeline refresh lists it in removed_ids.
+// acceptance 3 end to end: a takedown of a community post, then the next GetCommunityTimeline refresh lists it in removed_ids.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_TakedownThenRefreshListsRemovedIDs(t *testing.T) {
@@ -199,7 +199,7 @@ func TestW536_TakedownThenRefreshListsRemovedIDs(t *testing.T) {
 	}
 }
 
-// A community moderator's HideCommunityPost over the wire (W5-28): the post stays on the author's profile and in GetPost without its label,
+// A community moderator's HideCommunityPost over the wire: the post stays on the author's profile and in GetPost without its label,
 // a refresh on another instance lists it in removed_ids, a RESTORE brings the label back on a cold open, and the budget is the documented
 // one (5 reads cold, 3 writes, +1 on the moderator's first action).
 func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *testing.T) {
@@ -282,7 +282,7 @@ func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *te
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// SUSPENDED in the middle of a pagination (W5-29 acceptance 2, ADR-0031 N3).
+// SUSPENDED in the middle of a pagination (acceptance 2, ADR-0031 N3).
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_SuspendedMidPagination(t *testing.T) {
@@ -372,7 +372,7 @@ func countPostsInCommunity(t *testing.T, fs *firestore.Client, cid string) int {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// The COMMUNITY report (W5-29 acceptance 1, ADR-0031 D14).
+// The COMMUNITY report (acceptance 1, ADR-0031 D14).
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_CommunityReportThroughTheChain(t *testing.T) {
@@ -486,7 +486,7 @@ func TestW536_CommunityReportThroughTheChain(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// Flag modes and the creators allowlist on the wire (W5-23 acceptance 1, W5-22).
+// Flag modes and the creators allowlist on the wire (acceptance 1).
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_FlagModesAndTheCreatorsList(t *testing.T) {
@@ -579,7 +579,7 @@ func TestW536_FlagModesAndTheCreatorsList(t *testing.T) {
 				if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FORBIDDEN || d.GetMetadata()["reason"] != tt.reason {
 					t.Errorf("CreateCommunity: %v, want FORBIDDEN reason=%s", d, tt.reason)
 				}
-				// The creators check is first (W5-23): the service reads nothing, so the whole request is the interceptor's one read.
+				// The creators check is first: the service reads nothing, so the whole request is the interceptor's one read.
 				if bud.Reads() > 1 || bud.Writes() != 0 {
 					t.Errorf("CreateCommunity not_creator: reads=%d writes=%d, want at most 1 (the interceptor) and 0", bud.Reads(), bud.Writes())
 				}
@@ -761,7 +761,7 @@ func TestW536_HideAndRestoreAreImmediateOnTheSameInstance(t *testing.T) {
 
 // D-1 repro (test-report-communities-part-b, section 4): timeline.Server.ForgetCommunityFeed is never called by production code, so a RESTORE on
 // the instance that served it does not bring back a post that was hidden BEFORE that instance filled its entry: the row stays out until the
-// entry expires (<= 5 min). Fixed by W5-57 (communities.Deps.OnPostRestored = timeline.Server.ForgetCommunityFeed); this test guards the wiring.
+// entry expires (<= 5 min). Fixed by (communities.Deps.OnPostRestored = timeline.Server.ForgetCommunityFeed); this test guards the wiring.
 func TestW536_RestoreOnTheSameInstanceReturnsAHiddenPostAtOnce(t *testing.T) {
 	ctx := context.Background()
 	a := newW536(t, nil)

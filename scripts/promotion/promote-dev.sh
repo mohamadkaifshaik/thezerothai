@@ -191,7 +191,7 @@ fi
 # Once per run, before anything can move traffic (never in the soak, which must not sign in repeatedly). A failure here is handled
 # exactly like a failed step 4: die before traffic moves, and on_exit removes the candidate tag.
 # Secrets present -> run. Missing: a dry run skips with a notice (a run from a branch cannot read the `dev` Environment secrets);
-# promote mode fails closed. There is deliberately no flag that skips it. The dev-only bookmarks smoke (W2-16) rides on the same secrets
+# promote mode fails closed. There is deliberately no flag that skips it. The dev-only bookmarks smoke rides on the same secrets
 # and the same candidate URL, right after the authenticated smoke; it is not in authenticated-smoke.sh because prod-smoke.sh execs that
 # script and live prod does not carry the bookmark RPCs.
 step "4b/8 authenticated smoke the candidate"
@@ -206,7 +206,7 @@ if [ -n "${SMOKE_EMAIL:-}" ] && [ -n "${SMOKE_PASSWORD:-}" ]; then
   SMOKE_REFERER=${SMOKE_REFERER:-https://dzeroth-dev.web.app/}
   export SMOKE_EMAIL SMOKE_PASSWORD FIREBASE_API_KEY SMOKE_REFERER
   bash "$here/authenticated-smoke.sh" "$(tag_url "$work/s1.json" candidate)" || die "authenticated smoke failed"
-  # Dev-only (never prod-smoke.sh): the strict bookmarks leg of W2-16 (non-allowlisted account: List 200 with 0 rows, Add 400 FEATURE_DISABLED),
+  # Dev-only (never prod-smoke.sh): the strict bookmarks leg (non-allowlisted account: List 200 with 0 rows, Add 400 FEATURE_DISABLED),
   # same credentials and candidate URL, same fail-closed handling: any mismatch dies here, before traffic moves.
   bash "$here/bookmarks-smoke.sh" "$(tag_url "$work/s1.json" candidate)" || die "bookmarks smoke failed"
 elif [ "$DRY_RUN" = "true" ]; then

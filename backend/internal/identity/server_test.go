@@ -298,7 +298,7 @@ func callAccountRPCs(client identityv1connect.IdentityServiceClient) map[string]
 	return out
 }
 
-// TestServer_AccountLifecycle_FlagOff (P8 T4): flag off (or no checker wired, or on for a different uid) gives
+// TestServer_AccountLifecycle_FlagOff: flag off (or no checker wired, or on for a different uid) gives
 // FAILED_PRECONDITION + FEATURE_DISABLED from all three RPCs, before the Service is reached (the guard is in the handler, so no Firestore access).
 func TestServer_AccountLifecycle_FlagOff(t *testing.T) {
 	tests := []struct {
@@ -399,7 +399,7 @@ func TestGetMe_ReportsAccountLifecycleWhenFlagOn(t *testing.T) {
 }
 
 // TestServer_AccountLifecycle_FlagOn: with the flag on for the caller the RPCs pass the guard and reach the
-// Unimplemented placeholder (T5/T9 replace it), whose message stays generic (L10).
+// Unimplemented placeholder (replace it), whose message stays generic (L10).
 func TestServer_AccountLifecycle_FlagOn(t *testing.T) {
 	fc := fakeFlagChecker{"uid-1/" + AccountLifecycleFlag: true}
 	client, closeFn := newTestServerHTTPWithClaims(t, &fakeService{}, authn.Claims{UID: "uid-1", EmailVerified: true, SignInProvider: "google.com"}, WithFlagChecker(fc))

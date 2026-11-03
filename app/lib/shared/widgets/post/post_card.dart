@@ -70,7 +70,7 @@ Future<bool> launchPostLink(Uri uri) async {
 const kPostTextClampLines = 6;
 
 /// One post in any list (Home, profile tabs, detail): author row, relative
-/// time, rich text and an overflow menu (T15, ADR-0010 D7).
+/// time, rich text and an overflow menu (ADR-0010 D7).
 ///
 /// - Text is rendered as spans only; HTML is never interpreted. Links are
 ///   `http(s)` only and open externally. Mention spans match
@@ -82,7 +82,7 @@ const kPostTextClampLines = 6;
 ///   confirmation, via [onDelete]) and Block/Mute (or Unblock/Unmute, from
 ///   the relationship cache) on others' (reusing [RelationshipCubit] and
 ///   [showBlockConfirmationDialog]); it is absent when nothing applies.
-/// - Engagement (P5, ADR-0018): with [engagementEnabled] (the `engagement`
+/// - Engagement (ADR-0018): with [engagementEnabled] (the `engagement`
 ///   flag; screens pass `isFeatureEnabled(context, kFeatureEngagement)`) the
 ///   card shows the reply / repost / like row ([PostEngagementBar]); off, no
 ///   row and no engagement code runs. A REPOST item renders as the original
@@ -177,11 +177,11 @@ class PostCard extends StatelessWidget {
   /// error is reported with a snackbar.
   final Future<void> Function(String postId)? onDelete;
 
-  /// Pin / Unpin rows for the viewer's own POST, QUOTE or REPLY (W3-17).
+  /// Pin / Unpin rows for the viewer's own POST, QUOTE or REPLY.
   /// Null (the default) offers none: a screen that can pin passes one.
   final PostPinControl? pinControl;
 
-  /// "Remove from Community" on a community post for a moderator (W5-35).
+  /// "Remove from Community" on a community post for a moderator.
   /// Null (the default) offers none.
   final PostModerationControl? moderationControl;
 
@@ -193,7 +193,7 @@ class PostCard extends StatelessWidget {
   final void Function(Uri uri)? onOpenLink;
 
   /// Called with the tag body (no `#`) when a hashtag is tapped. Defaults to
-  /// opening `/search?q=%23tag` with the `search` flag on (W4-16), else a
+  /// opening `/search?q=%23tag` with the `search` flag on, else a
   /// "coming soon" snackbar.
   final void Function(String tag)? onHashtagTap;
 
@@ -277,8 +277,8 @@ class PostCard extends StatelessWidget {
         ? null
         : _placeholderFor(context, embedded);
     if (isRepost && placeholder != null) {
-      // The caller's own REPOST of a protected author they can no longer see
-      // (W3-41b): the box carries Undo repost, acting on the original's id, and
+      // The caller's own REPOST of a protected author they can no longer see:
+      // the box carries Undo repost, acting on the original's id, and
       // the row has that one action only: Delete is an equivalent server-side
       // undo (DeletePost of a REPOST releases its reposts doc and the count), so
       // the menu is kept only when Undo repost is not offered.
@@ -437,7 +437,7 @@ class PostCard extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         PostMedia(media: media, useFullImage: fullContent),
       ],
-      // W6-13: a poll on this post (live card) or on the original of a
+      // A poll on this post (live card) or on the original of a
       // repost (the frozen definition: read-only, opens the original).
       if (isRepost && embedded!.hasPoll())
         Padding(
@@ -563,7 +563,7 @@ class PostCard extends StatelessWidget {
           )
         : null;
 
-    // List rows (PD-2, X rows are about 99dp for one line): the 48dp boxes
+    // List rows (X rows are about 99dp for one line): the 48dp boxes
     // around the avatar and the actions already carry whitespace, so the card
     // adds less of its own. The avatar's 40dp circle still starts 12dp down,
     // and the action glyphs end 16dp above the next row. Tap targets stay
@@ -667,7 +667,7 @@ class _RepostPlaceholder extends StatelessWidget {
   /// Actions on the repost itself (the hidden original gets none).
   final Widget menu;
 
-  /// Undo repost on the caller's own protected REPOST (W3-41b); null: none.
+  /// Undo repost on the caller's own protected REPOST; null: none.
   final VoidCallback? onUndo;
 
   @override

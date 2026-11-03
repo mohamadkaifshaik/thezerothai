@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1 slice P5, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
+// Engagement: likes and reposts (Phase 1, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
 // module: backend/internal/engagement.
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
 // users/{uid}/bookmarks/{postId}, and (ADR-0029) pollVotes/{postId}_{uid}. The counters (likeCount,

@@ -51,8 +51,8 @@ class BookmarkListFailure {
   final int serial;
 }
 
-/// The caller's bookmarks as the Bookmarks screen sees them (plan W2-7,
-/// ADR-0023 D2): live posts, newest bookmark first, paged by an opaque token.
+/// The caller's bookmarks as the Bookmarks screen sees them
+/// (ADR-0023 D2): live posts, newest bookmark first, paged by an opaque token.
 /// Session memory only. Plain immutable class (no codegen), like
 /// `BookmarksState`.
 @immutable

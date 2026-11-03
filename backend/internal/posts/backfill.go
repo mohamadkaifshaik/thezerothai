@@ -1,5 +1,5 @@
-// backfill.go is the one-off `opsctl backfill-has-media` repo helper (ADR-0024 D4, W3-8): it gives every pre-W3 post
-// document the `hasMedia` field that the create paths have written since W3-7, so the profile Media tab query
+// backfill.go is the one-off `opsctl backfill-has-media` repo helper (ADR-0024 D4): it gives every pre-W3 post
+// document the `hasMedia` field that the create paths have written since then, so the profile Media tab query
 // (authorId == A AND hasMedia == true) sees old posts too.
 //
 // Query:  posts ORDER BY __name__ ASC [StartAfter(checkpoint)] LIMIT page (page <= opsPage = 500). A collection-wide
@@ -89,7 +89,7 @@ func (s BackfillState) String() string {
 // backfillDoc is what the backfill needs from one posts document: its kind, how many images it stores itself, and
 // whether `hasMedia` already exists as a bool. Presence is read from the raw map, never by decoding into postDoc:
 // postDoc.HasMedia has no omitempty, so an absent key would decode as false and be indistinguishable from the explicit
-// false every post written since W3-7 carries.
+// false every post written since then carries.
 type backfillDoc struct {
 	id       string
 	kind     Kind

@@ -137,7 +137,7 @@ class EmbeddedPostCard extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               PostMedia(media: embedded.media),
             ],
-            // W6-13: the frozen poll definition, compact and read-only; the
+            // The frozen poll definition, compact and read-only; the
             // whole card opens the original for live results.
             if (embedded.hasPoll()) ...[
               const SizedBox(height: AppSpacing.xs),

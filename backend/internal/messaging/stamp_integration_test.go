@@ -17,7 +17,7 @@ import (
 )
 
 // A DeleteConversation that commits between a send's clock read and its transaction must not hide the message the send
-// recreates (W7-9 B2): the send stamps the message and the entries strictly after either participant's clearedAt, read in
+// recreates (B2): the send stamps the message and the entries strictly after either participant's clearedAt, read in
 // its own transaction (0 extra reads). The clock is fake and never ticks between the delete and the send, so the ordering
 // does not depend on real concurrency: Now == clearedAt, Now < clearedAt (another instance's slower clock) and the control
 // Now > clearedAt.

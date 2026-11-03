@@ -70,8 +70,8 @@ func (f followNotifier) Followed(ctx context.Context, followerUID, followeeUID s
 	})
 }
 
-// postNotifier implements posts.PostEvents: a created post notifies the users it mentions, a QUOTE (P5, ADR-0018
-// D9) notifies the author of the quoted post, and a REPLY (P3, ADR-0017 T10) notifies the parent post's author
+// postNotifier implements posts.PostEvents: a created post notifies the users it mentions, a QUOTE (ADR-0018
+// D9) notifies the author of the quoted post, and a REPLY (ADR-0017) notifies the parent post's author
 // (Post.ReplyToAuthorID, already read by the reply validation: 0 extra reads). Precedence, one row per user per
 // post: quote/reply beats mention, so a mention of the quoted or parent author is dropped from the mention event.
 type postNotifier struct{ slot *emitterSlot }
@@ -84,7 +84,7 @@ func (p postNotifier) Created(ctx context.Context, post *posts.Post) {
 	}
 	// No filter on the stored post.Visibility: it stays PUBLIC for protected authors (ADR-0025 D2). A protected
 	// author's post still notifies recipients who may see it; the fan-out drops the rest through the audience seam
-	// (notifications.AudienceChecker, W3-31).
+	// (notifications.AudienceChecker).
 	covered := "" // the one user a quote or reply of this post already notifies
 	typ := notifications.Type("")
 	switch {

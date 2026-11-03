@@ -8,7 +8,7 @@ import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_detail_state.dart';
 import 'list_unavailable_view.dart';
 
-/// The top of `/lists/:id` (W5-12): name (with a lock when private),
+/// The top of `/lists/:id`: name (with a lock when private),
 /// description, the owner row, "N members" and the Pin / Unpin and Edit
 /// buttons. Presentation only; the screen wires the callbacks.
 ///

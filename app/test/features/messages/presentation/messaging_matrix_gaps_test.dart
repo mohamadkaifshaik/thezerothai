@@ -18,7 +18,7 @@ import '../../../support/messaging_flow_rig.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/thread_test_support.dart';
 
-/// W7-21: the cells of the 360 / 600 / 1200 x light / dark x 1.0 / 1.3 / 2.0
+/// The cells of the 360 / 600 / 1200 x light / dark x 1.0 / 1.3 / 2.0
 /// matrix that the per-screen tests leave out: the Message requests folder,
 /// the two empty states and the draft thread (new conversation), all on the
 /// real router and stack.
@@ -187,7 +187,7 @@ void main() {
     textScales: kMatrixTextScalesLarge,
   );
 
-  // Regression for a defect W7-21 found: the draft's empty state is an
+  // Regression for a defect found: the draft's empty state is an
   // `AppEmptyView` inside an `Expanded`, and when the space left by the header
   // and the composer / the read-only line is shorter than its content it
   // overflowed: 360 x 640 at text scale 2.0 (the first state) and 360 x 800

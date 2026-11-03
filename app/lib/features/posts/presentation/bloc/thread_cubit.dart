@@ -73,7 +73,7 @@ class ThreadState {
   /// Authors the viewer blocked or muted from a reply's menu: hidden at once.
   final Set<String> hiddenAuthors;
 
-  /// Replies a community moderator removed from this thread (W5-51c): gone at
+  /// Replies a community moderator removed from this thread: gone at
   /// once, back if the call fails. The server drops them on the next read.
   final Set<String> hiddenReplies;
 
@@ -404,7 +404,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   }
 
   /// A moderator removed [replyId] from the community view: it leaves the
-  /// open thread at once (W5-51c). [showReplyAgain] rolls it back.
+  /// open thread at once. [showReplyAgain] rolls it back.
   void hideReplyLocally(String replyId) {
     if (isClosed || state.hiddenReplies.contains(replyId)) return;
     emit(state.copyWith(hiddenReplies: {...state.hiddenReplies, replyId}));

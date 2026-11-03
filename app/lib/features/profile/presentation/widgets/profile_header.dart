@@ -60,11 +60,11 @@ class ProfileHeader extends StatelessWidget {
   final bool isOwnProfile;
 
   /// Adds "Add or remove from Lists" and "View Lists" to the overflow menu of
-  /// another user's profile (W5-13). Only given when `lists` is on.
+  /// another user's profile. Only given when `lists` is on.
   final bool listsEnabled;
 
   /// Shows the round "Message" (envelope) button left of Follow on another
-  /// user's profile and calls this when it is tapped (W7-17). Only given when
+  /// user's profile and calls this when it is tapped. Only given when
   /// `messaging` is on for the caller. The button is still left out while the
   /// viewer blocks the profile (a profile that blocks the viewer is never
   /// loaded: the server answers NOT_FOUND). Null hides it.
@@ -81,14 +81,14 @@ class ProfileHeader extends StatelessWidget {
   final void Function(Uri uri)? onOpenWebsite;
 
   /// Put on the display name so the profile screen can tell when it scrolls
-  /// under the app bar (the app-bar name fades in then, W3-13).
+  /// under the app bar (the app-bar name fades in then).
   final Key? nameKey;
 
   /// Offers "Report @handle" on other people's profiles (the `reports` flag,
   /// ADR-0016). Works with or without the graph menu.
   final bool reportsEnabled;
 
-  /// Shows an "Edit profile" button on the viewer's own profile (P2-T5, only
+  /// Shows an "Edit profile" button on the viewer's own profile (only
   /// given when the `profile_snapshot` flag is on). Null hides it.
   final VoidCallback? onEditProfile;
   final bool graphEnabled;
@@ -218,7 +218,7 @@ class _ProfileHeaderBody extends StatelessWidget {
         // half and the actions (36dp pill in a 48dp target, 12dp below the
         // banner). It is at least tall enough for both, and it grows with the
         // actions: at a large text scale a button wraps to two or three lines,
-        // and a fixed 60dp strip let it paint over the name (W3-21 D-1). The
+        // and a fixed 60dp strip let it paint over the name (D-1). The
         // actions are laid out in the strip, in the same pass as everything
         // else, so nothing moves after the first frame.
         const actionsTop = AppSpacing.smd;
@@ -284,7 +284,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                       children: [
                         // The lock sits in the name's own text flow, so at a large
                         // text scale it wraps with the last word and cannot
-                        // overlap the name (W3-21 D-1).
+                        // overlap the name (D-1).
                         Text.rich(
                           TextSpan(
                             children: [
@@ -476,7 +476,7 @@ String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
   return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
 }
 
-/// The round "Message" (envelope) button of another user's profile (W7-17):
+/// The round "Message" (envelope) button of another user's profile:
 /// a 36dp outlined circle in a 48dp target, left of Follow. Labelled for
 /// screen readers ("Message @handle").
 class MessageButton extends StatelessWidget {
@@ -738,11 +738,11 @@ Future<ReportOutcome> _reportAccount(
   );
 }
 
-/// The Lists rows of the overflow menu (W5-13): Add/remove and View.
+/// The Lists rows of the overflow menu: Add/remove and View.
 const _addToListsValue = 'lists_add';
 const _viewListsValue = 'lists_view';
 
-/// W5-42: "View Lists" is hidden on a protected profile the viewer does not
+/// "View Lists" is hidden on a protected profile the viewer does not
 /// follow (the server answers PROTECTED_ACCOUNT / NOT_FOUND for its Lists).
 /// [following] is null when the relationship is unknown (graph off): hidden
 /// then too.

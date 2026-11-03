@@ -1,4 +1,4 @@
-// Package engagement is the P5 module (ADR-0018): likes and reposts (quotes are CreatePost in posts). It owns
+// Package engagement is the module (ADR-0018): likes and reposts (quotes are CreatePost in posts). It owns
 // likes/{postId}_{uid}, reposts/{postId}_{uid} and userLikes/{uid}. It never touches posts/* directly: counters,
 // the REPOST post doc and the clean-up of dependants go through posts' EngagementWriter / Cleanup / Engagement
 // seams (ADR-0002), and users.postsCount through identity.Counters.
@@ -73,7 +73,7 @@ type UserLikes struct {
 	RecentReposts []string
 	// Bookmarks is the complete set of the user's bookmarked post ids (ADR-0023 D3), at most the per-user cap.
 	Bookmarks []string
-	// PollVotes are the entries "<postId>:<index>:<closesAtUnix>" (two-part before W6-29) of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll (W6-7).
+	// PollVotes are the entries "<postId>:<index>:<closesAtUnix>" (two-part in older entries) of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll.
 	PollVotes []string
 }
 
@@ -276,7 +276,7 @@ type BookmarkRepo interface {
 // MaxListPage is the largest ListBookmarks page (the query-limit rule).
 const MaxListPage = limits.MaxPageSize
 
-// LikesList is the likes-list seam of the module (ADR-0024 D6, ticket W3-10): the Connect handler depends on it, a later
+// LikesList is the likes-list seam of the module (ADR-0024 D6): the Connect handler depends on it, a later
 // split into its own service (or a `likes (uid, createdAt)` index or SQL table at Stage 2/3) changes no caller. It is
 // owner-only (there is no user id in the request), reads posts only through posts.Reader.GetMany, writes nothing and
 // notifies nobody.

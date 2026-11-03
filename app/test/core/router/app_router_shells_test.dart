@@ -13,7 +13,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../support/shells_harness.dart';
 
-/// The W8-2 routes on the real router: `shells` gates all four paths,
+/// The routes on the real router: `shells` gates all four paths,
 /// `kVisibleShells` decides which exist, `/premium` is a push-only dialog.
 void main() {
   final pagePaths = {
@@ -177,7 +177,7 @@ void main() {
       expect(app.path, AppRouter.homePath);
     });
 
-    // Security review W8-9 M-1: on web, Back / Forward restores a history
+    // Security review M-1: on web, Back / Forward restores a history
     // entry that still holds the /premium push; it must not reopen the dialog.
     for (final dropShells in [false, true]) {
       testWidgets('a /premium push restored from history never reopens the '

@@ -24,7 +24,7 @@ enum TrendsStatus {
   unavailable,
 }
 
-/// The one trends list of the session (W4-17/18), shared by Explore and the
+/// The one trends list of the session, shared by Explore and the
 /// desktop side column.
 @freezed
 abstract class TrendsState with _$TrendsState {

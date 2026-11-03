@@ -37,7 +37,7 @@ class Accepted {
 }
 
 /// A [PostsRepository] that behaves like the backend for the rules the
-/// drafts duplicate-publication matrix depends on (W6-38). Each rule names the
+/// drafts duplicate-publication matrix depends on. Each rule names the
 /// backend code it models:
 ///
 /// - Replay first: `repo_create.go` `createAttempt` looks the key up BEFORE

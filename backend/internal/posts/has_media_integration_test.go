@@ -13,10 +13,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests for ADR-0024 D4/D5 (W3-7): hasMedia is written, as an explicit boolean, by every create path, and the two
+// Emulator tests for ADR-0024 D4/D5: hasMedia is written, as an explicit boolean, by every create path, and the two
 // tab queries return the right posts in the right order within their read budget. The emulator does not enforce composite
 // indexes, so these prove the query shape (filters, order, window, Limit) and the stored field names; the shapes map to the
-// W3-2 indexes in firebase/firestore.indexes.json (see repo_firestore.go Q-M and Q-B).
+// indexes in firebase/firestore.indexes.json (see repo_firestore.go Q-M and Q-B).
 
 // storedHasMedia reads the raw posts/{id} document: the value of hasMedia and whether the key exists at all (the backfill
 // and "rerun writes 0" depend on a written false being present and a pre-W3 doc being absent).

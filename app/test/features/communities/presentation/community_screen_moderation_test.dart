@@ -34,7 +34,7 @@ class _MockTabs extends Mock implements HomeTabsRepository {}
 
 class _MockGraph extends Mock implements GraphRepository {}
 
-/// W5-35: moderator entries on `/communities/:id`. The role is the server's
+/// Moderator entries on `/communities/:id`. The role is the server's
 /// `viewer_role`; a member sees none of them.
 void main() {
   final feed = FeedKey.community('77');

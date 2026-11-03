@@ -457,7 +457,7 @@ func TestRepo_IsOpen(t *testing.T) {
 	check("missing", ReportID("u-rep", TargetPost, pidN(32)), false)
 }
 
-// W7-36 (security L-6): a MESSAGE report keeps its private text in reports/{id}/evidence/message with expireAt = filing +
+// Security L-6: a MESSAGE report keeps its private text in reports/{id}/evidence/message with expireAt = filing +
 // 180 d; the report document holds no text and no expireAt while OPEN. Budgets: create 2 reads / 3 writes, Get 2 reads,
 // resolve 2 reads / 2 writes (the child is shortened to resolvedAt + 90 d, never lengthened), an already resolved report 1
 // read, a reopen 2 reads / 3 writes with a fresh child. A deleted child reads as TextExpired.

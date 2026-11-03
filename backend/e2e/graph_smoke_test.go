@@ -2,7 +2,7 @@
 
 package e2e
 
-// T17: graph E2E smoke. The same test body runs in two modes:
+// Graph E2E smoke. The same test body runs in two modes:
 //
 //   - Emulator mode (default, `make test-int`): boots the real handler via newTestServerCfg, mints two
 //     Firebase Auth emulator users and creates their profiles. Fully self-contained.

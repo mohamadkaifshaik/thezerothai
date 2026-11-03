@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/fake_posts_server.dart';
 
-/// W6-39: what the composer does with the send key stored on the draft row,
+/// What the composer does with the send key stored on the draft row,
 /// beyond the duplicate matrix (`composer_drafts_dup_publish_test.dart`): the
 /// clear rules, IDEMPOTENCY_KEY_REUSED, the explicit "send anyway", the other
 /// kind, and the 23 h window.

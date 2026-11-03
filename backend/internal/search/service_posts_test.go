@@ -412,7 +412,7 @@ func TestPageToken_Rejections(t *testing.T) {
 }
 
 // Given the newest 20 rows are by a blocked author, then page 1 filters the whole 30-row entry first, so the 10 visible rows
-// come back (not an empty page), and the token still advances past the entry (W4-27).
+// come back (not an empty page), and the token still advances past the entry.
 func TestLatest_DroppedPostStillAdvancesToken(t *testing.T) {
 	t.Parallel()
 	all := newestFirst(45, func(n int, p *posts.Post) {
@@ -918,7 +918,7 @@ func withGloballyOff(name string) rigOpt {
 	return func(_ *rig, _ *PostsDeps, fl flagMap) { fl["off:"+name] = true }
 }
 
-// W5-26b (ADR-0031 D5): search results are built by posts.ToView, so a community post carries its label, a hidden one and every post while
+// ADR-0031 D5: search results are built by posts.ToView, so a community post carries its label, a hidden one and every post while
 // communities is globally off do not, and the row's viewer_reply_permission is never decided by the community rule (UNKNOWN timelines, 0 reads).
 func TestPosts_CommunityLabel(t *testing.T) {
 	t.Parallel()

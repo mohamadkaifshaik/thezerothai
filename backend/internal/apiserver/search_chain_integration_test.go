@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W4-20 (ADR-0028): search and trends over the real Build chain on the emulators. The package tests in internal/search run
+// ADR-0028: search and trends over the real Build chain on the emulators. The package tests in internal/search run
 // the service below the interceptors (the account-status read, the rate limiters, the daily cap, the read budget, the
 // degraded-mode gate and the OIDC wall are all absent there), so the figures asserted here are the WHOLE-request figures
 // of the proto doc comments, measured on the request log's fs_reads / fs_writes of a second Build over the same emulator
@@ -186,7 +186,7 @@ func marshalDet(t *testing.T, m proto.Message) []byte {
 	return b
 }
 
-// --- Flags (W4-3: off / allowlist / percent / on; independent flags; GetMe) ------------------------------------------
+// --- Flags (off / allowlist / percent / on; independent flags; GetMe) ------------------------------------------
 
 func TestSearchChain_FlagModes(t *testing.T) {
 	ctx := context.Background()
@@ -309,7 +309,7 @@ func TestSearchChain_FlagModes(t *testing.T) {
 	}
 }
 
-// --- Budgets through the chain (W4-5, W4-7, W4-8, W4-10) ----------------------------------------------------------------
+// --- Budgets through the chain ----------------------------------------------------------------
 
 // The documented whole-request figures: SearchPeople 7 (limit 5) / 22 (limit 20), 0-2 warm; SearchPosts 33 first page of
 // TOP / LATEST / MEDIA, 23 older LATEST page at 20, 33 MEDIA scan, 0-3 warm; GetTrends 3 cold (the list and the hide list), 0-1 warm. Writes 0.
@@ -421,7 +421,7 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		e.assertReads(t, "GetTrends prefix warm", tr, 1)
 	})
 
-	// W4-25: a denylisted tag (TRENDS_DENYLIST) and a tag on trends/hidden both leave the served list at once, and the rest is
+	// A denylisted tag (TRENDS_DENYLIST) and a tag on trends/hidden both leave the served list at once, and the rest is
 	// ranked 1..n. Last, because the hide list persists in the project.
 	t.Run("GetTrends drops a denylisted and a hidden tag and renumbers the ranks", func(t *testing.T) {
 		if _, err := search.NewTrendsRepo(setup.fs).Hide(context.Background(), "#LAUNCH"); err != nil {
@@ -439,7 +439,7 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 	})
 }
 
-// --- Grammar through the chain: each rejection costs the interceptor's read at most (W4-5, W4-7) ------------------------
+// --- Grammar through the chain: each rejection costs the interceptor's read at most ------------------------
 
 func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
 	e := newSearchChain(t, nil)
@@ -505,7 +505,7 @@ func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
 	}
 }
 
-// --- Cursor binding on the wire (W4-7) ----------------------------------------------------------------------------------
+// --- Cursor binding on the wire ----------------------------------------------------------------------------------
 
 func TestSearchChain_PageTokenBinding(t *testing.T) {
 	e := newSearchChain(t, nil)
@@ -546,7 +546,7 @@ func TestSearchChain_PageTokenBinding(t *testing.T) {
 	// "Expired" needs a clock: it is proved below the chain (internal/search TestPageToken_Rejections, a fake clock).
 }
 
-// --- Rate limits and search_daily (W4-5, W4-7) --------------------------------------------------------------------------
+// --- Rate limits and search_daily --------------------------------------------------------------------------
 
 func TestSearchChain_PerMinuteDefaults(t *testing.T) {
 	e := newSearchChain(t, func(c *config.Config) { c.RateLimit.SearchCallsPerDay = 1_000_000 })
@@ -618,7 +618,7 @@ func TestSearchChain_SearchDailyIsOneSharedCap(t *testing.T) {
 	}
 }
 
-// --- Block oracle on the wire (W4-5, W4-7) ------------------------------------------------------------------------------
+// --- Block oracle on the wire ------------------------------------------------------------------------------
 
 func TestSearchChain_BlockOracleIsByteIdentical(t *testing.T) {
 	ctx := context.Background()
@@ -713,7 +713,7 @@ func TestSearchChain_ReadonlyKeepsAnsweringReads(t *testing.T) {
 	}
 }
 
-// --- Trends routes and the refresh end to end (W4-9, W4-9b, W4-10) -------------------------------------------------------
+// --- Trends routes and the refresh end to end -------------------------------------------------------
 
 func postInternal(t *testing.T, base, path, auth string) int {
 	t.Helper()
@@ -779,7 +779,7 @@ func refreshCfg(c *config.Config) {
 	c.Search.TrendsMaxPostsPerRun = 100_000 // the emulator project is shared with other tests' posts
 	c.Search.TrendsMinInterval = time.Hour
 	c.Search.TrendsDenylist = []string{"banned"}
-	// W4-26: the chain test accounts are seconds old, so the 72 h established-author rule would leave nothing to trend.
+	// The chain test accounts are seconds old, so the 72 h established-author rule would leave nothing to trend.
 	// The age rule itself is covered by the search package tests (trends_authors*_test.go).
 	c.Search.TrendsMinAccountAge = time.Nanosecond
 }
@@ -971,7 +971,7 @@ func TestSearchChain_DailyMaintenanceRunsTheTrendsStep(t *testing.T) {
 	}
 }
 
-// --- Hidden rows on real documents (W4-5 suspended user, W4-7 taken-down post) --------------------------------------
+// --- Hidden rows on real documents (suspended user, taken-down post) --------------------------------------
 
 func TestSearchChain_SuspendedUsersAndTakenDownPostsAreAbsent(t *testing.T) {
 	ctx := context.Background()

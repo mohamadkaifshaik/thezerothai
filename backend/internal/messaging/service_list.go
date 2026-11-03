@@ -28,7 +28,7 @@ const (
 	RefreshTokenTTL = 30 * 24 * time.Hour
 )
 
-// Request-line fields of a list (ADR-0027 D11, plan W7-7). Counts only: never a uid, a conversation id or a snippet.
+// Request-line fields of a list (ADR-0027 D11). Counts only: never a uid, a conversation id or a snippet.
 const (
 	kindListConversations = "list_conversations"
 	fieldFolder           = "folder"
@@ -62,7 +62,7 @@ func clampPageSize(n int32) int {
 	return int(n)
 }
 
-// ListConversations implements Service.ListConversations (ADR-0027 D4 "On read", D7; plan W7-7).
+// ListConversations implements Service.ListConversations (ADR-0027 D4 "On read", D7).
 //
 // Flag: not globally off (a caller dropped from the allowlist can still read). Validation, in this order and before any
 // read: folder INBOX or REQUESTS (VALIDATION "folder"), page_token and since_token not both (VALIDATION "page_token"),
@@ -79,7 +79,7 @@ func clampPageSize(n int32) int {
 //   - first INBOX page of 20: 23 reads (interceptor 1, query 20, caller graph 1, requests count() 1), planning 9
 //   - REQUESTS page, or an older INBOX page: 22 (no count(); request_count is 0)
 //   - INBOX since refresh: 4 with one entry (interceptor, query min 1, caller graph, requests count() 1), planning 3; an
-//     empty one 3 (no graph read). W7-37: request_count rides every INBOX first page and since refresh (the count runs in
+//     empty one 3 (no graph read).: request_count rides every INBOX first page and since refresh (the count runs in
 //     parallel with the query; a failed count() fails the call, never answers 0). REQUESTS since refresh: 3, no count()
 //   - writes 0
 func (s *service) ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
@@ -104,7 +104,7 @@ type listInput struct {
 	limit         int
 	before, since *cursor.Cursor
 	// withCount: INBOX and not an older page (no page_token): a first page or a since refresh, the responses that carry
-	// request_count (W7-37).
+	// request_count.
 	withCount bool
 }
 
@@ -271,7 +271,7 @@ func requestHiddenBy(peer string, snap graph.Snapshot) string {
 
 // conversationOf maps an entry to the wire Conversation. The state comes from the folder (the entry holds none, and a
 // conversation read per row would break the budget): REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with
-// RequestPending (the requester's own entry while the peer has not accepted, ADR-0027 note W7-25), which is REQUEST in the
+// RequestPending (the requester's own entry while the peer has not accepted, ADR-0027 note), which is REQUEST in the
 // INBOX, the same pair the ListMessages header returns for the requester. +0 reads.
 func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{
@@ -291,7 +291,7 @@ func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1
 }
 
 // canReply: false when either side blocks the other or the peer deleted the account (read-only thread, still reportable). A
-// caller whose blockedBy list overflowed cannot tell who blocks them, so it is fail-closed too (W7-27 security audit); the send
+// caller whose blockedBy list overflowed cannot tell who blocks them, so it is fail-closed too (security audit); the send
 // path stays authoritative.
 func canReply(peer string, snap graph.Snapshot) bool {
 	return peer != DeletedUID && !snap.Blocked[peer] && !snap.BlockedBy[peer] && !snap.BlockedByOverflow

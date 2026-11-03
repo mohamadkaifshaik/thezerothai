@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// W3-39 (W3-36 M-2): new uploads publish under unguessable names, old documents keep theirs.
+// M-2: new uploads publish under unguessable names, old documents keep theirs.
 
 const (
 	sfxA = "0123456789abcdef0123456789abcdef"
@@ -208,7 +208,7 @@ func TestFinalize_ConcurrentCallsPublishOneSuffixedPair(t *testing.T) {
 	}
 }
 
-// A document without nameSuffix (created by the pre-W3-39 code path) finalizes under the old names, and its erase
+// A document without nameSuffix (created by the earlier code path) finalizes under the old names, and its erase
 // works on them.
 func TestOldDocumentWithoutSuffixStillWorksEndToEnd(t *testing.T) {
 	e := newEnv(t, envOpts{})
@@ -347,7 +347,7 @@ func TestRetire_SuffixedAvatarAndBanner(t *testing.T) {
 }
 
 // opsctl clear-profile-fields reads names only through ObjectNameFromURL: a suffixed URL yields its suffixed name
-// untouched, and ParseImageURL accepts it (W3-39: opsctl needs no change).
+// untouched, and ParseImageURL accepts it (opsctl needs no change).
 func TestObjectNameFromURL_Suffixed(t *testing.T) {
 	t.Parallel()
 	for _, base := range []string{retireBucket, "https://cdn.example.com", retireBase} {

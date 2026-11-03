@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'geometry.dart';
 import 'theme_harness.dart';
 
-/// Self-tests of the shared test harness (W0-7), so that W1+ can trust it.
+/// Self-tests of the shared test harness, so that W1+ can trust it.
 void main() {
   testWidgets('pumpThemed applies size, theme and text scale', (tester) async {
     late BuildContext captured;

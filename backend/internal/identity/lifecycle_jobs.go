@@ -66,12 +66,12 @@ type jobResult struct {
 	seq     int64
 	step    string
 	err     error
-	// Observability (ADR-0011 T6, T7, T10): step calls and identity-owned deletions of a delete delivery; sections
+	// Observability (ADR-0011): step calls and identity-owned deletions of a delete delivery; sections
 	// and bytes of an export. Counts only, never ids.
 	stepCalls, deletedDocs, deletedObjects int
 	sections                               int
 	bytes                                  int64
-	// updated is the number of posts a profile_snapshot_refresh rewrote (P2).
+	// updated is the number of posts a profile_snapshot_refresh rewrote.
 	updated int
 }
 
@@ -150,7 +150,7 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 		res.uid = msg.UID
 		return l.runProfileSnapshot(ctx, msg, res)
 	default:
-		// A kind another module registered (P4 `post_delete`). The handler decides ack or nack; its errors go
+		// A kind another module registered (`post_delete`). The handler decides ack or nack; its errors go
 		// through retry() like every other job error, so uids and ids are scrubbed once, here.
 		h, ok := l.jobHandler(msg.Kind)
 		if !ok {

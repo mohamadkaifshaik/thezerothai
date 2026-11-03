@@ -17,7 +17,7 @@ const kNotificationTypeMessage = 'message';
 
 /// The app location a notification (in-app row or tapped push) opens: the
 /// actor's profile for a follow or an accepted request, the Follow requests
-/// screen for a request, the conversation for a direct message (W7-19), the
+/// screen for a request, the conversation for a direct message, the
 /// post for everything else (a deleted post shows "this post isn't
 /// available"). Null when it names neither. Ids are percent-encoded; the one
 /// place both the list and the push tap use.

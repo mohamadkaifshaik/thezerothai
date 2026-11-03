@@ -1,4 +1,4 @@
-// suggestions.go holds the ADR-0024 D8 graph RPC ListSuggestedUsers (W3-12) and the types its config and flag use: the
+// suggestions.go holds the ADR-0024 D8 graph RPC ListSuggestedUsers and the types its config and flag use: the
 // flag gate (before any Firestore access), the per-viewer cache lookup, the exclusion matrix over whatever the
 // Suggester returns and the single hydration call. The candidate sources are in suggester.go, the cache in
 // suggestion_cache.go, the one new query in repo_suggestions.go.
@@ -51,7 +51,7 @@ type SuggestionLimits struct {
 // 2 + EdgeLimit + HydrateMax, so 42 only if a project sets EdgeLimit 30, ADR-0024 Amendment 2 B1(b)), 12 on the curated
 // path (1 + 1 + 10; the edge query is skipped when the caller follows fewer than 3 accounts), 1 warm (the interceptor;
 // the cache holds the hydrated rows) or 2 warm when the viewer's 60 s snapshot has expired (the re-filter loads
-// graph/{viewer} once, W3-22 L-1), planning 27.6 per call (0.95 x (0.85 x 32 + 0.15 x 12) + 0.05 x 1.5); 0 writes. This
+// graph/{viewer} once, L-1), planning 27.6 per call (0.95 x (0.85 x 32 + 0.15 x 12) + 0.05 x 1.5); 0 writes. This
 // method itself accounts for the reads past the interceptor: 31 cold worst, 0 warm with a cached snapshot, 1 warm
 // without. Request log: source (fof | curated | none), candidates (uids sent to hydration), suggestions_cache_hit,
 // graph_cache_hit.
@@ -127,7 +127,7 @@ func (s *service) usableCandidates(viewer string, snap Snapshot, candidates []st
 	return out
 }
 
-// refilterCached drops, from a warm hit's rows, whoever the viewer's snapshot now excludes (W3-22 L-1). The snapshot
+// refilterCached drops, from a warm hit's rows, whoever the viewer's snapshot now excludes (L-1). The snapshot
 // comes from s.Snapshot: the 60 s snapshot cache when it holds one (0 reads), else ONE read of graph/{viewer}, which
 // is then cached for 60 s like every other read path (ADR-0008 D8). So a user who blocked the viewer on another
 // instance, or whom the viewer followed or blocked elsewhere, is gone from the answer within 60 s, never after the

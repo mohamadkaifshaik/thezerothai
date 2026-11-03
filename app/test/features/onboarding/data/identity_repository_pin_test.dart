@@ -14,7 +14,7 @@ import '../../../support/posts_fixtures.dart';
 const _update = '/dzeroth.identity.v1.IdentityService/UpdateProfile';
 const _getMe = '/dzeroth.identity.v1.IdentityService/GetMe';
 
-/// W3-17: the pin request is shaped exactly (field presence is the signal),
+/// The pin request is shaped exactly (field presence is the signal),
 /// and a refusal of `profile_extras` is remembered until the next GetMe.
 void main() {
   late AppDatabase db;

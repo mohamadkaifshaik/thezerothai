@@ -117,7 +117,7 @@ func TestLoad_LocalDefaults(t *testing.T) {
 	}
 }
 
-// TestLoad_AccountLifecycle (P8 T4): the flag defaults off and the reauth window defaults to 5m; a window of 0,
+// TestLoad_AccountLifecycle: the flag defaults off and the reauth window defaults to 5m; a window of 0,
 // a negative one, one over 10m or an unparsable one fails startup with a clear error naming the variable.
 func TestLoad_AccountLifecycle(t *testing.T) {
 	tests := []struct {
@@ -162,7 +162,7 @@ func TestLoad_AccountLifecycle(t *testing.T) {
 	}
 }
 
-// TestLoad_AccountExportSettings (P8, ADR-0011 D-B): the defaults and the bounds on the signed-URL lifetime and the
+// TestLoad_AccountExportSettings (ADR-0011 D-B): the defaults and the bounds on the signed-URL lifetime and the
 // export retention, which a typo must not turn into a bearer URL valid for days.
 func TestLoad_AccountExportSettings(t *testing.T) {
 	tests := []struct {
@@ -487,7 +487,7 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 }
 
-// TestLoad_CacheTTLGuard (ADR-0009 T33): CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
+// TestLoad_CacheTTLGuard (ADR-0009): CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
 func TestLoad_CacheTTLGuard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -702,7 +702,7 @@ func TestLoad_AuthEmulator(t *testing.T) {
 	}
 }
 
-// TestLoad_BookmarkMutationsPerDay (W2-14 M-1): the AddBookmark + RemoveBookmark daily call cap defaults to 1,500
+// TestLoad_BookmarkMutationsPerDay (M-1): the AddBookmark + RemoveBookmark daily call cap defaults to 1,500
 // (200 adds + a 1,000 clear-out + headroom), takes an override, and refuses a value that would lock every user out.
 func TestLoad_BookmarkMutationsPerDay(t *testing.T) {
 	tests := []struct {
@@ -740,7 +740,7 @@ func TestLoad_BookmarkMutationsPerDay(t *testing.T) {
 	}
 }
 
-// TestLoad_ProfileUpdatesPerDay (W3-22 L-4): the UpdateProfile daily call cap defaults to 100, takes an override, and
+// TestLoad_ProfileUpdatesPerDay (L-4): the UpdateProfile daily call cap defaults to 100, takes an override, and
 // refuses a value that would lock every user out of editing their profile.
 func TestLoad_ProfileUpdatesPerDay(t *testing.T) {
 	tests := []struct {

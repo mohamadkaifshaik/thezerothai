@@ -6,7 +6,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostStatus;
 import '../../../../shared/format/scheduled_time.dart';
 
-/// The "Schedule post" action in the composer's bottom bar (CMP-D6): a
+/// The "Schedule post" action in the composer's bottom bar: a
 /// schedule-send icon that is filled and accent-coloured while a schedule is
 /// set. Disabled while the post is being sent.
 class ScheduleButton extends StatelessWidget {

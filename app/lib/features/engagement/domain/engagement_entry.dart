@@ -4,7 +4,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 
 /// The viewer's like/repost state and the counts of one engagement target,
-/// plus whether a request for it is in flight (ADR-0018, plan T7).
+/// plus whether a request for it is in flight (ADR-0018).
 ///
 /// A count is `null` while it is unknown: a REPOST row carries the counters
 /// of the REPOST doc (always 0, plan D17), not of the original it points to,

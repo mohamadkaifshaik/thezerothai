@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// W6-25 (security finding H-1): the signed PUT is create-only, and the generation verify read is pinned on the GIF read
+// Security finding H-1: the signed PUT is create-only, and the generation verify read is pinned on the GIF read
 // and on Publish, so bytes that replace a screened object are never published.
 
 // rePut models the attacker's re-PUT of the signed URL: the object gets new bytes and a higher generation (what GCS does
@@ -137,7 +137,7 @@ func (n noGenObjects) UploadAttrs(ctx context.Context, object string) (objstore.
 	return a, err
 }
 
-// W6-25 M-4: no generation means no pin, so verify fails closed (an internal error, the client retries) and nothing is published.
+// M-4: no generation means no pin, so verify fails closed (an internal error, the client retries) and nothing is published.
 func TestW625_VerifyFailsClosedWithoutAGeneration(t *testing.T) {
 	e := newEnv(t, envOpts{objects: func(f *fakeObjects) Objects { return noGenObjects{f} }})
 	tg := e.upload(t, uidA, PurposePost, "ng")
@@ -167,7 +167,7 @@ func TestW625_BucketsPublishRefusesAZeroGeneration(t *testing.T) {
 	}
 }
 
-// W6-32 (W6-25 review L-3): call A copies the full image public, loses its changed-thumbnail reject to a retaken claim (the
+// review L-3: call A copies the full image public, loses its changed-thumbnail reject to a retaken claim (the
 // reload is PENDING, so A cannot delete: the claim holder may be publishing the same names), and the holder B then REJECTS.
 // B's REJECTED write must sweep A's public copy, which no document points to.
 func TestW632_RejectSweepsAPublicCopyLeftByAnEarlierCall(t *testing.T) {

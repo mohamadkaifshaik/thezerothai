@@ -126,7 +126,7 @@ TimelineSnapshot w3Snapshot(
 /// The profile screen over mocked repositories: the viewer's own profile or
 /// another user's, every tab with a few rows, the relationship and the pinned
 /// post scripted. Mirrors the rigs of `profile_tabs_test` and
-/// `profile_pinned_post_test`, in one place for the W3-21 files.
+/// `profile_pinned_post_test`, in one place for the files.
 class W3ProfileRig {
   W3ProfileRig()
     : identityRepository = W3MockIdentityRepository(),

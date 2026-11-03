@@ -15,15 +15,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests for `opsctl backfill-has-media` (ADR-0024 D4, W3-8). The documents are seeded as raw maps: toDoc always
-// writes hasMedia (W3-7), so only a raw Set can produce the pre-W3 shape the backfill exists for.
+// Emulator tests for `opsctl backfill-has-media` (ADR-0024 D4). The documents are seeded as raw maps: toDoc always
+// writes hasMedia, so only a raw Set can produce the pre-W3 shape the backfill exists for.
 
 const (
 	bfImage    = "1000000000000000001" // legacy POST with one image             -> true
 	bfText     = "1000000000000000002" // legacy POST, text only                 -> false
 	bfRepost   = "1000000000000000003" // legacy REPOST (images only in embedded) -> false
-	bfTrue     = "1000000000000000004" // written after W3-7, hasMedia true     -> untouched
-	bfFalse    = "1000000000000000005" // written after W3-7, hasMedia false    -> untouched
+	bfTrue     = "1000000000000000004" // written after that change, hasMedia true -> untouched
+	bfFalse    = "1000000000000000005" // written after that change, hasMedia false -> untouched
 	bfQuote    = "1000000000000000006" // legacy QUOTE with two images           -> true
 	bfReply    = "1000000000000000007" // legacy REPLY, text only                -> false
 	bfOddFalse = "1000000000000000008" // explicit false although it stores media: never overwritten

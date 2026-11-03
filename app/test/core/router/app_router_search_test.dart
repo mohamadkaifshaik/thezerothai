@@ -46,7 +46,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/search` on the real router (W4-15): behind the `search` flag, the tab
+/// `/search` on the real router: behind the `search` flag, the tab
 /// and the query from the URL.
 void main() {
   const user = AppUser(

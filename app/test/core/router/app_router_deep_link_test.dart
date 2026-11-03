@@ -39,7 +39,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// W2-9: a shared link (`/post/<id>`, `/u/<id>`, `/profile/<handle>`) that a
+/// A shared link (`/post/<id>`, `/u/<id>`, `/profile/<handle>`) that a
 /// visitor cold-opens survives every `_redirect` hop (splash while auth is
 /// unknown, sign-in, onboarding, the email prompt) and only those three shapes
 /// are ever kept.
@@ -130,7 +130,7 @@ void main() {
       );
     });
 
-    // W7-19: a conversation link is exactly 32 lower-case hex digits.
+    // A conversation link is exactly 32 lower-case hex digits.
     final convId = 'ab12' * 8;
 
     test('keeps /messages/<32 lower-case hex> as a bare path', () {

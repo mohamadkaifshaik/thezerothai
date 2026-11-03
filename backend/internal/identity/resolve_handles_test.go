@@ -32,7 +32,7 @@ func resolveWithBudget(t *testing.T, svc *service, in []string) (map[string]stri
 	return got, c.Reads()
 }
 
-// TestResolveHandles_TenHandlesSixCached is the T7 acceptance: 10 handles with 6 cached = 4 reads in one GetAll.
+// TestResolveHandles_TenHandlesSixCached is the acceptance: 10 handles with 6 cached = 4 reads in one GetAll.
 func TestResolveHandles_TenHandlesSixCached(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)

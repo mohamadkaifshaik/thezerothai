@@ -206,9 +206,9 @@ class EditProfileState {
   );
 }
 
-/// Drives Edit profile: display name and bio (P2-T5), the avatar when
-/// `FEATURE_MEDIA` is on (P4), and with `profile_extras` also the banner,
-/// location and website (ADR-0024, W3-15).
+/// Drives Edit profile: display name and bio, the avatar when
+/// `FEATURE_MEDIA` is on, and with `profile_extras` also the banner,
+/// location and website (ADR-0024).
 ///
 /// - Sends just the fields that changed (field presence is the signal: absent
 ///   leaves a field alone, `""` clears it), with one idempotency key per
@@ -220,7 +220,7 @@ class EditProfileState {
 ///   set (a non-empty banner id, location or website) when `profile_extras`
 ///   is off for the caller, which would fail every name or bio save too. A
 ///   **clear** (an exact `""`) is accepted whatever the flag (ADR-0024
-///   Amendment 1 A2, W3-22 M-1), so without the flag the screen offers Remove
+///   Amendment 1 A2, M-1), so without the flag the screen offers Remove
 ///   for each saved one ([removeBanner], [removeLocation], [removeWebsite])
 ///   and the only extras a request can then carry are `""`. A server
 ///   FEATURE_DISABLED `profile_extras` switches the setting off for good here

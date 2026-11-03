@@ -21,7 +21,7 @@ func (r *rig) putEntry(uid, collection string, e EntryDoc) {
 	r.repo.entries[entryKey(uid, collection)] = append(r.repo.entries[entryKey(uid, collection)], EntryRow{ID: aliceBobConv, EntryDoc: e})
 }
 
-// W7-27: a first page carries the caller's own unread_count and silent, from dmInbox, or dmRequests for the recipient of an
+// A first page carries the caller's own unread_count and silent, from dmInbox, or dmRequests for the recipient of an
 // unaccepted request; a missing entry is 0 / false. One entry read on a first page, resolved from the conversation.
 func TestListMessages_FirstPageUnreadCount(t *testing.T) {
 	request := func(c *ConvDoc) { c.State, c.RequestFrom, c.RequestTo = stateRequest, alice, bob }

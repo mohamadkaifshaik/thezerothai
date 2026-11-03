@@ -16,7 +16,7 @@ import 'communities_error_messages.dart';
 import 'widgets/community_unavailable_view.dart';
 import 'widgets/moderation_log_row.dart';
 
-/// `/communities/:id/moderation-log` (W5-35): what the moderators did, newest
+/// `/communities/:id/moderation-log`: what the moderators did, newest
 /// first, 1 `ListModerationLog` per page. Only owner and moderators can read
 /// it (the server answers FORBIDDEN `not_moderator`, shown as a sentence); a
 /// hidden post can be restored from its HIDE entry. The log is as of the last

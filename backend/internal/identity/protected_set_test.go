@@ -239,7 +239,7 @@ func (s *hookSetSource) LoadProtectedSet(context.Context) ([]string, error) {
 	return s.uids, nil
 }
 
-// W3-36 L-3: an Apply during a refresh read must not throw the read away. After an idle period past maxStale the
+// L-3: an Apply during a refresh read must not throw the read away. After an idle period past maxStale the
 // fetched copy is installed with the local delta re-applied, so Current serves a fresh copy that still shows the
 // local unprotect, and the next call within ttl reads nothing.
 func TestProtectedSetLoader_ApplyDuringRefreshKeepsFreshCopy(t *testing.T) {
@@ -287,7 +287,7 @@ func TestProtectedSetLoader_InstallDuringRefreshWins(t *testing.T) {
 	}
 }
 
-// TestProtectedSetLoader_OutageReportsOncePerRequest is W3-40b L-4: a page of 50 rows during an outage raises one
+// TestProtectedSetLoader_OutageReportsOncePerRequest is L-4: a page of 50 rows during an outage raises one
 // ERROR for the request and WARN after that; a second request raises its own ERROR.
 func TestProtectedSetLoader_OutageReportsOncePerRequest(t *testing.T) {
 	t.Parallel()

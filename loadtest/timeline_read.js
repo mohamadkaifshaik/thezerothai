@@ -1,5 +1,5 @@
-// timeline_read: GetHomeTimeline (refresh with since_token, older page) + GetUserTimeline (T22,
-// ADR-0004/0010).
+// timeline_read: GetHomeTimeline (refresh with since_token, older page) + GetUserTimeline
+// (ADR-0004/0010).
 //
 // Budget under test (timeline.proto): home refresh planning 4 + new posts (F=60), older page / cold open ~30
 // (page 20); GetUserTimeline planning 11 (3 + 20 cold / 0 warm). Acceptance: home refresh p95 < 400 ms warm
@@ -22,7 +22,7 @@
 //   home_older    OLDER_RATE=2/s     GetHomeTimeline{page_token} (older page)
 //   user_timeline USER_RATE=4/s      GetUserTimeline of an author, first page
 //   new_posts     NEW_POST_RATE=1 per NEW_POST_EVERY=10 s  authors keep posting, so refreshes have new posts to read.
-//                                    (the old default was 1 post/s; it was not the cause of the high refresh gap rate, see T22)
+//                                    (the old default was 1 post/s; it was not the cause of the high refresh gap rate, see)
 // Home totals 16 rps / 200 users = 4.8 calls/min/uid, plus gap fills, which can exceed the 6/min/uid home limit:
 // raise RATE_LIMIT_TIMELINE_PER_MIN on the API too. FEATURE_POSTS=on.
 //

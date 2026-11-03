@@ -46,7 +46,7 @@ type Deps struct {
 	Repo   Repo
 	Social Social
 	// TxSocial reads the recipient's graph inside the send transaction and TxProfiles the recipient's users doc inside the
-	// transaction of a send that creates a conversation (ADR-0027 note W7-33); both are required for SendMessage.
+	// transaction of a send that creates a conversation (ADR-0027 note); both are required for SendMessage.
 	TxSocial   TxSocial
 	TxProfiles identity.TxProfiles
 	Profiles   Profiles

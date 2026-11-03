@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
-// Directory is the listing seam of ListCommunities (ADR-0031 W5-25b): the ranked list of ACTIVE communities, most members first, shared by
+// Directory is the listing seam of ListCommunities (ADR-0031): the ranked list of ACTIVE communities, most members first, shared by
 // every viewer of this instance. The Stage 0 implementation is one Firestore query behind a 5 minute instance entry; the W4 discovery
 // engine replaces it behind this interface without touching the handler or the viewer-role logic.
 type Directory interface {
@@ -22,7 +22,7 @@ type Directory interface {
 // DirectoryMax is the Limit of the directory query (ADR-0031 D3: 50, the platform maximum).
 const DirectoryMax = 50
 
-// DirectoryTTL is the staleness bound of the shared directory entry (ADR-0031 W5-25b).
+// DirectoryTTL is the staleness bound of the shared directory entry (ADR-0031).
 const DirectoryTTL = 5 * time.Minute
 
 // MemberFilter selects the rows of ListCommunityMembers (named after the member doc's state, not a role).

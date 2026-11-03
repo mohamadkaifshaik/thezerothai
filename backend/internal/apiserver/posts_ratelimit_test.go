@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// TestPostsBuckets_AreWiredAtTheADR0010Rates (T4): through the config Build wires, the Nth call of a minute is
+// TestPostsBuckets_AreWiredAtTheADR0010Rates: through the config Build wires, the Nth call of a minute is
 // allowed and the N+1th is RATE_LIMITED, per procedure, with the ADR-0010 Handoff numbers (home 6, user timeline
 // 30, create 10, delete 20, GetPost 60 = the default bucket). Each bucket is independent: exhausting one
 // procedure does not affect another.

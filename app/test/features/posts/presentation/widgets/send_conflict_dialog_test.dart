@@ -6,7 +6,7 @@ import 'package:dzeroth/features/posts/presentation/widgets/send_conflict_dialog
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// W6-39: the words and buttons of each [SendConflict].
+/// The words and buttons of each [SendConflict].
 void main() {
   Future<SendConflictChoice?> show(
     WidgetTester tester,

@@ -2,8 +2,8 @@
 
 package apiserver
 
-// W3-20: GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5) over the real Build chain on the emulators. The cells the
-// W3-9 chain tests (profile_tabs_integration_test.go) leave empty:
+// GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5) over the real Build chain on the emulators. The cells the
+// chain tests (profile_tabs_integration_test.go) leave empty:
 //   - the whole token matrix: every spelling of every effective tab issuing a page token and a since token, and every
 //     spelling consuming it; only a spelling that resolves to the SAME effective tab opens it, every other pair is
 //     VALIDATION on the right field with exactly 0 reads. Pre-W3 tokens are forged here with the frozen binding strings
@@ -56,7 +56,7 @@ func (e *w320Chain) w320TabCall(u bmUser, target string, tab timelinev1.UserTime
 	return r.Msg, nil
 }
 
-// w320MarkMedia sets hasMedia on a post (the chain has no image upload; this is the field the W3-7 create paths write).
+// w320MarkMedia sets hasMedia on a post (the chain has no image upload; this is the field the create paths write).
 func (e *w320Chain) w320MarkMedia(t *testing.T, id string) {
 	t.Helper()
 	if _, err := e.fs.Doc("posts/"+id).Update(context.Background(), []firestore.Update{{Path: "hasMedia", Value: true}}); err != nil {

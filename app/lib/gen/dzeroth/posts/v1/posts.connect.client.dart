@@ -31,7 +31,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
   /// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
   /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
-  /// Quotes (P5, plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
+  /// Quotes (plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   /// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   /// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
   /// kind QUOTE, a root post for feeds (never a reply), carries an embedded one-level snapshot of the quoted post
@@ -42,7 +42,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
   /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
   /// follower is allowed and is public: it shows its own text, never the parent's.
-  /// Replies (P3, plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
+  /// Replies (plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
   /// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
   /// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
   /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
@@ -55,7 +55,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
   /// 0 writes, same reads as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
   /// deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
-  /// Media (P4, FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
+  /// Media (FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
   /// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
   /// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
   /// parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
@@ -78,7 +78,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
   /// candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
   /// TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
-  /// With n images (P4): + n reads (one GetAll of media/* inside the transaction) and + n writes (media/{id}.postId),
+  /// With n images: + n reads (one GetAll of media/* inside the transaction) and + n writes (media/{id}.postId),
   /// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
   /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
@@ -157,7 +157,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// likes and reposts documents (and the REPOST posts docs those created), and replaces the embedded snapshot of
   /// quotes of it with an unavailable tombstone. Async cost: 2 post reads + n media + 3 queries (1 read minimum
   /// each) + 1 read and 1 delete per dependant.
-  /// Deleting a REPOST post doc is UndoRepost (P5): its reposts/{originalId}_{uid} doc goes in the same batch and the
+  /// Deleting a REPOST post doc is UndoRepost: its reposts/{originalId}_{uid} doc goes in the same batch and the
   /// original's repostCount is decremented best effort after the commit. Deleting a QUOTE decrements the quoted
   /// post's quoteCount best effort, like a reply's parent replyCount.
   /// Firestore (request path): reads 2 cold / 0 warm, planning 1 (interceptor caller users + post); writes 1/1,
@@ -264,8 +264,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
   /// here: VALIDATION field "media_ids" (ADR-0029 D10).
   /// Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
-  /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode
-  /// (plan W5-34).
+  /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode.
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is
   /// truncated to the whole minute (UTC) and must be within [now + 2 min, now + 60 d] by server time, else VALIDATION

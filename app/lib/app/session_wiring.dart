@@ -124,7 +124,7 @@ Future<void> wipeSessionData({
   await database.clearAll();
 }
 
-/// Bridges auth state into the session (W7-35, L-4): OnboardingBloc reacts to
+/// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay
 /// decoupled, see the `flutter-feature` skill).
 ///

@@ -1,5 +1,5 @@
-// follow_requests_gate.go is the ADR-0025 D12 gate of ListFollowRequests and RespondToFollowRequest (W3-25b). The two
-// RPCs are built in follow_requests.go (W3-28a); this file holds the gate they share.
+// follow_requests_gate.go is the ADR-0025 D12 gate of ListFollowRequests and RespondToFollowRequest. The two
+// RPCs are built in follow_requests.go; this file holds the gate they share.
 package graph
 
 import (

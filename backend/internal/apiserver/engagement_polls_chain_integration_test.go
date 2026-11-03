@@ -2,10 +2,10 @@
 
 package apiserver
 
-// VotePoll over the real Build chain (Firestore and Auth emulators): the wire contract the poll card (W6-13) maps by reason, the
+// VotePoll over the real Build chain (Firestore and Auth emulators): the wire contract the poll card maps by reason, the
 // vote batch, replay, ALREADY_VOTED, concurrency, the new-account cap, the byte-identical NOT_FOUND, the flag gate and the budgets
 // (logged fs_reads / fs_writes of the request line, ADR-0029 Cost impact). The emulator serialises writes, so the concurrency here is
-// not proof for production OPTIMISTIC concurrency (W6-22 runs a dev smoke).
+// not proof for production OPTIMISTIC concurrency (runs a dev smoke).
 
 import (
 	"context"
@@ -426,7 +426,7 @@ func TestPollVoteChain_FlagGate(t *testing.T) {
 	}
 }
 
-// pollEntryIs reports whether got (the printed array) is exactly one entry "<postId>:<choice>:<closesAtUnix>" (W6-29).
+// pollEntryIs reports whether got (the printed array) is exactly one entry "<postId>:<choice>:<closesAtUnix>".
 func pollEntryIs(got, postID string, choice int) bool {
 	prefix := fmt.Sprintf("[%s:%d:", postID, choice)
 	if !strings.HasPrefix(got, prefix) || !strings.HasSuffix(got, "]") {

@@ -30,7 +30,7 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_MESSAGE =
       ReportTargetType._(3, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_MESSAGE');
 
-  /// A list (ADR-0030, plan W5-44). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+  /// A list (ADR-0030). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
   /// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
   /// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
   /// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally

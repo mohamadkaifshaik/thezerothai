@@ -128,7 +128,7 @@ void main() {
 
   group('a thread cold open merges the header into the cached row (F-5)', () {
     // What ListMessages carries: identity, peer, state, folder, can_reply and,
-    // on the first page (W7-27), unread_count and silent. No last_message or
+    // on the first page, unread_count and silent. No last_message or
     // updated_at.
     pb.Conversation header(String id) => pb.Conversation(
       id: id,

@@ -36,7 +36,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 const _message = 'This post is from an account that protects its posts.';
 
-/// W3-41b: the caller's own REPOST of a protected author's post, on their own
+/// The caller's own REPOST of a protected author's post, on their own
 /// profile tabs (`FeedPostRow` -> `PostCard`): the protected box, "You
 /// reposted" and one Undo repost action that acts on the ORIGINAL's id, with
 /// no reply, share or thread entry; the row leaves at once and returns, with
@@ -64,7 +64,7 @@ void main() {
   tearDown(() => cubit.close());
 
   /// Scripts `UndoRepost`: [error] is thrown, [gate] holds the answer back.
-  /// The default answer is the missing-post shape W3-40a returns for a post
+  /// The default answer is the missing-post shape returns for a post
   /// the caller may no longer see: the post id, zero counts, not reposted.
   void scriptUndo({Object? error, Completer<void>? gate}) {
     when(

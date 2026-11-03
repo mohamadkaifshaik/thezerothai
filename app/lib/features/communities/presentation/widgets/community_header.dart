@@ -12,7 +12,7 @@ import '../bloc/community_detail_state.dart';
 import 'community_join_control.dart';
 import 'community_row.dart';
 
-/// The top of `/communities/:id` (W5-32): name, "N members" (opens the members
+/// The top of `/communities/:id`: name, "N members" (opens the members
 /// page), the Join / Joined / Banned control and Pin / Unpin from Home.
 /// Presentation only: the screen wires the callbacks.
 ///
@@ -22,7 +22,7 @@ import 'community_row.dart';
 /// - A banned viewer sees the muted "You can't join this Community" and no Pin.
 /// - At [kMaxPinnedHomeTabs] pinned, Pin is disabled and a hint says why. The
 ///   buttons wrap, so they fit at 360 dp and text scale 2.0.
-/// - "Post" (W5-34) is the compose entry: shown only when the screen passes
+/// - "Post" is the compose entry: shown only when the screen passes
 ///   [onCompose], which it does for a joined, not archived community and a
 ///   caller who may post (see [communityComposeAllowed]).
 class CommunityHeader extends StatelessWidget {
@@ -48,11 +48,11 @@ class CommunityHeader extends StatelessWidget {
   /// Opens the composer on this community; null hides the "Post" button.
   final VoidCallback? onCompose;
 
-  /// Opens the moderation log (W5-35); null hides the entry. The screen passes
+  /// Opens the moderation log; null hides the entry. The screen passes
   /// it only when the server's `viewer_role` is owner or moderator.
   final VoidCallback? onModerationLog;
 
-  /// Whether the "Post" entry is offered for [state] (W5-34): the caller is a
+  /// Whether the "Post" entry is offered for [state]: the caller is a
   /// member by the server's `viewer_role` (a banned or non-member viewer is
   /// not), the community is not archived (read-only), and no Join / Leave is
   /// in flight. The caller's own flags (`posts`, protected account) are the

@@ -14,8 +14,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-25b (ADR-0025 D12): UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
-// feature=private_accounts before any read otherwise; is_private=false is never gated. Until W3-26a builds the toggle, a
+// ADR-0025 D12: UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
+// feature=private_accounts before any read otherwise; is_private=false is never gated. Until builds the toggle, a
 // caller who passes the gate still gets the old VALIDATION refusal and nothing is written.
 
 func privateRegistry(mode flags.Mode, pct int, allow ...string) *flags.Registry {
@@ -85,7 +85,7 @@ func TestUpdateProfile_PrivateAccountsFlagModes(t *testing.T) {
 				}
 				budgettest.Assert(t, "UpdateProfile(is_private=true) refused", counter, budgettest.Budget{}) // 0 reads, 0 writes, 0 deletes
 			case tt.params.IsPrivate != nil && *tt.params.IsPrivate:
-				// Past the gate, before W3-26a: the old refusal, still 0 writes.
+				// Past the gate, before then: the old refusal, still 0 writes.
 				wantValidationField(t, err, "is_private")
 				if repo.updateCalls != before {
 					t.Errorf("updateCalls = %d, want %d (0 writes)", repo.updateCalls, before)

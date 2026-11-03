@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// gifStripCase is one row of testdata/gif_strip.json, the fixture the Dart stripper runs too (W6-30, security L-4).
+// gifStripCase is one row of testdata/gif_strip.json, the fixture the Dart stripper runs too (security L-4).
 type gifStripCase struct {
 	Name     string `json:"name"`
 	Gif      string `json:"gif"`
@@ -78,7 +78,7 @@ func TestW630_SharedFixture(t *testing.T) {
 }
 
 // loopBlockWithExtra inserts, right after the global colour table of gif, a NETSCAPE2.0 loop block that carries the loop
-// count AND a second sub-block of arbitrary bytes (W6-58, the W6-20 re-review N-1 probe). gif must have a global table.
+// count AND a second sub-block of arbitrary bytes (the re-review N-1 probe). gif must have a global table.
 func loopBlockWithExtra(gif []byte) []byte {
 	at := 13 + 3<<((gif[10]&7)+1)
 	blk := append([]byte{0x21, 0xFF, 11}, "NETSCAPE2.0"...)
@@ -86,8 +86,8 @@ func loopBlockWithExtra(gif []byte) []byte {
 	return append(append(append([]byte{}, gif[:at]...), blk...), gif[at:]...)
 }
 
-// TestW658_LoopBlockRefusals: a loop block must be exactly 03 01 LL LL 00 and there may be one (W6-58). The reason is
-// the same invalid refusal as the other W6-30 structure rules, with its own why; the probe is the 25 KB smuggling case.
+// TestW658_LoopBlockRefusals: a loop block must be exactly 03 01 LL LL 00 and there may be one. The reason is
+// the same invalid refusal as the other structure rules, with its own why; the probe is the 25 KB smuggling case.
 func TestW658_LoopBlockRefusals(t *testing.T) {
 	t.Parallel()
 	base := gifBytes("w658")

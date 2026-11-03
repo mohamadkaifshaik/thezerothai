@@ -84,7 +84,7 @@ class RecipientPickerState {
 
 const Object _keep = Object();
 
-/// Drives the "To:" field of the new-message picker (W7-17, ADR-0027 D5).
+/// Drives the "To:" field of the new-message picker (ADR-0027 D5).
 ///
 /// - The Following list itself is a `UserListCubit` over
 ///   [PeopleSource.page]; this cubit only owns what is typed.

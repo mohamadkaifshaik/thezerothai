@@ -31,7 +31,7 @@ type itEnv struct {
 	repo   *FirestoreRepo
 	social *fakeSocial
 	profs  *fakeProfiles
-	// txSocial and txProfs are the real graph and identity repos (W7-33): the send transaction reads the recipient.s graph/{uid}
+	// txSocial and txProfs are the real graph and identity repos: the send transaction reads the recipient.s graph/{uid}
 	// and users/{uid} documents through them, so setSocial and addUser write those documents too.
 	txSocial graph.TxReader
 	txProfs  identity.TxProfiles

@@ -13,7 +13,7 @@ class ReportReceipt {
   final bool alreadyReported;
 }
 
-/// `ModerationService` client (ADR-0016, P7). Every call goes through the
+/// `ModerationService` client (ADR-0016). Every call goes through the
 /// `reports` [ServiceFeatureGate]: with the flag off no RPC is sent.
 ///
 /// Reports are never cached and never retried automatically; the caller owns

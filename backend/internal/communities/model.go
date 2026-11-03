@@ -38,7 +38,7 @@ const (
 	// StatusArchived is read-only and out of the directory (F12): the owner's account was deleted with no ACTIVE moderator to take
 	// over, or opsctl archived it.
 	StatusArchived Status = "ARCHIVED"
-	// StatusSuspended is the platform's offline switch (opsctl, W5-29).
+	// StatusSuspended is the platform's offline switch (opsctl).
 	StatusSuspended Status = "SUSPENDED"
 )
 
@@ -70,7 +70,7 @@ const (
 	RoleBanned
 )
 
-// Moderation-log actions (ADR-0031 D2). W5-23 writes EDIT and W5-24 OWNER_HANDOVER; the others belong to W5-25 and W5-28.
+// Moderation-log actions (ADR-0031 D2).
 const (
 	ActionHide          = "HIDE"
 	ActionRestore       = "RESTORE"
@@ -100,7 +100,7 @@ type LogEntry struct {
 	PostID string
 }
 
-// Removal is one communities/{cid}.recentRemovals element (a hide, A3). Written from W5-28 on.
+// Removal is one communities/{cid}.recentRemovals element (a hide, A3). Written from then on.
 type Removal struct {
 	PostID string
 	At     time.Time
@@ -189,10 +189,10 @@ type Detail struct {
 	Moderators []Person
 }
 
-// Service is everything the CommunityService handlers call (ADR-0031 D1, the seam: handlers call only this). W5-23 holds Create, Update
-// and Get; W5-25 adds Join, Leave and the lists, W5-28 the moderation calls.
+// Service is everything the CommunityService handlers call (ADR-0031 D1, the seam: handlers call only this): Create, Update
+// and Get; Join, Leave and the lists; the moderation calls.
 type Service interface {
-	// Moderation is the owner and moderator surface (W5-28): Hide, Restore, SetMemberRole and ListModerationLog.
+	// Moderation is the owner and moderator surface: Hide, Restore, SetMemberRole and ListModerationLog.
 	Moderation
 	// CreateCommunity creates a community owned by uid, who becomes its first member. COMMUNITY_CREATORS is checked first (FORBIDDEN
 	// not_creator, 0 reads), then the key and the text rules. No daily quota: the owned cap is exact and lifetime. Firestore: reads 2
@@ -220,10 +220,10 @@ type Service interface {
 	// ListMyCommunities lists the communities uid is JOINED in, newest join first (not paged at Stage 0). Firestore (interceptor excluded):
 	// reads 1 (memberships) + one per community document that is not cached, at most 51; warm 1; writes 0.
 	ListMyCommunities(ctx context.Context, uid, pageToken string) (MyCommunities, error)
-	// ListCommunities is the directory (W5-25b): ACTIVE communities, most members first, from the shared Directory entry (5 min) with the caller's role per row
+	// ListCommunities is the directory: ACTIVE communities, most members first, from the shared Directory entry (5 min) with the caller's role per row
 	// (memberships cached 60 s). Firestore (interceptor excluded): reads cold <= 51 (the refill <= 50, memberships 1), warm 0-1; writes 0.
 	ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error)
-	// ListCommunityMembers is one member page (W5-25b; BANNED for the owner and moderators only). Firestore (interceptor excluded): reads 1 community +
+	// ListCommunityMembers is one member page (BANNED for the owner and moderators only). Firestore (interceptor excluded): reads 1 community +
 	// page rows + page profiles + 1 caller graph = 42 cold at page 20 / 102 at page 50; warm 20 / 50; writes 0.
 	ListCommunityMembers(ctx context.Context, uid string, in MembersInput) (MembersPage, error)
 }

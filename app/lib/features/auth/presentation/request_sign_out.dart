@@ -17,7 +17,7 @@ const kSignOutDeleteFailed =
 /// bloc, not a global flag, so an abandoned dialog never blocks another app.
 final Expando<bool> _deciding = Expando<bool>('requestSignOut');
 
-/// The one way every "Sign out" button leaves the account (W6-31, security
+/// The one way every "Sign out" button leaves the account (security
 /// L-5).
 ///
 /// - Nobody signed in, no `DraftsRepository` in the tree, no unsent posts for

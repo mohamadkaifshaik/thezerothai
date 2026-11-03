@@ -1,4 +1,4 @@
-// media_wiring.go composes the media module (P4, ADR-0005): the Connect server, the post_delete job, the account
+// media_wiring.go composes the media module (ADR-0005): the Connect server, the post_delete job, the account
 // Eraser/exporter and the library posts and identity consume. Consumer-side adapters live here (the BlockChecker
 // pattern, ADR-0002): media does not import identity or posts.
 package apiserver

@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// The platform hide (plan W5-44, security review W5-17 M-4) against the emulator: SetHidden is the write, the existing read
+// The platform hide (security review M-4) against the emulator: SetHidden is the write, the existing read
 // paths are the effect. A non-owner needs a FRESH service after the write (a cold doc cache): a warm instance serves its cached
 // copy for at most cacheTTL (60 s), which is the documented bound and not what these tests measure.
 

@@ -35,7 +35,7 @@ class ListMembersPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The only caller of `ListService` (ADR-0030, plan W5-10).
+/// The only caller of `ListService` (ADR-0030).
 ///
 /// - **Flag.** Every RPC needs `lists` in `GetMe.enabled_features`
 ///   ([ServiceFeatureGate]): with it off no request is sent and a
@@ -52,7 +52,7 @@ class ListMembersPage {
 ///   [ProtectedAccountException] (AddListMember), rate limits.
 /// - **Mutations** take an `idempotencyKey` made once per user action by the
 ///   caller and reused on a retry (rule 4). Nothing is retried here.
-/// - **Headers (W5-12).** The latest `ListInfo` seen for each list is kept in
+/// - **Headers.** The latest `ListInfo` seen for each list is kept in
 ///   session memory ([header], [headerChanges]); the list timeline repository
 ///   feeds it too ([noteListInfo]), so the list detail never costs a `GetList`
 ///   it does not need. [clearSession] ends it on sign-out.
@@ -174,7 +174,7 @@ class ListsRepository {
   }
 
   /// [ownerId] empty = the caller's own lists. [containsUserId] fills
-  /// [ListsPage.containingListIds] (the "Add to Lists" checkboxes, W5-13).
+  /// [ListsPage.containingListIds] (the "Add to Lists" checkboxes).
   Future<ListsPage> listUserLists({
     String ownerId = '',
     String containsUserId = '',

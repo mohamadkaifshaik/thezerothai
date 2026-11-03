@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestCreate_Integration_Disclosure (ADR-0021 D3, CMP-C2): the labels land on the post doc under their documented
+// TestCreate_Integration_Disclosure (ADR-0021 D3): the labels land on the post doc under their documented
 // names, only when set (absent = false, no backfill) and the call stays inside the CreatePost budget (delta 0).
 func TestCreate_Integration_Disclosure(t *testing.T) {
 	client := newTestClient(t)

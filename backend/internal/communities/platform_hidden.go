@@ -1,4 +1,4 @@
-// platform_hidden.go is the platform recovery of hidden posts and replies (ADR-0031 Amendment 1 D14a, plan W5-52b): the listing behind
+// platform_hidden.go is the platform recovery of hidden posts and replies (ADR-0031 Amendment 1 D14a): the listing behind
 // `opsctl community hidden` and the page restore behind `opsctl community restore-hidden`. Like platform.go it runs in the operator's
 // process, so it touches no instance cache: a restored root returns to feeds within the shared entry's 5-minute bound, a restored reply
 // to thread pages at once. Every write is a field-level Update (never a Set). It works in any community status and any flag state.

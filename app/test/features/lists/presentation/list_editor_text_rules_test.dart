@@ -10,7 +10,7 @@ import '../../../support/theme_harness.dart';
 
 class _MockLists extends Mock implements ListsRepository {}
 
-/// W5-49: the List editor refuses invisible-only and format-character text
+/// The List editor refuses invisible-only and format-character text
 /// before sending, with the server's wording.
 void main() {
   Future<void> open(

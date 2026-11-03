@@ -2,9 +2,9 @@
 
 package apiserver
 
-// W7-6: the `messaging` deletion step on the production job handler with the T16 fault injection. The conversation tree
+// The `messaging` deletion step on the production job handler with the fault injection. The conversation tree
 // of a deleted account is erased in a bounded, resumable sequence of calls (gone mark, tombstones, entries, tree); a kill
-// after any side effect must end in the clean run's state. Two shapes: the rich T16 account carries a conversation whose
+// after any side effect must end in the clean run's state. Two shapes: the rich account carries a conversation whose
 // peer is gone already (the whole tree is deleted, so the residue sweep stays clean), and the dedicated matrix below
 // keeps live peers, whose conversations survive with tombstones.
 
@@ -185,7 +185,7 @@ func (e *lifecycleEnv) dmDigest(t *testing.T, w dmWorld) string {
 	return strings.Join(lines, "\n")
 }
 
-// requireDMErased checks what the step must have done for A, independent of any other run. The global T11 residue sweep
+// requireDMErased checks what the step must have done for A, independent of any other run. The global residue sweep
 // runs too, with no allowlist entry: the surviving peers' copies hold no uid of A (ADR-0027 D11).
 func (e *lifecycleEnv) requireDMErased(t *testing.T, w dmWorld) {
 	t.Helper()
@@ -342,7 +342,7 @@ func TestAccountLifecycle_MessagingBothDeleted(t *testing.T) {
 }
 
 // seedClearedMarks gives the accepted conversation the marks of two earlier DeleteConversation calls (ADR-0027 2026-10-29
-// note): clearedAt and clearedKey for A and for B. Both are maps keyed by uid, so the T11 residue sweep (which reads values)
+// note): clearedAt and clearedKey for A and for B. Both are maps keyed by uid, so the residue sweep (which reads values)
 // cannot see a leftover key of A's; requireClearedMarksErased reads the keys.
 func (e *lifecycleEnv) seedClearedMarks(t *testing.T, w dmWorld) {
 	t.Helper()

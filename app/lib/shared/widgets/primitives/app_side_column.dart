@@ -48,7 +48,7 @@ class AppSideColumn extends StatelessWidget {
     required this.links,
   });
 
-  /// A widget above everything else: the search pill (W4-18). Presentational
+  /// A widget above everything else: the search pill. Presentational
   /// like the rest; its own gating is the caller's (null draws nothing).
   final Widget? header;
 

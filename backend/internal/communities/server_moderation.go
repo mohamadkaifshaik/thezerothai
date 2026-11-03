@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// HideCommunityPost is gated by FEATURE_COMMUNITIES (reason=not_moderator for anyone but the owner and moderators; reason=not_owner when a moderator targets the owner's or another moderator's post, W5-53 F16, 0 extra reads, nothing written; a post with `moderation` set is NOT_FOUND). The post leaves the
+// HideCommunityPost is gated by FEATURE_COMMUNITIES (reason=not_moderator for anyone but the owner and moderators; reason=not_owner when a moderator targets the owner's or another moderator's post, F16, 0 extra reads, nothing written; a post with `moderation` set is NOT_FOUND). The post leaves the
 // community's feed and loses its label; it stays on the author's profile and in Home. Moderators never delete posts. Already hidden is
 // success with the idempotency document only.
 //

@@ -47,7 +47,7 @@ part 'thread_footer.dart';
 
 /// `/post/:id` with FEATURE_REPLIES on: the post, its parent/root context
 /// (or "This post is unavailable" tombstones), its replies and an inline
-/// reply composer (replies-and-threads T7).
+/// reply composer (replies-and-threads).
 ///
 /// - One `GetThread` per open (default page of 10), more replies on demand
 ///   (scroll near the end or "Show more replies"), pull-to-refresh; no
@@ -56,7 +56,7 @@ part 'thread_footer.dart';
 ///   [fallbackBuilder], the plain post view, instead of an error.
 /// - A new reply is appended from the CreatePost response (no refetch);
 ///   a failed one keeps its text and shows a snackbar.
-/// The communities repository while `communities` is on (W5-51c), else null:
+/// The communities repository while `communities` is on, else null:
 /// a thread never reads it for a caller who cannot see Communities.
 CommunitiesRepository? _communitiesRepositoryIfOn(BuildContext context) {
   if (!featureEnabledSnapshot(context, kFeatureCommunities)) return null;
@@ -314,7 +314,7 @@ class _ThreadList extends StatelessWidget {
       builder: (context, state) {
         final focal = state.focal;
         if (focal == null) return const SizedBox.shrink();
-        // "Remove from Community" on replies (W5-51c): the root carries the
+        // "Remove from Community" on replies: the root carries the
         // label, the role is the server's `viewer_role`; null = no row.
         final community = state.rootCommunity;
         final PostModerationControl? replyModeration =

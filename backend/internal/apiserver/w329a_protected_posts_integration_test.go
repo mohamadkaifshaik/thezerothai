@@ -2,11 +2,11 @@
 
 package apiserver
 
-// W3-29a (ADR-0025 D3 to D5) through the real Build chain on the emulators, with the real protected-set loader and the
+// (ADR-0025 D3 to D5) through the real Build chain on the emulators, with the real protected-set loader and the
 // real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - for an unapproved viewer, GetPost, LikePost, AddBookmark, ReportContent, a reply to and a quote of the protected
 //     author's post answer exactly what the same RPC answers for a deleted post: HTTP status, content type and body (the
-//     W3-20 comparator of TestW320_TabNotFoundBytesMatchGetProfile);
+//     comparator of TestW320_TabNotFoundBytesMatchGetProfile);
 //   - an approved follower reads the post at the unchanged 4 cold reads, and reposting or quoting it is
 //     PROTECTED_ACCOUNT with 0 writes; the author may quote their own post;
 //   - a quote made while the author was public is stripped for an unapproved viewer (no text, no media, post_id and the
@@ -94,7 +94,7 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 	}
 	type call struct {
 		name, rpc, protected, deleted string
-		// ceil is the measured reads of the refusal (W3-35a, warm: the oracle call ran first on this chain) plus one read of
+		// ceil is the measured reads of the refusal (warm: the oracle call ran first on this chain) plus one read of
 		// documented headroom. Measured 2026-10-28: GetPost 3; Like, AddBookmark, Report, reply and quote 0. Was a loose 12
 		// for every call.
 		ceil int64

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:image_picker/image_picker.dart';
 
 /// Where a post's GIF comes from (ADR-0029 F9). Today only the device; the
-/// provider picker of W6-24 is another implementation that hands back the
+/// provider picker is another implementation that hands back the
 /// same thing (the GIF's bytes), so the composer never changes. An interface
 /// so cubit and widget tests never touch a platform channel.
 abstract interface class GifSource {

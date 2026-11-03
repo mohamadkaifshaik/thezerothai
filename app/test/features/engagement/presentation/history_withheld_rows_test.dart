@@ -53,7 +53,7 @@ class _MockPostsRepository extends Mock implements PostsRepository {}
 const _allFlags = {'posts', 'engagement', 'replies', 'bookmarks', 'likes_list'};
 const _message = 'This post is from an account that protects its posts.';
 
-/// W3-41b: the History screen's rows the server withheld (`PostView.withheld`,
+/// The History screen's rows the server withheld (`PostView.withheld`,
 /// the caller's own Likes and Bookmarks of a protected author they can no
 /// longer see): the protected box with Unlike or Remove bookmark, no card, no
 /// thread entry, an optimistic removal that rolls back with the existing copy.
@@ -83,7 +83,7 @@ void main() {
     epoch = SessionEpoch();
     unliked = [];
     features = {..._allFlags};
-    // Unlike answers the missing-post shape W3-40a returns for a post the
+    // Unlike answers the missing-post shape returns for a post the
     // caller may no longer see: the post id and zero counts, not liked.
     client = ApiClient.withTransport(
       FakeTransport((procedure, input) async {

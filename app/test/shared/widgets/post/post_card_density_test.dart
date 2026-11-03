@@ -36,7 +36,7 @@ pb.PostView _view({bool repost = false}) => pb.PostView(
         ),
 );
 
-/// PD-2: list rows lose the padding
+/// List rows lose the padding
 /// that doubled the whitespace already inside their 48dp tap boxes. X's
 /// one-line row is about 99dp; ours goes from 148 to 124 with every tap
 /// target still 48dp.
