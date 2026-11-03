@@ -39,7 +39,7 @@ func messagingEraserStep(repo *messaging.FirestoreRepo, log *slog.Logger) identi
 
 // registerMessagingLifecycle registers the messaging step and the messages export section on l. Call it after
 // registerFollowRequestsLifecycle (Lifecycle always runs the identity step last). handles resolves the peers' current
-// handles for the export (identity.Directory); social is the caller-side graph (graph.Service) that tells it which peers blocked the caller (W7-30).
+// handles for the export (identity.Directory); social is the caller-side graph (graph.Service) that tells it which peers blocked the caller.
 func registerMessagingLifecycle(l *identity.Lifecycle, repo *messaging.FirestoreRepo, handles messaging.HandleSource, social messaging.Social, log *slog.Logger) error {
 	if err := l.RegisterEraser(identity.BeforeIdentity, messagingEraserStep(repo, log)); err != nil {
 		return err

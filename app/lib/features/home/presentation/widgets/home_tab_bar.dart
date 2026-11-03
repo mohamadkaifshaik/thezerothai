@@ -8,7 +8,7 @@ import '../../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
 import '../../../lists/presentation/bloc/home_tabs_state.dart';
 
-/// The Home tab bar with pinned timelines (W5-14): Following first, then the
+/// The Home tab bar with pinned timelines: Following first, then the
 /// pinned tabs in order, then a trailing "+" that opens Manage pinned. A thin
 /// BLoC binding of [AppTabBar] (content-sized, scrolls when it overflows);
 /// it reads the [HomeTabsCubit] above it and selects by tab key.

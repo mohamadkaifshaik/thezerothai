@@ -21,9 +21,9 @@ class _MockGraph extends Mock implements GraphRepository {}
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-35c: the non-row states of the Follow requests screen (empty, error,
+/// The non-row states of the Follow requests screen (empty, error,
 /// unavailable, the Accept snackbar and its "Follow back") in every cell of
-/// the W3-21 matrix, and the row's controls against the long display name
+/// the matrix, and the row's controls against the long display name
 /// (the D-1 lesson: an overflow check alone misses a button over the name).
 /// The row matrix itself is `follow_requests_screen_test.dart`.
 void main() {

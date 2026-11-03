@@ -11,7 +11,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 )
 
-// W6-41 (ADR-0029 A5.7, security-w6-40-attempt-cap.md "The H-3 bound, verified" and I-5): a client that loops on FinalizeUpload cannot bill more than
+// ADR-0029 A5.7, security-w6-40-attempt-cap.md "The H-3 bound, verified" and I-5: a client that loops on FinalizeUpload cannot bill more than
 // the documented bounds, whatever the outcome mix: 8 claims x 2 units = 16 per document, and the per-uid units cap across documents.
 
 // finalizeUntilDone calls FinalizeUpload for one media id until the document is terminal or the units cap refuses, at most limit times (the loop of a

@@ -1,4 +1,4 @@
-// Pure scanners behind `telemetry_guard_test.dart` (TEL-9, ADR-0032). They take
+// Pure scanners behind `telemetry_guard_test.dart` (ADR-0032). They take
 // text and return findings, so the guard test can prove each one on synthetic
 // input (a built-in mutation check) as well as on the real tree.
 import 'dart:io';
@@ -74,7 +74,7 @@ Map<String, String> plistBooleans(String plist) => {
 };
 
 /// The advertising permissions the Analytics SDK declares and the merged
-/// manifest must not contain (TEL-3, TEL-17).
+/// manifest must not contain.
 const List<String> adPermissions = [
   'com.google.android.gms.permission.AD_ID',
   'android.permission.ACCESS_ADSERVICES_AD_ID',
@@ -91,7 +91,7 @@ List<String> _usesOf(String manifest, String permission) => [
 
 /// True when the SOURCE manifest (comments ignored) removes [permission] with
 /// `tools:node="remove"` and declares it in no other way. It does not read the
-/// merged manifest; that is checked on the built APK (TEL-17).
+/// merged manifest; that is checked on the built APK.
 bool removesPermission(String manifest, String permission) {
   final uses = _usesOf(manifest, permission);
   return uses.isNotEmpty &&

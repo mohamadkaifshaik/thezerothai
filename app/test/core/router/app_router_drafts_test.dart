@@ -47,7 +47,7 @@ class _NoThemeStore implements ThemeModeStore {
 }
 
 /// `/drafts`, the `/scheduled` alias and the composer's way into the list, on
-/// the real [AppRouter] (W6-15, ADR-0029).
+/// the real [AppRouter] (ADR-0029).
 void main() {
   const user = AppUser(
     uid: 'uid-1',
@@ -205,7 +205,7 @@ void main() {
     while (tester.takeException() != null) {}
   }
 
-  // W6-19: the flag gates of the two paths, in every combination.
+  // The flag gates of the two paths, in every combination.
   for (final entry in {
     'drafts off': const {kFeaturePosts},
     'posts off': const {kFeatureDrafts},

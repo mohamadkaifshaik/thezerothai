@@ -23,7 +23,7 @@ func setCommunity(t *testing.T, repo *FirestoreRepo, id, cid string) {
 	}
 }
 
-// W5-29 (ADR-0031 D14): Takedown reports the post's communityId from the document it already reads (1 read, 2 writes as before), also
+// ADR-0031 D14: Takedown reports the post's communityId from the document it already reads (1 read, 2 writes as before), also
 // on a repeat that changes nothing, and "" for a post without one.
 func TestModerator_TakedownReportsTheCommunity(t *testing.T) {
 	client := newTestClient(t)
@@ -51,7 +51,7 @@ func TestModerator_TakedownReportsTheCommunity(t *testing.T) {
 	}
 }
 
-// W5-29: HideAuthor returns the community posts of the page it processed (changed or already hidden), replaced on every call, at no extra
+// HideAuthor returns the community posts of the page it processed (changed or already hidden), replaced on every call, at no extra
 // read or write; a post a community moderator hid has no communityId and is not listed.
 func TestModerator_HideAuthorListsTheCommunityPosts(t *testing.T) {
 	client := newTestClient(t)

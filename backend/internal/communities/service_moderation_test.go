@@ -458,7 +458,7 @@ func TestRoleActionNames(t *testing.T) {
 	}
 }
 
-// W5-57: OnPostRestored fires once, only after a committed (Written) restore; never on a hide, a replay, a no-op or an error.
+// OnPostRestored fires once, only after a committed (Written) restore; never on a hide, a replay, a no-op or an error.
 func TestRestoreCommunityPost_OnPostRestoredOnlyAfterACommittedRestore(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -493,7 +493,7 @@ func TestRestoreCommunityPost_OnPostRestoredOnlyAfterACommittedRestore(t *testin
 	}
 }
 
-// W5-52b (ADR-0031 D14a): a RESTORE entry of the platform marker has no person: an unset actor with actor_deleted false, and the marker is never
+// ADR-0031 D14a: a RESTORE entry of the platform marker has no person: an unset actor with actor_deleted false, and the marker is never
 // looked up in the directory.
 func TestListModerationLog_PlatformMarkerIsNoPerson(t *testing.T) {
 	f, _ := modFixture()

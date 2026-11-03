@@ -13,7 +13,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/media_fixtures.dart';
 
-/// W6-34 (the W6-25 review's Dart follow-up, ADR-0029): since W6-25 the signed
+/// The review's Dart follow-up, ADR-0029: since then the signed
 /// upload PUT is create-only (`x-goog-if-generation-match: 0`). A PUT that
 /// landed but whose answer was lost makes the retry answer **412**, which means
 /// "already stored": the image is `putDone`, FinalizeUpload runs with the same
@@ -189,7 +189,7 @@ void main() {
     // The client cannot tell this from a lost answer and does not try: it is
     // "already stored" and the server decides at FinalizeUpload, which
     // re-verifies the stored object's size, type and MD5 against the pinned
-    // generation (W6-25). The client never calls the bytes good on a 412.
+    // generation. The client never calls the bytes good on a 412.
     setUp(() => bucket.preStore([full, thumb]));
 
     test('is treated as stored: FinalizeUpload runs and a good verdict '
@@ -298,7 +298,7 @@ void main() {
 /// A bucket that honours `x-goog-if-generation-match: 0` (create-only): the
 /// first PUT of a path stores it and answers 200, every later PUT of the same
 /// path answers 412. [loseTheAnswerOnce] makes the first PUT of a path land
-/// and then drop the connection, the case W6-25 exists for.
+/// and then drop the connection, the case this test exists for.
 class _CreateOnlyBucket {
   final Set<String> _stored = {};
   final Set<String> _lose = {};

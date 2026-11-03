@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestSearchHandles_Integration (W4-4 acceptance, real repo): handleLower order with the exact match first,
+// TestSearchHandles_Integration (acceptance, real repo): handleLower order with the exact match first,
 // succ per character (`_` and `z`), limit clamp, exact read counts (len(result), minimum 1), raw status.
 func TestSearchHandles_Integration(t *testing.T) {
 	client := newTestClient(t)

@@ -9,7 +9,7 @@ enum SavePostChoice { save, discard }
 const kDraftsPhotosNote = "Photos aren't saved in drafts.";
 const kDraftsGifNote = "A GIF isn't saved in drafts.";
 
-/// "Save post?" (W6-15, ADR-0029): shown when the composer is left with
+/// "Save post?" (ADR-0029): shown when the composer is left with
 /// unsent content. Resolves to [SavePostChoice.save] or
 /// [SavePostChoice.discard], or null for "Keep editing" and a dismissed
 /// dialog (the composer stays open). [mediaNote] is the extra line about
@@ -91,7 +91,7 @@ class SavePostDialog extends StatelessWidget {
   }
 }
 
-/// "Discard unsent posts?" (W6-15, Edit mode): a red filled pill for the
+/// "Discard unsent posts?" (Edit mode): a red filled pill for the
 /// destructive answer and an outlined one for the safe one. Resolves to true
 /// for Discard, false for Keep or a dismissed dialog. [count] words the
 /// sentence.
@@ -164,7 +164,7 @@ class DiscardDraftsDialog extends StatelessWidget {
 }
 
 /// The answer to "Sign out?" when this device holds the account's unsent
-/// posts (W6-31).
+/// posts.
 enum SignOutDraftsChoice {
   /// Sign out and delete the unsent posts from this device.
   delete,
@@ -173,11 +173,11 @@ enum SignOutDraftsChoice {
   keep,
 }
 
-/// The sign-out notice (W6-31, security L-5): said once, plainly, because on a
+/// The sign-out notice (security L-5): said once, plainly, because on a
 /// shared computer the rows stay readable in the browser profile.
 const kSignOutDraftsBody = 'Your unsent posts stay on this device.';
 
-/// "Sign out?" for an account that has unsent posts on this device (W6-31).
+/// "Sign out?" for an account that has unsent posts on this device.
 /// Resolves to [SignOutDraftsChoice.delete] or [SignOutDraftsChoice.keep], or
 /// null for "Cancel" and a dismissed dialog (the user stays signed in).
 Future<SignOutDraftsChoice?> showSignOutDraftsDialog(BuildContext context) =>

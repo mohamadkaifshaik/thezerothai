@@ -52,7 +52,7 @@ type PrivacyUpdate struct {
 	SetUIDs []string
 }
 
-// PrivacyRepo is the storage seam of the is_private toggle (W3-26a). *FirestoreRepo implements it.
+// PrivacyRepo is the storage seam of the is_private toggle. *FirestoreRepo implements it.
 type PrivacyRepo interface {
 	// UpdateProfileWithPrivacy behaves like Repo.UpdateProfile and additionally, when mutate changes IsPrivate,
 	// runs the D8 transaction (reads: users fresh, quotas, and for a protect the set doc; writes: users, the set doc,

@@ -9,7 +9,7 @@ import '../../domain/poll_display.dart';
 import 'poll_state.dart';
 
 /// The session-wide poll overlay: the optimistic vote with rollback, the
-/// fresh counts after a vote or a re-read, and the refusals (W6-13, ADR-0029).
+/// fresh counts after a vote or a re-read, and the refusals (ADR-0029).
 ///
 /// - Keyed by the *original* post id (the target of a REPOST row). Every card
 ///   of the same poll (Home, profile, detail, thread) reads the same entry.

@@ -108,7 +108,7 @@ const kBannerGoneMessage =
 const kImagesGoneMessage =
     'Those photos are no longer available. Choose them again.';
 
-/// Wording of the server (W5-45): the name "must ... contain a visible
+/// Wording of the server: the name "must ... contain a visible
 /// character", and a location has no invisible characters.
 const kNameVisibleCharacterMessage =
     'Your name must contain a visible character and no invisible ones.';

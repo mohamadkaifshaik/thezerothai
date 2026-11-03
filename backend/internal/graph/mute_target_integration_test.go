@@ -1,6 +1,6 @@
 //go:build integration
 
-// mute_target_integration_test.go covers T26 / ADR-0008 A1: Mute checks that the target's graph doc exists
+// mute_target_integration_test.go covers / ADR-0008 A1: Mute checks that the target's graph doc exists
 // (the same rule as Block) and never branches on the target's content. Budgets: Mute 3R/2W, NOT_FOUND 2R/0W,
 // replay 3R/0W.
 package graph_test

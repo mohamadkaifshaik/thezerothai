@@ -353,7 +353,7 @@ void main() {
     expect(find.text('server text, never shown'), findsNothing);
   });
 
-  // T17 sweep: block/mute affordances of ProfileHeader (overflow menu, confirmation dialog, banner Unblock).
+  // sweep: block/mute affordances of ProfileHeader (overflow menu, confirmation dialog, banner Unblock).
   void arrangeOtherProfile({bool blocking = false}) {
     whenListen(
       onboardingBloc,

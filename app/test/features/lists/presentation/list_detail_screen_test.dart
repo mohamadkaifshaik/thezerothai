@@ -49,7 +49,7 @@ pb.ListInfo _header({
   ),
 );
 
-/// W5-12: `/lists/:id` at 360 / 600 / 1200 dp, light and dark, text scale
+/// `/lists/:id` at 360 / 600 / 1200 dp, light and dark, text scale
 /// 1.0 / 1.3 / 2.0.
 void main() {
   final feed = FeedKey.list('77');

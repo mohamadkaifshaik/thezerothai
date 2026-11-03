@@ -45,7 +45,7 @@ const (
 	// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
 	// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
 	// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
-	// caller and keeps them in storage. Until GetCommunityTimeline ships (plan W5-27), SetHomeTabs answers VALIDATION
+	// caller and keeps them in storage. Until GetCommunityTimeline ships, SetHomeTabs answers VALIDATION
 	// "tabs" for it and GetMe never returns it.
 	HomeTabKind_HOME_TAB_KIND_COMMUNITY HomeTabKind = 2
 )
@@ -272,7 +272,7 @@ type AuthorSnapshot struct {
 	// Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
 	AvatarUrl string `protobuf:"bytes,4,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	Verified  bool   `protobuf:"varint,5,opt,name=verified,proto3" json:"verified,omitempty"`
-	// True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
+	// True when the account protects its posts (ADR-0025; the implementation note). A display hint for the lock
 	// badge, never an access decision.
 	// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
 	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`

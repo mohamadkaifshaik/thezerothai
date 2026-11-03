@@ -8,7 +8,7 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockCommunities extends Mock implements CommunitiesRepository {}
 
-/// W5-35: one idempotency key per (action, target), reused on a retry and
+/// One idempotency key per (action, target), reused on a retry and
 /// dropped once the action succeeded (rule 4).
 void main() {
   late _MockCommunities communities;

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-28b (ADR-0025 D8, AQ1) through the real Build chain on the emulators, with the real UpdateProfile(is_private)
+// (ADR-0025 D8, AQ1) through the real Build chain on the emulators, with the real UpdateProfile(is_private)
 // toggle, the real PrivacyListener publishing to the jobs topic, and the real /internal/pubsub/jobs push endpoint
 // (FEATURE_PRIVATE_ACCOUNTS on):
 //   - P protects, 130 users request (two pages of the job), P unprotects: one privacy_public message is published, its

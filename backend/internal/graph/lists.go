@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// GetRelationships (ADR-0008 T9/D4): the caller's relationship to 1-50 users, computed from the caller's
+// GetRelationships (ADR-0008/D4): the caller's relationship to 1-50 users, computed from the caller's
 // cached Snapshot only — never from the targets' graphs, so a user who blocked the caller looks exactly like
 // a stranger. Duplicates collapse (first occurrence wins) and request order is preserved.
 // Firestore: reads 1 (0 on a cache hit), writes 0.
@@ -44,15 +44,15 @@ func (s *service) GetRelationships(ctx context.Context, callerUID string, target
 	return out, nil
 }
 
-// ListBlockedUsers (ADR-0008 T9): the caller's own blocked[] array, newest first, hydrated through
+// ListBlockedUsers (ADR-0008): the caller's own blocked[] array, newest first, hydrated through
 // identity.Directory. Firestore: reads 1 + <= page_size (50 max) via one batched GetAll (fewer when profiles are
-// cached); writes 0, or 1 when the page holds a uid whose profile no longer exists (T27 lazy clean-up: one
+// cached); writes 0, or 1 when the page holds a uid whose profile no longer exists (lazy clean-up: one
 // ArrayRemove on the caller's own graph doc, once per stale entry, ever).
 func (s *service) ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "blocked", pageSize, pageToken, func(l Lists) []string { return l.Blocked })
 }
 
-// ListMutedUsers (ADR-0008 T9): as ListBlockedUsers, over muted[]. Reads 1 + <= page_size, writes 0 (1 with T27).
+// ListMutedUsers (ADR-0008): as ListBlockedUsers, over muted[]. Reads 1 + <= page_size, writes 0 (1).
 func (s *service) ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "muted", pageSize, pageToken, func(l Lists) []string { return l.Muted })
 }
@@ -118,7 +118,7 @@ func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, page
 }
 
 // lazyCleanup removes uids confirmed to have no users/{uid} doc from the caller's OWN array (ADR-0008 D10
-// refinement, T27). At most one page (<= 50 ids) and one write; 0 reads. Best effort: a failure is logged
+// refinement). At most one page (<= 50 ids) and one write; 0 reads. Best effort: a failure is logged
 // as a WARN with a count only and never fails the list RPC. No raw uids are logged. Under
 // DEGRADED_MODE=readonly the list RPCs still run (they are NO_SIDE_EFFECTS) but must stay write-free, so the
 // write is skipped (DEBUG only); the stale entries are cleaned up on a later call once the mode is off.
@@ -141,7 +141,7 @@ func (s *service) lazyCleanup(ctx context.Context, callerUID, kind string, missi
 	s.cache.Invalidate(callerUID)
 }
 
-// ownArrayBinding ties an own-list page token to the caller and the list (T16b D-5, security review M1): a
+// ownArrayBinding ties an own-list page token to the caller and the list (D-5, security review M1): a
 // blocked-list token can't be replayed against the muted list, or presented by another user.
 func ownArrayBinding(callerUID, kind string) string { return callerUID + "|own-" + kind }
 
@@ -152,7 +152,7 @@ func (s *service) ownArrayToken(callerUID, kind string, arr []string, lastIdx in
 // pageNewestFirst walks arr (insertion order, oldest first) from the newest end. The cursor records the
 // last-returned uid and its array index (in CreatedAt's micros, since these arrays have no timestamps):
 // resume just below that uid's current index, or — if it was removed meanwhile — just below the recorded
-// index (ADR-0008 T9). Returns the uids for this page, whether older entries remain, and the index of the
+// index (ADR-0008). Returns the uids for this page, whether older entries remain, and the index of the
 // last uid returned.
 func pageNewestFirst(arr []string, cur cursor.Cursor, limit int) (uids []string, hasMore bool, lastIdx int) {
 	start := len(arr) - 1

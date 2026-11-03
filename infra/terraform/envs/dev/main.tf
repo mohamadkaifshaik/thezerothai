@@ -123,7 +123,7 @@ module "secrets" {
   depends_on = [module.project_services]
 }
 
-// Graph slice (T23, ADR-0008 D6/D7). Names and defaults mirror backend/pkg/platform/config/config.go and
+// Graph slice (ADR-0008 D6/D7). Names and defaults mirror backend/pkg/platform/config/config.go and
 // backend/pkg/platform/flags; caps are code, so a change here needs a cost note in the PR.
 // FEATURE_GRAPH: off | allowlist | percent | on. The rollout (allowlist -> percent -> on) is driven by
 // changing var.feature_graph* here, not by ad-hoc `gcloud run services update`, so state never drifts.
@@ -148,7 +148,7 @@ locals {
   ]
 }
 
-// Posts + timeline slice (T26, ADR-0010 Handoff). Names and defaults mirror backend/pkg/platform/config/config.go;
+// Posts + timeline slice (ADR-0010 Handoff). Names and defaults mirror backend/pkg/platform/config/config.go;
 // caps are code, so a change here needs a cost note in the PR. FEATURE_POSTS is set explicitly in both envs so the
 // environment does not depend on the code default (on in dev/local, off in prod). The rollout (off -> allowlist ->
 // percent -> on) is driven by var.feature_posts*, not by ad-hoc `gcloud run services update`.
@@ -166,16 +166,16 @@ locals {
     { name = "RATE_LIMIT_POST_CREATE_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_POST_DELETE_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", value = "10" },      # FinalizeUpload's own bucket (W6-40, ADR-0029 Amendment 1 A5.5); config.go default
-    { name = "MEDIA_MAX_SCREEN_RETRIES", value = "5" },                # W6-51 (security review W6-40 L-5): claimed screening attempts with no valid assessment; config/composer.go default, startup range 0..10
+    { name = "MEDIA_MAX_SCREEN_RETRIES", value = "5" },                # Security review L-5: claimed screening attempts with no valid assessment; config/composer.go default, startup range 0..10
     { name = "MEDIA_VISION_UNITS_PER_DAY", value = "60" },             # per-uid Vision units per IST day, per instance (180 at 3 instances); config/composer.go default, startup range 2..200
     { name = "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", value = "12" }, # the same for accounts inside the new-account window; config/composer.go default, startup range 2..60
-    { name = "POLL_VOTE_CHANGES_MAX", value = "5" },                   # vote changes per voter per poll (W6-36, ADR-0029 Amendment 1 A2.2; security review W6-36 L-3); 0 = votes final again (kill switch); config/composer.go default, startup range 0..20
+    { name = "POLL_VOTE_CHANGES_MAX", value = "5" },                   # vote changes per voter per poll (ADR-0029 Amendment 1 A2.2; security review L-3); 0 = votes final again (kill switch); config/composer.go default, startup range 0..20
     { name = "QUOTA_POSTS_PER_DAY", value = "100" },
     { name = "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", value = "20" },
   ]
 }
 
-// Account lifecycle slice (P8, ADR-0011). Names and defaults mirror backend/pkg/platform/config/config.go; caps are
+// Account lifecycle slice (ADR-0011). Names and defaults mirror backend/pkg/platform/config/config.go; caps are
 // code, so a change here needs a cost note in the PR. FEATURE_ACCOUNT_LIFECYCLE is set explicitly in both envs
 // (dev on, prod off) and rolled out via var.feature_account_lifecycle*. EXPORT_RETENTION must equal the exports
 // bucket lifecycle age (7 days) in modules/media-buckets.
@@ -192,7 +192,7 @@ locals {
   ]
 }
 
-// Reports and moderation (P7, ADR-0016). FEATURE_REPORTS is off in both envs until the founder ramps it
+// Reports and moderation (ADR-0016). FEATURE_REPORTS is off in both envs until the founder ramps it
 // (var.feature_reports*); no code path or apply turns it on. Quotas mirror backend/pkg/platform/config/config.go.
 locals {
   reports_env_vars = [
@@ -203,18 +203,18 @@ locals {
     { name = "FEATURE_REMOVED_IDS", value = var.feature_removed_ids },
     { name = "FEATURE_REMOVED_IDS_ALLOWLIST", value = var.feature_removed_ids_allowlist },
     { name = "FEATURE_REMOVED_IDS_PERCENT", value = tostring(var.feature_removed_ids_percent) },
-    // ADR-0028 D8 (W4-3): search and trends. Default off; dev ceiling allowlist 6, no prod raise.
+    // ADR-0028 D8: search and trends. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_SEARCH", value = var.feature_search },
     { name = "FEATURE_SEARCH_ALLOWLIST", value = var.feature_search_allowlist },
     { name = "FEATURE_SEARCH_PERCENT", value = tostring(var.feature_search_percent) },
     { name = "FEATURE_TRENDS", value = var.feature_trends },
     { name = "FEATURE_TRENDS_ALLOWLIST", value = var.feature_trends_allowlist },
     { name = "FEATURE_TRENDS_PERCENT", value = tostring(var.feature_trends_percent) },
-    // ADR-0028 note 2026-10-31 (W4-25, review M-1): tags that never trend, applied at serve time and by the sweep. Operators hide a tag
+    // ADR-0028 note 2026-10-31 (review M-1): tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
-    // ADR-0029 D12 (W6-4): polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
+    // ADR-0029 D12: polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
     { name = "FEATURE_POLLS_ALLOWLIST", value = var.feature_polls_allowlist },
     { name = "FEATURE_POLLS_PERCENT", value = tostring(var.feature_polls_percent) },
@@ -229,7 +229,7 @@ locals {
   ]
 }
 
-// Notifications slice (P6, ADR-0017). FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
+// Notifications slice (ADR-0017). FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
 // out via var.feature_notifications*. No new resource: the topic, push subscription and DLQ already exist in
 // modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics. The device-call cap mirrors
 // config.go (NOTIFICATION_DEVICES_CALLS_PER_DAY, default 10); caps are code, so a change needs a cost note.
@@ -245,7 +245,7 @@ locals {
   ]
 }
 
-// Media, engagement, replies and profile snapshot (P3/P4/P5, ADR-0005). All four flags are off in every
+// Media, engagement, replies and profile snapshot (ADR-0005). All four flags are off in every
 // environment until the founder ramps them via var.feature_*; nothing here turns one on. The non-flag values below
 // are the config.go defaults written out so they are reviewed as code (caps are code); changing one needs a cost note.
 // VISION_MONTHLY_CAP is the runaway-bill guard (ADR-0005). vision.googleapis.com is already enabled in
@@ -277,7 +277,7 @@ locals {
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
     { name = "RATE_LIMIT_BOOKMARKS_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", value = "10" },
-    # W2-14 M-1: shared AddBookmark + RemoveBookmark daily call cap (limit_name bookmark_mutation_daily). Must match the config.go default.
+    # M-1: shared AddBookmark + RemoveBookmark daily call cap (limit_name bookmark_mutation_daily). Must match the config.go default.
     { name = "BOOKMARK_MUTATIONS_PER_DAY", value = "1500" },
     { name = "FEATURE_MESSAGING", value = var.feature_messaging },
     { name = "FEATURE_MESSAGING_ALLOWLIST", value = var.feature_messaging_allowlist },
@@ -286,7 +286,7 @@ locals {
     { name = "RATE_LIMIT_MESSAGES_READ_PER_MIN", value = "30" },
     { name = "MESSAGES_SENDS_PER_DAY", value = "300" },
     { name = "MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY", value = "50" },
-    # W7-29 (security review W7-22 M-1): MarkConversationRead's own daily cap (limit_name messages_mark_read_daily) and one cap shared by
+    # Security review M-1: MarkConversationRead's own daily cap (limit_name messages_mark_read_daily) and one cap shared by
     # AcceptMessageRequest + DeleteConversation (limit_name messages_mutation_daily). Must match the config.go defaults (500 and 500).
     { name = "MESSAGES_MARK_READ_PER_DAY", value = "500" },
     { name = "MESSAGES_MUTATIONS_PER_DAY", value = "500" },
@@ -295,8 +295,8 @@ locals {
     { name = "MESSAGES_REQUEST_MAX_UNANSWERED", value = "3" },
     { name = "MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", value = "20" },
     { name = "CACHE_MESSAGING_CONVERSATION_ENTRIES", value = "5000" },
-    # W5-3 (ADR-0030 D9, D10): FEATURE_LISTS and the list limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
-    # default. Inert while FEATURE_LISTS is off. Nothing here is applied by the build ticket (W5-19 plans a targeted dev apply; prod waits for
+    # ADR-0030 D9, D10: FEATURE_LISTS and the list limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
+    # default. Inert while FEATURE_LISTS is off. Nothing here is applied by the build ticket (plans a targeted dev apply; prod waits for
     # the held prod apply, credit runbook dated step 1.2).
     { name = "FEATURE_LISTS", value = var.feature_lists },
     { name = "FEATURE_LISTS_ALLOWLIST", value = var.feature_lists_allowlist },
@@ -313,8 +313,8 @@ locals {
     { name = "RATE_LIMIT_LISTS_READ_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_LIST_TIMELINE_PER_MIN", value = "12" },
     { name = "CACHE_LISTS_ENTRIES", value = "2000" },
-    # W5-22 (ADR-0031 D10, D11, D12): FEATURE_COMMUNITIES, COMMUNITY_CREATORS and the community limits as explicit config (rule 11), each equal to
-    # its backend/pkg/platform/config default. Inert while FEATURE_COMMUNITIES is off. Nothing here is applied by the build ticket (W5-40 plans the
+    # ADR-0031 D10, D11, D12: FEATURE_COMMUNITIES, COMMUNITY_CREATORS and the community limits as explicit config (rule 11), each equal to
+    # its backend/pkg/platform/config default. Inert while FEATURE_COMMUNITIES is off. Nothing here is applied by the build ticket (plans the
     # targeted dev apply with an allowlist of 3; prod waits for the held prod apply).
     { name = "FEATURE_COMMUNITIES", value = var.feature_communities },
     { name = "FEATURE_COMMUNITIES_ALLOWLIST", value = var.feature_communities_allowlist },
@@ -354,19 +354,19 @@ locals {
     { name = "FEATURE_PRIVATE_ACCOUNTS", value = var.feature_private_accounts },
     { name = "FEATURE_PRIVATE_ACCOUNTS_ALLOWLIST", value = var.feature_private_accounts_allowlist },
     { name = "FEATURE_PRIVATE_ACCOUNTS_PERCENT", value = tostring(var.feature_private_accounts_percent) },
-    # W3-25b (ADR-0025 D2, D3, D8, D13): private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
+    # ADR-0025 D2, D3, D8, D13: private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
     # a protected-set cap outside 1..20000 and a stale window outside 1s..1h.
     { name = "QUOTA_PRIVACY_TOGGLES_PER_DAY", value = "4" },
     { name = "PROTECTED_AUTHORS_MAX", value = "20000" },
     { name = "PROTECTED_SET_MAX_STALE", value = "10m" },
     { name = "RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", value = "60" },
-    # W3-4 (ADR-0024 D8, D10): per-instance rate limits (effective x max-instances), the suggestions daily call cap and read caps, and the
+    # ADR-0024 D8, D10: per-instance rate limits (effective x max-instances), the suggestions daily call cap and read caps, and the
     # curated fallback list. Must match the config.go defaults; config.Load rejects edge > 50, hydrate > 50, sample > 30 and max results > 5.
     { name = "RATE_LIMIT_SUGGESTIONS_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_LIKES_LIST_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", value = "60" },
     { name = "SUGGESTIONS_CALLS_PER_DAY", value = "50" },
-    # W3-22 L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
+    # L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
     # ADR-0024 Amendment 1 A4: delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
@@ -628,7 +628,7 @@ module "apikeys" {
     "firebaseinstallations.googleapis.com",
     "firebaseappcheck.googleapis.com",
     # FCM token registration (FirebaseMessaging.getToken). Without it the
-    # Android app gets no push token (found by the TEL-9 Part B device check).
+    # Android app gets no push token (found by the Part B device check).
     "fcmregistrations.googleapis.com",
   ]
   ios_api_targets = [

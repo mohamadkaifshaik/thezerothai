@@ -33,7 +33,7 @@ type fakeService struct {
 	members   MembersPage
 	membersIn []MembersInput
 
-	// moderation (W5-28), guarded by modMu
+	// moderation, guarded by modMu
 	modMu    sync.Mutex
 	hides    []PostActionInput
 	restores []PostActionInput

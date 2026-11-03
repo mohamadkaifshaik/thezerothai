@@ -8,7 +8,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../../support/timeline_fixtures.dart';
 
-/// W5-12: a list feed the server answers NOT_FOUND for leaves nothing on screen.
+/// A list feed the server answers NOT_FOUND for leaves nothing on screen.
 void main() {
   final feed = FeedKey.list('77');
   late MockTimelineRepository timeline;

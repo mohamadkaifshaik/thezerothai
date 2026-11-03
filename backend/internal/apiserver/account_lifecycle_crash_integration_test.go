@@ -2,14 +2,14 @@
 
 package apiserver
 
-// T16: the deletion chain on the emulators with fault injection. A rich account (posts, follow edges both ways,
+// The deletion chain on the emulators with fault injection. A rich account (posts, follow edges both ways,
 // blocks both ways, a mute, a handle, a quota doc, a READY export with its object, a mention in someone else's post)
 // is deleted by the production jobs handler wired over the REAL posts and graph Erasers, the real Firestore repo, the
 // real Auth admin client (Auth emulator) and the real exports bucket (Storage emulator). Only the transport is faked:
 // the jobs handler is driven directly, and every side effect is followed by an optional injected "instance death" (a
 // panic the handler turns into a 500, exactly like a killed instance whose delivery Pub/Sub redelivers). One clean run
 // counts the side effects; then each one is killed in turn, on a fresh account, and the final state must equal the
-// clean run's. The T11 sweep and the graph/posts invariants run after every scenario.
+// clean run's. The sweep and the graph/posts invariants run after every scenario.
 //
 // The start gate (120 s) and the 20 s work budget are LifecycleDeps test seams here (1 ns each), so a delivery runs
 // exactly one step call and chains: every step boundary, checkpoint save and continuation publish is a crash point.
@@ -257,7 +257,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	graphRepo.SetProfiles(idRepo)
 	idSvc := identity.New(idRepo, identity.NewCache(time.Second), time.Hour) // the Directory the communities step asks whether a moderator may take over
 	postsRepo := posts.NewFirestoreRepo(e.fs)
-	// The purge copy phase and the engagement step need the same collaborators as Build wires (P5).
+	// The purge copy phase and the engagement step need the same collaborators as Build wires.
 	postsRepo.SetWriters(posts.WriteDeps{Counters: idRepo})
 	engRepo := engagement.NewFirestoreRepo(e.fs, engagement.WriteDeps{Quotas: quota.New(e.fs), Writer: postsRepo, Counters: idRepo, IDs: noIDs{}})
 	postsRepo.SetRepostLinks(engRepo)
@@ -320,7 +320,7 @@ func (c *crashChain) pump(t *testing.T, first identity.JobMessage) (deaths, deli
 	return deaths, deliveries
 }
 
-// richAccount is the T16 seed: one account with every kind of relationship and a READY export.
+// richAccount is the seed: one account with every kind of relationship and a READY export.
 type richAccount struct {
 	a testUser
 	f1, f2 /* A follows */, g1, g2/* follow A */ testUser
@@ -540,7 +540,7 @@ func (e *lifecycleEnv) requireRichErased(t *testing.T, r richAccount) {
 	e.requireInvariants(t, r.cohort)
 }
 
-// TestAccountLifecycle_RichAccountCrashAtEverySideEffect is the T16 crash-resume matrix: kill the instance after each
+// TestAccountLifecycle_RichAccountCrashAtEverySideEffect is the crash-resume matrix: kill the instance after each
 // side effect of a complete deletion in turn and require the same end state as a run without a crash.
 func TestAccountLifecycle_RichAccountCrashAtEverySideEffect(t *testing.T) {
 	if testing.Short() {
@@ -628,7 +628,7 @@ func relaxLimits(c *config.Config) {
 }
 
 // TestAccountLifecycle_RichAccountConcurrentDeliveries: the same rich account erased by racing deliveries of one
-// message through the production chain (T8/T16: "two concurrent deliveries"). The end state equals a serial run's, the
+// message through the production chain ("two concurrent deliveries"). The end state equals a serial run's, the
 // sweep is clean and the invariants hold.
 func TestAccountLifecycle_RichAccountConcurrentDeliveries(t *testing.T) {
 	ctx := context.Background()

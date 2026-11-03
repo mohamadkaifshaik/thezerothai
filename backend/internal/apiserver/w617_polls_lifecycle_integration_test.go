@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W6-17 lifecycle chain tests for poll votes (ADR-0029 D8, W6-8): real votes cast through VotePoll, then the account deletes itself
+// lifecycle chain tests for poll votes (ADR-0029 D8): real votes cast through VotePoll, then the account deletes itself
 // through the production jobs handler (Build's lifecycle registry, which holds the poll_votes step), with the export taken first.
 // The developers' tests cover the eraser and exporter at repo level with seeded votes (engagement/repo_polls_integration_test.go).
 //
@@ -130,7 +130,7 @@ func TestW617_LifecycleVoterDeletes(t *testing.T) {
 	if len(vx.PollVotes.PollVotes) != 2 || got[p1] != 2 || got[p2] != 0 {
 		t.Errorf("voter export poll_votes = %v, want {%s:2, %s:0} (0-based choice)", got, p1, p2)
 	}
-	// W6-29 (security L-2): the voter's current choice per poll from userLikes.pollVotes, no time.
+	// Security L-2: the voter's current choice per poll from userLikes.pollVotes, no time.
 	cur := map[string]int{}
 	for _, row := range vx.PollVotes.CurrentChoices {
 		if len(row) != 2 {

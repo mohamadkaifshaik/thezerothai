@@ -2,7 +2,7 @@
 
 package apiserver
 
-// AcceptMessageRequest and DeleteConversation (ADR-0027, ticket W7-9) over the real Build chain on the emulators: the
+// AcceptMessageRequest and DeleteConversation (ADR-0027) over the real Build chain on the emulators: the
 // account-status, rate-limit and degraded-mode interceptors, the flag classes (Accept per caller and per peer, Delete
 // only "not globally off"), the byte-identical NOT_FOUND, the documents each RPC writes, clearedAt applied at once on
 // the instance that handled the delete, and the budget table of the RPC doc comments (Accept 3 reads / 2 writes /
@@ -114,7 +114,7 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 	if !ok || in["unreadCount"] != int64(2) {
 		t.Errorf("b's dmInbox = %v, %v, want the request entry with unreadCount 2", in, ok)
 	}
-	// W7-25a: the requester's entry loses requestPending and gets the accept changedAt; everything else is untouched.
+	// The requester's entry loses requestPending and gets the accept changedAt; everything else is untouched.
 	after, _ := setup.entry(t, a, b, "dmInbox")
 	if aliceBefore["requestPending"] != true || after["requestPending"] != nil {
 		t.Errorf("a's requestPending: %v -> %v, want true -> absent", aliceBefore["requestPending"], after["requestPending"])

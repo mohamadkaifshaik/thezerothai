@@ -45,7 +45,7 @@ pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
 }
 
 /// The reply / repost / like row of one post, driven by the session's
-/// [EngagementCubit] (ADR-0018, plan T7). Nothing is held here: taps call the
+/// [EngagementCubit] (ADR-0018). Nothing is held here: taps call the
 /// cubit, which applies the change at once and rolls it back on failure.
 ///
 /// - Acts on [engagementTargetId]: the original for a REPOST row.
@@ -53,7 +53,7 @@ pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
 ///   rebuilds one card, not the list. A cubit entry older than the row (the
 ///   feed refreshed since) is ignored: the newer server data wins.
 /// - Reply opens the post (its thread has the composer) and is offered only
-///   with the `replies` sub-feature and [showReply]; Share (W2-8) opens the
+///   with the `replies` sub-feature and [showReply]; Share opens the
 ///   share menu for the target's link and needs a `ShareLinksScope` above (no
 ///   scope, no Share; no RPC either way); Quote is in the repost sheet when
 ///   [quoteCreationAllowed] (`engagement` + `quotes` in the flag set, and no
@@ -192,7 +192,7 @@ class PostEngagementBar extends StatelessWidget {
     EngagementEntry shown,
   ) async {
     // Quote needs `engagement` + `quotes` in GetMe.enabled_features and no
-    // remembered server FEATURE_DISABLED for it (W2-11).
+    // remembered server FEATURE_DISABLED for it.
     final canQuote = quoteCreationAllowed(context);
     // Another user's followers-only post (a protected account's, ADR-0025):
     // the server refuses Repost and Quote with PROTECTED_ACCOUNT, so the sheet
@@ -243,7 +243,7 @@ bool _onTopRoute(BuildContext context) =>
 /// after a rollback) from the card of that target.
 ///
 /// Rebuilds only when the entry of that one target changes. The toast's
-/// "View" action exists only when [BookmarksCubit.viewRoute] is set (W2-7).
+/// "View" action exists only when [BookmarksCubit.viewRoute] is set.
 class _BookmarkBinding extends StatelessWidget {
   const _BookmarkBinding({
     required this.view,

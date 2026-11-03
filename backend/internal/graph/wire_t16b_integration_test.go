@@ -1,9 +1,9 @@
 //go:build integration
 
-// wire_t16b_integration_test.go (T16b) is a scenario-specific rig: the real generated Connect handlers for
+// wire_t16b_integration_test.go is a scenario-specific rig: the real generated Connect handlers for
 // identity + graph, served from an httptest.Server over the already-wired services, with the interceptor
 // order that matters for these tests (caller uid -> budget counter -> daily list cap -> error mapping). It
-// exists so T16b can assert on serialized wire bytes (byte-identical NOT_FOUND, no `blockedBy` in any JSON
+// exists so can assert on serialized wire bytes (byte-identical NOT_FOUND, no `blockedBy` in any JSON
 // response) and on the interceptor-level list cap. It seeds nothing.
 package graph_test
 

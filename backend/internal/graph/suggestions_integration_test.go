@@ -1,6 +1,6 @@
 //go:build integration
 
-// suggestions_integration_test.go: ListSuggestedUsers (ADR-0024 D8, ticket W3-12) against the Firestore emulator:
+// suggestions_integration_test.go: ListSuggestedUsers (ADR-0024 D8) against the Firestore emulator:
 // the friends-of-friends `in` + order-by query, the exclusion matrix on real documents, the curated fallback, the
 // cold cap (31 reads at the default EdgeLimit 20, 32 with the interceptor, which these tests do not run; 41 and 42 with
 // EdgeLimit pinned to 30; ADR-0024 Amendment 2 B1(b)), the 0-read warm call and the Follow eviction. The emulator does not enforce composite indexes: the index the query needs is the existing follows
@@ -148,11 +148,11 @@ func seedSuggestionWorld(t *testing.T, w wired) (viewer string, followees, candi
 	return viewer, followees, candidates
 }
 
-// TestListSuggestedUsers_ColdWarmReadCap is the budget assertion of ticket W3-12 at the service boundary, with EdgeLimit
+// TestListSuggestedUsers_ColdWarmReadCap is the budget assertion at the service boundary, with EdgeLimit
 // pinned to 30 (the pre-Amendment 2 default, still a supported setting up to 30): a cold call on a fresh instance (empty
 // caches) reads the caller graph (1), the 30 newest edges (30) and hydrates 10 candidates (10) = 41, which is 42 with
 // the interceptor's read; a warm call with the snapshot still cached reads nothing (1 when the 60 s snapshot entry has
-// expired, W3-22 L-1: TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere). The config default is
+// expired, L-1: TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere). The config default is
 // TestListSuggestedUsers_ColdReadCapAtTheDefault.
 func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	w := newWired(t)
@@ -302,7 +302,7 @@ func TestListSuggestedUsers_CuratedFallback(t *testing.T) {
 
 // TestListSuggestedUsers_FollowEvictsFromCache: this instance's own Follow removes the followed user from the cached
 // answer, and the next call is still a cache hit that refills from the cached tail: no edge query, no hydration. It costs
-// the ONE read that reloads the viewer's snapshot (Follow invalidated it; W3-22 L-1), and the call after that costs 0.
+// the ONE read that reloads the viewer's snapshot (Follow invalidated it; L-1), and the call after that costs 0.
 func TestListSuggestedUsers_FollowEvictsFromCache(t *testing.T) {
 	w := newWired(t)
 	const viewer = "uid-v"
@@ -326,7 +326,7 @@ func TestListSuggestedUsers_FollowEvictsFromCache(t *testing.T) {
 	}
 }
 
-// TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere (W3-22 L-1) on real documents: instance A builds the
+// TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere (L-1) on real documents: instance A builds the
 // viewer's answer, instance B then records a Block of the viewer by one of the suggested users (it writes
 // graph/{viewer}.blockedBy), and A's 60 s snapshot entry for the viewer is gone. A's next call is a warm hit on the
 // 1 h answer, yet it must not show the blocker: it reloads the snapshot (exactly 1 read, nothing else), and the call
@@ -364,7 +364,7 @@ func TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere(t *testing.T) {
 	}
 }
 
-// TestListSuggestedUsers_FloodingSuspendedFolloweeIsSkipped (W3-22 L-5) on the real wiring: identity's service really
+// TestListSuggestedUsers_FloodingSuspendedFolloweeIsSkipped (L-5) on the real wiring: identity's service really
 // implements the optional KnownInactive extension graph asserts on its Directory (the assertion is checked here, so a
 // rename on either side fails loudly instead of silently disabling the skip), and a suspended followee whose profile
 // this instance's cache has seen no longer steers: none of its flood of newest edges reaches the answer.

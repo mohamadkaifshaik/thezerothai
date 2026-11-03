@@ -22,7 +22,7 @@ import '../../domain/engagement_feature_flag.dart';
 import '../bloc/bookmarks_cubit.dart';
 import '../bloc/engagement_cubit.dart';
 
-/// The scrolling list of one History tab (plan W2-7 / W3-18): live
+/// The scrolling list of one History tab (/): live
 /// [PostCard] rows over a `CustomScrollView` with pull to refresh, a skeleton
 /// while the first page loads, the error / not-available / empty states, a
 /// banner for a failed refresh or page, and prefetching of the next page.
@@ -115,7 +115,7 @@ class HistoryPostList extends StatefulWidget {
   /// The banner's Retry.
   final VoidCallback onRetryNotice;
 
-  /// What a withheld row (`PostView.withheld`, W3-41b) offers: Unlike on the
+  /// What a withheld row (`PostView.withheld`) offers: Unlike on the
   /// Likes tab, Remove bookmark on the Bookmarks tab.
   final WithheldAction withheldAction;
 
@@ -139,7 +139,7 @@ enum WithheldAction {
 }
 
 /// A row of the caller's own Likes or Bookmarks whose post is by a protected
-/// author the caller can no longer see (W3-41b): the author in a
+/// author the caller can no longer see: the author in a
 /// [ProtectedPostBox] and one action. The server sent the post stripped to its
 /// id, kind and author, with the viewer flag still true. The action only
 /// dispatches to the session cubit; the list's cubit hides the row at once and
@@ -321,7 +321,7 @@ class _HistoryPostListState extends State<HistoryPostList> {
         itemBuilder: (context, index) {
           final view = rows[index];
           // The server withheld this row: its post is by a protected author
-          // the caller can no longer see (W3-41b). The box and its one undo
+          // the caller can no longer see. The box and its one undo
           // action; nothing opens, there is no card and no action row.
           if (view.withheld) {
             return Column(

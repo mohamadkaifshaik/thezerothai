@@ -10,7 +10,7 @@ const kMediaVisionUnitsDailyLimit = 'media_vision_units_daily';
 /// to storage, or FinalizeUpload) while sending a post. Never the raw server
 /// text. Degraded mode says text posts still work (`DEGRADED_MODE=nomedia`
 /// only stops new uploads, plan D8). [gif] words the answers that name the
-/// attachment for a GIF post (W6-16).
+/// attachment for a GIF post.
 String uploadErrorMessage(AppException error, {bool gif = false}) {
   return switch (error) {
     // The per-account daily Vision-units cap (ADR-0029 Amendment 1 A5.5):

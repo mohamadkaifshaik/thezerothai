@@ -1,4 +1,4 @@
-// moderation.go holds the P7 moderator commands (ADR-0016 D4): reports list|show|resolve, takedown-post,
+// moderation.go holds the moderator commands (ADR-0016 D4): reports list|show|resolve, takedown-post,
 // restore-post, suspend-user, unsuspend-user. There is no admin console at Stage 0; the founder runs these from
 // their machine with Application Default Credentials, with the same --project / typed-prod-confirmation rules as
 // every other opsctl command.
@@ -32,7 +32,7 @@ import (
 
 const (
 	// settleWait is how long suspend-user waits before the settle pass: every warm instance caches the account
-	// status for at most CACHE_TTL (capped at config.MaxCacheTTL, ADR-0009 T33), so after this a post can no
+	// status for at most CACHE_TTL (capped at config.MaxCacheTTL, ADR-0009), so after this a post can no
 	// longer be accepted from the suspended account. The margin covers in-flight requests (Cloud Run's 10 s).
 	settleWait = config.MaxCacheTTL + 15*time.Second
 	// suspendSkew moves the settle pass's lower bound before the moment suspension started, so server/operator
@@ -64,7 +64,7 @@ type modArgs struct {
 	fields string
 	limit  int
 	dryRun bool
-	// since and pageToken are the flags of community restore-hidden and hidden (W5-52b).
+	// since and pageToken are the flags of community restore-hidden and hidden.
 	since, pageToken string
 }
 
@@ -152,14 +152,14 @@ func printReport(out io.Writer, r moderation.Report) {
 	case r.TargetType == moderation.TargetAccount:
 		fmt.Fprintln(out, "evidence none (an account report filed before profile evidence was kept; look at the live profile)")
 	case r.TargetType == moderation.TargetList && r.Evidence != nil:
-		// Plan W5-44: the list as the reporter saw it (public text once the list is public; no member ids). Hide it with
+		// Plan: the list as the reporter saw it (public text once the list is public; no member ids). Hide it with
 		// `opsctl lists hide LIST_ID --report R` (the target id above; it resolves this report as TAKEDOWN).
 		fmt.Fprintf(out, "evidence list by @%s created %s: name %q, description %q\n",
 			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.ListName, r.Evidence.ListDescription)
 	case r.TargetType == moderation.TargetList:
 		fmt.Fprintln(out, "evidence none")
 	case r.TargetType == moderation.TargetCommunity && r.Evidence != nil:
-		// ADR-0031 D14 (W5-29): the community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
+		// ADR-0031 D14: the community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
 		// community was ARCHIVED. Suspend it with `opsctl community suspend CID --report R` (the target id above; it resolves this report as TAKEDOWN).
 		e := r.Evidence
 		fmt.Fprintf(out, "evidence community owned by @%s created %s: name %q, description %q\n", e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.CommunityName, e.CommunityDescription)
@@ -172,7 +172,7 @@ func printReport(out io.Writer, r moderation.Report) {
 		// ADR-0027 D12: one private message, copied at report time. owner above is the sender's uid; the handle is "" when
 		// the sender was not ACTIVE then. takedown with `opsctl messages takedown <target>`.
 		if r.Evidence.TextExpired {
-			// W7-36: the copied text lives in reports/{id}/evidence/message and its TTL deleted it (180 days after filing, or
+			// The copied text lives in reports/{id}/evidence/message and its TTL deleted it (180 days after filing, or
 			// resolved + 90 days); the report itself is kept.
 			fmt.Fprintf(out, "evidence expired: the copied message text was deleted by its retention limit (message from @%s sent %s)\n",
 				r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339))
@@ -291,7 +291,7 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 // than that is finished by running takedown-post again, which is idempotent.
 const cleanupPageBudget = 50
 
-// cleanupCopies makes a taken-down post's copies disappear too (ADR-0018 D6, ADR-0016 follow-up T10): REPOST
+// cleanupCopies makes a taken-down post's copies disappear too (ADR-0018 D6, ADR-0016 follow-up): REPOST
 // posts of it are removed (with their reposts docs, the reposters' postsCount and the post's repostCount, because
 // the post still exists and the counter must stay exact) and the embeds of its quotes become a tombstone. Likes
 // stay. restore-post does not bring the copies back.
@@ -358,7 +358,7 @@ type copyCheckpoint struct {
 }
 
 // suspendCopyCleanup removes the copies other accounts hold of a suspended author's posts (issue #151, ADR-0018
-// P7 note): REPOSTs of them are deleted with their counters and the embeds of quotes become a tombstone. Like
+// note): REPOSTs of them are deleted with their counters and the embeds of quotes become a tombstone. Like
 // takedown-post's cleanup it is permanent: unsuspend-user restores the author's own posts, not the copies.
 func suspendCopyCleanup(ctx context.Context, b *backends, uid string, out io.Writer) error {
 	if b.cleanup == nil || b.copied == nil {
@@ -521,7 +521,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 		}
 	}
-	// Issue #151: the copies other users hold of the hidden posts (ADR-0018 P7 note). After the settle pass, so a
+	// Issue #151: the copies other users hold of the hidden posts (ADR-0018 note). After the settle pass, so a
 	// post created while instance caches still saw the account as ACTIVE is covered too.
 	if err := suspendCopyCleanup(ctx, b, uid, out); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)

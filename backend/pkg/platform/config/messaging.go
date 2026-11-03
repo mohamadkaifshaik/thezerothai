@@ -7,7 +7,7 @@ package config
 type MessagingConfig struct {
 	// NewAccountSendsPerDay is the SendMessage daily cap for accounts younger than Quota.NewAccountWindow
 	// (MESSAGES_NEW_ACCOUNT_SENDS_PER_DAY, default 50; the standard value is RateLimit.MessagesSendsPerDay, 300). The
-	// interceptor's DailyCap is one number per procedure, so the service applies this tier (W7-5).
+	// interceptor's DailyCap is one number per procedure, so the service applies this tier.
 	NewAccountSendsPerDay int
 	// RequestMaxUnanswered is the most messages a sender may leave unanswered in a REQUEST conversation
 	// (MESSAGES_REQUEST_MAX_UNANSWERED, default 3), enforced exactly in the send transaction.

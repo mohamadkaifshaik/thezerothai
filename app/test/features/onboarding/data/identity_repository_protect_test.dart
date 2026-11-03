@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/posts_fixtures.dart';
 
-/// W3-33b: the protect request is shaped exactly (is_private alone, `false`
+/// The protect request is shaped exactly (is_private alone, `false`
 /// still present) and a FEATURE_DISABLED answer to turning it ON is remembered
 /// for 10 minutes, while turning it off is never remembered.
 void main() {

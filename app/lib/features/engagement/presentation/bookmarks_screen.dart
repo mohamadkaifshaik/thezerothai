@@ -41,7 +41,7 @@ enum HistoryTab {
       value == 'likes' ? HistoryTab.likes : HistoryTab.bookmarks;
 }
 
-/// `/bookmarks` (W2-7, ADR-0023; W3-18, ADR-0024 D6): the caller's History,
+/// `/bookmarks` (ADR-0023, ADR-0024 D6): the caller's History,
 /// titled "History". The Bookmarks tab is their saved posts, newest bookmark
 /// first; the Likes tab (only with the `likes_list` flag) is their most recent
 /// likes. Both are live post cards (current counts and the engagement row,
@@ -256,7 +256,7 @@ class _BookmarksTabViewState extends State<_BookmarksTabView> {
         content: const Text('Removed from Bookmarks'),
         // An Undo has no use after a few seconds: do not keep it.
         persist: false,
-        // A withheld row (W3-41b) has no Undo: AddBookmark of a post the caller
+        // A withheld row has no Undo: AddBookmark of a post the caller
         // can no longer see answers NOT_FOUND, so it could only fail.
         action: removal.view.withheld
             ? null

@@ -40,7 +40,7 @@ func postNotFound() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, postNotFoundText)
 }
 
-// Delete implements Service (ADR-0010 D4, plan T9).
+// Delete implements Service (ADR-0010 D4).
 //
 // Firestore, worst case: reads 1 (the post; 0 when cached; the interceptor's profile read is extra), writes 1
 // (users.postsCount -1) + 1 delete (Exists precondition) and, for a post with images, one Pub/Sub publish of the
@@ -101,7 +101,7 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 }
 
 // publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
-// (P4) and its likes, reposts and quotes (P5, ADR-0018 D6), so every deleted post publishes. A failure is logged
+// and its likes, reposts and quotes (ADR-0018 D6), so every deleted post publishes. A failure is logged
 // for Error Reporting and does not fail the delete: the post is gone and the dependants are removed by the
 // account purge at the latest. One Pub/Sub publish, no Firestore access.
 func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
@@ -120,7 +120,7 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 	logger.SetRequestField(ctx, fieldMediaJob, "published")
 }
 
-// GetForViewer implements Service (ADR-0010 D6 GetPost column, plan T9).
+// GetForViewer implements Service (ADR-0010 D6 GetPost column).
 //
 // Firestore, worst case: post 1 + author users 1 + caller graph 1 cold (the caller's own users read belongs to
 // the account-status interceptor) = 3 here, 4 per request; +1 author graph when the caller's blockedBy

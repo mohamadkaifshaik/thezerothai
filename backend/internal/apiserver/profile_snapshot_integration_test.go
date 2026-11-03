@@ -2,7 +2,7 @@
 
 package apiserver
 
-// P2 profile-snapshot-refresh over the real Build chain (ADR-0003 "Author snapshot refresh"): a rename or a
+// profile-snapshot-refresh over the real Build chain (ADR-0003 "Author snapshot refresh"): a rename or a
 // display-name edit publishes one job on the shared jobs topic, delivering it rewrites `author` on the author's
 // newest 100 posts, a replay writes nothing, and the daily snapshot-edit quota rejects the sixth edit.
 

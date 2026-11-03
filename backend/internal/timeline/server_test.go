@@ -87,21 +87,21 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
-			// P5 (ADR-0018 D5, D13): viewer flags are posts' ViewerFlags seam; ToView renders them.
+			// ADR-0018 D5, D13: viewer flags are posts' ViewerFlags seam; ToView renders them.
 			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
-		// lists (ADR-0030 D1, W5-8): the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
+		// lists (ADR-0030 D1): the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
 		"lists": {"Header": true, "Reader": true, "ListMembers": true, "FlagName": true, "ListView": true, "List": true, "Guard": true, "FlagChecker": true, "ErrNotFound": true, "NotFoundError": true, "ValidateListID": true, "MembersInfo": true},
-		// communities (ADR-0031 D1, W5-22, W5-27): the flag gate, its checker seam and the Reader GetCommunityTimeline reads.
+		// communities (ADR-0031 D1): the flag gate, its checker seam and the Reader GetCommunityTimeline reads.
 		"communities": {"FlagName": true, "Guard": true, "FlagChecker": true,
-			// W5-27: the Reader seam and its value types, the NOT_FOUND and id checks, the header renderer and the roles and statuses the feed reads.
+			// The Reader seam and its value types, the NOT_FOUND and id checks, the header renderer and the roles and statuses the feed reads.
 			"Reader": true, "ErrNotFound": true, "NotFoundError": true, "ValidateCommunityID": true, "HeaderProto": true, "Community": true, "Removal": true,
 			"Role": true, "RoleOwner": true, "RoleModerator": true, "RoleMember": true, "RoleNone": true, "RoleBanned": true,
 			"Status": true, "StatusActive": true, "StatusArchived": true, "StatusSuspended": true},
 		// identity: the Directory seam, its Profile value type, the one missing-user error and the uid predicate.
 		"identity": {"ProtectedAuthors": true, "ProtectedSet": true, "Directory": true, "Profile": true, "AccountStatusActive": true, "ProfileNotFoundError": true, "ValidUserID": true,
-			// W5-9: the pinned-tab value type and kind, the idempotency sentinel of the store seam.
+			// The pinned-tab value type and kind, the idempotency sentinel of the store seam.
 			"HomeTab": true, "HomeTabKindList": true, "HomeTabKindCommunity": true, "ErrKeyReused": true, "ErrNotFound": true},
 	}
 	sawAny := false

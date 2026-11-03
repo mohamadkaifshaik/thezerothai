@@ -27,7 +27,7 @@ func (a undoAudience) Decide(ctx context.Context, viewer string, snap graph.Snap
 	return d, err
 }
 
-// W3-40a (W3-36 L-1): UnlikePost and UndoRepost of a post the caller may not see answer the missing-post shape (the
+// L-1: UnlikePost and UndoRepost of a post the caller may not see answer the missing-post shape (the
 // bytes a deleted post gets) and still remove the caller's like or repost.
 func TestUndoAndUnlike_InvisiblePostAnswersMissingShape(t *testing.T) {
 	const goneID = "0000000000000000099"
@@ -126,7 +126,7 @@ func TestUndoAndUnlike_InvisiblePostAnswersMissingShape(t *testing.T) {
 	})
 }
 
-// W3-40b (W3-40a residual): a stranger undoing a REPOST id gets the same Result, PostID included, whether the original
+// residual: a stranger undoing a REPOST id gets the same Result, PostID included, whether the original
 // behind it is gone or hidden (protected, not followed). The id is the original's in both.
 func TestUndoAndUnlike_RepostIDHiddenEqualsGone(t *testing.T) {
 	for _, op := range []string{"unlike", "undo"} {

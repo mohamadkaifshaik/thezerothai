@@ -39,7 +39,7 @@ pb.CommunityMember _member(int i, pb.CommunityRole role) => pb.CommunityMember(
   ),
 );
 
-/// W5-35: the moderator rows of the members page, by role. The viewer's role
+/// The moderator rows of the members page, by role. The viewer's role
 /// is the server's `viewer_role` from GetCommunity; the client derives none.
 void main() {
   late _MockCommunities communities;

@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Moderator is the operator-side seam of the platform hide (security review W5-17 M-4, plan W5-44): `opsctl lists hide|restore`
+// Moderator is the operator-side seam of the platform hide (security review M-4): `opsctl lists hide|restore`
 // is its only caller, there is no moderator RPC at Stage 0. *FirestoreRepo implements it, so the lists module stays the only
 // writer of lists/{listId}.
 type Moderator interface {

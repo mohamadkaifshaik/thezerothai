@@ -40,7 +40,7 @@ const (
 	// Likes counts LikePost calls that wrote a like (ADR-0018 D3). A replay is not charged; Unlike never is.
 	Likes Kind = "likes"
 	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
-	// avatar), P2 / ADR-0003: 5 per day.
+	// avatar), / ADR-0003: 5 per day.
 	SnapshotEdits Kind = "snapshotEdits"
 	// Schedules counts SchedulePost calls that wrote a scheduled doc (ADR-0021 D4, review L-4). A replay is not
 	// charged; CancelScheduledPost and ListScheduledPosts never are. The posts quota is charged at publish, not here.
@@ -99,7 +99,7 @@ type Record struct {
 	Reports int64 `firestore:"reports"`
 	// Likes counts LikePost writes (ADR-0018). Absent in older docs, so it decodes as 0.
 	Likes int64 `firestore:"likes"`
-	// SnapshotEdits counts snapshot-affecting profile edits (P2).
+	// SnapshotEdits counts snapshot-affecting profile edits.
 	SnapshotEdits int64 `firestore:"snapshotEdits"`
 	// Schedules counts SchedulePost writes (ADR-0021 D4). Absent in older docs, so it decodes as 0. CheckAndReserveN
 	// Sets the whole record, so a revision built without this field zeroes it on that user's next quota'd call

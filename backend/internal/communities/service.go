@@ -29,7 +29,7 @@ const (
 	fieldOutcome  = "outcome"
 	fieldCacheHit = "cache_hit"
 
-	// Keyed pseudonyms (ADR-0031 D13a, W5-52): HMAC with the CURSOR_HMAC_KEY-derived log key, never a raw id or a plain digest.
+	// Keyed pseudonyms (ADR-0031 D13a): HMAC with the CURSOR_HMAC_KEY-derived log key, never a raw id or a plain digest.
 	fieldCommunityHash = "community_hash"
 	fieldPostHash      = "post_hash"
 	fieldTargetHash    = "target_hash"
@@ -49,7 +49,7 @@ const notFoundText = "community not found"
 // COMMUNITY_MODLOG_MAX and the two cache sizes.
 type Limits struct {
 	MaxOwned, MaxJoined, MaxRules, ModlogMax int
-	// MaxModerators (COMMUNITY_MAX_MODERATORS, 10) and RecentRemovalsMax (COMMUNITY_RECENT_REMOVALS_MAX, 50) are the W5-28 caps; zero reads as the default.
+	// MaxModerators (COMMUNITY_MAX_MODERATORS, 10) and RecentRemovalsMax (COMMUNITY_RECENT_REMOVALS_MAX, 50) are the caps; zero reads as the default.
 	MaxModerators, RecentRemovalsMax  int
 	CacheEntries, MembersCacheEntries int
 	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow; ADR-0031 D11).
@@ -68,13 +68,13 @@ type Deps struct {
 	IDs   IDSource
 	// Creators are the uids that may call CreateCommunity (COMMUNITY_CREATORS, at most 10).
 	Creators []string
-	// Listing is the directory seam (W5-25b); nil = the Stage 0 shared Firestore entry (5 min).
+	// Listing is the directory seam; nil = the Stage 0 shared Firestore entry (5 min).
 	Listing Directory
-	// Moderation is the storage of the moderation calls (W5-28); nil = Repo when it implements ModerationRepo (FirestoreRepo does).
+	// Moderation is the storage of the moderation calls; nil = Repo when it implements ModerationRepo (FirestoreRepo does).
 	Moderation ModerationRepo
 	// OnPostRestored, when set, runs once after a RestoreCommunityPost that committed a change (outcome Written; not on a replay, a no-op or an
 	// error), with the community id. apiserver hands it timeline.Server.ForgetCommunityFeed so this instance's shared feed entry refills at
-	// once (W5-57, ADR-0031 D6). It must be in-process and cheap (0 Firestore ops); communities never imports timeline. A hide needs none.
+	// once (ADR-0031 D6). It must be in-process and cheap (0 Firestore ops); communities never imports timeline. A hide needs none.
 	OnPostRestored func(communityID string)
 	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
 	CursorKey []byte

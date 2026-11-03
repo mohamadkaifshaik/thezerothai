@@ -1,6 +1,6 @@
 //go:build integration
 
-// follow_requests_integration_test.go exercises the W3-27 request path against the Firestore emulator (ADR-0025 D6,
+// follow_requests_integration_test.go exercises the request path against the Firestore emulator (ADR-0025 D6,
 // D7, AQ4): Follow to a protected account, replay, the 500 cap, withdraw, Block clean-up in both directions, and the
 // REQUESTED relationship state on every read path, each with a budget assertion. The follow-vs-protect race is
 // follow_race_integration_test.go (it needs the transaction hook).

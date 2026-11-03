@@ -9,7 +9,7 @@ import '../domain/premium_plans.dart';
 /// current page, reached only by `push`. Full screen below 600 dp; a centred
 /// card at most 600 dp wide from 600 dp. The title and a Close button are its
 /// only chrome; Escape, system Back and a tap on the barrier close it. No RPC.
-/// W8-5: the body is the coming-soon hero and two static plan cards
+/// The body is the coming-soon hero and two static plan cards
 /// (ADR-0026 D3); nothing in it can be bought, reserved or followed.
 class PremiumDialog extends StatelessWidget {
   const PremiumDialog({super.key});

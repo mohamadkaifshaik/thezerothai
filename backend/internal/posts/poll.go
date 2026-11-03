@@ -1,4 +1,4 @@
-// poll.go is the one place that knows the poll creation rules (ADR-0029 D1, D2, plan W6-5): the limits, the validation of
+// poll.go is the one place that knows the poll creation rules (ADR-0029 D1, D2): the limits, the validation of
 // a CreatePost poll, the idempotency suffix and the stored shape. The Flutter client mirrors the same rules from the
 // shared fixture testdata/poll_rules.json (the Go test poll_rules_test.go and the Dart test run the same rows).
 // Nothing here reads or writes Firestore.

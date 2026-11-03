@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/theme_harness.dart';
 
-/// W1-8: the skeleton reserves the card's footprint (avatar, padding, media
+/// The skeleton reserves the card's footprint (avatar, padding, media
 /// slots) and the empty state has an action slot.
 void main() {
   forEachThemeAndWidth('skeleton rows reserve a 40dp avatar and media slots, '

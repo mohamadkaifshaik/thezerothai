@@ -15,7 +15,7 @@ import '../../../support/thread_test_support.dart';
 
 class _MockMessagingRepository extends Mock implements MessagingRepository {}
 
-/// `ThreadCubit` + the real `TimerThreadPoller` on a fake clock (W7-15): the
+/// `ThreadCubit` + the real `TimerThreadPoller` on a fake clock: the
 /// wiring `ThreadScreen` builds, without a widget.
 void main() {
   ThreadSnapshot snap(List<pb.Message> messages) => ThreadSnapshot(

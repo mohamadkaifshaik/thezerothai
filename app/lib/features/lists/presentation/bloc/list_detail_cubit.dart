@@ -9,7 +9,7 @@ import '../../data/lists_repository.dart';
 import '../../domain/home_tab_entry.dart';
 import 'list_detail_state.dart';
 
-/// Header and Pin state of one List's detail screen (W5-12).
+/// Header and Pin state of one List's detail screen.
 ///
 /// - The header is the latest `ListInfo` the client holds
 ///   ([ListsRepository.header], fed by the list timeline's answers, which

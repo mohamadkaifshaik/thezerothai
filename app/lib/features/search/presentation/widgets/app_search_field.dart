@@ -40,7 +40,7 @@ class _Entry {
   final Trend? trend;
 }
 
-/// The search pill with its suggestions overlay (W4-14, `FEATURE_SEARCH`).
+/// The search pill with its suggestions overlay (`FEATURE_SEARCH`).
 ///
 /// - Absent (`SizedBox.shrink`) while `search` is not in
 ///   `GetMe.enabled_features`; needs a [SearchRepository], a
@@ -50,7 +50,7 @@ class _Entry {
 ///   people. See `SearchSuggestionsCubit` for the call rules (300 ms debounce,
 ///   at least 2 characters).
 /// - Enter, or a row, records the search and calls [onSubmitted]; the default
-///   pushes `/search?q=` (W4-15 owns the screen). A person row calls
+///   pushes `/search?q=` (owns the screen). A person row calls
 ///   [onPersonSelected] (default: pushes the profile).
 /// - Keyboard: Arrow Down / Up move through the rows, Enter picks, Escape
 ///   closes. The overlay is a floating panel under the pill as wide as it.
@@ -152,7 +152,7 @@ class _AppSearchFieldState extends State<AppSearchField> {
     final parsed = SearchQuery.parse(canonical);
     if (parsed.isValid) {
       _cubit?.remember(canonical);
-      // TEL-6: the kind only, never the text. `#tag` looks for a hashtag; a
+      // The kind only, never the text. `#tag` looks for a hashtag; a
       // handle or a word looks for people (a word also matches the tag).
       UsageScope.of(context).log(
         SearchUsed(

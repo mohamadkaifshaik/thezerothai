@@ -19,7 +19,7 @@ import '../../../support/theme_harness.dart';
 
 class _MockGraph extends Mock implements GraphRepository {}
 
-/// W3-33c: the lock badge on [UserListRow] from `UserListItem.user.is_private`.
+/// The lock badge on [UserListRow] from `UserListItem.user.is_private`.
 void main() {
   final graphRepo = _MockGraph();
 
@@ -120,7 +120,7 @@ void main() {
     }
   }
 
-  // W3-33d: every FollowButton state fits the row across the whole matrix
+  // Every FollowButton state fits the row across the whole matrix
   // (the outlined Requested / Following used to overflow at 360dp x2.0).
   for (final state in [
     graph.FollowState.FOLLOW_STATE_NONE,

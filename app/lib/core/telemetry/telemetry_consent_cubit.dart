@@ -42,7 +42,7 @@ class TelemetryConsentState {
   int get hashCode => Object.hash(uid, loaded, crash, usage);
 }
 
-/// The consent card's and Settings switches' memory (TEL-7): one instance for
+/// The consent card's and Settings switches' memory: one instance for
 /// the app, over the [TelemetryConsentStore] the `TelemetryController` also
 /// listens to, so a change here re-applies the collection decision at once.
 ///

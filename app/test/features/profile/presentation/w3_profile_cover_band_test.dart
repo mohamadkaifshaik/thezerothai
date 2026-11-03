@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// W3-21: the on-device picture of Edit profile (`ProfileCoverBand(bytes:)`),
+/// The on-device picture of Edit profile (`ProfileCoverBand(bytes:)`),
 /// the one banner source that decodes in a widget test (a network banner
 /// cannot: see `w3_profile_banner_layout_test.dart`). It lives in its own file
 /// because decoding needs real time (`tester.runAsync`), and real time must not

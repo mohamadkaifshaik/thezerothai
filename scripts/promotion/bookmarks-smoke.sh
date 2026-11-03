@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dev-only bookmarks smoke of an API URL (W2-16): signs in as a smoke account that is NOT in the FEATURE_BOOKMARKS cohort and checks that
+# Dev-only bookmarks smoke of an API URL: signs in as a smoke account that is NOT in the FEATURE_BOOKMARKS cohort and checks that
 # the bookmark RPCs are routed, authenticated and gated on the candidate. Run by promote-dev.sh (step 4b) right after
 # authenticated-smoke.sh, against the same 0% candidate and with the same credentials. It is NOT run against prod: prod-smoke.sh only
 # runs authenticated-smoke.sh, which stays read-only and knows no bookmark RPC (live prod does not carry them yet).

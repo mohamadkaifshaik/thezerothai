@@ -94,7 +94,7 @@ class _HomeFeed extends StatelessWidget {
   );
 }
 
-/// W5-37: the flows. The cross-screen flow runs the real Communities, Community
+/// The flows. The cross-screen flow runs the real Communities, Community
 /// and Composer screens and a real feed over stateful fake repositories (one
 /// small "server" in memory); the flag product runs the real `AppRouter`.
 void main() {

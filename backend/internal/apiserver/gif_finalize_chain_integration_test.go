@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W6-18 (ADR-0029 D10, D11) over the real Build chain with the real Storage emulator: FinalizeUpload of a GIF (read, pre-scan,
+// (ADR-0029 D10, D11) over the real Build chain with the real Storage emulator: FinalizeUpload of a GIF (read, pre-scan,
 // sampled sheet, publish, delete), then CreatePost, the wire shape, the cost against a photo's, SchedulePost's refusal and
 // DeletePost -> post_delete removing the public objects.
 //

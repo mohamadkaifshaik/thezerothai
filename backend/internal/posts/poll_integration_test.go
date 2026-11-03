@@ -30,7 +30,7 @@ func (in *createInstance) createWithPoll(t *testing.T, uid, key, text string, po
 	return p, c, err
 }
 
-// TestCreate_Integration_Poll (ADR-0029 D1, D2; W6-5): the poll is written in the post's own commit, so a poll post costs what
+// TestCreate_Integration_Poll (ADR-0029 D1, D2): the poll is written in the post's own commit, so a poll post costs what
 // a root post costs (2 reads, 4 writes warm; replay 1 read, 0 writes), closesAt is the Snowflake createdAt + the duration,
 // the stored counts are "0".."n-1" all 0 with total 0, the same key with the same poll replays and with another poll is
 // IDEMPOTENCY_KEY_REUSED, and a rejected poll writes nothing.

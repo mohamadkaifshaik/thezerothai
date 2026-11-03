@@ -5,7 +5,7 @@ import '../../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../graph/presentation/widgets/user_list_row.dart';
 import '../bloc/community_detail_state.dart';
 
-/// The About tab of a community page (W5-32) as slivers: the description, the
+/// The About tab of a community page as slivers: the description, the
 /// numbered rules and the owner and moderators (`UserListRow`). Data comes
 /// from the one `GetCommunity` already made: no extra RPC.
 List<Widget> communityAboutSlivers(

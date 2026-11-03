@@ -2,18 +2,18 @@
 // one interest, under rules that the community's own owner and moderators enforce inside the community view only. It owns the
 // communities/{cid} collection, its communityMembers subcollection and communityMemberships/{uid}, and
 // dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in model.go and this file (ADR-0031 D1):
-// communities.Reader for reads (W5-25: Get, Role, Memberships); posts never imports this module (posts.CommunityGate and
+// communities.Reader for reads (Get, Role, Memberships); posts never imports this module (posts.CommunityGate and
 // posts.CommunityModerator are seams declared in posts).
 //
-// What exists: the flag gate (W5-22, FEATURE_COMMUNITIES, D10), the error and limit names fixed by the proto (errors.go, limits.go);
-// the write path CreateCommunity, UpdateCommunity and GetCommunity (W5-23: model.go, service.go, repo_firestore.go, cache.go,
-// server_rpcs.go); and the lifecycle (W5-24: purge.go, the `communities` eraser step and export section, registered in
-// apiserver/lifecycle_communities.go, with the T11 rows). The T11 guard (internal/apiserver/lifecycle_collections_guard_test.go)
-// fails the build for a collection constant without an erasure row, which is why W5-23 and W5-24 ship in one PR; join, leave
-// and ListMyCommunities (W5-25: service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
-// and member list (W5-25b: service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
-// (W5-26 and W5-26b: gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
-// The feed (W5-27: timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (W5-28: service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator, ADR-0031 N9: communities never imports posts) are built.
+// What exists: the flag gate (FEATURE_COMMUNITIES, D10), the error and limit names fixed by the proto (errors.go, limits.go);
+// the write path CreateCommunity, UpdateCommunity and GetCommunity (model.go, service.go, repo_firestore.go, cache.go,
+// server_rpcs.go); and the lifecycle (purge.go, the `communities` eraser step and export section, registered in
+// apiserver/lifecycle_communities.go, with the rows). The guard (internal/apiserver/lifecycle_collections_guard_test.go)
+// fails the build for a collection constant without an erasure row, which is why ship in one PR; join, leave
+// and ListMyCommunities (service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
+// and member list (service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
+// (gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
+// The feed (timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator, ADR-0031 N9: communities never imports posts) are built.
 package communities
 
 import (
@@ -53,8 +53,8 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 }
 
 // Reader is the read seam other modules and the handlers use (ADR-0031 D1): everything cached on this instance for at most 60 s (D12), so
-// a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline (W5-27),
-// posts' CommunityGate (W5-26; its member lookups use the cached MemberState, W5-26b) and moderation reach communities through it; *service implements it, next to Service.
+// a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline,
+// posts' CommunityGate (its member lookups use the cached MemberState) and moderation reach communities through it; *service implements it, next to Service.
 type Reader interface {
 	// Get is the cache-first community document: 0 reads warm, 1 cold (charged when the document is missing too, and a missing one is
 	// remembered for 60 s). ErrNotFound for a missing document. It does not apply the SUSPENDED rule: a caller that answers NOT_FOUND for

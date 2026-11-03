@@ -22,7 +22,7 @@ func mediaEnv(t *testing.T, kv map[string]string) {
 	}
 }
 
-// TestLoad_MediaDefaults (ADR-0005, P4): the flag is off in every environment, the Vision cap is 10,000 units and the
+// TestLoad_MediaDefaults (ADR-0005): the flag is off in every environment, the Vision cap is 10,000 units and the
 // thumbnail is screened by default.
 func TestLoad_MediaDefaults(t *testing.T) {
 	mediaEnv(t, nil)

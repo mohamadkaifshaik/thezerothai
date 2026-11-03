@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/trends_cubit.dart';
 
 /// Asks the shared [TrendsCubit] for the list when it mounts and when the app
-/// resumes (W4-17/18). Free while the answer is under five minutes old (0
+/// resumes. Free while the answer is under five minutes old (0
 /// RPCs); past that it is one call shared by every surface. No timer, no
 /// polling. Needs [TrendsCubit] in scope: mount it only with `trends` on.
 class TrendsLoader extends StatefulWidget {

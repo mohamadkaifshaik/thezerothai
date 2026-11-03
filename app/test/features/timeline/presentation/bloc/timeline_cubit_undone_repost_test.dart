@@ -20,7 +20,7 @@ import '../../../../support/timeline_fixtures.dart';
 
 class _MockEngagementRepository extends Mock implements EngagementRepository {}
 
-/// W3-41c: an undone REPOST row leaves the own profile tab locally.
+/// An undone REPOST row leaves the own profile tab locally.
 void main() {
   final feed = FeedKey.user('me');
   late MockTimelineRepository timeline;

@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 )
 
-// End-to-end emulator test of `opsctl lists hide|restore` (plan W5-44): the real run() flag handling and output over the real
+// End-to-end emulator test of `opsctl lists hide|restore`: the real run flag handling and output over the real
 // lists.FirestoreRepo. The cost line is the budget assertion: 1 read and, when the flag changes, 1 write.
 func TestLists_Integration_CLI(t *testing.T) {
 	client, project := backfillTestClient(t)

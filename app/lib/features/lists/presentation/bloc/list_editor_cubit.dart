@@ -31,7 +31,7 @@ class ListEditorState {
   final ListEditorOutcome? outcome;
 }
 
-/// Create / edit / delete of one List (W5-11).
+/// Create / edit / delete of one List.
 ///
 /// One idempotency key per user action, reused when the same action is
 /// retried after a failure (rule 4). A key is tied to the exact payload it was

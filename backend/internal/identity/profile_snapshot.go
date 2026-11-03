@@ -1,4 +1,4 @@
-// profile_snapshot.go is the identity side of the profile-snapshot-refresh job (P2, ADR-0003 "Author snapshot
+// profile_snapshot.go is the identity side of the profile-snapshot-refresh job (ADR-0003 "Author snapshot
 // refresh"): a profile edit that changes what posts copy about their author (display name, handle) bumps
 // users/{uid}.snapshotVersion in the same write, and after the commit a best-effort `profile_snapshot_refresh`
 // message goes to the shared `jobs` topic (ADR-0011). The job handler (lifecycle_jobs.go dispatch) re-reads the
@@ -58,7 +58,7 @@ type SnapshotQuota interface {
 	Reserve(ctx context.Context, uid string, perDay int64) error
 }
 
-// ProfileSnapshotDeps wires the P2 refresh into identity.New (WithProfileSnapshots).
+// ProfileSnapshotDeps wires the refresh into identity.New (WithProfileSnapshots).
 type ProfileSnapshotDeps struct {
 	Publisher JobPublisher
 	Flags     FlagChecker
@@ -76,7 +76,7 @@ type profileSnapshots struct {
 }
 
 // WithProfileSnapshots enables the snapshot-refresh trigger in UpdateProfile and ChangeHandle. Without it (the
-// default) identity behaves as before P2 apart from the unconditional snapshotVersion bump.
+// default) identity behaves as before then apart from the unconditional snapshotVersion bump.
 func WithProfileSnapshots(d ProfileSnapshotDeps) Option {
 	return func(s *service) {
 		if d.Publisher == nil || d.Flags == nil {

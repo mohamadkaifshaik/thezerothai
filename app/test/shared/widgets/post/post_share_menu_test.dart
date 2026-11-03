@@ -98,7 +98,7 @@ void main() {
       expect(find.byType(SheetOptionRow), findsNWidgets(2));
       expect(find.text('Copy link'), findsOneWidget);
       expect(find.text('Share via...'), findsOneWidget);
-      // No DM and no Bookmark row (W7 / W2-6 own those).
+      // No DM and no Bookmark row (W7 / own those).
       expect(find.textContaining('Message'), findsNothing);
       expect(find.text('Bookmark'), findsNothing);
       expect(

@@ -61,8 +61,8 @@ type Doc struct {
 	ThumbUploadPath  string `firestore:"thumbUploadPath"`
 	PublicPath       string `firestore:"publicPath,omitempty"`
 	ThumbPath        string `firestore:"thumbPath,omitempty"`
-	// NameSuffix is the random part of the public object names (W3-39, ADR-0025 note M-2): 32 lowercase hex characters
-	// chosen at CreateUpload and written with the document. Empty on documents created before W3-39, whose objects keep
+	// NameSuffix is the random part of the public object names (ADR-0025 note M-2): 32 lowercase hex characters
+	// chosen at CreateUpload and written with the document. Empty on documents created earlier, whose objects keep
 	// the old "m/{id}.{ext}" names (founder B1). Finalize, the converge path, the retire step, the eraser and post_delete
 	// all derive every name from the document, so the suffix is never sent in a message or logged.
 	NameSuffix      string     `firestore:"nameSuffix,omitempty"`
@@ -70,14 +70,14 @@ type Doc struct {
 	PostID          string     `firestore:"postId,omitempty"`
 	CreatedAt       time.Time  `firestore:"createdAt"`
 	ExpireAt        *time.Time `firestore:"expireAt,omitempty"`
-	// ScreeningUntil is the screening claim (W3-22 M-3): while it is in the future, one FinalizeUpload owns the
+	// ScreeningUntil is the screening claim (M-3): while it is in the future, one FinalizeUpload owns the
 	// SafeSearch spend for this PENDING document and every other call answers MEDIA_NOT_READY. Set by ClaimScreening,
 	// cleared by ReleaseScreening and by Resolve. A claim a crashed call left behind simply expires.
 	ScreeningUntil *time.Time `firestore:"screeningUntil,omitempty"`
-	// ScreenAttempts counts the screening claims this document has taken (W6-27, security H-3): ClaimScreening increments it in
+	// ScreenAttempts counts the screening claims this document has taken (security H-3): ClaimScreening increments it in
 	// the claim write itself. At MediaMaxScreenAttempts the next FinalizeUpload REJECTS the document without a Vision call.
 	ScreenAttempts int64 `firestore:"screenAttempts,omitempty"`
-	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document (W6-40, ADR-0029
+	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document (ADR-0029
 	// Amendment 1 A5.4). ReleaseScreening increments it in the release write it already makes (+0 writes). Retries = ScreenAttempts - ScreenAssessed.
 	ScreenAssessed int64 `firestore:"screenAssessed,omitempty"`
 	// RetiredAt is set by the profile_media_retired step (ADR-0024 Amendment 1 A4) once the document's replaced or removed
@@ -135,13 +135,13 @@ type Repo interface {
 	CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error)
 	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent. Reads: len(ids).
 	GetMany(ctx context.Context, ids []string) (map[string]*Doc, error)
-	// ClaimScreening stamps screeningUntil = until and increments screenAttempts (W6-27) on a PENDING document, conditional on its UpdateTime (ErrConflict
+	// ClaimScreening stamps screeningUntil = until and increments screenAttempts on a PENDING document, conditional on its UpdateTime (ErrConflict
 	// when another call changed it first, so exactly one of several concurrent callers wins), and returns the new
 	// UpdateTime the winner must use for Resolve and ReleaseScreening. Writes: 1.
 	ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error)
 	// ReleaseScreening removes the claim ClaimScreening made, conditional on the UpdateTime it returned (ErrConflict
 	// when the document moved on, which is fine: the claim is gone either way). When assessed, the same write also increments
-	// screenAssessed (W6-40: the attempt produced a valid assessment and consumed one of MEDIA_MAX_SCREEN_ATTEMPTS). Writes: 1.
+	// screenAssessed (the attempt produced a valid assessment and consumed one of MEDIA_MAX_SCREEN_ATTEMPTS). Writes: 1.
 	ReleaseScreening(ctx context.Context, id string, updateTime time.Time, assessed bool) error
 	// Resolve moves a PENDING document to its final state, conditional on its UpdateTime (ErrConflict when
 	// another call changed it first) and clears any screening claim. Writes: 1.

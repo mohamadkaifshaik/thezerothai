@@ -10,7 +10,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/posts_fixtures.dart';
 import '../../../../support/timeline_fixtures.dart';
 
-/// W3-17: the one cubit that owns the Pinned row's `GetPost` and the rule for
+/// The one cubit that owns the Pinned row's `GetPost` and the rule for
 /// what a failure means.
 void main() {
   late MockPostsRepository posts;

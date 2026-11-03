@@ -82,7 +82,7 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 			})
 		}
 	}
-	// W5-47: LIST_MAX_MEMBERS is bounded above (500 is accepted, 501 fails startup naming the key).
+	// LIST_MAX_MEMBERS is bounded above (500 is accepted, 501 fails startup naming the key).
 	t.Run("LIST_MAX_MEMBERS at the ceiling", func(t *testing.T) {
 		clearEnv(t)
 		t.Setenv("LIST_MAX_MEMBERS", "500")

@@ -15,7 +15,7 @@ const kPollDuplicateHint = 'Choices must be different';
 /// Hint under the length when it was raised to the minimum.
 const kPollMinLengthHint = 'A poll lasts at least 5 minutes.';
 
-/// The rule in one line under the builder (W6-43; full text in `rules.html`).
+/// The rule in one line under the builder (full text in `rules.html`).
 const kPollSensitiveHint = "Don't ask for sensitive personal info.";
 
 /// The placeholder of the post text while a poll is open: the text is the
@@ -33,7 +33,7 @@ typedef PollLengthPicker = Future<int?> Function(
   int initialMinutes,
 );
 
-/// The inline poll builder of the composer (W6-12, ADR-0029, `composer.md`
+/// The inline poll builder of the composer (ADR-0029, `composer.md`
 /// section 2): Choice 1 and 2, up to two optional choices with a remove
 /// button, "Add a choice", the poll length and a red "Remove poll".
 ///
@@ -229,7 +229,7 @@ class _ComposerPollBuilderState extends State<ComposerPollBuilder> {
   }
 }
 
-/// The one-line rule under the builder (W6-43, GDPR Art. 9): polls must not ask
+/// The one-line rule under the builder (GDPR Art. 9): polls must not ask
 /// for sensitive personal information. "See the rules" opens the community
 /// rules; the whole row is at least 48dp tall and wraps at large text.
 class _SensitiveInfoHint extends StatelessWidget {
@@ -402,7 +402,7 @@ class _LengthRow extends StatelessWidget {
   }
 }
 
-/// Days / Hours / Minutes dropdowns for 600dp and wider (CMP-D6 uses the
+/// Days / Hours / Minutes dropdowns for 600dp and wider (uses the
 /// platform picker on phones and the desktop form on wide screens).
 class _LengthDropdowns extends StatelessWidget {
   const _LengthDropdowns({

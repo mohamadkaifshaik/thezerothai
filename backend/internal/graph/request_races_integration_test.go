@@ -1,6 +1,6 @@
 //go:build integration
 
-// request_races_integration_test.go is the W3-35b race and redelivery suite for the ADR-0025 request lifecycle (D7, D8,
+// request_races_integration_test.go is the race and redelivery suite for the ADR-0025 request lifecycle (D7, D8,
 // D9): Respond on two instances, the privacy_public job against withdraw, Block and a manual accept, two concurrent job
 // runs, a delivery that stops at the page cap, a crash between and after pages, and at-cap requesters. Every scenario
 // ends with the automatic invariant sweep (I1 to I4, I-R and I-X); the assertions here are the end states the sweep cannot
@@ -447,8 +447,8 @@ func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {
 }
 
 // TestW335b_PrivacyPublic_AtCapRequestersAckAsStuck is a scale model of the same fact at a page size of 1 (O-1 in the
-// W3-35b report): a delivery whose first 50 pages are all requests that cannot be accepted acks with outcome
-// "stuck" (W3-40b O-1; it used to nack with ErrPrivacyPublicMore on every redelivery until the DLQ). At the production page
+// report): a delivery whose first 50 pages are all requests that cannot be accepted acks with outcome
+// "stuck" (O-1; it used to nack with ErrPrivacyPublicMore on every redelivery until the DLQ). At the production page
 // of 100 this needs more than 5,000 stuck requests at once, and a request is stuck only while its requester follows 5,000
 // accounts, so this is a guard for an unlikely case, not a Stage 0 defect.
 func TestW335b_PrivacyPublic_AtCapRequestersAckAsStuck(t *testing.T) {

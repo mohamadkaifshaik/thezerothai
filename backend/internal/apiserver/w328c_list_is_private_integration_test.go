@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-28c (ADR-0025 implementation note, W3-25c): AuthorSnapshot.is_private on every graph user-list row, through the real
+// ADR-0025 implementation note,: AuthorSnapshot.is_private on every graph user-list row, through the real
 // Build chain with FEATURE_PRIVATE_ACCOUNTS on and the real UpdateProfile(is_private) toggle:
 //   - ListFollowing, ListFollowers, ListFollowRequests, ListSuggestedUsers, ListBlockedUsers and ListMutedUsers show
 //     user.is_private=true on a protected user's row and false on a public user's row, on a cold instance each;

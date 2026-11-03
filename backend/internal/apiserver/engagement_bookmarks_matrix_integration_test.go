@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W2-13 tester pass over the bookmark RPCs (ADR-0023, tickets W2-2..W2-5) on the real Build chain and the emulators.
+// tester pass over the bookmark RPCs (ADR-0023) on the real Build chain and the emulators.
 // It adds what engagement_bookmarks_*_integration_test.go does not already cover: the flag modes with real data
 // (including a user dropped from the allowlist), the late retry of a NO-OP key in both directions, the same post added
 // ten times concurrently under different keys, the cap boundary at the default 1,000, the 24 h new-account quota window,
@@ -72,8 +72,8 @@ func requireFeatureDisabled(t *testing.T, what string, err error) {
 	}
 }
 
-// All four modes with real data. Each user already holds a bookmark (P1) written while the flag was on. A fresh chain
-// then runs List, Add (a new post), Remove (P1) and List again for an "in" user and an "out" user:
+// All four modes with real data. Each user already holds a bookmark written while the flag was on. A fresh chain
+// then runs List, Add (a new post), Remove and List again for an "in" user and an "out" user:
 //   - off: all three RPCs FEATURE_DISABLED, enabled_features does not list bookmarks;
 //   - allowlist / percent: Add only for the cohort, but List and Remove keep working for a user outside it (dropped
 //     from the allowlist, bucket too high): what they saved stays visible and removable (ADR-0023 D5);
@@ -101,7 +101,7 @@ func TestBookmarksW213_FlagModesWithRealData(t *testing.T) {
 	}
 	users := []bmUser{inU, outU}
 
-	// seed makes sure both users hold exactly P1 (the writer chain has the flag on for everyone).
+	// seed makes sure both users hold exactly (the writer chain has the flag on for everyone).
 	seed := func() {
 		for _, u := range users {
 			if _, err := w.remove(u, contractKey("bm-rm"), p2); err != nil {

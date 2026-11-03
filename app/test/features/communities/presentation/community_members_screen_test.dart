@@ -39,7 +39,7 @@ pb.CommunityMember _member(
   ),
 );
 
-/// W5-32: `/communities/:id/members` at 360 / 600 / 1200 dp, light and dark,
+/// `/communities/:id/members` at 360 / 600 / 1200 dp, light and dark,
 /// text scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockCommunities communities;

@@ -6,11 +6,11 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../support/media_fixtures.dart';
 import '../../../../support/theme_harness.dart';
 
-/// BannerEditor on its own (W3-15): every state at 360/600/1200 dp, light and
+/// BannerEditor on its own: every state at 360/600/1200 dp, light and
 /// dark, with 48dp targets, spoken labels and no overflow.
 void main() {
   const widths = kMatrixWidths;
-  // W3-21: the full text-scale axis (it was 1.0 only).
+  // The full text-scale axis (it was 1.0 only).
   const scales = kMatrixTextScalesLarge;
 
   Finder icon(IconData data) => find.descendant(

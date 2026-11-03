@@ -37,7 +37,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/follow-requests` on the real router (W3-34): reachable with `graph` and
+/// `/follow-requests` on the real router: reachable with `graph` and
 /// either `private_accounts` or a protected caller (the undo rule), else Home.
 void main() {
   const user = AppUser(
@@ -131,7 +131,7 @@ void main() {
       protected: true,
       stays: false,
     ),
-    // W3-35c: the other four cells of graph x private_accounts x protected.
+    // The other four cells of graph x private_accounts x protected.
     'protected caller, private_accounts on': (
       flags: {'graph', 'private_accounts'},
       protected: true,
@@ -153,7 +153,7 @@ void main() {
       stays: false,
     ),
   };
-  // W3-35c: the undo rule end to end. A protected caller with every flag off
+  // The undo rule end to end. A protected caller with every flag off
   // but `graph` reaches the screen on the real router and answers a request.
   testWidgets('protected caller with private_accounts off: the screen lists '
       'and Accept reaches the server', (tester) async {

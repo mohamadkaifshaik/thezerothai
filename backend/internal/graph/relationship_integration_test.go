@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// ADR-0024 D7 / ticket W3-11 on the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
+// ADR-0024 D7 / on the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
 // the eviction of the cached follow edge by the writes that change it. Edges are seeded with seedFollow or created by
 // the real RPCs, never seedEdge, so the end-of-test invariant sweep holds.
 

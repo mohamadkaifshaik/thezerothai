@@ -138,7 +138,7 @@ void main() {
         ),
       ],
     );
-    // The entry also reads the 10-minute backoff (W3-34b): not backed off
+    // The entry also reads the 10-minute backoff: not backed off
     // unless a test passes its own repository.
     final graphRepo = graphRepository ?? _MockGraph();
     if (graphRepository == null) {
@@ -290,7 +290,7 @@ void main() {
         semantics.dispose();
       });
 
-      // W3-35c: the badge row in every cell of the W3-21 matrix.
+      // The badge row in every cell of the matrix.
       for (final pending in [7, 1000]) {
         forEachThemeAndWidth(
           'badge row with $pending pending fits the drawer and keeps 56dp',
@@ -329,7 +329,7 @@ void main() {
             );
           },
           // The drawer is a phone surface: below 600 dp only (wide layouts
-          // use the rail and the account chip, see D-2 in the W3-35c report).
+          // use the rail and the account chip, see D-2 in the report).
           widths: const [360],
           textScales: kMatrixTextScalesLarge,
         );
@@ -372,7 +372,7 @@ void main() {
       // UNIMPLEMENTED the repository is "unavailable" for 10 minutes
       // (`followRequestsUnavailable`), but nothing outside it reads that, so
       // a protected caller keeps the drawer entry and the tap lands on "not
-      // available". Plan W3-34: "FEATURE_DISABLED hides it with a 10-minute
+      // available". Plan: "FEATURE_DISABLED hides it with a 10-minute
       // backoff". Flip to false when the owner resolves it.
       const d3Open = false;
       testWidgets(
@@ -395,7 +395,7 @@ void main() {
 
       // D-1 (low): the drawer shows the entry for any count above 0, while
       // the router redirects a public caller without `private_accounts` Home
-      // (app_drawer.dart:45-47 vs app_router.dart:495-498). The plan's W3-34
+      // (app_drawer.dart:45-47 vs app_router.dart:495-498). The plan's
       // states both rules. Flip to false when the owner resolves it.
       const d1Open = false;
       testWidgets('D-1: a public account with a stale count and '
@@ -431,7 +431,7 @@ void main() {
           const {},
           const {'bookmarks'},
           const {'posts'},
-          // W3-18/W3-21: `likes_list` opens the Likes tab by link, but the
+          // `likes_list` opens the Likes tab by link, but the
           // History entry itself still needs `bookmarks` and `posts`.
           const {'likes_list'},
           const {'posts', 'likes_list'},

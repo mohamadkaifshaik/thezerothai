@@ -24,7 +24,7 @@ import 'bloc/lists_state.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_row.dart';
 
-/// `/home/pinned` (W5-14): Manage pinned timelines. Following is fixed on
+/// `/home/pinned`: Manage pinned timelines. Following is fixed on
 /// top; under it the pinned tabs, each with a drag handle, "Move up" / "Move
 /// down" actions (for screen readers and keyboards) and Unpin; then "Add from
 /// your Lists" with a Pin button per List that is not pinned yet.
@@ -33,7 +33,7 @@ import 'widgets/list_row.dart';
 ///   `SetHomeTabs` through [HomeTabsRepository] (a reorder is one call),
 ///   rolled back with a message on failure.
 /// - At five tabs Pin is disabled, with the reason as its tooltip and a note.
-/// - Communities are not offered yet (they arrive with W5-30).
+/// - Communities are not offered yet (they arrive later).
 class ManagePinnedScreen extends StatefulWidget {
   const ManagePinnedScreen({super.key});
 

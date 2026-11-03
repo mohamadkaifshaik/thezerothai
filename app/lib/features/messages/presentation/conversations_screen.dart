@@ -27,7 +27,7 @@ import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
 
-/// `/messages` and `/messages/requests` (W7-14, ADR-0027 D7, D14): the inbox.
+/// `/messages` and `/messages/requests` (ADR-0027 D7, D14): the inbox.
 ///
 /// One screen, two folders: [Folder.FOLDER_INBOX] (title "Messages", the
 /// "New message" action and the "Message requests (N)" row) and
@@ -35,13 +35,13 @@ import 'widgets/not_encrypted_note.dart';
 ///
 /// The cached list renders at once; one `since` refresh follows on open and
 /// another on resume (throttled to 60 s). There is no timer. A foreground
-/// message push (W7-19, `PushState.messagePushes`) calls
+/// message push (`PushState.messagePushes`) calls
 /// `ConversationsCubit.refreshIfStale`.
 /// On desktop the list sits in the 600dp main column (no master-detail in v1).
 ///
-/// - [onOpenConversation] opens `/messages/<id>`. The route belongs to W7-15;
+/// - [onOpenConversation] opens `/messages/<id>`. The route belongs to another screen;
 ///   until it is wired the rows are drawn without a tap action.
-/// - [onNewMessage] opens `/messages/new` (W7-17, the people picker). Null
+/// - [onNewMessage] opens `/messages/new` (the people picker). Null
 ///   (a test, or a caller that cannot) shows the action disabled.
 class ConversationsScreen extends StatelessWidget {
   const ConversationsScreen({
@@ -61,7 +61,7 @@ class ConversationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // W7-26: `readOnly` (messaging off for this caller only) keeps the list,
+    // `readOnly` (messaging off for this caller only) keeps the list,
     // the requests and the clean-up, and drops the New message action.
     return MessagingAccessBuilder(
       builder: (context, access) {
@@ -113,7 +113,7 @@ class _ConversationsView extends StatefulWidget {
   final void Function(String conversationId)? onOpenConversation;
   final VoidCallback? onNewMessage;
 
-  /// False in read-only mode (W7-26): no New message action.
+  /// False in read-only mode: no New message action.
   final bool canCompose;
 
   @override
@@ -161,7 +161,7 @@ class _ConversationsViewState extends State<_ConversationsView>
     });
   }
 
-  /// A foreground message push (W7-19). While this list is covered by a route
+  /// A foreground message push. While this list is covered by a route
   /// (its tickers are off, e.g. a thread is open over it) nothing is requested:
   /// the push is remembered and one throttled refresh runs on return, so the
   /// row of the conversation that moved is fresh when the list is shown again.
@@ -218,7 +218,7 @@ class _ConversationsViewState extends State<_ConversationsView>
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ConversationsCubit>();
-    // A foreground message push refreshes the list (W7-19, ADR-0027 D7): an
+    // A foreground message push refreshes the list (ADR-0027 D7): an
     // FCM nudge, throttled, never a timer.
     return BlocListener<PushCubit, PushState>(
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,

@@ -67,7 +67,7 @@ pb.PostView _view(int n, {String? text}) => pb.PostView(
 eng.ListBookmarksResponse _rows(List<int> posts, [String next = '']) =>
     bookmarksPageOf([for (final n in posts) _view(n)], next);
 
-/// `/bookmarks` (W2-7): states, live rows, short-page paging, un-bookmark with
+/// `/bookmarks`: states, live rows, short-page paging, un-bookmark with
 /// Undo, flag handling and sign-out, over the real cubits and repository.
 void main() {
   late FakeBookmarksServer server;
@@ -717,7 +717,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): rapid un-bookmarking, Undo after sign-out.
+  // (tester): rapid un-bookmarking, Undo after sign-out.
   // ---------------------------------------------------------------------
 
   group('W2-13 un-bookmark in a burst', () {

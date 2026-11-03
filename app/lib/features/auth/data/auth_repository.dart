@@ -350,7 +350,7 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
-  /// Deletes the signed-in Firebase Auth user from the client (P8 L-5: the
+  /// Deletes the signed-in Firebase Auth user from the client (L-5: the
   /// account has no profile, so the server cannot delete it). Call right after
   /// [reauthenticate]. Firebase then emits a signed-out user, which wipes the
   /// local session data through the normal sign-out listener.

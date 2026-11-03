@@ -5,7 +5,7 @@ import '../telemetry/usage_reporter.dart';
 /// The screen name for anything not in [kScreenNames] (ADR-0032 F4).
 const kOtherScreen = 'other';
 
-/// Route template -> screen name (ADR-0032 F4, TEL-6). The key is the
+/// Route template -> screen name (ADR-0032 F4). The key is the
 /// template (`/post/:id`), never a location, so no id, handle or query can
 /// reach Analytics. A new route is `other` until it is added here; the table
 /// test (`screen_names_test.dart`) reads every `AppRouter` route.
@@ -66,7 +66,7 @@ String screenNameForTemplate(String? template) =>
 String screenNameFor(GoRouterState state) =>
     screenNameForTemplate(state.fullPath);
 
-/// Reports one `screen_view` each time the page on top changes (TEL-6).
+/// Reports one `screen_view` each time the page on top changes.
 ///
 /// It reads the template of the top route (`GoRoute.path`; every route is
 /// declared with an absolute path, so that is the full template, and it also

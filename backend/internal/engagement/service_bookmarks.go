@@ -1,4 +1,4 @@
-// service_bookmarks.go is the business logic of AddBookmark and RemoveBookmark (ADR-0023, ticket W2-3): the
+// service_bookmarks.go is the business logic of AddBookmark and RemoveBookmark (ADR-0023): the
 // engagement.Bookmarks seam. Posts are read only through posts.Engagement.Viewable (the GetPost rules, a REPOST id
 // resolving to its original); the writes are one BookmarkRepo transaction. No Events: a bookmark is private, nothing
 // is published and nobody (least of all the post's author) learns of it.
@@ -53,7 +53,7 @@ func (s *service) bookmarkRepoOrErr(uid string) (BookmarkRepo, error) {
 const outcomeContention = "contention"
 
 // bookmarkBusyErr is the retryable answer for a write that exhausted its transaction retries or its 5 s txTimeout
-// (W2-14 L-3): UNAVAILABLE, never INTERNAL, so it neither reaches Error Reporting nor counts toward the rollback trigger,
+// (L-3): UNAVAILABLE, never INTERNAL, so it neither reaches Error Reporting nor counts toward the rollback trigger,
 // and clients retry it like graph's contentionErr.
 func bookmarkBusyErr() error {
 	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").

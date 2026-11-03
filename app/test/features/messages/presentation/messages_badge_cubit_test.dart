@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/messaging_fixtures.dart';
 
-/// W7-19: the Messages badge. Counts conversations with unread messages,
+/// The Messages badge. Counts conversations with unread messages,
 /// seeded by GetMe, moved locally by foreground pushes and by opening a
 /// conversation; never calls the API.
 void main() {

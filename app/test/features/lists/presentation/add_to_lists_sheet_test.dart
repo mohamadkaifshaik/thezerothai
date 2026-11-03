@@ -18,7 +18,7 @@ pb.ListInfo _list(int i, {bool isPrivate = false, String? name}) => pb.ListInfo(
   memberCount: 3,
 );
 
-/// W5-13: the Add-to-Lists sheet at 360 / 600 / 1200 dp, light and dark, text
+/// The Add-to-Lists sheet at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockLists repo;

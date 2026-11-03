@@ -183,7 +183,7 @@ class GifRefusedException implements Exception {
 }
 
 /// Checks a picked GIF and makes its upload: the picked bytes with only the
-/// non-rendering blocks stripped (W6-30; re-encoding would drop the animation)
+/// non-rendering blocks stripped (re-encoding would drop the animation)
 /// plus a still first-frame JPEG
 /// thumbnail. An interface so widget and cubit tests never decode pixels.
 /// Throws [GifRefusedException] for a file the server would refuse.
@@ -218,11 +218,11 @@ void checkGifBytes(Uint8List bytes) {
 const _kGifLoopIds = {'NETSCAPE2.0', 'ANIMEXTS1.0'};
 
 /// Removes everything from a GIF that renders nothing, **without re-encoding**
-/// (ADR-0029 F10; W6-30, security L-4): comment (0xFE) and plain-text (0x01)
+/// (ADR-0029 F10, security L-4): comment (0xFE) and plain-text (0x01)
 /// extensions, every application extension (0xFF) except `NETSCAPE2.0` and
 /// `ANIMEXTS1.0` (XMP, ICC, ...), any extension label other than the graphic
 /// control (0xF9), and every byte after the first trailer (0x3B). Frames,
-/// palettes and timing are copied byte for byte; the first loop block is rewritten to `03 01 LL LL 00` (W6-58, below). The server's
+/// palettes and timing are copied byte for byte; the first loop block is rewritten to `03 01 LL LL 00` (below). The server's
 /// `scanGIF` refuses exactly these, so the output of this function passes it.
 ///
 /// Returns [bytes] itself when there is nothing to remove. Throws
@@ -261,7 +261,7 @@ Uint8List stripGifBytes(Uint8List bytes) {
         if (label == 0xF9) {
           out.add(Uint8List.sublistView(bytes, pos, end));
         } else if (label == 0xFF && _isLoopBlock(bytes, pos + 2)) {
-          // W6-58: only the FIRST loop block is considered; it is rewritten
+          // Only the FIRST loop block is considered; it is rewritten
           // to the canonical form, or dropped when it has no valid loop count.
           if (!seenLoop) {
             seenLoop = true;
@@ -286,7 +286,7 @@ Uint8List stripGifBytes(Uint8List bytes) {
   }
 }
 
-/// W6-58 (W6-20 re-review N-1): the loop block at [pos, end) (extension
+/// re-review N-1: the loop block at [pos, end) (extension
 /// introducer at [pos], identifier at [pos + 3, pos + 14)) rewritten to
 /// `21 FF 0B <id> 03 01 LL LL 00`, byte level, with the loop count `LL LL` of
 /// its first sub-block that is 3 bytes long with sub-block id 1 (what browsers
@@ -322,7 +322,7 @@ bool _isLoopBlock(Uint8List bytes, int at) {
 /// (<= 300) are read from the headers; only the first frame is decoded.
 ProcessedImage prepareGifSync(Uint8List picked) {
   checkGifBytes(picked);
-  // W6-30 (security L-4): drop the non-rendering blocks and trailing bytes
+  // Security L-4: drop the non-rendering blocks and trailing bytes
   // byte-level BEFORE anything else reads the file, so the frame count and
   // the MD5 below describe the bytes that are uploaded and published.
   final bytes = stripGifBytes(picked);

@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../support/media_fixtures.dart';
 import '../../../../support/profile_edit_fixtures.dart';
 
-/// Request shaping of Edit profile's `profile_extras` fields (W3-15, ADR-0024
+/// Request shaping of Edit profile's `profile_extras` fields (ADR-0024
 /// D1-D3): changed fields only, `""` clears, and nothing extra ever reaches a
 /// request while the flag is off.
 void main() {
@@ -75,7 +75,7 @@ void main() {
     });
   });
 
-  // ADR-0024 Amendment 1 A2 (W3-22 M-1): without `profile_extras` the only
+  // ADR-0024 Amendment 1 A2 (M-1): without `profile_extras` the only
   // change an extra can take is a removal, an exact "" (the server accepts a
   // clear from any caller, and refuses a clear next to a set), so a request
   // can never carry a non-empty banner id, location or website.

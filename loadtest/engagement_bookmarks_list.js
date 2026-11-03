@@ -1,4 +1,4 @@
-// engagement_bookmarks_list: ListBookmarks paging smoke (W2-15; ADR-0023).
+// engagement_bookmarks_list: ListBookmarks paging smoke (ADR-0023).
 //
 // Budget under test (engagement.proto ListBookmarks, ADR-0023 "Cost impact"): a COLD first page is 43 reads at page
 // 20 and 103 at page 50 (interceptor 1 + query page + GetMany page + caller graph 1 + userLikes 1); with the posts in

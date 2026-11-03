@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// The default tile of a List or a Community (W5-11, reused by W5-31): a 48dp
+/// The default tile of a List or a Community (reused later): a 48dp
 /// rounded square with a muted outline [icon] and a 1dp border. No gradient and
 /// no brand tint (ADR-0020). Decorative: it carries no semantics of its own,
 /// the row beside it names the thing.

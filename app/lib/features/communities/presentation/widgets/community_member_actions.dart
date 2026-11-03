@@ -4,7 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../domain/community_role.dart';
 
-/// One moderator action on a member row (W5-35).
+/// One moderator action on a member row.
 enum CommunityMemberAction { ban, unban, makeModerator, removeModerator }
 
 /// Which actions the viewer may start on a row, from roles the server sent

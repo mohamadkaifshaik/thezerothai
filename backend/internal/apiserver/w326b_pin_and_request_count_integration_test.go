@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-26b (ADR-0025 D4, D7, AQ3, AQ6) through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on:
+// (ADR-0025 D4, D7, AQ3, AQ6) through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on:
 //   - GetProfile of a protected P: a stranger gets the whole header and no pinned_post_id; P and an approved follower get the
 //     pin; the read count is the same as before Part B (3 cold for a viewer, 1 for the owner);
 //   - GetMe pending_follow_request_count: a protected caller pays +1 read (one count()) on a cold instance, a public caller

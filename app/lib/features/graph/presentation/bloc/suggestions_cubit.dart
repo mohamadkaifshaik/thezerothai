@@ -91,7 +91,7 @@ class SuggestionsCubit extends Cubit<SuggestionsState> {
     }
   }
 
-  /// Removes [userId] for good (W3-22 L-1): the server answered NOT_FOUND for
+  /// Removes [userId] for good (L-1): the server answered NOT_FOUND for
   /// it (it blocked the viewer, was suspended or deleted), so it must not come
   /// back from the cache either. Silent: the row just goes.
   void drop(String userId) {

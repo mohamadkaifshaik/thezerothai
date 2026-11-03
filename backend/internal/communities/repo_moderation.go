@@ -22,7 +22,7 @@ var _ ModerationRepo = (*FirestoreRepo)(nil)
 
 // PostModerator is the posts-side seam of Hide and Restore (A12), the identical interface to posts.CommunityModerator: posts never imports
 // communities and this package does not import posts, so it uses primitives and *firestore.Transaction only. found=false (no error) is a post
-// that is missing, is a REPOST or plain post, is a root not created into cid, or is a reply whose conversationCommunityId is not cid. reply is true for a reply of the conversation (ADR-0031 Amendment 1 D4a, W5-51b): its hide sets communityHidden and communityHiddenAt, a restore deletes both, and ModeratePost writes no recentRemovals entry for it. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check (W5-53), called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
+// that is missing, is a REPOST or plain post, is a root not created into cid, or is a reply whose conversationCommunityId is not cid. reply is true for a reply of the conversation (ADR-0031 Amendment 1 D4a): its hide sets communityHidden and communityHiddenAt, a restore deletes both, and ModeratePost writes no recentRemovals entry for it. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check, called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
 type PostModerator interface {
 	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
 }

@@ -33,7 +33,7 @@ func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 }
 
 // publicNames returns every public object name a document may own in its own shape (suffixed when it has a
-// nameSuffix, W3-39): the recorded paths plus the
+// nameSuffix): the recorded paths plus the
 // deterministic names for the document's own content type (the extension is fixed at upload init, so the other
 // extension can never exist). A finalize that copied the objects and then lost the race to record the paths (or was REJECTED
 // after the copy) leaves public objects the document does not name (the privacy rule). Deduplicated, so a
@@ -54,7 +54,7 @@ func publicNames(d *Doc) []string {
 	return out
 }
 
-// allPublicNames is publicNames plus, for a document with a nameSuffix, the pre-W3-39 pair too: a suffixed document
+// allPublicNames is publicNames plus, for a document with a nameSuffix, the earlier pair too: a suffixed document
 // finalized by an older revision (a rollback) published under the old names and may have lost the race to record
 // them. Only the deleters use it (deletes are free); the retire step tags publicNames, so it stays at 2 Class A per
 // image. A document without nameSuffix has the one (old) pair.

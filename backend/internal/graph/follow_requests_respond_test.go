@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-28a (ADR-0025 D7): the service layer of ListFollowRequests, RespondToFollowRequest and the request count, over fakes.
+// ADR-0025 D7: the service layer of ListFollowRequests, RespondToFollowRequest and the request count, over fakes.
 
 func w328Flags() FlagChecker {
 	return flags.NewRegistry(flags.Spec{Name: graphFlagName, Mode: flags.On}, flags.Spec{Name: PrivateAccountsFlagName, Mode: flags.On})

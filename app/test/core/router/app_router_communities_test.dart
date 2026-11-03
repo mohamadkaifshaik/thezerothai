@@ -57,7 +57,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/communities...` on the real router (W5-31, W5-32): needs the `communities`
+/// `/communities...` on the real router: needs the `communities`
 /// flag, else Home.
 void main() {
   const user = AppUser(

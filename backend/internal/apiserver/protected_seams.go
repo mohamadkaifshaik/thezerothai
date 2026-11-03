@@ -14,13 +14,13 @@ type buildOption func(*buildOpts)
 
 type buildOpts struct {
 	// audienceSource maps the posts service to the one posts.AudienceOf reads for the engagement lists. A test returns
-	// a wrapper that hides the concrete type, to prove Build refuses to start without the seam (W3-36 L-5).
+	// a wrapper that hides the concrete type, to prove Build refuses to start without the seam (L-5).
 	audienceSource func(posts.Service) posts.Service
 }
 
 // protectedSeam is one place the ADR-0025 protected-author set (or the Audience built on it) is wired into a module.
 // Every module treats a nil seam as "nobody is protected" (by design for unit tests), so a wiring regression would
-// fail open silently; Build checks them all at startup instead (W3-36 L-5, W3-40a).
+// fail open silently; Build checks them all at startup instead (L-5).
 type protectedSeam struct {
 	name  string
 	value any

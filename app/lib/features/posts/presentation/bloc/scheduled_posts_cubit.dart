@@ -32,7 +32,7 @@ class ScheduledRemoval {
   final AppException? error;
 }
 
-/// Pages the caller's scheduled posts (CMP-D6, ADR-0021 D4) and removes rows:
+/// Pages the caller's scheduled posts (ADR-0021 D4) and removes rows:
 /// Cancel for a PENDING item, Dismiss for a FAILED one (the same RPC).
 ///
 /// - Only PENDING and FAILED items are shown, in the server order (oldest

@@ -15,7 +15,7 @@ class DraftProblemHint extends StatelessWidget {
   final PostDraftProblem? problem;
 
   /// What the text is, plural, for the line-limit hint ("Messages" in a
-  /// conversation, W7-16). The rules are the same; only the copy differs.
+  /// conversation). The rules are the same; only the copy differs.
   final String noun;
 
   @override

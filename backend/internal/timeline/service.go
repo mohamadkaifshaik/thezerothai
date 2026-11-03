@@ -46,7 +46,7 @@ const (
 // ProfileTabsFlagName is the wire name of FEATURE_PROFILE_TABS (ADR-0024 D9). GetUserTimeline with tab MEDIA or REPOSTS
 // needs it on for the caller; Posts and Replies stay ungated. The name is repeated here, not imported from another
 // module, because timeline may name only the posts, graph and identity seams. The flag must stay off in a project until
-// the two W3-2 composite indexes are READY there and `opsctl backfill-has-media` has run
+// the two composite indexes are READY there and `opsctl backfill-has-media` has run
 // section 13): Firestore, unlike the emulator, refuses the tab queries without them.
 const ProfileTabsFlagName = "profile_tabs"
 
@@ -291,7 +291,7 @@ func (s *Server) toViews(ctx context.Context, uid string, following, blocked map
 	for _, p := range ps {
 		v := posts.ToView(p, vs, uid)
 		if st, ok := embed[p.ID]; ok {
-			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens (W3-29a)
+			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens
 		}
 		posts.ApplyWireVisibility(v, s.aud.ProtectedAuthor(ctx, uid, p.AuthorID, following[p.AuthorID])) // FOLLOWERS while the author is protected (D2)
 		out = append(out, v)

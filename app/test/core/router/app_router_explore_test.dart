@@ -27,7 +27,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/explore` on the real router (W4-17): a destination of the new shell,
+/// `/explore` on the real router: a destination of the new shell,
 /// reachable only with `search` and `ui_shell`, else Home.
 void main() {
   const user = AppUser(

@@ -50,7 +50,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/bookmarks` on the real router (W2-7): a shell page that needs only the
+/// `/bookmarks` on the real router: a shell page that needs only the
 /// `posts` flag (ADR-0023 D5: List and Remove need `bookmarks` only "not
 /// globally off"), and the "not available" answer when it is off for everyone.
 void main() {
@@ -274,7 +274,7 @@ void main() {
       }
     });
 
-    // W3-21: every combination of the three flags that decide the page, for
+    // Every combination of the three flags that decide the page, for
     // the plain path and for the Likes link. `posts` gates the route (the
     // redirect Home), `likes_list` the tab row and the query; `bookmarks`
     // gates only the entry points (drawer, rail), never the route.

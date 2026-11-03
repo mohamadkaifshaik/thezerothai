@@ -30,7 +30,7 @@ import 'widgets/list_detail_header.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_unavailable_view.dart';
 
-/// `/lists/:id` (W5-12): the List's header and its timeline.
+/// `/lists/:id`: the List's header and its timeline.
 ///
 /// - The timeline is the shared [TimelineFeedView] over a
 ///   `TimelineCubit(FeedKey.list(id))`: cache first, `since_token` refreshes,
@@ -110,7 +110,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     if (outcome?.deletedId != null && mounted) _back();
   }
 
-  /// W5-48: the shared report sheet with the List target. NOT_FOUND (a List
+  /// The shared report sheet with the List target. NOT_FOUND (a List
   /// the viewer cannot see), the reports quota and VALIDATION `target_id`
   /// (own List) are mapped inside the sheet (`reportErrorMessage`).
   Future<void> _report() async {

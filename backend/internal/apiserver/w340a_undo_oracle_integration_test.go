@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-40a (W3-36 L-1): UnlikePost and UndoRepost are no existence or counts oracle. Through the real Build chain, a
+// L-1: UnlikePost and UndoRepost are no existence or counts oracle. Through the real Build chain, a
 // stranger who liked and reposted P's post while it was public, after P protects, gets for P's post (by its own id and
 // by X's REPOST id of it) the bytes a deleted post gets, apart from the echoed id; and the undo still lands.
 
@@ -64,7 +64,7 @@ func TestW340a_UndoRPCsAreNoOracleAndStillLand(t *testing.T) {
 	}
 }
 
-// W3-40b (the W3-40a residual): a stranger undoing X's REPOST id gets the same bytes whether the original behind it is
+// The residual: a stranger undoing X's REPOST id gets the same bytes whether the original behind it is
 // deleted or hidden (protected, not followed), the echoed original id apart. Before, the hidden answer echoed the
 // REPOST's own id and the deleted one the original's, which told the two apart.
 func TestW340b_UndoOfRepostIDHiddenEqualsOriginalGone(t *testing.T) {

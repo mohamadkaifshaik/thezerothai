@@ -5,7 +5,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The words for a failed SchedulePost, a failed Cancel/Dismiss, the list
-/// banner and the FAILED rows (CMP-D6, ADR-0021 D4).
+/// banner and the FAILED rows (ADR-0021 D4).
 void main() {
   group('scheduleErrorMessage', () {
     test('the two LIMIT_REACHED names and the daily quota', () {

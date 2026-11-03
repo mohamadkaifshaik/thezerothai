@@ -41,7 +41,7 @@ func (f fakeAudience) Decide(_ context.Context, viewer string, snap graph.Snapsh
 	return posts.Decision{Verdict: posts.Show}, nil
 }
 
-// refuse mirrors posts.Audience: Withheld on the owner list surface, Drop otherwise (W3-36 L-2).
+// refuse mirrors posts.Audience: Withheld on the owner list surface, Drop otherwise (L-2).
 func (fakeAudience) refuse(s posts.Surface) posts.Decision {
 	if s == posts.SurfaceOwnList {
 		return posts.Decision{Verdict: posts.Withheld}
@@ -62,7 +62,7 @@ func TestLists_ProtectedRows(t *testing.T) {
 		wantKept  bool
 		wantEmbed postsv1.EmbedViewerState
 		wantProt  bool
-		wantWith  bool // kept as an owner placeholder (W3-36 L-2)
+		wantWith  bool // kept as an owner placeholder (L-2)
 	}{
 		{"protected author, not followed: withheld placeholder", snapOf(nil, nil, nil), &posts.Post{AuthorID: "p"}, true, 0, false, true},
 		{"protected author, followed: kept, marked protected", following, &posts.Post{AuthorID: "p"}, true, 0, true, false},
@@ -178,7 +178,7 @@ func (s setOf) CanSee(viewer, author string, following bool) bool {
 	return viewer == author || !s[author] || following
 }
 
-// TestLists_OwnerPlaceholderMatrix runs the REAL posts.Audience through both owner lists (W3-36 L-2): A unfollows P,
+// TestLists_OwnerPlaceholderMatrix runs the REAL posts.Audience through both owner lists (L-2): A unfollows P,
 // P protects, P unprotects, P blocks A, A blocks or mutes P. The placeholder appears exactly where A is unapproved
 // and neither side blocks or mutes; the full row comes back when A is approved again; the row is never pruned.
 func TestLists_OwnerPlaceholderMatrix(t *testing.T) {

@@ -530,7 +530,7 @@ func measuredExact(t *testing.T, name string, b budgettest.Budget, fn func(ctx c
 }
 
 // F9 taken literally (founder decision 2026-11-02): a moderator may not hide or restore the owner's posts or another moderator's posts
-// (FORBIDDEN not_owner, W5-53); the refusal comes before any write.
+// (FORBIDDEN not_owner); the refusal comes before any write.
 func TestHideRestore_ModeratorCannotTouchOwnerOrModeratorPosts(t *testing.T) {
 	tests := []struct {
 		name, actor, postAuthor string
@@ -569,7 +569,7 @@ func (e *env) setPostField(t *testing.T, post, field string, v any) {
 	}
 }
 
-// The allowed side of F16 (W5-53): the owner acts on a moderator's post, a moderator on their own, and a former moderator's post is a plain
+// The allowed side of F16: the owner acts on a moderator's post, a moderator on their own, and a former moderator's post is a plain
 // member's post (the current role decides). A refusal writes nothing and costs the same reads as a success (+0).
 func TestHideRestore_F16AllowedAuthors(t *testing.T) {
 	tests := []struct{ name, actor, author string }{
@@ -629,7 +629,7 @@ func TestHideRestore_F16RefusalWritesNothing(t *testing.T) {
 	}
 }
 
-// L-2: a post with `moderation` set is NOT_FOUND for a hide and a restore, so a hide-then-restore cannot erase a platform removal; the T1 entry
+// L-2: a post with `moderation` set is NOT_FOUND for a hide and a restore, so a hide-then-restore cannot erase a platform removal; the entry
 // in recentRemovals stays.
 func TestHideRestore_PlatformRemovedPostIsNotFoundAndKeepsEntry(t *testing.T) {
 	e := newModEnv(t)

@@ -38,7 +38,7 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 		QuoteCount:     p.QuoteCount,
 		// The wire visibility is computed, never read from the stored field (always PUBLIC, ADR-0025 D2): PUBLIC here, and
 		// ApplyWireVisibility raises it to FOLLOWERS while the author is in the protected set. Every converter caller that can
-		// reach a protected author must apply it (GetPost, GetThread, CreatePost today; the lists and feeds in W3-29b and W3-30).
+		// reach a protected author must apply it (GetPost, GetThread, CreatePost today; the lists and feeds).
 		Visibility: postsv1.Visibility_VISIBILITY_PUBLIC,
 		CreatedAt:  timestamppb.New(p.CreatedAt),
 
@@ -88,7 +88,7 @@ func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 }
 
 // ToView converts a Post to the PostView the clients render, with the viewer's like/repost/bookmark flags from vs
-// (the zero ViewerSet gives false/false/false, which is what every response carried before P5) and the viewer's reply
+// (the zero ViewerSet gives false/false/false, which is what every response carried before then) and the viewer's reply
 // hint (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data). bookmarked_by_viewer is
 // ViewerSet.Bookmarked (ADR-0023 D3): HydrateViewer decides whether the set is filled, so this adds no read.
 func ToView(p *Post, vs ViewerSet, viewer string) *postsv1.PostView {

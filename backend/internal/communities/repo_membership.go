@@ -140,7 +140,7 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 // memberCount -1. Writes 3 (memberships joined -= id, the community, idempotency) + 1 delete (the member doc).
 //
 // Residual window (runbook communities.md): a moderator promoted on another instance whose promotion is neither in the service's 60 s
-// cache nor in this caller's modlogged would stay in moderatorIds after leaving. W5-28's promotion must add the target to modlogged in
+// cache nor in this caller's modlogged would stay in moderatorIds after leaving. The promotion must add the target to modlogged in
 // its own transaction (I-L says it does), which closes the window through the repository's fresh check.
 func (r *FirestoreRepo) Leave(ctx context.Context, p LeaveParams) (LeaveResult, error) {
 	if err := r.ready(); err != nil {

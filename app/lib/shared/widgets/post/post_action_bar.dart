@@ -29,7 +29,7 @@ class PostActions {
 /// offered, are right-aligned after them (Bookmark filled and accent when
 /// bookmarked). The liked / reposted state uses the like / repost colours and
 /// is announced as `selected`. Rendered by `PostCard` only when it is given
-/// [PostActions] (the engagement bar, P5).
+/// [PostActions] (the engagement bar).
 ///
 /// [spread] is the opened post's row (X's post page): every action, Bookmark
 /// and Share included, spaced evenly across the width, with [iconSize] glyphs.

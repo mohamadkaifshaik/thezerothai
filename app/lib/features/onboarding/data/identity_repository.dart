@@ -9,7 +9,7 @@ import '../../profile/domain/profile_edit_feature_flag.dart';
 
 /// How long the Settings "Protect your posts" switch stays hidden after the
 /// server refused to turn protection on (FEATURE_DISABLED), as for the other
-/// degrade patterns (W3-14, W3-18).
+/// degrade patterns.
 const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
 
 /// Builds an `UpdateProfile` request where **field presence is the signal**
@@ -17,7 +17,7 @@ const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
 /// non-null one sets it, and `""` is a real value that clears
 /// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
 /// `UpdateProfile` caller goes through this one place, so the pin menu
-/// (W3-17) shapes its request exactly like Edit profile.
+/// shapes its request exactly like Edit profile.
 identity.UpdateProfileRequest buildUpdateProfileRequest({
   required String idempotencyKey,
   String? displayName,
@@ -61,7 +61,7 @@ class IdentityRepository {
 
   /// The server answered FEATURE_DISABLED (or UNIMPLEMENTED) to turning
   /// protection ON less than [kPrivateAccountsRefusalBackoff] ago: the Settings
-  /// switch stays hidden for a protect-off account until then (W3-33b). Turning
+  /// switch stays hidden for a protect-off account until then. Turning
   /// it OFF is never refused (ADR-0025, the undo rule), so it never sets this.
   bool get privateAccountsRefused {
     final at = _privateAccountsRefusedAt;
@@ -88,7 +88,7 @@ class IdentityRepository {
 
   /// Calls [listener] with every fresh `GetMe` answer and the session epoch
   /// the request started in (for repositories that mirror a part of it, e.g.
-  /// the pinned Home tabs, W5-10). 0 extra RPCs; a listener must not throw.
+  /// the pinned Home tabs). 0 extra RPCs; a listener must not throw.
   void addGetMeListener(
     void Function(identity.GetMeResponse response, int epoch) listener,
   ) => _getMeListeners.add(listener);
@@ -158,11 +158,11 @@ class IdentityRepository {
     });
   }
 
-  /// Partial update of the caller's own profile (P2): only the non-null
+  /// Partial update of the caller's own profile: only the non-null
   /// fields are sent and changed (see [buildUpdateProfileRequest]).
-  /// [avatarMediaId] is a READY avatar media id from MediaService (P4; with
+  /// [avatarMediaId] is a READY avatar media id from MediaService (with
   /// `FEATURE_MEDIA` off the server answers MEDIA_NOT_READY).
-  /// [isPrivate] is the privacy switch (W3-26a); callers send it alone, through
+  /// [isPrivate] is the privacy switch; callers send it alone, through
   /// [setProtected].
   ///
   /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
@@ -205,7 +205,7 @@ class IdentityRepository {
     });
   }
 
-  /// Protects ([protect] true) or unprotects the caller's posts (W3-26a): an
+  /// Protects ([protect] true) or unprotects the caller's posts: an
   /// [updateProfile] that sends only `is_private`, 1 call per change. Turning
   /// it on needs `private_accounts`; a FEATURE_DISABLED / UNIMPLEMENTED answer
   /// is remembered ([privateAccountsRefused], 10 minutes) and rethrown. Turning
@@ -246,7 +246,7 @@ class IdentityRepository {
     });
   }
 
-  /// Pins [postId] to the caller's profile, or unpins with `""` (W3-17): an
+  /// Pins [postId] to the caller's profile, or unpins with `""`: an
   /// [updateProfile] that sends only `pinned_post_id` (`""` stays a present
   /// field, so it clears). Only the caller's own visible POST, QUOTE or REPLY
   /// can be pinned. Pinning needs `profile_extras` for the caller; unpinning

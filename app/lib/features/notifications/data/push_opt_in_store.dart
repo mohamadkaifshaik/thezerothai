@@ -7,8 +7,8 @@ abstract interface class PushOptInStore {
 
   Future<void> writeNotNow(String uid, DateTime at);
 
-  /// Drops the record of [uid]. Called when that account is deleted (W2-14
-  /// L-6: the uid must not outlive the account); a plain sign-out keeps it.
+  /// Drops the record of [uid]. Called when that account is deleted
+  /// (L-6: the uid must not outlive the account); a plain sign-out keeps it.
   Future<void> forget(String uid);
 }
 

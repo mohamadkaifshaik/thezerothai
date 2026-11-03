@@ -294,7 +294,7 @@ func TestExport_OutFile(t *testing.T) {
 	}
 }
 
-// ---- purge-posts / export-posts (ADR-0010 T10) ----
+// ---- purge-posts / export-posts (ADR-0010) ----
 
 func TestPurgePosts_DryRunWritesNothing(t *testing.T) {
 	fb := &fakeBackend{pEraser: &fakePostsEraser{}, pPlan: posts.PurgePlan{Posts: 1203}}

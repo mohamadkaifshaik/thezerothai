@@ -19,7 +19,7 @@ import 'timeline_state.dart';
 const kAutoRefreshInterval = Duration(seconds: 60);
 
 /// Drives one cached feed (Home, or one tab of a profile) over
-/// [TimelineRepository] (T17/T18, ADR-0004 section 7, ADR-0010 D5/D13/D14).
+/// [TimelineRepository] (ADR-0004 section 7, ADR-0010 D5/D13/D14).
 ///
 /// - [load] renders the cache at once (one `cached` read per screen open),
 ///   then refreshes unless this feed was refreshed less than
@@ -241,7 +241,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     _apply(cached);
   }
 
-  /// W3-17: the profile shows this post in its Pinned row, so the Posts tab
+  /// The profile shows this post in its Pinned row, so the Posts tab
   /// must not repeat it below. Only the visible rows change: the post stays in
   /// the cached snapshot and returns when [postId] is cleared (the pin was
   /// removed, or its row failed to load). `null` clears.
@@ -262,7 +262,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     if (_hiddenAuthors.remove(userId)) _emitVisible();
   }
 
-  /// W5-35: a moderator hid [postId] from this community feed. It leaves the
+  /// A moderator hid [postId] from this community feed. It leaves the
   /// visible rows at once (local only, no RPC); the cached snapshot keeps it so
   /// [showPostAgain] can bring it back after a failure or an Undo.
   void hidePostLocally(String postId) {
@@ -297,7 +297,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     if (removedView != null) onPostDeleted?.call(removedView);
   }
 
-  /// W3-41c: the viewer's own REPOST row leaves the list (and the cache) once
+  /// The viewer's own REPOST row leaves the list (and the cache) once
   /// the engagement overlay has settled with the original not reposted: the
   /// undo was confirmed. Only the local half of [deletePost]; no RPC. A failed
   /// undo rolls the overlay back to `reposted`, so the row stays. Same test as

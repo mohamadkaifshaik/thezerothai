@@ -88,7 +88,7 @@ type PostsDeps struct {
 // Option configures New.
 type Option func(*service)
 
-// WithPosts enables SearchPosts (W4-7, W4-8). Incomplete deps leave it disabled (Unimplemented for an enabled caller).
+// WithPosts enables SearchPosts. Incomplete deps leave it disabled (Unimplemented for an enabled caller).
 func WithPosts(d PostsDeps) Option {
 	return func(s *service) {
 		if d.Posts == nil || d.Graph == nil || len(d.CursorKey) == 0 {
@@ -174,7 +174,7 @@ type fetched struct {
 	hit  bool
 }
 
-// search implements SearchPosts (ADR-0028 D3, D5; plan W4-7, W4-8).
+// search implements SearchPosts (ADR-0028 D3, D5).
 //
 // Worst-case Firestore reads, interceptor included (writes 0): TOP, LATEST page 1 and MEDIA page 1 at page_size <= 30
 // cold 33 (interceptor 1, caller graph 1, userLikes 1, the tag entry 30), warm 0 to 3; LATEST page 1 at page_size 31 to 50:

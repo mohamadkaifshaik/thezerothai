@@ -29,7 +29,7 @@ type service struct {
 	blockChecker         BlockChecker
 	features             FeatureFlags
 	avatars              AvatarResolver
-	// banners, pins and extras are the ADR-0024 profile-extras seams (W3-6). All nil by default: no resolver means a
+	// banners, pins and extras are the ADR-0024 profile-extras seams. All nil by default: no resolver means a
 	// non-empty banner_media_id is MEDIA_NOT_READY, no checker means a non-empty pinned_post_id is VALIDATION, and no
 	// flags means profile_extras is off for every caller and globally off.
 	banners BannerResolver
@@ -38,29 +38,29 @@ type service struct {
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
-	// snap is the P2 profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
+	// snap is the profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
 	snap *profileSnapshots
 	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go, ADR-0024
 	// Amendment 1 A4); nil = never, the pre-A4 behaviour.
 	retire *mediaRetire
-	// privacy is the is_private toggle (privacy.go, ADR-0025 D8); nil = the W3-25b behaviour (protect refused as coming soon).
+	// privacy is the is_private toggle (privacy.go, ADR-0025 D8); nil = the behaviour (protect refused as coming soon).
 	privacy *privacyDeps
 	// listener is told after a committed unprotect (WithPrivacyListener); nil publishes nothing.
 	listener *privacyListener
 	// protected is the ADR-0025 D3 set loader GetProfile asks (AQ6) before it returns the pin of a protected account to a
-	// viewer who is neither the account nor a follower; nil = the pin is not filtered (tests, W3-25b behaviour).
+	// viewer who is neither the account nor a follower; nil = the pin is not filtered (tests, behaviour).
 	protected ProtectedAuthors
 	// requests counts a protected caller's pending follow requests for GetMe (ADR-0025 AQ3); nil = always 0.
 	requests FollowRequestCounter
-	// badge counts a messaging caller's unread conversations for GetMe (ADR-0027 D10, W7-11); nil = always 0.
+	// badge counts a messaging caller's unread conversations for GetMe (ADR-0027 D10); nil = always 0.
 	badge    MessageBadge
 	badgeLog *slog.Logger
-	// pinLog and reqLog receive the W3-26b WARN lines; nil means slog.Default().
+	// pinLog and reqLog receive the WARN lines; nil means slog.Default.
 	pinLog, reqLog *slog.Logger
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
-// (ADR-0008 T6): a variadic option keeps every existing New(repo, cache, cooldown) call site compiling
+// (ADR-0008): a variadic option keeps every existing New(repo, cache, cooldown) call site compiling
 // unchanged rather than forcing a positional-argument churn across every test file.
 type Option func(*service)
 
@@ -70,23 +70,23 @@ func WithBlockChecker(bc BlockChecker) Option {
 	return func(s *service) { s.blockChecker = bc }
 }
 
-// WithProtectedAuthors wires the protected set into GetProfile's pin rule (ADR-0025 D4, AQ6, W3-26b). Nil keeps the pin unfiltered. log receives the WARN pin_omitted line; nil means slog.Default().
+// WithProtectedAuthors wires the protected set into GetProfile's pin rule (ADR-0025 D4, AQ6). Nil keeps the pin unfiltered. log receives the WARN pin_omitted line; nil means slog.Default.
 func WithProtectedAuthors(p ProtectedAuthors, log *slog.Logger) Option {
 	return func(s *service) { s.protected, s.pinLog = p, log }
 }
 
-// WithFollowRequestCounter wires GetMe's pending_follow_request_count (ADR-0025 D7, AQ3, W3-26b). Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default().
+// WithFollowRequestCounter wires GetMe's pending_follow_request_count (ADR-0025 D7, AQ3). Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default.
 func WithFollowRequestCounter(c FollowRequestCounter, log *slog.Logger) Option {
 	return func(s *service) { s.requests, s.reqLog = c, log }
 }
 
-// WithMessageBadge wires GetMe's unread_conversation_count (ADR-0027 D10, W7-11). Nil leaves it 0. log receives the WARN for
+// WithMessageBadge wires GetMe's unread_conversation_count (ADR-0027 D10). Nil leaves it 0. log receives the WARN for
 // a failed count; nil means slog.Default().
 func WithMessageBadge(b MessageBadge, log *slog.Logger) Option {
 	return func(s *service) { s.badge, s.badgeLog = b, log }
 }
 
-// WithAvatarResolver wires UpdateProfile.avatar_media_id (P4). Nil keeps non-empty values rejected.
+// WithAvatarResolver wires UpdateProfile.avatar_media_id. Nil keeps non-empty values rejected.
 func WithAvatarResolver(r AvatarResolver) Option {
 	return func(s *service) { s.avatars = r }
 }
@@ -138,7 +138,7 @@ func New(repo Repo, c *Cache, handleChangeCooldown time.Duration, opts ...Option
 }
 
 // ProfileNotFoundError is the one NOT_FOUND "profile not found" answer for a missing user, exposed so other
-// modules (posts' GetUserTimeline) return the same bytes as GetProfile instead of copying the string (ADR-0010 T9).
+// modules (posts' GetUserTimeline) return the same bytes as GetProfile instead of copying the string (ADR-0010).
 func ProfileNotFoundError() error { return notFoundErr() }
 
 func notFoundErr() error {
@@ -238,7 +238,7 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 // pending_follow_request_count (ADR-0025 D7, AQ3) is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
 // for a caller whose isPrivate is true and whose 30 s cached count is gone; 0 reads for every other caller (a public
 // caller never reaches the counter) and on a hit. A failed count is WARN pending_count_failed with the badge at 0.
-// unread_conversation_count (ADR-0027 D10, W7-11) is +1 read (a count() on users/{uid}/dmInbox, Limit 100) on a cache miss
+// unread_conversation_count (ADR-0027 D10) is +1 read (a count on users/{uid}/dmInbox, Limit 100) on a cache miss
 // for a caller with messaging on; 0 reads for every other caller and on a hit (30 s). A failed count is WARN
 // unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
@@ -288,7 +288,7 @@ func (s *service) unreadConversations(ctx context.Context, uid string, enabled [
 	return n
 }
 
-// MessageBadgeCache implements messaging.BadgeCache (ADR-0027 D10, W7-11) on identity's side: Forget evicts only the cached
+// MessageBadgeCache implements messaging.BadgeCache (ADR-0027 D10) on identity's side: Forget evicts only the cached
 // unread_conversation_count of these users on this instance, leaving the profile and the notification count cached.
 // apiserver passes it as messaging.Deps.Badge.
 type MessageBadgeCache struct{ c *Cache }
@@ -427,7 +427,7 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 func setsExtra(p *string) bool { return p != nil && *p != "" }
 
 // UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}; 0 writes when the request changes nothing,
-// W3-22 L-4: UpdatedAt moves only on a real change and the repo then skips the write), plus the account-status
+// L-4: UpdatedAt moves only on a real change and the repo then skips the write), plus the account-status
 // interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
 // reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc,
 // ADR-0024 D1), +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm, D3). Worst case with the
@@ -444,7 +444,7 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
 //
-// ADR-0025 D8 (W3-26a): an is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
+// ADR-0025 D8: an is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
 // protect 3 reads (users, quotas, the privacy/protectedAuthors doc for the cap) and 3 writes (isPrivate, the set doc with
 // ArrayUnion, quotas.privacyToggles), 4 reads with the interceptor cold; unprotect 2 reads and 3 writes (ArrayRemove, no cap
 // check), 3 with the interceptor cold. An is_private equal to the stored value is the plain update's 1 read and 0 writes and
@@ -465,9 +465,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
-	// ADR-0025 D12 (W3-25b): is_private=true needs private_accounts on for the caller, checked first so a caller outside the
+	// ADR-0025 D12: is_private=true needs private_accounts on for the caller, checked first so a caller outside the
 	// cohort learns nothing about the other fields and costs nothing (0 reads, 0 writes). A request that sets is_private=true
-	// together with other fields is refused whole (the W3-22 M-1 mixed rule). is_private=false is never gated (the undo rule).
+	// together with other fields is refused whole (the M-1 mixed rule). is_private=false is never gated (the undo rule).
 	if params.IsPrivate != nil && *params.IsPrivate {
 		if err := s.privateAccountsDisabled(ctx, uid); err != nil {
 			return Profile{}, err
@@ -550,12 +550,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		logger.SetRequestField(ctx, "pin_check", "ok")
 	}
-	// Without the privacy wiring (unit tests) protecting stays refused before any read, 0 writes (W3-25b behaviour).
+	// Without the privacy wiring (unit tests) protecting stays refused before any read, 0 writes (behaviour).
 	if s.privacy == nil && params.IsPrivate != nil && *params.IsPrivate {
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
-	// P2 (ADR-0003): a display-name edit rewrites the author snapshot on the user's posts, limited to
+	// ADR-0003: a display-name edit rewrites the author snapshot on the user's posts, limited to
 	// SnapshotEditsPerDay a day. The comparison uses the cached profile (0 reads: the interceptor warmed it); a
 	// stale cache can only over-count an edit. Reserved before the write: 1 read, 1 write on quotas/{uid}.
 	// Only while FEATURE_PROFILE_SNAPSHOT is on for the caller.
@@ -578,7 +578,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	var retired []retiredImage // the old avatar and banner this commit replaced or removed (A4); 0 extra reads
 	mutate := func(p *Profile) {
 		changed, snapshotChanged, retired = changed[:0], false, retired[:0] // the transaction may run more than once
-		// W3-22 L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
+		// L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
 		// skips the write; UpdatedAt moves only below, when something really changed.
 		orig := *p
 		// note records a field name for profile_fields_changed when the stored value really changes.
@@ -596,7 +596,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			}
 		}
 		if params.Bio != nil {
-			bio := normalizeBio(*params.Bio) // trim + NFC, the form bioIssue counted (W3-22 L-2c)
+			bio := normalizeBio(*params.Bio) // trim + NFC, the form bioIssue counted (L-2c)
 			note("bio", bio != p.Bio)
 			p.Bio = bio
 		}
@@ -695,7 +695,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 		return Profile{}, apierr.Validation("new_handle", "handle must be 3-15 characters: letters, numbers, underscore, and not reserved").WithMeta("reason", reason)
 	}
 	newLower := strings.ToLower(newHandle)
-	// P2: whether this rename changed the snapshot is decided by the version the repo's transaction writes; the
+	// Whether this rename changed the snapshot is decided by the version the repo's transaction writes; the
 	// version known before the call (cache, 0 reads) is the baseline. No cached baseline means "assume changed":
 	// the job is replay-safe and a no-op write is rare.
 	before, haveBefore := s.cache.GetProfile(uid)
@@ -730,14 +730,14 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	return s.present(profile), nil
 }
 
-// GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008 T6). Ids with no
+// GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008). Ids with no
 // ACTIVE profile (missing, or a status other than ACTIVE) are simply absent from the result.
 func (s *service) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
 	found, _, err := s.LookupProfiles(ctx, uids)
 	return found, err
 }
 
-// LookupProfiles implements Directory (ADR-0008 T27): GetProfiles plus the uids CONFIRMED to have no
+// LookupProfiles implements Directory (ADR-0008): GetProfiles plus the uids CONFIRMED to have no
 // users/{uid} document by the GetAll issued in this call. Same cost as GetProfiles (cache-first, one GetAll
 // for misses, 0 extra reads). Non-ACTIVE users are in neither result. A uid known missing only from the
 // short negative cache is also in neither: a clean-up must rest on a fresh read, so a re-created profile
@@ -780,7 +780,7 @@ func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string
 	return out, missing, nil
 }
 
-// ResolveHandles implements Directory (ADR-0010 D7, T7): cache-first (handle->uid hits, then the negative handle
+// ResolveHandles implements Directory (ADR-0010 D7): cache-first (handle->uid hits, then the negative handle
 // cache), then one GetAll for the remaining handles. Malformed and reserved handles are skipped without a read
 // (they can never own a handle doc); more than MaxResolveHandles distinct candidates is a caller bug.
 // A positive cache entry older than notFoundTTL (10 s), or contradicted by a cached profile, is a miss (ADR-0010
@@ -886,7 +886,7 @@ func (s *service) privateAccountsDisabled(ctx context.Context, uid string) error
 	return nil
 }
 
-// pinForViewer is the ADR-0025 D4 pin rule for GetProfile (W3-26b): the pin of a protected account is shown to the account
+// pinForViewer is the ADR-0025 D4 pin rule for GetProfile: the pin of a protected account is shown to the account
 // itself (the caller never gets here), to its followers and to nobody else; every other header field is public. Order, so
 // that the common cases cost nothing (AQ6): a follower keeps the pin on the viewer's cached snapshot alone, without the set;
 // anyone else needs the set (a detached instance cache, 0 reads charged to the caller), and a set that cannot be loaded

@@ -78,7 +78,7 @@ type request struct {
 	// Lower (a gap). Both nil without a page token.
 	Upper, Lower *posts.Position
 	// Reached is true when a gap token's Lower bound is not below its Upper: the gap is closed and the page
-	// is empty with no next token (T28 carry-over; never an error).
+	// is empty with no next token (carry-over; never an error).
 	Reached bool
 }
 

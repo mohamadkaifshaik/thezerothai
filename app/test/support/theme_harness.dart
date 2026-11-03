@@ -11,7 +11,7 @@ const kMatrixWidths = <double>[360, 600, 1200];
 /// The text scales every shared-chrome test runs at.
 const kMatrixTextScales = <double>[1.0, 1.3];
 
-/// The full text-scale axis of the W3 client matrix (W3-21): the shared
+/// The full text-scale axis of the W3 client matrix: the shared
 /// stops plus the accessibility maximum, 2.0. Pass it as `textScales:` to
 /// [forEachThemeAndWidth] to cover every cell: 360 / 600 / 1200 dp x light /
 /// dark x 1.0 / 1.3 / 2.0.

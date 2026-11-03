@@ -1,4 +1,4 @@
-// engagement_wiring.go composes the engagement module (P5, ADR-0018): its lifecycle registration, its
+// engagement_wiring.go composes the engagement module (ADR-0018): its lifecycle registration, its
 // notification adapter (ADR-0017 D2) and the composite post_delete job handler. Consumer-side adapters live here
 // (the BlockChecker pattern, ADR-0002): engagement imports posts' seams only, never media or notifications.
 package apiserver

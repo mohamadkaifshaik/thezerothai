@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// W7-34 L-2: the placeholder can never be a real account's uid (ADR-0008 A3), and nothing treats it as one.
+// L-2: the placeholder can never be a real account's uid (ADR-0008 A3), and nothing treats it as one.
 func TestDeletedUID_IsNotAValidUID(t *testing.T) {
 	t.Parallel()
 	if ids.ValidUID(DeletedUID) {
@@ -25,7 +25,7 @@ func TestDeletedUID_IsNotAValidUID(t *testing.T) {
 	}
 }
 
-// W7-34 L-7: redactErr never leaves the plain SHA-256 hash of a conversation id (guessable from a uid pair) in an error line.
+// L-7: redactErr never leaves the plain SHA-256 hash of a conversation id (guessable from a uid pair) in an error line.
 func TestRedactErr_KeysConversationIDsAndHashesUIDs(t *testing.T) {
 	t.Parallel()
 	msgID := strings.Repeat("e", 32)
@@ -46,7 +46,7 @@ func TestRedactErr_KeysConversationIDsAndHashesUIDs(t *testing.T) {
 	}
 }
 
-// W7-34 L-7: a ListMessages failure after the conversation loaded (peer profile, graph) names the peer in neither form.
+// L-7: a ListMessages failure after the conversation loaded (peer profile, graph) names the peer in neither form.
 func TestListMessages_ErrorRedactsThePeerUID(t *testing.T) {
 	t.Parallel()
 	rg := newRig(t, nil)

@@ -9,7 +9,7 @@ import '../../communities/presentation/communities_error_messages.dart';
 /// reporting yourself is a validation error with its own text.
 ///
 /// [notFoundMessage] lets a target name itself in the one NOT_FOUND text (the
-/// Community report, W5-35b). A FEATURE_DISABLED for `feature=communities`
+/// Community report). A FEATURE_DISABLED for `feature=communities`
 /// (the COMMUNITY target needs both flags) reads as the Communities text.
 String reportErrorMessage(AppException error, {String? notFoundMessage}) {
   return switch (error) {

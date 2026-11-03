@@ -24,7 +24,7 @@ class PostKind extends $pb.ProtobufEnum {
   static const PostKind POST_KIND_QUOTE =
       PostKind._(3, _omitEnumNames ? '' : 'POST_KIND_QUOTE');
 
-  /// Created by EngagementService.RepostPost (P5); stored as a post doc authored by the reposter, with an
+  /// Created by EngagementService.RepostPost; stored as a post doc authored by the reposter, with an
   /// embedded snapshot of the original, so pull timelines include it with no extra query. Its own counters stay 0:
   /// like, repost and quote actions apply to embedded.post_id, the original.
   static const PostKind POST_KIND_REPOST =
@@ -175,7 +175,7 @@ class EmbedViewerState extends $pb.ProtobufEnum {
   /// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
   /// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
   /// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
-  /// reposted_by_viewer = true) so it can be undone (ADR-0025 note W3-36 L-2); GetPost answers NOT_FOUND for it.
+  /// reposted_by_viewer = true) so it can be undone (ADR-0025 note L-2); GetPost answers NOT_FOUND for it.
   static const EmbedViewerState EMBED_VIEWER_STATE_PROTECTED =
       EmbedViewerState._(
           3, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_PROTECTED');

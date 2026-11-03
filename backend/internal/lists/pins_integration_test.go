@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// W5-9: DeleteList unpins and UpdateList retitles through the real identity adapter (lists.Pins) on the emulator. Reads and writes
+// DeleteList unpins and UpdateList retitles through the real identity adapter (lists.Pins) on the emulator. Reads and writes
 // are the service's own on top of the interceptor's one profile read: a pinned list adds 1 read and 1 write, an unpinned one adds
 // 1 read and no write.
 

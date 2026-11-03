@@ -19,10 +19,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// W6-9 (ADR-0029 D10): image/gif for post media. The sampled-frame screening is W6-10; these tests cover the content-type
+// ADR-0029 D10: image/gif for post media. The sampled-frame screening comes later; these tests cover the content-type
 // table, the thumbnail's own type, magic bytes, the flag, the cap rule and the cleanup names.
 
-// gifBytes is a valid one-frame GIF whose bytes depend on tag (the screen parses it since W6-10).
+// gifBytes is a valid one-frame GIF whose bytes depend on tag (the screen parses it since then).
 func gifBytes(tag string) []byte {
 	sum := md5.Sum([]byte(tag))
 	pal := color.Palette{color.White, color.RGBA{R: sum[0], G: sum[1], B: sum[2], A: 255}}
@@ -248,7 +248,7 @@ func TestGIF_FinalizeHappyPath(t *testing.T) {
 			if len(e.obj.upload) != 0 {
 				t.Fatalf("private copies not deleted: %v", e.obj.upload)
 			}
-			// W6-10: the sampled sheet by bytes plus the thumbnail by URI = 2 units, and the full object is never screened by URI.
+			// The sampled sheet by bytes plus the thumbnail by URI = 2 units, and the full object is never screened by URI.
 			if len(e.mod.byteCalls) != 1 || len(e.mod.calls) != 1 || e.mod.calls[0] != uploadThumbObject(uidA, tg.MediaID, tc.thumbExt) {
 				t.Fatalf("vision calls: %d by bytes, by URI %v", len(e.mod.byteCalls), e.mod.calls)
 			}

@@ -1,5 +1,5 @@
-// server_polls.go holds the Connect handler of VotePoll (ADR-0029 D6, tickets W6-4 and W6-7): the flag gate (W6-4), then the vote
-// (W6-7) through the Polls seam. No business logic here.
+// server_polls.go holds the Connect handler of VotePoll (ADR-0029 D6): the flag gate, then the vote
+// through the Polls seam. No business logic here.
 package engagement
 
 import (

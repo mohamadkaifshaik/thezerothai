@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W6-36 (ADR-0029 Amendment 1 A1.5, A2.7): viewer_poll_vote_blocked through the converter and the producers, Post.VoteChanged and the cache.
+// ADR-0029 Amendment 1 A1.5, A2.7: viewer_poll_vote_blocked through the converter and the producers, Post.VoteChanged and the cache.
 
 var blockedAuthor = map[string]bool{pvAuthor: true}
 

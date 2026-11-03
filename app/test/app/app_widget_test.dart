@@ -73,7 +73,7 @@ class MockTimelineRepository extends Mock implements TimelineRepository {}
 
 class MockMessagingRepository extends Mock implements MessagingRepository {
   MockMessagingRepository() {
-    // W7-26: the router listens to the gate; app_widget runs the probe.
+    // The router listens to the gate; app_widget runs the probe.
     when(() => gate)
         .thenReturn(MessagingFeatureGate(isMessagingEnabled: () => false));
     when(probeAccess).thenAnswer((_) async {});

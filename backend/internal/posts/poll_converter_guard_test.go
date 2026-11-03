@@ -1,16 +1,16 @@
 package posts
 
-// W6-6 guard (ADR-0029 D4): the posts converter is the only place that knows who may see a poll's per-choice counts and the
+// guard (ADR-0029 D4): the posts converter is the only place that knows who may see a poll's per-choice counts and the
 // viewer's choice. This source scan fails the day a PostView producer builds a view (or a Poll) without it. It names the
 // producers by file:
 //
-//	GetPost, GetThread         posts/server.go             ToView + HydrateViewer (viewerSet) + WithBlockedAuthors (W6-36)
+//	GetPost, GetThread posts/server.go ToView + HydrateViewer (viewerSet) + WithBlockedAuthors
 //	home and user timelines    timeline/service.go         ToView + HydrateViewer (every tab shares the page builder); WithBlockedAuthors (user timeline only)
 //	SearchPosts                search/service_posts.go     ToView + HydrateViewer
 //	ListBookmarks              engagement/server_bookmarks.go (ToView) with service_bookmarks_list.go (HydrateViewer)
-//	ListLikedPosts (W3-10)     engagement/server_likes_list.go (ToView) with service_likes_list.go (HydrateViewer)
+//	ListLikedPosts engagement/server_likes_list.go (ToView) with service_likes_list.go (HydrateViewer)
 //	CreatePost                 posts/server.go             ToProtoForViewer: the caller is the author, so the author rule applies
-//	VotePoll (W6-7)            engagement/server_polls.go   ToView with the voter's set (service_polls.go builds it: the choice comes from the vote just made)
+//	VotePoll engagement/server_polls.go ToView with the voter's set (service_polls.go builds it: the choice comes from the vote just made)
 //
 // Plain ToProto has no viewer and hides every count even from the author, so no production code may call it.
 
@@ -38,7 +38,7 @@ var pollProducerCalls = map[string][]string{
 	"engagement/service_likes_list.go":     {"HydrateViewer"},
 }
 
-// pollBlockedSetters are the only producers that may call ViewerSet.WithBlockedAuthors (ADR-0029 Amendment 1 A1.5, W6-36): the surfaces that show
+// pollBlockedSetters are the only producers that may call ViewerSet.WithBlockedAuthors (ADR-0029 Amendment 1 A1.5): the surfaces that show
 // a post by an author the viewer blocks (SurfaceDirect: GetPost, GetThread, the author's profile timeline). Every list surface drops such rows, so a
 // list producer setting it would be a bug. The Home and lists builders in timeline/service.go pass nil.
 var pollBlockedSetters = map[string]bool{"posts/server.go": true, "timeline/service.go": true}

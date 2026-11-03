@@ -38,7 +38,7 @@ common.HomeTab _wire(String id, [String title = '']) => common.HomeTab(
   title: title,
 );
 
-/// W5-16: Lists state on a shared device. The REAL `wireAuthSession`, a real
+/// Lists state on a shared device. The REAL `wireAuthSession`, a real
 /// in-memory drift database, the real `TimelineStore` (list feeds are stored
 /// under `FeedKey.list`), the real `HomeTabsRepository` (session epoch) and
 /// the real `ListsRepository` (in-memory headers, no epoch). Plain `test()`:

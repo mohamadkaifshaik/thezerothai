@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// W2-14 L-3: a bookmark write that exhausted its transaction re-runs (Aborted) or its 5 s txTimeout is a retryable
+// L-3: a bookmark write that exhausted its transaction re-runs (Aborted) or its 5 s txTimeout is a retryable
 // UNAVAILABLE logged as outcome=contention, never an INTERNAL that would reach Error Reporting and the rollback trigger.
 func TestBookmarkWrites_ContentionIsRetryableNotInternal(t *testing.T) {
 	calls := map[string]func(e *bmEnv) error{
@@ -80,7 +80,7 @@ func TestBookmarkWrites_CallerGoneIsNotAServerFault(t *testing.T) {
 }
 
 // Anything else stays an INTERNAL (a redacted plain error, reaching Error Reporting), with the raw uid AND the
-// bookmarked post id gone from the whole cause chain (W2-14 I-4): a Firestore error embeds document paths.
+// bookmarked post id gone from the whole cause chain (I-4): a Firestore error embeds document paths.
 func TestBookmarkWrites_InternalErrorRedactsUIDAndPostID(t *testing.T) {
 	const uid = "uid-secret-1"
 	path := fmt.Errorf("rpc error: code = Internal desc = commit users/%s/bookmarks/%s", uid, pidA)

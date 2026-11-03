@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// P2 tests: the trigger side (UpdateProfile / ChangeHandle) over fakeRepo, and the job side over the lifecycle
+// tests: the trigger side (UpdateProfile / ChangeHandle) over fakeRepo, and the job side over the lifecycle
 // harness. The Firestore-backed paths are covered by backend/internal/apiserver's emulator test.
 
 type fakeSnapFlags struct{ on bool }

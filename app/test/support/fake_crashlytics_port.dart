@@ -1,7 +1,7 @@
 import 'package:dzeroth/core/telemetry/firebase_crash_reporter.dart';
 
 /// A [CrashlyticsPort] that remembers every argument that would leave the
-/// device, as the SDK would see it. Shared by the payload tests and the TEL-9
+/// device, as the SDK would see it. Shared by the payload tests and the
 /// end-to-end tests.
 class FakeCrashlyticsPort implements CrashlyticsPort {
   /// Every argument, stringified in call order.

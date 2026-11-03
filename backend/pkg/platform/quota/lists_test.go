@@ -74,7 +74,7 @@ func TestListKinds(t *testing.T) {
 }
 
 // TestListKinds_QuotaMetadataName: QUOTA_EXCEEDED carries the snake_case wire names lists.proto documents (list_creates,
-// list_adds), not the Firestore field names (listCreates, listAdds); an older kind keeps its field name (W5-4).
+// list_adds), not the Firestore field names (listCreates, listAdds); an older kind keeps its field name.
 func TestListKinds_QuotaMetadataName(t *testing.T) {
 	tests := []struct {
 		kind Kind

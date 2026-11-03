@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// W3-26b: the pin rule of GetProfile (ADR-0025 D4, AQ6) and GetMe's pending_follow_request_count (D7, AQ3).
+// The pin rule of GetProfile (ADR-0025 D4, AQ6) and GetMe's pending_follow_request_count (D7, AQ3).
 
 type fakeProtectedAuthors struct {
 	set   ProtectedSet
@@ -92,7 +92,7 @@ func TestGetProfile_PinRule(t *testing.T) {
 	}
 }
 
-// Without the loader wired the pin is returned as before (W3-25b behaviour), and a profile without a pin never asks.
+// Without the loader wired the pin is returned as before (behaviour), and a profile without a pin never asks.
 func TestGetProfile_PinRuleUnwiredOrNoPin(t *testing.T) {
 	t.Parallel()
 	repo := newFakeRepo()

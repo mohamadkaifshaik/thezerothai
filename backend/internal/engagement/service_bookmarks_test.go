@@ -24,7 +24,7 @@ type fakeBMRepo struct {
 	adds          []AddBookmarkParams
 	removes       []RemoveBookmarkParams
 
-	// List and prune (W2-4): rows is the user's list, newest first, served by position and limit like the real query.
+	// List and prune: rows is the user's list, newest first, served by position and limit like the real query.
 	rows       []ExportedBookmark
 	listErr    error
 	pruneErr   error

@@ -48,7 +48,7 @@ type fakeRepo struct {
 	deleteErr   error
 	deleteRace  bool // the post vanishes between the read and the batch (a concurrent delete won)
 
-	// Replies model (P3).
+	// Replies model.
 	parentGone        bool // the parent is deleted between the visibility check and the commit
 	conversationCalls int
 	conversationErr   error
@@ -178,7 +178,7 @@ func TestGet(t *testing.T) {
 	}
 }
 
-// TestGetMany_TwelveOfTwentyCached is the T5 acceptance: 20 ids with 12 cached = 8 reads in one GetAll.
+// TestGetMany_TwelveOfTwentyCached is the acceptance: 20 ids with 12 cached = 8 reads in one GetAll.
 func TestGetMany_TwelveOfTwentyCached(t *testing.T) {
 	var all []*Post
 	var ids []string
@@ -251,7 +251,7 @@ func TestGetMany_EdgeCases(t *testing.T) {
 	})
 }
 
-// TestByAuthors_ThreeAuthorsNoMatches is the T5 acceptance: 3 authors with 0 matching posts = 1 read.
+// TestByAuthors_ThreeAuthorsNoMatches is the acceptance: 3 authors with 0 matching posts = 1 read.
 func TestByAuthors_ThreeAuthorsNoMatches(t *testing.T) {
 	repo := newFakeRepo()
 	svc, _ := newSvc(repo)

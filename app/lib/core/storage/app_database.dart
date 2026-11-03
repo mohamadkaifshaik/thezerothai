@@ -33,7 +33,7 @@ class ProfileCacheEntries extends Table {
 }
 
 /// Local cache of the signed-in user's own `following` set (ADR-0008 /
-/// graph plan T12), so `FollowButton` and follow lists can render
+/// graph), so `FollowButton` and follow lists can render
 /// "Following" instantly on a warm start, before `GetRelationships` or a
 /// list RPC ever runs (the client is our cheapest cache — the cost-first
 /// directive). Only ever holds the *current* signed-in user's own follows;
@@ -50,7 +50,7 @@ class FollowingCacheEntries extends Table {
   Set<Column> get primaryKey => {userId};
 }
 
-/// One row of a cached timeline feed (posts-and-timeline plan T14): either a
+/// One row of a cached timeline feed (posts-and-timeline): either a
 /// post (serialized `PostView`) or a "gap" marker row that holds the
 /// `gap_page_token` needed to fill the hole between newer and older cached
 /// posts (ADR-0004 / ADR-0010 D13-D14).
@@ -101,7 +101,7 @@ class TimelineStateEntries extends Table {
   Set<Column> get primaryKey => {feedKey};
 }
 
-/// The signed-in user's pending/ready data export (account plan T15): just
+/// The signed-in user's pending/ready data export (account): just
 /// the id and its lifetime, so "Download my data" can resume polling after
 /// the screen or app was closed. Never holds the signed download URL. At most
 /// one row; wiped on sign-out ([AppDatabase.clearAll]).
@@ -121,8 +121,8 @@ class AccountExportEntries extends Table {
   Set<Column> get primaryKey => {exportId};
 }
 
-/// One row of the signed-in user's cached notification list (P6 T9,
-/// ADR-0017): a notification (serialized `Notification`) or a "gap" marker
+/// One row of the signed-in user's cached notification list
+/// (ADR-0017): a notification (serialized `Notification`) or a "gap" marker
 /// holding the `gap_page_token` of a refresh gap. Rows sort by [sortKey]
 /// descending: the zero-padded `created_at` microseconds, `|`, the id (a
 /// collapsed like is rewritten in place with a newer `created_at`, so the id
@@ -170,7 +170,7 @@ class NotificationStateEntries extends Table {
 }
 
 /// One conversation of the signed-in user's cached inbox or requests list
-/// (W7-13, ADR-0027 D14): the serialized `Conversation` of the caller's entry.
+/// (ADR-0027 D14): the serialized `Conversation` of the caller's entry.
 /// Rows sort by [sortKey] descending (zero-padded `updated_at` microseconds,
 /// `|`, the id), per [folder] (`Folder.value`: 1 inbox, 2 requests). Wiped on
 /// sign-out ([AppDatabase.clearAll]).
@@ -188,7 +188,7 @@ class ConversationEntries extends Table {
   Set<Column> get primaryKey => {conversationId};
 }
 
-/// One cached message (W7-13, ADR-0027 D14): the newest 200 per conversation.
+/// One cached message (ADR-0027 D14): the newest 200 per conversation.
 /// Rows sort by [sortKey] descending (zero-padded `created_at` microseconds,
 /// `|`, the id). The payload is a serialized `Message`: it carries `from_self`
 /// and no sender uid (D5). Wiped on sign-out ([AppDatabase.clearAll]).
@@ -237,7 +237,7 @@ class MessagingStateEntries extends Table {
 /// leaves nothing behind (the privacy rule).
 const kAccountSettingPrefix = 'account:';
 
-/// The uid whose data the cache tables hold (W7-35, L-4). It is an account
+/// The uid whose data the cache tables hold (L-4). It is an account
 /// setting, so [AppDatabase.clearAll] removes it with the data it describes.
 const kCacheOwnerKey = '${kAccountSettingPrefix}owner';
 
@@ -257,14 +257,14 @@ class AppSettingEntries extends Table {
   Set<Column> get primaryKey => {settingKey};
 }
 
-/// One unsent post kept on the device (W6-14, ADR-0029 F7/F8): text, poll,
+/// One unsent post kept on the device (ADR-0029 F7/F8): text, poll,
 /// reply audience and disclosure labels; never photos or GIFs. Unlike every
 /// other account table this one is **not** wiped by [AppDatabase.clearAll]:
 /// the owner may sign out and back in and expects the draft (F7). Every read
 /// and write is filtered by [uid], so another account on the device never sees
 /// it; `DraftsRepository.deleteAll` removes one uid's rows when that account
-/// is deleted or chooses "Delete them" at sign-out (W6-31). The primary key is
-/// `{uid, draftId}` (schema v11, W6-31 I-1): a draft id is random, but even a
+/// is deleted or chooses "Delete them" at sign-out. The primary key is
+/// `{uid, draftId}` (schema v11, I-1): a draft id is random, but even a
 /// clash or a crafted id can never overwrite another account's row. Only
 /// `DraftsRepository` reads and writes it.
 @DataClassName('ComposerDraftRow')
@@ -289,15 +289,15 @@ class ComposerDraftEntries extends Table {
       boolean().withDefault(const Constant(false))();
   BoolColumn get madeWithAi => boolean().withDefault(const Constant(false))();
 
-  /// The community the post was going into (W5-34); '' = Everyone.
+  /// The community the post was going into; '' = Everyone.
   TextColumn get communityId => text().withDefault(const Constant(''))();
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
-  /// The send in flight or lost (W6-39, ADR-0029 Amendment 1 A4): the
+  /// The send in flight or lost (ADR-0029 Amendment 1 A4): the
   /// idempotency key claimed for the last send of this draft, null when no
   /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
-  /// by `clearSend`; never touches [updatedAt] (W6-45). Not personal data and
+  /// by `clearSend`; never touches [updatedAt]. Not personal data and
   /// never logged.
   TextColumn get sendKey => text().nullable()();
 
@@ -350,36 +350,36 @@ class AppDatabase extends _$AppDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
     onUpgrade: (m, from, to) async {
-      // v1 -> v2 (graph plan T12): additive table, no data migration needed.
+      // v1 -> v2 (graph): additive table, no data migration needed.
       if (from < 2) {
         await m.createTable(followingCacheEntries);
       }
-      // v2 -> v3 (posts plan T14): additive timeline tables.
+      // v2 -> v3 (posts): additive timeline tables.
       if (from < 3) {
         await m.createTable(timelineItemEntries);
         await m.createTable(timelineStateEntries);
       }
-      // v3 -> v4 (account plan T15): the pending data export.
+      // v3 -> v4 (account): the pending data export.
       if (from < 4) {
         await m.createTable(accountExportEntries);
       }
-      // v4 -> v5 (notifications plan T9): the cached notification list.
+      // v4 -> v5 (notifications): the cached notification list.
       if (from < 5) {
         await m.createTable(notificationEntries);
         await m.createTable(notificationStateEntries);
       }
-      // v5 -> v6 (UI wave W0-8): device-level settings (appearance).
+      // v5 -> v6 (UI wave): device-level settings (appearance).
       if (from < 6) {
         await m.createTable(appSettingEntries);
       }
-      // v6 -> v7 (UI wave W7-13): the cached direct-message inbox, threads
+      // v6 -> v7 (UI wave): the cached direct-message inbox, threads
       // and their tokens.
       if (from < 7) {
         await m.createTable(conversationEntries);
         await m.createTable(messageEntries);
         await m.createTable(messagingStateEntries);
       }
-      // v7 -> v8 (W7-14): the last known message-request count. A database
+      // v7 -> v8: the last known message-request count. A database
       // older than v7 just got the table above, already with the column.
       if (from == 7) {
         await m.addColumn(
@@ -387,11 +387,11 @@ class AppDatabase extends _$AppDatabase {
           messagingStateEntries.requestCount,
         );
       }
-      // v8 -> v9 (W6-14): unsent posts, kept per uid across sign-out.
+      // v8 -> v9: unsent posts, kept per uid across sign-out.
       if (from < 9) {
         await m.createTable(composerDraftEntries);
       }
-      // v9 -> v10 (W6-39): the pending send key. A database older than v9 just
+      // v9 -> v10: the pending send key. A database older than v9 just
       // got the table above, already with the columns, so only v9 adds them.
       if (from == 9) {
         await m.addColumn(composerDraftEntries, composerDraftEntries.sendKey);
@@ -405,7 +405,7 @@ class AppDatabase extends _$AppDatabase {
           composerDraftEntries.sendStartedAt,
         );
       }
-      // v11 -> v12 (W5-34): the community a draft was going into. Added
+      // v11 -> v12: the community a draft was going into. Added
       // BEFORE the rebuild below, which copies every current column by name
       // and so needs it in the old table too. A database older than v9 just
       // got the table above in its current shape.
@@ -415,7 +415,7 @@ class AppDatabase extends _$AppDatabase {
           composerDraftEntries.communityId,
         );
       }
-      // v10 -> v11 (W6-31, I-1): the drafts key becomes {uid, draftId}. The
+      // v10 -> v11 (I-1): the drafts key becomes {uid, draftId}. The
       // table is rebuilt with every column copied by name (the send key
       // columns included). A database older than v9 just got the table above
       // in its v11 shape, so only v9 and v10 are rebuilt (v9 after the
@@ -571,7 +571,7 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
-  /// Makes the cache belong to [uid] (W7-35, L-4), before any cache read.
+  /// Makes the cache belong to [uid] (L-4), before any cache read.
   ///
   /// The wipe on sign-out can be missed (the process dies first, or the auth
   /// stream goes from one user straight to another), so the cache says whose it
@@ -620,7 +620,7 @@ class AppDatabase extends _$AppDatabase {
       web: DriftWebOptions(
         // These two files must be built/copied into `app/web/` before a web
         // release build — see the "manual steps" note in the Phase 0 report.
-        // Root-absolute: with path URLs (W2-9) the page can be /post/<id>, and
+        // Root-absolute: with path URLs the page can be /post/<id>, and
         // the main-thread fallback resolves these against the page URL.
         sqlite3Wasm: Uri.parse('/sqlite3.wasm'),
         driftWorker: Uri.parse('/drift_worker.js'),

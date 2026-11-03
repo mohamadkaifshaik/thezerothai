@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W6-9 (ADR-0029 D10) over the real Build chain: a READY GIF media document (seeded the way FinalizeUpload leaves it; a
+// (ADR-0029 D10) over the real Build chain: a READY GIF media document (seeded the way FinalizeUpload leaves it; a
 // signed PUT cannot be minted against the emulators) flows through CreatePost behind FEATURE_GIF, the wire carries
 // MediaRef.content_type, the Firestore cost is the same as for a photo, and DeletePost + post_delete remove the document.
 

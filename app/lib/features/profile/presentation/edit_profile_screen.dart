@@ -33,7 +33,7 @@ import 'widgets/profile_edit_unavailable.dart';
 /// and uploaded on Save). With media off the avatar is shown read-only (the
 /// server answers MEDIA_NOT_READY).
 ///
-/// With `profile_extras` on (ADR-0024, W3-15) it also offers the banner (above
+/// With `profile_extras` on (ADR-0024) it also offers the banner (above
 /// the avatar; it also needs media), the location and the website. Without
 /// that flag nothing can be set: a saved banner, location or website is shown
 /// read-only with Remove, which sends an exact `""` (the server accepts a clear

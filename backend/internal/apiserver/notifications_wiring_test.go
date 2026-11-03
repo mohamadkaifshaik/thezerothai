@@ -72,7 +72,7 @@ func TestPostNotifier(t *testing.T) {
 	}
 }
 
-// TestPostNotifierReplies (ADR-0017 T10): a reply notifies the parent author; replying to yourself emits nothing; a
+// TestPostNotifierReplies (ADR-0017): a reply notifies the parent author; replying to yourself emits nothing; a
 // mention of the parent author is folded into the reply row (precedence: reply beats mention) while other mentions
 // still get their own event; a non-public reply and a post without a known parent author emit nothing for the reply.
 func TestPostNotifierReplies(t *testing.T) {

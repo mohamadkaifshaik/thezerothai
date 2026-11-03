@@ -163,7 +163,7 @@ func TestCreateList_Integration_Budget(t *testing.T) {
 	}
 }
 
-// A replay returns the list's current header with 2 reads (the idempotency record, then the list; 3 with the interceptor, W5-45 / L-3) and 0 writes, and creates no second list. The same
+// A replay returns the list's current header with 2 reads (the idempotency record, then the list; 3 with the interceptor, / L-3) and 0 writes, and creates no second list. The same
 // key with another body is IDEMPOTENCY_KEY_REUSED with 0 writes.
 func TestCreateList_Integration_Replay(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
@@ -204,7 +204,7 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 
 // Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
 // transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list or a second
-// quota charge. W5-15: this used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
+// quota charge.: this used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
 // takes 2 to 3.4 s on the emulator (the SDK's own backoff on the losers), so a slower runner pushed a loser over the
 // timeout and failed the test with a correct product answer. Now: at least one succeeds, every success is the same list,
 // a busy racer's retry with the same key replays that list, and there is exactly one list and one quota charge.
@@ -355,7 +355,7 @@ func TestUpdateList_Integration(t *testing.T) {
 		t.Errorf("unchanged update wrote %d, want 1 (the idempotency document)", c.Writes())
 	}
 
-	// Replay: the list as it is now (W5-45 / L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
+	// Replay: the list as it is now (/ L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(3), ListID: id, Name: ptr("Third")}); err != nil {
 		t.Fatal(err)
 	}

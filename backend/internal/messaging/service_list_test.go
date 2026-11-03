@@ -390,7 +390,7 @@ func TestListConversations_RequestCountOnFirstPageAndSinceRefresh(t *testing.T) 
 	if rg.repo.counts != 1 {
 		t.Errorf("count() ran %d times over four calls, want once", rg.repo.counts)
 	}
-	// W7-37: an INBOX since refresh carries the current count, a request created after the first page included, and an
+	// An INBOX since refresh carries the current count, a request created after the first page included, and an
 	// empty refresh too.
 	rg.put(alice, dmRequestsCollection, rg.entryAt("r-new", 9))
 	refresh := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})

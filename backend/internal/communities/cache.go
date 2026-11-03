@@ -13,12 +13,12 @@ import (
 const cacheTTL = 60 * time.Second
 
 // negativeTTL is the staleness bound of a negative community entry (an id whose point read found no document), the lists precedent
-// (ADR-0030 W5-45 L-1): a repeat probe of a missing id then costs 0 reads and answers as fast as a cached one, so latency tells the
+// (ADR-0030 L-1): a repeat probe of a missing id then costs 0 reads and answers as fast as a cached one, so latency tells the
 // two apart no better than the byte-identical NOT_FOUND does.
 const negativeTTL = 60 * time.Second
 
 // docCache holds the per-instance community docs (CACHE_COMMUNITIES_ENTRIES, 60 s) and member docs (CACHE_COMMUNITY_MEMBERS_ENTRIES,
-// 60 s on read paths; posting reads the member doc fresh in its transaction, W5-26). A member entry also records absence (MemberNone):
+// 60 s on read paths; posting reads the member doc fresh in its transaction). A member entry also records absence (MemberNone):
 // without that every outsider would pay a read on each call. Entries are copies, so a caller cannot change a cached slice.
 type docCache struct {
 	communities *cache.LRU[string, Community]

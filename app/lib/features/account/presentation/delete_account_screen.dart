@@ -124,7 +124,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     );
   }
 
-  /// The deleted account's "Not now" record goes with it (W2-14 L-6): the
+  /// The deleted account's "Not now" record goes with it (L-6): the
   /// device setting survives a plain sign-out on purpose, but the uid of a
   /// deleted account must not. A storage failure never blocks the final page.
   Future<void> _forgetAccount() async {
@@ -142,7 +142,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
     } catch (error, stack) {
       _reportUnexpected.call(error, stack);
     }
-    // TEL-8: consent keys, unsent crash reports and the analytics ID of this
+    // Consent keys, unsent crash reports and the analytics ID of this
     // device go with the account (never throws).
     await _telemetryForget.call(uid);
   }
@@ -153,7 +153,7 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
       (OnboardingBloc b) => b.state.profile?.handle ?? '',
     );
     final theme = Theme.of(context);
-    // No handle means no profile (P8 L-5): confirm with a word instead.
+    // No handle means no profile (L-5): confirm with a word instead.
     final hasProfile = handle.isNotEmpty;
     return BlocListener<AuthBloc, AuthState>(
       // The client-side Auth user delete signs the user out; Firebase can

@@ -70,7 +70,7 @@ class _MockNotifications extends Mock implements NotificationsRepository {}
 
 class _MockMessaging extends Mock implements MessagingRepository {
   _MockMessaging() {
-    // W7-26: the router listens to the gate; app_widget runs the probe.
+    // The router listens to the gate; app_widget runs the probe.
     when(() => gate)
         .thenReturn(MessagingFeatureGate(isMessagingEnabled: () => false));
     when(probeAccess).thenAnswer((_) async {});
@@ -87,7 +87,7 @@ class _MockLikes extends Mock implements LikesRepository {}
 
 class _MockBookmarks extends Mock implements BookmarksRepository {}
 
-/// W7-19: the app-level wiring of the Messages badge and the message push:
+/// The app-level wiring of the Messages badge and the message push:
 /// the seed from `GetMe`, the foreground rules, sign-out, and the tap that
 /// opens a conversation.
 void main() {

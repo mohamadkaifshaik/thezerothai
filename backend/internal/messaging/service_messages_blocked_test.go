@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
-// W7-30 (security review M-2) and the W7-27 audit: when the peer blocked the caller (or BlockedBy overflowed), the header shows
+// (security review M-2) and the audit: when the peer blocked the caller (or BlockedBy overflowed), the header shows
 // the peer snapshot frozen on the caller's own entry, never the live profile, whatever the directory says about the peer; the
 // placeholder is the answer for an erased peer, an entry that is gone or names someone else, and an older page. Peers are
 // compared as whole snapshots, so a stray uid, avatar or verified flag fails.

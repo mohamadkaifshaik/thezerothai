@@ -1,4 +1,4 @@
-// message.go is moderation's side of "report a message" (ADR-0027 D12, plan W7-12): the target type, the one parser of
+// message.go is moderation's side of "report a message" (ADR-0027 D12): the target type, the one parser of
 // the `<convId>:<msgId>` target id, and the consumer-side seam through which moderation reaches a message. moderation
 // never reads conversations/* or messages itself (ADR-0027 D11): messaging implements MessageLookup and the composition
 // root adapts it.

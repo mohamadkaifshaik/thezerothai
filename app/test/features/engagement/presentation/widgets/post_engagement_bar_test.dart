@@ -381,7 +381,7 @@ void main() {
       expect(find.text('Quote'), findsNothing);
     }
 
-    // W2-11: Quote needs `engagement` AND `quotes` in GetMe.enabled_features.
+    // Quote needs `engagement` AND `quotes` in GetMe.enabled_features.
     for (final c in <(String, Set<String>)>[
       ('engagement only', {'engagement', 'replies'}),
       ('quotes only', {'quotes', 'replies'}),
@@ -545,7 +545,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): the repost / quote sheet (W2-11) across the responsive
+  // (tester): the repost / quote sheet across the responsive
   // matrix.
   // ---------------------------------------------------------------------
 

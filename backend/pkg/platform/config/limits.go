@@ -11,12 +11,12 @@ type RateLimitConfig struct {
 	LikesPerUserPerMinute       int
 	PerIPPerMinute              int
 
-	// Posts/timeline per-procedure buckets (ADR-0010 T4). GetHomeTimeline uses TimelinePerUserPerMinute (6) and
+	// Posts/timeline per-procedure buckets (ADR-0010). GetHomeTimeline uses TimelinePerUserPerMinute (6) and
 	// GetPost uses PerUserPerMinute (the 60/min default).
 	UserTimelinePerMinute int // GetUserTimeline, env RATE_LIMIT_USER_TIMELINE_PER_MIN, default 30
 	PostCreatePerMinute   int // CreatePost, env RATE_LIMIT_POST_CREATE_PER_MIN, default 10
 	PostDeletePerMinute   int // DeletePost, env RATE_LIMIT_POST_DELETE_PER_MIN, default 20
-	// MediaFinalizePerMinute is the FinalizeUpload bucket (ADR-0029 Amendment 1 A5.5, W6-40), env RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, default 10, per
+	// MediaFinalizePerMinute is the FinalizeUpload bucket (ADR-0029 Amendment 1 A5.5), env RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, default 10, per
 	// instance (30 with 3). CreateUpload stays on PostCreatePerMinute, so retries cannot starve new uploads and the reverse.
 	MediaFinalizePerMinute int
 	// ReportPerMinute is the ReportContent bucket (ADR-0016), env RATE_LIMIT_REPORT_PER_MIN, default 5.
@@ -30,7 +30,7 @@ type RateLimitConfig struct {
 
 	// BookmarkMutationsPerDay is the in-memory daily cap on AddBookmark + RemoveBookmark calls combined (one counter per
 	// uid per instance, ratelimit.DailyCap), env BOOKMARK_MUTATIONS_PER_DAY, logged as limit_name "bookmark_mutation_daily"
-	// (W2-14 security review M-1). An already bookmarked Add and a Remove of a missing bookmark reserve no quota but each
+	// (security review M-1). An already bookmarked Add and a Remove of a missing bookmark reserve no quota but each
 	// store an idempotency doc (1 write + 1 TTL delete), so the 30/min bucket alone left them unbounded.
 	//
 	// Default 1,500: QUOTA_BOOKMARKS_PER_DAY 200 adds + a full clear-out of the BOOKMARKS_MAX_PER_USER 1,000 cap = 1,200
@@ -52,7 +52,7 @@ type RateLimitConfig struct {
 
 	// MessagesMarkReadPerDay is the in-memory daily cap on MarkConversationRead calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_MARK_READ_PER_DAY, default 500, logged as limit_name "messages_mark_read_daily"
-	// (security review W7-22 M-1). Every call on an existing entry is 1 write, a repeat included, and the call sat on the 60/min
+	// (security review M-1). Every call on an existing entry is 1 write, a repeat included, and the call sat on the 60/min
 	// default bucket (180/min at 3 instances = 259,200 writes a day for one account). Default 500: a few dozen thread opens and
 	// foreground pushes a day for an active user, with a wide margin. Worst case per account: 500 x 3 instances = 1,500 writes
 	// a day, against the 20k a day free quota.
@@ -60,7 +60,7 @@ type RateLimitConfig struct {
 
 	// MessagesMutationsPerDay is the in-memory daily cap shared by AcceptMessageRequest and DeleteConversation (one counter per
 	// uid per instance, ratelimit.DailyCap), env MESSAGES_MUTATIONS_PER_DAY, default 500, logged as limit_name
-	// "messages_mutation_daily" (W7-22 M-1). Sized like GraphMutationsPerDay (500): both are state changes on a social edge,
+	// "messages_mutation_daily" (M-1). Sized like GraphMutationsPerDay (500): both are state changes on a social edge,
 	// idempotent by state, and a person answers a handful of requests a day. A repeat writes nothing; a first Accept is 4 writes
 	// and 1 delete, so the bound is 500 x 3 instances x 5 = 7,500 operations per account per day, and real work is bounded
 	// further by the requests there are to answer (3 unanswered per sender, 20 new conversations per sender per day).
@@ -123,7 +123,7 @@ type RateLimitConfig struct {
 	// PollVotesPerDay is the in-memory daily cap on VotePoll calls (one counter per uid per instance, ratelimit.DailyCap), env
 	// POLL_VOTES_PER_DAY, default 300, logged as limit_name "poll_votes_daily" (ADR-0029 D6, option D). PollVotesPerDayNewAccount
 	// (env POLL_VOTES_PER_DAY_NEW_ACCOUNT, default 50) is the value for an account inside the new-account window: the
-	// ratelimit interceptor cannot tell account age, so the VotePoll service applies it (W6-7); the interceptor cap uses
+	// ratelimit interceptor cannot tell account age, so the VotePoll service applies it; the interceptor cap uses
 	// PollVotesPerDay. A cap in memory is sound here because the natural key admits ONE vote per account per poll: writes are
 	// bounded by 3 x the open polls the account can see whatever the cap does after a restart. At most 300 x 3 instances = 900
 	// calls (2,700 writes) per account per day.
@@ -162,7 +162,7 @@ type RateLimitConfig struct {
 	SuggestionsCallsPerDay int64
 
 	// ProfileUpdatesPerDay is the in-memory daily cap on UpdateProfile calls (one counter per uid per instance,
-	// ratelimit.DailyCap), env PROFILE_UPDATES_PER_DAY, logged as limit_name "profile_update_daily" (W3-22 L-4).
+	// ratelimit.DailyCap), env PROFILE_UPDATES_PER_DAY, logged as limit_name "profile_update_daily" (L-4).
 	// Before it, UpdateProfile had only the 60/min default bucket and the read budget, and rewrote the whole users
 	// document on every call even when nothing changed, so a save loop cost about 6,000 writes and 6,000 reads a day
 	// per account at 3 instances.
@@ -185,7 +185,7 @@ type RateLimitConfig struct {
 	GraphBlockPerMinute  int // Block, Unblock, Mute, Unmute
 	GraphListPerMinute   int // ListFollowers, ListFollowing, ListBlockedUsers, ListMutedUsers
 
-	// GraphListCallsPerDay is the in-memory daily cap on list RPCs per uid per instance (ADR-0008 D7/T4:
+	// GraphListCallsPerDay is the in-memory daily cap on list RPCs per uid per instance (ADR-0008 D7/:
 	// "an extension of the existing limiter", ratelimit.DailyCap), logged as limit_name "graph_list_daily".
 	GraphListCallsPerDay int64
 
@@ -251,7 +251,7 @@ type QuotaConfig struct {
 	FollowsPerDay int
 	MediaPerDay   int
 	ExportsPerDay int
-	// SnapshotEditsPerDay caps the profile edits that rewrite the author snapshot on posts (P2, ADR-0003: 5/day).
+	// SnapshotEditsPerDay caps the profile edits that rewrite the author snapshot on posts (ADR-0003: 5/day).
 	SnapshotEditsPerDay int
 
 	// Lower quotas for accounts younger than NewAccountWindow.

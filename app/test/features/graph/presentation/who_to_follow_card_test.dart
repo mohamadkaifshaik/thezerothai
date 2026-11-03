@@ -516,7 +516,7 @@ void main() {
       expect(find.byType(UserListRow), findsNWidgets(5));
     }, textScales: kMatrixTextScalesLarge);
 
-    // W3-21: the 2.0 stops of the matrix, and the targets the ui-catalog
+    // The 2.0 stops of the matrix, and the targets the ui-catalog
     // demands (Follow, the x, Show more) at every cell.
     forEachThemeAndWidth('Follow, x and Show more are 48dp targets', (
       tester,

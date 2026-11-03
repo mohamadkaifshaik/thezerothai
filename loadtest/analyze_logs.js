@@ -1,4 +1,4 @@
-// analyze_logs.js: summarise the API's JSON request log per RPC (T18). No dependencies; plain Node.
+// analyze_logs.js: summarise the API's JSON request log per RPC. No dependencies; plain Node.
 //
 //   node loadtest/analyze_logs.js api.log [rpcSubstring ...]
 //

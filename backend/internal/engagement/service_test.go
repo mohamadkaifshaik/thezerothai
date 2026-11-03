@@ -943,7 +943,7 @@ func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
 	}
 }
 
-// ADR-0018 "Rule 4" (plan T13): the idempotency_key is format-checked only; the natural keys carry the replay.
+// ADR-0018 "Rule 4": the idempotency_key is format-checked only; the natural keys carry the replay.
 
 // A LikePost delivered after an UnlikePost re-likes. This is the documented behaviour of natural-key
 // idempotency (a late retry is the client's problem: serialize toggles, latest intent wins), pinned here.

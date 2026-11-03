@@ -80,7 +80,7 @@ resource "google_project_iam_member" "runtime_account_lifecycle_auth" {
 
 // Push notifications (ADR-0017 D6): FCM HTTP v1 send needs exactly one permission, cloudmessaging.messages.create.
 // roles/firebasecloudmessaging.admin is rejected (it also manages campaigns/composer data), and the default Cloud
-// Run runtime has no FCM access without a grant (review P6 M3). The API fcm.googleapis.com is enabled in the
+// Run runtime has no FCM access without a grant (review M3). The API fcm.googleapis.com is enabled in the
 // project-services module. Emergency stop: remove this binding (every push fails with PERMISSION_DENIED, rows
 // keep being written).
 resource "google_project_iam_custom_role" "fcm_send" {
@@ -220,7 +220,7 @@ resource "google_service_account" "tf_plan" {
   display_name = "Terraform plan (read-only, ${var.env})"
 }
 
-// What `tf-plan` can read (W7-32, finding M-4 of the W7-22 messaging security review; supersedes the v0.1.0 / v0.2.0 M4
+// What `tf-plan` can read (finding M-4 of the messaging security review; supersedes the v0.1.0 / v0.2.0 M4
 // acceptance). It used to hold roles/viewer AND roles/iam.securityReviewer. Between them they carry
 // datastore.entities.get/list (viewer) and datastore.entities.list (securityReviewer); Firestore RunQuery and
 // ListDocuments check entities.list, so EITHER role alone lets a plan token read every message, every report's
@@ -281,7 +281,7 @@ resource "google_project_iam_custom_role" "tf_plan_reader" {
     // permission spellings (the iam.googleapis.com/ form is the one roles/viewer carried); all are metadata only.
     "iam.workloadIdentityPools.get",
     "iam.workloadIdentityPools.list",
-    // provider 8.8.1 reads the pool's attestation rules on refresh (found by the W7-32 dev impersonation plan, 2026-10-29)
+    // provider 8.8.1 reads the pool's attestation rules on refresh (found by the dev impersonation plan, 2026-10-29)
     "iam.workloadIdentityPools.getAttestationRules",
     "iam.workloadIdentityPoolProviders.get",
     "iam.workloadIdentityPoolProviders.list",
@@ -404,7 +404,7 @@ resource "google_billing_account_iam_member" "tf_plan_billing_viewer" {
 // this grant is deliberately NOT a Terraform resource. It must exist as an explicit BUCKET-level binding for each
 // env's tf-plan SA: `roles/storage.objectViewer` on gs://dzeroth-tfstate (the gcs backend needs objects.get and
 // objects.list). Do not rely on the project-viewer convenience binding on buckets (it vanished from tf-plan with
-// roles/viewer, W7-32).
+// roles/viewer).
 
 // ---------------------------------------------------------------------------
 // Workload Identity Federation — GitHub Actions OIDC, no JSON keys.

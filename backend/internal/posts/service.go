@@ -18,7 +18,7 @@ const FlagName = "posts"
 
 // Request-log fields (ADR-0010 D20). They ride on the mw.Logging line through logger.RequestInfo; values are
 // booleans, counts and enums only, never ids, handles or text. fs_reads/fs_writes/fs_deletes are already
-// emitted by mw.Logging. posts_op and outcome are set by the RPCs (T8/T9); the Reader sets only the cache field.
+// emitted by mw.Logging. posts_op and outcome are set by the RPCs; the Reader sets only the cache field.
 const fieldCacheHit = "posts_cache_hit"
 
 // fieldMediaJob records what DeletePost did about the post_delete job: published | publish_failed (absent: no images).
@@ -29,7 +29,7 @@ type Deps struct {
 	Repo   Repo
 	Cache  *Cache
 	Events PostEvents
-	// Jobs publishes the post_delete job for a deleted post that carried images (P4). Nil disables it.
+	// Jobs publishes the post_delete job for a deleted post that carried images. Nil disables it.
 	Jobs PostDeleteJobs
 	// Directory and Graph are only needed by Create (author profile, handle resolution, block filtering). They
 	// are the other modules' api.go interfaces (ADR-0002); a Reader-only service may leave them nil.
@@ -43,7 +43,7 @@ type Deps struct {
 	// ADR-0031 D11), reserved in CreatePost's quota write on top of posts. Zero or negative refuses every community post.
 	CommunityPostsPerDay           int64
 	NewAccountCommunityPostsPerDay int64
-	// Links releases a deleted REPOST's reposts doc and counters (P5, engagement). Nil: a REPOST deleted through
+	// Links releases a deleted REPOST's reposts doc and counters (engagement). Nil: a REPOST deleted through
 	// DeletePost leaves its reposts doc to the post_delete job's reconciliation. Wired late (SetRepostLinks).
 	Links RepostLinks
 	// CursorKey seals GetThread and ListScheduledPosts page tokens (config.CursorHMACKey). Required only for those.
@@ -52,7 +52,7 @@ type Deps struct {
 	// A nil Scheduled leaves them returning an internal error; the wiring never calls them then (the flag is off).
 	Scheduled ScheduledRepo
 	Schedule  ScheduleLimits
-	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route (ADR-0021 CMP-D4). A zero value
+	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route (ADR-0021). A zero value
 	// leaves Sweep returning an error; the wiring never mounts the route then.
 	Sweep SweepDeps
 	// Poll holds the poll creation limits (config.Composer; ADR-0029). The zero value rejects every poll.
@@ -101,7 +101,7 @@ func WithAllowAnonymous(allow bool) Option {
 	return func(s *service) { s.allowAnonymous = allow }
 }
 
-// WithProtectedAuthors wires the loader of the protected-author set that posts.Audience consults (ADR-0025 D3, W3-26a).
+// WithProtectedAuthors wires the loader of the protected-author set that posts.Audience consults (ADR-0025 D3).
 // Without it nobody is protected and the predicate costs nothing.
 func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 	return func(s *service) { s.protected = p }
@@ -237,7 +237,7 @@ func (s *service) ByAuthor(ctx context.Context, authorID string, includeReplies 
 	return out, nil
 }
 
-// ByAuthorMedia implements Reader (Q-M). Reads: len(result), minimum 1. Needs the W3-2 hasMedia composite index READY.
+// ByAuthorMedia implements Reader (Q-M). Reads: len(result), minimum 1. Needs the hasMedia composite index READY.
 func (s *service) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
 	if authorID == "" {
 		return nil, fmt.Errorf("posts: ByAuthorMedia needs an author id")
@@ -254,7 +254,7 @@ func (s *service) ByAuthorMedia(ctx context.Context, authorID string, w Window, 
 	return out, nil
 }
 
-// ByAuthorKind implements Reader (Q-B). Reads: len(result), minimum 1. Needs the W3-2 kind composite index READY.
+// ByAuthorKind implements Reader (Q-B). Reads: len(result), minimum 1. Needs the kind composite index READY.
 func (s *service) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
 	if authorID == "" {
 		return nil, fmt.Errorf("posts: ByAuthorKind needs an author id")

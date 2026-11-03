@@ -31,7 +31,7 @@ func errorDetailOf(err error) *commonv1.ErrorDetail {
 	return nil
 }
 
-// TestE2E_ReadBudgetLoop_RandomHandlesStopAtTheBudget (audit item 2, T20 AC3, P0): a verified uid with a profile
+// TestE2E_ReadBudgetLoop_RandomHandlesStopAtTheBudget (audit item 2, AC3): a verified uid with a profile
 // loops CheckHandleAvailability and GetProfile-by-handle on random (never-existing) handles through the real
 // Build chain with a small READ_BUDGET_PER_UID_PER_DAY. Real Firestore reads are charged to the budget; the sum
 // of the logged fs_reads stops at the budget (overshoot is at most the one call that crossed it), the first

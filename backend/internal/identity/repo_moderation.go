@@ -1,5 +1,5 @@
 // repo_moderation.go is the one write path moderation uses on users/{uid}: moving an account between ACTIVE and
-// SUSPENDED (ADR-0016 D4, P7). It changes status and updatedAt only, through identity's own repo, and never
+// SUSPENDED (ADR-0016 D4). It changes status and updatedAt only, through identity's own repo, and never
 // touches Firebase Auth (IAM control C2: authadmin_guard_test.go). The status interceptor and Directory read the
 // status from users/{uid}, so a suspended caller gets ACCOUNT_RESTRICTED once the 60 s identity cache expires.
 package identity

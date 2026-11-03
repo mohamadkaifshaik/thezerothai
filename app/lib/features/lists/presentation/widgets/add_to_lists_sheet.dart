@@ -14,7 +14,7 @@ import 'list_row.dart';
 /// button: the caller opens `/lists`).
 enum AddToListsResult { done, createList }
 
-/// Opens "Add to Lists" for the person [userId] (W5-13): your lists with a
+/// Opens "Add to Lists" for the person [userId]: your lists with a
 /// checkbox each, checked when they are in it. A bottom sheet, at most 600dp
 /// wide. 1 `ListUserLists` on open, one Add or Remove per toggle (optimistic,
 /// rolled back with the reason). Resolves with how it was closed.

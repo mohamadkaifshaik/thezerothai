@@ -40,7 +40,7 @@ type fakeRepo struct {
 	addedBy   []AddMemberParams
 	removedBy []RemoveMemberParams
 
-	// read side (W5-7)
+	// read side
 	docs    map[string]List
 	order   []string
 	getErr  error

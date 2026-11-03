@@ -5,7 +5,7 @@ import 'package:dzeroth/features/profile/domain/profile_extras_rules.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Runs every row of the shared profile text fixture
-/// (`testdata/profile_text/{website,location,display_name,bio}.json`, W3-22
+/// (`testdata/profile_text/{website,location,display_name,bio}.json`,
 /// L-2 / L-3) through the functions the Edit profile screen uses. The Go
 /// validators run the same files (`profile_text_fixture_test.go`), so a rule
 /// changed on one side fails on the other. Tests run from `app/`. No row is

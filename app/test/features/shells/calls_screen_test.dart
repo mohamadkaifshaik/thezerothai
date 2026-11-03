@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/geometry.dart';
 import '../../support/theme_harness.dart';
 
-/// W8-7: the Calls page. Static copy and two static rows; no action.
+/// The Calls page. Static copy and two static rows; no action.
 void main() {
   group('matrix', () {
     forEachThemeAndWidth('hero, group and both rows, no overflow', (

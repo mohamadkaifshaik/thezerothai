@@ -6,7 +6,7 @@ import '../../graph/data/graph_repository.dart';
 /// W4 owns the flag, this is the one name the picker compares against.
 const kPickerSearchFlag = 'search';
 
-/// Where the new-message picker (W7-17) gets people from. The picker depends
+/// Where the new-message picker gets people from. The picker depends
 /// on this interface only, so W4's search is an optional second
 /// implementation, not a dependency:
 ///

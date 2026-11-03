@@ -22,7 +22,7 @@ class _PlatformToggle implements BrowserContextMenuToggle {
 }
 
 /// Turns the browser's own right-click menu off while the pointer is over
-/// [child], so an app menu opened by a secondary click (W7-18: "Report
+/// [child], so an app menu opened by a secondary click ("Report
 /// message" on a peer's bubble) is not shown on top of it. On the web
 /// Flutter leaves the browser menu enabled; elsewhere this widget does
 /// nothing and adds no layer.

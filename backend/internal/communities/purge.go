@@ -1,4 +1,4 @@
-// purge.go is the right-to-delete and right-to-access path of the communities collections (ADR-0031 D9, ticket W5-24). Deleting
+// purge.go is the right-to-delete and right-to-access path of the communities collections (ADR-0031 D9). Deleting
 // users/{uid} removes none of communities/{cid}, its communityMembers or communityMemberships/{uid}, so the `communities`
 // account-deletion step (Eraser, registered BeforeIdentity after `poll_votes`) takes the user out of every community that names them,
 // and the `communities` export section writes what the user is entitled to see. Neither is flag-gated: documents outlive the flag.

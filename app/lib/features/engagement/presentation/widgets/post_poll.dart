@@ -12,7 +12,7 @@ import '../bloc/poll_cubit.dart';
 import '../bloc/poll_state.dart';
 import '../engagement_error_messages.dart';
 
-/// The poll of one post, wired to the session's [PollCubit] (W6-13).
+/// The poll of one post, wired to the session's [PollCubit].
 ///
 /// - [targetId] is the *original* post id (the id `VotePoll` takes; a REPOST
 ///   row never reaches here, it uses [PollEmbedSummary]).

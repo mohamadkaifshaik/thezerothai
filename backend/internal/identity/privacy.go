@@ -1,4 +1,4 @@
-// privacy.go is the service side of the is_private toggle (ADR-0025 D8, W3-26a): wiring options and the glue around
+// privacy.go is the service side of the is_private toggle (ADR-0025 D8): wiring options and the glue around
 // the PrivacyRepo transaction. The transaction itself is repo_privacy_firestore.go.
 package identity
 
@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// Request-log fields (ADR-0025 W3-26a observability).
+// Request-log fields (ADR-0025 observability).
 const (
 	fieldPrivacyToggle         = "privacy_toggle"          // on | off | noop | quota | cap
 	fieldPrivacyToggleAttempts = "privacy_toggle_attempts" // transaction attempts; the hot-doc signal (D3)
@@ -31,7 +31,7 @@ type privacyDeps struct {
 }
 
 // PrivacyDeps are the dependencies of the is_private toggle. Nil Repo (the default) keeps is_private=true refused as
-// "coming soon" and is_private=false a plain field write, the W3-25b behaviour.
+// "coming soon" and is_private=false a plain field write, the behaviour.
 type PrivacyDeps struct {
 	Repo PrivacyRepo
 	// Set receives the committing instance's own toggle at once (Install on a protect, Apply on an unprotect). May be nil.
@@ -48,7 +48,7 @@ func WithPrivacy(d PrivacyDeps) Option {
 	}
 }
 
-// privacyListener is the BecamePublic hand-over (nil = publishes nothing; apiserver wires graph.PrivacyListener since W3-28b).
+// privacyListener is the BecamePublic hand-over (nil = publishes nothing; apiserver wires graph.PrivacyListener since then).
 type privacyListener struct {
 	l   PrivacyListener
 	log *slog.Logger

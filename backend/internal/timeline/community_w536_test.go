@@ -1,6 +1,6 @@
 package timeline
 
-// W5-36 (Part B backend tests): the attack list of the W5-27 report, at the package level over the fakes of community_feed_test.go.
+// Part B backend tests: the attack list of the report, at the package level over the fakes of community_feed_test.go.
 // Tests are named TestW536_* so one -run TestW536 selects them. The chain-level counterparts are in
 // internal/apiserver/communities_w536_chain_integration_test.go.
 

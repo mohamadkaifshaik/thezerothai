@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// W3-28b (ADR-0025 D8): the privacy_public job's handler and listener over a fake page source.
+// ADR-0025 D8: the privacy_public job's handler and listener over a fake page source.
 
 type fakePager struct {
 	mu    sync.Mutex
@@ -125,7 +125,7 @@ func TestPrivacyPublicJob_BoundedPerDelivery(t *testing.T) {
 	}
 }
 
-// TestPrivacyPublicJob_StuckAcks is W3-40b O-1: a delivery whose every page was skipped acks as "stuck" with a counts-only
+// TestPrivacyPublicJob_StuckAcks is O-1: a delivery whose every page was skipped acks as "stuck" with a counts-only
 // log line instead of nacking; one inactive request dropped, or one accepted, is progress and still nacks.
 func TestPrivacyPublicJob_StuckAcks(t *testing.T) {
 	full := func(mut func(*PendingPageResult)) []PendingPageResult {

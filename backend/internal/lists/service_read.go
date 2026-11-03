@@ -47,7 +47,7 @@ type access struct {
 }
 
 // loadList reads the list through the instance cache (60 s staleness bound, ADR-0030 D11); a miss is one point read, and a
-// missing document is remembered for 60 s too (negative cache, W5-45 / L-1: 0 reads on a repeat). The cache
+// missing document is remembered for 60 s too (negative cache, / L-1: 0 reads on a repeat). The cache
 // holds private and hidden lists too (Create and the member writes put them), so a hit says nothing about who may see the
 // list: resolve decides. ErrNotFound for a malformed id and for a missing doc.
 func (s *service) loadList(ctx context.Context, id string) (List, error) {
@@ -131,7 +131,7 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 	return a, nil
 }
 
-// hiddenByProtection is the protected-owner rule of D3 (W5-42, W5-17 M-2): the lists of a protected account are visible to that account and
+// hiddenByProtection is the protected-owner rule of D3 (M-2): the lists of a protected account are visible to that account and
 // to the viewers who follow it, as ListFollowing is (ADR-0025 D5). The owner's profile and the viewer's graph are both held already, so
 // the rule costs 0 reads. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
 // FEATURE_PRIVATE_ACCOUNTS (ramping that flag down never un-hides a list). A viewer who blocked the owner is not special-cased (I-3).
@@ -163,7 +163,7 @@ func (a access) view() View {
 	return View{Header: h, Owner: a.owner}
 }
 
-// pinned reports whether viewer has the list pinned as a Home tab (W5-9). The source is users/{viewer}.homeTabs through
+// pinned reports whether viewer has the list pinned as a Home tab. The source is users/{viewer}.homeTabs through
 // identity.Directory, cache-first: 0 reads when the account-status interceptor has loaded the viewer's profile (the usual case),
 // else 1. Staleness bound: the profile cache TTL on another instance; the writing instance is updated in place. A tab stored
 // for a kind that is off for the viewer is still a pin of this list. A directory error answers false (a header flag, never a
@@ -265,7 +265,7 @@ func (s *service) encodeAfter(binding, id string) string {
 // owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query. The caller's own lists
 // read page_size + 1 docs (the extra row decides next_page_token). Another owner's read all LISTS_MAX_PER_USER docs, drop private
 // and hidden rows and return every public one with no token whatever page_size is: a token or a short page computed from the
-// raw rows would leak how many private lists the owner has and where they sit (ADR-0030 D3, W5-41). Simpler than paging the
+// raw rows would leak how many private lists the owner has and where they sit (ADR-0030 D3). Simpler than paging the
 // filtered set and costs no more reads than the documented worst case (the owner has at most LISTS_MAX_PER_USER docs).
 func (s *service) ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error) {
 	begin(ctx, "user_lists")
@@ -361,7 +361,7 @@ func (s *service) otherOwner(ctx context.Context, viewer, owner string) (prof id
 	if os.Blocked[viewer] {
 		return identity.Profile{}, nil, false, identity.ProfileNotFoundError()
 	}
-	// W5-42 (W5-17 M-2): after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
+	// M-2: after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
 	// PROTECTED_ACCOUNT, the ListFollowing precedent (ADR-0025 D5, AQ: an error, not an empty page, so the client shows the
 	// protected-account state instead of "no lists"). 0 extra reads: the profile and both graphs are held.
 	if hiddenByProtection(p, owner, vs) {

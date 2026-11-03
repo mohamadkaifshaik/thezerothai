@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W5-15: the gaps the W5-4 to W5-9 tests left against the ticket, over the real Build chain on the emulators (so the account
+// The gaps the tests left against the ticket, over the real Build chain on the emulators (so the account
 // status interceptor, the flag guards, the wire errors and the request-line budgets are the production ones):
 //   - SetHomeTabs is gated by FEATURE_LISTS at 1 read (the interceptor's) and 0 writes;
 //   - a pinned list that later turns private, is deleted or is hidden dangles: GetMe still returns the tab at +0 reads, the list
@@ -212,7 +212,7 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	}
 }
 
-// A platform-hidden list (W5-29) dangles the same way: pinned while public, then hidden in Firestore, read by a fresh instance.
+// A platform-hidden list dangles the same way: pinned while public, then hidden in Firestore, read by a fresh instance.
 func TestW515_PinnedListThatBecameHidden(t *testing.T) {
 	c := newLTChain(t, nil)
 	owner, viewer := c.user(t), c.user(t)
@@ -404,10 +404,10 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_adds" {
 		t.Fatalf("301st add: %v", d)
 	}
-	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 7, Writes: 0}) // W5-45 L-4: +1 fresh target status
+	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 7, Writes: 0}) // L-4: +1 fresh target status
 }
 
-// DEGRADED_MODE=readonly (W5-4 acceptance, the interceptor derives "mutating" from each RPC's idempotency level): the five list
+// DEGRADED_MODE=readonly (acceptance, the interceptor derives "mutating" from each RPC's idempotency level): the five list
 // writes and SetHomeTabs are refused with UNAVAILABLE before any read; the four read RPCs and GetMe still answer, write-free.
 func TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads(t *testing.T) {
 	setup := newLTChain(t, nil)

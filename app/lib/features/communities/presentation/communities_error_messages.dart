@@ -2,8 +2,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/communities_feature_flag.dart';
 
-/// Friendly, typed text for a failed Communities action (W5-30; W5-31 to
-/// W5-35 reuse it). Never the raw server message, and one fixed text for
+/// Friendly, typed text for a failed Communities action (to
+/// reuse it). Never the raw server message, and one fixed text for
 /// [NotFoundException] whatever the cause (missing, suspended, hidden). An
 /// error this build does not know reads as the generic last line, never as
 /// "restricted" or as a missing profile.
@@ -48,7 +48,7 @@ String communitiesErrorMessage(AppException error) {
   };
 }
 
-/// The NOT_FOUND text of the Community report sheet (W5-35b): one wording for
+/// The NOT_FOUND text of the Community report sheet: one wording for
 /// a missing or suspended Community, as everywhere else.
 const kReportCommunityNotFound =
     "This community isn't available to report any more.";

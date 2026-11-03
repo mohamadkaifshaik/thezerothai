@@ -7,18 +7,18 @@ import '../../data/bookmarks_repository.dart';
 import '../../domain/bookmark_entry.dart';
 import 'bookmarks_state.dart';
 
-/// The session-wide bookmark overlay for widgets (plan W2-6, ADR-0023): a
+/// The session-wide bookmark overlay for widgets (ADR-0023): a
 /// thin mirror of [BookmarksRepository], which owns the logic (optimistic
 /// toggle, rollback, one idempotency key per intent, per-post serialisation,
-/// session reset). Every card of the same target, and the W2-7 screen, read
+/// session reset). Every card of the same target, and the screen, read
 /// the same entry, so a bookmark shows everywhere at once.
 ///
 /// - [isBookmarked] / [setBookmarked] take the feed row: the target is the
 ///   original for a REPOST row (the caller passes `engagementTargetId`) and
 ///   the row's own server flag is read through [serverStateOf] (default
-///   [serverBookmarkedOf], the single W2-1b hook).
+///   [serverBookmarkedOf], the single hook).
 /// - [viewRoute] is where the "View" action of the "Added to Bookmarks" toast
-///   goes; null (until W2-7 registers `/bookmarks`) means the toast has no
+///   goes; null (until it ships registers `/bookmarks`) means the toast has no
 ///   View action.
 /// - [reset] (sign-out) forgets everything.
 class BookmarksCubit extends Cubit<BookmarksState> {

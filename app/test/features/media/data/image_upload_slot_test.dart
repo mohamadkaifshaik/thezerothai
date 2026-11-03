@@ -9,7 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// The one upload helper behind the avatar and banner editors (W3-15): the
+/// The one upload helper behind the avatar and banner editors: the
 /// purpose is a parameter, the media id is remembered across retries and one
 /// slot is always one single-item upload.
 void main() {

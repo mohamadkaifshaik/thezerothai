@@ -13,7 +13,7 @@ import '../core/telemetry/fake_telemetry.dart';
 import 'fake_crashlytics_port.dart';
 
 /// One app launch with the real telemetry pieces and only the two SDK edges
-/// faked (TEL-9): the real `startTelemetry`, `TelemetryController`, error
+/// faked: the real `startTelemetry`, `TelemetryController`, error
 /// hooks, `FirebaseCrashReporter` (payload rules) over a [FakeCrashlyticsPort],
 /// `TelemetryConsentStore` and the database-backed flag and last-uid stores.
 /// The analytics edge is a fake [UsageAnalytics] (the SDK class has no port).

@@ -36,8 +36,8 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// W3-35c: "Requested" and its cancel confirm in a list row, and the wide
-/// layouts' account menu, in the W3-21 matrix. The profile header's own
+/// "Requested" and its cancel confirm in a list row, and the wide
+/// layouts' account menu, in the matrix. The profile header's own
 /// Requested is `w3_protected_profile_test.dart`.
 void main() {
   late _MockGraph graphRepo;

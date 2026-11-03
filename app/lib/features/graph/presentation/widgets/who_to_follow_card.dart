@@ -15,7 +15,7 @@ import 'user_list_row.dart';
 /// How many rows the card shows before "Show more".
 const kWhoToFollowCollapsedRows = 3;
 
-/// The "Who to follow" card (W3-19, ADR-0024 D8): an [AppSurface] with a
+/// The "Who to follow" card (ADR-0024 D8): an [AppSurface] with a
 /// [title], up to [kWhoToFollowCollapsedRows] [UserListRow]s (each with a
 /// follow button and a local "x"), and "Show more" opening the full 5. Used
 /// twice with one list behind it: titled "Who to follow" in Home's
@@ -29,7 +29,7 @@ const kWhoToFollowCollapsedRows = 3;
 /// again, once per session ([SuggestionsCubit.followed]); the "x" hides a row
 /// for the session only and never asks again. A row the server
 /// says is gone (NOT_FOUND: it blocked the viewer, was suspended or deleted)
-/// is dropped silently, from the cached list too (W3-22 L-1). Not a sliver:
+/// is dropped silently, from the cached list too (L-1). Not a sliver:
 /// wrap it in a `SliverToBoxAdapter`. Needs [SuggestionsCubit] and
 /// `GraphRepository` in scope (only once the flag check passes).
 class WhoToFollowCard extends StatelessWidget {

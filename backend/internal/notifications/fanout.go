@@ -144,7 +144,7 @@ func NewPushLimiter(perHour int) *ratelimit.Limiter {
 	return ratelimit.NewLimiterWindow(perHour, time.Hour, pushLimiterIdleTTL)
 }
 
-// messageLimitKey is the key of a recipient in the message bucket (plan W7-10: uid|message).
+// messageLimitKey is the key of a recipient in the message bucket (uid|message).
 func messageLimitKey(uid string) string { return uid + "|" + string(TypeMessage) }
 
 // Fanout turns one event into rows and pushes. It is both the Pub/Sub push handler and, in local dev, called inline.

@@ -10,8 +10,8 @@ import '../../domain/engagement_entry.dart' show engagementTargetId;
 /// tab is not available).
 enum LikesListStatus { loading, ready, loadingMore, error }
 
-/// The caller's likes as the History screen's Likes tab sees them (plan
-/// W3-18, ADR-0024 D6): live posts, most recent like first, paged by an
+/// The caller's likes as the History screen's Likes tab sees them
+/// (ADR-0024 D6): live posts, most recent like first, paged by an
 /// opaque token, in session memory only. Plain immutable class (no codegen),
 /// like `BookmarksListState`.
 @immutable

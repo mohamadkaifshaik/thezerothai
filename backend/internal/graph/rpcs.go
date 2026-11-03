@@ -18,7 +18,7 @@ func (s *service) checkFlag(callerUID string) error {
 	return nil
 }
 
-// Follow (ADR-0008 T7, ADR-0025 D6). Validation order: flag -> idempotency key format -> target id format -> self ->
+// Follow (ADR-0008, ADR-0025 D6). Validation order: flag -> idempotency key format -> target id format -> self ->
 // repo transaction (target missing or not ACTIVE, blocked-by, blocks, already following, then the protected-target
 // request path or the edge path; see repo_firestore.go's Follow doc comment for that precedence). The target's users doc
 // is read inside the transaction, so only the caller's profile goes through identity.Directory (cache-first).
@@ -101,7 +101,7 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 	return s.internalErr("follow", err, callerUID, targetUID)
 }
 
-// Unfollow (ADR-0008 T7, ADR-0025 D7): two blind batches, idempotent. The edge batch runs first; on its failed
+// Unfollow (ADR-0008, ADR-0025 D7): two blind batches, idempotent. The edge batch runs first; on its failed
 // precondition the withdraw batch deletes a pending follow request (WithdrawRequest). Both failing is NONE with 0
 // writes (not following, nothing requested, or a replayed/racing Unfollow). Undo is never gated: withdrawing needs no
 // FEATURE_PRIVATE_ACCOUNTS, only the module flag every graph RPC checks. Firestore: both batches read 0; an edge removal
@@ -155,7 +155,7 @@ func (s *service) blockLimits() dailyLimits {
 	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
 }
 
-// Block (ADR-0008 T8, ADR-0025 D7). Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
+// Block (ADR-0008, ADR-0025 D7). Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
 // follow requests in either direction (so at most 4): +0 reads, +0 writes.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "block")(&err)
@@ -206,7 +206,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	return result.Relationship, nil
 }
 
-// Unblock (ADR-0008 T8). Firestore: reads 1/1, writes 2/2 (0 on no-op).
+// Unblock (ADR-0008). Firestore: reads 1/1, writes 2/2 (0 on no-op).
 func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unblock")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -235,7 +235,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	return rel, nil
 }
 
-// Mute (ADR-0008 T8, A1). Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
+// Mute (ADR-0008, A1). Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
 // target without a graph doc => NOT_FOUND after 2 reads, 0 writes (same rule as Block; no blockedBy branching).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "mute")(&err)
@@ -271,7 +271,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 	return rel, nil
 }
 
-// Unmute (ADR-0008 T8). Firestore: reads 1/1, writes 1/1 (0 on no-op).
+// Unmute (ADR-0008). Firestore: reads 1/1, writes 1/1 (0 on no-op).
 func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unmute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {

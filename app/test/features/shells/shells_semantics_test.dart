@@ -54,7 +54,7 @@ _Reading _read(WidgetTester tester, Finder page) {
   return out;
 }
 
-/// W8-8: the accessibility contract of the four pages (plan "Non-functional
+/// The accessibility contract of the four pages (plan "Non-functional
 /// targets"): a header per page title and group title, static rows read once,
 /// and the only buttons are Back, the pop-up's Close and (when the address is
 /// set) "Email us".

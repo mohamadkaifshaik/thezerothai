@@ -25,7 +25,7 @@ type List struct {
 	Description string
 	IsPrivate   bool
 	MemberIDs   []string
-	// Hidden is the platform hide (opsctl, W5-29): absent in storage means false. The owner still sees a hidden list.
+	// Hidden is the platform hide (opsctl): absent in storage means false. The owner still sees a hidden list.
 	Hidden    bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -67,8 +67,8 @@ type UpdateInput struct {
 	IsPrivate   *bool
 }
 
-// Service is everything the ListService handlers call (ADR-0030 D1, seam: handlers call only this): the write path (W5-4, W5-6)
-// and the reads (W5-7). *service also implements Reader, the seam other modules use.
+// Service is everything the ListService handlers call (ADR-0030 D1, seam: handlers call only this): the write path
+// and the reads. *service also implements Reader, the seam other modules use.
 type Service interface {
 	// CreateList creates a list owned by uid. Firestore: reads 4 cold (interceptor, idempotency, quotas, count()) / 3
 	// warm; writes 3 (list, idempotency, quotas); replay reads 2, writes 0; at the cap or the quota 0 writes.
@@ -93,7 +93,7 @@ type Service interface {
 	// replay reads 1, writes 0. No quota.
 	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
 	// GetList returns one list as viewer may see it (ADR-0030 D3); any other case is the one NOT_FOUND. pinned_by_viewer is false until
-	// W5-9 supplies the pin check. Firestore: reads 5 cold for a non-owner (interceptor, list, caller graph, owner profile, owner
+	// supplies the pin check. Firestore: reads 5 cold for a non-owner (interceptor, list, caller graph, owner profile, owner
 	// graph), 2 for the owner; 0-1 warm; writes 0.
 	GetList(ctx context.Context, viewer, listID string) (View, error)
 	// ListUserLists returns an owner's lists, oldest first: all of the caller's own, only public non-hidden ones of anyone else.
@@ -106,7 +106,7 @@ type Service interface {
 }
 
 // Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs (ADR-0030 D1, D6). Identity
-// implements it (W5-9) over the same adapter as timeline.HomeTabsStore; until then the service runs with a nil Pins and a
+// implements it over the same adapter as timeline.HomeTabsStore; without it the service runs with a nil Pins and a
 // pinned tab is cleaned up lazily by GetMe. Both calls run after the list's own commit and are best effort: a failure is
 // logged and never fails the RPC. Neither signature names a timeline or lists type, so identity imports neither.
 type Pins interface {
@@ -251,11 +251,11 @@ type ListMembers struct {
 	Header    Header
 	Owner     identity.Profile
 	MemberIDs []string
-	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (W5-9; cache-first, 0 reads when the interceptor loaded the viewer).
+	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (cache-first, 0 reads when the interceptor loaded the viewer).
 	PinnedByViewer bool
 }
 
-// Reader is the only way another module reads a list (ADR-0030 D1; timeline uses it, W5-8). Every method applies the D3
+// Reader is the only way another module reads a list (ADR-0030 D1; timeline uses it). Every method applies the D3
 // visibility rules for viewer and answers ErrNotFound (one sentinel, every cause) when viewer may not see the list.
 // *service implements it; apiserver passes `listsSvc.(lists.Reader)`.
 type Reader interface {

@@ -5,7 +5,7 @@ import 'package:dzeroth/features/profile/presentation/bloc/edit_profile_cubit.da
 import 'package:dzeroth/features/profile/presentation/profile_edit_error_messages.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The words of Edit profile's extras (W3-15): friendly, typed, never the raw
+/// The words of Edit profile's extras: friendly, typed, never the raw
 /// server text.
 void main() {
   EditProfileState failed(

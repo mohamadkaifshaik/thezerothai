@@ -23,7 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Create implements Service (ADR-0010 D2, D7, D13, D18; plan T8).
+// Create implements Service (ADR-0010 D2, D7, D13, D18).
 //
 // Firestore, worst case (CreatePost proto comment; keep the integration budget assertion in sync):
 //
@@ -32,7 +32,7 @@ import (
 //	        the transaction)  => 13 cold / 2 warm, planning 2.5. The documented ceiling stays 14: the author graph
 //	        is no longer read (M2, D7 amendment), so the proto, ADR and plan numbers are conservative upper bounds.
 //	writes: idempotency doc, post, users.postsCount, quotas = 4, plus 1 eventual TTL delete
-//	with media (P4, FEATURE_MEDIA): + len(media_ids) reads (one GetAll of media/*, inside the transaction, so
+//	with media (FEATURE_MEDIA): + len(media_ids) reads (one GetAll of media/*, inside the transaction, so
 //	        up to 4 more: 17 cold / 6 warm ceiling, planning 2.5 + n) and + len(media_ids) writes (media/{id}.postId,
 //	        so up to 8); a replay re-reads no media
 //	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
@@ -41,13 +41,13 @@ import (
 // the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
 // nothing.
 //
-// Community (ADR-0031 D5, W5-26): a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
+// Community (ADR-0031 D5): a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
 // FEATURE_DISABLED feature=communities, 0 reads, 0 writes. Otherwise the shape is validated (0 reads), a protected caller is refused (0
 // reads), and the gate runs: +2 reads cold (community via the 60 s cache, member doc read fresh inside the transaction) / +1 warm over a
 // plain post, +0 writes (quotas.communityPosts rides the one quota Set). Every refusal (not a member, banned, archived, quota, per-community
 // cap) writes 0; a replay returns before the member read, so it costs a plain replay (+0, plus the cached community read).
 //
-// Members-only replies (ADR-0031 D5, F8; W5-26b): a reply whose parent carries conversationCommunityId (communities not globally off) runs
+// Members-only replies (ADR-0031 D5, F8): a reply whose parent carries conversationCommunityId (communities not globally off) runs
 // CommunityGate.CanReply after the reply-policy rules: +2 reads cold (community status, member doc, both 60 s caches), +0 warm, +0 writes; a
 // non-member or banned caller is FORBIDDEN reason=not_member with 0 writes; a reply to a non-community post costs nothing extra. The outcome is
 // the request-line field community_reply_gate.
@@ -291,7 +291,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 // mentions (D7, amended 2026-10-05, M2): nothing without candidates (so no handle read); unknown handles dropped.
 // Mentions never depend on the block graph: dropping a user who blocked the author would let the author learn
 // "X blocked me" from the response (a block oracle). A blocker is suppressed where it matters instead: the author
-// cannot open the blocker's profile (NOT_FOUND, ADR-0008 D9) and notifications (P6) must filter by the graph.
+// cannot open the blocker's profile (NOT_FOUND, ADR-0008 D9) and notifications must filter by the graph.
 func (s *service) resolveMentions(ctx context.Context, uid string, candidates []string) ([]Mention, error) {
 	if len(candidates) == 0 {
 		return nil, nil
@@ -326,7 +326,7 @@ func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 
 // requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text, the
 // reply target, media ids and alt texts in request order and the quote target, in a fixed order (D18). A
-// text-only root post hashes exactly as it did before P3 and P4. The ADR-0021 disclosure labels are appended
+// text-only root post hashes exactly as it did before then. The ADR-0021 disclosure labels are appended
 // (`|pp=1`, `|ai=1`) ONLY when true, so a request without them hashes byte-for-byte as before the deploy and a
 // retry across it still replays instead of IDEMPOTENCY_KEY_REUSED. The reply policy (`|policy=FOLLOWING`, the enum
 // name) is appended before `|pp=`, only when restricted; EVERYONE and UNSPECIFIED are both absent, and a reply's

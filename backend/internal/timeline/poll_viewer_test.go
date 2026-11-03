@@ -18,7 +18,7 @@ func (v voteViewer) Viewer(context.Context, string) posts.ViewerSet {
 	return posts.ViewerSet{}.WithPollVotes(v.votes)
 }
 
-// W6-6: the home and user timelines render a poll through the real registry, HydrateViewer and posts.ToView.
+// The home and user timelines render a poll through the real registry, HydrateViewer and posts.ToView.
 func TestTimelines_PollViewerRule(t *testing.T) {
 	t.Parallel()
 	reg := func(eng, polls flags.Mode) *flags.Registry {
@@ -85,7 +85,7 @@ func TestTimelines_PollViewerRule(t *testing.T) {
 	}
 }
 
-// W6-36 (ADR-0029 Amendment 1 A1.5): the author's profile timeline carries viewer_poll_vote_blocked for a viewer who blocks that author (the posts
+// ADR-0029 Amendment 1 A1.5: the author's profile timeline carries viewer_poll_vote_blocked for a viewer who blocks that author (the posts
 // are shown by ADR-0010 D6), and Home never does (a blocked author's rows are dropped there). 0 extra reads: the snapshot checkVisible read.
 func TestUserTimeline_PollVoteBlocked(t *testing.T) {
 	t.Parallel()

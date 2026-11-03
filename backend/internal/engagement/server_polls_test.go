@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestVotePoll_FlagMatrix (ADR-0029 D6 step 2, W6-4): FEATURE_POSTS, then FEATURE_ENGAGEMENT on for the caller, then
+// TestVotePoll_FlagMatrix (ADR-0029 D6 step 2): FEATURE_POSTS, then FEATURE_ENGAGEMENT on for the caller, then
 // FEATURE_POLLS NOT globally off. Every refusal is FEATURE_DISABLED naming the flag, before any Firestore access (the
 // stub service has no repo); a caller the gate lets through reaches the skeleton's Unimplemented.
 func TestVotePoll_FlagMatrix(t *testing.T) {

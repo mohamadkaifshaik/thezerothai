@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// W5-52: `opsctl community loghash` prints the hashes the API puts on its request lines. Not parallel: the log key is process-wide.
+// `opsctl community loghash` prints the hashes the API puts on its request lines. Not parallel: the log key is process-wide.
 
 func TestCommunityLogHash_RoundTripAndKeyDependence(t *testing.T) {
 	post := "0000000000000000611"

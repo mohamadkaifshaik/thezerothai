@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests of the Scheduler over the real FirestoreRepo (ADR-0021 D4, CMP-D3). Budgets are the service's own
+// Emulator tests of the Scheduler over the real FirestoreRepo (ADR-0021 D4). Budgets are the service's own
 // reads: the SchedulePost proto numbers minus the account-status interceptor's cached profile read.
 
 type schedSvcIT struct {

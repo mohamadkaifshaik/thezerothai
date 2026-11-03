@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W3-22 L-5: one account must not steer friends-of-friends suggestions. Each sampled followee contributes at most
+// L-5: one account must not steer friends-of-friends suggestions. Each sampled followee contributes at most
 // maxCandidatesPerFollowee candidates, and a sampled followee the Directory cache already knows is not ACTIVE is left
 // out of the query. Both cost 0 reads.
 
@@ -111,7 +111,7 @@ func TestFriendsOfFriends_PerFolloweeCap(t *testing.T) {
 	})
 }
 
-// TestListSuggestedUsers_FlooderLog is the signal W3-23 watches: a window filled by one account ends as source=fof
+// TestListSuggestedUsers_FlooderLog is the signal watches: a window filled by one account ends as source=fof
 // with candidates <= 3.
 func TestListSuggestedUsers_FlooderLog(t *testing.T) {
 	flood := names("fl", 30)

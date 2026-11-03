@@ -8,7 +8,7 @@ import '../bloc/protect_posts_cubit.dart';
 import '../protect_posts_messages.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 
-/// The "Protect your posts" switch of Settings > Privacy & safety (W3-33b).
+/// The "Protect your posts" switch of Settings > Privacy & safety.
 ///
 /// Needs a [ProtectPostsCubit] above it (the Settings list provides one only
 /// when the row can show: `private_accounts` on, or the caller is already

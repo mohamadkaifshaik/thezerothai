@@ -2,7 +2,7 @@
 
 package search
 
-// W4-25 against the Firestore emulator: trends/hidden (ADR-0028 note 2026-10-31 part 1). Hide and Unhide are 1-read
+// against the Firestore emulator: trends/hidden (ADR-0028 note 2026-10-31 part 1). Hide and Unhide are 1-read
 // transactions with 1 write only when the list changes; Load is 2 reads; Hidden is 1; the sweep's whole-document Put and a
 // delete of trends/current never touch the hide list; the cap refuses at 100 keys with 0 writes.
 

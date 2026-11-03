@@ -1,4 +1,4 @@
-// analyze_w3_part_b.js: W3 Part B reads, writes and deletes per call from the API's JSON request log (W3-37; scenario
+// analyze_w3_part_b.js: W3 Part B reads, writes and deletes per call from the API's JSON request log (scenario
 // private_accounts_w3b.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_w3_part_b.js api.log

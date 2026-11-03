@@ -49,7 +49,7 @@ func parseCommunityArgs(sub, cid string, a modArgs) error {
 	return nil
 }
 
-// communityCommand is `opsctl community suspend|restore|archive` (ADR-0031 D14, plan W5-29). The reads already honour SUSPENDED
+// communityCommand is `opsctl community suspend|restore|archive` (ADR-0031 D14). The reads already honour SUSPENDED
 // (N3): a suspended community is NOT_FOUND on every RPC for everyone but, on GetCommunity and ListMyCommunities, its owner; it is out of
 // the directory and CreatePost into it is refused. The writes are communities.Platform's field-level Updates (never a Set).
 //
@@ -61,7 +61,7 @@ func parseCommunityArgs(sub, cid string, a modArgs) error {
 // refuses with 0 writes). archive is 3 reads and 2 writes (a repeat 1 read, 0 writes). --dry-run is 1 read and no write. --report R
 // (suspend only; checked first: R must be a COMMUNITY report of exactly this community) resolves R as TAKEDOWN after the write, also when
 // the community was already suspended; it adds 1 read to check and the resolve (1 read, 1 write). The cost line is printed last.
-// Output holds no name, description or owner: the id appears only as community_hash (the keyed logger.HashCommunity, W5-52; a marker without CURSOR_HMAC_KEY), in a fixed-shape audit
+// Output holds no name, description or owner: the id appears only as community_hash (the keyed logger.HashCommunity; a marker without CURSOR_HMAC_KEY), in a fixed-shape audit
 // line that is the moderation trail because the community document records no platform actor.
 func communityCommand(ctx context.Context, b *backends, project, sub, cid string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.communities == nil {

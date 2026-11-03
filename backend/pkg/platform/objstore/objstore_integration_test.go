@@ -148,7 +148,7 @@ func TestMediaOps_Integration(t *testing.T) {
 	}
 }
 
-// TestGenerationPin_Integration proves the W6-25 pin against the emulator: a read or copy of the generation Attrs reported succeeds, and after the
+// TestGenerationPin_Integration proves the pin against the emulator: a read or copy of the generation Attrs reported succeeds, and after the
 // object is overwritten the copy answers ErrGenerationChanged and publishes nothing (the emulator cannot prove the read pin).
 func TestGenerationPin_Integration(t *testing.T) {
 	if os.Getenv("STORAGE_EMULATOR_HOST") == "" {

@@ -37,9 +37,9 @@ const (
 	fieldExhausted         = "vision_cap_exhausted"
 	fieldAttemptsExhausted = "attempts_exhausted"  // "assessed" or "claims" (A5.4 pre-check)
 	fieldConverged         = "finalize_converged"  // a lost finalize race answered with the winner's result
-	fieldBusy              = "finalize_busy"       // another call holds the screening claim (W3-22 M-3): MEDIA_NOT_READY, no Vision units
+	fieldBusy              = "finalize_busy"       // another call holds the screening claim (M-3): MEDIA_NOT_READY, no Vision units
 	fieldJoined            = "finalize_joined"     // answered with the result of a same-instance call already finalizing this image
-	fieldScreenOutcome     = "screen_outcome"      // ready, rejected_policy, rejected_invalid, assessed (an attempt consumed), unassessed (a retry consumed) or no_time (a retry consumed: under minVisionBudget of the request was left, W6-49)
+	fieldScreenOutcome     = "screen_outcome"      // ready, rejected_policy, rejected_invalid, assessed (an attempt consumed), unassessed (a retry consumed) or no_time (a retry consumed: under minVisionBudget of the request was left)
 	fieldScreenClaims      = "screen_claims"       // the doc's screenAttempts after this call's claim
 	fieldScreenAssessed    = "screen_assessed"     // the doc's screenAssessed after this call
 	fieldUnitsRefused      = "units_daily_refused" // media_vision_units_daily refused the call before the claim (A5.5)
@@ -92,8 +92,8 @@ type Deps struct {
 	GifMaxEdge         int
 	GifMaxFrames       int
 	GifMaxFrameAreaSum int64
-	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (W6-27): screening claims per media document before it is REJECTED. 0 means 3.
-	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (revised by W6-40, ADR-0029 Amendment 1 A5.4): attempts that produced a valid assessment
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS: screening claims per media document before it is REJECTED. 0 means 3.
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (revised later, ADR-0029 Amendment 1 A5.4): attempts that produced a valid assessment
 	// (screenAssessed) before the document is REJECTED. 0 means 3.
 	MediaMaxScreenAttempts int
 	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES: claimed attempts with no valid assessment. nil means 5; a pointer because 0 is a valid setting.
@@ -115,7 +115,7 @@ type Deps struct {
 type service struct {
 	Deps
 	vision *visionBudget
-	// flight collapses concurrent FinalizeUpload calls for one media id on this instance (W3-22 M-3, part a); the
+	// flight collapses concurrent FinalizeUpload calls for one media id on this instance (M-3, part a); the
 	// screening claim (part b) covers the other instances.
 	flight singleflight.Group
 	// gifSlot is the GIF screening semaphore (capacity 1): at most one GIF is read and sampled at a time on this instance.
@@ -187,12 +187,12 @@ func storedThumbType(it UploadItem) string {
 func uploadObject(uid, id, ext string) string      { return "u/" + uid + "/" + id + "." + ext }
 func uploadThumbObject(uid, id, ext string) string { return "u/" + uid + "/" + id + "_t." + ext }
 
-// nameSuffixLen is the number of random bytes behind a public object name suffix (128 bits, W3-39).
+// nameSuffixLen is the number of random bytes behind a public object name suffix (128 bits).
 const nameSuffixLen = 16
 
 // newNameSuffix returns 128 bits from crypto/rand as 32 lowercase hex characters. The public bucket is public-read,
 // so a name that can be derived from the media id would let anyone who learns an id fetch an image whose post they
-// may not see (ADR-0025 note W3-36 M-2); the suffix makes new names unguessable. The alphabet has no "_" and no "-",
+// may not see (ADR-0025 note M-2); the suffix makes new names unguessable. The alphabet has no "_" and no "-",
 // so the suffix can never be confused with the id separator or the thumbnail marker.
 func newNameSuffix() (string, error) {
 	var b [nameSuffixLen]byte
@@ -202,7 +202,7 @@ func newNameSuffix() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// publicObject is the public full-size object name: "m/{id}-{suffix}.{ext}", or the pre-W3-39 "m/{id}.{ext}" when
+// publicObject is the public full-size object name: "m/{id}-{suffix}.{ext}", or the earlier "m/{id}.{ext}" when
 // the document has no nameSuffix (old objects keep their names, founder B1).
 func publicObject(id, suffix, ext string) string { return "m/" + id + suffixPart(suffix) + "." + ext }
 
@@ -375,7 +375,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	now := s.Now().UTC()
 	maxFull, maxThumb := capsFor(in.Purpose)
 	limit := s.MediaPerDay
-	if s.isNewAccountAt(createdAt, now) { // zero createdAt is new, as for the units cap (W6-50)
+	if s.isNewAccountAt(createdAt, now) { // zero createdAt is new, as for the units cap
 		limit = s.NewAccountMediaPerDay
 	}
 

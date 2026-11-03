@@ -145,11 +145,11 @@ type Objects interface {
 	// UploadAttrs and UploadHead read an object of the private upload bucket (1 Class B each).
 	UploadAttrs(ctx context.Context, object string) (objstore.Attrs, error)
 	// UploadHead with generation != 0 reads exactly that object generation and answers objstore.ErrGenerationChanged when it is
-	// no longer live (W6-25); 0 reads the live object.
+	// no longer live; 0 reads the live object.
 	UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error)
 	// Publish copies an upload object into the public bucket with a long immutable Cache-Control (1 Class A). The copy is
 	// conditional on the source still being srcGeneration (the generation verify recorded): a replaced object answers
-	// objstore.ErrGenerationChanged and nothing is published (W6-25).
+	// objstore.ErrGenerationChanged and nothing is published.
 	Publish(ctx context.Context, uploadObject string, srcGeneration int64, publicObject, contentType string) error
 	// DeleteUpload and DeletePublic remove an object; a missing object is success (free operations).
 	DeleteUpload(ctx context.Context, object string) error
@@ -218,7 +218,7 @@ type Service interface {
 	// quotas), writes 2 + len(items) (idempotency, quotas, one media doc each); replay: 1 read, 0 writes. GCS: 0.
 	// A BANNER (ADR-0024 D1) is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape; same
 	// reads and writes (2 / 3), and the Server additionally needs profile_extras on for the caller (0 reads when off).
-	// A GIF (ADR-0029 D10, W6-9) is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still
+	// A GIF (ADR-0029 D10) is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still
 	// thumbnail named by UploadItem.ThumbContentType (JPEG or WebP); the Server needs gif on for the caller (0 reads when
 	// off). Same Firestore cost (2 reads / 3 writes; replay 1 / 0), GCS 0 here, the client's 2 PUTs are 2 Class A.
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
@@ -227,10 +227,10 @@ type Service interface {
 	// screening fails or whose finalize race is lost), plus the interceptor read; writes 2*len(items) + 1 (per item one
 	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter).
 	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER, spent by one call per image at a
-	// time (W3-22 M-3): calls on one instance share a single flight and all get its result; across instances a
+	// time (M-3): calls on one instance share a single flight and all get its result; across instances a
 	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
 	// read, before any Vision call.
-	// A GIF (W6-9, W6-10) is screened by sampled frames (ADR-0029 D11): the API reads the whole private object (1 Class B,
+	// A GIF is screened by sampled frames (ADR-0029 D11): the API reads the whole private object (1 Class B,
 	// <= 2 MiB, on top of the 4 attrs and 512-byte head reads of a photo pair), pre-scans it, and sends a 2 x 2 JPEG contact
 	// sheet by bytes plus the thumbnail by URI: always 2 Vision units whatever VISION_SCREEN_THUMB says. Firestore is
 	// unchanged. A GIF the pre-scan or sampler refuses (above GIF_MAX_FRAMES / GIF_MAX_EDGE / GIF_MAX_FRAME_AREA_SUM, a

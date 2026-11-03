@@ -3,7 +3,7 @@
 // this interface only — ADR-0002: "modules depend on each other's api.go interfaces only").
 //
 // Scope: CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle, plus the account
-// lifecycle (P8, ADR-0011): DeleteAccount, RequestAccountExport and GetAccountExport behind
+// lifecycle (ADR-0011): DeleteAccount, RequestAccountExport and GetAccountExport behind
 // FEATURE_ACCOUNT_LIFECYCLE, served by AccountLifecycle (lifecycle*.go) with the deletion orchestrator and export
 // composer that other modules join through StepEraser / ExportSection.
 package identity
@@ -81,10 +81,10 @@ type MeResult struct {
 	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller (ADR-0025 D7, AQ3), capped at
 	// 1,000 by the counter; 0 for every other caller and when the count failed (WARN, never an error).
 	PendingFollowRequestCount int64
-	// UnreadConversationCount is the caller's unread direct-message conversations (ADR-0027 D10, W7-11), capped at 100 by
+	// UnreadConversationCount is the caller's unread direct-message conversations (ADR-0027 D10), capped at 100 by
 	// the counter; 0 when messaging is off for the caller, when no MessageBadge is wired and when the count failed.
 	UnreadConversationCount int64
-	// HomeTabs is the caller's pinned Home tabs in order whose kind's flag is on for the caller (ADR-0030 D6, W5-9). Dangling tabs
+	// HomeTabs is the caller's pinned Home tabs in order whose kind's flag is on for the caller (ADR-0030 D6). Dangling tabs
 	// (list deleted or made private) are kept: GetMe adds no read, the client learns it from GetListTimeline. From the profile
 	// GetMe already read: 0 extra reads.
 	HomeTabs []HomeTab
@@ -97,10 +97,10 @@ type UpdateProfileParams struct {
 	DisplayName    *string
 	Bio            *string
 	// AvatarMediaID: "" removes the avatar; non-empty must reference a READY, caller-owned AVATAR media
-	// item (WithAvatarResolver, P4). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
+	// item (WithAvatarResolver). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
-	// ADR-0024 (W3-6). Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
+	// ADR-0024. Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
 	// for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads; a request that mixes a clear with a set is refused
 	// whole). The exact value "" is a clear and is accepted from any authenticated caller whatever the flag, globally off
 	// included (Amendment 1 A2). nil = unchanged.
@@ -175,7 +175,7 @@ type Repo interface {
 	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
 	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written: 1 read, 0 writes
-	// (W3-22 L-4).
+	// (L-4).
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)
 	// ChangeHandle runs the rename transaction (ADR-0003): reads users/{uid} + handles/{new} (worst case 2
 	// reads, matching the proto doc comment). Every invariant — no-op (identical handle), case-only rename
@@ -197,7 +197,7 @@ type Repo interface {
 	// UnreadNotificationCount runs a count() aggregation on users/{uid}/notifications with
 	// createdAt > since.
 	UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error)
-	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids; ADR-0008 T6). Ids
+	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids; ADR-0008). Ids
 	// with no document are simply absent from the result map (not an error).
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
 }
@@ -218,13 +218,13 @@ type FeatureFlags interface {
 type BlockChecker interface {
 	IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error)
 	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (0 reads on a hit;
-	// ADR-0025 AQ2/AQ6, W3-26b). GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
+	// ADR-0025 AQ2/AQ6). GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
 	// approved follower who keeps the pin.
 	IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error)
 }
 
 // Directory is the batched, cache-first profile lookup other modules use to hydrate list rows (ADR-0008
-// T6/T9: "checks the cache first, then does one GetAll for misses (<= 50)... Reuse getProfileCached and
+// "checks the cache first, then does one GetAll for misses (<= 50)... Reuse getProfileCached and
 // Cache; no second cache"). GetProfiles silently drops uids with no profile or a non-ACTIVE status — callers
 // drop the corresponding row rather than erroring. Forget evicts uid's cached profile and unread count
 // immediately after another module's own commit changed users/{uid} counters (via Counters), so a
@@ -233,7 +233,7 @@ type BlockChecker interface {
 type Directory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
 	// LookupProfiles is GetProfiles that also reports, in missing, the uids whose users/{uid} doc was
-	// confirmed absent by a fresh read in this call (ADR-0008 T27). Non-ACTIVE users (SUSPENDED, DELETING)
+	// confirmed absent by a fresh read in this call (ADR-0008). Non-ACTIVE users (SUSPENDED, DELETING)
 	// appear in neither found nor missing, so a caller can never mistake them for deleted. Same read cost.
 	LookupProfiles(ctx context.Context, uids []string) (found map[string]Profile, missing []string, err error)
 	// ResolveHandles maps lower-case handles to their owning uids for @mention resolution (ADR-0010 D7): at
@@ -310,7 +310,7 @@ type BannerRef struct {
 // (ADR-0024 D1). The service maps it to ERROR_REASON_MEDIA_NOT_READY, like an avatar.
 var ErrBannerNotReady = errors.New("identity: banner media not ready")
 
-// BannerResolver is the consumer-side seam to the media module (ADR-0002), mirroring AvatarResolver. W3-5 adds
+// BannerResolver is the consumer-side seam to the media module (ADR-0002), mirroring AvatarResolver. It uses
 // media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check). 1 Firestore read (the media
 // doc). A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
 type BannerResolver interface {
@@ -336,7 +336,7 @@ type Pins interface {
 }
 
 // ProtectedSet is one instance's copy of privacy/protectedAuthors: the uids whose accounts are protected (ADR-0025 D2,
-// D3). It is an immutable snapshot, so Has and CanSee are map lookups with no I/O. W3-26a implements it.
+// D3). It is an immutable snapshot, so Has and CanSee are map lookups with no I/O.
 type ProtectedSet interface {
 	// Has reports whether uid is a protected account.
 	Has(uid string) bool
@@ -348,7 +348,7 @@ type ProtectedSet interface {
 }
 
 // ProtectedAuthors is the loader of the protected set (ADR-0025 D3), declared here so every consumer depends on this
-// interface only (the Stage 2 sharded set or Memorystore changes no caller). W3-26a implements it: lazy, singleflight,
+// interface only (the Stage 2 sharded set or Memorystore changes no caller). The implementation is lazy, singleflight,
 // at most one read per instance per CACHE_TTL on a detached counter (protected_set_reads), never charged to a caller.
 type ProtectedAuthors interface {
 	// Current returns the instance's copy of the set. A missing doc is an empty set. When a refresh fails it keeps the
@@ -357,7 +357,7 @@ type ProtectedAuthors interface {
 	Current(ctx context.Context) (ProtectedSet, error)
 }
 
-// ProtectedAuthorsCached is the optional second face of a ProtectedAuthors loader (W3-36 L-4): the copy the instance
+// ProtectedAuthorsCached is the optional second face of a ProtectedAuthors loader (L-4): the copy the instance
 // already holds, with no refresh, no log and no read. posts.Audience.ProtectedAuthor type-asserts it for the viewer's
 // own and followed authors; a loader without it (a test fake) is asked through Current as before. Staleness: CACHE_TTL.
 type ProtectedAuthorsCached interface {
@@ -366,7 +366,7 @@ type ProtectedAuthorsCached interface {
 
 // PrivacyListener is told by identity, after the commit, that an account stopped being protected (ADR-0025 D8, AQ1).
 // graph owns the privacy_public job that accepts the pending requests; apiserver adapts this to its publish (the
-// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since W3-28b). identity calls it
+// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since then). identity calls it
 // with a detached, short-deadline context; an error is ERROR privacy_public_enqueue_failed and never fails the toggle.
 type PrivacyListener interface {
 	BecamePublic(ctx context.Context, uid string, at time.Time) error
@@ -383,8 +383,8 @@ type FollowRequestCounter interface {
 // messaging, so GetMe reads the per-caller answer from the enabled_features list it already computed (0 reads).
 const MessagingFlag = "messaging"
 
-// MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (ADR-0027 D10,
-// W7-11; the BlockChecker / PinChecker pattern, so identity never imports messaging). messaging implements it with a
+// MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (ADR-0027 D10,;
+// the BlockChecker / PinChecker pattern, so identity never imports messaging). messaging implements it with a
 // count() of users/{uid}/dmInbox where unreadCount > 0, Limit 100: 1 read (minimum 1). Requests do not count. identity
 // caches the answer 30 s per uid and calls it only for a caller with messaging on. A nil MessageBadge
 // (WithMessageBadge not called) leaves the count 0.

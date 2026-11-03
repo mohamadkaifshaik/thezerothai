@@ -30,7 +30,7 @@ type BlockResult struct {
 	RequestsGone         int // pending follow requests deleted: caller -> target and target -> caller (ADR-0025 D7), 0 to 2
 }
 
-// Block runs the whole Block transaction (ADR-0008 T8/D2/D9). Reads: caller graph + target graph + quotas
+// Block runs the whole Block transaction (ADR-0008/D2/D9). Reads: caller graph + target graph + quotas
 // (3, always — the target graph doubles as the "unknown user" existence check, ADR-0008 D9). Writes on a
 // real block: caller graph, target graph, quotas, plus up to 2 combined-per-doc counter updates (worst 5);
 // deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes. ADR-0025 D7: a pending
@@ -178,7 +178,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 	return result, nil
 }
 
-// Unblock (ADR-0008 T8/D9): fresh read of the caller graph; not blocking => 0 writes. Never quota-gated.
+// Unblock (ADR-0008/D9): fresh read of the caller graph; not blocking => 0 writes. Never quota-gated.
 // Does not restore follows (so FollowState is always NONE on success — a block always removed any prior
 // edge in both directions, and Unblock never restores it). Reads 1, writes 2 (0 on no-op).
 func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
@@ -215,7 +215,7 @@ func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string
 	return rel, changed, nil
 }
 
-// Mute (ADR-0008 T8/D9, A1): transaction reads caller graph, then target graph (existence only), then quotas;
+// Mute (ADR-0008/D9, A1): transaction reads caller graph, then target graph (existence only), then quotas;
 // writes caller graph (muted +=) + quota reservation. Same rule and order as Block: a target with no
 // graph/{target} doc => ErrNotFoundOrBlocked (NOT_FOUND) before the quota read, 0 writes. The target doc's
 // CONTENT is never inspected (in particular not blockedBy), so muting someone who blocked you is OK and
@@ -274,7 +274,7 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 	return rel, outcome, nil
 }
 
-// Unmute (ADR-0008 T8/D9): fresh read of the caller graph; not muting => 0 writes. Never quota-gated.
+// Unmute (ADR-0008/D9): fresh read of the caller graph; not muting => 0 writes. Never quota-gated.
 // Reads 1, writes 1 (0 on no-op).
 func (r *FirestoreRepo) Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
 	var rel Relationship

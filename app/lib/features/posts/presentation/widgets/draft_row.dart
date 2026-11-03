@@ -4,7 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../domain/composer_draft.dart';
 
-/// One unsent post in the Drafts list (W6-15): the text (up to 3 lines), then
+/// One unsent post in the Drafts list: the text (up to 3 lines), then
 /// a muted line with a Poll badge when it has one and how long ago it was last
 /// edited. No avatar. In Edit mode ([editing]) a checkbox sits at the start and
 /// a tap selects instead of opening.

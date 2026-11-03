@@ -37,7 +37,7 @@ class _MemoryThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// The "Messages" entry of Settings (W7-19): the legacy chrome (no
+/// The "Messages" entry of Settings: the legacy chrome (no
 /// `ui_shell`) has no Messages tab, so Settings carries the only entry. The
 /// new shell has the bar / rail destination and no Settings row.
 void main() {

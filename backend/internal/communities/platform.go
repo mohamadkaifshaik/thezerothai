@@ -1,4 +1,4 @@
-// platform.go is the platform's side of communities (ADR-0031 D14, W5-29): the writes behind `opsctl community suspend|restore|archive`
+// platform.go is the platform's side of communities (ADR-0031 D14): the writes behind `opsctl community suspend|restore|archive`
 // and the removal-log appends of `opsctl takedown-post` and `suspend-user`. They run in the operator's process, never in the API, so they
 // touch no instance cache: a serving instance converges within the 60 s community cache (D12). Every write is a field-level Update inside a
 // transaction (never a Set), so a community deleted meanwhile is never recreated. The methods need only the Firestore client: opsctl

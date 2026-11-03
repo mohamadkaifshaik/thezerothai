@@ -11,7 +11,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../support/shells_harness.dart';
 import '../../support/theme_harness.dart';
 
-/// W8-8: the "0 RPCs, 0 reads" claim of the plan's Cost section.
+/// The "0 RPCs, 0 reads" claim of the plan's Cost section.
 ///
 /// The harness (`pumpShellsApp`) provides **no repository, no `ApiClient` and
 /// no generated client** above the real router, so a page that read one would

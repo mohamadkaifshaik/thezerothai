@@ -7,7 +7,7 @@ import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 /// [error] the call failed and there is nothing to show.
 enum CommunitiesLoad { loading, ready, error }
 
-/// The `/communities` screen (W5-31). My Communities and the directory load
+/// The `/communities` screen. My Communities and the directory load
 /// and fail independently: the directory RPC (ListCommunities) may be missing
 /// on the deployed server while ListMyCommunities works, and the reverse.
 @immutable

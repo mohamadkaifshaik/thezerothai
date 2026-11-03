@@ -35,7 +35,7 @@ class _MockGraph extends Mock implements GraphRepository {}
 
 const _id = '1000000000000000077';
 
-/// W5-34: the "Post" entry in the community page header opens the composer on
+/// The "Post" entry in the community page header opens the composer on
 /// this community, only for someone who may post there.
 void main() {
   final feed = FeedKey.community(_id);

@@ -33,7 +33,7 @@ import 'compose_gate.dart';
 /// The navigation chrome around the authenticated top-level destinations.
 ///
 /// With the `ui_shell` flag on (decision D3): Home, Notifications (flag),
-/// Messages (`messaging`, W7-19) and the own Profile in the bottom bar / rail;
+/// Messages (`messaging`) and the own Profile in the bottom bar / rail;
 /// Settings and Sign out live in the avatar drawer (phones) and the account
 /// chip menu (wide screens), like X. With it off: the legacy chrome, Settings
 /// as a fourth destination (and the Messages entry inside it), no drawer, no
@@ -48,8 +48,8 @@ class MainShell extends StatelessWidget {
   final Widget child;
 
   /// The destinations, in order. Notifications sits second and exists only
-  /// with the `notifications` flag on (P6). Messages follows it, with
-  /// `messaging` and the new shell (W7-19, F10).
+  /// with the `notifications` flag on. Messages follows it, with
+  /// `messaging` and the new shell (F10).
   static List<_Destination> _destinationsFor({
     required bool explore,
     required bool notifications,
@@ -211,7 +211,7 @@ class MainShell extends StatelessWidget {
     final unread = notificationsEnabled
         ? context.select((UnreadBadgeCubit cubit) => cubit.state)
         : 0;
-    // Messages (W7-19): the new shell with `messaging` on for the caller. The
+    // Messages: the new shell with `messaging` on for the caller. The
     // legacy chrome has an entry in Settings instead. The badge cubit is read
     // only when the tab exists.
     final messagesEnabled =
@@ -225,7 +225,7 @@ class MainShell extends StatelessWidget {
         newShell &&
         isFeatureEnabled(context, kFeatureBookmarks) &&
         isFeatureEnabled(context, kFeaturePosts);
-    // Explore (W4-17): the new shell with `search` on, second after Home.
+    // Explore: the new shell with `search` on, second after Home.
     final exploreEntry = newShell && isFeatureEnabled(context, kFeatureSearch);
     final shellEntries = shellEntriesFor(context);
     final tabs = _destinationsFor(
@@ -289,16 +289,16 @@ class MainShell extends StatelessWidget {
           ? (extended) => AppAccountChip(extended: extended)
           : null,
       sideColumn: AppSideColumn(
-        // The search pill (W4-18): the new shell with `search` on, except on
+        // The search pill: the new shell with `search` on, except on
         // Explore, where the pill is in the centre header.
         header: exploreEntry && !location.startsWith(AppRouter.explorePath)
             ? const AppSearchField()
             : null,
-        // "You might like" (W3-19): the new shell, `graph` and
+        // "You might like": the new shell, `graph` and
         // `follow_suggestions` all on. The card draws nothing until the shared
         // list has rows, so the column is unchanged otherwise.
         sections: [
-          // "What's happening" (W4-18): the top 5 trends; draws nothing unless
+          // "What's happening": the top 5 trends; draws nothing unless
           // `search` + `trends` are on and the shared list has rows.
           if (exploreEntry) const WhatsHappeningCard(),
           if (newShell && isFollowSuggestionsEnabled(context))

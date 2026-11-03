@@ -1,4 +1,4 @@
-// relationship.go is GetProfileRelationship (ADR-0024 D7, ticket W3-11): the profile header's one graph call. It is
+// relationship.go is GetProfileRelationship (ADR-0024 D7): the profile header's one graph call. It is
 // the caller's Relationship to ONE user, computed from the cached caller snapshot exactly as GetRelationships does,
 // plus followed_by ("Follows you"): whether follows/{target}_{caller} exists. That edge is the only extra read, and
 // it is cached per pair in graph.Cache (see Cache.Edge for the staleness bound).

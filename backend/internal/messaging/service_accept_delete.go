@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line kinds of AcceptMessageRequest and DeleteConversation (ADR-0027 D11, plan W7-9). The line also carries
+// Request-line kinds of AcceptMessageRequest and DeleteConversation (ADR-0027 D11). The line also carries
 // conversation_hash, state, replay, folder (delete), refused_reason and the fs_reads / fs_writes / fs_deletes the logging
 // interceptor adds: never a uid, a conversation id, a snippet or text.
 const (
@@ -19,7 +19,7 @@ const (
 	kindDelete = "delete"
 )
 
-// Accept implements Service.Accept (ADR-0027 D4, D6, D11; plan W7-9).
+// Accept implements Service.Accept (ADR-0027 D4, D6, D11).
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient, the other participant (CANNOT_MESSAGE, the same
 // bytes as a block; evaluated without a read, inside the transaction, only when something would be written). A malformed
@@ -33,10 +33,10 @@ const (
 // read, so they answer CANNOT_MESSAGE even for a deleted request. An already ACCEPTED conversation is success with nothing
 // written. After a commit the instance's conversation cache is replaced from the written data (the
 // state is not trusted from a cache by Send, but ListMessages reads it) and the caller's badge cache is evicted: the
-// entry's unreadCount now counts in the Inbox badge (Deps.Badge, W7-11; nil until then). Nothing is emitted.
+// entry's unreadCount now counts in the Inbox badge (Deps.Badge; nil until then). Nothing is emitted.
 //
 // Worst-case Firestore cost (budget.Counter, the account-status interceptor read counted as the proto comment does):
-//   - accept: reads 4 (interceptor 1, conversation 1, request entry 1, the requester's entry 1, W7-25), planning 3.5; writes 3
+//   - accept: reads 4 (interceptor 1, conversation 1, request entry 1, the requester's entry 1), planning 3.5; writes 3
 //     (conversation state, dmInbox entry, the requester's entry with requestPending cleared; 2 when the requester deleted
 //     that entry, which is never recreated); deletes 1 (dmRequests entry)
 //   - already accepted: reads 2 (the requester's entry is not read), writes 0; unknown id, non-participant or the requester: NOT_FOUND after 2 reads
@@ -73,7 +73,7 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 	return &messagingv1.AcceptMessageRequestResponse{}, nil
 }
 
-// Delete implements Service.Delete (ADR-0027 D1, D14; plan W7-9): "delete for me", also "delete request".
+// Delete implements Service.Delete (ADR-0027 D1, D14): "delete for me", also "delete request".
 //
 // Flag: not globally off (a user dropped from the allowlist can still clean up). A malformed idempotency_key or
 // conversation_id is VALIDATION with 0 reads.
@@ -92,7 +92,7 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 //
 // This instance's conversation cache is replaced from the written data, so clearedAt takes effect here at once; other
 // instances converge within the cache TTL, 60 s (D14). The caller's badge cache is evicted when an entry was deleted
-// (its unread count leaves the Inbox badge; Deps.Badge, W7-11, nil until then).
+// (its unread count leaves the Inbox badge; Deps.Badge, nil until then).
 //
 // Worst-case Firestore cost (budget.Counter, interceptor counted as the proto comment does):
 //   - delete: reads 3 (interceptor 1, conversation 1, the caller's entry 1), planning 2.5; writes 1 (clearedAt and clearedKey

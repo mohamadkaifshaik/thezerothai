@@ -2,8 +2,8 @@
 
 package apiserver
 
-// W6-36 (ADR-0029 Amendment 1 A1 and A2): the voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
-// Names start with TestW636_ so one -run regex selects them; the flipped W6-17 tests keep their names.
+// ADR-0029 Amendment 1 A1 and A2: the voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
+// Names start with TestW636_ so one -run regex selects them; the flipped tests keep their names.
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// TestW617_ConcurrencyManyVotersRacingThemselves is two cases since W6-36: expected_choice 0 keeps the one-vote rule of W6-17, and with the stored
+// TestW617_ConcurrencyManyVotersRacingThemselves is two cases since then: expected_choice 0 keeps the one-vote rule, and with the stored
 // choice one of two racing changes wins.
 func TestW617_ConcurrencyManyVotersRacingThemselves(t *testing.T) {
 	t.Run("expected_choice 0: one vote per voter, the other calls replay or ALREADY_VOTED", w617ConcurrencyArmA)
@@ -284,7 +284,7 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 }
 
 // onePollEntry reports whether a userLikes.pollVotes value holds exactly one entry, for postID with choice, in the three-part form
-// "<postId>:<choice>:<closesAtUnix>" (W6-29).
+// "<postId>:<choice>:<closesAtUnix>".
 func onePollEntry(got any, postID string, choice int64) bool {
 	list, ok := got.([]any)
 	if !ok || len(list) != 1 {

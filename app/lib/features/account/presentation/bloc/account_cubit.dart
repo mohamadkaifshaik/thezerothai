@@ -136,7 +136,7 @@ class AccountCubit extends Cubit<AccountState> {
           revokeApple: true,
         );
       } on ProfileRequiredException catch (e) {
-        // P8 L-5: no profile (or the identity gate refused an unverified
+        // L-5: no profile (or the identity gate refused an unverified
         // caller), so the server has nothing to delete. Only the explicit
         // server reason qualifies, never a code-only FAILED_PRECONDITION.
         if (!e.fromServerReason || _stale(generation)) rethrow;

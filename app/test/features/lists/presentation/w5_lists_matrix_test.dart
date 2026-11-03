@@ -41,7 +41,7 @@ const _names = <String>[
 
 final _description100 = '${'x' * 40} \u{1F600}שלום ${'y' * 40}';
 
-/// W5-16: the cells the developers' matrices left open for the Lists screens:
+/// The cells the developers' matrices left open for the Lists screens:
 /// every state (empty, error, disabled, capped, editor, edit with Delete,
 /// unavailable, header variants) at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0, with long, emoji, RTL and zero-width names.

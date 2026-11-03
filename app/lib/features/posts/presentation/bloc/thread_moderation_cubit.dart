@@ -20,8 +20,8 @@ class ThreadModerationState {
   bool get canModerate => role?.canModerate ?? false;
 }
 
-/// The caller's moderation rights in the community of an open thread (W5-51c,
-/// ADR-0031 D4a and R3). The role is the server's `viewer_role` from the
+/// The caller's moderation rights in the community of an open thread
+/// (ADR-0031 D4a and R3). The role is the server's `viewer_role` from the
 /// session-cached ListMyCommunities, never inferred; a null repository (the
 /// `communities` flag is off) resolves nothing. Hide and restore go through
 /// [CommunityModerationCubit] (one idempotency key per reply until it

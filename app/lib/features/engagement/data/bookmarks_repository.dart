@@ -74,7 +74,7 @@ class _Rec {
 }
 
 /// The client's one source of "is this post bookmarked" and the only caller
-/// of AddBookmark / RemoveBookmark (ADR-0023, plan W2-6 / W2-7). Widgets
+/// of AddBookmark / RemoveBookmark (ADR-0023, /). Widgets
 /// never ask it directly: `BookmarksCubit` mirrors it.
 ///
 /// - **Overlay.** Per post, a [BookmarkEntry]: the session's toggles plus the
@@ -175,7 +175,7 @@ class BookmarksRepository {
     return _generation;
   }
 
-  /// One page of the caller's bookmarks (`ListBookmarks`, W2-4): the live
+  /// One page of the caller's bookmarks (`ListBookmarks`): the live
   /// posts, newest bookmark first. Pass the previous page's
   /// `next_page_token` for the next one; a page can be short, or empty, while
   /// the token is not (the server drops hidden and blocked rows), so only an

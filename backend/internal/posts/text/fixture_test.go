@@ -104,7 +104,7 @@ func TestSharedFixture_Normalise(t *testing.T) {
 	}
 }
 
-// TestURLSpanAcceptance covers the T6 D21 delta criteria beyond the fixture rows.
+// TestURLSpanAcceptance covers the D21 delta criteria beyond the fixture rows.
 func TestURLSpanAcceptance(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

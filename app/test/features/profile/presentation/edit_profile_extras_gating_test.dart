@@ -13,7 +13,7 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// Edit profile's `profile_extras` gating and layout (W3-15): without the
+/// Edit profile's `profile_extras` gating and layout: without the
 /// flag nothing can be set (a saved value is only removable, see
 /// `edit_profile_clear_only_test.dart`); with it the banner, location and
 /// website show at 360/600/1200 dp, light and dark, without overflow.

@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// L-1 (W5-45): a missing id is remembered for the TTL, so a repeat probe is 0 reads; a write that creates the list on this
+// L-1: a missing id is remembered for the TTL, so a repeat probe is 0 reads; a write that creates the list on this
 // instance (cache.put) makes it visible to its owner at once; other errors are never remembered.
 func TestLoadList_NegativeCache(t *testing.T) {
 	t.Parallel()

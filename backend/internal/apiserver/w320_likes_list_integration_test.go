@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-20: ListLikedPosts (ADR-0024 D6) over the real Build chain on the emulators. The cells the W3-10 chain tests
+// ListLikedPosts (ADR-0024 D6) over the real Build chain on the emulators. The cells the chain tests
 // (engagement_likes_list_integration_test.go) leave empty:
 //   - the ADR-0010 D6 drop matrix with EMBEDDED authors: a QUOTE and a REPOST whose embedded author the viewer blocks,
 //     who blocks the viewer, or whom the viewer mutes are dropped (counted under the right cause), the copy of an
@@ -13,7 +13,7 @@ package apiserver
 //   - forged tokens: expired, wrong version, negative index, non-post anchors, a token of the same kind sealed for
 //     another uid, a token that is good for its owner;
 //   - owner-only: two users with overlapping likes each get only their own, in their own order.
-// The exact budgets (23 / 53 / 2) are asserted by the W3-10 file and are measured again in the W3-20 budget table.
+// The exact budgets (23 / 53 / 2) are asserted by the file and are measured again in the budget table.
 
 import (
 	"context"
@@ -43,11 +43,11 @@ func w320LikesChain(c *config.Config) {
 }
 
 // w320LikesRepeatsAfterLastGoneAndNextRelike is a finding of this ticket (defect D-1 of the W3 test report),
-// not a W3-22 item. Pre-fix (true): when the last returned row is unliked AND the next row is unliked and liked again
+// not a item. Pre-fix (true): when the last returned row is unliked AND the next row is unliked and liked again
 // between two pages, the resume rule 1 of ADR-0024 D6 ("Next, when it is in recent and Last is gone: resume at it") puts
 // the re-liked Next at the NEWEST end, so the walk restarts from the top and repeats every row of the earlier pages -
 // more than "the rows changed in that window" the ADR promises. After a fix (false): the repeat stays within the changed
-// rows. The client dedupes by post id (W3-18), so the cost is wasted reads, not a visible duplicate.
+// rows. The client dedupes by post id, so the cost is wasted reads, not a visible duplicate.
 const w320LikesRepeatsAfterLastGoneAndNextRelike = true
 
 func (e *bmChain) w320Walk(t *testing.T, u bmUser, size int32, token string) (rows []string, tokens int) {

@@ -52,7 +52,7 @@ func graphEraserStep(e graph.Eraser) identity.StepEraser {
 	return eraserStep[graph.Checkpoint]{name: "graph", purge: e.PurgeUser}
 }
 
-// mediaEraserStep is the media step (step "media", P4): it runs after posts and graph and before identity.
+// mediaEraserStep is the media step (step "media"): it runs after posts and graph and before identity.
 func mediaEraserStep(p *media.Purger) identity.StepEraser {
 	return eraserStep[media.Checkpoint]{name: "media", purge: p.PurgeUser}
 }
@@ -104,7 +104,7 @@ func (s notificationsSection) WriteSection(ctx context.Context, uid string, w io
 }
 
 // registerLifecycleModules registers every module's Eraser and export section on l, in the ADR-0011 Q1 order.
-// Later slices (engagement P5, reports P7) add their lines here, before the identity step, which Lifecycle
+// Later slices (engagement, reports) add their lines here, before the identity step, which Lifecycle
 // always runs last.
 func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger, notifRepo *notifications.FirestoreRepo) error {
 	for _, e := range []identity.StepEraser{postsEraserStep(postsRepo), graphEraserStep(graphRepo), mediaEraserStep(mediaPurger), notificationsEraserStep(notifRepo)} {

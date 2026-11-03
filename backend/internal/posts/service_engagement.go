@@ -1,4 +1,4 @@
-// service_engagement.go is posts' side of engagement (P5, ADR-0018): the quote path of CreatePost, the release of
+// service_engagement.go is posts' side of engagement (ADR-0018): the quote path of CreatePost, the release of
 // a deleted REPOST/QUOTE's counters, and the Engagement seam the engagement module consumes.
 package posts
 

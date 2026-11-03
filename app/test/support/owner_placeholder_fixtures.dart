@@ -6,7 +6,7 @@ import 'package:fixnum/fixnum.dart';
 import 'posts_fixtures.dart';
 
 /// What the server sends for the caller's own REPOST of a protected author's
-/// post they can no longer see, on their own profile (W3-41a): the REPOST row
+/// post they can no longer see, on their own profile: the REPOST row
 /// with `embed_viewer_state = PROTECTED`, `reposted_by_viewer = true`,
 /// `viewer_reply_permission = UNKNOWN` and the embed reduced to the original's
 /// `post_id` plus its author. [leak] adds the copied text a hostile or older
@@ -45,8 +45,8 @@ pb.PostView ownProtectedRepostView({
   embedViewerState: pb.EmbedViewerState.EMBED_VIEWER_STATE_PROTECTED,
 );
 
-/// A row of the caller's own Likes or Bookmarks that the server withheld
-/// (W3-41a): the post stripped to `post_id`, `kind` and the author snapshot,
+/// A row of the caller's own Likes or Bookmarks that the server withheld:
+/// the post stripped to `post_id`, `kind` and the author snapshot,
 /// `withheld = true`, and the viewer flag of the list still true. [leak] adds
 /// what a hostile or older server could still send (text, a photo, hashtags,
 /// counts), to prove a withheld row shows none of it.

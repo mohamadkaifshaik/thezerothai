@@ -158,7 +158,7 @@ func TestPostGate_AllowPost(t *testing.T) {
 	}
 }
 
-// W5-26b: the members-only reply rule over the real service (its 60 s member cache) and over a Reader that cannot answer a member lookup alone.
+// The members-only reply rule over the real service (its 60 s member cache) and over a Reader that cannot answer a member lookup alone.
 func TestPostGate_CanReply(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// protectIn wires a fake protected set holding uids into a real-Firestore instance (the W3-26a loader is built in
+// protectIn wires a fake protected set holding uids into a real-Firestore instance (the loader is built in
 // parallel; the stored posts.visibility stays PUBLIC either way).
 func (in *createInstance) protectIn(uids ...string) *fakeProtected {
 	f := &fakeProtected{set: fakeSet{}}
@@ -30,7 +30,7 @@ func (in *createInstance) protectIn(uids ...string) *fakeProtected {
 	return f
 }
 
-// TestAudience_Integration_GetPostQuoteAndRefusals (W3-29a): over real Firestore, GetPost of a protected author's post
+// TestAudience_Integration_GetPostQuoteAndRefusals: over real Firestore, GetPost of a protected author's post
 // is byte-identical to a deleted post at the unchanged 3 cold reads (4 per request with the interceptor); a follower
 // reads it at the same cost; quoting it is NOT_FOUND for a stranger and PROTECTED_ACCOUNT for a follower, 0 writes; a
 // quote made while the author was public is stripped for an unapproved viewer; and the stored doc stays PUBLIC.

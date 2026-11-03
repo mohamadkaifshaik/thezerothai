@@ -29,7 +29,7 @@ class _FakeLauncher extends UrlLauncherPlatform {
 const _address = 'comingsoon@dzeroth.com';
 const _mailto = 'mailto:$_address?subject=Advertising%20enquiry';
 
-/// W8-6: the Advertise page. The contact affordance exists only while
+/// The Advertise page. The contact affordance exists only while
 /// [kAdvertisingContactEmail] is set (it ships `null`, plan F4).
 void main() {
   void useAddress(String? address) {

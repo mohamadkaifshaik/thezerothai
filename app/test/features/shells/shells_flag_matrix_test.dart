@@ -13,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../support/shells_harness.dart';
 import '../../support/theme_harness.dart';
 
-/// W8-8: the flag-off and visibility matrix at 360 / 600 / 1200 dp on the real
+/// The flag-off and visibility matrix at 360 / 600 / 1200 dp on the real
 /// router. Complements the per-ticket tests (`shell_navigation_test`,
 /// `app_router_shells_test`), which run one width for the redirects.
 void main() {

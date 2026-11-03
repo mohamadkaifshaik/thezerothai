@@ -28,7 +28,7 @@ enum ReportOutcome {
   blockRequested,
 }
 
-/// Opens the report sheet for one post or account (ADR-0016, P7).
+/// Opens the report sheet for one post or account (ADR-0016).
 ///
 /// [subject] is the sentence fragment shown in the title ("@alice's post",
 /// "@alice"). [offerBlock] adds a "Block" action after a successful report;
@@ -104,10 +104,10 @@ class ReportSheet extends StatelessWidget {
   /// generic one.
   final String? notFoundMessage;
 
-  /// Shown under "Something else" while it is selected (W6-43), or null.
+  /// Shown under "Something else" while it is selected, or null.
   final String? otherReasonNote;
 
-  /// One more sentence under the intro (W7-18: what a reported message shares).
+  /// One more sentence under the intro (what a reported message shares).
   final String? detail;
 
   /// Label of the block follow-up ("Block @alice"); null hides it.

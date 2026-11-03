@@ -128,7 +128,7 @@ func (e *itEnv) runEraserFor(uid string) (calls int, total *budget.Counter) {
 
 // The thread, inbox, requests, badge count() and eraser queries, run on the emulator against collections that hold
 // nothing but the automatic single-field indexes (no composite index is deployed for them: firestore.indexes.json
-// carries only the six fieldOverrides of W7-3). The Firestore emulator does NOT enforce indexes, so this proves the
+// carries only the six fieldOverrides). The Firestore emulator does NOT enforce indexes, so this proves the
 // queries run; that each is served by an automatic index is by construction, per query:
 //   - thread, thread since, export: `createdAt DESC, __name__ DESC` (+ `createdAt >`) on one field: the descending
 //     single-field index of createdAt, which carries __name__ descending (the precedent is pageBookmarks);

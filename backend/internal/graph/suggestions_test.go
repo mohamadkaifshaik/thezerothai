@@ -21,7 +21,7 @@ func w3Ctx(uid string) context.Context {
 }
 
 // w3Server builds a Server over a service with NO repo, cache or directory: any Firestore access (or any code past the
-// flag gate that touches them) would panic, which proves the W3-4 gate reads nothing.
+// flag gate that touches them) would panic, which proves the gate reads nothing.
 func w3Server(specs ...flags.Spec) *Server {
 	return NewServer(New(Deps{Flags: flags.NewRegistry(specs...)}))
 }

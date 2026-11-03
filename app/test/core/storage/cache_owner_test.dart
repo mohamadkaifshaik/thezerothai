@@ -2,7 +2,7 @@ import 'package:drift/native.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// W7-35 (L-4): the cache says whose it is, and a different or missing owner
+/// L-4: the cache says whose it is, and a different or missing owner
 /// is wiped before anything reads it.
 void main() {
   late AppDatabase database;

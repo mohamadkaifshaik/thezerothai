@@ -35,7 +35,7 @@ PollDisplay _display(
   changeLimitReached: limit,
 );
 
-/// W6-37 (ADR-0029 Amendment 1 A2.8): the poll card after a vote.
+/// ADR-0029 Amendment 1 A2.8: the poll card after a vote.
 void main() {
   final cases = <String, PollDisplay Function()>{
     'voted, Change vote offered': () => _display(_results(), viewerChoice: 1),

@@ -20,7 +20,7 @@ class _MockModeration extends Mock implements ModerationRepository {}
 
 class _MockLists extends Mock implements ListsRepository {}
 
-/// W5-13: "Add or remove from Lists" and "View Lists" in the profile overflow
+/// "Add or remove from Lists" and "View Lists" in the profile overflow
 /// menu of another user, behind the `lists` flag.
 void main() {
   late _MockLists lists;
@@ -195,7 +195,7 @@ void main() {
     });
   }
 
-  // W5-42: a protected profile the viewer does not follow hides "View Lists".
+  // A protected profile the viewer does not follow hides "View Lists".
   group('protected profile (W5-42)', () {
     testWidgets('not followed: no View Lists, Add stays', (tester) async {
       await header(tester, protected: true);

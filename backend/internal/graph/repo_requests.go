@@ -1,6 +1,6 @@
-// repo_requests.go is the Firestore side of RespondToFollowRequest and the request count (ADR-0025 D7, W3-28a). The accept
+// repo_requests.go is the Firestore side of RespondToFollowRequest and the request count (ADR-0025 D7). The accept
 // is written once, as small pure pieces (classifyAccept, queueAccept, queueDecline) that take already-read inputs and only
-// queue writes on a store.Batch, so the privacy_public job (W3-28b, ADR-0025 AQ1) can run them for a page of requests in
+// queue writes on a store.Batch, so the privacy_public job (ADR-0025 AQ1) can run them for a page of requests in
 // its own transaction after reading the whole page first (Firestore wants every read before the first write).
 package graph
 

@@ -64,7 +64,7 @@ func (s *Server) GetListTimeline(ctx context.Context, req *connect.Request[timel
 		return nil, apierr.New(connect.CodeUnauthenticated, 0, "unauthenticated")
 	}
 	if s.deps.Lists == nil {
-		// A process that does not wire lists keeps the route's pre-W5-8 answer.
+		// A process that does not wire lists keeps the route's earlier answer.
 		return nil, connect.NewError(connect.CodeUnimplemented, errors.New("timeline.v1.TimelineService.GetListTimeline is not implemented"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)

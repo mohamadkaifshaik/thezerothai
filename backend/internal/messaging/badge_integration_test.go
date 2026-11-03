@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W7-11 on the emulator: count() of dmInbox where unreadCount > 0, Limit 100, 1 read; 3 -> 3, 150 -> 100, requests and
+// on the emulator: count of dmInbox where unreadCount > 0, Limit 100, 1 read; 3 -> 3, 150 -> 100, requests and
 // read entries never count.
 func TestIntegration_UnreadConversationsCount(t *testing.T) {
 	e := newIT(t, nil)

@@ -20,9 +20,9 @@ import (
 
 const (
 	// communitiesCollection, membersSubcollection and membershipsCollection are the collections this module owns (ADR-0031 D1, D2).
-	// Only communities.FirestoreRepo touches them. Each has a T11 row (apiserver/lifecycle_collections_guard_test.go), the
-	// `communities` eraser step and the `communities` export section (W5-24). The subcollection is named communityMembers, not
-	// members: the T11 name scan and the residue sweep key on the collection id (D2).
+	// Only communities.FirestoreRepo touches them. Each has a row (apiserver/lifecycle_collections_guard_test.go), the
+	// `communities` eraser step and the `communities` export section. The subcollection is named communityMembers, not
+	// members: the name scan and the residue sweep key on the collection id (D2).
 	communitiesCollection   = "communities"
 	membersSubcollection    = "communityMembers"
 	membershipsCollection   = "communityMemberships"
@@ -58,7 +58,7 @@ type removalDoc struct {
 }
 
 // communityDoc is communities/{cid} (ADR-0031 D2). Every array is written as an array, never null. removalsTruncatedAt is absent
-// until a cap first drops an entry (W5-28).
+// until a cap first drops an entry.
 type communityDoc struct {
 	Name                string       `firestore:"name"`
 	Description         string       `firestore:"description"`

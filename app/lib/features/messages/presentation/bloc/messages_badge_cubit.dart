@@ -11,7 +11,7 @@ int unreadConversationsIn(Iterable<pb.Conversation> rows) => rows
     .length;
 
 /// App-wide count of conversations with unread messages, behind the Messages
-/// navigation badge (W7-19, ADR-0027 D10). Its own cubit: a message push never
+/// navigation badge (ADR-0027 D10). Its own cubit: a message push never
 /// touches `UnreadBadgeCubit`, which counts notification rows.
 ///
 /// - Seeded from `GetMe.unread_conversation_count` (0 extra reads; capped at

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/compose_audience.dart';
 
-/// The audience pill of the composer (W5-34, `composer.md` §2): "Everyone ▾"
+/// The audience pill of the composer (`composer.md` §2): "Everyone ▾"
 /// or the community's name, in the accent colour with a 1dp accent outline.
 /// A 48dp-high tap target around a 32dp pill; opens "Choose audience". Spoken
 /// as one button: "Choose audience, <label>". A long community name ends in an

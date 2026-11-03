@@ -139,7 +139,7 @@ void main() {
     expect(reported, hasLength(1));
   });
 
-  // --- W7-26: access mode and the probe -------------------------------------
+  // ---: access mode and the probe -------------------------------------
   group("access and probe", () {
     var cached = true;
     var refreshes = 0;

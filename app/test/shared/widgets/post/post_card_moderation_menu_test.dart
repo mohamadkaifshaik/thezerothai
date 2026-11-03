@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/posts_fixtures.dart';
 
-/// W5-35: "Remove from Community" in a post's overflow menu. The card reads no
+/// "Remove from Community" in a post's overflow menu. The card reads no
 /// provider: the community screen hands it a [PostModerationControl] only when
 /// the server says the viewer moderates.
 void main() {

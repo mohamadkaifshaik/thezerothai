@@ -13,7 +13,7 @@ import '../../../../support/scheduled_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// The Scheduled list's logic (CMP-D6): paging, refresh, banner vs error, and
+/// The Scheduled list's logic: paging, refresh, banner vs error, and
 /// the optimistic Cancel / Dismiss with rollback.
 void main() {
   late _MockPostsRepository repo;

@@ -298,7 +298,7 @@ func TestSend_EventsAndBadge(t *testing.T) {
 	}
 }
 
-// A nil Events and a nil Badge are a valid wiring (W7-10 and W7-11 have not landed yet).
+// A nil Events and a nil Badge are a valid wiring (have not landed yet).
 func TestSend_NilSeamsAreSkipped(t *testing.T) {
 	r := newRig(t, nil)
 	r.svc.d.Events, r.svc.d.Badge = nil, nil
@@ -548,7 +548,7 @@ func TestSend_NotConfigured(t *testing.T) {
 	}
 }
 
-// W7-33 (L-1, L-3): the recipient's users doc is read through the transaction for a new conversation only (replacing the
+// L-1, L-3: the recipient's users doc is read through the transaction for a new conversation only (replacing the
 // old Forget plus directory lookup), and the recipient's graph through the transaction for every send, never the cache.
 func TestSend_RecipientReadsAreInTheTransaction(t *testing.T) {
 	tests := []struct {
@@ -580,7 +580,7 @@ func TestSend_RecipientReadsAreInTheTransaction(t *testing.T) {
 	}
 }
 
-// W7-33 (L-1): silent, mutual and the block come from the recipient's graph as the transaction read it, not from the
+// L-1: silent, mutual and the block come from the recipient's graph as the transaction read it, not from the
 // cached snapshot of the same user, which can be 60 s old.
 func TestSend_StaleCacheLosesToTheTransactionRead(t *testing.T) {
 	bobMutedAlice := graph.Snapshot{Following: map[string]bool{alice: true}, Muted: map[string]bool{alice: true}}
@@ -636,7 +636,7 @@ func TestSend_StaleCacheLosesToTheTransactionRead(t *testing.T) {
 	})
 }
 
-// W7-33 (L-8): Send and Accept refuse an unverified caller with EMAIL_NOT_VERIFIED and 0 reads; the flag answers first.
+// L-8: Send and Accept refuse an unverified caller with EMAIL_NOT_VERIFIED and 0 reads; the flag answers first.
 func TestSendAndAccept_RequireVerifiedEmail(t *testing.T) {
 	unverified := authn.WithClaims(context.Background(), authn.Claims{SignInProvider: authn.SignInProviderPassword, EmailVerified: false})
 	call := map[string]func(r *rig, ctx context.Context) error{

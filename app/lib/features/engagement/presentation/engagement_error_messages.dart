@@ -67,7 +67,7 @@ String engagementErrorMessage(
 const kPollBlockedReason = "You blocked this account. Unblock to vote.";
 
 /// Friendly, typed messages for a failed vote or a failed "See final results"
-/// read (W6-13, ADR-0029). Fixed text, never the server's; ALREADY_VOTED and
+/// read (ADR-0029). Fixed text, never the server's; ALREADY_VOTED and
 /// POLL_CLOSED are normally resolved by a refresh and only reach here as a
 /// snackbar when that refresh failed too.
 String pollErrorMessage(

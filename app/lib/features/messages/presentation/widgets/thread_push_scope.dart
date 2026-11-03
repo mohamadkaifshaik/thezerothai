@@ -5,8 +5,8 @@ import '../../../notifications/presentation/bloc/push_cubit.dart';
 import '../bloc/messages_badge_cubit.dart';
 import '../bloc/thread_cubit.dart';
 
-/// Ties one open conversation to the app-wide push and badge state (W7-19,
-/// ADR-0027 D7, D10). It sits under the `ThreadCubit` provider.
+/// Ties one open conversation to the app-wide push and badge state
+/// (ADR-0027 D7, D10). It sits under the `ThreadCubit` provider.
 ///
 /// - While it is mounted the Messages badge knows the conversation is open, so
 ///   a foreground push for it is not counted as unread.

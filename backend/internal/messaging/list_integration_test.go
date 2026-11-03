@@ -127,7 +127,7 @@ func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
 
 // Given a since token and one new message, then that entry returns. The token trails the newest entry by the 5 s settle
 // window, so the previous newest comes back once as well when the new message lands in another conversation (the client
-// dedupes by id): 4 reads when the new message is in the newest conversation, 5 when it is in another one (W7-37: the
+// dedupes by id): 4 reads when the new message is in the newest conversation, 5 when it is in another one (the
 // requests count() rides every INBOX since refresh).
 func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e := newIT(t, nil)
@@ -146,7 +146,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 		t.Fatalf("first page = %v", got)
 	}
 
-	// W7-37: a request that arrives after the first page is counted by the refresh.
+	// A request that arrives after the first page is counted by the refresh.
 	e.seedConversation("req-late", alice, stateRequest, base, [2]string{"req-late", "hello"})
 
 	// Nothing new: the entry the token trails (carol) is the one row read.
@@ -384,7 +384,7 @@ func TestList_ErasedPeerIsDeletedAccount(t *testing.T) {
 	}
 }
 
-// W7-37: an EMPTY INBOX since refresh (no row, so no graph read) still carries the current request_count: 3 reads
+// An EMPTY INBOX since refresh (no row, so no graph read) still carries the current request_count: 3 reads
 // (interceptor, query min 1, count()), and an older page or REQUESTS never carries it.
 func TestList_EmptySinceRefreshCarriesRequestCount(t *testing.T) {
 	e := newIT(t, nil)

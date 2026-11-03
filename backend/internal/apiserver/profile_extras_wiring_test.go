@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-6 wiring (ADR-0024): the banner adapter over media.Reader, the late-bound pin checker and the post_delete chain's
+// wiring (ADR-0024): the banner adapter over media.Reader, the late-bound pin checker and the post_delete chain's
 // identity step. The whole stack over the emulators is covered by profile_extras_integration_test.go.
 
 type fakeMediaReader struct {

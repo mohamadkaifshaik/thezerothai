@@ -180,7 +180,7 @@ func TestUpdateProfile_PrivacyToggleMatrix(t *testing.T) {
 		}
 		name := "Renamed"
 		h := newPrivacyHarness(t, privateRegistry(flags.Off, 0), uid, lim)
-		_, err := h.update(uid, true, &name) // the W3-22 M-1 mixed rule: refused whole
+		_, err := h.update(uid, true, &name) // the M-1 mixed rule: refused whole
 		_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "private_accounts")
 		if h.repo.profiles[uid].DisplayName == "Renamed" {
 			t.Error("the mixed request partly applied")

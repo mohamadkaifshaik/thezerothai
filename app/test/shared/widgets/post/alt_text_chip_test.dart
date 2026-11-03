@@ -176,7 +176,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): the chip across the responsive matrix, and inside a
+  // (tester): the chip across the responsive matrix, and inside a
   // tappable card.
   // ---------------------------------------------------------------------
 

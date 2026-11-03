@@ -1,6 +1,6 @@
 //go:build integration
 
-// invariants_integration_test.go is the reusable posts invariant checker (ADR-0010 D12 / T19, modelled on graph's
+// invariants_integration_test.go is the reusable posts invariant checker (ADR-0010 D12 /, modelled on graph's
 // invariants_integration_test.go). The pure checker (postsInvariantViolations) has negative self-tests proving it can
 // fail; the Firestore loader backs assertPostsInvariants, which newCreateInstance registers as a t.Cleanup so every
 // create/delete emulator scenario ends with a full sweep.
@@ -31,8 +31,8 @@ type storedPost struct{ AuthorID, SnapshotUserID string }
 // postsInvariantViolations implements the posts invariants and returns sorted, human-readable violations; empty
 // means consistent.
 //
-//	P1  users/{u}.postsCount == #posts where authorId == u
-//	P2  posts/{id}.author.userId == authorId (the denormalised snapshot belongs to the author)
+//	users/{u}.postsCount == #posts where authorId == u
+//	posts/{id}.author.userId == authorId (the denormalised snapshot belongs to the author)
 //
 // Posts whose author has no users doc are not flagged: posts tests seed such posts directly, and an account purge
 // legitimately leaves counters to the account lifecycle job.

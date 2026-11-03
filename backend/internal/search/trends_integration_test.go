@@ -2,7 +2,7 @@
 
 package search
 
-// W4-9 and W4-10 against the Firestore emulator: the real trends/current repo, the real posts.Reader.CreatedAfter, the
+// against the Firestore emulator: the real trends/current repo, the real posts.Reader.CreatedAfter, the
 // refresher end to end, GetTrends through the instance copy, and the budget assertions (ADR-0028 Cost impact):
 // refresh = 2 + new posts reads (document, hide list) and 1 write; GetTrends = 2 reads cold (the interceptor read is outside the service), 0 warm.
 

@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Rules of the in-app "Turn on notifications" card (W2-12).
+/// Rules of the in-app "Turn on notifications" card.
 abstract final class PushOptIn {
   /// After "Not now" the card stays away for this long (per account).
   static const notNowWindow = Duration(days: 30);

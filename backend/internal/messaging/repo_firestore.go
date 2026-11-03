@@ -44,7 +44,7 @@ type raceHooks struct {
 	afterTakedownReads func(run int) error
 	afterTombstoneRead func()
 	// commitThenFail runs after a send, accept or delete transaction COMMITTED and returns the error the caller then sees
-	// (W7-38: a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
+	// (a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
 	commitThenFail func() error
 	takedownRuns   int
 }
@@ -131,7 +131,7 @@ func (r *FirestoreRepo) GetEntry(ctx context.Context, uid, convID, folder string
 }
 
 // GetMessage implements Repo: the stored message (1 read); found is false when it is missing. A send reads it to answer a
-// replay, a message report (W7-12) to take its evidence.
+// replay, a message report to take its evidence.
 func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
 	snap, err := r.msgRef(convID, msgID).Get(ctx)
 	budget.FromContext(ctx).AddReads(1)
@@ -151,7 +151,7 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // Send implements Repo: one transaction (ADR-0027 D4 step 5).
 //
 // Reads, fresh and before any write: conversations/{convId} (1) and the recipient.s graph/{uid} (1, RecipientGraphInTx,
-// W7-33: a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
+// a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
 // conversation adds the recipient.s users/{uid} (1, RecipientInTx) and quotas/{uid} (1): 4 in all. A send refused by the unanswered-request
 // cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse.
 //
@@ -160,13 +160,13 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // conversation: 3 writes. An existing REQUEST: + the conversation (requestCount +1), 4. A new conversation: + the
 // conversation Create and quotas.dmNew, 5. The reply that accepts a request: the conversation state update, 4 writes,
 // plus 1 delete (the replier's dmRequests entry moves to dmInbox). The entry maps also carry requestPending (set or
-// deleted inside the same MergeAll writes: +0 reads, +0 writes, W7-25).
+// deleted inside the same MergeAll writes: +0 reads, +0 writes).
 //
 // A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
 // message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
 // down (state REMOVED, digest cleared) replays as that tombstone.
 //
-// W7-38: an error from Send does NOT prove nothing was written. txTimeout (or the request deadline) can expire while the
+// An error from Send does NOT prove nothing was written. txTimeout (or the request deadline) can expire while the
 // Commit RPC is in flight; Firestore does not roll a commit back because the client stopped waiting, so the message may be
 // stored while the caller sees DeadlineExceeded (service.failure maps it to UNAVAILABLE busy). The retry is safe by
 // construction: the message id derives from (sender, key), so the same-key retry is AlreadyExists at commit and replays.
@@ -247,7 +247,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		}
 	}
 
-	// The recipient.s graph, fresh and serialised with their Block, Mute, Follow and Unfollow (W7-33, A8). A block is
+	// The recipient.s graph, fresh and serialised with their Block, Mute, Follow and Unfollow (A8). A block is
 	// checked before decideSend, so no cap (request limit, new-conversation quota) can reveal it.
 	if p.RecipientGraphInTx == nil {
 		return res, errors.New("messaging: send has no recipient graph reader")
@@ -332,7 +332,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
 	}
-	// requestPending (ADR-0027 note W7-25, +0 reads, +0 writes): true on the requester's own entry while the conversation is
+	// requestPending (ADR-0027 note, +0 reads, +0 writes): true on the requester's own entry while the conversation is
 	// REQUEST after this send, else deleted in the same MergeAll map. The peer's entry always deletes it, so the reply that
 	// accepts a request clears the requester's flag in the write it already makes.
 	if dec.State == stateRequest {

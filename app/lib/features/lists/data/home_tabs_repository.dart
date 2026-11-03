@@ -14,8 +14,8 @@ import '../../communities/domain/communities_feature_flag.dart';
 import '../domain/home_tab_entry.dart';
 import '../domain/lists_feature_flag.dart';
 
-/// The client's one source of the pinned Home tabs (ADR-0030 D6, plan
-/// W5-10) and the only caller of `TimelineService.SetHomeTabs`. Home itself
+/// The client's one source of the pinned Home tabs (ADR-0030 D6)
+/// and the only caller of `TimelineService.SetHomeTabs`. Home itself
 /// always starts with the fixed Following tab, which is not in here.
 ///
 /// - **Read.** Tabs come from `GetMe.home_tabs` ([adoptFromMe], fed by every
@@ -34,7 +34,7 @@ import '../domain/lists_feature_flag.dart';
 ///   [ValidationException] `tabs`).
 /// - **Flag.** LIST tabs are shown and written only while `lists` is on
 ///   ([ServiceFeatureGate], shared with `ListsRepository`).
-/// - **UNIMPLEMENTED** (SetHomeTabs is not deployed yet, W5-9) rolls back and
+/// - **UNIMPLEMENTED** (SetHomeTabs is not deployed yet) rolls back and
 ///   throws [FeatureDisabledException] `feature=lists` ("not available yet"),
 ///   reports nothing, and sets [writeUnavailable] until the next `GetMe`.
 /// - **Titles.** The server title is empty for another user's list. The
@@ -310,7 +310,7 @@ class HomeTabsRepository {
     try {
       return await guardApiCall<_Sent>(run);
     } on ValidationException catch (error) {
-      // Until the server serves COMMUNITY tabs (plan W5-27) it refuses them
+      // Until the server serves COMMUNITY tabs it refuses them
       // with VALIDATION `tabs`. With a community tab in the write, that
       // reads as "not available yet", not as a malformed list: roll back and
       // stop offering the write until the next GetMe.

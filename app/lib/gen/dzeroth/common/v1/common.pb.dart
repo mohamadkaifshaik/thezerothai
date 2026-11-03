@@ -137,7 +137,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   void clearVerified() => $_clearField(5);
 
-  /// True when the account protects its posts (ADR-0025; the W3-25c implementation note). A display hint for the lock
+  /// True when the account protects its posts (ADR-0025; the implementation note). A display hint for the lock
   /// badge, never an access decision.
   /// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
   /// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`

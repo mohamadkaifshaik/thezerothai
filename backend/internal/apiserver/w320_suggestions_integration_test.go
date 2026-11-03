@@ -2,14 +2,14 @@
 
 package apiserver
 
-// W3-20: GraphService.ListSuggestedUsers (ADR-0024 D8) over the real Build chain on the emulators, with the graph built by
-// real Follow / Block / Mute calls (the W3-12 chain test seeds edges directly). Covered here: the exclusion matrix (self,
+// GraphService.ListSuggestedUsers (ADR-0024 D8) over the real Build chain on the emulators, with the graph built by
+// real Follow / Block / Mute calls (the chain test seeds edges directly). Covered here: the exclusion matrix (self,
 // already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING, a user that does not exist), blockedBy
 // overflow suggesting nothing, the curated fallback (also with blocked, blocking, followed, muted, DELETING, ghost and
 // the viewer's own uid on the list), friends of friends first and the curated rows after them, the exact 32-read hard cap
 // at the config default (ADR-0024 Amendment 2 B1(b): EdgeLimit 20) and the exact 42-read cap with EdgeLimit pinned to 30,
-// each with 30 followees (also on a dense graph), the W3-22 L-5 per-followee cap of 3 and the known-inactive followee skip, and
-// the W3-22 L-1 re-filter: a user who blocks the viewer on ANOTHER instance leaves the viewer's warm rows once the
+// each with 30 followees (also on a dense graph), the L-5 per-followee cap of 3 and the known-inactive followee skip, and
+// the L-1 re-filter: a user who blocks the viewer on ANOTHER instance leaves the viewer's warm rows once the
 // snapshot expires (2 reads), and a warm hit inside the snapshot's TTL is free.
 //
 // The candidate window of the friends-of-friends query is the newest EdgeLimit follow edges (20 at the default, 30 where a
@@ -266,7 +266,7 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 
 // w320SugFullWindowWorld: 30 followees (the sample), each following ONE of 12 candidates, the edges one second apart in the
 // order of the followees, so the newest 20 edges (followees 10..29) and the newest 30 both hold all 12 distinct
-// candidates and the per-followee cap of 3 (W3-22 L-5) takes nothing away. It returns the chain that seeded the data, the
+// candidates and the per-followee cap of 3 (L-5) takes nothing away. It returns the chain that seeded the data, the
 // viewer, the followees, the candidates and the time the edges start at.
 func w320SugFullWindowWorld(t *testing.T) (w *w320Chain, v bmUser, f, cand []bmUser, base time.Time) {
 	t.Helper()
@@ -371,7 +371,7 @@ func TestW320_SuggestionsHardCap32(t *testing.T) {
 	}
 }
 
-// TestW320_SuggestionsPerFolloweeCap: W3-22 L-5(b). One sampled followee that follows many accounts at once (a follow-back
+// TestW320_SuggestionsPerFolloweeCap: L-5(b). One sampled followee that follows many accounts at once (a follow-back
 // bait account) may contribute only its NEWEST maxCandidatesPerFollowee = 3 usable edges, so it cannot fill the window and
 // steer every row. The viewer follows three accounts; the bait follows six candidates (newest first c6, c5, c4, c3, c2, c1)
 // and the other two follow one each: the rows are c6, c5, c4 and the two ordinary candidates, never c3, c2 or c1.
@@ -413,7 +413,7 @@ func TestW320_SuggestionsPerFolloweeCap(t *testing.T) {
 	r.w320Measure(t, w320RPCListSuggested, "per-followee cap: 8 edges, 5 hydrated, cold", budgettest.Budget{Reads: 15})
 }
 
-// TestW320_SuggestionsKnownInactiveFolloweeIsSkipped: W3-22 L-5(a). A followee the instance's profile cache already knows is
+// TestW320_SuggestionsKnownInactiveFolloweeIsSkipped: L-5(a). A followee the instance's profile cache already knows is
 // SUSPENDED no longer steers the suggestions and no longer costs reads: it is left out of the edge query and its share of
 // the window goes to the others. The cache is primed by an ordinary GetProfile of the suspended account (NOT_FOUND on the
 // wire). A control instance that has not seen the account yet still suggests the spam candidates (the probe is
@@ -474,7 +474,7 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", w320RPCListSuggested, "known-suspended followee skipped (control read "+fmt.Sprint(controlReads)+")", cr.Reads(), cr.Writes(), cr.Deletes(), w320SugColdCap(t), 0)
 }
 
-// TestW320_SuggestionsBlockerOnAnotherInstance: W3-22 L-1 (fixed in #350). The viewer's rows are cached for an hour on
+// TestW320_SuggestionsBlockerOnAnotherInstance: L-1 (fixed in #350). The viewer's rows are cached for an hour on
 // instance A. A candidate then blocks the viewer through instance B. A's own graph snapshot expires after CACHE_TTL (1 s
 // here, 60 s in production) and EVERY warm hit is re-filtered against the snapshot: the next call loads it (1 read, plus
 // the interceptor's own profile read that expired with the same TTL: 2 in all, the ADR-0024 "2 when the 60 s snapshot

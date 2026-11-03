@@ -1,6 +1,6 @@
 //go:build integration
 
-// unfollow_noop_invariant_integration_test.go is ticket T32 (ADR-0009, closes review item N4): emulator tests
+// unfollow_noop_invariant_integration_test.go is (ADR-0009, closes review item N4): emulator tests
 // that pin the invariant "for any account that can call graph RPCs, follows/{a}_{b} exists <=> b in
 // graph/{a}.following <=> users/{a} and users/{b} exist", which is what makes Unfollow's blind-batch no-op
 // (repo_firestore.go Unfollow: failed precondition => (false, nil) => NONE) correct.

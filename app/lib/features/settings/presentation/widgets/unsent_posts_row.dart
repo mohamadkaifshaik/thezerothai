@@ -13,7 +13,7 @@ const kUnsentPostsDeleted = 'Unsent posts deleted from this device.';
 const kUnsentPostsDeleteFailed =
     "Couldn't delete your unsent posts. Try again.";
 
-/// "Delete unsent posts on this device" (W6-31, security L-5): the way to
+/// "Delete unsent posts on this device" (security L-5): the way to
 /// remove the account's drafts when the `drafts` flag is off and `/drafts`
 /// redirects Home, and a plain privacy control on a shared device when it is
 /// on. The Settings list builds it only while this account has rows here

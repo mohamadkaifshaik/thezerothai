@@ -1,4 +1,4 @@
-// analyze_list_timeline.js: W5 reads, writes and server time per call from the API's JSON request log (W5-18; scenario
+// analyze_list_timeline.js: W5 reads, writes and server time per call from the API's JSON request log (scenario
 // list_timeline.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_list_timeline.js api.log k6.out

@@ -18,22 +18,22 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/thread_test_support.dart';
 
-/// W7-21: the five-flag matrix `messaging` x `ui_shell` x `search` x `reports`
+/// The five-flag matrix `messaging` x `ui_shell` x `search` x `reports`
 /// x `notifications` (32 combinations) on the real router and the real
 /// repositories. Each combination checks, in one session, what the flags
 /// are documented to decide:
 ///
 /// - `messaging`: the Inbox, a conversation and the picker open, or the route
 ///   redirects Home with not one messaging RPC (ADR-0027 D6).
-/// - `ui_shell`: the Messages destination in the shell (W7-19, F10); it needs
+/// - `ui_shell`: the Messages destination in the shell (F10); it needs
 ///   `messaging` too. A conversation is never inside the shell.
 /// - `reports`: the "Report message" action on a peer's bubble and the "Report
-///   @handle" item of the conversation menu (W7-18).
+///   @handle" item of the conversation menu.
 /// - `notifications`: with push registered on Android the open thread polls
-///   every 30 s, otherwise every 15 s (ADR-0027 D7, W7-19).
+///   every 30 s, otherwise every 15 s (ADR-0027 D7).
 /// - `search`: today's only people source cannot search the server, so the
 ///   flag changes nothing in the picker: typing filters the loaded Following
-///   rows and sends no request (W7-17; W4's source plugs in later).
+///   rows and sends no request (W4's source plugs in later).
 void main() {
   const peerBubble = ValueKey('bubble-00000000000000000000000000000002');
   final combos = <Set<String>>[
@@ -168,7 +168,7 @@ void main() {
     });
   }
 
-  // W7-26: messaging off for this caller only (the third mode). The reports
+  // Messaging off for this caller only (the third mode). The reports
   // flag still decides the report actions; ui_shell never adds the bar entry.
   for (final reports in [false, true]) {
     for (final uiShell in [false, true]) {

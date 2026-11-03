@@ -37,7 +37,7 @@ import 'widgets/community_about.dart';
 import 'widgets/community_header.dart';
 import 'widgets/community_unavailable_view.dart';
 
-/// `/communities/:id` (W5-32): header, then Posts and About tabs.
+/// `/communities/:id`: header, then Posts and About tabs.
 ///
 /// - Posts is the shared [TimelineFeedView] over
 ///   `TimelineCubit(FeedKey.community(id))` (cache first, `since_token`
@@ -48,7 +48,7 @@ import 'widgets/community_unavailable_view.dart';
 ///   one `SetHomeTabs`.
 /// - NOT_FOUND from either RPC replaces the screen with "This Community is
 ///   unavailable"; one text for every cause.
-/// - "Post" in the header (W5-34) opens `/compose?community=<id>` with this
+/// - "Post" in the header opens `/compose?community=<id>` with this
 ///   community preselected, only for a joined, not archived community, a
 ///   caller who may post (`posts` on) and who is not protected (the server
 ///   answers PROTECTED_ACCOUNT to a community post). The composer still
@@ -78,7 +78,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   late final CommunityModerationCubit _moderation;
 
   /// "Remove from Community" for the post menus, only while the server's
-  /// `viewer_role` says the caller moderates (W5-35); null otherwise. The
+  /// `viewer_role` says the caller moderates; null otherwise. The
   /// post leaves the feed at once and comes back if the call fails; other
   /// devices follow at their next refresh (`removed_ids`).
   PostModerationControl? _moderationControl(CommunityDetailState state) {
@@ -178,7 +178,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (error != null && mounted) _say(communitiesErrorMessage(error));
   }
 
-  /// W5-35b: the shared report sheet with the Community target. The owner is
+  /// The shared report sheet with the Community target. The owner is
   /// refused by the server (VALIDATION `target_id`), so the entry is hidden
   /// for them; NOT_FOUND shows [kReportCommunityNotFound] in the sheet.
   Future<void> _report() async {

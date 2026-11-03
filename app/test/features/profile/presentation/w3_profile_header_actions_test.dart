@@ -16,14 +16,14 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 
 class _MockModerationRepository extends Mock implements ModerationRepository {}
 
-/// W3-21 defect D-1: at 360 dp and
+/// defect D-1: at 360 dp and
 /// text scale 2.0 the header's action button ("Follow back" or "Edit profile")
 /// grew taller than the 48 dp strip under the banner that held it, wrapped to
 /// two lines and was painted over the display name and the profile menu.
 ///
 /// The strip now grows with the actions (laid out in the same pass as the rest,
 /// so nothing moves after the first frame) and is exactly as tall as before
-/// whenever the actions fit in 48 dp. The four cells of the W3-21 repro
+/// whenever the actions fit in 48 dp. The four cells of the repro
 /// (`w3_profile_matrix_test.dart`, behind its `d1Fixed` flag: own and other
 /// profile, light and dark, 360 dp x 2.0) are copied here with the same
 /// assertion, and the rest of that file's matrix (360 / 600 / 1200 dp, text
@@ -36,7 +36,7 @@ void main() {
     when(() => graphRepository.cached(any())).thenReturn(null);
   });
 
-  // The W3-21 fixture's name: long enough to take most of a 360 dp line at 2.0.
+  // The fixture's name: long enough to take most of a 360 dp line at 2.0.
   const name = 'Kaif Shaik';
 
   identity.Profile profileOf() => identity.Profile(
@@ -101,7 +101,7 @@ void main() {
       : find.widgetWithText(FilledButton, 'Follow back');
 
   group('D-1: the header actions do not overlap the display name', () {
-    // The four cells of the W3-21 repro, with its assertion.
+    // The four cells of the repro, with its assertion.
     for (final own in [false, true]) {
       for (final brightness in Brightness.values) {
         testWidgets(

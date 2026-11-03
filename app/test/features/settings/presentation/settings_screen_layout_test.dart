@@ -339,7 +339,7 @@ void main() {
     return router;
   }
 
-  /// The rows, without the Appearance row of the Display group (W0-8): this
+  /// The rows, without the Appearance row of the Display group: this
   /// parity table predates it and is about the account rows.
   List<String> rows(WidgetTester tester) => [
     for (final row in tester.widgetList<SettingsRow>(find.byType(SettingsRow)))

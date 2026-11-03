@@ -44,22 +44,22 @@ type Repo interface {
 	// GetSnapshot reads graph/{uid} (Reader.Snapshot's cache-miss path). Missing doc -> empty Snapshot, no error.
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
 
-	// Follow runs the whole Follow transaction (ADR-0008 T7, ADR-0025 D6: the target's users doc is read inside it, so the
+	// Follow runs the whole Follow transaction (ADR-0008, ADR-0025 D6: the target's users doc is read inside it, so the
 	// repo decides edge versus request; the returned FollowState says which). dailyLimit is the caller's resolved
 	// follows/day cap (service.go picks the new-account or standard limit before calling this).
 	Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
-	// Unfollow is a blind batch (ADR-0008 T7): changed=false, nil error means "wasn't following" (0 writes).
+	// Unfollow is a blind batch (ADR-0008): changed=false, nil error means "wasn't following" (0 writes).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 	// WithdrawRequest is Unfollow's second blind batch (ADR-0025 D7), run only when Unfollow found no edge: it deletes the
 	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (0 writes).
 	WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 
-	// Block runs the whole Block transaction (ADR-0008 T8). limits picks the new-account vs standard quota
+	// Block runs the whole Block transaction (ADR-0008). limits picks the new-account vs standard quota
 	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).
 	Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error)
 	// Unblock is never quota-gated (ADR-0008 D9). changed=false means "wasn't blocking" (0 writes).
 	Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
-	// Mute runs the whole Mute transaction (ADR-0008 T8), sharing the same quota kind/limits as Block.
+	// Mute runs the whole Mute transaction (ADR-0008), sharing the same quota kind/limits as Block.
 	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
 	// Unmute is never quota-gated. changed=false means "wasn't muting" (0 writes).
 	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
@@ -67,7 +67,7 @@ type Repo interface {
 	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
-	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[] (T27). 1 write, 0 reads.
+	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[]. 1 write, 0 reads.
 	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
 	// ListEdgesByFollowers returns the newest follow edges made by any of followers (1 to 30 uids), newest first, at
 	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query (ADR-0024 D8). <= limit reads, minimum 1.
@@ -75,20 +75,20 @@ type Repo interface {
 
 	Eraser
 
-	// ListEdges returns one page of follow edges, newest first (ADR-0008 T10). <= q.Limit reads.
+	// ListEdges returns one page of follow edges, newest first (ADR-0008). <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
 	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
 	// not the document is there (ADR-0024 D7, GetProfileRelationship). A missing document is false, not an error.
 	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
 
-	// RespondToRequest answers one pending follow request in a single transaction (ADR-0025 D7, W3-28a): accept, decline,
+	// RespondToRequest answers one pending follow request in a single transaction (ADR-0025 D7): accept, decline,
 	// or a replay (the request is gone) with 0 writes. A requester at the 5,000 following cap is a LimitReachedError.
 	RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error)
 	// CountRequests counts the pending requests addressed to uid, capped at 1,000: 1 read (ADR-0025 AQ3).
 	CountRequests(ctx context.Context, uid string) (int64, error)
 }
 
-// Deps are service's constructor dependencies (ADR-0008 T5).
+// Deps are service's constructor dependencies (ADR-0008).
 type Deps struct {
 	Repo  Repo
 	Cache *Cache
@@ -96,10 +96,10 @@ type Deps struct {
 	// CursorKey signs opaque page tokens (config.CursorHMACKey, ADR-0003).
 	CursorKey []byte
 	// ReadOnly is true when DEGRADED_MODE=readonly (config.DegradedReadonly). The list RPCs are
-	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the T27 lazy clean-up
+	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the lazy clean-up
 	// skip its one write so that mode stays write-free.
 	ReadOnly bool
-	// Events receives the post-commit FollowEvents.Followed hook (ADR-0008 D11; apiserver wires the P6 notifications
+	// Events receives the post-commit FollowEvents.Followed hook (ADR-0008 D11; apiserver wires the notifications
 	// adapter). Nil keeps the no-op.
 	Events FollowEvents
 
@@ -117,7 +117,7 @@ type Deps struct {
 	Suggester Suggester
 
 	// Protected is the one protected-author loader of the instance (ADR-0025 D3, built once in apiserver). Nil means nobody
-	// is protected (the pre-W3-28a behaviour): ListFollowers and ListFollowing then never answer PROTECTED_ACCOUNT.
+	// is protected (the earlier behaviour): ListFollowers and ListFollowing then never answer PROTECTED_ACCOUNT.
 	Protected identity.ProtectedAuthors
 }
 
@@ -188,7 +188,7 @@ func (s *service) SetDirectory(d identity.Directory) {
 	s.directory = d
 }
 
-// knownInactive is the friends-of-friends suggester's cache-only status probe (W3-22 L-5): which uids the Directory's
+// knownInactive is the friends-of-friends suggester's cache-only status probe (L-5): which uids the Directory's
 // profile cache already knows are not ACTIVE. It looks at s.directory when called, because SetDirectory runs after New;
 // a Directory that does not implement inactiveProber (a fake) knows nothing, so nothing is skipped.
 func (s *service) knownInactive(uids []string) map[string]bool {
@@ -256,7 +256,7 @@ func (s *service) IsFollowing(ctx context.Context, viewerUID, targetUID string) 
 func (s *service) Followed(context.Context, string, string, time.Time) {}
 
 // FollowRequested and FollowRequestAccepted implement FollowEvents as default no-ops (ADR-0025 D10); Deps.Events
-// replaces them and W3-27 / W3-28a call them.
+// replaces them, and the follow-request paths call them.
 func (s *service) FollowRequested(context.Context, string, string, time.Time)       {}
 func (s *service) FollowRequestAccepted(context.Context, string, string, time.Time) {}
 

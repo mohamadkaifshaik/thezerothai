@@ -46,7 +46,7 @@ class _MockNotifications extends Mock implements NotificationsRepository {}
 
 class _MockGraph extends Mock implements GraphRepository {}
 
-/// W5-16: the Part A journey across screens with the REAL `ListsRepository`
+/// The Part A journey across screens with the REAL `ListsRepository`
 /// and `HomeTabsRepository` over a small stateful fake server: Lists, create,
 /// add a person from their profile, open the List, pin it, see its Home tab,
 /// the members page, unpin. The list timeline (`GetListTimeline`, drift) is a

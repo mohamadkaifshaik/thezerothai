@@ -38,7 +38,7 @@ bool get messageEnterSends =>
       TargetPlatform.fuchsia => false,
     };
 
-/// The composer under a conversation (W7-16, ADR-0027 D3): a multi-line field,
+/// The composer under a conversation (ADR-0027 D3): a multi-line field,
 /// [CharacterCounter] near the limit, [DraftProblemHint] and a Send icon
 /// button, over a [MessageComposerCubit] (provided by `ThreadScreen`).
 ///
@@ -111,7 +111,7 @@ class _MessageComposerState extends State<MessageComposer> {
 
   @override
   Widget build(BuildContext context) {
-    // W7-26: no field without `messaging` for this caller; read-only Messages
+    // No field without `messaging` for this caller; read-only Messages
     // says so in one line, hidden Messages shows nothing.
     return MessagingAccessBuilder(
       builder: (context, access) => switch (access) {

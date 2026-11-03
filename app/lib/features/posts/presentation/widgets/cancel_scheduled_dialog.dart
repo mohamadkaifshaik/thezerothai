@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
-/// "Cancel this scheduled post?" (CMP-D6), laid out like X's confirmation: a
+/// "Cancel this scheduled post?", laid out like X's confirmation: a
 /// centred card with a bold title, one muted sentence, a full-width RED filled
 /// pill for the destructive answer and an outlined pill under it for the safe
 /// one. An alert dialog (announced as one, focus kept inside). Resolves to

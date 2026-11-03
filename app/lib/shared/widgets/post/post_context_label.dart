@@ -4,9 +4,9 @@ import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 
 /// The one context line above a post: a muted icon in the avatar column and
-/// muted text (W5-33, `communities.md` §3). There is exactly one row per post,
+/// muted text (`communities.md` §3). There is exactly one row per post,
 /// so a caller picks the variant: [PostContextLabel.repost] wins over
-/// [PostContextLabel.community]. Later labels (Pinned, W3-17) add a named
+/// [PostContextLabel.community]. Later labels (Pinned) add a named
 /// constructor here rather than a second row.
 ///
 /// Display only: 0 RPCs. [onTap] is non-null only for a tappable variant.

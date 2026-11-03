@@ -300,7 +300,7 @@ func TestListBookmarks_DropRules(t *testing.T) {
 		{"overflow fails a foreign direct author closed (W2-14 L-1)", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: "a"}, "", "blocked"},
 		{"overflow keeps the caller's own post", graph.Snapshot{BlockedByOverflow: true}, &posts.Post{AuthorID: caller}, "", ""},
 		{"overflow keeps the caller's own quote of a foreign author", graph.Snapshot{BlockedByOverflow: true}, quote("", caller, "e"), "", ""},
-		// W2-14 L-2: the same 0-read check Viewable applies. A non-public post needs the caller to follow its author.
+		// L-2: the same 0-read check Viewable applies. A non-public post needs the caller to follow its author.
 		{"own post", snapOf([]string{"viewer"}, nil, []string{"viewer"}), &posts.Post{AuthorID: caller}, "", ""},
 		{"own quote of a blocked author", snapOf([]string{"e"}, nil, nil), quote("", caller, "e"), "", ""},
 		{"quote of the caller's own post", snapOf(nil, nil, nil), quote("", "a", caller), "", ""},

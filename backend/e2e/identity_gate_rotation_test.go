@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// TestE2E_UnverifiedAccountRotation_CostsNoReads (audit item 3, T20 AC4): mint five unverified password accounts
+// TestE2E_UnverifiedAccountRotation_CostsNoReads (audit item 3, AC4): mint five unverified password accounts
 // and rotate 20 calls over them, alternating GetMe and CheckHandleAvailability. Every call is answered from the
 // token claims (EMAIL_NOT_VERIFIED / PROFILE_REQUIRED) with fs_reads == 0, gate=email_unverified and no
 // limit_name. PerUserPerMinute = 1 and CheckHandle 1/min make the gate-before-limiter order observable: if any

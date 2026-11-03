@@ -1,6 +1,6 @@
 package identity
 
-// Crash and failure injection for the deletion job (ADR-0011 handoff, tester T16: "crash after every step call",
+// Crash and failure injection for the deletion job (ADR-0011 handoff, tester: "crash after every step call",
 // "users/{uid} existing until after Auth delete"). The fakes record every side effect in one ordered log; these tests
 // kill the delivery after each of those effects in turn, redeliver the same message the way Pub/Sub does, and check
 // the end state and the ordering invariants.

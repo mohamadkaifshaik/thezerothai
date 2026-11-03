@@ -15,7 +15,7 @@ import (
 	vision "google.golang.org/api/vision/v1"
 )
 
-// W6-49 (security W6-42, L-1 and L-3): the per-uid Vision-units cap and VISION_MONTHLY_CAP return the units of a call only when Google provably did not
+// Security, L-1 and L-3: the per-uid Vision-units cap and VISION_MONTHLY_CAP return the units of a call only when Google provably did not
 // bill it, and a Vision call is not started with so little request time left that it can only time out.
 
 // dialRefused is what a TCP connect failure looks like to the HTTP client: a *url.Error around a *net.OpError{Op: "dial"}.
@@ -152,7 +152,7 @@ func TestW649_VisionBuildFailureIsNotSent(t *testing.T) {
 	}
 }
 
-// W6-49 L-3: a Vision call needs time. With less than minVisionBudget left on the request, the calls are not started (nothing is billed,
+// L-3: a Vision call needs time. With less than minVisionBudget left on the request, the calls are not started (nothing is billed,
 // both counters keep their units, the claim is released with no attempt consumed, and the client retries after retry_after).
 func TestW649_VisionNotStartedWithLessThanTheMinimumBudgetLeft(t *testing.T) {
 	for _, tt := range []struct {

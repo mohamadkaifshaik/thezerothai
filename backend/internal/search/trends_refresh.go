@@ -52,7 +52,7 @@ type PostScanner interface {
 }
 
 // AuthorDirectory is the part of identity.Directory the sweep uses to check authors (identity.Directory satisfies it).
-// GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING (ADR-0008 T6).
+// GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING (ADR-0008).
 // Its reads are charged to ctx's budget.Counter.
 type AuthorDirectory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)

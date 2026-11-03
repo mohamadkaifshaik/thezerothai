@@ -35,7 +35,7 @@ pb.PostView _view(String text) => pb.PostView(
 );
 
 /// The open post of a thread laid out like X's post page (captured
-/// 2026-11-02, PD-1).
+/// 2026-11-02).
 void main() {
   Future<void> pumpCard(
     WidgetTester tester,

@@ -58,7 +58,7 @@ func noSideEffectsProcedures(t *testing.T) []string {
 	return procs
 }
 
-// defaultRateLimitCfg is the config the guard inspects: the T3 defaults.
+// defaultRateLimitCfg is the config the guard inspects: the defaults.
 func defaultRateLimitCfg() config.Config {
 	cfg := config.Config{}
 	cfg.RateLimit.ReadBudgetPerUIDPerDay = 2000
@@ -67,7 +67,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.AccountOpsCallsPerDay = 20
 	cfg.RateLimit.NotificationDevicesCallsPerDay = 10
 	cfg.RateLimit.NotificationSeenCallsPerDay = 200
-	// ADR-0010 T4 per-minute buckets (the config.Load defaults).
+	// ADR-0010 per-minute buckets (the config.Load defaults).
 	cfg.RateLimit.TimelinePerUserPerMinute = 6
 	cfg.RateLimit.UserTimelinePerMinute = 30
 	cfg.RateLimit.PostCreatePerMinute = 10
@@ -75,7 +75,7 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ReportPerMinute = 5                // ADR-0016
 	cfg.RateLimit.BookmarksPerUserPerMinute = 30     // ADR-0023 D4: Add and Remove share it
 	cfg.RateLimit.BookmarksListPerUserPerMinute = 10 // ADR-0023 D4
-	cfg.RateLimit.BookmarkMutationsPerDay = 1500     // W2-14 M-1: Add and Remove share one daily call cap
+	cfg.RateLimit.BookmarkMutationsPerDay = 1500     // M-1: Add and Remove share one daily call cap
 	// ADR-0024 D10 (the config.Load defaults).
 	cfg.RateLimit.SuggestionsPerUserPerMinute = 10
 	cfg.RateLimit.LikesListPerUserPerMinute = 10
@@ -94,13 +94,13 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.FollowRequestsRespondPerUserPerMinute = 60
 	cfg.RateLimit.GraphListPerMinute = 20 // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
 	cfg.RateLimit.GraphListCallsPerDay = 100
-	cfg.RateLimit.ProfileUpdatesPerDay = 100 // W3-22 L-4
+	cfg.RateLimit.ProfileUpdatesPerDay = 100 // L-4
 	// ADR-0027 D13 (the config.Load defaults).
 	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
 	cfg.RateLimit.MessagesReadPerUserPerMinute = 30
 	cfg.RateLimit.MessagesSendsPerDay = 300
-	cfg.RateLimit.MessagesMarkReadPerDay = 500  // W7-29 (the config.Load defaults)
-	cfg.RateLimit.MessagesMutationsPerDay = 500 // W7-29
+	cfg.RateLimit.MessagesMarkReadPerDay = 500 // (the config.Load defaults)
+	cfg.RateLimit.MessagesMutationsPerDay = 500
 	return cfg
 }
 
@@ -187,7 +187,7 @@ func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemp
 	return out
 }
 
-// TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered is the ADR-0010 D5 / T3.5 CI guard: the daily
+// TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered is the ADR-0010 D5 /.5 CI guard: the daily
 // Firestore read budget must be enabled in the config Build wires, and every read-only (NO_SIDE_EFFECTS)
 // procedure must be covered by it. The exemption list is empty and must stay explained: adding an entry
 // requires editing allowedReadBudgetExemptions below with a reason, in review.
@@ -302,7 +302,7 @@ func TestAccountOps_21stCallIsRateLimitedEvenOverTheReadBudget(t *testing.T) {
 	}
 }
 
-// TestReadBudgetGuard_MutationChecks proves the guard can fail (tester mutation check, T3 gap 1): each case
+// TestReadBudgetGuard_MutationChecks proves the guard can fail (tester mutation check, gap 1): each case
 // breaks the wiring the way a careless change would and asserts a violation naming the culprit is reported.
 func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 	const newRPC = "/dzeroth.posts.v1.PostService/GetPost" // a future NO_SIDE_EFFECTS RPC, synthetic
@@ -366,7 +366,7 @@ func TestReadBudgetGuard_MutationChecks(t *testing.T) {
 	}
 }
 
-// TestCheckHandleAvailability_101stCallIsRateLimited (T3 acceptance): through the config Build actually
+// TestCheckHandleAvailability_101stCallIsRateLimited (acceptance): through the config Build actually
 // wires (RateLimitConfig), a profile-less uid's 101st CheckHandleAvailability call in one IST day is
 // RATE_LIMITED with limit_name check_handle_daily; the first 100 succeed; another uid is unaffected.
 func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
@@ -440,7 +440,7 @@ var bookmarkMutationProcedures = []string{
 	engagementv1connect.EngagementServiceRemoveBookmarkProcedure,
 }
 
-// bookmarkMutationViolations asserts the W2-14 M-1 wiring (mirrors the graph_mutation_daily shape): AddBookmark and
+// bookmarkMutationViolations asserts the M-1 wiring (mirrors the graph_mutation_daily shape): AddBookmark and
 // RemoveBookmark each have a DailyCaps entry named bookmark_mutation_daily, both entries hold the SAME DailyCap
 // (one counter per uid, so Add + Remove draw on one budget), and ListBookmarks (a read, covered by the read budget)
 // has none.
@@ -504,7 +504,7 @@ func TestBookmarkMutationDailyCap_Guard(t *testing.T) {
 	}
 }
 
-// TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall (W2-14 M-1): through the wired interceptor, AddBookmark and
+// TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall (M-1): through the wired interceptor, AddBookmark and
 // RemoveBookmark draw on ONE per-uid daily budget, so the (cap+1)-th call of the day is ResourceExhausted whichever
 // of the two it is, and another user is untouched (the name is asserted by the guard test above).
 func TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
@@ -556,7 +556,7 @@ func TestBookmarkMutationDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	}
 }
 
-// profileUpdateViolations asserts the W3-22 L-4 wiring: UpdateProfile has a DailyCaps entry named profile_update_daily
+// profileUpdateViolations asserts the L-4 wiring: UpdateProfile has a DailyCaps entry named profile_update_daily
 // with its own counter (no other procedure draws on it, so a busy account page cannot lock out account operations or
 // the graph, and the reverse), and no other procedure carries the profile_update_daily name.
 func profileUpdateViolations(rl ratelimit.Config) []string {
@@ -618,7 +618,7 @@ func TestProfileUpdateDailyCap_Guard(t *testing.T) {
 	}
 }
 
-// TestProfileUpdateDailyCap_StopsTheCapPlusFirstCall (W3-22 L-4): through the wired interceptor, the (cap+1)-th
+// TestProfileUpdateDailyCap_StopsTheCapPlusFirstCall (L-4): through the wired interceptor, the (cap+1)-th
 // UpdateProfile call of the day is RATE_LIMITED with limit=profile_update_daily, another user is untouched, and
 // GetMe (no daily cap of its own) still passes for the capped user.
 func TestProfileUpdateDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {

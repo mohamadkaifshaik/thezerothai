@@ -1,4 +1,4 @@
-// export.go builds the manual data-export view of one user's social graph (ADR-0008 D12, T11).
+// export.go builds the manual data-export view of one user's social graph (ADR-0008 D12).
 package graph
 
 import (

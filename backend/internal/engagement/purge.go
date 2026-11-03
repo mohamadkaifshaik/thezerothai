@@ -227,7 +227,7 @@ func (r *FirestoreRepo) exportCollection(ctx context.Context, uid, collection st
 }
 
 // redactLikeDocErr redacts a purge error that may name the page's likes/reposts documents (<postId>_<uid>) through
-// logger.RedactErrPostDocs (W6-56): keyed HashPost for the post id, HashUID for the uid, never a plain id.
+// logger.RedactErrPostDocs: keyed HashPost for the post id, HashUID for the uid, never a plain id.
 func redactLikeDocErr(err error, uid string, docs []*firestore.DocumentSnapshot) error {
 	ids := make([]string, len(docs))
 	for i, d := range docs {

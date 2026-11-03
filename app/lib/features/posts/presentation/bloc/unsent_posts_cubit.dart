@@ -5,7 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/drafts_repository.dart';
 
 /// How many unsent posts [uid] has on this device (the state), for Settings'
-/// "Delete unsent posts on this device" (W6-31, security L-5).
+/// "Delete unsent posts on this device" (security L-5).
 ///
 /// Local only: [DraftsRepository.watchCount] (0 RPCs), whatever the `drafts`
 /// flag says, so the rows stay deletable while the Drafts screen is off. The

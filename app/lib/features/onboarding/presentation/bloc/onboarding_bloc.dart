@@ -33,13 +33,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       emit(state.copyWith(displayName: event.displayName));
     });
     on<OnboardingProfileSubmitted>(_onProfileSubmitted);
-    // Edit profile / change handle (P2): the server's updated profile replaces
+    // Edit profile / change handle: the server's updated profile replaces
     // the one in state so every screen that reads it sees the new name.
     on<OnboardingProfileUpdated>((event, emit) {
       if (event.profile.userId != state.profile?.userId) return;
       emit(state.copyWith(profile: event.profile));
     });
-    // A follow request was answered (W3-34): lower the drawer badge now; the
+    // A follow request was answered: lower the drawer badge now; the
     // next GetMe (cached 30 s on the server) reconciles it.
     on<OnboardingFollowRequestAnswered>((event, emit) {
       final next = state.pendingFollowRequestCount - 1;

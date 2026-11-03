@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// W5-51b (ADR-0031 Amendment 1 D4a): Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
+// ADR-0031 Amendment 1 D4a: Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
 // communityId: hidden = communityHidden + communityHiddenAt, no recentRemovals entry, a modlog entry as for a root.
 
 const (
@@ -185,7 +185,7 @@ func TestHideRestoreReply_RolesAndTargets(t *testing.T) {
 	}
 }
 
-// F16 on replies (the W5-53 rules, unchanged by W5-51b) and the attack points of the W5-53 review.
+// F16 on replies (the rules, unchanged later) and the attack points of the review.
 func TestHideRestoreReply_F16(t *testing.T) {
 	ctx := context.Background()
 	t.Run("a moderator cannot hide or restore the owner or another moderator reply", func(t *testing.T) {
@@ -270,7 +270,7 @@ func TestHideRestoreReply_F16(t *testing.T) {
 	})
 }
 
-// A root hide also sets communityHiddenAt, and the restore deletes it (W5-51b).
+// A root hide also sets communityHiddenAt, and the restore deletes it.
 func TestHideRestoreRoot_WritesHiddenAt(t *testing.T) {
 	e := newModEnv(t)
 	ctx := context.Background()

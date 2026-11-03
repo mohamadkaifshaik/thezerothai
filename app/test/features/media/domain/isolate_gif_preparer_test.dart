@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/media_fixtures.dart';
 
-/// W6-19: the REAL `IsolateGifPreparer` (the `compute` path the fakes skip),
+/// The REAL `IsolateGifPreparer` (the `compute` path the fakes skip),
 /// alone and under `AttachmentsCubit`. Plain `test()` so the isolate really
 /// runs (the fake-async zone of `testWidgets` would not complete it).
 void main() {

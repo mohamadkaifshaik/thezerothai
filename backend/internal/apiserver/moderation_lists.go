@@ -1,4 +1,4 @@
-// moderation_lists.go adapts the lists service to moderation.ListLookup (plan W5-44, security review W5-17 M-4): the
+// moderation_lists.go adapts the lists service to moderation.ListLookup (security review M-4): the
 // composition root is the one place that knows both modules. moderation defines the interface and its own types and never
 // imports lists; lists never imports moderation.
 package apiserver

@@ -73,7 +73,7 @@ class _PostMenu extends StatefulWidget {
   /// Pin / Unpin rows for [post], or null for none.
   final PostPinControl? pinControl;
 
-  /// "Remove from Community" for a moderator (W5-35), or null for none.
+  /// "Remove from Community" for a moderator, or null for none.
   final PostModerationControl? moderationControl;
 
   @override
@@ -373,7 +373,7 @@ class _PostMenuState extends State<_PostMenu> {
     }
   }
 
-  /// "Remove from Community" (W5-35): asks first, then the control hides the
+  /// "Remove from Community": asks first, then the control hides the
   /// post at once and rolls it back on a failure. The snackbars go through the
   /// messenger captured now: the hide removes this card from the feed.
   Future<void> _hide(BuildContext context) async {

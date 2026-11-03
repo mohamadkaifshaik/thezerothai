@@ -36,7 +36,7 @@ const (
 	PostKind_POST_KIND_POST        PostKind = 1
 	PostKind_POST_KIND_REPLY       PostKind = 2
 	PostKind_POST_KIND_QUOTE       PostKind = 3
-	// Created by EngagementService.RepostPost (P5); stored as a post doc authored by the reposter, with an
+	// Created by EngagementService.RepostPost; stored as a post doc authored by the reposter, with an
 	// embedded snapshot of the original, so pull timelines include it with no extra query. Its own counters stay 0:
 	// like, repost and quote actions apply to embedded.post_id, the original.
 	PostKind_POST_KIND_REPOST PostKind = 4
@@ -285,7 +285,7 @@ const (
 	// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
 	// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
 	// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
-	// reposted_by_viewer = true) so it can be undone (ADR-0025 note W3-36 L-2); GetPost answers NOT_FOUND for it.
+	// reposted_by_viewer = true) so it can be undone (ADR-0025 note L-2); GetPost answers NOT_FOUND for it.
 	EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED EmbedViewerState = 3
 )
 
@@ -1147,7 +1147,7 @@ type PostView struct {
 	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
 	// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
 	// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
-	// own REPOST on the caller's own profile (ADR-0025 note W3-36 L-2).
+	// own REPOST on the caller's own profile (ADR-0025 note L-2).
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
 	// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
 	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
@@ -1157,7 +1157,7 @@ type PostView struct {
 	// stay false.
 	BookmarkedByViewer bool `protobuf:"varint,6,opt,name=bookmarked_by_viewer,json=bookmarkedByViewer,proto3" json:"bookmarked_by_viewer,omitempty"`
 	// The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
-	// its protected author (ADR-0025 note W3-36 L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+	// its protected author (ADR-0025 note L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
 	// embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
 	// liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
 	// or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
@@ -1695,7 +1695,7 @@ type GetThreadResponse struct {
 	Replies       []*PostView `protobuf:"bytes,4,rep,name=replies,proto3" json:"replies,omitempty"`
 	NextPageToken string      `protobuf:"bytes,5,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	// True when the focal post is a reply whose parent no longer exists or cannot be shown to the caller
-	// (deleted, author suspended/blocking, not public). Render a tombstone. Additive in P3.
+	// (deleted, author suspended/blocking, not public). Render a tombstone. Additive.
 	ParentUnavailable bool `protobuf:"varint,6,opt,name=parent_unavailable,json=parentUnavailable,proto3" json:"parent_unavailable,omitempty"`
 	// Same for the conversation root when the focal post is a reply.
 	RootUnavailable bool `protobuf:"varint,7,opt,name=root_unavailable,json=rootUnavailable,proto3" json:"root_unavailable,omitempty"`

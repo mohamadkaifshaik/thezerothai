@@ -7,7 +7,7 @@ import 'telemetry_platforms.dart';
 class TelemetryAdapters {
   const TelemetryAdapters({required this.crash, required this.analytics});
 
-  /// Both `Noop`: web, iOS (until TEL-16) and tests. No SDK is touched.
+  /// Both `Noop`: web, iOS (until it ships) and tests. No SDK is touched.
   const TelemetryAdapters.noop()
     : crash = const NoopCrashReporter(),
       analytics = const NoopUsageAnalytics();

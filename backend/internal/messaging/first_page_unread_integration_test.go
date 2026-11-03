@@ -20,7 +20,7 @@ func (e *itEnv) setEntry(uid, collection, convID string, ups ...firestore.Update
 	}
 }
 
-// W7-27 on the emulator: a first page carries the caller's own unread_count and silent (3 unread, 25 reads at page 20, 55 at
+// on the emulator: a first page carries the caller's own unread_count and silent (3 unread, 25 reads at page 20, 55 at
 // page 50), an older page and a since refresh leave them unset, and a missing entry (delete for me) is 0 and still costs the
 // one read.
 func TestListMessages_FirstPageUnreadOnEmulator(t *testing.T) {

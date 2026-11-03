@@ -103,7 +103,7 @@ Future<TimeOfDay?> _platformPickTime(
   required TimeOfDay initial,
 }) => showTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
-/// Opens the Schedule dialog (CMP-D6, ADR-0021 D4): a full-screen route below
+/// Opens the Schedule dialog (ADR-0021 D4): a full-screen route below
 /// [AppBreakpoints.mobile] wide, a centred dialog above. [initial] is the
 /// schedule already set (offering "Remove schedule"); [hasMedia] adds the L-9
 /// note; [notice] is a server refusal of the time to show under the pickers.

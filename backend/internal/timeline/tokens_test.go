@@ -119,7 +119,7 @@ func TestCodec_TTLBoundaryAndAboveTheDefault24h(t *testing.T) {
 	}
 }
 
-// A Lower bound at or above Upper is "lower bound reached", never an error (T28 carry-over).
+// A Lower bound at or above Upper is "lower bound reached", never an error (carry-over).
 func TestCodec_LowerAtOrAboveUpperIsReached(t *testing.T) {
 	t.Parallel()
 	c := newClock()

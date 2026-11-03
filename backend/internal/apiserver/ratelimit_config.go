@@ -34,7 +34,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// ADR-0008 D7: Follow/Unfollow 30/min, Block/Unblock/Mute/Unmute 20/min, lists 20/min; GetRelationships
 	// uses rlDefault (the 60/min default). A shared DailyCap (not a second limiter) backs the per-uid daily
-	// list cap (T4), logged as limit_name "graph_list_daily".
+	// list cap, logged as limit_name "graph_list_daily".
 	rlGraphFollow := ratelimit.NewLimiter(cfg.RateLimit.GraphFollowPerMinute, idleBucketTTL)
 	rlGraphBlock := ratelimit.NewLimiter(cfg.RateLimit.GraphBlockPerMinute, idleBucketTTL)
 	rlGraphList := ratelimit.NewLimiter(cfg.RateLimit.GraphListPerMinute, idleBucketTTL)
@@ -43,7 +43,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// no-ops reserve no Firestore quota but still read 1-3 docs. See config.RateLimitConfig.GraphMutationsPerDay
 	// for the default's math. Logged as limit_name "graph_mutation_daily".
 	graphMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphMutationsPerDay)
-	// ADR-0010 D5 / T3: CheckHandleAvailability call cap, limit_name "check_handle_daily".
+	// ADR-0010 D5 /: CheckHandleAvailability call cap, limit_name "check_handle_daily".
 	checkHandleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CheckHandleCallsPerDay)
 	// ADR-0010 D5 A6: limit_name "account_ops_daily", shared by DeleteAccount, RequestAccountExport, GetAccountExport.
 	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
@@ -56,7 +56,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// so sharing the 50/day devices cap would lock device registration out. 200 writes/uid/day worst case.
 	notificationSeenDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationSeenCallsPerDay)
 
-	// ADR-0010 T4: home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
+	// ADR-0010: home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
 	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
 	// new accounts) and every read by the ADR-0010 D5 read budget, so there is no extra daily call cap.
 	rlHomeTimeline := ratelimit.NewLimiter(cfg.RateLimit.TimelinePerUserPerMinute, idleBucketTTL)
@@ -78,7 +78,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// ADR-0029 D6: VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
 	// DailyCap (POLL_VOTES_PER_DAY, 300). Both run in the interceptor, so a refused vote is also counted. The cap is in memory
 	// (option D): the natural key admits one vote per account per poll, so the writes are bounded by 3 x the open polls the
-	// account can see whatever the cap does after a restart. POLL_VOTES_PER_DAY_NEW_ACCOUNT is applied by the service (W6-7).
+	// account can see whatever the cap does after a restart. POLL_VOTES_PER_DAY_NEW_ACCOUNT is applied by the service.
 	rlPollVote := ratelimit.NewLimiter(cfg.RateLimit.PollVotePerUserPerMinute, idleBucketTTL)
 	pollVotesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.PollVotesPerDay)
 
@@ -103,19 +103,19 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
 	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
 	searchDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchCallsPerDay)
-	// ADR-0028 note 2026-10-31 part 4 (W4-28, review L-4): GetTrends keeps the 60/min default bucket and gains its OWN daily
+	// ADR-0028 note 2026-10-31 part 4 (review L-4): GetTrends keeps the 60/min default bucket and gains its OWN daily
 	// cap (limit_name "trends_daily", TRENDS_CALLS_PER_DAY, default 400), never the search_daily one.
 	trendsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.TrendsCallsPerDay)
 	// ADR-0025 D13: RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
 	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap. Both are covered by the
 	// ADR-0010 D5 read budget; responses need no quota (the pending requests bound them).
 	rlFollowRequestsRespond := ratelimit.NewLimiter(cfg.RateLimit.FollowRequestsRespondPerUserPerMinute, idleBucketTTL)
-	// W3-22 L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
+	// L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
 	// save loop was bounded by the read budget alone (about 6,000 writes a day per account at 3 instances). Its own per-uid
 	// daily call cap, limit_name "profile_update_daily" (PROFILE_UPDATES_PER_DAY, default 100; see
 	// config.RateLimitConfig.ProfileUpdatesPerDay for the math). It counts every call, including a no-op one (0 writes).
 	profileUpdateDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ProfileUpdatesPerDay)
-	// W2-14 M-1: ONE shared daily call cap over AddBookmark + RemoveBookmark (same DailyCap type, one counter per uid): an
+	// M-1: ONE shared daily call cap over AddBookmark + RemoveBookmark (same DailyCap type, one counter per uid): an
 	// already bookmarked Add and a Remove of a missing bookmark reserve no quota but still store an idempotency doc (1 write +
 	// 1 TTL delete), so the per-minute bucket alone left them unbounded. See config.RateLimitConfig.BookmarkMutationsPerDay for
 	// the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read: the read budget covers it.
@@ -124,7 +124,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// ADR-0027 D13: SendMessage has its own per-user bucket (RATE_LIMIT_MESSAGES_SEND_PER_MIN, 20/min per instance) and a per-uid
 	// daily call cap (MESSAGES_SENDS_PER_DAY, limit_name "messages_daily"); ListConversations and ListMessages share one read
 	// bucket (RATE_LIMIT_MESSAGES_READ_PER_MIN, 30/min per instance). MarkConversationRead, AcceptMessageRequest and
-	// DeleteConversation use the default bucket (the read budget covers every RPC) and, since W7-29 (security review W7-22 M-1),
+	// DeleteConversation use the default bucket (the read budget covers every RPC) and, since then (security review M-1),
 	// a daily call cap each: MarkConversationRead alone (MESSAGES_MARK_READ_PER_DAY, "messages_mark_read_daily": it writes the
 	// caller's entry on every call, repeats included) and ONE shared cap over Accept + Delete (MESSAGES_MUTATIONS_PER_DAY,
 	// "messages_mutation_daily", the graph_mutation_daily shape). The new-account tier of the send cap
@@ -146,24 +146,24 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
 	listMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ListMutationsPerDay)
 
-	// ADR-0031 D11 (W5-22): the seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
+	// ADR-0031 D11: the seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
 	// instance). Two per-uid daily call caps split them by who acts: Create, Update, Join and Leave share "community_mutation_daily"
 	// (COMMUNITY_MUTATIONS_PER_DAY, 200; a replay or a no-op still stores an idempotency doc), and the three moderator actions share
 	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor). GetCommunity, ListCommunities, ListMyCommunities,
 	// ListCommunityMembers and ListModerationLog share a read bucket (RATE_LIMIT_COMMUNITIES_READ_PER_MIN, 30/min);
 	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min). Every read is also covered by the ADR-0010 D5
-	// read budget. The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate (W5-26), not here.
+	// read budget. The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate, not here.
 	rlCommunitiesWrite := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesWritePerUserPerMinute, idleBucketTTL)
 	rlCommunitiesRead := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesReadPerUserPerMinute, idleBucketTTL)
 	rlCommunityTimeline := ratelimit.NewLimiter(cfg.RateLimit.CommunityTimelinePerUserPerMinute, idleBucketTTL)
 	communityMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityMutationsPerDay)
 	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
 
-	// P4: CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Images are bounded per day by
+	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Images are bounded per day by
 	// quota.Uploads (20, 5 for new accounts) and Vision spend by VISION_MONTHLY_CAP.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
-	// W6-40 (ADR-0029 Amendment 1 A5.5): FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
+	// ADR-0029 Amendment 1 A5.5: FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
 	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, charged before the claim.
 	rlMediaFinalize := ratelimit.NewLimiter(cfg.RateLimit.MediaFinalizePerMinute, idleBucketTTL)
 

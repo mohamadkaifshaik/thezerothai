@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The publish sweep route over the real Build chain (ADR-0021 D1 and "Sweep", CMP-D4): /internal/cron/publish-scheduled
+// The publish sweep route over the real Build chain (ADR-0021 D1 and "Sweep"): /internal/cron/publish-scheduled
 // is POST only, answers 204, runs the sweep with the feature flags and DEGRADED_MODE the process was started with, and
 // writes one scheduled_sweep line. Helpers come from posts_restricted_test.go and posts_contract_test.go.
 

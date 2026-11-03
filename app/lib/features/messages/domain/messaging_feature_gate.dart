@@ -10,7 +10,7 @@ const kMessagingLimitRequestUnanswered = 'request_unanswered';
 /// New conversations started today (per IST day).
 const kMessagingLimitDmNewDaily = 'dm_new_daily';
 
-/// What Messages offers the caller (W7-26): everything, the clean-up subset
+/// What Messages offers the caller: everything, the clean-up subset
 /// (list, read, mark-read, delete, report, block; no sending), or nothing.
 enum MessagingAccess { full, readOnly, hidden }
 
@@ -47,7 +47,7 @@ class MessagingFeatureGate extends ServiceFeatureGate {
   bool _probeOk = false;
   int _probeGeneration = 0;
 
-  /// What Messages shows this caller (W7-26, ADR-0027 F6(a)). The one place
+  /// What Messages shows this caller (ADR-0027 F6(a)). The one place
   /// that decides; every screen and the router read it.
   ///
   /// - [MessagingAccess.full]: `messaging` is in `GetMe.enabled_features`. Read

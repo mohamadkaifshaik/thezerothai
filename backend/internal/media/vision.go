@@ -16,7 +16,7 @@ import (
 const visionTimeout = 10 * time.Second
 
 // errNotSent marks a Moderator failure that happened before any request reached Google (the Vision service could not be built: no credentials,
-// a metadata-server failure). Nothing can have been billed, so the call's unit is returned to both counters (unbilled, W6-49).
+// a metadata-server failure). Nothing can have been billed, so the call's unit is returned to both counters (unbilled).
 var errNotSent = errors.New("media: vision request not sent")
 
 // Vision is the Cloud Vision SafeSearch Moderator. SafeSearch reads the object through its gs:// URI with the runtime
@@ -139,8 +139,8 @@ const codeInvalidArgument int64 = 3
 
 // VisionAnsweredError is a Moderator error for a call that reached Vision and got an answer: a per-image error, an
 // empty response, or a response without a SafeSearch annotation. Google bills such a call, so the screen counts its
-// unit against VISION_MONTHLY_CAP (W6-27, security H-3). A failure without a response is not one: whether its unit comes back is decided by
-// unbilled (only an HTTP 429 or 5xx answer or a failure before the request was sent; a timeout, a reset or an EOF may have been billed, W6-49).
+// unit against VISION_MONTHLY_CAP (security H-3). A failure without a response is not one: whether its unit comes back is decided by
+// unbilled (only an HTTP 429 or 5xx answer or a failure before the request was sent; a timeout, a reset or an EOF may have been billed).
 // Code is the response's google.rpc.Code, or -1 when there was none.
 type VisionAnsweredError struct{ Code int64 }
 

@@ -1,5 +1,5 @@
-// server_likes_list.go holds the Connect handler of ListLikedPosts (ADR-0024 D6, tickets W3-4 and W3-10): the flag gate
-// (W3-4), then LikesList.ListLikedPosts (W3-10), each row rendered with posts.ToView.
+// server_likes_list.go holds the Connect handler of ListLikedPosts (ADR-0024 D6): the flag gate,
+// then LikesList.ListLikedPosts, each row rendered with posts.ToView.
 package engagement
 
 import (

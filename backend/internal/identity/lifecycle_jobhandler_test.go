@@ -20,7 +20,7 @@ func (r *recordingJobHandler) Handle(_ context.Context, data []byte) (string, er
 	return r.outcome, r.err
 }
 
-// TestRegisterJobHandler (P4): another module's job kind rides the account jobs endpoint. Account kinds cannot be
+// TestRegisterJobHandler: another module's job kind rides the account jobs endpoint. Account kinds cannot be
 // taken over, registration is a startup-time act, and the handler's ack/nack decides the HTTP answer.
 func TestRegisterJobHandler(t *testing.T) {
 	h := newHarness(t)

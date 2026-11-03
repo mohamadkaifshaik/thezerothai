@@ -38,7 +38,7 @@ import 'widgets/unsent_posts_row.dart';
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
 /// account-settings feature. "Blocked accounts"/"Muted accounts" (graph
 /// plan) only appear when the graph feature flag is on (ADR-0008 D6) —
-/// "Protect your posts" (W3-33b, ADR-0025) shows with `private_accounts` on,
+/// "Protect your posts" (ADR-0025) shows with `private_accounts` on,
 /// and for an already protected account whatever the flag (the undo rule).
 ///
 /// The rows are grouped into sections; a section whose rows are all gated
@@ -89,7 +89,7 @@ class SettingsList extends StatelessWidget {
     final list = MessagingAccessBuilder(
       builder: (context, access) => _withProtect(context, access),
     );
-    // W6-31: the count of this account's unsent posts on the device, so the
+    // The count of this account's unsent posts on the device, so the
     // delete entry shows only while there are some (and stays reachable with
     // `drafts` off). No repository in the tree (a test harness) = no entry.
     final drafts = context.read<DraftsRepository?>();
@@ -155,7 +155,7 @@ class SettingsList extends StatelessWidget {
     final unsentPosts = context.select<UnsentPostsCubit?, int>(
       (cubit) => cubit?.state ?? 0,
     );
-    // CMP-D6: the ROUTE needs only `posts` (a user dropped from the allowlist
+    // The ROUTE needs only `posts` (a user dropped from the allowlist
     // may still list and cancel, ADR-0021 L-A option b), but this ENTRY shows
     // only with both flags for now: the client cannot tell "globally off" from
     // "not in the allowlist" (both just leave `scheduled_posts` out of
@@ -165,9 +165,9 @@ class SettingsList extends StatelessWidget {
         isFeatureEnabled(context, kFeaturePosts) &&
         isFeatureEnabled(context, kFeatureScheduledPosts);
 
-    // W7-19: the legacy chrome (no `ui_shell`) has no Messages tab, so Settings
+    // The legacy chrome (no `ui_shell`) has no Messages tab, so Settings
     // carries the only entry. The new shell has the bar / rail destination.
-    // W7-26: read-only Messages (off for this caller only, with a cached
+    // Read-only Messages (off for this caller only, with a cached
     // conversation) keeps the row in both chromes: it is the only way in.
     final messagesEntry = switch (messaging) {
       MessagingAccess.full => !isFeatureEnabled(context, kFeatureUiShell),
@@ -242,7 +242,7 @@ class SettingsList extends StatelessWidget {
         'Privacy & safety',
         [
           if (showProtect) const ProtectPostsRow(),
-          // TEL-7: only on Android, only while the kind's flag is on.
+          // Only on Android, only while the kind's flag is on.
           for (final kind in TelemetryKind.values)
             if (telemetryRowVisible(context, kind))
               TelemetryConsentRow(kind: kind),
@@ -272,7 +272,7 @@ class SettingsList extends StatelessWidget {
               selected: selected(AppRouter.exportDataPath),
               onTap: () => open(AppRouter.exportDataPath),
             ),
-          // W6-31: whatever the `drafts` flag says, while rows are here.
+          // Whatever the `drafts` flag says, while rows are here.
           if (unsentPosts > 0) UnsentPostsRow(count: unsentPosts),
         ],
       ),

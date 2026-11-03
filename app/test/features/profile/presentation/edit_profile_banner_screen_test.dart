@@ -16,7 +16,7 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// The banner editor on Edit profile, state by state (W3-15): placeholder,
+/// The banner editor on Edit profile, state by state: placeholder,
 /// picked, uploading, error and remove, at 360/600/1200 dp.
 void main() {
   setUpAll(() {

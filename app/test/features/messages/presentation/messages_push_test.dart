@@ -35,7 +35,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W7-19: how the open conversation and the open inbox react to a foreground
+/// How the open conversation and the open inbox react to a foreground
 /// direct-message push, what the Messages badge does meanwhile, and the
 /// thread's hot poll interval (30 s with push registered on Android, ADR-0027
 /// D7).

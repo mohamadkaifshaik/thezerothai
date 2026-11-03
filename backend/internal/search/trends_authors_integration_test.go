@@ -2,7 +2,7 @@
 
 package search
 
-// W4-26 against the Firestore emulator: the sweep with the real identity Directory. 60 authors on one tag are read in two
+// against the Firestore emulator: the sweep with the real identity Directory. 60 authors on one tag are read in two
 // GetProfiles batches (about 1 read per author on a cold cache); a SUSPENDED author and accounts younger than
 // TRENDS_MIN_ACCOUNT_AGE are not counted.
 

@@ -13,7 +13,7 @@ import '../../../../support/posts_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// Posting a GIF through the composer cubit (W6-16): the GIF's media id is
+/// Posting a GIF through the composer cubit: the GIF's media id is
 /// sent like a photo's, and a gate that learned `gif` is off stops the upload.
 void main() {
   setUpAll(registerMediaFallbacks);

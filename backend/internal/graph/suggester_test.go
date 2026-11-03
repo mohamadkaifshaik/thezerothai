@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Unit tests of ListSuggestedUsers (ADR-0024 D8, ticket W3-12) over fakes. The reads the fakes charge to the budget
+// Unit tests of ListSuggestedUsers (ADR-0024 D8) over fakes. The reads the fakes charge to the budget
 // counter mirror the real repo and Directory (a snapshot read 1, an edge query one per document with a minimum of 1,
 // hydration one per uid), so the cold and warm read caps are asserted here too. The interceptor's read is not part of
 // the service: the documented 32 is 31 here plus that one (the config default EdgeLimit 20, ADR-0024 Amendment 2
@@ -546,7 +546,7 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 			t.Errorf("after Follow = %v, want %v (cu-00 gone, the sixth row moved up)", got, want)
 		}
 		// Follow invalidated the caller's 60 s snapshot, so the re-filter of this warm hit loads graph/{viewer} once
-		// (W3-22 L-1: the documented +1 on a warm hit without a cached snapshot). Nothing else is read: no edge query,
+		// (L-1: the documented +1 on a warm hit without a cached snapshot). Nothing else is read: no edge query,
 		// no hydration; the next call finds the refilled snapshot cache and costs 0.
 		budgettest.Assert(t, "after Follow", counter, budgettest.Budget{Reads: 1})
 		if len(env.repo.queries) != 0 || len(env.dir.calls) != 1 {
@@ -883,7 +883,7 @@ func TestClampMaxResults(t *testing.T) {
 	}
 }
 
-// TestListSuggestedUsers_WarmHitReloadsSnapshot (W3-22 L-1): a warm hit is re-filtered against the viewer's snapshot
+// TestListSuggestedUsers_WarmHitReloadsSnapshot (L-1): a warm hit is re-filtered against the viewer's snapshot
 // even when the 60 s snapshot cache no longer holds it, at the price of ONE read (graph/{viewer}), so a user who
 // blocked the viewer on another instance is hidden within 60 s instead of at the end of the 1 h entry. A failure
 // to load it is an error, never a cached-looking empty answer.

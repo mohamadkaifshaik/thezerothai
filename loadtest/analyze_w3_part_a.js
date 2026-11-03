@@ -1,4 +1,4 @@
-// analyze_w3_part_a.js: W3 Part A reads per call from the API's JSON request log (W3-23; scenario profile_w3_part_a.js).
+// analyze_w3_part_a.js: W3 Part A reads per call from the API's JSON request log (scenario profile_w3_part_a.js).
 // Plain Node, no dependencies.
 //
 //   node loadtest/analyze_w3_part_a.js api.log          per call position and per RPC

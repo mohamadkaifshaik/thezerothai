@@ -18,7 +18,7 @@ import (
 // postsSvc would do. posts.AudienceOf then returns nil and the engagement lists would fail open.
 type hidingPosts struct{ posts.Service }
 
-// W3-36 L-5: build refuses to start, naming the seam, when the engagement Audience would be nil; the real wiring starts.
+// L-5: build refuses to start, naming the seam, when the engagement Audience would be nil; the real wiring starts.
 func TestBuild_RefusesMissingProtectedSeam(t *testing.T) {
 	skipIfNoEmulators(t)
 	cfg, err := config.Load()

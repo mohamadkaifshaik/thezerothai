@@ -19,7 +19,7 @@ import '../data/lists_repository.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_unavailable_view.dart';
 
-/// `/lists/:id/members` (W5-12): the people on a List, newest first, each
+/// `/lists/:id/members`: the people on a List, newest first, each
 /// with a Follow button; the owner also gets Remove.
 ///
 /// - 1 `ListListMembers` per page (20). A page can be short or empty while a

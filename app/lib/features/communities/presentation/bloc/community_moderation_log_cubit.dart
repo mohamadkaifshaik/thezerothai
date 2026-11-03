@@ -75,7 +75,7 @@ class ModerationLogState {
   );
 }
 
-/// The moderation log of one community (W5-35): 1 `ListModerationLog` per
+/// The moderation log of one community: 1 `ListModerationLog` per
 /// page, opened only by a moderator. Newest first, cursor in the cubit, one
 /// load at a time. Restore on a HIDE entry goes through
 /// [CommunityModerationCubit] (one key per post, reused on retry).

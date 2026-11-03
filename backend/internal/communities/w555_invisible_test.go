@@ -9,8 +9,8 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 )
 
-// W5-55: the community description and rule text use identity.BioText, which refuses Cf and filler characters. Titles use the
-// single-line rule (W5-45) and already did.
+// The community description and rule text use identity.BioText, which refuses Cf and filler characters. Titles use the
+// single-line rule and already did.
 func TestW555_InvisibleCharactersRefused(t *testing.T) {
 	vectors := map[string]string{
 		"zero width space": "a\u200bb", "word joiner": "a\u2060b", "interior BOM": "a\ufeffb",
@@ -56,7 +56,7 @@ func TestW555_SequencesAndMultilineAccepted(t *testing.T) {
 	}
 }
 
-// W5-55: stored text the new rule would refuse is returned unchanged by a read (the rule runs on write only).
+// Stored text the new rule would refuse is returned unchanged by a read (the rule runs on write only).
 func TestW555_StoredInvisibleTextReadsUnchanged(t *testing.T) {
 	f := newFixture(ownerUID)
 	old := "a\u200bb"

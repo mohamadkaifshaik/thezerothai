@@ -91,7 +91,7 @@ func TestService_FlagModes(t *testing.T) {
 					open = tt.wantOn
 				}
 				if open {
-					// With the gate open every RPC reaches its own validation of the empty request (W7-9 implemented the last two).
+					// With the gate open every RPC reaches its own validation of the empty request (implemented the last two).
 					var ae *apierr.Error
 					if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
 						t.Fatalf("err = %v, want the request's VALIDATION (the gate is open)", err)

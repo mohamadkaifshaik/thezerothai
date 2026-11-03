@@ -437,7 +437,7 @@ func TestConfig_ReadBudgetCovers(t *testing.T) {
 }
 
 // TestInterceptor_DailyCapRejectionCarriesLimitMetadata: check_handle_daily-style caps also report
-// metadata["limit"] and an IST-midnight retry_after (T3): the 101st call in a day is rejected.
+// metadata["limit"] and an IST-midnight retry_after: the 101st call in a day is rejected.
 func TestInterceptor_DailyCapRejectionCarriesLimitMetadata(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, istZone)
 	c := ratelimit.NewDailyCap(100).WithClock(func() time.Time { return now })
@@ -457,7 +457,7 @@ func TestInterceptor_DailyCapRejectionCarriesLimitMetadata(t *testing.T) {
 	}
 }
 
-// ADR-0010 D5 / T3 acceptance: 2,000 read units are admitted (one call each), the 2,001st is rejected with
+// ADR-0010 D5 / acceptance: 2,000 read units are admitted (one call each), the 2,001st is rejected with
 // RATE_LIMITED, limit_name=read_budget_daily and 0 handler reads.
 func TestReadBudget_2001stUnitRejectedWithReadBudgetDaily(t *testing.T) {
 	now := time.Date(2026, 1, 1, 10, 0, 0, 0, istZone)

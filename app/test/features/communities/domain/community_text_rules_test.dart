@@ -2,7 +2,7 @@ import 'package:dzeroth/features/communities/domain/community_text_rules.dart';
 import 'package:dzeroth/features/lists/domain/list_text_rules.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// W5-55b: description and rule text keep `identity.BioText`'s rule (LF kept,
+/// Description and rule text keep `identity.BioText`'s rule (LF kept,
 /// no invisible format character or filler); names and titles stay one line.
 void main() {
   const refused = {

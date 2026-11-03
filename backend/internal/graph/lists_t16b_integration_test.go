@@ -1,6 +1,6 @@
 //go:build integration
 
-// lists_t16b_integration_test.go (T16b): pagination completeness and stability, read budgets at page sizes 20
+// lists_t16b_integration_test.go: pagination completeness and stability, read budgets at page sizes 20
 // and 50 for every list RPC, tampered/truncated/cross-user cursors, and the daily list cap. Everything is
 // seeded through real Follow/Block/Mute calls and asserted over the real Connect handlers.
 package graph_test
@@ -511,7 +511,7 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 		}
 	})
 
-	// Own lists (T16b D-5, security review M1): tokens are bound to the caller and the list. Another user's
+	// Own lists (D-5, security review M1): tokens are bound to the caller and the list. Another user's
 	// blocked-list token is rejected outright instead of paging the presenter's own array from a foreign
 	// position.
 	t.Run("own-list token is bound to the caller", func(t *testing.T) {

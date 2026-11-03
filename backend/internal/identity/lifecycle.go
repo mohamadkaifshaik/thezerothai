@@ -1,4 +1,4 @@
-// lifecycle.go is the account-lifecycle service (ADR-0011, P8): DeleteAccount, RequestAccountExport and
+// lifecycle.go is the account-lifecycle service (ADR-0011): DeleteAccount, RequestAccountExport and
 // GetAccountExport, plus the registry the deletion orchestrator (lifecycle_jobs.go) and the export composer
 // (lifecycle_export.go) run from. The orchestrator lives in identity (D-C) and reaches other modules only
 // through the consumer-side StepEraser / ExportSection interfaces, registered by apiserver.Build.
@@ -101,7 +101,7 @@ type LifecycleDeps struct {
 	ExportBudget time.Duration
 	// RetryBackoff is the first jitter ceiling between retries of a failing step (doubled per retry); zero means 200 ms.
 	RetryBackoff time.Duration
-	// Snapshots and Flags (P2) enable the profile_snapshot_refresh job kind: Snapshots rewrites the author
+	// Snapshots and Flags enable the profile_snapshot_refresh job kind: Snapshots rewrites the author
 	// snapshot on posts, Flags answers FEATURE_PROFILE_SNAPSHOT. Either nil means every such message is acked
 	// without work.
 	Snapshots SnapshotWriter
@@ -127,7 +127,7 @@ type Lifecycle struct {
 	exportBudget time.Duration
 	// retryBackoff is the first jitter ceiling between retries of one failing step.
 	retryBackoff time.Duration
-	// snapshots and flags serve the profile_snapshot_refresh job (P2); see LifecycleDeps.
+	// snapshots and flags serve the profile_snapshot_refresh job; see LifecycleDeps.
 	snapshots SnapshotWriter
 	flags     FlagChecker
 
@@ -225,7 +225,7 @@ func (l *Lifecycle) RegisterExportSection(s ExportSection) error {
 	return nil
 }
 
-// RegisterJobHandler routes jobs-topic messages whose `kind` is kind to h (P4: the media module's `post_delete`).
+// RegisterJobHandler routes jobs-topic messages whose `kind` is kind to h (the media module's `post_delete`).
 // The built-in account kinds cannot be overridden; a duplicate kind, an empty kind or a registration after the
 // first job ran is a startup error.
 func (l *Lifecycle) RegisterJobHandler(kind string, h JobHandler) error {

@@ -305,7 +305,7 @@ void main() {
     expect(repo.calls.where((c) => c.startsWith('people')), ['people:anne']);
   });
 
-  // W4-21 D-1: the Explore pill is only 264 dp wide next to the avatar button;
+  // D-1: the Explore pill is only 264 dp wide next to the avatar button;
   // "Recent" must ellipsize and "Clear all" stay a 48 dp target.
   forEachThemeAndWidth(
     'narrow pill: Recent header does not overflow',

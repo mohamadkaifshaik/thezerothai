@@ -68,10 +68,10 @@ type CreateParams struct {
 	// GifEnabled is CreateInput.GifEnabled: with it false a claim holding a GIF fails with ErrGifDisabled before any write.
 	GifEnabled bool
 	Draft      Post
-	// ParentID is the post being replied to (P3): its replyCount is incremented in the same transaction, which
+	// ParentID is the post being replied to: its replyCount is incremented in the same transaction, which
 	// fails with ErrParentGone if the parent was deleted in the meantime. Empty for root posts.
 	ParentID string
-	// QuoteID is the post being quoted (P5): its quoteCount is incremented the same way (ErrParentGone when it is
+	// QuoteID is the post being quoted: its quoteCount is incremented the same way (ErrParentGone when it is
 	// gone). A request carries a ParentID or a QuoteID, never both.
 	QuoteID string
 	// Poll is the validated poll of a root post (ADR-0029 D1), nil for none. The transaction builds the stored Poll from it inside
@@ -106,9 +106,9 @@ type WriteDeps struct {
 	Quotas      *quota.Store
 	Counters    identity.Counters
 	IDs         IDGenerator
-	// Media loads and claims a post's images inside the CreatePost transaction (P4). Nil rejects media ids.
+	// Media loads and claims a post's images inside the CreatePost transaction. Nil rejects media ids.
 	Media MediaAttacher
-	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction (ADR-0021 CMP-D4). Only
+	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction (ADR-0021). Only
 	// PublishScheduled needs it; CreatePost reads the cached directory profile instead.
 	Profiles identity.TxProfiles
 }

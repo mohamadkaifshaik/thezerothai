@@ -38,7 +38,7 @@ class ProtectPostsState {
   int get hashCode => Object.hash(saving, error, serial, refused);
 }
 
-/// Turns protection on or off through `UpdateProfile(is_private)` (W3-33b).
+/// Turns protection on or off through `UpdateProfile(is_private)`.
 ///
 /// - One `idempotency_key` per intent (`protect` / `unprotect`), reused when
 ///   the same intent is retried after a failure and dropped once it succeeded.

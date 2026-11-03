@@ -1,7 +1,7 @@
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// W3-16: a feed key names one cached feed and what the server binds its
+/// A feed key names one cached feed and what the server binds its
 /// tokens to (caller, target, effective tab), so every tab needs its own key.
 void main() {
   test('W5-10: FeedKey.list is the drift key list:<id>, apart from Home and '

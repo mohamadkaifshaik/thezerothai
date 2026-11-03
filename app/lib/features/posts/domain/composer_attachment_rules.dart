@@ -9,7 +9,7 @@ const kFeaturePolls = 'polls';
 const kFeatureGif = 'gif';
 
 /// Why a composer toolbar button is switched off. The tooltip is the reason
-/// in words (a disabled button always says why, W6-11).
+/// in words (a disabled button always says why).
 enum ComposerBlock {
   /// The button is available.
   none,
@@ -53,7 +53,7 @@ enum ComposerBlock {
 }
 
 /// What the composer's bottom bar offers, in X's order (photo, GIF, poll,
-/// schedule): one place decides it (ADR-0029 F4/F5, W6-11); widgets read the
+/// schedule): one place decides it (ADR-0029 F4/F5); widgets read the
 /// answer and never restate a rule.
 ///
 /// Inputs are facts about the draft: [hasPhotos], [hasGif] and [hasPoll] say
@@ -88,7 +88,7 @@ class ComposerAttachmentRules {
   final bool hasPoll;
   final bool scheduled;
 
-  /// A community is the chosen audience (W5-34): it disables Schedule.
+  /// A community is the chosen audience: it disables Schedule.
   final bool inCommunity;
 
   /// The Poll button exists at all.

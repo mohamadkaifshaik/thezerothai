@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestKnownInactive (W3-22 L-5): cache-only. SUSPENDED and DELETING cached profiles and confirmed-missing uids are
+// TestKnownInactive (L-5): cache-only. SUSPENDED and DELETING cached profiles and confirmed-missing uids are
 // reported; ACTIVE ones, expired entries and uids the cache never saw are absent (unknown, not active); it reads no
 // repository (the service here has none, so a read would panic).
 func TestKnownInactive(t *testing.T) {

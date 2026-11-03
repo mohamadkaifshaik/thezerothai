@@ -18,7 +18,7 @@ class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockTimeline extends Mock implements TimelineRepository {}
 
-/// W7-35 (L-4): the auth-to-session bridge `bootstrap` installs. The review's
+/// L-4: the auth-to-session bridge `bootstrap` installs. The review's
 /// scenarios: the process died mid sign-out, and the auth stream going from A
 /// straight to B. In both, B must never read A's cache.
 void main() {

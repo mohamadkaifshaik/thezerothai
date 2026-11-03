@@ -32,7 +32,7 @@ class _MockIdentity extends Mock implements IdentityRepository {}
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W7-17: the round "Message" button on another user's profile.
+/// The round "Message" button on another user's profile.
 void main() {
   late _MockGraph graphRepository;
 

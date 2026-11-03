@@ -1,7 +1,7 @@
 import '../../../core/network/app_exception.dart';
 
 /// Text of the non-blocking banner a feed shows over its cached posts when a
-/// refresh or page load failed (T17). Branches on the exception type, never
+/// refresh or page load failed. Branches on the exception type, never
 /// on its text; never auto-retried by the UI.
 String timelineNoticeMessage(AppException error) {
   return switch (error) {

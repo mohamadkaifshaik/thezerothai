@@ -84,7 +84,7 @@ class MessageComposerState {
   final bool degraded;
 
   /// A send was refused with CANNOT_MESSAGE (also reported through
-  /// [MessageComposerCubit.onCannotMessage]); a draft thread (W7-17) turns
+  /// [MessageComposerCubit.onCannotMessage]); a draft thread turns
   /// read-only on it.
   final bool cannotMessage;
 
@@ -109,7 +109,7 @@ class MessageComposerState {
   );
 }
 
-/// Drives the conversation composer (W7-16, ADR-0027 D3, D4): the live D9
+/// Drives the conversation composer (ADR-0027 D3, D4): the live D9
 /// reading of the draft ([analyzePostDraft], no second validator), the
 /// optimistic bubble, and one idempotency key per intent.
 ///
@@ -130,7 +130,7 @@ class MessageComposerState {
 /// - [onActivity] (typing, sending) keeps the thread's poller hot; [onSent]
 ///   lets the thread read the cache back before the row is dropped.
 ///
-/// Draft mode (W7-17): with [recipientUserId] and no [conversationId] the
+/// Draft mode: with [recipientUserId] and no [conversationId] the
 /// first send names the recipient (`recipient_user_id`); the server opens (or
 /// continues) the 1:1 conversation and the cubit then sends to the id it
 /// returned and calls [onConversationCreated] once, so the screen can switch

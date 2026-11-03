@@ -44,7 +44,7 @@ const (
 // DeletedUID is the one fixed value the `messaging` eraser writes in place of a deleted user's uid everywhere it remains in
 // a surviving peer's copy of a conversation (ADR-0027 D8, D11): the conversation's participants, gone, requestFrom and
 // requestTo, the senderId of the user's tombstoned messages and the peer entry's peerId. It can never be a real uid: it begins with "_",
-// which ids.ValidUID refuses (ADR-0008 A3: "_" is the composite-key separator), so no account can ever take the value (W7-34, L-2;
+// which ids.ValidUID refuses (ADR-0008 A3: "_" is the composite-key separator), so no account can ever take the value (L-2;
 // the first value, "deleted", was a valid uid shape and could have been claimed). Nothing resolves it (Firebase
 // uids are 28 random characters): readers treat it as "Deleted account".
 const DeletedUID = "_deleted"
@@ -168,7 +168,7 @@ func (c ConvDoc) isGone(uid string) bool {
 	return false
 }
 
-// MsgDoc is conversations/{convId}/messages/{msgId}. text and requestHash are index-exempt (W7-3).
+// MsgDoc is conversations/{convId}/messages/{msgId}. text and requestHash are index-exempt.
 type MsgDoc struct {
 	SenderID    string    `firestore:"senderId"`
 	Text        string    `firestore:"text"`
@@ -219,7 +219,7 @@ type EntryDoc struct {
 	// request moved to the inbox. The ListConversations since query orders by it. It stays on the automatic single-field
 	// index; an entry written before it existed has none and never matches a since query.
 	ChangedAt time.Time `firestore:"changedAt,omitempty"`
-	// RequestPending (ADR-0027 note W7-25) is true only on the requester's own dmInbox entry while the conversation is REQUEST
+	// RequestPending (ADR-0027 note) is true only on the requester's own dmInbox entry while the conversation is REQUEST
 	// (their first to third message): ListConversations then reads the row as REQUEST in the INBOX. Absent = false. Send sets it
 	// (+0) and clears it on the reply that accepts; Accept and the eraser's MarkGone delete it. Never set on dmRequests. A legacy
 	// entry has none and reads ACCEPTED. It stays on the automatic index (no query uses it).
@@ -228,7 +228,7 @@ type EntryDoc struct {
 
 // redactErr is logger.RedactErr for the ids this module logs: an id in the 32-hex shape (a conversation id, a message id or
 // a page cursor, all derived from hashes) is replaced by its keyed hash (logger.HashConversation), so an error line never
-// carries the plain SHA-256 of an id that can be guessed from a uid pair (W7-34, L-7); everything else (uids) by HashUID.
+// carries the plain SHA-256 of an id that can be guessed from a uid pair (L-7); everything else (uids) by HashUID.
 func redactErr(err error, ids ...string) error {
 	var convs, uids []string
 	for _, id := range ids {

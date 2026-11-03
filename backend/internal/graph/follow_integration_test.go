@@ -1,8 +1,8 @@
 //go:build integration
 
 // follow_integration_test.go exercises Follow/Unfollow against the Firestore emulator, wiring
-// identity+graph together the same way apiserver.Build does (T16a will build a fuller invariant-checker
-// suite; this focuses on T7's own acceptance criteria and budget assertions).
+// identity+graph together the same way apiserver.Build does (will build a fuller invariant-checker
+// suite; this focuses on the own acceptance criteria and budget assertions).
 package graph_test
 
 import (
@@ -215,4 +215,4 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 }
 
 // The following-cap and quota scenarios (boundary, rollover, new-account tiers) live in
-// mutations_integration_test.go (T16a).
+// mutations_integration_test.go.

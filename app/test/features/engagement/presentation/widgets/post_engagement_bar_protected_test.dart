@@ -30,7 +30,7 @@ class _MockPostsRepository extends Mock implements PostsRepository {}
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-33b: Repost and Quote are disabled on another user's followers-only post
+/// Repost and Quote are disabled on another user's followers-only post
 /// (a protected account's), with the refusal copy; the server's
 /// PROTECTED_ACCOUNT answer has the same copy.
 void main() {

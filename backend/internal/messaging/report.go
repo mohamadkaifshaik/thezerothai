@@ -33,7 +33,7 @@ type MessageReporter interface {
 
 var _ MessageReporter = (*service)(nil)
 
-// ReportableMessage implements MessageReporter (ADR-0027 D12; plan W7-12): the caller must be a participant of the
+// ReportableMessage implements MessageReporter (ADR-0027 D12): the caller must be a participant of the
 // conversation and the message must be the peer's and VISIBLE. It checks no flag: the report handler has already required
 // `reports` on and `messaging` not globally off (F6), so a user dropped from the allowlist can still report. It does not
 // look at the caller's graph either: a conversation with a blocked peer stays open so the user can still report it (D4).
@@ -48,7 +48,7 @@ var _ MessageReporter = (*service)(nil)
 //
 // Worst-case Firestore cost: conversation 1 (0 warm) + message 1 + sender profile 1 (0 warm) = 3 reads cold, 1 warm;
 // writes 0. A refusal costs at most 2 reads; a non-participant always pays
-// the conversation read, warm or cold (W7-28).
+// the conversation read, warm or cold.
 func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID string) (ReportedMessage, error) {
 	if s.d.Repo == nil || s.d.Profiles == nil {
 		return ReportedMessage{}, errors.New("messaging: message reports are not configured")

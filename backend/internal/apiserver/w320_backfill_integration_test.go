@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-20: posts.hasMedia (ADR-0024 D4) through the real Build chain. Two things the posts package tests prove at the
+// Posts.hasMedia (ADR-0024 D4) through the real Build chain. Two things the posts package tests prove at the
 // repository level are proven again where the profile tab reads them:
 //   - every create path writes the explicit bool in the same write, with profile_tabs and profile_extras both OFF (the
 //     field is "never flag-gated"), and the Media tab holds exactly the posts that stored it true (a REPOST never);

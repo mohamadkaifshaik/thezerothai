@@ -2,7 +2,7 @@
 
 package messaging
 
-// W7-20 (ADR-0027 D8, W7-6 "Budget"): the reference account of the plan, 20 conversations with 300 messages of its own (and
+// ADR-0027 D8, "Budget": the reference account of the plan, 20 conversations with 300 messages of its own (and
 // 300 received), through the eraser step and the export section on the emulator. The single-conversation budgets in
 // lifecycle_integration_test.go show the per-conversation shape; this one shows the totals the cost model uses.
 
@@ -49,7 +49,7 @@ func TestEraser_ReferenceAccountBudget(t *testing.T) {
 	//   - the closing step: 1 read, 1 write (the conversation document) and 1 delete (the user's own entry).
 	// For 20 conversations and 300 own messages that is 381 reads, 360 writes and 20 deletes. The plan's summary figure is
 	// stale (it leaves out MarkGone's second read and the closing step's read and write, 1 and 3 per conversation); correcting
-	// it, and the cost-model row, is for sre-performance in W7-23. The assertion is on the documented per-call costs.
+	// it, and the cost-model row, is for sre-performance. The assertion is on the documented per-call costs.
 	const (
 		perConvReads  = 2 + 1 // MarkGone + closing step, besides the own messages
 		perConvWrites = 2 + 1

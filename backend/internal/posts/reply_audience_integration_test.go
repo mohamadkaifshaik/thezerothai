@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestReplyAudience_Integration (ADR-0021 D2, CMP-B2/B4) against the Firestore emulator:
+// TestReplyAudience_Integration (ADR-0021 D2,/B4) against the Firestore emulator:
 //   - the field is stored as `replyPolicy` (absent for EVERYONE), inherited by replies and copied into embeds;
 //   - setting a policy costs exactly what a plain create costs (delta 0, asserted equal, not <= a ceiling);
 //   - the extra reads of a reply in a restricted conversation match the ADR cost table from cold caches, and a

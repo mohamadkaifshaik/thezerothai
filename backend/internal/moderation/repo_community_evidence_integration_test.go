@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Plan W5-29 (ADR-0031 D14) against the Firestore emulator: a COMMUNITY report keeps the community's name, description and rules (and the
+// Plan (ADR-0031 D14) against the Firestore emulator: a COMMUNITY report keeps the community's name, description and rules (and the
 // owner's handle) in the report document, with the same 2 reads and 2 writes as every other report, no evidence child document, and the
 // post evidence's retention (resolved + 90 days). An archived community's report has an empty target owner.
 func TestRepo_CommunityEvidenceRoundTripAndRetention(t *testing.T) {

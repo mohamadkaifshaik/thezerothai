@@ -7,7 +7,7 @@ import '../data/posts_repository.dart';
 import '../domain/posts_feature_flag.dart';
 
 /// Whether the viewer may START a quote (the repost sheet's "Quote" row and
-/// `/compose?quote=<id>`; W2-11). All three must hold:
+/// `/compose?quote=<id>`). All three must hold:
 ///
 /// - `engagement` is in `GetMe.enabled_features` (the quote is a repost-style
 ///   action and the server derives it from engagement);

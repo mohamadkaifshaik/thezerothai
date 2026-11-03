@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W7-20 (ADR-0027): the flag classes of the read RPCs (F6), the percent bucket for caller and recipient, DEGRADED_MODE=readonly
+// ADR-0027: the flag classes of the read RPCs (F6), the percent bucket for caller and recipient, DEGRADED_MODE=readonly
 // for reads and MarkConversationRead, the shared read limiter, MarkConversationRead then GetMe, the send caps of an
 // established account, the suspended recipient and the caller's own mute, and blockedByOverflow accounts, all over the real
 // Build chain on the emulators.
@@ -442,10 +442,10 @@ func TestMessagingChain_BlockedByOverflowAccountsOnSend(t *testing.T) {
 	}
 }
 
-// DEFECT (Low, filed with the W7-20 report): the read-time block rules of ListConversations and ListMessages consult the
+// DEFECT (Low, filed with the report): the read-time block rules of ListConversations and ListMessages consult the
 // caller's blockedBy array only (service_list.go requestHiddenBy and canReply), and an overflowed account's blockedBy has
 // dropped its blockers. So for an overflowed caller a REQUEST from an account that has since blocked them is still listed,
-// and an INBOX conversation with such an account reads can_reply = true, where ADR-0027 D4 "On read" and the W7-7 plan
+// and an INBOX conversation with such an account reads can_reply = true, where ADR-0027 D4 "On read" and the plan
 // text say the request is hidden and the thread is read-only (can_reply = false). A send into it is still refused
 // (TestMessagingChain_BlockedByOverflowAccountsOnSend), so nothing leaks; the client shows a composer that cannot send.
 // The comment on requestHiddenBy calls the omission deliberate (one graph read per peer); the ADR does not carve it out.
@@ -457,7 +457,7 @@ func TestMessagingChain_BlockedByOverflowCallerReadSide(t *testing.T) {
 	readSideAfterBlocked(t, true)
 }
 
-// DEFECT D-2 (Low, only reachable by editing a document by hand): ADR-0027 D5 and W7-8 say ListMessages answers NOT_FOUND, with the
+// DEFECT D-2 (Low, only reachable by editing a document by hand): ADR-0027 D5 and say ListMessages answers NOT_FOUND, with the
 // bytes of an unknown id, for "a malformed-but-shaped id" and a non-participant. SendMessage by conversation_id treats a conversation
 // whose participant list is not a pair the same way (service_send.go: `peerOf == ""` is notFound(); unit test
 // TestSend_ByConversationID "a malformed participant list is NOT_FOUND"). ListMessages has no such check: `peerOf` returns "" and

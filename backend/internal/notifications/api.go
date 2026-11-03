@@ -1,4 +1,4 @@
-// Package notifications is the P6 module (ADR-0017): in-app notifications under users/{uid}/notifications, FCM
+// Package notifications is the module (ADR-0017): in-app notifications under users/{uid}/notifications, FCM
 // device registration under users/{uid}/devices (+ the deviceTokens reverse index), the Pub/Sub fan-out handler
 // that turns events from other modules into rows and pushes, and the module's Eraser and exporter.
 //

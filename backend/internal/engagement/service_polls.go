@@ -1,4 +1,4 @@
-// service_polls.go is VotePoll (ADR-0029 D6, ticket W6-7; Amendment 1 A1 and A2, ticket W6-36): one vote per account per poll, changeable until
+// service_polls.go is VotePoll (ADR-0029 D6; Amendment 1 A1 and A2): one vote per account per poll, changeable until
 // the poll closes. The natural key pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of the idempotency rule
 // as ADR-0018's likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success. A different choice is a change only
 // when expected_choice names the stored vote (the compare-and-set of A2.2), else ALREADY_VOTED. The voter blocking the author is TARGET_BLOCKED (A1).
@@ -77,7 +77,7 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	if err := validate(key, postID); err != nil {
 		return PollVote{}, err
 	}
-	// post_hash: the keyed HashPost (security review W6-20 L-1): a post id is public, so a plain hash could be reversed by hashing
+	// post_hash: the keyed HashPost (security review L-1): a post id is public, so a plain hash could be reversed by hashing
 	// known ids and would rebuild a voter list per poll. It still lets an operator count votes and contention per poll.
 	logger.SetRequestField(ctx, fieldPostHash, logger.HashPost(postID))
 	if choiceIndex < 0 || choiceIndex >= posts.MaxPollChoices {
@@ -324,7 +324,7 @@ func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error)
 
 // withPollVote returns list with entry as the post's one vote: any earlier entry for postID is dropped and entry goes last (ADR-0029 I-V3: one
 // entry per post, replaced on a change, the order Firestore's ArrayRemove + ArrayUnion leaves). The vote doc is the truth, so a replay corrects a
-// stale entry too. pollEntry builds the entry; this prefix match is its only reader here (W6-29 changes the entry format in both).
+// stale entry too. pollEntry builds the entry; this prefix match is its only reader here (changes the entry format in both).
 func withPollVote(list []string, postID, entry string) []string {
 	prefix := postID + ":"
 	out := make([]string, 0, len(list)+1)

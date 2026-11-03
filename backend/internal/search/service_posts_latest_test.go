@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 )
 
-// W4-27 (security review L-1, ADR-0028 note 2026-10-31 part 3): LATEST queries fixed windows, filters the whole window and
+// Security review L-1, ADR-0028 note 2026-10-31 part 3: LATEST queries fixed windows, filters the whole window and
 // only then cuts to page_size, so a reply depends on the visible rows (and on whether the window was full), never on how
 // many rows the caller cannot see. The tests compare a tag that has hidden posts (A) with a tag that has the same visible
 // posts and none hidden (B): every (rows returned, token present) pair must match.

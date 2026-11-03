@@ -6,7 +6,7 @@ import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
-/// The banner purpose (ADR-0024 D1, W3-15) with real pixels: a centered 3:1
+/// The banner purpose (ADR-0024 D1) with real pixels: a centered 3:1
 /// crop, full 1500 x 500 and thumb 600 x 200, under the banner's own caps. The
 /// server rejects a declared size outside 3:1 within 2%, width > 1500 or
 /// height > 500, and signs 1 MiB / 128 KiB caps.

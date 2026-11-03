@@ -1,10 +1,10 @@
-// purge_bookmarks.go is the right-to-delete and right-to-access path of users/{uid}/bookmarks (ADR-0023 D6, D8, ticket
-// W2-5). Deleting users/{uid} does not delete its subcollections, so the `bookmarks` account-deletion step
+// purge_bookmarks.go is the right-to-delete and right-to-access path of users/{uid}/bookmarks (ADR-0023 D6, D8).
+// Deleting users/{uid} does not delete its subcollections, so the `bookmarks` account-deletion step
 // (BookmarkEraser, registered BeforeIdentity after `scheduled`) removes the documents and clears the
 // userLikes.bookmarks set, and the `bookmarks` export section lists post id and bookmark time per row.
 //
 // Neither is flag-gated: documents outlive the flag. A bookmarked post that is deleted, taken down or purged is not
-// fanned out to its bookmarkers (D6); the owner's list hides it and prunes it lazily (W2-4).
+// fanned out to its bookmarkers (D6); the owner's list hides it and prunes it lazily.
 package engagement
 
 import (
@@ -79,7 +79,7 @@ func (r *FirestoreRepo) PurgeBookmarksPage(ctx context.Context, uid string) (int
 		b.Delete(d.Ref)
 	}
 	if err := b.Commit(ctx); err != nil {
-		// The commit error names the deleted documents' paths: redact the uid and the bookmarked post ids (W2-14 I-4).
+		// The commit error names the deleted documents' paths: redact the uid and the bookmarked post ids (I-4).
 		return 0, logger.RedactErrPosts(fmt.Errorf("engagement: purge bookmarks %s: %w", logger.HashUID(uid), err), ids, uid)
 	}
 	return len(docs), nil
@@ -116,7 +116,7 @@ func (r *FirestoreRepo) pageBookmarks(ctx context.Context, op, uid string, after
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
 	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
-		// The query error names the collection path and the StartAfter document (a post id): redact both (W2-14 I-4).
+		// The query error names the collection path and the StartAfter document (a post id): redact both (I-4).
 		return nil, logger.RedactErrPosts(fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err), []string{afterID(after)}, uid)
 	}
 	out := make([]ExportedBookmark, 0, len(docs))

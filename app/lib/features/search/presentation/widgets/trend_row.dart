@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../data/search_repository.dart' show Trend;
 
-/// One trending hashtag (W4-17/18, X's trend row): a grey "N - Trending" meta
+/// One trending hashtag (X's trend row): a grey "N - Trending" meta
 /// line (the rank), the bold `#tag`, and a grey "N posts" line. The whole row is
 /// one button (>= 48dp) that calls [onTap] (it opens the tag's results). Grows
 /// with the text scale; the tag wraps to two lines before it is cut.

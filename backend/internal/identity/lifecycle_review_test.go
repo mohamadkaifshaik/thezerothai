@@ -1,6 +1,6 @@
 package identity
 
-// Tests for the code-reviewer findings on the P8 backend (m3, m4, m6, m7, m8, m9): context-aware step retries,
+// Tests for the code-reviewer findings on the backend (m3, m4, m6, m7, m8, m9): context-aware step retries,
 // observability fields, the backstop page limit, handler panics and the conditional final delete.
 
 import (

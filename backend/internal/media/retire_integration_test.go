@@ -374,7 +374,7 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 	}
 }
 
-// seedSuffixed writes a READY profile image the way FinalizeUpload leaves it since W3-39: a nameSuffix and the
+// seedSuffixed writes a READY profile image the way FinalizeUpload leaves it since then: a nameSuffix and the
 // suffixed public paths.
 func (e *retireIntEnv) seedSuffixed(t *testing.T, owner string, purpose Purpose) (id, suffix string) {
 	t.Helper()
@@ -391,7 +391,7 @@ func (e *retireIntEnv) seedSuffixed(t *testing.T, owner string, purpose Purpose)
 	return id, suffix
 }
 
-// TestIntegration_RetireSuffixedAvatarAndBanner (W3-39): the retire step retires a replaced avatar and banner whose
+// TestIntegration_RetireSuffixedAvatarAndBanner: the retire step retires a replaced avatar and banner whose
 // objects carry the suffix: the message's URLs parse, the document's own names are tagged (2 customTime patches),
 // 1 read and 1 write, exactly like the old shape.
 func TestIntegration_RetireSuffixedAvatarAndBanner(t *testing.T) {

@@ -13,8 +13,8 @@ import (
 )
 
 // TestServer_FlagGateOnEveryRPC: all seven ListService methods run the FEATURE_LISTS gate first, in every flag mode. Outside
-// the flag the answer is FEATURE_DISABLED feature=lists; inside it the skeleton answers Unimplemented (the real service is
-// W5-4 to W5-7); a request with no uid is Unauthenticated.
+// the flag the answer is FEATURE_DISABLED feature=lists; inside it the skeleton answers Unimplemented (the real service comes later);
+// a request with no uid is Unauthenticated.
 func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	calls := map[string]func(s *Server, ctx context.Context) error{
 		"CreateList": func(s *Server, ctx context.Context) error {

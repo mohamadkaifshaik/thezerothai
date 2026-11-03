@@ -24,7 +24,7 @@ pb.ListInfo _list(
   memberCount: members,
 );
 
-/// W5-11: the Lists screen at 360 / 600 / 1200 dp, light and dark, text scale
+/// The Lists screen at 360 / 600 / 1200 dp, light and dark, text scale
 /// 1.0 / 1.3 / 2.0.
 void main() {
   late _MockLists repo;

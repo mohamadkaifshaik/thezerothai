@@ -106,7 +106,7 @@ type ProtectedSetLoader struct {
 	lastFail  time.Time
 	gen       uint64 // bumped by Install and Apply so a refresh in flight can tell a local write landed during its read
 	installs  uint64 // bumped by Install only: a fresh transaction copy that a refresh in flight must not replace
-	inflight  bool   // a refresh read is in flight: Apply logs its deltas in applied (W3-40a, W3-36 L-3)
+	inflight  bool   // a refresh read is in flight: Apply logs its deltas in applied (L-3)
 	applied   []setDelta
 }
 
@@ -166,7 +166,7 @@ func (l *ProtectedSetLoader) fallback(ctx context.Context, set *protectedSet, fe
 		l.log.WarnContext(ctx, "protected_set_stale", "age_s", int64(now.Sub(fetched).Seconds()))
 		return set, nil
 	}
-	// One ERROR per request (W3-36 L-4): a page of 50 rows asks up to 50 times, and Error Reporting counts entries.
+	// One ERROR per request (L-4): a page of 50 rows asks up to 50 times, and Error Reporting counts entries.
 	// The repeats are WARN, so the rollback check "Error Reporting is quiet" sees one signal per affected request.
 	if logger.FirstInRequest(ctx, "protected_set_unavailable") {
 		mw.ReportError(ctx, l.log, "protected_set_unavailable", ErrProtectedSetUnavailable)
@@ -177,7 +177,7 @@ func (l *ProtectedSetLoader) fallback(ctx context.Context, set *protectedSet, fe
 }
 
 // Cached returns the copy this instance already holds, without refreshing, logging or counting a read: ok is false
-// when none was loaded or it is older than CACHE_TTL. It is the hint path's accessor (W3-36 L-4): the wire-visibility
+// when none was loaded or it is older than CACHE_TTL. It is the hint path's accessor (L-4): the wire-visibility
 // hint for the viewer's own or a followed author is served from it while it is fresh. Staleness bound: CACHE_TTL (60 s), the
 // same bound as Current; past it the caller asks Current, which refreshes (at most one detached read per instance per
 // CACHE_TTL) and fails closed as before.
@@ -225,7 +225,7 @@ func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 	if l.gen != gen {
 		// A local toggle landed while the read was in flight, so the fetched copy may predate it. Install the fetched
 		// copy with those toggles re-applied: the local write is kept and the copy's age is the read's, so Current
-		// never serves a copy older than maxStale because a refresh was thrown away (W3-36 L-3).
+		// never serves a copy older than maxStale because a refresh was thrown away (L-3).
 		for _, d := range deltas {
 			fetched = fetched.with(d.uid, d.protected)
 		}

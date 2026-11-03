@@ -4,7 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../features/posts/presentation/bloc/pending_posts_cubit.dart';
 import 'pending_post_row.dart';
 
-/// The optimistic posts (T16) a screen shows above its feed: Home, and the
+/// The optimistic posts a screen shows above its feed: Home, and the
 /// own profile's Posts tab. Renders nothing when none are pending. Wrap it in
 /// a `SliverToBoxAdapter` inside a `CustomScrollView`. Reads the app-wide
 /// [PendingPostsCubit]; pass [authorId] to show only that author's posts

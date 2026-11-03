@@ -41,9 +41,9 @@ type envOpts struct {
 	perDay      int64
 	newPerDay   int64
 	dirErr      error
-	// W6-50: the directory knows the account but its createdAt is zero (a users doc written without it).
+	// The directory knows the account but its createdAt is zero (a users doc written without it).
 	accountUnknown bool
-	// W6-10 GIF screen: wrap the object store, override the guard values (0 = defaults).
+	// GIF screen: wrap the object store, override the guard values (0 = defaults).
 	objects      func(*fakeObjects) Objects
 	gifWait      time.Duration
 	gifDecode    time.Duration
@@ -730,7 +730,7 @@ func TestFinalize_LostRaceDuringScreeningConvergesOnReady(t *testing.T) {
 		return errors.New("vision: gs object not found")
 	}
 	got, spent, err := e.finalizeStale(t, tg.MediaID)
-	// spent is 1 since W6-49: an error unbilled() does not recognise (this one is a plain error) may have been billed, so it stays counted.
+	// spent is 1 since then: an error unbilled does not recognise (this one is a plain error) may have been billed, so it stays counted.
 	if err != nil || got.Status != StatusReady || got.Ref == nil || spent != 1 {
 		t.Fatalf("got %+v spent=%d err=%v, want the winner's READY result and the 1 unit of the unrecognised failure", got, spent, err)
 	}

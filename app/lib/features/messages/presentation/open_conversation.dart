@@ -6,7 +6,7 @@ import '../../../core/router/app_router.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../data/messaging_repository.dart';
 
-/// Opens the conversation with [peer] (W7-17): `/messages/<id>` when the
+/// Opens the conversation with [peer]: `/messages/<id>` when the
 /// cache holds a conversation with that person (never a second one), else the
 /// draft thread, whose first send names the recipient and then switches to
 /// the conversation the server returns. Reads the cache only; no request.

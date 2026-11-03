@@ -49,7 +49,7 @@ class UserListCubit extends Cubit<UserListState> {
       );
     } on ValidationException catch (e) {
       // An expired or foreign cursor (24 h TTL): start again from page 1
-      // instead of showing an error (W3-34).
+      // instead of showing an error.
       if (append && e.field == 'page_token') {
         await _load(pageToken: '', append: false);
       } else {

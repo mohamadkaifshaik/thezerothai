@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// W3-22 M-3: concurrent FinalizeUpload calls for one PENDING image must screen it once. Part (a) is a per-instance
+// M-3: concurrent FinalizeUpload calls for one PENDING image must screen it once. Part (a) is a per-instance
 // single-flight, part (b) a preconditioned claim write before any Vision spend that decides the race between
 // instances. These tests drive both, with a second and third service over the same repo standing in for the other
 // Cloud Run instances.

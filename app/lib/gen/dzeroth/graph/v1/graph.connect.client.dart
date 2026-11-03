@@ -362,7 +362,7 @@ extension type GraphServiceClient (connect.Transport _transport) {
 
   /// Caller's blocked accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
   /// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
-  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids, T27) on a page
+  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids) on a page
   /// that finds a uid with no users doc, once per stale entry.
   Future<dzerothgraphv1graph.ListBlockedUsersResponse> listBlockedUsers(
     dzerothgraphv1graph.ListBlockedUsersRequest input, {
@@ -383,7 +383,7 @@ extension type GraphServiceClient (connect.Transport _transport) {
 
   /// Caller's muted accounts (from graph doc, newest first) hydrated with GetAll users (cached 60 s).
   /// Users who blocked the caller, and missing or inactive users, are omitted (ADR-0008 D9).
-  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids, T27) on a page
+  /// Firestore: reads 51/10, writes 0, plus at most +1 write (one ArrayRemove of at most 50 ids) on a page
   /// that finds a uid with no users doc, once per stale entry.
   Future<dzerothgraphv1graph.ListMutedUsersResponse> listMutedUsers(
     dzerothgraphv1graph.ListMutedUsersRequest input, {

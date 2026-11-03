@@ -16,7 +16,7 @@ import '../../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../../timeline/presentation/timeline_feed_view.dart';
 import 'home_tab_bar.dart';
 
-/// One pinned List as a Home tab (W5-14): its own `TimelineCubit`
+/// One pinned List as a Home tab: its own `TimelineCubit`
 /// (`FeedKey.list`), created when the tab is first shown and closed with it,
 /// over the same [TimelineFeedView] as Following. `HomeTabsView` keeps it
 /// alive (scroll and cache) while another tab is shown; [active] stops its

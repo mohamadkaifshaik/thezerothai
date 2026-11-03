@@ -21,7 +21,7 @@ class CreateCommunityState {
   final pb.Community? created;
 }
 
-/// Create community (W5-31): one CreateCommunity per submit.
+/// Create community: one CreateCommunity per submit.
 ///
 /// One idempotency key per user action, reused when the same action is retried
 /// after a failure (rule 4). The key is tied to the exact payload it was first

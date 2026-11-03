@@ -10,7 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/posts_fixtures.dart';
 
-/// W3-17: the Pin / Unpin rows of a post's overflow menu. The card reads no
+/// The Pin / Unpin rows of a post's overflow menu. The card reads no
 /// provider for them: a screen that can pin hands it a [PostPinControl].
 void main() {
   const me = 'me';
@@ -159,7 +159,7 @@ void main() {
     });
   });
 
-  // ADR-0024 Amendment 1 A2 (W3-22 M-1): Unpin is a clear, which the server
+  // ADR-0024 Amendment 1 A2 (M-1): Unpin is a clear, which the server
   // accepts whatever `profile_extras` says, so it is offered on the pinned post
   // even when Pin is not. Pin (a set) follows `canPin`.
   group('without profile_extras (canPin false)', () {

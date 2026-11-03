@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// listsCollection is the one collection this module owns (ADR-0030 D2). Only lists.FirestoreRepo touches it. It has a T11
-	// row (apiserver/lifecycle_collections_guard_test.go), the `lists` eraser step and the `lists` export section (W5-5).
+	// listsCollection is the one collection this module owns (ADR-0030 D2). Only lists.FirestoreRepo touches it. It has a
+	// row (apiserver/lifecycle_collections_guard_test.go), the `lists` eraser step and the `lists` export section.
 	listsCollection = "lists"
 
 	// The idempotency doc id is hashed with these rpc names (ADR-0030 D7).
@@ -66,7 +66,7 @@ type FirestoreRepo struct {
 	quotas *quota.Store
 	idem   *idempotency.Store
 	now    func() time.Time
-	// txProfiles reads the target's users document inside the AddMember transaction (W5-45 / L-4). SetTxProfiles wires it.
+	// txProfiles reads the target's users document inside the AddMember transaction (/ L-4). SetTxProfiles wires it.
 	txProfiles identity.TxProfiles
 }
 
@@ -105,13 +105,13 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 	return attempts, err
 }
 
-// headerResult is the Result map of an idempotency record: the list id only (W5-45, security review L-3). A record outlives the
+// headerResult is the Result map of an idempotency record: the list id only (security review L-3). A record outlives the
 // list by up to about 48 h (24 h TTL plus deletion lag), so it must not keep the name, description or private flag of a list
 // the owner deleted or an account erasure removed. A replay re-reads the list (replayHeader).
 func headerResult(h Header) map[string]string { return map[string]string{"id": h.ID} }
 
 // replayHeader answers a replay of Create, Update, AddMember or RemoveMember from the list as it is now: 1 fresh read in tx
-// (the list, owner-checked). A list deleted since, or a record without an id, is ErrNotFound. Records written before W5-45
+// (the list, owner-checked). A list deleted since, or a record without an id, is ErrNotFound. Records written earlier
 // carry the full header; only their id is used.
 func (r *FirestoreRepo) replayHeader(ctx context.Context, tx *firestore.Transaction, uid string, rec idempotency.Record) (Header, error) {
 	id := rec.Result["id"]

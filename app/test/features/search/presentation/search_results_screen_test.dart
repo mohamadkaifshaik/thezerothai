@@ -32,7 +32,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-/// `/search` (W4-15, ADR-0028): the four tabs over a scripted
+/// `/search` (ADR-0028): the four tabs over a scripted
 /// [FakeSearchRepository]; no transport, no router beyond the one the screen
 /// pops with.
 void main() {

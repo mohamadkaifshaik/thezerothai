@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ListLikedPosts (ADR-0024 D6, ticket W3-10) over the real Build chain on the emulators: paging (25 likes give 20 + a
+// ListLikedPosts (ADR-0024 D6) over the real Build chain on the emulators: paging (25 likes give 20 + a
 // token, then 5 + ""), the clamp, the caller-bound token, the drop rules with no pruning, a like removed or repeated
 // between two pages, and the budget table of the RPC doc comment (23 reads at page 20, 53 at page 50, 2 for an empty
 // array), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line. The plan ticket

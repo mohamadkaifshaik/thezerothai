@@ -36,7 +36,7 @@ class _NoThemeStore implements ThemeModeStore {
 
 typedef _Case = ({Set<String> flags, bool isProtected, bool backedOff});
 
-/// W3-34b: the drawer row, the account menu entry, the Notifications row and
+/// The drawer row, the account menu entry, the Notifications row and
 /// the `/follow-requests` guard follow one rule. This table walks the flag on
 /// and off, protected and public, and the backoff, and asserts the four
 /// places agree. The count (3) only drives the badge, never visibility. The

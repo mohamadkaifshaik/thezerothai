@@ -14,7 +14,7 @@ const kTrendsClientTtl = Duration(minutes: 5);
 /// first 5, so the two surfaces never need a second call.
 const kTrendsFetchLimit = 30;
 
-/// The app-level trends list (W4-17/18, ADR-0028): provided once by
+/// The app-level trends list (ADR-0028): provided once by
 /// `AppWidget`, read by Explore and the desktop side column, so mounting both
 /// is still one `GetTrends` per [kTrendsClientTtl]. Concurrent callers share
 /// the call in flight. No timer and no polling: a surface asks when it mounts

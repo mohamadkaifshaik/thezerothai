@@ -42,7 +42,7 @@ class DraftsViewState {
   );
 }
 
-/// The Unsent posts tab (W6-15): the device's drafts of one account from
+/// The Unsent posts tab: the device's drafts of one account from
 /// [DraftsRepository.watch] (local, 0 RPCs), Edit mode and bulk delete. The
 /// list updates by itself when a draft is saved or removed.
 class DraftsCubit extends Cubit<DraftsViewState> {
@@ -72,7 +72,7 @@ class DraftsCubit extends Cubit<DraftsViewState> {
       emit(const DraftsViewState(status: DraftsStatus.ready));
       return;
     }
-    // Drafts more than 30 days past their last edit go (W6-45); the watch
+    // Drafts more than 30 days past their last edit go; the watch
     // below already leaves them out, so a failed purge shows nothing stale.
     unawaited(_purgeExpired(uid));
     _sub = _repository

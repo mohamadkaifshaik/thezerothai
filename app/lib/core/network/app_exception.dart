@@ -80,7 +80,7 @@ final class ProfileRequiredException extends AppException {
   /// True only when the server attached `ERROR_REASON_PROFILE_REQUIRED`. The
   /// code-only fallback (any FAILED_PRECONDITION without a detail) leaves it
   /// false, so callers that act on "no profile" (account deletion fallback,
-  /// P8 L-5) never trigger on an unrelated precondition failure.
+  /// L-5) never trigger on an unrelated precondition failure.
   final bool fromServerReason;
 }
 

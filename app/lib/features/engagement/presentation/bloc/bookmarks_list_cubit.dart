@@ -10,7 +10,7 @@ import '../../domain/bookmark_entry.dart';
 import '../../domain/engagement_entry.dart' show engagementTargetId;
 import 'bookmarks_list_state.dart';
 
-/// The rows of the Bookmarks screen (plan W2-7, ADR-0023 D2): live posts,
+/// The rows of the Bookmarks screen (ADR-0023 D2): live posts,
 /// newest bookmark first, in session memory only (no drift table; a later
 /// offline cache replaces this class's source and no caller).
 ///
@@ -198,7 +198,7 @@ class BookmarksListCubit extends Cubit<BookmarksListState> {
   /// repository, like the card's icon). The row comes back at its place.
   ///
   /// Does nothing when this cubit is closed or the session is no longer the
-  /// one the row left in (W2-14 L-5): a stale Undo must not send AddBookmark
+  /// one the row left in (L-5): a stale Undo must not send AddBookmark
   /// under the next account's token.
   Future<void> restore(BookmarkRemoval removal) async {
     if (isClosed || _repository.sessionGeneration != removal.session) return;

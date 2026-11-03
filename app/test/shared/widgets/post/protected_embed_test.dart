@@ -53,8 +53,8 @@ pb.PostView _viewOf(PostKind kind) => pb.PostView(
   embedViewerState: pb.EmbedViewerState.EMBED_VIEWER_STATE_PROTECTED,
 );
 
-/// W3-33b: the PROTECTED embed shows the author and one sentence, and nothing
-/// of the post, across the W3-21 matrix.
+/// The PROTECTED embed shows the author and one sentence, and nothing
+/// of the post, across the matrix.
 void main() {
   void expectNothingOfThePost(WidgetTester tester) {
     expect(find.text('secret words that must not show'), findsNothing);

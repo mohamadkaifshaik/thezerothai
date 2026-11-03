@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// ADR-0024 D10 wiring (ticket W3-4): ListSuggestedUsers, ListLikedPosts and GetProfileRelationship each draw on their
+// ADR-0024 D10 wiring: ListSuggestedUsers, ListLikedPosts and GetProfileRelationship each draw on their
 // own per-user bucket, only ListSuggestedUsers has a daily call cap, and none is read-budget exempt or charge-only.
 var (
 	w3SuggestionsProc = graphv1connect.GraphServiceListSuggestedUsersProcedure

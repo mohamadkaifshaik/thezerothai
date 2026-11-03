@@ -12,33 +12,33 @@ import (
 )
 
 // Repo is the storage seam of messaging.Service: the three collections of ADR-0027 D1 behind one interface, so a group
-// fan-out or a listener-backed store changes no caller (plan W7-5 seam). FirestoreRepo is the implementation.
+// fan-out or a listener-backed store changes no caller (seam). FirestoreRepo is the implementation.
 type Repo interface {
 	// GetConversation reads conversations/{id}: 1 read. found is false for a missing document.
 	GetConversation(ctx context.Context, id string) (conv ConvDoc, found bool, err error)
 	// Send runs the SendMessage transaction (ADR-0027 D4 step 5).
 	Send(ctx context.Context, p SendParams) (SendResult, error)
-	// ListEntries reads one page of the caller's entries in a folder (W7-7): reads max(len(rows), 1).
+	// ListEntries reads one page of the caller's entries in a folder: reads max(len(rows), 1).
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
 	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
 	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
-	// (ADR-0027 D10, W7-11): 1 read.
+	// (ADR-0027 D10): 1 read.
 	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
-	// ListMessages reads one page of a conversation's messages (W7-8): reads max(len(rows), 1).
+	// ListMessages reads one page of a conversation's messages: reads max(len(rows), 1).
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
-	// precondition (W7-8): 0 reads, 1 write; found is false (0 writes) when neither entry exists.
+	// precondition: 0 reads, 1 write; found is false (0 writes) when neither entry exists.
 	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
-	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder; W7-27): 1 read, billed
+	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder): 1 read, billed
 	// whether or not the document exists. found is false for a missing entry (delete-for-me, or never created).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
-	// GetMessage reads one stored message (W7-12, report a message): 1 read; found is false for a missing document.
+	// GetMessage reads one stored message (report a message): 1 read; found is false for a missing document.
 	GetMessage(ctx context.Context, convID, msgID string) (msg MsgDoc, found bool, err error)
-	// Accept runs the AcceptMessageRequest transaction (W7-9): 2 reads (the conversation, the caller's dmRequests entry),
+	// Accept runs the AcceptMessageRequest transaction: 2 reads (the conversation, the caller's dmRequests entry),
 	// 2 writes and 1 delete; an already accepted conversation 1 read and nothing written.
 	Accept(ctx context.Context, p AcceptParams) (AcceptResult, error)
-	// Delete runs the DeleteConversation transaction (W7-9): 2 reads (the conversation, the caller's entry), 1 write
+	// Delete runs the DeleteConversation transaction: 2 reads (the conversation, the caller's entry), 1 write
 	// (clearedAt, clearedKey) and 1 delete (the entry); a retry with the same key 1 read in the transaction and nothing written,
 	// any other repeat of a delete that already happened 2 reads and nothing written.
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
@@ -135,7 +135,7 @@ type SendParams struct {
 	// (the new-account tier already applied).
 	MaxUnanswered, DMNewLimit int64
 	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached,
-	// 1 read; ADR-0027 note W7-33). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
+	// 1 read; ADR-0027 note). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
 	// the conversation mutual; Muted[caller] makes it silent.
 	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
 	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx, +1 read). It

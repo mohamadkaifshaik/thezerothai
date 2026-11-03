@@ -35,7 +35,7 @@ type fakeRepo struct {
 	visionErr error // VisionUsed fails (the Vision-counter read: an internal error before any call)
 	retireErr error
 	resolveFn func(id string) error
-	claimFn   func(id string) error // W6-41: ClaimScreening answers this error first (a lost claim race), counted in claims
+	claimFn   func(id string) error // ClaimScreening answers this error first (a lost claim race), counted in claims
 }
 
 type fakeIdem struct {

@@ -7,7 +7,7 @@ import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
 import '../../../../shared/format/scheduled_time.dart';
 import '../post_error_messages.dart';
 
-/// One row of the Scheduled list (CMP-D6). Laid out like X's: line 1 a small
+/// One row of the Scheduled list. Laid out like X's: line 1 a small
 /// clock icon and the muted "Will send on <time>", line 2 the post text in
 /// the primary colour; no avatar. The row is ONE node for a screen reader
 /// ("Will send on `<time>` `<text>`"); the Cancel / Dismiss button stays its own

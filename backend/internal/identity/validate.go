@@ -34,7 +34,7 @@ func handleFormatIssue(h string) string {
 	return ""
 }
 
-// Profile text rules (ADR-0024 D2, W3-22 L-2). One family for display name, bio, location and website; the Dart
+// Profile text rules (ADR-0024 D2, L-2). One family for display name, bio, location and website; the Dart
 // client mirrors them and both sides run the vectors in testdata/profile_text/ (see its README.md). They apply to new
 // writes only: nothing re-validates a stored value on read, and no migration rewrites one.
 //
@@ -58,14 +58,14 @@ func isLineSeparator(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp)
 //     tag characters outside a subdivision flag sequence, ...), except ZWNJ/ZWJ (U+200C, U+200D) between two non-format, non-space runes, which
 //     emoji sequences and Persian/Indic shaping need (a variation selector is a mark, not Cf, and is allowed);
 //   - a filler that renders as nothing: U+115F, U+1160, U+3164, U+FFA0;
-//   - a non-empty text with no visible rune (W5-17 L-2): spaces, marks, joiners, Khmer inherent vowels U+17B4/U+17B5 and
+//   - a non-empty text with no visible rune (L-2): spaces, marks, joiners, Khmer inherent vowels U+17B4/U+17B5 and
 //     U+2800 alone render blank. "" stays acceptable here (a length rule elsewhere decides whether it may be empty).
 //
-// Applied only to a value being written; nothing validates a stored value on read (W5-45).
+// Applied only to a value being written; nothing validates a stored value on read.
 func singleLineIssue(s string) bool { return invisibleTextIssue(s, false, true) }
 
 // invisibleTextIssue is the one scanner behind singleLineIssue (allowLF false, visible rune required) and BioText (allowLF true,
-// no visible-rune rule, W5-55): control, separator, bidi, filler and Cf (with the ZWJ/ZWNJ and subdivision-flag exceptions).
+// no visible-rune rule): control, separator, bidi, filler and Cf (with the ZWJ/ZWNJ and subdivision-flag exceptions).
 // allowLF lets LF through; it counts as white space for the joiner-neighbour check, so a ZWJ next to a line break is refused.
 func invisibleTextIssue(s string, allowLF, requireVisible bool) bool {
 	rs := []rune(s)
@@ -135,8 +135,8 @@ func normalizeDisplayName(s string) string {
 
 // displayNameIssue reports whether s is not an acceptable display name: invalid UTF-8; fewer than 1 or more than 50
 // code points after trim and NFC; or anything singleLineIssue refuses (control, line separator, bidi control, invisible format
-// character or filler, or no visible rune; W5-45). A display name
-// is one line; an RLO would reorder the header and every post row's author snapshot, W3-22 L-2c).
+// character or filler, or no visible rune). A display name
+// is one line; an RLO would reorder the header and every post row's author snapshot, L-2c).
 func displayNameIssue(s string) bool {
 	if !utf8.ValidString(s) {
 		return true
@@ -207,7 +207,7 @@ func normalizeLocation(s string) string {
 
 // locationIssue reports whether the already normalised location is unacceptable: invalid UTF-8, more than 30 code
 // points, or any control character (a newline included, it is a single line), line or paragraph separator (U+2028,
-// U+2029: the header draws a location with no line limit, so one would paint a fake second line, W3-22 L-2a) or bidi
+// U+2029: the header draws a location with no line limit, so one would paint a fake second line, L-2a) or bidi
 // formatting control. "" is a valid clear.
 func locationIssue(normalized string) bool {
 	if !utf8.ValidString(normalized) || utf8.RuneCountInString(normalized) > maxLocationRunes {
@@ -231,7 +231,7 @@ func normalizeWebsite(s string) (stored string, ok bool) {
 	return stored, ok
 }
 
-// parseWebsite is the server twin of the client's parseProfileWebsite (ADR-0024 D2, W3-22 L-2b/L-3): it accepts a
+// parseWebsite is the server twin of the client's parseProfileWebsite (ADR-0024 D2, L-2b/L-3): it accepts a
 // website only if the client would show and open it, so a saved website never silently disappears, and it adds the
 // host-class rules of L-3 (the client adopts them too; both run testdata/profile_text/website.json).
 //
@@ -300,7 +300,7 @@ func validPort(digits string) bool {
 
 // internalHostSuffixes are the names that only mean something on the viewer's own machine or network (RFC 6761
 // localhost, RFC 6762 local, the ICANN-reserved private-use internal, RFC 8375 home.arpa): a profile link to one is a tap-to-hit-my-LAN
-// link (W3-22 L-3). A host is refused if it equals one or is a subdomain of one.
+// link (L-3). A host is refused if it equals one or is a subdomain of one.
 var internalHostSuffixes = []string{"localhost", "local", "internal", "home.arpa"}
 
 // websiteHost normalises one host the way the client does (lower-case, one trailing dot dropped, per-label punycode)

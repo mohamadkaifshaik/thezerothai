@@ -25,13 +25,13 @@ bool isReceivedRequest(pb.Conversation conversation) =>
 /// caller's INBOX. A header with no folder is neither (nothing is guessed).
 /// With `can_reply` false (blocked, or the peer's account is gone) the thread
 /// is read-only and nothing is waited for, so it is not a pending request
-/// either (W7-25b).
+/// either.
 bool isSentRequest(pb.Conversation conversation) =>
     conversation.state == ConversationState.CONVERSATION_STATE_REQUEST &&
     conversation.folder == Folder.FOLDER_INBOX &&
     conversation.canReply;
 
-/// What the request banner can ask of the conversation screen (W7-18). The
+/// What the request banner can ask of the conversation screen. The
 /// screen owns the confirmations, the calls and the snackbars; the banner only
 /// draws buttons.
 class ThreadRequestActions {
@@ -44,7 +44,7 @@ class ThreadRequestActions {
     this.blocking = false,
   });
 
-  /// Null hides Accept (W7-26: read-only Messages cannot accept; Delete, Block
+  /// Null hides Accept (read-only Messages cannot accept; Delete, Block
   /// and the info menu's Report stay).
   final VoidCallback? accept;
   final VoidCallback delete;
@@ -89,8 +89,8 @@ Widget? buildRequestBanner(
 String requestPeerName(String displayName, String handle) =>
     displayName.isNotEmpty ? displayName : '@$handle';
 
-/// "`name` wants to message you" with Accept, Delete and Block (W7-18,
-/// ADR-0027 D4), at the bottom of a request thread in place of the composer.
+/// "`name` wants to message you" with Accept, Delete and Block
+/// (ADR-0027 D4), at the bottom of a request thread in place of the composer.
 ///
 /// - Accept is the filled action; Delete and Block are outlined, Block in the
 ///   error colour. All three are 48dp and wrap at a large text scale.
@@ -188,7 +188,7 @@ class RequestBanner extends StatelessWidget {
 }
 
 /// "Waiting for them to accept. You can send up to 3 messages." above the
-/// composer of a request the caller sent (W7-18).
+/// composer of a request the caller sent.
 class SentRequestNote extends StatelessWidget {
   const SentRequestNote({super.key});
 
@@ -219,7 +219,7 @@ class SentRequestNote extends StatelessWidget {
   }
 }
 
-/// Whether the links of [message] may be tapped (W7-35, L-9): not while the
+/// Whether the links of [message] may be tapped (L-9): not while the
 /// conversation is still a REQUEST and the message is the peer's. A stranger's
 /// link is the phishing channel, so it shows as plain text until the request is
 /// accepted. The caller's own messages are never held back; with no header yet

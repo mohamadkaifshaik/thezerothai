@@ -10,11 +10,11 @@ import '../../domain/list_text_rules.dart';
 import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_editor_cubit.dart';
 
-/// Opens the create / edit form of a List (W5-11): a full-screen page below
+/// Opens the create / edit form of a List: a full-screen page below
 /// 600dp, a dialog from 600dp. Resolves with the [ListEditorOutcome] (saved or
 /// deleted), or null when the user cancelled. Pass [existing] to edit.
 ///
-/// The create flow is not captured from X (plan W5-11: UNKNOWN); the defaults
+/// The create flow is not captured from X (UNKNOWN); the defaults
 /// are X-like. Private is on by default (founder F3).
 Future<ListEditorOutcome?> showListEditor(
   BuildContext context, {

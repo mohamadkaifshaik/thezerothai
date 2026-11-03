@@ -2,7 +2,7 @@ package media
 
 import "encoding/binary"
 
-// webpHeadBytes is how much of a WebP verify reads (W6-26, security H-2). The magic-number sniff needs 12 bytes, but an
+// webpHeadBytes is how much of a WebP verify reads (security H-2). The magic-number sniff needs 12 bytes, but an
 // ANIM chunk can follow a large ICCP chunk, so a WebP gets a wider ranged read. It is still the one pinned UploadHead call
 // verify already makes (1 Class B, no extra call); only the bytes of that range grow, and 32 KiB is far under the 256 KiB
 // thumbnail cap.

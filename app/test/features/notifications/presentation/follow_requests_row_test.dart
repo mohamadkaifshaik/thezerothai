@@ -20,8 +20,8 @@ class _MockGraph extends Mock implements GraphRepository {}
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-34b: the "Follow requests · N" row at the top of Notifications, in the
-/// W3-21 matrix and under the shared visibility rule.
+/// The "Follow requests · N" row at the top of Notifications, in the
+/// matrix and under the shared visibility rule.
 void main() {
   var visited = <String>[];
 

@@ -24,8 +24,8 @@ var searchDailyProcedures = []string{
 	searchv1connect.SearchServiceSearchPostsProcedure,
 }
 
-// searchViolations asserts the W4-3 wiring: SearchPeople and SearchPosts each have a DailyCaps entry named search_daily
-// holding the SAME DailyCap, GetTrends has its OWN non-nil trends_daily entry (W4-28, review L-4) whose Cap is not that one, and all three procedures are covered by the daily read budget
+// searchViolations asserts the wiring: SearchPeople and SearchPosts each have a DailyCaps entry named search_daily
+// holding the SAME DailyCap, GetTrends has its OWN non-nil trends_daily entry (review L-4) whose Cap is not that one, and all three procedures are covered by the daily read budget
 // (ADR-0010 D5; they are NO_SIDE_EFFECTS, so the generic guard also sees them).
 func searchViolations(rl ratelimit.Config) []string {
 	var out []string
@@ -165,7 +165,7 @@ func TestSearchDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	}
 }
 
-// TestSearchPosts_PerMinuteBucket (W4-7 acceptance): through the wired interceptor the 21st SearchPosts call of one user in
+// TestSearchPosts_PerMinuteBucket (acceptance): through the wired interceptor the 21st SearchPosts call of one user in
 // a minute is RESOURCE_EXHAUSTED (RATE_LIMITED, 20/min per instance); SearchPeople's own bucket and another user are
 // untouched.
 func TestSearchPosts_PerMinuteBucket(t *testing.T) {
@@ -219,7 +219,7 @@ func TestSearchPosts_PerMinuteBucket(t *testing.T) {
 	}
 }
 
-// TestTrendsDailyCap_StopsTheCapPlusFirstCall (W4-28 acceptance): through the wired interceptor the (cap+1)-th GetTrends
+// TestTrendsDailyCap_StopsTheCapPlusFirstCall (acceptance): through the wired interceptor the (cap+1)-th GetTrends
 // call of one uid is RATE_LIMITED with limit=trends_daily and never reaches the handler (0 reads); another uid is
 // unaffected, and SearchPeople/SearchPosts keep their own search_daily count (GetTrends calls do not spend it).
 func TestTrendsDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {

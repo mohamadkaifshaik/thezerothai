@@ -2,12 +2,12 @@
 
 package apiserver
 
-// W3-30 (ADR-0025 D4) through the real Build chain on the emulators, with the real protected-set loader and the real
+// (ADR-0025 D4) through the real Build chain on the emulators, with the real protected-set loader and the real
 // UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - GetUserTimeline of a protected P for an unapproved viewer answers author_protected on all four tabs at 3 cold
 //     reads (interceptor, target users, caller graph) and 0 page reads, with no posts and no tokens, even when a
 //     follower filled the shared author-recent entry first and even for a since token issued while P was public;
-//   - a follower reads the tabs at the unchanged W3-20 ceilings (24 at page 20) and P reads their own;
+//   - a follower reads the tabs at the unchanged ceilings (24 at page 20) and P reads their own;
 //   - Home, another user's tabs and the caller's own Reposts tab: X's REPOST of P's post is dropped for an unapproved
 //     viewer and X's QUOTE of it is stripped (PROTECTED, no text, post_id and handle kept); an approved viewer sees
 //     both unchanged; Home reads never exceed the same page before P protected.
@@ -223,7 +223,7 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
 			got := w330Views(resp.GetPosts())
-			// W3-41a (W3-36 L-2): the copier's own profile keeps the REPOST as an undoable PROTECTED row; others drop it.
+			// L-2: the copier's own profile keeps the REPOST as an undoable PROTECTED row; others drop it.
 			if own := tc.viewer.uid == x.uid; (got[repostID] != nil) != own {
 				t.Errorf("%s: repost of P kept = %v, want %v", tc.name, got[repostID] != nil, own)
 			} else if own {

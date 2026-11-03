@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestE2E_PostsFlag_BuildLevel (T5): through apiserver.Build, the real interceptor chain and the real flag
+// TestE2E_PostsFlag_BuildLevel: through apiserver.Build, the real interceptor chain and the real flag
 // registry, a caller with a profile gets FEATURE_DISABLED from PostService and TimelineService while
 // FEATURE_POSTS is off, and the real handlers (an unknown post is NOT_FOUND) once it is on. It proves both services
 // are registered in Build and behind the flag.

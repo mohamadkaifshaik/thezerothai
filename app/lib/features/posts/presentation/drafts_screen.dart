@@ -28,7 +28,7 @@ const kDraftsEmptyBody =
     'Save a post from the composer and it will wait here, on this device, '
     'until you send it.';
 
-/// Retention note on the Unsent tab (W6-45, L-5): drafts are device-local and
+/// Retention note on the Unsent tab (L-5): drafts are device-local and
 /// expire 30 days after the last edit (`kDraftExpiry`). Scheduled posts are
 /// server-side, not drafts, and are not affected.
 const kDraftsRetentionNote =
@@ -38,8 +38,8 @@ const kDraftsRetentionNote =
 const kDraftsTabUnsent = 'Unsent posts';
 const kDraftsTabScheduled = 'Scheduled';
 
-/// `/drafts` (W6-15, ADR-0029): the Unsent posts tab (drafts kept on this
-/// device, 0 RPCs) and the Scheduled tab (the CMP-D6 list, unchanged). `/scheduled`
+/// `/drafts` (ADR-0029): the Unsent posts tab (drafts kept on this
+/// device, 0 RPCs) and the Scheduled tab (the list, unchanged). `/scheduled`
 /// is an alias that opens the Scheduled tab while `drafts` is on.
 ///
 /// - [scheduledTab] opens on Scheduled.

@@ -39,7 +39,7 @@ graph.UserListItem _member(int i, {String? name}) => graph.UserListItem(
   ),
 );
 
-/// W5-16: the Members and Manage pinned states the developers left to one
+/// The Members and Manage pinned states the developers left to one
 /// cell (empty, unavailable, error, loading, disabled), plus long, emoji and
 /// RTL member names, at 360 / 600 / 1200 dp, light and dark, 1.0 / 1.3 / 2.0.
 void main() {

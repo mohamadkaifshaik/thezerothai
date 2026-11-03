@@ -22,7 +22,7 @@ AppException mapConnectError(Object error) {
             microseconds: detail.retryAfter.nanos ~/ 1000,
           )
         : null;
-    // FinalizeUpload's "image checks are temporarily unavailable" (W6-40):
+    // FinalizeUpload's "image checks are temporarily unavailable":
     // UNAVAILABLE with no reason but a retry_after. A plain UNAVAILABLE (cold
     // start, network blip) carries no ErrorDetail and stays a
     // NetworkException below.
@@ -87,7 +87,7 @@ AppException mapConnectError(Object error) {
           message,
           feature: (feature == null || feature.isEmpty) ? null : feature,
         );
-      // P8 (account-deletion plan Q5): the sign-in is too old for a sensitive
+      // Account-deletion plan Q5: the sign-in is too old for a sensitive
       // call. The caller re-authenticates once and retries with the same key.
       case common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED:
         return ReauthRequiredException(message);
@@ -98,22 +98,22 @@ AppException mapConnectError(Object error) {
         return ReplyNotAllowedException(
           policy: (policy == null || policy.isEmpty) ? null : policy,
         );
-      // ADR-0025 D14: a Repost or Quote of a protected account's post (W3-33b); the follower lists use the same
-      // reason (W3-33a).
+      // ADR-0025 D14: a Repost or Quote of a protected account's post; the follower lists use the same
+      // reason.
       case common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT:
         return const ProtectedAccountException();
       // ADR-0027 D4: one refusal for blocked either way, a recipient who is not ACTIVE or outside the messaging
       // rollout, and a conversation with an erased participant. Fixed text, so it never reveals which.
       case common.ErrorReason.ERROR_REASON_CANNOT_MESSAGE:
         return const CannotMessageException();
-      // ADR-0029 D6 (W6-13): VotePoll refusals. Fixed text, never the server's.
+      // ADR-0029 D6: VotePoll refusals. Fixed text, never the server's.
       case common.ErrorReason.ERROR_REASON_POLL_CLOSED:
         return const PollClosedException();
       case common.ErrorReason.ERROR_REASON_ALREADY_VOTED:
         return AlreadyVotedException(
           choiceIndex: int.tryParse(detail.metadata['choice'] ?? ''),
         );
-      // ADR-0031 N1 (W5-30): keyed by `metadata["reason"]`, one fixed message per reason. An unknown reason maps to
+      // ADR-0031 N1: keyed by `metadata["reason"]`, one fixed message per reason. An unknown reason maps to
       // the `unknown` value of the enum (generic text), never to AccountRestricted / ProfileRequired.
       case common.ErrorReason.ERROR_REASON_FORBIDDEN:
         return CommunityForbiddenException(

@@ -11,7 +11,7 @@ part 'scheduled_posts_state.freezed.dart';
 enum ScheduledPostsStatus { loading, ready, loadingMore, error }
 
 /// The caller's PENDING and FAILED scheduled posts, oldest publish time first
-/// (the server order), paged with an opaque token (CMP-D6, ADR-0021 D4).
+/// (the server order), paged with an opaque token (ADR-0021 D4).
 @freezed
 abstract class ScheduledPostsState with _$ScheduledPostsState {
   const factory ScheduledPostsState({

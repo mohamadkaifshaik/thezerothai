@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W6-17: the poll tests the developers' chain file (engagement_polls_chain_integration_test.go) does not hold. Every test name starts
+// The poll tests the developers' chain file (engagement_polls_chain_integration_test.go) does not hold. Every test name starts
 // with TestW617_ so one -run regex selects the lot. They run over the real Build chain (Firestore and Auth emulators):
 //   - the redaction bytes (hidden counts are the same bytes whatever the real split, ADR-0029 D4);
 //   - one NOT_FOUND for every way a poll is out of reach (raw HTTP bytes, not proto String());
@@ -10,7 +10,7 @@ package apiserver
 //   - the new-account cap as the as-built note states it (per instance, in memory, replays and refusals count);
 //   - concurrency: many voters, each racing itself across choices, over two Build instances;
 //   - DEGRADED_MODE and the flag reveals.
-// The emulator serialises writes, so none of the concurrency here is proof for production OPTIMISTIC contention (W6-22 smoke).
+// The emulator serialises writes, so none of the concurrency here is proof for production OPTIMISTIC contention (smoke).
 
 import (
 	"bytes"
@@ -187,7 +187,7 @@ func TestW617_RedactionBytesIdentical(t *testing.T) {
 }
 
 // Every way a poll is out of reach answers one NOT_FOUND, byte for byte: a missing id, the author blocking the voter (the voter blocking
-// the author is the other direction since W6-36: TARGET_BLOCKED, pinned at the end), a REPOST id of either, a taken-down post and a suspended
+// the author is the other direction since then: TARGET_BLOCKED, pinned at the end), a REPOST id of either, a taken-down post and a suspended
 // author's post. Raw HTTP bodies, compared as strings.
 func TestW617_NotFoundBytesIdentical(t *testing.T) {
 	e := newPollChain(t)
@@ -244,7 +244,7 @@ func TestW617_NotFoundBytesIdentical(t *testing.T) {
 		t.Errorf("a refused vote changed the total to %d", total)
 	}
 
-	// The other direction (W6-36, ADR-0029 Amendment 1 A1): the voter who blocked the author still SEES the post (GetPost shares Viewable; only
+	// The other direction (ADR-0029 Amendment 1 A1): the voter who blocked the author still SEES the post (GetPost shares Viewable; only
 	// an author who blocks the caller hides it), but cannot vote: FAILED_PRECONDITION TARGET_BLOCKED, 0 writes, and the poll view says so.
 	g, err := e.posts.GetPost(ctx, authed(blocksA.token, &postsv1.GetPostRequest{PostId: pid}))
 	if err != nil || g.Msg.GetPost().GetPost().GetPostId() != pid {
@@ -730,7 +730,7 @@ func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
 		t.Errorf("reposter's timeline has %d REPOST rows, want 1", rows)
 	}
 
-	// Vote changes (W6-36): expected_choice names the stored vote, so a change through the REPOST id lands on the original (one natural key).
+	// Vote changes: expected_choice names the stored vote, so a change through the REPOST id lands on the original (one natural key).
 	// The old-client shape (expected_choice 0) is still ALREADY_VOTED.
 	changed, err := e.voteExpecting(voter, "w617-rp-vote-key-00003", repostID, 0, 3)
 	if err != nil || changed.GetPost().GetPostId() != pid || changed.GetViewerPollChoice() != 1 {
@@ -745,7 +745,7 @@ func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
 	_, err = e.vote(voter, "w617-rp-vote-key-00004", repostID, 2)
 	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
 
-	// W6-41, security review I-7: a change through the REPOST id leaves exactly one userLikes entry, for the ORIGINAL post, in the three-part form
+	// Security review I-7: a change through the REPOST id leaves exactly one userLikes entry, for the ORIGINAL post, in the three-part form
 	// with the new choice (no entry for the REPOST id, none for the old choice), also after the refused call above.
 	ul, err := e.fs.Doc("userLikes/" + voter.uid).Get(context.Background())
 	if err != nil {

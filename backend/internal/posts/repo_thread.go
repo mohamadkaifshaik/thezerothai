@@ -1,4 +1,4 @@
-// repo_thread.go holds the reply-specific storage paths (P3, plan replies-and-threads.md):
+// repo_thread.go holds the reply-specific storage paths (plan replies-and-threads.md):
 //
 //	Q-T  Conversation, conversationId == X ORDER BY createdAt ASC, __name__ ASC, StartAfter(cursor), LIMIT n
 //	     -> the existing (conversationId ASC, createdAt ASC) index; __name__ follows the last field's direction.

@@ -1,6 +1,6 @@
 //go:build integration
 
-// follow_requests_respond_integration_test.go exercises W3-28a against the Firestore emulator (ADR-0025 D7, D9, D5):
+// follow_requests_respond_integration_test.go exercises against the Firestore emulator (ADR-0025 D7, D9, D5):
 // ListFollowRequests paging and hydration, RespondToFollowRequest accept, decline, replay, inactive requester and the
 // 5,000 cap, each with a budget assertion, the accept-vs-withdraw and accept-vs-block races, the pending-request count,
 // and PROTECTED_ACCOUNT on the follower and following lists. The full chain through apiserver.Build is
@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Budgets of the W3-28a RPCs at the graph layer (the interceptor's profile read is added by the chain test). The
+// Budgets of the RPCs at the graph layer (the interceptor's profile read is added by the chain test). The
 // requester's status (Directory) and the caller snapshot are warm, as they are after a List.
 var (
 	budRespondAccept  = budgettest.Budget{Reads: 2, Writes: 4, Deletes: 1} // request + requester graph; edge, requester graph, 2 counters; request delete

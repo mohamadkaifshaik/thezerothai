@@ -17,7 +17,7 @@ import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/w3_profile_rig.dart';
 
-/// W3-21: the whole W3 profile screen (banner, location, website, "Follows
+/// The whole W3 profile screen (banner, location, website, "Follows
 /// you" and "Follow back", the four tabs, the Pinned row and its menu rows) at
 /// every cell of the responsive matrix: 360 / 600 / 1200 dp, light and dark,
 /// text scale 1.0 / 1.3 / 2.0. The per-widget files (`profile_header_data_test`,
@@ -256,7 +256,7 @@ void main() {
   group('GetProfileRelationship end to end (the real GraphRepository)', () {
     // The repository's own table is in `graph_repository_test`; this follows
     // each answer all the way to the header, on the real code path of the
-    // screen: the RPC live, then the UNIMPLEMENTED fallback (dev before W3-11
+    // screen: the RPC live, then the UNIMPLEMENTED fallback (dev before then
     // is serving; to be removed by the owner) and FEATURE_DISABLED.
     late List<String> calls;
     late DateTime clock;
@@ -584,7 +584,7 @@ void main() {
     }, textScales: kMatrixTextScalesLarge);
   });
 
-  // D-1 (fixed in the W3-22 client PR):
+  // D-1 (fixed in the client PR):
   // at 360 dp and text scale 2.0 the header's action buttons grow taller than the 48 dp the
   // strip under the banner reserves for them ("Follow back" wraps to two lines
   // and is 84 dp tall, "Edit profile" is 56 dp), so they are painted over the

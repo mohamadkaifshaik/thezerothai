@@ -2,7 +2,7 @@ import '../../../shared/format/single_line_text.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
 import 'communities_feature_flag.dart';
 
-/// Why a community field is refused before sending (W5-31). The server
+/// Why a community field is refused before sending. The server
 /// (ADR-0031 D2) checks the same limits after trim and NFC and stays
 /// authoritative; this only saves a wasted call.
 enum CommunityTextIssue {
@@ -17,7 +17,7 @@ enum CommunityTextIssue {
 
   /// Description and rule text (several lines allowed): a control other than
   /// LF, a line separator, a bidi control, an invisible format character or a
-  /// filler (W5-55b).
+  /// filler.
   notPlainText,
 }
 
@@ -33,8 +33,7 @@ CommunityTextIssue? _oneLine(String raw, {required int max}) {
       : CommunityTextIssue.notPlainOneLine;
 }
 
-/// Several lines allowed (`identity.BioText`): length, then the shared scan
-/// (W5-55b).
+/// Several lines allowed (`identity.BioText`): length, then the shared scan.
 CommunityTextIssue? _multiLine(String raw, {required int max}) {
   final text = normalizeListText(raw);
   if (text.runes.length > max) return CommunityTextIssue.tooLong;

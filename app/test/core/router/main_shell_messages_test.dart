@@ -39,7 +39,7 @@ class _MemoryThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// W7-19: the Messages destination of `MainShell` (F10): which flag
+/// The Messages destination of `MainShell` (F10): which flag
 /// combinations show it, where it sits, which locations select it, its
 /// badge, and the responsive matrix with the full text-scale axis.
 void main() {

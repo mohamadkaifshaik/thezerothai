@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// W3-22 L-4: an UpdateProfile call that changes nothing must not rewrite users/{uid}. The service leaves UpdatedAt
+// L-4: an UpdateProfile call that changes nothing must not rewrite users/{uid}. The service leaves UpdatedAt
 // alone when no field really changed and the repo skips the write; the integration test pins the Firestore numbers
 // (1 read, 0 writes). Over fakeRepo, which mirrors the repo's skip, a no-op is 0 writes and an unchanged UpdatedAt.
 

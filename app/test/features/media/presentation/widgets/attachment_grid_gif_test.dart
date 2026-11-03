@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/media_fixtures.dart';
 
-/// The composer's GIF tile (W6-16): badge, labels, the server's reason, and
+/// The composer's GIF tile: badge, labels, the server's reason, and
 /// the wording of the errors a GIF can end in.
 void main() {
   setUpAll(registerMediaFallbacks);

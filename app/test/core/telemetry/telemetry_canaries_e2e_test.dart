@@ -15,7 +15,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../support/telemetry_e2e_rig.dart';
 
-/// TEL-9: the TEL-5 canaries end to end. Each leaky error is thrown for real
+/// The canaries end to end. Each leaky error is thrown for real
 /// and handed to `reportUnexpectedError` (what ~20 repositories and cubits
 /// call), which reaches the real error hook, the real controller, and the real
 /// `FirebaseCrashReporter` payload rules. The fake Crashlytics port then holds

@@ -15,7 +15,7 @@ import '../../../support/theme_harness.dart';
 
 class _MockCommunities extends Mock implements CommunitiesRepository {}
 
-/// W5-31: Create a Community at 360 / 600 / 1200 dp, light and dark, text
+/// Create a Community at 360 / 600 / 1200 dp, light and dark, text
 /// scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockCommunities repo;

@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// legacyDeletedUID is the placeholder the eraser wrote before W7-34 (L-2). It is a valid uid shape, so it is replaced by
+// legacyDeletedUID is the placeholder the eraser wrote before then (L-2). It is a valid uid shape, so it is replaced by
 // DeletedUID in dev data by `opsctl messages migrate-placeholder`; messaging was never on in prod. Nothing else reads it.
 const legacyDeletedUID = "deleted"
 
@@ -29,7 +29,7 @@ type PlaceholderPage struct {
 	Conversations, Messages, Entries int
 }
 
-// PlaceholderMigrator is the operator seam of `opsctl messages migrate-placeholder` (W7-34). The FirestoreRepo implements it;
+// PlaceholderMigrator is the operator seam of `opsctl messages migrate-placeholder`. The FirestoreRepo implements it;
 // it is not part of the Repo the service uses.
 type PlaceholderMigrator interface {
 	// MigratePlaceholder handles one page of at most 50 conversations after the cursor `after` ("" = from the start).

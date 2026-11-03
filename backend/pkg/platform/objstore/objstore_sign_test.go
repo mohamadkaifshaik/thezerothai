@@ -2,7 +2,7 @@ package objstore
 
 // The default signing path of SignedGetURL (no test seam): a real V4 URL minted offline from a service-account key,
 // and the failure paths of the lazily built client. On Cloud Run the client signs through IAM signBlob instead (no
-// private key in the container); that variant cannot run here and is covered by the dev smoke (plan T23).
+// private key in the container); that variant cannot run here and is covered by the dev smoke.
 
 import (
 	"context"

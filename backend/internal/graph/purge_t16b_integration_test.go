@@ -1,6 +1,6 @@
 //go:build integration
 
-// purge_t16b_integration_test.go (T16b): graph.Eraser crash-resume (ADR-0008 D10). The existing
+// purge_t16b_integration_test.go: graph.Eraser crash-resume (ADR-0008 D10). The existing
 // purge_integration_test.go covers the happy cascade, lost checkpoint, concurrent runs and missing
 // counterparts on a small fixture; this file adds interruption at *every* call boundary (kept checkpoint, lost
 // checkpoint, and a failed call with a cancelled context), a mid-step crash inside a multi-batch step, and

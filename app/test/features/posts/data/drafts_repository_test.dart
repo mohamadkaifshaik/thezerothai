@@ -226,7 +226,7 @@ void main() {
     });
   });
 
-  // W6-45 (L-5): drafts expire 30 days after the user's last edit. The clock
+  // L-5: drafts expire 30 days after the user's last edit. The clock
   // is injected and built from the real one, never a fixed date.
   group('expiry (30 days after the last user edit)', () {
     late DateTime t;
@@ -316,7 +316,7 @@ void main() {
     });
 
     test('there is no flag in the store: the purge always runs', () async {
-      // `drafts` off hides the UI and autosave but keeps rows usable (W6-31);
+      // `drafts` off hides the UI and autosave but keeps rows usable;
       // the expiry is a retention rule and applies regardless.
       t = ago(const Duration(days: 45));
       await timed.upsert(draft('a'));

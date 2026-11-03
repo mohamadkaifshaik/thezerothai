@@ -20,7 +20,7 @@ const (
 type Option func(*Server)
 
 // WithProtectedAuthors wires the one protected-set loader (ADR-0025 D3, built once in apiserver) into the timeline's
-// posts.Audience. Without it nobody is protected, which is the pre-W3-26a behaviour.
+// posts.Audience. Without it nobody is protected, which is the earlier behaviour.
 func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 	return func(s *Server) { s.aud = posts.NewSnapshotAudience(p) }
 }

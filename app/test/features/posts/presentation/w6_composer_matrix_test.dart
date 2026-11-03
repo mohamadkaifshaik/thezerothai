@@ -17,7 +17,7 @@ import '../../../support/w6_composer_rig.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// W6-19: the composer across the flag product (`polls` x `drafts` x `gif`,
+/// The composer across the flag product (`polls` x `drafts` x `gif`,
 /// with `engagement` and `media` on and off), the exclusions between poll,
 /// photos, GIF and schedule, and the "Save post?" wording with a GIF.
 ///

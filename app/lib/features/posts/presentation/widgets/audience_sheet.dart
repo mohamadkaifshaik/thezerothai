@@ -8,7 +8,7 @@ import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 import '../../../communities/presentation/widgets/community_row.dart';
 import '../../domain/compose_audience.dart';
 
-/// "Choose audience" (W5-34, `composer.md` §3): `Everyone`, then a "My
+/// "Choose audience" (`composer.md` §3): `Everyone`, then a "My
 /// Communities" section with one row per community the caller is in (name,
 /// "N members"). Picking one closes the sheet and returns it; dismissing
 /// returns null. A bottom sheet at every width, like the "Who can reply?"

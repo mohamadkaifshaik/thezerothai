@@ -58,7 +58,7 @@ const kSuggestionsFailureBackoff = Duration(minutes: 10);
 /// - **Failures never throw.** The card is optional: [suggestionsFor] returns
 ///   an empty list and the card hides.
 ///   - FEATURE_DISABLED and UNIMPLEMENTED (the RPC is a skeleton on dev until
-///     W3-12 is deployed): the RPC is not sent again until the app restarts.
+///     is deployed): the RPC is not sent again until the app restarts.
 ///   - RESOURCE_EXHAUSTED (the 10/min limit or the daily cap, rate-limited
 ///     or quota): an empty answer is cached for [kSuggestionsLimitBackoff],
 ///     so nothing is sent until the next 24 h window, restarts included.
@@ -68,7 +68,7 @@ const kSuggestionsFailureBackoff = Duration(minutes: 10);
 ///   followed, requested, blocked or muted, and the account itself, are
 ///   dropped on every read, even though the server never returns them. A row
 ///   the server answers NOT_FOUND for (blocked-by, suspended, gone) is
-///   [drop]ped: out of the cached answer too, restarts included (W3-22 L-1).
+///   [drop]ped: out of the cached answer too, restarts included (L-1).
 /// - **Refill once (Amendment 2 B2 rule 4).** A confirmed follow from the card
 ///   ([followed]) that removes the last visible row discards the entry, in
 ///   memory and on disk, and reports a refill so the caller asks again. At
@@ -211,7 +211,7 @@ class SuggestionsRepository {
   /// in the disk entry (rewritten with the original age and lifetime, so the
   /// window is not stretched), and for the rest of the session. For a row the
   /// server says is gone (NOT_FOUND on Follow: the account was blocked,
-  /// suspended or deleted; W3-22 L-1): [hide] alone would bring it back after
+  /// suspended or deleted; L-1): [hide] alone would bring it back after
   /// a restart from the cache. The disk write is best effort, like every other.
   /// An entry emptied this way keeps its lifetime: only [followed] refills.
   void drop(String uid, String userId) {

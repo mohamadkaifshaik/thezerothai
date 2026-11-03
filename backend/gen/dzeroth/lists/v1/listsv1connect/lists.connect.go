@@ -14,7 +14,7 @@
 // INVALID_ARGUMENT + VALIDATION, metadata["field"] = "list_id", 0 reads.
 //
 // Who sees a list (ADR-0030 D3, founder decision F3): a list is created PRIVATE unless the request says otherwise. A
-// private list, a list hidden by the platform (opsctl, W5-29), a list whose owner blocks the caller, a list whose owner
+// private list, a list hidden by the platform (opsctl), a list whose owner blocks the caller, a list whose owner
 // is not ACTIVE, and a list whose owner's blockedBy overflowed (ADR-0008 D2, fail closed) all answer ONE NOT_FOUND to
 // everyone but the owner, byte-identical to the NOT_FOUND for a list id that never existed. The owner always sees
 // their own lists. Members are never told they were added (F4: no notification).

@@ -7,7 +7,7 @@ import '../../../support/geometry.dart';
 import '../../../support/notifications_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// W3-34: the two protected-account rows across the W3-21 matrix.
+/// The two protected-account rows across the matrix.
 void main() {
   final types = {
     NotificationType.NOTIFICATION_TYPE_FOLLOW_REQUEST:
@@ -43,7 +43,7 @@ void main() {
         findsOneWidget,
       );
       expectMinTarget(tester, find.byType(InkWell));
-      // W3-35c: the row and its words stay inside the screen.
+      // The row and its words stay inside the screen.
       expectInsideHorizontally(
         tester,
         find.byType(NotificationRow),

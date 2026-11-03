@@ -234,7 +234,7 @@ void main() {
     );
   }
 
-  // W2-11: /compose?quote=<id> works only with `engagement` AND `quotes` in
+  // /compose?quote=<id> works only with `engagement` AND `quotes` in
   // GetMe.enabled_features; every other combination is the "not available"
   // state (no composer that could only fail).
   for (final c in <(String, Set<String>)>[
@@ -301,7 +301,7 @@ void main() {
   });
 
   // ---------------------------------------------------------------------
-  // W2-13 (tester): a server FEATURE_DISABLED quotes on CreatePost, and the
+  // (tester): a server FEATURE_DISABLED quotes on CreatePost, and the
   // responsive matrix of the quote composer.
   // ---------------------------------------------------------------------
 

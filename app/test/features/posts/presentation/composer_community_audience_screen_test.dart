@@ -54,7 +54,7 @@ pbc.Community _community(String id, String name, {int members = 1200}) =>
       viewerRole: pbc.CommunityRole.COMMUNITY_ROLE_MEMBER,
     );
 
-/// W5-34: the audience pill and "Choose audience" sheet of `/compose`.
+/// The audience pill and "Choose audience" sheet of `/compose`.
 void main() {
   late _MockPostsRepository repo;
   late _MockCommunities communities;

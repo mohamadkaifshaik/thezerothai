@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// W6-26 (security H-2): an animated WebP is refused for photos, avatars, banners and GIF thumbnails, with no Vision unit.
+// Security H-2: an animated WebP is refused for photos, avatars, banners and GIF thumbnails, with no Vision unit.
 
 func chunk(id string, payload []byte) []byte {
 	b := append([]byte(id), 0, 0, 0, 0)

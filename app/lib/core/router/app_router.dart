@@ -90,7 +90,7 @@ class AppRouter {
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
 
-  /// W7-26: decides the read-only Messages routes and re-runs the redirects
+  /// Decides the read-only Messages routes and re-runs the redirects
   /// when the probe answers or messaging turns out to be globally off. Null
   /// (a test) means the flag alone decides.
   final MessagingFeatureGate? _messagingGate;
@@ -101,16 +101,16 @@ class AppRouter {
   static const homePath = '/home';
   static const composePath = '/compose';
   static const settingsPath = '/settings';
-  // P6: the Notifications tab, behind the `notifications` flag.
+  // The Notifications tab, behind the `notifications` flag.
   static const notificationsPath = '/notifications';
-  // W4-17: Explore, a ShellRoute child (a root destination). Needs `search`
+  // Explore, a ShellRoute child (a root destination). Needs `search`
   // and `ui_shell`; redirects Home without them.
   static const explorePath = '/explore';
-  // W7-14: the inbox and its Requests folder, behind the `messaging` flag
-  // (both redirect Home without it). ShellRoute children. W7-15:
+  // The inbox and its Requests folder, behind the `messaging` flag
+  // (both redirect Home without it). ShellRoute children.:
   // `/messages/:id` is one conversation, full-screen outside the shell (like
   // `/compose`) and declared AFTER the ShellRoute, so `/messages/requests`
-  // match first. W7-17: `/messages/new` (the people picker, a dialog on the
+  // match first.: `/messages/new` (the people picker, a dialog on the
   // root navigator) is declared BEFORE `:id`, so "new" is never read as a
   // conversation id; `/messages/new/draft` is the first-message thread with
   // someone the cache has no conversation with (it needs the person as the
@@ -122,44 +122,44 @@ class AppRouter {
   static const messageDraftPath = '/messages/new/draft';
   static String messagePath(String conversationId) =>
       '/messages/$conversationId';
-  // The Settings routes land with T15; the constants live here so
+  // The Settings routes land later; the constants live here so
   // ProfileHeader and SettingsScreen share one source of truth.
   static const blockedAccountsPath = '/settings/blocked';
   static const mutedAccountsPath = '/settings/muted';
   static const deleteAccountPath = '/settings/delete-account';
   // Delete account for callers without a profile or with an unverified
-  // email (P8 L-5): reachable while the profile-required redirect is active.
+  // email (L-5): reachable while the profile-required redirect is active.
   static const onboardingDeletePath = '/onboarding/delete-account';
   // Final page after DeleteAccount: reachable signed out.
   static const accountDeletedPath = '/account-deleted';
   static const exportDataPath = '/settings/export';
-  // P2-T5: Edit profile and Change handle, behind the `profile_snapshot` flag.
+  // Edit profile and Change handle, behind the `profile_snapshot` flag.
   static const editProfilePath = '/settings/profile';
   static const changeHandlePath = '/settings/handle';
-  // CMP-D6: the Scheduled posts list, behind the `posts` and
+  // The Scheduled posts list, behind the `posts` and
   // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
   // a ShellRoute child: the composer pushes it over itself (dialog link, toast
   // View), and a second page of the same ShellRoute under the composer breaks
   // the Navigator (duplicate page key).
   static const scheduledPostsPath = '/scheduled';
-  // W6-15: Drafts (Unsent posts | Scheduled), behind `posts` + `drafts`.
+  // Drafts (Unsent posts | Scheduled), behind `posts` + `drafts`.
   // Root-level and full-screen like /compose and /scheduled. `/scheduled`
   // redirects to its Scheduled tab while `drafts` is on. Push it from the
   // composer with `extra: true` (pick mode): choosing a draft pops its id.
   static const draftsPath = '/drafts';
   static const scheduledTabPath = '/drafts?tab=scheduled';
-  // W2-7: the Bookmarks list, titled "History" since W3-18 (`?tab=likes` opens
+  // The Bookmarks list, titled "History" since then (`?tab=likes` opens
   // its Likes tab). A ShellRoute child (the rail marks it), needing only the
   // `posts` flag; the entry points need `bookmarks` as well.
   static const bookmarksPath = '/bookmarks';
 
-  // W5-11: the caller's Lists. `/lists/:id` (the detail, W5-12) is under the
+  // The caller's Lists. `/lists/:id` (the detail) is under the
   // same `lists` flag redirect.
   static const listsPath = '/lists';
   static String listPath(String listId) =>
       '/lists/${Uri.encodeComponent(listId)}';
   static String listMembersPath(String listId) => '${listPath(listId)}/members';
-  // W5-31/32: Communities (behind the `communities` flag redirect).
+  // Communities (behind the `communities` flag redirect).
   // `/communities/new` is matched before `/communities/:id`.
   static const communitiesPath = '/communities';
   static const communityNewPath = '/communities/new';
@@ -169,15 +169,15 @@ class AppRouter {
       '${communityPath(communityId)}/moderation-log';
   static String communityMembersPath(String communityId) =>
       '${communityPath(communityId)}/members';
-  // W5-14: Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
+  // Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
   static const pinnedPath = '/home/pinned';
-  // W4-15: the search results, behind the `search` flag; build links with
+  // The search results, behind the `search` flag; build links with
   // `searchResultsLocation` (domain/search_routes.dart).
   static const searchRoute = '/search';
-  // W3-34: the Follow requests list of a protected account, a ShellRoute child.
+  // The Follow requests list of a protected account, a ShellRoute child.
   // Needs `graph`, and `private_accounts` or a protected caller (the undo rule).
   static const followRequestsPath = '/follow-requests';
-  // W8-2: the read-only shells, behind the `shells` flag (every path redirects
+  // The read-only shells, behind the `shells` flag (every path redirects
   // Home without it). The first three are ShellRoute children, built only when
   // their kind is in `kVisibleShells`. `/premium` is a dialog on the root
   // navigator, reachable only by `push` (see `kShellPushExtra`).
@@ -187,18 +187,18 @@ class AppRouter {
   static const callsPath = '/calls';
   static String profilePath(String handle) => '/profile/$handle';
 
-  /// The composer opened on the saved draft [draftId] (W6-15):
+  /// The composer opened on the saved draft [draftId]:
   /// `/compose?draft=<id>`.
   static String composeDraftPath(String draftId) =>
       '$composePath?draft=${Uri.encodeQueryComponent(draftId)}';
 
   /// The composer with the community [communityId] preselected as the
-  /// audience (W5-34): `/compose?community=<id>`. Used only while the caller is
+  /// audience: `/compose?community=<id>`. Used only while the caller is
   /// in that community; otherwise it opens on Everyone and says so.
   static String composeCommunityPath(String communityId) =>
       '$composePath?community=${Uri.encodeQueryComponent(communityId)}';
 
-  /// The quote composer for [postId] (P5): `/compose?quote=<id>`. Pass the
+  /// The quote composer for [postId]: `/compose?quote=<id>`. Pass the
   /// quoted post's `EmbeddedPost` as `extra` for the preview.
   static String composeQuotePath(String postId) =>
       '$composePath?quote=${Uri.encodeQueryComponent(postId)}';
@@ -208,7 +208,7 @@ class AppRouter {
   static String profileByIdPath(String userId) =>
       '/u/${Uri.encodeComponent(userId)}';
 
-  /// W5-13: another person's public Lists (behind the `lists` flag). Pass the
+  /// Another person's public Lists (behind the `lists` flag). Pass the
   /// handle, if known, as `extra` for the header.
   static String userListsPath(String userId) =>
       '/u/${Uri.encodeComponent(userId)}/lists';
@@ -298,7 +298,7 @@ class AppRouter {
           path: premiumPath,
           // A push restored from web history skips the redirects (go_router
           // re-applies it as is) and loses its extra, so the builder checks
-          // again and shows nothing then (security review W8-9 M-1).
+          // again and shows nothing then (security review M-1).
           pageBuilder: (context, state) => _premiumPushAllowed(state.extra)
               ? PremiumDialogPage(key: state.pageKey)
               : NoTransitionPage<void>(
@@ -364,7 +364,7 @@ class AppRouter {
           GoRoute(
             path: bookmarksPath,
             builder: (context, state) => AuthGate(
-              // `?tab=likes` opens the Likes tab (W3-18); the screen ignores
+              // `?tab=likes` opens the Likes tab; the screen ignores
               // it while the `likes_list` flag is off.
               child: BookmarksScreen(
                 initialTab: HistoryTab.fromQuery(
@@ -527,7 +527,7 @@ class AppRouter {
           ),
         ],
       ),
-      // W7-17: the people picker (a dialog on the root navigator) and the
+      // The people picker (a dialog on the root navigator) and the
       // draft thread. Before `:id` on purpose, see `messagesPath`.
       GoRoute(
         path: messageNewPath,
@@ -543,17 +543,17 @@ class AppRouter {
           child: DraftThreadScreen(peer: state.extra! as common.AuthorSnapshot),
         ),
       ),
-      // W7-15: one conversation, full-screen (no nav chrome under a composer).
+      // One conversation, full-screen (no nav chrome under a composer).
       // After the ShellRoute on purpose, see `messagesPath`.
       GoRoute(
         path: '$messagesPath/:id',
         builder: (context, state) => AuthGate(
           child: ThreadScreen(
             conversationId: state.pathParameters['id']!,
-            // W7-16: the composer under the list (read-only threads and a
+            // The composer under the list (read-only threads and a
             // caller without `messaging` get none).
             composerBuilder: (context, conversation) => const MessageComposer(),
-            // W7-18: the request banner (Accept / Delete / Block) in place of
+            // The request banner (Accept / Delete / Block) in place of
             // the composer, the sender's waiting note, and the info menu's
             // Report of the peer's account (the bubbles report messages).
             bannerBuilder: buildRequestBanner,
@@ -564,7 +564,7 @@ class AppRouter {
     ],
   );
 
-  // W2-9: the shared link a visitor cold-opened, kept in memory (never in a
+  // The shared link a visitor cold-opened, kept in memory (never in a
   // visible URL) while the redirects send them through the splash, sign-in and
   // onboarding. Web sign-in is popup-only, so the page does not reload in
   // between. Only ever a value [deepLinkTarget] returned.
@@ -578,14 +578,14 @@ class AppRouter {
   static final _deepLinkPatterns = [
     RegExp(r'^/post/\d{19}$'),
     // A uid is Firebase's alphanumeric id. No `%`: `%2F` and `%0D%0A` never
-    // become part of a target (W2-14 I-1).
+    // become part of a target (I-1).
     RegExp(r'^/u/[A-Za-z0-9-]{1,128}$'),
   ];
 
   static final _profilePath = RegExp(r'^/profile/([^/]+)$');
   static final _messageThreadPath = RegExp(r'^/messages/[^/]+$');
 
-  /// A conversation link (W7-19, ADR-0027): fixed-length lower-case hex, the
+  /// A conversation link (ADR-0027): fixed-length lower-case hex, the
   /// shape of a conversation id. Deliberately tighter than `/u/...` and
   /// `/profile/...`: a query or a fragment disqualifies the whole link instead
   /// of being dropped. `/messages`, `/messages/requests` and `/messages/new`
@@ -738,8 +738,8 @@ class AppRouter {
     return _accountOnlyRoutes.hasMatch(loc) ? settingsPath : null;
   }
 
-  /// The four shell paths redirect Home unless `shells` is on for this caller
-  /// (W8-2). `/premium` also redirects Home when it was not pushed from inside
+  /// The four shell paths redirect Home unless `shells` is on for this caller.
+  /// `/premium` also redirects Home when it was not pushed from inside
   /// the app (no [kShellPushExtra]): a typed URL, a reload or a cold start
   /// never opens the dialog on its own. The routes do not need `ui_shell`.
   String? _shellsFlagRedirect(String loc, Object? extra) {
@@ -764,9 +764,9 @@ class AppRouter {
 
   /// `/messages`, `/messages/requests`, `/messages/new` (it matches the
   /// thread pattern), `/messages/new/draft` and `/messages/<id>` redirect Home
-  /// unless `messaging` is on for this caller (W7-14, W7-15). `GetMe` lists
+  /// unless `messaging` is on for this caller. `GetMe` lists
   /// the flag per caller, so a flag that is off for everyone is the same case.
-  /// W7-26: while the gate is `readOnly` (off for this caller only), all but
+  /// While the gate is `readOnly` (off for this caller only), all but
   /// `/messages/new` and `/messages/new/draft` open, and those two land on
   /// `/messages`.
   String? _messagesFlagRedirect(String loc) {
@@ -779,7 +779,7 @@ class AppRouter {
     if (_onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)) {
       return null;
     }
-    // W7-26 (ADR-0027 F6(a)): off for this caller only. The inbox, the
+    // (ADR-0027 F6(a)): off for this caller only. The inbox, the
     // requests and a thread open; starting a message does not.
     if (_messagingGate?.access == MessagingAccess.readOnly) {
       return loc == messageNewPath || loc == messageDraftPath
@@ -790,7 +790,7 @@ class AppRouter {
   }
 
   /// `/follow-requests` redirects Home unless `graph` is on and the caller is
-  /// protected or has `private_accounts` (W3-34). A protected caller keeps the
+  /// protected or has `private_accounts`. A protected caller keeps the
   /// screen with `private_accounts` off everywhere: requests are never lost
   /// to a flag (the undo rule, ADR-0025 D12).
   String? _followRequestsRedirect(String loc) {
@@ -804,7 +804,7 @@ class AppRouter {
   }
 
   /// `/explore` redirects Home unless `search` and `ui_shell` are both on for
-  /// this caller (W4-17: the legacy chrome gets no Explore).
+  /// this caller (the legacy chrome gets no Explore).
   String? _exploreFlagRedirect(String loc) {
     if (loc != explorePath) return null;
     final features = _onboardingBloc.state.enabledFeatures;
@@ -823,7 +823,7 @@ class AppRouter {
   }
 
   /// The Scheduled posts list redirects to Settings unless `posts` is on for
-  /// this caller (CMP-D6). It does NOT need `scheduled_posts`: ListScheduledPosts
+  /// this caller. It does NOT need `scheduled_posts`: ListScheduledPosts
   /// and CancelScheduledPost only need the flag "not globally off" (ADR-0021
   /// L-A option b), so a user dropped from the allowlist can still see and
   /// cancel what they already scheduled. A globally-off flag shows the list's
@@ -832,12 +832,12 @@ class AppRouter {
     if (loc != scheduledPostsPath) return null;
     final features = _onboardingBloc.state.enabledFeatures;
     if (!features.contains(kFeaturePosts)) return settingsPath;
-    // W6-15: with `drafts` on the list is the Drafts screen's Scheduled tab;
+    // With `drafts` on the list is the Drafts screen's Scheduled tab;
     // with it off the old screen stays, so every link keeps working.
     return features.contains(kFeatureDrafts) ? scheduledTabPath : null;
   }
 
-  /// `/drafts` redirects Home unless `posts` and `drafts` are on (W6-15).
+  /// `/drafts` redirects Home unless `posts` and `drafts` are on.
   String? _draftsFlagRedirect(String loc) {
     if (loc != draftsPath) return null;
     final features = _onboardingBloc.state.enabledFeatures;
@@ -846,7 +846,7 @@ class AppRouter {
         : homePath;
   }
 
-  /// `/bookmarks` redirects Home unless `posts` is on for this caller (W2-7).
+  /// `/bookmarks` redirects Home unless `posts` is on for this caller.
   /// It does NOT need `bookmarks`: ListBookmarks and RemoveBookmark only need
   /// the flag "not globally off" (ADR-0023 D5), so a user dropped from the
   /// allowlist still reaches what they saved. A flag that is off for everyone
@@ -860,11 +860,11 @@ class AppRouter {
 
   static final _listsRoutes = RegExp(r'^(?:/lists(?:/|$)|/u/[^/]+/lists$)');
 
-  /// `/lists`, `/lists/...` and `/u/:id/lists` (W5-13) redirect Home unless `lists` is on for this
-  /// caller (W5-11). The server stays authoritative.
+  /// `/lists`, `/lists/...` and `/u/:id/lists` redirect Home unless `lists` is on for this
+  /// caller. The server stays authoritative.
   String? _listsFlagRedirect(String loc) {
     final features = _onboardingBloc.state.enabledFeatures;
-    // Manage pinned (W5-14) also needs the new shell, the only chrome with
+    // Manage pinned also needs the new shell, the only chrome with
     // the Home tab bar.
     if (loc == pinnedPath) {
       return features.contains(kFeatureLists) &&
@@ -879,7 +879,7 @@ class AppRouter {
   static final _communitiesRoutes = RegExp(r'^/communities(?:/|$)');
 
   /// `/communities` and everything under it redirect Home unless `communities`
-  /// is on for this caller (W5-31). The server stays authoritative.
+  /// is on for this caller. The server stays authoritative.
   String? _communitiesFlagRedirect(String loc) {
     if (!_communitiesRoutes.hasMatch(loc)) return null;
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureCommunities)
@@ -887,7 +887,7 @@ class AppRouter {
         : homePath;
   }
 
-  /// `/search` redirects Home unless `search` is on for this caller (W4-15).
+  /// `/search` redirects Home unless `search` is on for this caller.
   String? _searchFlagRedirect(String loc) {
     if (loc != searchRoute) return null;
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureSearch)

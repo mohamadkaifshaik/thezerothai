@@ -9,7 +9,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../../support/media_fixtures.dart';
 
-/// The GIF side of the attachments cubit (W6-16, ADR-0029): one GIF, never
+/// The GIF side of the attachments cubit (ADR-0029): one GIF, never
 /// with photos, checked on the device, uploaded unchanged.
 void main() {
   setUpAll(registerMediaFallbacks);

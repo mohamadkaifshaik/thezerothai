@@ -1,6 +1,6 @@
 // Package objstore is the thin Cloud Storage seam for buckets that the API itself writes and reads: write an
 // object, delete one, and sign a short-lived V4 GET URL (the account-export bucket, ADR-0011 D-B); and, for the
-// media pipeline (ADR-0005, P4), sign a V4 PUT URL, read object attributes and the first bytes of an object, and
+// media pipeline (ADR-0005), sign a V4 PUT URL, read object attributes and the first bytes of an object, and
 // copy an object to another bucket. Media bytes never pass through the API (the media rule): clients upload with
 // signed PUT URLs and the API only reads attributes and a 512-byte head. The storage client is built lazily on first use, so no I/O happens before ListenAndServe, and
 // STORAGE_EMULATOR_HOST is honored by the client itself.
@@ -26,7 +26,7 @@ import (
 var ErrObjectNotFound = errors.New("objstore: object not found")
 
 // ErrGenerationChanged is returned by ReadHead and CopyTo when a pinned object generation is no longer the live one: the
-// object was replaced (or deleted) after the generation was read. The caller must not trust the bytes (W6-25, H-1).
+// object was replaced (or deleted) after the generation was read. The caller must not trust the bytes (H-1).
 var ErrGenerationChanged = errors.New("objstore: object generation changed")
 
 // CreateOnlyHeader is the header the signed PUT URL binds (name and value, lower-case): the write succeeds only if the
@@ -174,7 +174,7 @@ func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64
 // operation, no egress when both buckets share a location). It replaces an existing destination, so a repeated
 // call is harmless. A missing source is ErrObjectNotFound. With srcGeneration != 0 the copy carries an
 // ifSourceGenerationMatch precondition (no extra call): if the live generation differs, nothing is copied and the answer
-// is ErrGenerationChanged (W6-25, H-1).
+// is ErrGenerationChanged (H-1).
 func (s *Store) CopyTo(ctx context.Context, object string, srcGeneration int64, dst *Store, dstObject, contentType, cacheControl string) error {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
@@ -213,7 +213,7 @@ func (s *Store) CopyTo(ctx context.Context, object string, srcGeneration int64, 
 }
 
 // streamCopy is the emulator-only copy: read the source, write the destination with the given attributes. The Storage
-// emulator ignores read generations and ifGenerationMatch on media reads (probed, W6-25), so the Attrs comparison below is
+// emulator ignores read generations and ifGenerationMatch on media reads (probed), so the Attrs comparison below is
 // a best-effort check and NOT atomic with the read that follows: a rewrite between the two goes unnoticed. That is
 // acceptable only because this path never runs against GCS, where the single rewrite call carries ifSourceGenerationMatch
 // and is the real protection (TestCopyTo_SendsIfSourceGenerationMatch pins it on the wire).
@@ -244,7 +244,7 @@ func streamCopy(ctx context.Context, src *storage.ObjectHandle, srcGeneration in
 
 // SignedPutURL returns a V4 signed PUT URL valid for ttl, bound to the object path, Content-Type, Content-MD5
 // (base64), an x-goog-content-length-range of 0..maxBytes and x-goog-if-generation-match: 0 (create-only: a second PUT to the
-// same URL gets 412, so the screened bytes cannot be replaced, W6-25), plus the exact headers the client must send. No GCS
+// same URL gets 412, so the screened bytes cannot be replaced), plus the exact headers the client must send. No GCS
 // call is made (signing uses IAM signBlob as the runtime service account). The URL is a bearer credential.
 func (s *Store) SignedPutURL(ctx context.Context, object, contentType, md5b64 string, maxBytes int64, ttl time.Duration, now time.Time) (string, map[string]string, error) {
 	rangeHeader := "0," + strconv.FormatInt(maxBytes, 10)

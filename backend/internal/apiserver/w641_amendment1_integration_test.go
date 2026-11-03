@@ -2,8 +2,8 @@
 
 package apiserver
 
-// W6-41 (ADR-0029 Amendment 1): the tests the W6-36 review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
-// developer's W6-36 / W6-17 files do not hold. Names start with TestW641_ so one -run regex selects them.
+// ADR-0029 Amendment 1: the tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
+// developer's / files do not hold. Names start with TestW641_ so one -run regex selects them.
 //   - L-1: the author blocks a voter who had voted; replay, change and stale shapes, by post id and by REPOST id, answer the bytes of a
 //     missing post (0 writes), and nothing changes;
 //   - the 60 voters x 3 choices race in two arms, asserting store invariants only (no exact winner count, no timing).
@@ -191,7 +191,7 @@ func retryUnavailable(f func() (*postsv1.PostView, error)) (v *postsv1.PostView,
 
 // TestW641_RaceInvariants is the 60 voters x 3 choices race (A2.3), both arms, asserting invariants of the store only. UNAVAILABLE after the
 // bounded retries is an allowed answer (the emulator serialises writes, so it is rare); no exact number of winners is asserted, and no
-// timing pattern of the old W6-17 test is copied. It replaces nothing: TestW617_ConcurrencyManyVotersRacingThemselves stays as it is.
+// timing pattern of the old test is copied. It replaces nothing: TestW617_ConcurrencyManyVotersRacingThemselves stays as it is.
 func TestW641_RaceInvariants(t *testing.T) {
 	const voters = 60
 	setup := func(t *testing.T) (*pollChain, *pollChain, string, []testUser) {

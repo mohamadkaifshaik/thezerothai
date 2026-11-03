@@ -2,14 +2,14 @@
 
 package apiserver
 
-// W3-20: the cross-ticket journey of UI wave W3 Part A through the real apiserver chain (Firestore, Auth and Pub/Sub
+// The cross-ticket journey of UI wave W3 Part A through the real apiserver chain (Firestore, Auth and Pub/Sub
 // emulators, the production route table and interceptors): an account sets a banner, location, website and a pinned post;
 // a visitor opens every tab, likes and lists the like, sees "Follows you" appear when the account follows back, gets
 // who-to-follow suggestions; the pinned post is deleted and the pin clears itself; the account exports (the new profile
 // fields are in the export), then every flag is flipped off in a new instance over the SAME data and each gated surface
 // refuses while the ungated ones keep working; finally the account is deleted and none of its W3 data survives.
 // A signed PUT URL cannot be minted against the emulators, so READY media documents are seeded the way FinalizeUpload
-// leaves them (as the P4 chain test does); the upload and moderation logic has its own tests (banner_matrix_integration).
+// leaves them (as the chain test does); the upload and moderation logic has its own tests (banner_matrix_integration).
 
 import (
 	"context"
@@ -228,7 +228,7 @@ func TestW320_E2E_ProfileGraphCompletionJourney(t *testing.T) {
 		}
 	}
 	// profile_extras off: the pin is omitted, banner and location keep rendering, setting a field is refused. The website
-	// is blanked with the pin since W3-22 M-1(a) (#354); the constant says which of the two the code does.
+	// is blanked with the pin since M-1(a) (#354); the constant says which of the two the code does.
 	wantWebsite := "https://example.com/a"
 	if !w320WebsiteShownWhileExtrasGloballyOff {
 		wantWebsite = ""

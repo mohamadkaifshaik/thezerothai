@@ -11,7 +11,7 @@ import (
 )
 
 // assertKeyedPostRedaction fails when msg carries a plain uid, a plain post id or the unkeyed hash of a post id, or lacks the
-// keyed HashPost of each post id (W6-56).
+// keyed HashPost of each post id.
 func assertKeyedPostRedaction(t *testing.T, msg, uid string, postIDs ...string) {
 	t.Helper()
 	if strings.Contains(msg, uid) {

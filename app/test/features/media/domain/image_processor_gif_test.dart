@@ -6,7 +6,7 @@ import 'package:image/image.dart' as img;
 
 import '../../../support/media_fixtures.dart';
 
-/// The on-device GIF checks and thumbnail (W6-16, ADR-0029 D10/F10).
+/// The on-device GIF checks and thumbnail (ADR-0029 D10/F10).
 void main() {
   test('a GIF goes up unchanged with a JPEG still as its thumbnail', () {
     final bytes = realGifBytes(width: 32, height: 24, frames: 3);
@@ -35,7 +35,7 @@ void main() {
       final base = realGifBytes();
       Uint8List padded(int size) {
         final out = Uint8List(size)..setAll(0, base);
-        // Padding after the trailer: decoders ignore it, W6-30 strips it.
+        // Padding after the trailer: decoders ignore it, strips it.
         return out;
       }
 

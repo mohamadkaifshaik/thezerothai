@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// W5-46: the `lists_member_of` part against the emulator. Reads are one per list that names the user (the array-contains query,
+// The `lists_member_of` part against the emulator. Reads are one per list that names the user (the array-contains query,
 // 100 per page); the owners' profiles and the user's graph come from caches and are not Firestore reads of this module.
 func TestExporter_Integration_MemberOf(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))

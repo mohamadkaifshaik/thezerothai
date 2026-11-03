@@ -8,7 +8,7 @@ import '../../data/lists_repository.dart';
 import '../../domain/home_tab_entry.dart';
 import 'home_tabs_state.dart';
 
-/// The pinned Home tabs for the tab bar and "Manage pinned" (W5-14) over
+/// The pinned Home tabs for the tab bar and "Manage pinned" over
 /// [HomeTabsRepository] (the only SetHomeTabs caller).
 ///
 /// - Mirrors the repository's `changes` (0 RPCs); the selected tab is kept by

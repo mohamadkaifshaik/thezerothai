@@ -2,7 +2,7 @@
 
 package communities
 
-// W5-36: the join burst of the stage-ladder load shape (many distinct accounts joining one community document at once), on the emulator.
+// The join burst of the stage-ladder load shape (many distinct accounts joining one community document at once), on the emulator.
 // The existing TestJoin_TenJoinsBurstKeepMemberCountExact covers 10; this one is 50 on one document, with the contention metric read from
 // the request line of every call.
 

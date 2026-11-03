@@ -77,7 +77,7 @@ const (
 	// Retention is how long a resolved report is kept before the Firestore TTL deletes it (ADR-0016 D5).
 	Retention = 90 * 24 * time.Hour
 	// MessageEvidenceRetention is how long the copied text of a MESSAGE report is kept (ADR-0016 note 2026-10-30, security
-	// L-6, W7-36): the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
+	// L-6): the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
 	// deletes it, open or not; resolving the report shortens it to at most resolvedAt + Retention. The report itself stays.
 	MessageEvidenceRetention = 180 * 24 * time.Hour
 	// MaxListLimit is the largest page of Ops.List (the query-limit rule: every query Limit <= 50).
@@ -88,7 +88,7 @@ const (
 
 // Evidence is the copy of the reported post (or, for an ACCOUNT report, of the reported profile) taken at report time, so
 // a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (0 reads:
-// they ride on the post the report already read). Deleting the post deletes the objects (P4's post_delete job), so this keeps the ids only; see
+// they ride on the post the report already read). Deleting the post deletes the objects (The post_delete job), so this keeps the ids only; see
 // for what a takedown does and does not preserve.
 //
 // A MESSAGE report (ADR-0027 D12) keeps that one message: Text is its text (private content, ADR-0016 note 2026-10-28),
@@ -113,11 +113,11 @@ type Evidence struct {
 	Website     string
 	AvatarURL   string
 	BannerURL   string
-	// LIST reports only (plan W5-44): the list's name and description as the reporter saw them. AuthorHandle holds the owner's
+	// LIST reports only: the list's name and description as the reporter saw them. AuthorHandle holds the owner's
 	// handle and PostCreatedAt the list's creation time. No member id is copied. Empty for every other report.
 	ListName        string
 	ListDescription string
-	// COMMUNITY reports only (ADR-0031 D14, plan W5-29): the community's public text as the reporter saw it. AuthorHandle holds the owner's
+	// COMMUNITY reports only (ADR-0031 D14): the community's public text as the reporter saw it. AuthorHandle holds the owner's
 	// handle (empty when archived) and PostCreatedAt the community's creation time. No member or moderator id is copied. Empty for every other report.
 	CommunityName        string
 	CommunityDescription string
@@ -125,7 +125,7 @@ type Evidence struct {
 	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string
-	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran, W7-36):
+	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran):
 	// Text is then empty because the copy was deleted, not because the message was empty. Never stored.
 	TextExpired bool
 }
@@ -169,8 +169,8 @@ type Service interface {
 	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE (ADR-0027 D12):
 	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
 	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
-	// cold and 3 warm for a MESSAGE. LIST (plan W5-44): list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
-	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY (ADR-0031 D14, W5-29): community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
+	// cold and 3 warm for a MESSAGE. LIST: list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
+	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY (ADR-0031 D14): community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 
@@ -195,7 +195,7 @@ type Ops interface {
 	// Reads: len(result), minimum 1.
 	List(ctx context.Context, status Status, limit int) ([]Report, error)
 	// Get returns one report (ErrNotFound when missing). Reads 1; a MESSAGE report reads its evidence child too (2), and
-	// Evidence.TextExpired says the child is gone (W7-36).
+	// Evidence.TextExpired says the child is gone.
 	Get(ctx context.Context, id string) (Report, error)
 	// Resolve closes a report. Resolving an already RESOLVED report is a no-op that returns it unchanged
 	// (0 writes). Reads 1, writes 1. A re-report after RESOLVED reopens the same document (Repo.Create).

@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
 
-/// "This List is unavailable" (W5-12): the one calm state for a List the
+/// "This List is unavailable": the one calm state for a List the
 /// server answers NOT_FOUND for. The server uses the same answer for private,
 /// deleted, hidden and blocked, so the text never says which. [onUnpin] adds
 /// an "Unpin from Home" button (a pinned List the user can no longer open);
 /// [busy] disables it while the unpin is saved. Shared by the List detail and
-/// the Home tab (W5-14).
+/// the Home tab.
 class ListUnavailableView extends StatelessWidget {
   const ListUnavailableView({super.key, this.onUnpin, this.busy = false});
 

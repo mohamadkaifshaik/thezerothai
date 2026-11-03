@@ -61,8 +61,8 @@ class _FakeIdentity extends Fake implements IdentityRepository {
   }
 }
 
-/// W3-33b: the Settings "Protect your posts" switch, its two confirm dialogs
-/// and its error copy, across the W3-21 matrix (360 / 600 / 1200 dp x light /
+/// The Settings "Protect your posts" switch, its two confirm dialogs
+/// and its error copy, across the matrix (360 / 600 / 1200 dp x light /
 /// dark x text scale 1.0 / 1.3 / 2.0).
 void main() {
   late _MockOnboardingBloc onboarding;
@@ -221,7 +221,7 @@ void main() {
     expect(rowSwitch, findsNothing);
   });
 
-  // W3-35c: who sees the switch and in which position (the visibility rule:
+  // Who sees the switch and in which position (the visibility rule:
   // the flag decides turning ON; a protected account always sees its way
   // OFF, the undo rule), and which confirm each row opens.
   for (final entry in {

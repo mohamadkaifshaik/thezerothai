@@ -1000,7 +1000,7 @@ void main() {
       });
     }
 
-    // W3-21: every cell of the matrix, with the targets the ui-catalog
+    // Every cell of the matrix, with the targets the ui-catalog
     // demands (Follow, the x, Show more).
     forEachThemeAndWidth('matrix: the card fits and its targets are 48dp', (
       tester,

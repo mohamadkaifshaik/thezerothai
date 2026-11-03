@@ -46,7 +46,7 @@ func parseListsArgs(sub, listID string, a modArgs) error {
 	return nil
 }
 
-// listsCommand is `opsctl lists hide|restore` (security review W5-17 M-4, plan W5-44): the platform hide of one list. The
+// listsCommand is `opsctl lists hide|restore` (security review M-4): the platform hide of one list. The
 // reads already honour `hidden` (ADR-0030 D3): a hidden list answers NOT_FOUND to everyone but its owner on GetList,
 // ListUserLists, ListListMembers and GetListTimeline, and a pinned tab of it shows "unavailable". The write is
 // lists.Moderator.SetHidden, a field-level Update of `hidden` and `updatedAt` (never a Set); a missing list is refused.

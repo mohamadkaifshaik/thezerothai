@@ -36,7 +36,7 @@ class _MockGraphRepository extends Mock implements GraphRepository {}
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-13: the profile's pinned tab bar, per-tab scroll, app-bar name fade and
+/// The profile's pinned tab bar, per-tab scroll, app-bar name fade and
 /// "Joined" row. Every date here is only formatted, never compared with the
 /// real clock.
 void main() {
@@ -512,7 +512,7 @@ void main() {
       expect(inBar, findsOneWidget);
       expect(find.text('Kaif'), findsNWidgets(2));
       // At 0 opacity the title still names the screen (its route name), as
-      // before W3-13, so the name is spoken by the title and by the header.
+      // before then, so the name is spoken by the title and by the header.
       expect(spoken(tester, 'Kaif'), 2);
 
       await scrollUp(tester, 1500);

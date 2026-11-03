@@ -19,7 +19,7 @@ import 'bloc/post_detail_cubit.dart';
 import 'thread_screen.dart';
 import 'widgets/post_unavailable_view.dart';
 
-/// `/post/:id` (T18): one post via `GetPost`. A missing, deleted or hidden
+/// `/post/:id`: one post via `GetPost`. A missing, deleted or hidden
 /// post shows "This post isn't available" with no retry; a post of an author
 /// the viewer blocks sits behind a "You blocked @x - Show post" banner
 /// (ADR-0010 D6, from the local relationship cache).

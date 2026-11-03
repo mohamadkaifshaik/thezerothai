@@ -14,7 +14,7 @@ import (
 )
 
 // cursorKeyEnv is the environment variable that holds the API's CURSOR_HMAC_KEY (the secret `cursor-hmac-key`). The
-// conversation_hash of the request logs is keyed by an HKDF derivation of it (W7-34, L-7); opsctl never takes it as a flag
+// conversation_hash of the request logs is keyed by an HKDF derivation of it (L-7); opsctl never takes it as a flag
 // (shell history) and never falls back to the local development key.
 const cursorKeyEnv = "CURSOR_HMAC_KEY"
 
@@ -47,7 +47,7 @@ func conversationHashForAudit(convID string) string {
 	return logger.HashConversation(convID)
 }
 
-// migratePlaceholder is `opsctl messages migrate-placeholder --project P [--dry-run]` (W7-34, L-2): a dev-only, one-off
+// migratePlaceholder is `opsctl messages migrate-placeholder --project P [--dry-run]` (L-2): a dev-only, one-off
 // rewrite of the legacy erased-user placeholder "deleted" to messaging.DeletedUID ("_deleted") in conversations
 // (participants, gone, requestFrom, requestTo), messages (senderId) and the surviving peer's entry (peerId). Run --dry-run
 // first: it reads the same documents and writes nothing. It is idempotent (a rerun finds nothing and writes 0) and resumable

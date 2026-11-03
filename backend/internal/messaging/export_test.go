@@ -220,7 +220,7 @@ func entryOf(peer, handle string) EntryDoc {
 	return EntryDoc{PeerID: peer, Peer: PeerDoc{Handle: handle}}
 }
 
-// W7-30 (security review M-2): a peer who blocked the caller (or whom the caller blocked, or every peer on overflow) is named by
+// Security review M-2: a peer who blocked the caller (or whom the caller blocked, or every peer on overflow) is named by
 // the handle frozen on the caller's entry, never the live directory handle, and is never looked up. A missing entry, an entry
 // naming another peer, and an erased peer give no handle. Unblocked peers keep the live handle.
 func TestExport_BlockedPeerUsesFrozenHandle(t *testing.T) {

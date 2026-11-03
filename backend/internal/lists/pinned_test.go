@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// pinned_by_viewer comes from the viewer's users/{viewer}.homeTabs through identity.Directory (W5-9): true only for a LIST tab
+// pinned_by_viewer comes from the viewer's users/{viewer}.homeTabs through identity.Directory: true only for a LIST tab
 // of this list, false for another list, another kind, no tabs, an unknown viewer and a directory error.
 func TestService_Pinned(t *testing.T) {
 	t.Parallel()

@@ -7,7 +7,7 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockIdentityRepository extends Mock implements IdentityRepository {}
 
-/// W3-17: Pin / Unpin intents, their idempotency keys and the session-long
+/// Pin / Unpin intents, their idempotency keys and the session-long
 /// refusal of `profile_extras`.
 void main() {
   late _MockIdentityRepository repo;

@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests for W4-6: ByHashtag (Q-T) and CreatedAfter (Q-W). The emulator does not enforce composite indexes, so
+// Emulator tests: ByHashtag (Q-T) and CreatedAfter (Q-W). The emulator does not enforce composite indexes, so
 // these prove the query shape; Q-T maps to the existing posts(hashtags CONTAINS, createdAt DESC) composite and Q-W runs
 // on the automatic single-field indexes (createdAt ASC, __name__ ASC), so there is no firestore.indexes.json change.
 

@@ -9,10 +9,10 @@ import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 String listMemberCountLabel(int count) =>
     count == 1 ? '1 member' : '$count members';
 
-/// One List in "Your Lists" (W5-11): the default tile, a bold name with a
+/// One List in "Your Lists": the default tile, a bold name with a
 /// muted "· N members", and a lock icon when private. A custom row (no
 /// `ListTile`); the whole row is the tap target (>= 48dp). [onEdit] adds a
-/// trailing Edit button for the owner. Reused by W5-13 for "a user's lists"
+/// trailing Edit button for the owner. Reused by for "a user's lists"
 /// (without [onEdit]) and, with [checked] and [checkTrailing], for the
 /// checkbox rows of the Add-to-Lists sheet.
 class ListRow extends StatelessWidget {
@@ -32,7 +32,7 @@ class ListRow extends StatelessWidget {
   final VoidCallback? onEdit;
 
   /// A widget after the row instead of the Edit button (the Pin button of
-  /// Manage pinned, W5-14). Ignored when [onEdit] is given.
+  /// Manage pinned). Ignored when [onEdit] is given.
   final Widget? trailing;
 
   /// Non-null makes the row a checkbox (spoken as checked or not) instead of a

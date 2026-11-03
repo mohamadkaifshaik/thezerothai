@@ -21,7 +21,7 @@ import '../../../support/scheduled_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// `/scheduled` (CMP-D6): loading, empty, rows, error, load more,
+/// `/scheduled`: loading, empty, rows, error, load more,
 /// refresh, the cancel confirmation, dismiss and the row removal.
 void main() {
   late _MockPostsRepository repo;

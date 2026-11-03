@@ -36,7 +36,7 @@ type CommunityGate interface {
 	// day): RATE_LIMITED limit=community_posts_per_community_daily when spent. Memory only, 0 reads.
 	AllowPost(ctx context.Context, uid, cid string) error
 
-	// CanReply is the members-only reply rule (ADR-0031 D5, F8; W5-26b), run by Create for a reply whose parent carries a
+	// CanReply is the members-only reply rule (ADR-0031 D5, F8), run by Create for a reply whose parent carries a
 	// conversationCommunityId. It checks the community status from the 60 s cache (SUSPENDED or missing is the one NOT_FOUND, ARCHIVED is
 	// community_archived) and then the caller's member doc from the 60 s cache: not JOINED, and BANNED, is FORBIDDEN reason=not_member.
 	// +2 reads cold, +0 warm; staleness bound 60 s, so a ban or leave on another instance reaches this path within a minute. 0 writes.
@@ -55,7 +55,7 @@ const (
 	gateQuota     = "rejected:quota"
 	gateCap       = "rejected:cap"
 
-	// Reply-gate outcomes (`community_reply_gate`, W5-26b): enums only.
+	// Reply-gate outcomes (`community_reply_gate`): enums only.
 	replyGateAdmitted  = "admitted"
 	replyGateNotMember = "rejected:not_member"
 	replyGateState     = "rejected:state" // missing, suspended or archived community

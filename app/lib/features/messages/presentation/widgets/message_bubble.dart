@@ -35,7 +35,7 @@ bool _isTombstone(pb.Message message) =>
     message.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT ||
     message.state == MessageState.MESSAGE_STATE_REMOVED;
 
-/// One message of a conversation (W7-15), presentational.
+/// One message of a conversation, presentational.
 ///
 /// - The caller's own messages sit at the end on the accent with white text;
 ///   the peer's at the start on the raised surface. Tombstones are italic and
@@ -48,7 +48,7 @@ bool _isTombstone(pb.Message message) =>
 /// - Semantics: one node, "You said ..." or "`name` said ..., `time`"; each
 ///   link is an "Open link" custom action, since the text children are
 ///   excluded.
-/// - [onReport] (W7-18, only on a peer's visible message, only with `reports`
+/// - [onReport] (only on a peer's visible message, only with `reports`
 ///   on) adds "Report message": a long press or a secondary click calls it
 ///   with the press point, and assistive technology gets a "Report message"
 ///   action (called with the bubble's rectangle). Null = no gesture, no action.
@@ -78,7 +78,7 @@ class MessageBubble extends StatelessWidget {
   final void Function(Uri uri) onOpenLink;
   final bool use24Hour;
 
-  /// False in a REQUEST thread for a stranger's message (W7-35, L-9): its links
+  /// False in a REQUEST thread for a stranger's message (L-9): its links
   /// are shown as plain text, with no tap and no "Open link" action, until the
   /// request is accepted. The raw text is never hidden.
   final bool linksEnabled;
@@ -240,7 +240,7 @@ class _ReportIntent extends Intent {
   const _ReportIntent();
 }
 
-/// The ways to ask for the report menu on a peer's bubble (W7-18): a long press
+/// The ways to ask for the report menu on a peer's bubble: a long press
 /// or a secondary click anywhere on it, and from the keyboard Shift+F10, the
 /// context-menu key or Enter while the bubble has focus.
 ///

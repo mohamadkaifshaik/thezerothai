@@ -17,7 +17,7 @@ import 'trends_status_views.dart';
 const kExploreTrendsCollapsedRows = 10;
 const kExploreTrendsMaxRows = 30;
 
-/// The trends part of Explore's Trending tab (W4-17), as a sliver: a "Trending
+/// The trends part of Explore's Trending tab, as a sliver: a "Trending
 /// today" caption (the list is computed once a day), up to 10 [TrendRow]s with
 /// "Show more" to 30, or the loading, empty ("Nothing is trending yet") and
 /// failed states. Mount it only with `trends` on; needs [TrendsCubit] in scope.

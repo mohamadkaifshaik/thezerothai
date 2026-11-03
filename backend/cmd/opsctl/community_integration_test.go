@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// End-to-end emulator test of the W5-29 levers: the real run() flag handling and output over the real communities, posts and (for the
+// End-to-end emulator test of the levers: the real run flag handling and output over the real communities, posts and (for the
 // reports) fake report store. The cost line is the budget assertion.
 func TestCommunity_Integration_CLI(t *testing.T) {
 	client, project := backfillTestClient(t)

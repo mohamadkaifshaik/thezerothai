@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
 /// What the viewer's "bookmarked" state of one post looks like in the
-/// session (ADR-0023 D3, plan W2-6). One entry per post the session knows
-/// about: the ones the user toggled, plus (W2-7) every post of a
+/// session (ADR-0023 D3). One entry per post the session knows
+/// about: the ones the user toggled, plus every post of a
 /// ListBookmarks page.
 ///
 /// Precedence of [resolve], the single rule every caller uses:

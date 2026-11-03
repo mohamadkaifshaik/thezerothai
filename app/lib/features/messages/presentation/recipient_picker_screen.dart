@@ -39,7 +39,7 @@ const kRecipientHandleRowKey = ValueKey('recipient-handle-row');
 /// Shown when nobody the caller follows matches what is typed.
 const kRecipientNoMatchText = 'No one you follow matches';
 
-/// The page of `/messages/new` (W7-17): a modal on the root navigator. Full
+/// The page of `/messages/new`: a modal on the root navigator. Full
 /// screen below 600 dp; a centred card at most 600 dp wide from 600 dp.
 class RecipientPickerPage extends Page<void> {
   const RecipientPickerPage({super.key, this.source});
@@ -101,7 +101,7 @@ class RecipientPickerDialog extends StatelessWidget {
   }
 }
 
-/// The new-message picker (W7-17, ADR-0027 D5): a "To:" field over a list of
+/// The new-message picker (ADR-0027 D5): a "To:" field over a list of
 /// people.
 ///
 /// - Empty field: the people the caller follows (`ListFollowing` through the

@@ -1,4 +1,4 @@
-// analyze_bookmarks.js: ListBookmarks reads per page from the API's JSON request log (W2-15; scenario
+// analyze_bookmarks.js: ListBookmarks reads per page from the API's JSON request log (scenario
 // engagement_bookmarks_list.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_bookmarks.js api.log

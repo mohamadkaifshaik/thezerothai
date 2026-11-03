@@ -10,7 +10,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/media_fixtures.dart';
 import '../../../../support/profile_edit_fixtures.dart';
 
-/// What the server can answer to the extras (W3-6) and what Edit profile does
+/// What the server can answer to the extras and what Edit profile does
 /// with each answer.
 void main() {
   setUpAll(registerMediaFallbacks);

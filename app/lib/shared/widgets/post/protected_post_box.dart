@@ -9,7 +9,7 @@ import '../primitives/app_avatar.dart';
 /// Whether [view] is a REPOST whose original the server withheld because its
 /// author protects their posts (`EMBED_VIEWER_STATE_PROTECTED`). Other viewers
 /// never get such a row (ADR-0025 D4); the caller gets their own on their own
-/// profile so they can undo it (note W3-36 L-2). Nothing opens from it: the
+/// profile so they can undo it (note L-2). Nothing opens from it: the
 /// original answers NOT_FOUND. A gone original (`embedded.unavailable`)
 /// is not this case: `PostCard` answers it with the unavailable box first.
 bool isProtectedRepost(pb.PostView view) {
@@ -23,7 +23,7 @@ bool isProtectedRepost(pb.PostView view) {
 }
 
 /// Whether [view] is the caller's own protected REPOST and Undo repost can be
-/// offered on it (W3-41b): [isProtectedRepost], the reposter is
+/// offered on it: [isProtectedRepost], the reposter is
 /// [viewerUserId], the server says the caller reposted the original, and the
 /// `engagement` flag is on for the caller ([engagementEnabled], like the repost
 /// button). Never gated on `private_accounts`: an undo works whatever that
@@ -48,7 +48,7 @@ bool canUndoProtectedRepost(
 /// opening the post would answer NOT_FOUND for a stranger.
 ///
 /// The caller's own rows of a protected author they can no longer see (their
-/// REPOST, Like and Bookmark, W3-41b) add ONE action under the box:
+/// REPOST, Like and Bookmark) add ONE action under the box:
 /// [actionLabel] with [onAction] ("Undo repost", "Unlike", "Remove bookmark").
 /// The button is a sibling of the box's labelled node, so a screen reader
 /// reads the box first and then the button. It is an outlined 48dp-high

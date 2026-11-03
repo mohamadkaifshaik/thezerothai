@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 /// composer and Edit profile (as `InputDecoration.counter`).
 ///
 /// With [limit] set the visible text is the used count against it, "7 / 25"
-/// (the poll builder's choices, W6-12); the spoken label is unchanged.
+/// (the poll builder's choices); the spoken label is unchanged.
 class CharacterCounter extends StatelessWidget {
   const CharacterCounter({super.key, required this.remaining, this.limit});
 

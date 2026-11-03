@@ -2,9 +2,9 @@
 
 package messaging
 
-// W7-20 (ADR-0027 W7-5 "concurrent first messages", D13): sends racing on one conversation from several Cloud Run
+// ADR-0027 "concurrent first messages", D13: sends racing on one conversation from several Cloud Run
 // instances (one service per goroutine, one shared Firestore). The invariants are the ones a client relies on: one message
-// per idempotency key, the request cap never exceeded, and no lost unread increment. The 50 sends/s load shape is W7-23.
+// per idempotency key, the request cap never exceeded, and no lost unread increment. The 50 sends/s load shape comes later.
 
 import (
 	"context"
@@ -87,7 +87,7 @@ func TestSend_ConcurrentSameKeyIsOneMessage(t *testing.T) {
 					t.Errorf("racer %d: %v", i, err)
 				}
 			}
-			// W7-38: every racer can be busy (a slow emulator runs into txTimeout) and a busy racer may have committed. The
+			// Every racer can be busy (a slow emulator runs into txTimeout) and a busy racer may have committed. The
 			// client's answer is a same-key retry: it must succeed, as a replay of a committed message or as the first write.
 			if ok == 0 {
 				resp, _, err := e.send(alice, reqs[0])
@@ -118,7 +118,7 @@ func TestSend_ConcurrentSameKeyIsOneMessage(t *testing.T) {
 // 3 are stored, every refusal is LIMIT_REACHED request_unanswered (or a busy), requestCount equals what was stored, the
 // recipient's unread count equals it, and no request pushed.
 //
-// W7-38: a busy racer is NOT guaranteed to have written nothing. A transaction that ran into txTimeout (5 s, a slow CI
+// A busy racer is NOT guaranteed to have written nothing. A transaction that ran into txTimeout (5 s, a slow CI
 // emulator) answers UNAVAILABLE busy from the client's side while its commit may already have applied (in production too:
 // DEADLINE_EXCEEDED does not say the commit failed). So the true invariant is: stored == requestCount == unread <= 3, where
 // "stored" is the racers that answered ok plus the busy racers whose message is stored; and the client's answer to busy, a
@@ -190,7 +190,7 @@ func TestSend_ConcurrentRequestCapHolds(t *testing.T) {
 
 // Eight instances send into one accepted conversation at once: every send that succeeds is stored and counted, with no lost
 // Increment on the recipient's unread count and one push per stored message. (Contention beyond this, 50 sends a second
-// into one conversation, is the W7-23 load shape.)
+// into one conversation, is the load shape.)
 func TestSend_ConcurrentSendsLoseNoUnreadIncrement(t *testing.T) {
 	e := newIT(t, func(e *itEnv) { e.mutual(alice, bob) })
 	const racers = 8
@@ -210,7 +210,7 @@ func TestSend_ConcurrentSendsLoseNoUnreadIncrement(t *testing.T) {
 		}
 	}
 	t.Logf("%d of %d concurrent sends succeeded first time", ok, racers)
-	// W7-38: a busy racer may have committed. The client retries with the same key, so every busy racer is retried: a
+	// A busy racer may have committed. The client retries with the same key, so every busy racer is retried: a
 	// committed message replays, an uncommitted one is written now. Afterwards all sends exist exactly once.
 	for i, err := range errs {
 		if outcome(err) != "busy" {
@@ -233,7 +233,7 @@ func TestSend_ConcurrentSendsLoseNoUnreadIncrement(t *testing.T) {
 	}
 }
 
-// W7-38, the root cause made deterministic: the send transaction COMMITS and the caller then gets a deadline error (the
+// The root cause made deterministic: the send transaction COMMITS and the caller then gets a deadline error (the
 // 5 s txTimeout, or the request deadline, expiring while the Commit RPC is in flight; Firestore keeps the commit). The
 // service answers UNAVAILABLE busy, so "busy" cannot promise "nothing was written". What it does promise is that the
 // same-key retry is safe: it replays the stored message (ok, same id), writes nothing, pushes nothing and charges neither

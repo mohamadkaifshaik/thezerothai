@@ -6,7 +6,7 @@ import '../storage/app_database.dart';
 const kFeatureCrashReporting = 'crash_reporting';
 const kFeatureAnalytics = 'analytics';
 
-/// What the person chose on this device, per account and per kind. TEL-7
+/// What the person chose on this device, per account and per kind.
 /// implements it (`TelemetryConsentStore` over `AppSettingEntries`). The
 /// controller only reads it, and re-reads when [changes] fires.
 abstract interface class TelemetryConsentSource {
@@ -18,7 +18,7 @@ abstract interface class TelemetryConsentSource {
   Stream<void> get changes;
 }
 
-/// No consent for anyone. TEL-4's stand-in until TEL-7, so nothing collects.
+/// No consent for anyone. The stand-in until it ships, so nothing collects.
 class NoTelemetryConsent implements TelemetryConsentSource {
   const NoTelemetryConsent();
 
@@ -63,7 +63,7 @@ abstract interface class TelemetryFlagMemory {
   Future<TelemetryFlags?> read(String uid);
   Future<void> write(String uid, TelemetryFlags flags);
 
-  /// Account deletion (TEL-8): the uid must not outlive the account.
+  /// Account deletion: the uid must not outlive the account.
   Future<void> forget(String uid);
 }
 
@@ -112,7 +112,7 @@ class DatabaseTelemetryFlagMemory implements TelemetryFlagMemory {
   Future<void> forget(String uid) => _database.deleteSetting(key(uid));
 }
 
-/// The uid that last signed in on this device (F11 / TEL-8), so the controller
+/// The uid that last signed in on this device (F11 /), so the controller
 /// can tell "a different account" from "the same account again" across
 /// launches. Device-level, one value.
 abstract interface class TelemetryLastUidStore {

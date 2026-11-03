@@ -623,7 +623,7 @@ func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
 	}
 }
 
-// TestIntegration_FollowRequestTypesBudgetsAndErasure (W3-31, ADR-0025 D10): a request and an accept cost about 2
+// TestIntegration_FollowRequestTypesBudgetsAndErasure (ADR-0025 D10): a request and an accept cost about 2
 // reads per recipient and 1 write, a re-request is write-free, a suppressed protected-actor row costs 0 writes, and
 // the actorIds query of the ADR-0017 D10 eraser finds the request row when the requester is deleted.
 func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
@@ -682,7 +682,7 @@ func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	}
 }
 
-// TestIntegration_MessagePushIsPushOnlyAndBudgeted (W7-10, ADR-0027 D9): a message event writes nothing (no row, no
+// TestIntegration_MessagePushIsPushOnlyAndBudgeted (ADR-0027 D9): a message event writes nothing (no row, no
 // badge move), keeps the fan-out's two fresh profile reads, reads the devices, and sends one push per device whose
 // data holds the type and the conversation id only. The own limiter bucket throttles the 21st push inside the hour.
 func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {

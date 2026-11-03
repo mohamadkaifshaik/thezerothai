@@ -44,7 +44,7 @@ class PushOptInState {
   }
 }
 
-/// The "Turn on notifications" card's memory (W2-12): one instance for the
+/// The "Turn on notifications" card's memory: one instance for the
 /// app, so Home and Notifications agree (one dismissal, one denial).
 ///
 /// - [load] is called with the signed-in uid (null on sign-out); the record is

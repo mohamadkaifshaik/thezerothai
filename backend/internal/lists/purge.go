@@ -1,4 +1,4 @@
-// purge.go is the right-to-delete and right-to-access path of lists/{listId} (ADR-0030 D8, ticket W5-5). Deleting users/{uid}
+// purge.go is the right-to-delete and right-to-access path of lists/{listId} (ADR-0030 D8). Deleting users/{uid}
 // does not delete a list, so the `lists` account-deletion step (Eraser, registered BeforeIdentity after `messaging`) removes
 // the user's own lists and then removes the uid from every other list that names it, and the `lists` export section writes
 // the user's own lists. Neither is flag-gated: documents outlive the flag.
@@ -206,7 +206,7 @@ func (r *FirestoreRepo) ExportPage(ctx context.Context, uid, after string, limit
 // Exporter writes the `lists` export section.
 type Exporter struct {
 	src ExportSource
-	// member, handles and social are set by WithMembership (W5-46); a nil member writes no lists_member_of part.
+	// member, handles and social are set by WithMembership; a nil member writes no lists_member_of part.
 	member  MemberOfSource
 	handles HandleSource
 	social  SocialSource

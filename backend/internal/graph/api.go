@@ -121,7 +121,7 @@ type Service interface {
 	// ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
 	ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) ([]ListItem, error)
 	// FollowRequestsGate is the ADR-0025 D12 gate shared by ListFollowRequests and RespondToFollowRequest (both
-	// built by W3-28a): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
+	// built): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
 	FollowRequestsGate(ctx context.Context, callerUID string) error
 	// ListFollowRequests is ADR-0025 D7: the caller's incoming follow requests, newest first (gate first, then the page).
 	ListFollowRequests(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
@@ -140,7 +140,7 @@ type Reader interface {
 // TxReader lets another module read graph/{uid} INSIDE its own transaction, uncached, so a concurrent write of that
 // document (a Block, Mute, Follow or Unfollow of the owner, or anyone's Block of the owner, which writes blockedBy)
 // conflicts with the transaction instead of being missed. It is the read-side companion of Reader for the one path
-// that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way (ADR-0027 note W7-33, A8).
+// that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way (ADR-0027 note, A8).
 // *FirestoreRepo implements it.
 type TxReader interface {
 	// SnapshotInTx reads graph/{uid} through tx: 1 read (charged to ctx's budget.Counter), never the 60 s cache (it
@@ -155,10 +155,10 @@ type TxReader interface {
 type FollowEvents interface {
 	Followed(ctx context.Context, followerUID, followeeUID string, at time.Time)
 	// FollowRequested is called after the commit that created a follow request to a protected account (ADR-0025 D10).
-	// A replay of the request never calls it. Followed is not called for a request. Declared in W3-25b, called from W3-27.
+	// A replay of the request never calls it. Followed is not called for a request..
 	FollowRequested(ctx context.Context, requesterUID, targetUID string, at time.Time)
 	// FollowRequestAccepted is called after the commit that accepted a request (RespondToFollowRequest or the
-	// privacy_public job; ADR-0025 D10). Followed is not called for it. Declared in W3-25b, called from W3-28a.
+	// privacy_public job; ADR-0025 D10). Followed is not called for it..
 	FollowRequestAccepted(ctx context.Context, targetUID, requesterUID string, at time.Time)
 }
 

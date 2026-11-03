@@ -16,7 +16,7 @@ import '../../../support/recording_usage_analytics.dart';
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-/// TEL-6: `follow` is reported once the server confirmed it, with the source.
+/// `follow` is reported once the server confirmed it, with the source.
 void main() {
   late _MockGraphRepository repo;
   late RecordingUsageAnalytics analytics;

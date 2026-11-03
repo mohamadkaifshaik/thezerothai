@@ -1,4 +1,4 @@
-// analyze_messaging.js: W7 reads, writes, deletes and server time per call from the API's JSON request log (W7-23; scenario
+// analyze_messaging.js: W7 reads, writes, deletes and server time per call from the API's JSON request log (scenario
 // messaging.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_messaging.js api.log k6.out [--from-line N]

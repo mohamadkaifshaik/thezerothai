@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-20: GraphService.GetProfileRelationship, "Follows you" (ADR-0024 D7), over the real Build chain on the emulators.
+// GraphService.GetProfileRelationship, "Follows you" (ADR-0024 D7), over the real Build chain on the emulators.
 // The graph package has the module-level matrix (TestW311_*); this file proves the same rules through the production
 // chain (interceptors, flag gate, rate-limit config, error mapping, request log): the full relationship matrix with real
 // Follow / Block / Mute calls, the budget in the order a profile header uses it (GetProfile, then the relationship call),

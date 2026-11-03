@@ -2,7 +2,7 @@
 
 package apiserver
 
-// W3-39 (W3-36 M-2) over the real Build chain: images whose documents carry a nameSuffix flow through CreatePost,
+// (M-2) over the real Build chain: images whose documents carry a nameSuffix flow through CreatePost,
 // UpdateProfile (replace), the profile_media_retired job, DeletePost and the post_delete job exactly like old
 // documents, with the same Firestore reads and writes (+0). The same flow runs once with old-shape documents and once
 // with suffixed ones, and the per-request costs are compared, so a regression in either shape fails the budget.
@@ -29,7 +29,7 @@ import (
 )
 
 // seedMediaShaped writes a READY media document like FinalizeUpload leaves it: with a nameSuffix and the suffixed
-// public paths, or (suffixed false) the pre-W3-39 shape.
+// public paths, or (suffixed false) the earlier shape.
 func (e *lifecycleEnv) seedMediaShaped(t *testing.T, uid string, purpose media.Purpose, suffixed bool) (id, suffix string) {
 	t.Helper()
 	id = fmt.Sprintf("%019d", 4_000_000_000_000_000_000+mrand.Int63n(1_000_000_000))

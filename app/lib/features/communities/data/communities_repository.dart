@@ -54,7 +54,7 @@ class ModerationLogPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The only caller of `CommunityService` (ADR-0031, plan W5-30).
+/// The only caller of `CommunityService` (ADR-0031).
 ///
 /// - **Flag.** Every RPC needs `communities` in `GetMe.enabled_features`
 ///   ([ServiceFeatureGate]): with it off no request is sent and a
@@ -75,7 +75,7 @@ class ModerationLogPage {
 ///   Nothing is retried here.
 /// - **Roles** are the server's (`Community.viewer_role`,
 ///   `CommunityMember.role`, see `CommunityRole`); this class derives none.
-/// - **Session cache (W5-34).** The caller's communities are kept in memory
+/// - **Session cache.** The caller's communities are kept in memory
 ///   for the session: every successful [listMyCommunities] fills it, a Join,
 ///   Leave or create keeps it current, and [myCommunities] reads it, so the
 ///   composer's audience picker costs 0 calls once the Communities screen (or

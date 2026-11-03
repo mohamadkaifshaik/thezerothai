@@ -1,4 +1,4 @@
-// service_likes_list.go is the business logic of ListLikedPosts (ADR-0024 D6, ticket W3-10). The source is the caller's
+// service_likes_list.go is the business logic of ListLikedPosts (ADR-0024 D6). The source is the caller's
 // own userLikes.recent (the last MaxRecentLikes liked post ids, newest last), read through the instance cache; a page is
 // a slice of it from the newest end, the live posts it names in ONE cache-first GetMany, the ADR-0010 D6 Home-column
 // drop rules (list_common.go, shared with ListBookmarks) and the viewer state of what is left. Nothing is pruned: the

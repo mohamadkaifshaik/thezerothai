@@ -156,7 +156,7 @@ func moderationUpdates(next Moderation, now time.Time) []firestore.Update {
 // Each update carries the LastUpdateTime of the snapshot it was decided from, so a post that changed between the
 // read and the commit (a concurrent takedown, an author delete) fails the batch instead of being overwritten; the
 // caller re-runs the page. opsctl's driveLoop retries a failed call up to maxConsecutiveErrors (5) times without
-// backoff, which is enough at Stage 0; once P5 likes put a counter increment on every popular post, a hot post can
+// backoff, which is enough at Stage 0; once likes put a counter increment on every popular post, a hot post can
 // fail a whole page repeatedly and the loop will need jittered backoff (ADR-0016 notes).
 func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	q := r.authorQuery(uid)

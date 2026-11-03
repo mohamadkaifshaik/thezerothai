@@ -69,7 +69,7 @@ func counted() (context.Context, *budget.Counter) { return budget.WithCounter(co
 // TestIntegration_CreateUploadAndFinalizeBudgets asserts the documented worst cases (CreateUpload proto comment):
 // CreateUpload reads 2 (idempotency, quotas) and writes 2 + n; a replay reads 1 and writes 0; FinalizeUpload reads
 // n + 1 (the media docs and, cold, the Vision counter) and writes 2n + 1 (one screening claim and one resolve per image,
-// plus the Vision counter; W3-22 M-3 added the claim, it was n + 1 before).
+// plus the Vision counter; M-3 added the claim, it was n + 1 before).
 func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	full, thumb := jpegBytes("F1"), jpegBytes("T1")
@@ -534,7 +534,7 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 	}
 }
 
-// TestIntegration_ConcurrentBannerFinalizeScreensOnce is W3-22 M-3 (c) against the real repo: 10 concurrent
+// TestIntegration_ConcurrentBannerFinalizeScreensOnce is M-3 (c) against the real repo: 10 concurrent
 // finalizes of one BANNER, spread over three instances (separate services, single-flight groups and Vision caches)
 // that all hold the same PENDING snapshot before any of them claims it, spend exactly the banner's 2 Vision units
 // and produce one READY document. The losers' answers are READY (they loaded after the winner finished, or share its
@@ -650,7 +650,7 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	}
 }
 
-// docNames returns the public object names the stored document owns (suffixed since W3-39), as a finalize publishes them.
+// docNames returns the public object names the stored document owns (suffixed since then), as a finalize publishes them.
 func docNames(t *testing.T, repo Repo, id, ext string) (full, thumb string) {
 	t.Helper()
 	docs, err := repo.GetMany(context.Background(), []string{id})

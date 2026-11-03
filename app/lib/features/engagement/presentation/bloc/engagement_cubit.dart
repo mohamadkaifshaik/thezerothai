@@ -41,7 +41,7 @@ class _Target {
 
 /// The session-wide engagement overlay (likes and reposts): optimistic
 /// update with rollback, one idempotency key per user intent, and per-post
-/// serialisation (ADR-0018 "Rule 4", plan T7).
+/// serialisation (ADR-0018 "Rule 4").
 ///
 /// - Keyed by *target id*: the original for a REPOST row, else the post.
 ///   Every card of the same target (Home, profile, detail, thread) reads the

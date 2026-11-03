@@ -24,8 +24,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// W6-18: the gaps of the GIF backend tests that W6-9 and W6-10 left (ADR-0029 F11, D11, D12). Fixtures and fakes are the
-// W6-9/W6-10 ones (encodeTestGIF, rawGIF, redIsExplicit, gateObjects, the env).
+// The gaps of the GIF backend tests that left (ADR-0029 F11, D11, D12). Fixtures and fakes are the
+// ones (encodeTestGIF, rawGIF, redIsExplicit, gateObjects, the env).
 
 // timedGIF is a 32 x 32 GIF with one full-screen frame per index and its own delay in centiseconds.
 func timedGIF(idxs []uint8, delays []int) []byte {
@@ -54,7 +54,7 @@ func repeatInt(n, v int) []int {
 
 // TestW618_ExplicitFrameVerdictMatrix: a harmless first frame never hides an explicit frame that the sampler visits, and
 // the accepted F11 residual (a frame strictly between two samples) is pinned as READY. Eight equal delays sample frames
-// 0, 2, 5 and 7 (t = 0, T/3, 2T/3 and the always-sampled last frame, W6-28); a GIF of up to four frames samples every frame.
+// 0, 2, 5 and 7 (t = 0, T/3, 2T/3 and the always-sampled last frame); a GIF of up to four frames samples every frame.
 func TestW618_ExplicitFrameVerdictMatrix(t *testing.T) {
 	eight := func(explicitAt int) []uint8 {
 		s := repeatIdx(8, pxGreen)
@@ -104,7 +104,7 @@ func TestW618_ExplicitFrameVerdictMatrix(t *testing.T) {
 	}
 }
 
-// TestW618_BrowserDelayClampIsModelled closes W6-18 D-1 (see the test report). Browsers (and the Flutter image codec) play
+// TestW618_BrowserDelayClampIsModelled closes D-1 (see the test report). Browsers (and the Flutter image codec) play
 // a delay of 0 or 1 cs as 10 cs, so sampleIndices does too. A GIF whose explicit frames use delay 1 is long on screen:
 // here the explicit tail is 170 of the 233 cs a browser plays (73 % of the display time). Before the fix the sampler saw
 // it as 17 of 80 cs, after the 3T/4 sample, and published the GIF unscreened; now the samples reach it and it is REJECTED.
@@ -300,7 +300,7 @@ func TestW618_VisionCapBoundary(t *testing.T) {
 }
 
 // TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable: Vision failing on the sheet is a retryable UNAVAILABLE with
-// the claim released, not a rejection. Since W6-27 the thumbnail call that did answer is counted (1 unit); the sheet unit
+// the claim released, not a rejection. Since the thumbnail call that did answer is counted (1 unit); the sheet unit
 // that never got an answer is released.
 func TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable(t *testing.T) {
 	e := newEnv(t, envOpts{})
@@ -417,8 +417,8 @@ func (s *readCountObjects) UploadHead(ctx context.Context, object string, n, gen
 	return s.fakeObjects.UploadHead(ctx, object, n, generation)
 }
 
-// TestW618_PublishSwapAfterScreeningIsRefused was TestW618_KnownResidual_PublishSwapAfterScreening (the W6-20 H-1 residual,
-// closed by W6-25): a client that overwrites the private object after the sheet was sampled and before Publish copies it must
+// TestW618_PublishSwapAfterScreeningIsRefused was TestW618_KnownResidual_PublishSwapAfterScreening (the H-1 residual,
+// closed later): a client that overwrites the private object after the sheet was sampled and before Publish copies it must
 // not get the swapped bytes published. The signed PUT is create-only and Publish copies only the generation verify read, so
 // the copy is refused and the image is REJECTED (the Vision units were spent: the screening ran). The same pin covers the
 // thumbnail, which Vision reads by URI (create_only_w625_test.go).
@@ -545,7 +545,7 @@ func TestW618_FinalizeIgnoresTheGifFlag(t *testing.T) {
 }
 
 // TestW618_ExportCoversAGIF: the account export lists a published GIF with its content type, its .gif URL and the
-// thumbnail's own URL, and never an internal path or hash (W6-9: "the purge and export of media cover the gif extension").
+// thumbnail's own URL, and never an internal path or hash ("the purge and export of media cover the gif extension").
 func TestW618_ExportCoversAGIF(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.createGIF(t, uidA, "a", ContentTypeWebP)

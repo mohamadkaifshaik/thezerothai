@@ -1,15 +1,15 @@
-// private_accounts_w3b: W3 Part B emulator smoke (W3-37;
-// ADR-0025 "Cost impact"). One file, one timeline of five scenarios, all against ONE local API process (one "instance").
+// private_accounts_w3b: W3 Part B emulator smoke
+// (ADR-0025 "Cost impact"). One file, one timeline of five scenarios, all against ONE local API process (one "instance").
 //
-//   setup()          Mints OWNER (P), OWNER2 (P2), N requesters, M strangers. P posts one public post, then protects the account
-//                    (UpdateProfile is_private=true: 4 cold reads / 3 writes). P2 protects too (the 60-request page-50 owner).
+//   setup Mints OWNER (P), OWNER2, N requesters, M strangers. P posts one public post, then protects the account
+//                    (UpdateProfile is_private=true: 4 cold reads / 3 writes). protects too (the 60-request page-50 owner).
 //   follow_burst     t=0. N shared iterations on VUS virtual users: requester i follows P (a REQUEST, not an edge: 3 writes). This is
 //                    the "viral protected account" shape: every Follow reads and transacts on P's users doc at the same moment, so the
 //                    `txn_attempts` of the API log is the contention signal (graph_txn_contention WARN above 3). The last P2_N requesters
-//                    follow P2 instead.
+//                    follow instead.
 //   owner_flow       starts OWNER_START s later (default 100, after the burst has drained and every cache is older than CACHE_TTL
 //                    60 s): P: GetMe (pending_follow_request_count, the one count()), ListFollowRequests page 20 cold, the same
-//                    page again (warm), page 2 and page 3 by token; P2: ListFollowRequests page 50 cold, again warm. Planning: 42 / 21 and
+//                    page again (warm), page 2 and page 3 by token;: ListFollowRequests page 50 cold, again warm. Planning: 42 / 21 and
 //                    102 / 51; GetMe +1 read per 1,000 matches, cached 30 s.
 //   respond_burst    starts RESPOND_START s (default 125): RESPOND_N shared iterations on 10 VUs; requester i is accepted (2 of 3) or
 //                    declined (1 of 3); every 25th is replayed with the same idempotency key (0 writes). Planning 3 cold / 2 warm
@@ -41,7 +41,7 @@ const POSTS = 'dzeroth.posts.v1.PostService';
 const TIMELINE = 'dzeroth.timeline.v1.TimelineService';
 
 const N = parseInt(__ENV.REQUESTERS || '560', 10); // requesters in total
-const P2_N = parseInt(__ENV.P2_REQUESTERS || '60', 10); // the last P2_N follow P2 (page 50 needs 50)
+const P2_N = parseInt(__ENV.P2_REQUESTERS || '60', 10); // the last P2_N follow (page 50 needs 50)
 const STRANGERS = parseInt(__ENV.STRANGERS || '20', 10);
 const VUS = parseInt(__ENV.VUS || '40', 10);
 const OWNER_START = parseInt(__ENV.OWNER_START || '100', 10);

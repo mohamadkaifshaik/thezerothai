@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// W6-6 (ADR-0029 D3): the userLikes read also returns pollVotes, the cached state keeps them across the like and bookmark
+// ADR-0029 D3: the userLikes read also returns pollVotes, the cached state keeps them across the like and bookmark
 // updates (copy on write), and the ViewerSet resolves a REPOST row to the original's choice.
 func TestViewer_PollVotesFromTheSameRead(t *testing.T) {
 	e := newEnv(t)

@@ -110,7 +110,7 @@ class AppWidget extends StatefulWidget {
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
 
-  /// The 48 h "Who to follow" list (W3-19, ADR-0024 Amendment 2) behind the
+  /// The 48 h "Who to follow" list (ADR-0024 Amendment 2) behind the
   /// Home card and the desktop right column.
   final SuggestionsRepository suggestionsRepository;
   final AccountRepository accountRepository;
@@ -121,64 +121,64 @@ class AppWidget extends StatefulWidget {
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
 
-  /// Direct messages (ADR-0027): the inbox (W7-14) and the screens after it.
+  /// Direct messages (ADR-0027): the inbox and the screens after it.
   final MessagingRepository messagingRepository;
   final ModerationRepository moderationRepository;
 
-  /// Likes, reposts and quotes (P5, `FEATURE_ENGAGEMENT`).
+  /// Likes, reposts and quotes (`FEATURE_ENGAGEMENT`).
   final EngagementRepository engagementRepository;
 
-  /// Bookmarks (W2-6, `FEATURE_BOOKMARKS`): the session overlay and
+  /// Bookmarks (`FEATURE_BOOKMARKS`): the session overlay and
   /// Add / RemoveBookmark.
   final BookmarksRepository bookmarksRepository;
 
-  /// Search (W4-13, `FEATURE_SEARCH`); null in tests that do not search.
+  /// Search (`FEATURE_SEARCH`); null in tests that do not search.
   final SearchRepository? searchRepository;
 
-  /// Poll votes (W6-13, ADR-0029): `VotePoll` behind the `engagement` flag;
+  /// Poll votes (ADR-0029): `VotePoll` behind the `engagement` flag;
   /// null in tests that do not vote (cards then show polls read-only).
   final PollRepository? pollRepository;
 
-  /// The Likes tab of History (W3-18, `FEATURE_LIKES_LIST`): `ListLikedPosts`
+  /// The Likes tab of History (`FEATURE_LIKES_LIST`): `ListLikedPosts`
   /// in session memory; sign-out forgets it.
   final LikesRepository likesRepository;
 
-  /// Lists (ADR-0030, W5-10): the only `ListService` caller and the pinned
+  /// Lists (ADR-0030): the only `ListService` caller and the pinned
   /// Home tabs (`GetMe.home_tabs`, `SetHomeTabs`). Null in tests that do not
-  /// need them; screens arrive with W5-11 to W5-14.
+  /// need them; screens arrive later.
   final ListsRepository? listsRepository;
   final HomeTabsRepository? homeTabsRepository;
 
-  /// Communities (ADR-0031, W5-30): the only `CommunityService` caller. Null in
-  /// tests that do not need it; screens arrive with W5-31 onwards.
+  /// Communities (ADR-0031): the only `CommunityService` caller. Null in
+  /// tests that do not need it; screens arrive later onwards.
   final CommunitiesRepository? communitiesRepository;
 
-  /// Push registration and tap handling (P6); built in bootstrap so the
+  /// Push registration and tap handling; built in bootstrap so the
   /// sign-out hook can unregister the device before the token is dropped.
   final PushCubit pushCubit;
 
-  /// The telemetry consent answers (TEL-7); null hides the card and the rows.
+  /// The telemetry consent answers; null hides the card and the rows.
   final TelemetryConsentStore? telemetryConsent;
 
-  /// The unread badge, seeded from `GetMe` (P6).
+  /// The unread badge, seeded from `GetMe`.
   final UnreadBadgeCubit unreadBadgeCubit;
 
   /// Drives the full-screen "service paused" state (ADR-0022); bootstrap
   /// shares it with the API client. Null (tests) means never paused.
   final ServicePausedCubit? servicePausedCubit;
 
-  /// The share origin and native share sheet for the post Share action (W2-8),
+  /// The share origin and native share sheet for the post Share action,
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
   final ShareLinks? shareLinks;
 
-  /// Reports usage events and screen views (TEL-6); drops everything while
+  /// Reports usage events and screen views; drops everything while
   /// collection is off. Defaults to none (tests).
   final UsageReporter usage;
 
-  /// Forgets this device's telemetry for a deleted account (TEL-8).
+  /// Forgets this device's telemetry for a deleted account.
   final TelemetryDeviceForget telemetryForget;
 
-  /// P4 media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
+  /// media (`FEATURE_MEDIA`): CreateUpload / PUT / FinalizeUpload.
   final MediaRepository mediaRepository;
 
   /// Photo picker and on-device resize/compress; injectable for tests.
@@ -186,7 +186,7 @@ class AppWidget extends StatefulWidget {
   final ImagePickerService? imagePicker;
   final ImageProcessor imageProcessor;
 
-  /// Where the composer's GIF comes from (W6-16); defaults to the device
+  /// Where the composer's GIF comes from; defaults to the device
   /// gallery. [gifPreparer] checks it and makes its still thumbnail.
   final GifSource? gifSource;
   final GifPreparer gifPreparer;
@@ -196,14 +196,14 @@ class AppWidget extends StatefulWidget {
 }
 
 class _AppWidgetState extends State<AppWidget> {
-  // Optimistic posts live for the session only (T16); sign-out drops them.
+  // Optimistic posts live for the session only; sign-out drops them.
   final PendingPostsCubit _pendingPosts = PendingPostsCubit();
-  // The session's like/repost overlay (P5); sign-out forgets it.
+  // The session's like/repost overlay; sign-out forgets it.
   late final EngagementCubit _engagement = EngagementCubit(
     repository: widget.engagementRepository,
     onUnexpectedError: reportUnexpectedError,
   );
-  // The session's poll overlay (W6-13): optimistic vote, fresh counts; sign-out
+  // The session's poll overlay: optimistic vote, fresh counts; sign-out
   // forgets it. Null without a repository (tests).
   late final PollCubit? _polls = widget.pollRepository == null
       ? null
@@ -211,33 +211,33 @@ class _AppWidgetState extends State<AppWidget> {
           repository: widget.pollRepository!,
           onUnexpectedError: reportUnexpectedError,
         );
-  // The session's bookmark overlay (W2-6); sign-out forgets it. The toast's
-  // "View" opens the Bookmarks screen (W2-7).
+  // The session's bookmark overlay; sign-out forgets it. The toast's
+  // "View" opens the Bookmarks screen.
   late final BookmarksCubit _bookmarks = BookmarksCubit(
     repository: widget.bookmarksRepository,
     viewRoute: AppRouter.bookmarksPath,
   );
-  // The session's "Who to follow" rows (W3-19): one list for the Home card and
+  // The session's "Who to follow" rows: one list for the Home card and
   // the desktop right column; sign-out forgets it.
   late final SuggestionsCubit _suggestions = SuggestionsCubit(
     repository: widget.suggestionsRepository,
   );
-  // The session's trends list (W4-17/18, ADR-0028): one app-level cubit, one
+  // The session's trends list (ADR-0028): one app-level cubit, one
   // GetTrends per 5 minutes for Explore and the side column; null without a
   // search repository (tests). Sign-out forgets it.
   late final TrendsCubit? _trends = widget.searchRepository == null
       ? null
       : TrendsCubit(repository: widget.searchRepository!);
-  // The "Turn on notifications" card's memory (W2-12): one "Not now" per
+  // The "Turn on notifications" card's memory: one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
-  // Unsent posts on this device (W6-14); Delete account wipes the deleted uid's.
+  // Unsent posts on this device; Delete account wipes the deleted uid's.
   late final DraftsRepository _drafts = DraftsRepository(widget.database);
-  // deleted uid's record there (W2-14 L-6).
+  // deleted uid's record there (L-6).
   late final PushOptInStore _pushOptInStore = DatabasePushOptInStore(
     widget.database,
   );
-  // The consent card and Settings switches (TEL-7); null in tests that do not
+  // The consent card and Settings switches; null in tests that do not
   // exercise telemetry (then no card and no rows).
   late final TelemetryConsentCubit? _telemetryConsentCubit =
       widget.telemetryConsent == null
@@ -247,7 +247,7 @@ class _AppWidgetState extends State<AppWidget> {
     store: _pushOptInStore,
     push: widget.pushCubit,
   );
-  // The Messages badge (W7-19): conversations with unread messages, seeded
+  // The Messages badge: conversations with unread messages, seeded
   // from `GetMe`; its own cubit, a message push never moves the notifications
   // badge. Sign-out resets it.
   final MessagesBadgeCubit _messagesBadge = MessagesBadgeCubit();
@@ -255,8 +255,8 @@ class _AppWidgetState extends State<AppWidget> {
       widget.servicePausedCubit ?? ServicePausedCubit();
   late final StreamSubscription<AuthState> _authSub;
   // The one messenger of the app: sign-out clears its snackbars, so an Undo or
-  // Retry of the previous account never lives into the next session (W2-14
-  // L-5).
+  // Retry of the previous account never lives into the next session
+  // (L-5).
   final GlobalKey<ScaffoldMessengerState> _messengerKey =
       GlobalKey<ScaffoldMessengerState>();
   // The appearance choice (System / Light / Dark), saved on the device.
@@ -266,14 +266,14 @@ class _AppWidgetState extends State<AppWidget> {
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
   late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
-  // Recent searches (W4-14): this device only, wiped on sign-out.
+  // Recent searches: this device only, wiped on sign-out.
   late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
     widget.database,
   );
   late final StreamSubscription<OnboardingState> _onboardingSub;
   Set<String>? _lastFeatures;
 
-  /// The user the Messages access probe last ran for (W7-26).
+  /// The user the Messages access probe last ran for.
   String? _probedUid;
   int _lastUnread = 0;
   int _lastUnreadConversations = 0;
@@ -353,7 +353,7 @@ class _AppWidgetState extends State<AppWidget> {
     _onOnboarding(widget.onboardingBloc.state);
   }
 
-  /// The user whose expired drafts were last purged (W6-45).
+  /// The user whose expired drafts were last purged.
   String? _purgedDraftsUid;
 
   /// Removes [uid]'s drafts more than 30 days past their last edit, on app
@@ -374,7 +374,7 @@ class _AppWidgetState extends State<AppWidget> {
     widget.unreadBadgeCubit.increment();
   }
 
-  /// A direct-message push arrived in the foreground (W7-19): the Messages
+  /// A direct-message push arrived in the foreground: the Messages
   /// badge counts the conversation unless that thread is open (it polls
   /// instead), a request (requests never count, D10) or one the cached Inbox
   /// row already shows unread (the seed or the last Inbox load counted it).
@@ -410,7 +410,7 @@ class _AppWidgetState extends State<AppWidget> {
     final last = _lastFeatures;
     final flagsChanged =
         last == null || !setEquals(last, state.enabledFeatures);
-    // W7-26: the one Messages access probe, at session start, for another
+    // The one Messages access probe, at session start, for another
     // user, and when the flag set changes, never on an unread-count change.
     // It sends nothing when messaging is on for the caller or the cache is
     // empty.

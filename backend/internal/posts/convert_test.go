@@ -31,7 +31,7 @@ func TestToProto_KindAndVisibility(t *testing.T) {
 	}
 }
 
-// W3-28c: the frozen author copies never carry AuthorSnapshot.is_private (clients never infer "public" from false, and the
+// The frozen author copies never carry AuthorSnapshot.is_private (clients never infer "public" from false, and the
 // field is filled only on live user-list rows).
 func TestToProto_FrozenAuthorCopiesLeaveIsPrivateUnset(t *testing.T) {
 	t.Parallel()

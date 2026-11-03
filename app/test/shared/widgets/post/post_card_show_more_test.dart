@@ -24,7 +24,7 @@ pb.PostView _view(String text) => pb.PostView(
   ),
 );
 
-/// W1-2: list cards clamp long text to [kPostTextClampLines] lines with an
+/// List cards clamp long text to [kPostTextClampLines] lines with an
 /// in-place "Show more"; the detail view and short posts show everything.
 void main() {
   final long = List.generate(12, (i) => 'line ${i + 1}').join('\n');

@@ -15,7 +15,7 @@ class _MockLists extends Mock implements ListsRepository {}
 pb.ListInfo _list(int i, {String? name}) =>
     pb.ListInfo(listId: 'l$i', name: name ?? 'List $i', memberCount: 3);
 
-/// W5-13: another person's public Lists at 360 / 600 / 1200 dp, light and
+/// Another person's public Lists at 360 / 600 / 1200 dp, light and
 /// dark, text scale 1.0 / 1.3 / 2.0.
 void main() {
   late _MockLists repo;

@@ -2,14 +2,14 @@
 
 package apiserver
 
-// Shared helpers of the W3-20 matrix (W3-20, ADR-0024). Every
-// package-level name here carries the w320 / W320 prefix so a symbol added by a parallel W3-22 fix branch can never
+// Shared helpers of the matrix (ADR-0024). Every
+// package-level name here carries the w320 / W320 prefix so a symbol added by a parallel fix branch can never
 // collide with it. The chain, the clients, the budget-from-log helper, rawRPC, tabCall, listLiked, like, unlike and the
 // rest are reused from the earlier files of this package.
 //
 // The one open gap named by a constant is w320LikesRepeatsAfterLastGoneAndNextRelike beside its only reader (defect D-1
 // of this ticket, in the likes test file): it carries the value the code has TODAY and the author of the fix flips it in
-// the same change. The W3-22 fixes that HAVE landed (L-1, L-2, L-3, L-4, L-5, M-3, and M-1 with #354) assert the fixed
+// the same change. The fixes that HAVE landed (L-1, L-2, L-3, L-4, L-5, M-3, and M-1 with #354) assert the fixed
 // behaviour; the two M-1 switches at the bottom of this file are already false and only label what two tests check. The
 // report lists the open gaps under "known open gaps".
 
@@ -40,7 +40,7 @@ type w320Chain struct {
 	media mediav1connect.MediaServiceClient
 }
 
-// w320Base is the config every W3-20 chain starts from: the abuse limits relaxed for loopback seeding (the limits
+// w320Base is the config every chain starts from: the abuse limits relaxed for loopback seeding (the limits
 // themselves have their own tests), media, engagement and graph on, and the four W3 flags at their default (off). A
 // test sets the flag under test after it.
 func w320Base(c *config.Config) {
@@ -54,7 +54,7 @@ func w320Base(c *config.Config) {
 	c.RateLimit.SuggestionsPerUserPerMinute = 1_000_000
 	c.RateLimit.SuggestionsCallsPerDay = 1_000_000
 	c.RateLimit.ProfileRelationshipPerUserPerMinute = 1_000_000
-	// W3-22 L-4: UpdateProfile's per-uid daily call cap (default 100) must never be what a matrix row measures; its own
+	// L-4: UpdateProfile's per-uid daily call cap (default 100) must never be what a matrix row measures; its own
 	// test (TestW320_UpdateProfileDailyCapAndNoOpWrites) sets it low.
 	c.RateLimit.ProfileUpdatesPerDay = 1_000_000
 }
@@ -214,20 +214,20 @@ func (e *w320Chain) w320Profile(t *testing.T, viewer bmUser, uid string) *identi
 func w320Str(s string) *string { return &s }
 
 // -----------------------------------------------------------------------------------------------------------------
-// W3-22 M-1 (merged: #349 the ADR amendment, #354 the code). Both values were "pre-fix" (true) until #354 landed on main;
-// W3-20 flipped them to false, the behaviour ADR-0024 Amendment 1 A1 and A2 describe and the tests below assert. They are
+// M-1 (merged: #349 the ADR amendment, #354 the code). Both values were "pre-fix" (true) until #354 landed on main;
+// flipped them to false, the behaviour ADR-0024 Amendment 1 A1 and A2 describe and the tests below assert. They are
 // kept as named switches only so the two places that read them say what they check; they can be deleted with their
 // conditionals. TestW320_M1KillSwitchWebsiteAndClears asserts the same rules directly.
 // -----------------------------------------------------------------------------------------------------------------
 
 const (
-	// w320ClearsNeedProfileExtras is W3-22 M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for banner,
+	// w320ClearsNeedProfileExtras is M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for banner,
 	// location, website or pin is accepted from any authenticated caller whatever the flag, globally off included (1 read,
 	// 1 write); only SETTING a value (whitespace-only included) stays gated, and a request that mixes a clear with a set is
 	// refused whole. (Before the fix: every one of these was FEATURE_DISABLED outside the cohort.)
 	w320ClearsNeedProfileExtras = false
 
-	// w320WebsiteShownWhileExtrasGloballyOff is W3-22 M-1(a) (Amendment 1 A1). false (after #354): with profile_extras
+	// w320WebsiteShownWhileExtrasGloballyOff is M-1(a) (Amendment 1 A1). false (after #354): with profile_extras
 	// globally off (mode off only) present() blanks the website together with the pin in every Profile identity returns,
 	// 0 reads, so the kill switch also kills the link; the banner and the location keep rendering. (Before the fix only the
 	// pin was blanked.)
@@ -239,7 +239,7 @@ func newW320Media(env *chainEnv) mediav1connect.MediaServiceClient {
 	return mediav1connect.NewMediaServiceClient(http.DefaultClient, env.url)
 }
 
-// w320RPCGetUserTimeline is the GetUserTimeline procedure (the W3-9 file's rpcGetUserTimeline under a w320 name).
+// w320RPCGetUserTimeline is the GetUserTimeline procedure (the file's rpcGetUserTimeline under a w320 name).
 const w320RPCGetUserTimeline = "/dzeroth.timeline.v1.TimelineService/GetUserTimeline"
 
 // w320Field reads one field of a Firestore document of the chain's project.

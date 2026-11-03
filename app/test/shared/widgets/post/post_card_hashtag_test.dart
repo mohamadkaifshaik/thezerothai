@@ -18,7 +18,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-/// W4-16: a hashtag in a post body opens `/search?q=%23tag` (Top) with the
+/// A hashtag in a post body opens `/search?q=%23tag` (Top) with the
 /// `search` flag on; with it off, today's "coming soon" snackbar.
 void main() {
   pb.PostView view(String text) => pb.PostView(

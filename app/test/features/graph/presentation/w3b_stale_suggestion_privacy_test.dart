@@ -21,7 +21,7 @@ import '../../../support/theme_harness.dart';
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// W3-35c, owed by W3-35a (report section 2.3) and W3-33c: a "Who to follow"
+/// A "Who to follow"
 /// row can sit on the device for up to 48 hours (ADR-0024 Amendment 2), so
 /// its `is_private` badge can be older than the account. The badge is a hint
 /// from the row's own field and nothing else; a Follow from a stale row is

@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Home tabs (ADR-0030 D6, W5-9): the caller's pinned Home tabs live on users/{uid}.homeTabs, an array of at most
+// Home tabs (ADR-0030 D6): the caller's pinned Home tabs live on users/{uid}.homeTabs, an array of at most
 // HOME_TABS_MAX_PINNED maps {kind, id, title}. Identity owns the field; timeline writes it only through its consumer-side
 // HomeTabsStore and lists only through lists.Pins, and this one adapter (HomeTabsAdapter) satisfies both.
 

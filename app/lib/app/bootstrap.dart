@@ -84,13 +84,13 @@ Future<void> bootstrap() async {
     return;
   }
 
-  // TEL-4: telemetry starts right after Firebase.initializeApp, with the
+  // Telemetry starts right after Firebase.initializeApp, with the
   // decision stored for the uid the auth SDK restored (collection is off by
   // construction until a flag and the person's consent say otherwise).
   late final AuthRepository authRepository;
   late final String? restoredUid;
   final database = AppDatabase();
-  // TEL-7: the person's answers per account; the controller reads it and the
+  // The person's answers per account; the controller reads it and the
   // consent card and Settings switches write it.
   final telemetryConsent = TelemetryConsentStore(database);
   final telemetry = await startTelemetry(
@@ -147,7 +147,7 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     database: database,
   );
-  // "Who to follow" (W3-19, ADR-0024 Amendment 2): one ListSuggestedUsers per
+  // "Who to follow" (ADR-0024 Amendment 2): one ListSuggestedUsers per
   // 48 h and account (6 h when empty, 24 h after a limit), shared by the Home
   // card and the desktop right column.
   final suggestionsRepository = SuggestionsRepository(
@@ -156,7 +156,7 @@ Future<void> bootstrap() async {
     database: database,
     onUnexpectedError: reportUnexpectedError,
   );
-  // Whose cache is this? (W7-35, L-4.) Settled before the first cache read
+  // Whose cache is this? (L-4.) Settled before the first cache read
   // below: a wipe that the last run missed is done here, for the uid the auth
   // SDK restored (null when nobody is signed in).
   await database.claimCacheFor(restoredUid);
@@ -202,7 +202,7 @@ Future<void> bootstrap() async {
     gate: postsGate,
     rateLimitHold: rateLimitHold,
   );
-  // P4 media: gated by `GetMe.enabled_features` containing `media`; the PUT
+  // media: gated by `GetMe.enabled_features` containing `media`; the PUT
   // to the signed URL uses its own bare HTTP client (no auth headers).
   final mediaRepository = MediaRepository(
     apiClient: apiClient,
@@ -267,7 +267,7 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
     rateLimitHold: rateLimitHold,
   );
-  // The Likes tab of History (ADR-0024 D6, W3-18): ListLikedPosts behind the
+  // The Likes tab of History (ADR-0024 D6): ListLikedPosts behind the
   // `likes_list` flag (0 RPCs while off). The gate reports nothing itself: the
   // repository reports unexpected errors, but not UNIMPLEMENTED (a server that
   // has not got the RPC yet), which only hides the tab for a while.
@@ -310,7 +310,7 @@ Future<void> bootstrap() async {
     epoch: database.sessionEpoch,
     onListSeen: homeTabsRepository.noteListInfo,
   );
-  // The list timeline (W5-12) goes through the same `lists` gate and feeds every
+  // The list timeline goes through the same `lists` gate and feeds every
   // list header it gets to the lists repository (detail header, Home tab title).
   final timelineRepository = TimelineRepository(
     apiClient: apiClient,
@@ -328,7 +328,7 @@ Future<void> bootstrap() async {
     rateLimitHold: rateLimitHold,
   );
   // Direct messages (ADR-0027): the only caller of MessagingService. The
-  // screens (W7-14 onwards) take it from here; sign-out clears its in-flight
+  // screens (onwards) take it from here; sign-out clears its in-flight
   // work and `clearAll` wipes its tables. Its list reads share the read hold.
   final messagingRepository = MessagingRepository(
     apiClient: apiClient,
@@ -351,7 +351,7 @@ Future<void> bootstrap() async {
   );
 
   // Bridge auth into the session: wipe on sign-out or a change of user, claim
-  // the cache for the new user before onboarding starts (W7-35, L-4).
+  // the cache for the new user before onboarding starts (L-4).
   wireAuthSession(
     authStates: authBloc.stream,
     onboardingBloc: onboardingBloc,

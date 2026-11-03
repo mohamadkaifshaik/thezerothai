@@ -29,7 +29,7 @@ class PostRichText extends StatefulWidget {
   /// Called with the tag body (no `#`, as written) when a hashtag is tapped.
   final void Function(String tag) onHashtagTap;
 
-  /// Hashtags open search (W4-16): the span reads as a link "Search #tag".
+  /// Hashtags open search: the span reads as a link "Search #tag".
   final bool hashtagSearch;
 
   @override

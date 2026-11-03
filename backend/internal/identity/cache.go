@@ -14,7 +14,7 @@ const (
 	// pendingTTL bounds GetMe's pending_follow_request_count (ADR-0025 D7, AQ3): at most 30 s stale on this instance, and
 	// evicted with the unread count by any Forget or ForgetUnread on this instance (an accept, a notification row, a counter change).
 	pendingTTL = 30 * time.Second
-	// convBadgeTTL bounds GetMe's unread_conversation_count (ADR-0027 D10, D14, W7-11): at most 30 s stale on this
+	// convBadgeTTL bounds GetMe's unread_conversation_count (ADR-0027 D10, D14): at most 30 s stale on this
 	// instance, evicted earlier by MessageBadgeCache.Forget (a send to or a mark-read by that user on this instance).
 	convBadgeTTL = 30 * time.Second
 	// notFoundTTL (M1) is deliberately short: a signed-up-but-profile-less caller hitting any non-exempt

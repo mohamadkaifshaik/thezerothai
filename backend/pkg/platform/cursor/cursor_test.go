@@ -75,7 +75,7 @@ func TestDecode_Rejects(t *testing.T) {
 	}
 }
 
-// TestDecode_GoldenGraphToken is the T28 compatibility guard: this token was minted by the PRE-T28 Encode
+// TestDecode_GoldenGraphToken is the compatibility guard: this token was minted by the PRE- Encode
 // (origin/main's cursor.go: EncodeAt with key "golden-key", binding "uid-a|followers|uid-b", issue time
 // 1_700_000_000 s, createdAt 1_699_999_000_123_456 us, doc id "uid-c_uid-b") and must keep decoding through
 // DecodeAt, so graph tokens in clients' hands survive this change.

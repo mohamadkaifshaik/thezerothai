@@ -2,7 +2,7 @@
 
 package apiserver
 
-// SendMessage (ADR-0027, tickets W7-5 and W7-6) over the real Build chain on the emulators: the account-status,
+// SendMessage (ADR-0027) over the real Build chain on the emulators: the account-status,
 // rate-limit and degraded-mode interceptors, the flag rules, the documents a send writes, every refusal's bytes, the caps,
 // replay, and the budget table of the RPC doc comment (accepted 5 reads / 3 writes, request 4 writes, new conversation 7
 // reads / 5 writes), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line. Chains
@@ -511,7 +511,7 @@ func TestMessagingChain_RequestLineHasNoSecrets(t *testing.T) {
 	if last["conversation_hash"] == nil || last["uid_hash"] == nil {
 		t.Errorf("missing conversation_hash / uid_hash: %v", last)
 	}
-	// W7-34 (L-7): the hash is the keyed one (CURSOR_HMAC_KEY via HKDF), never the plain SHA-256 of the guessable conversation id.
+	// L-7: the hash is the keyed one (CURSOR_HMAC_KEY via HKDF), never the plain SHA-256 of the guessable conversation id.
 	convID := r.GetConversation().GetId()
 	if last["conversation_hash"] != logger.HashConversation(convID) || last["conversation_hash"] == logger.HashUID(convID) {
 		t.Errorf("conversation_hash = %v, want the keyed %q and not the plain %q", last["conversation_hash"], logger.HashConversation(convID), logger.HashUID(convID))

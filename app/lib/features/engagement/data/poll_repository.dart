@@ -7,14 +7,14 @@ import '../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 
 /// Talks to `EngagementService.VotePoll` (ADR-0029 D6) and re-reads a poll
-/// post: the only `VotePoll` caller (W6-13).
+/// post: the only `VotePoll` caller.
 ///
 /// - Voting needs the `engagement` flag (the same [ServiceFeatureGate] flag
 ///   as Like): with it off no RPC is sent. The gate itself is only *read*:
 ///   a FEATURE_DISABLED answer for `feature=polls` must not switch off likes
 ///   and reposts, so this repository keeps its own "voting is off" memory
 ///   ([votingOff]) until [reset] (a fresh `GetMe`, sign-out).
-/// - UNIMPLEMENTED (the server skeleton, W6-7 not deployed) is read as
+/// - UNIMPLEMENTED (the server skeleton, not deployed) is read as
 ///   FEATURE_DISABLED for polls: the vote buttons go away, nothing is
 ///   reported.
 /// - Nothing retries here. [idempotencyKey] is validated for format only (the

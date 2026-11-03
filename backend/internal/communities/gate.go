@@ -22,7 +22,7 @@ type PostGate struct {
 	communities Reader
 	members     TxMemberReader
 	cap         *ratelimit.DailyCap
-	cached      CachedMembers // the Reader itself when it can answer a member lookup alone (W5-26b); nil = use Reader.Role
+	cached      CachedMembers // the Reader itself when it can answer a member lookup alone; nil = use Reader.Role
 }
 
 // NewPostGate builds the gate. cap is the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY); nil means no cap.

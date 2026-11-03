@@ -1,4 +1,4 @@
-// repo_engagement.go holds the storage paths engagement (P5, ADR-0018) drives through posts' seams. posts owns
+// repo_engagement.go holds the storage paths engagement (ADR-0018) drives through posts' seams. posts owns
 // posts/*, so every write to a post doc made on behalf of a like, a repost, a quote or its clean-up lives here:
 //
 //	batch staging (EngagementWriter): likeCount / repostCount increments, the REPOST create, the REPOST delete

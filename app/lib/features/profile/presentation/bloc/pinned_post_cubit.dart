@@ -7,7 +7,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../posts/data/posts_repository.dart';
 import 'pinned_post_state.dart';
 
-/// Owns the Pinned row of one profile (W3-17, ADR-0024 D3): the single
+/// Owns the Pinned row of one profile (ADR-0024 D3): the single
 /// `GetPost` of `Profile.pinned_post_id` and the rule for what a failure
 /// means. A server that later embeds the pinned post in `GetProfile` replaces
 /// only [pinChanged]'s fetch; no widget changes.
