@@ -422,11 +422,18 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 	})
 
 	// A denylisted tag (TRENDS_DENYLIST) and a tag on trends/hidden both leave the served list at once, and the rest is
-	// ranked 1..n. Last, because the hide list persists in the project.
+	// ranked 1..n. Last, because the hide list persists in the project; the cleanup takes the tag off again so a second
+	// run against the same emulator (go test -count=2, or a rerun without restarting the emulators) still sees #launch.
 	t.Run("GetTrends drops a denylisted and a hidden tag and renumbers the ranks", func(t *testing.T) {
-		if _, err := search.NewTrendsRepo(setup.fs).Hide(context.Background(), "#LAUNCH"); err != nil {
+		trends := search.NewTrendsRepo(setup.fs)
+		if _, err := trends.Hide(context.Background(), "#LAUNCH"); err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			if _, err := trends.Unhide(context.Background(), "#LAUNCH"); err != nil {
+				t.Errorf("unhide #launch: %v", err)
+			}
+		})
 		e := newSearchChain(t, func(c *config.Config) {
 			c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
 			c.Search.TrendsDenylist = []string{"go"}
