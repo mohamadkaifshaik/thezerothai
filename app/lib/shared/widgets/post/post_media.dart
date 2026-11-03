@@ -2,7 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../features/media/domain/processed_image.dart' show kGifContentType;
+import '../../../features/media/domain/processed_image.dart'
+    show kGifContentType;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
@@ -23,9 +24,15 @@ import 'gif_badge.dart';
 /// it). Nothing autoplays, so reduced motion and a data saver are respected
 /// by construction.
 class PostMedia extends StatelessWidget {
-  const PostMedia({super.key, required this.media, this.useFullImage = false});
+  const PostMedia({
+    super.key,
+    required this.media,
+    this.useFullImage = false,
+    this.onOpenImage,
+  });
 
   final List<common.MediaRef> media;
+  final ValueChanged<int>? onOpenImage;
 
   /// Show the full-size `url` (detail view). Lists leave this false.
   final bool useFullImage;
@@ -61,8 +68,11 @@ class PostMedia extends StatelessWidget {
   }
 
   Widget _layout(List<common.MediaRef> items) {
-    Widget tile(common.MediaRef m) =>
-        _MediaTile(media: m, useFullImage: useFullImage);
+    Widget tile(common.MediaRef m) => _MediaTile(
+      media: m,
+      useFullImage: useFullImage,
+      onOpen: onOpenImage == null ? null : () => onOpenImage!(items.indexOf(m)),
+    );
     switch (items.length) {
       case 1:
         return tile(items[0]);
@@ -119,10 +129,15 @@ class PostMedia extends StatelessWidget {
 }
 
 class _MediaTile extends StatelessWidget {
-  const _MediaTile({required this.media, required this.useFullImage});
+  const _MediaTile({
+    required this.media,
+    required this.useFullImage,
+    this.onOpen,
+  });
 
   final common.MediaRef media;
   final bool useFullImage;
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -140,7 +155,15 @@ class _MediaTile extends StatelessWidget {
       excludeSemantics: true,
       child: url.isEmpty ? placeholder : _networkImage(url, colors),
     );
-    return _withAltChip(image, media.altText);
+    return _withAltChip(
+      onOpen == null
+          ? image
+          : InkWell(
+              onTap: onOpen,
+              child: Semantics(button: true, label: 'Open image', child: image),
+            ),
+      media.altText,
+    );
   }
 }
 

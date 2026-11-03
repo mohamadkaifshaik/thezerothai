@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/network/api_client.dart';
+import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/rate_limit_hold.dart';
 import '../core/network/service_paused_cubit.dart';
@@ -88,23 +89,29 @@ Future<void> bootstrap() async {
   // decision stored for the uid the auth SDK restored (collection is off by
   // construction until a flag and the person's consent say otherwise).
   late final AuthRepository authRepository;
+  late final fb_auth.FirebaseAuth firebaseAuth;
   late final String? restoredUid;
   final database = AppDatabase();
   // The person's answers per account; the controller reads it and the
   // consent card and Settings switches write it.
   final telemetryConsent = TelemetryConsentStore(database);
   final telemetry = await startTelemetry(
+    supported: config.useEmulators ? false : null,
     initializeFirebase: () async {
-      await Firebase.initializeApp(
-        options: switch (config.firebaseEnv) {
-          FirebaseEnv.dev =>
-            dev_firebase.DefaultFirebaseOptions.currentPlatform,
-          FirebaseEnv.prod =>
-            prod_firebase.DefaultFirebaseOptions.currentPlatform,
-        },
+      final firebaseApp = await Firebase.initializeApp(
+        demoProjectId: config.useEmulators ? 'demo-dzeroth-local' : null,
+        options: config.useEmulators
+            ? null
+            : switch (config.firebaseEnv) {
+                FirebaseEnv.dev =>
+                  dev_firebase.DefaultFirebaseOptions.currentPlatform,
+                FirebaseEnv.prod =>
+                  prod_firebase.DefaultFirebaseOptions.currentPlatform,
+              },
       );
+      firebaseAuth = fb_auth.FirebaseAuth.instanceFor(app: firebaseApp);
       if (config.useEmulators) {
-        await fb_auth.FirebaseAuth.instance.useAuthEmulator(
+        await firebaseAuth.useAuthEmulator(
           _emulatorHost(config.authEmulatorHost),
           _emulatorPort(config.authEmulatorHost),
         );
@@ -112,6 +119,7 @@ Future<void> bootstrap() async {
     },
     restoredUid: () async {
       authRepository = AuthRepository(
+        firebaseAuth: firebaseAuth,
         googleWebClientId: config.googleWebClientId,
         appleServiceId: config.appleServiceId,
         appleRedirectUri: config.appleRedirectUri,
@@ -136,7 +144,9 @@ Future<void> bootstrap() async {
   final apiClient = ApiClient(
     baseUrl: config.apiBaseUrl,
     authTokens: authRepository,
-    appCheckTokens: const FirebaseAppCheckTokenProvider(),
+    appCheckTokens: config.useEmulators
+        ? const _LocalAppCheckTokenProvider()
+        : const FirebaseAppCheckTokenProvider(),
     onServicePaused: servicePaused.markPaused,
   );
   final identityRepository = IdentityRepository(
@@ -345,7 +355,7 @@ Future<void> bootstrap() async {
   );
   final unreadBadgeCubit = UnreadBadgeCubit();
   pushCubit = PushCubit(
-    messaging: FirebasePushMessaging(),
+    messaging: FirebasePushMessaging(enabled: !config.useEmulators),
     repository: notificationsRepository,
     onUnexpectedError: reportUnexpectedError,
   );
@@ -417,6 +427,7 @@ Future<void> bootstrap() async {
 /// in monitor mode, and `AuthHeadersInterceptor` already sends no App Check
 /// header when no token is available.
 Future<void> _activateAppCheck(AppConfig config) async {
+  if (config.useEmulators) return;
   if (kIsWeb && config.recaptchaSiteKey.isEmpty) {
     debugPrint('App Check: no RECAPTCHA_SITE_KEY, skipping on web.');
     return;
@@ -439,6 +450,15 @@ Future<void> _activateAppCheck(AppConfig config) async {
   } catch (e) {
     debugPrint('App Check activation failed; continuing without it: $e');
   }
+}
+
+/// App Check has no local emulator; local API requests must not ask live
+/// Firebase for an attestation token.
+class _LocalAppCheckTokenProvider implements AppCheckTokenProvider {
+  const _LocalAppCheckTokenProvider();
+
+  @override
+  Future<String?> getAppCheckToken() async => null;
 }
 
 /// The uid the auth SDK restored from disk, or null for a signed-out app. On

@@ -7,11 +7,15 @@ class _ContextPost extends StatelessWidget {
     required this.view,
     required this.viewerUserId,
     required this.graphEnabled,
+    this.connectBefore = false,
+    this.connectAfter = false,
   });
 
   final pb.PostView view;
   final String? viewerUserId;
   final bool graphEnabled;
+  final bool connectBefore;
+  final bool connectAfter;
 
   @override
   Widget build(BuildContext context) {
@@ -23,16 +27,23 @@ class _ContextPost extends StatelessWidget {
           graphEnabled: graphEnabled,
           child: InkWell(
             onTap: () => context.push(AppRouter.postPath(view.post.postId)),
-            child: PostCard(
-              view: view,
-              viewerUserId: viewerUserId,
-              graphActionsEnabled: graphEnabled,
-              reportsEnabled: isFeatureEnabled(context, kFeatureReports),
-              engagementEnabled: isFeatureEnabled(context, kFeatureEngagement),
+            child: ConversationRow(
+              connectBefore: connectBefore,
+              connectAfter: connectAfter,
+              child: PostCard(
+                view: view,
+                viewerUserId: viewerUserId,
+                graphActionsEnabled: graphEnabled,
+                reportsEnabled: isFeatureEnabled(context, kFeatureReports),
+                engagementEnabled: isFeatureEnabled(
+                  context,
+                  kFeatureEngagement,
+                ),
+              ),
             ),
           ),
         ),
-        const Divider(height: 1),
+        if (!connectAfter) const Divider(height: 1),
       ],
     );
   }

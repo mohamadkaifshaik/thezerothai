@@ -160,6 +160,13 @@ void main() {
           },
         ),
         GoRoute(
+          path: '/compose/reply/:id',
+          builder: (context, state) {
+            pushedLocation = state.uri.toString();
+            return const Scaffold(body: Text('reply composer'));
+          },
+        ),
+        GoRoute(
           path: '/compose',
           builder: (context, state) {
             pushedLocation = state.uri.toString();
@@ -415,13 +422,15 @@ void main() {
   });
 
   group('reply', () {
-    testWidgets('opens the post when replies are on', (tester) async {
+    testWidgets('opens the contextual composer when replies are on', (
+      tester,
+    ) async {
       await pump(tester, _view());
 
       await tester.tap(find.byIcon(Icons.chat_bubble_outline));
       await tester.pumpAndSettle();
 
-      expect(pushedLocation, '/post/${postId(1)}');
+      expect(pushedLocation, '/compose/reply/${postId(1)}');
     });
 
     testWidgets('hidden with the replies flag off or showReply false', (
@@ -502,7 +511,7 @@ void main() {
         expect(node.hint, isNot("You can't reply to this post"));
         await tester.tap(find.byIcon(Icons.chat_bubble_outline));
         await tester.pumpAndSettle();
-        expect(pushedLocation, '/post/${postId(1)}');
+        expect(pushedLocation, '/compose/reply/${postId(1)}');
         handle.dispose();
       });
     }

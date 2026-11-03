@@ -7,6 +7,10 @@ import 'package:mocktail/mocktail.dart';
 class MockFirebaseMessaging extends Mock implements FirebaseMessaging {}
 
 void main() {
+  test('local emulator mode disables FCM without a Firebase app', () {
+    expect(FirebasePushMessaging(enabled: false).supported, isFalse);
+  });
+
   late MockFirebaseMessaging firebase;
   late FirebasePushMessaging messaging;
 

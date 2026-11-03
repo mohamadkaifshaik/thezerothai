@@ -40,6 +40,8 @@ const Map<String, String> kScreenNames = {
   '/messages/new/draft': 'message_new',
   '/messages/:id': 'message_thread',
   '/post/:id': 'post_detail',
+  '/post/:id/photo/:index': 'post_photo',
+  '/compose/reply/:id': 'compose_reply',
   '/u/:userId': 'profile',
   '/u/:userId/lists': 'profile_lists',
   '/profile/:handle': 'profile',

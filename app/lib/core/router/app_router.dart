@@ -1,5 +1,7 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+import '../theme/app_theme.dart';
 
 import '../../features/account/domain/account_feature_flag.dart';
 import '../../features/account/presentation/data_export_screen.dart';
@@ -57,6 +59,8 @@ import '../../features/posts/presentation/drafts_screen.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/posts/presentation/post_detail_screen.dart';
+import '../../features/posts/presentation/post_photo_screen.dart';
+import '../../features/posts/presentation/reply_composer_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
 import '../../features/shells/domain/shell_entries.dart';
@@ -85,7 +89,10 @@ class AppRouter {
     MessagingFeatureGate? messagingGate,
   }) : _authBloc = authBloc,
        _onboardingBloc = onboardingBloc,
-       _messagingGate = messagingGate;
+       _messagingGate = messagingGate {
+    // Pushed post overlays must be addressable on web and survive reload.
+    GoRouter.optionURLReflectsImperativeAPIs = true;
+  }
 
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
@@ -217,6 +224,12 @@ class AppRouter {
   static String postPath(String postId) =>
       '/post/${Uri.encodeComponent(postId)}';
 
+  static String composeReplyPath(String postId) =>
+      '/compose/reply/${Uri.encodeComponent(postId)}';
+
+  static String postPhotoPath(String postId, int index) =>
+      '${postPath(postId)}/photo/$index';
+
   static String followersPath(String handle) => '/profile/$handle/followers';
   static String followingPath(String handle) => '/profile/$handle/following';
 
@@ -247,6 +260,43 @@ class AppRouter {
       GoRoute(
         path: onboardingDeletePath,
         builder: (context, state) => const DeleteAccountScreen(),
+      ),
+      GoRoute(
+        path: '/compose/reply/:id',
+        pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
+          key: state.pageKey,
+          opaque: false,
+          barrierColor: context.appColors.scrim,
+          transitionsBuilder: (context, animation, secondary, child) =>
+              FadeTransition(opacity: animation, child: child),
+          child: AuthGate(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final editor = ReplyComposerScreen(
+                  postId: state.pathParameters['id']!,
+                );
+                if (constraints.maxWidth < 700) return editor;
+                return Dialog(
+                  clipBehavior: Clip.antiAlias,
+                  child: SizedBox(
+                    width: 600,
+                    height: constraints.maxHeight * .85,
+                    child: editor,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/post/:id/photo/:index',
+        builder: (context, state) => AuthGate(
+          child: PostPhotoScreen(
+            postId: state.pathParameters['id']!,
+            index: int.tryParse(state.pathParameters['index'] ?? '') ?? 0,
+          ),
+        ),
       ),
       // Full-screen, outside the shell: no nav chrome while writing.
       GoRoute(
@@ -577,6 +627,8 @@ class AppRouter {
 
   static final _deepLinkPatterns = [
     RegExp(r'^/post/\d{19}$'),
+    RegExp(r'^/post/\d{19}/photo/[1-4]$'),
+    RegExp(r'^/compose/reply/\d{19}$'),
     // A uid is Firebase's alphanumeric id. No `%`: `%2F` and `%0D%0A` never
     // become part of a target (I-1).
     RegExp(r'^/u/[A-Za-z0-9-]{1,128}$'),

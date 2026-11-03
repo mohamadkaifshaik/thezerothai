@@ -96,14 +96,18 @@ abstract class PushMessaging {
 
 /// [PushMessaging] over `firebase_messaging`.
 class FirebasePushMessaging implements PushMessaging {
-  FirebasePushMessaging({FirebaseMessaging? messaging})
+  FirebasePushMessaging({FirebaseMessaging? messaging, this.enabled = true})
     : _messaging = messaging;
+
+  /// FCM has no local emulator. Disable it for the local demo project.
+  final bool enabled;
 
   FirebaseMessaging? _messaging;
   FirebaseMessaging get _m => _messaging ??= FirebaseMessaging.instance;
 
   @override
   bool get supported =>
+      enabled &&
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.iOS ||
           defaultTargetPlatform == TargetPlatform.android);
