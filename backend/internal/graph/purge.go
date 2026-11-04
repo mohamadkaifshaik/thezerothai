@@ -14,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -81,11 +80,6 @@ func (r *FirestoreRepo) queryEdges(ctx context.Context, uid string, outgoing boo
 		field = "followerId"
 	}
 	docs, err := r.client.Collection(followsCollection).Where(field, "==", uid).Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("graph: purge query %s: %w", field, err), uid)
 	}
@@ -156,8 +150,7 @@ func (r *FirestoreRepo) deleteEdges(ctx context.Context, uid string, edges []Edg
 		}
 	}
 
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	skipped := 0
 	for i, e := range edges {
 		other := others[i]
@@ -194,9 +187,6 @@ func (r *FirestoreRepo) deleteEdges(ctx context.Context, uid string, edges []Edg
 		}
 		return 0, logger.RedactErr(fmt.Errorf("graph: purge edges: %w", err), ids...)
 	}
-	counter := budget.FromContext(ctx)
-	counter.AddWrites(scratch.Writes())
-	counter.AddDeletes(scratch.Deletes())
 	return skipped, nil
 }
 
@@ -224,7 +214,6 @@ func (r *FirestoreRepo) existingCounterparts(ctx context.Context, others []strin
 			refs[i] = r.graphRef(o)
 		}
 		snaps, err := r.client.GetAll(ctx, refs)
-		budget.FromContext(ctx).AddReads(int64(len(refs)))
 		if err != nil {
 			return nil, nil, logger.RedactErr(fmt.Errorf("graph: purge: counterpart graphs: %w", err), others...)
 		}
@@ -277,7 +266,6 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 			refs[i] = r.graphRef(o)
 		}
 		snaps, err := r.client.GetAll(ctx, refs)
-		budget.FromContext(ctx).AddReads(int64(len(refs)))
 		if err != nil {
 			return 0, logger.RedactErr(fmt.Errorf("graph: purge: counterpart graphs: %w", err), append([]string{uid}, chunk...)...)
 		}
@@ -286,8 +274,7 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 			exists[chunk[i]] = s.Exists()
 		}
 	}
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	skipped, updates := 0, 0
 	for _, other := range chunk {
 		if checkExists && !exists[other] {
@@ -306,11 +293,10 @@ func (r *FirestoreRepo) removeFromCounterparts(ctx context.Context, uid string, 
 	if err := b.Commit(ctx); err != nil {
 		return 0, logger.RedactErr(fmt.Errorf("graph: purge array: %w", err), append([]string{uid}, chunk...)...)
 	}
-	budget.FromContext(ctx).AddWrites(scratch.Writes())
 	return skipped, nil
 }
 
-// purgeFinish re-runs the step 1-2 queries (1 read each when empty); if a racing edge slipped in, go back to
+// purgeFinish re-runs the step 1-2 queries; if a racing edge slipped in, go back to
 // step 1. Otherwise delete graph/{uid} (Delete on a missing doc succeeds, so a replay is a no-op).
 func (r *FirestoreRepo) purgeFinish(ctx context.Context, uid string) (Checkpoint, bool, error) {
 	for _, outgoing := range []bool{true, false} {
@@ -325,13 +311,12 @@ func (r *FirestoreRepo) purgeFinish(ctx context.Context, uid string) (Checkpoint
 	if _, err := r.graphRef(uid).Delete(ctx); err != nil {
 		return Checkpoint{}, false, logger.RedactErr(fmt.Errorf("graph: purge delete graph doc: %w", err), uid)
 	}
-	budget.FromContext(ctx).AddDeletes(1)
 	slog.Info("graph_purge_batch", "uid_hash", logger.HashUID(uid), "step", purgeStepFinish, "graph_doc_deleted", true)
 	return Checkpoint{}, true, nil
 }
 
 // PurgePlan is a read-only preview of what PurgeUser would touch (opsctl purge-graph --dry-run). Edge counts
-// come from count() aggregations (about 1 read per 1,000 edges).
+// come from count() aggregations.
 type PurgePlan struct {
 	OutgoingEdges int64
 	IncomingEdges int64
@@ -349,7 +334,6 @@ func (r *FirestoreRepo) PlanPurge(ctx context.Context, uid string) (PurgePlan, e
 		// Limit bounds the count() cost (rule 5); a dry run reports at most planCountCap edges per side.
 		q := r.client.Collection(followsCollection).Where(side.field, "==", uid).Limit(planCountCap)
 		res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
-		budget.FromContext(ctx).AddReads(1)
 		if err != nil {
 			return PurgePlan{}, fmt.Errorf("graph: plan purge count %s: %w", side.field, err)
 		}

@@ -12,7 +12,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -55,10 +54,11 @@ type PendingPageResult struct {
 // decline or Block conflicts and the retry sees the request gone), the requesters' status (Active), then each
 // requester's graph doc. Then per request classifyAccept + queueAccept, and once per page followersCount += accepted.
 //
-// Reads: 1 (users) + len(page) (the query) + len(page) (requester graphs) + the cache-first Directory lookup; an empty
-// page 2. Writes: 3 per accepted request (edge, requester graph, requester followingCount) + 1 delete, + 1 for the
-// target's followersCount once per page: at most 401 operations at Limit 100. Skipped-inactive and drift: 1 write + 1
-// delete; at the cap: 0.
+// It reads the users doc, the page of requests, the requester graphs and the cache-first Directory lookup. An
+// accepted request writes the edge, the requester graph and the requester followingCount and deletes the request;
+// the target's followersCount is written once per page, so a page is at most 401 operations at Limit 100.
+// Skipped-inactive and drift write the requester's `requested` update and delete the request; at the cap nothing is
+// queued.
 func (r *FirestoreRepo) AcceptPendingPage(ctx context.Context, a PendingPageArgs) (PendingPageResult, error) {
 	profiles, err := r.txProfilesReader()
 	if err != nil {
@@ -70,7 +70,6 @@ func (r *FirestoreRepo) AcceptPendingPage(ctx context.Context, a PendingPageArgs
 	var res PendingPageResult
 	err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = PendingPageResult{} // a retried attempt starts clean
-		counter := budget.FromContext(ctx)
 
 		target, err := profiles.ProfileInTx(ctx, tx, a.TargetUID)
 		switch {
@@ -93,7 +92,7 @@ func (r *FirestoreRepo) AcceptPendingPage(ctx context.Context, a PendingPageArgs
 			q = q.StartAfter(a.After.CreatedAt, a.After.ID)
 		}
 		snaps, err := tx.Documents(q).GetAll()
-		counter.AddReads(int64(max(len(snaps), 1))) // Firestore bills an empty query as one read
+		// Firestore bills an empty query as one read
 		if err != nil {
 			return fmt.Errorf("graph: list pending follow requests: %w", err)
 		}
@@ -126,7 +125,7 @@ func (r *FirestoreRepo) AcceptPendingPage(ctx context.Context, a PendingPageArgs
 			}
 		}
 
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		for i, requester := range uids {
 			kind := classifyAccept(graphs[i], exists[i], active[requester], a.TargetUID)
 			if err := r.queueAccept(b, kind, a.TargetUID, requester, exists[i], a.Now); err != nil {

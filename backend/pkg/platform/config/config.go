@@ -165,15 +165,15 @@ type Config struct {
 	// AcceptMessageRequest need it on for the caller; ListConversations, ListMessages, MarkConversationRead and
 	// DeleteConversation only need it not globally off, so a caller dropped from the allowlist can still read and clean
 	// up. FEATURE_DISABLED feature=messaging otherwise. FEATURE_MESSAGING[_ALLOWLIST|_PERCENT], default off in every
-	// environment (dev ceiling: allowlist of 3, no prod raise).
+	// environment (dev stays on an allowlist, no prod raise).
 	FeatureMessaging flags.Spec
 	// FeatureLists is the flag (wire name `lists`) gating every ListService RPC, GetListTimeline and the LIST entries of
-	// SetHomeTabs and GetMe.home_tabs. FEATURE_LISTS[_ALLOWLIST|_PERCENT], default off in every environment (dev ceiling: allowlist,
+	// SetHomeTabs and GetMe.home_tabs. FEATURE_LISTS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist,
 	// no prod raise). It also needs FEATURE_POSTS, like Home.
 	FeatureLists flags.Spec
 	// FeatureCommunities is the flag (wire name `communities`) gating every CommunityService RPC, GetCommunityTimeline,
 	// CreatePost.community_id and the COMMUNITY entries of SetHomeTabs and GetMe.home_tabs. FEATURE_COMMUNITIES[_ALLOWLIST|_PERCENT],
-	// default off in every environment (dev ceiling: allowlist of 3, no prod raise). CreateCommunity also needs the caller in
+	// default off in every environment (dev stays on an allowlist, no prod raise). CreateCommunity also needs the caller in
 	// Communities.Creators (COMMUNITY_CREATORS).
 	FeatureCommunities flags.Spec
 	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
@@ -197,21 +197,21 @@ type Config struct {
 	// FEATURE_PRIVATE_ACCOUNTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeaturePrivateAccounts flags.Spec
 	// FeatureSearch is the flag (wire name `search`) gating SearchPeople and SearchPosts per caller
-	// (FEATURE_DISABLED feature=search, 0 reads). FEATURE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
+	// (FEATURE_DISABLED feature=search, rejected before any lookup). FEATURE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureSearch flags.Spec
 	// FeatureTrends is the flag (wire name `trends`) gating GetTrends per caller and the trends refresh step
 	// (which honours only a globally-off flag). FEATURE_TRENDS[_ALLOWLIST|_PERCENT], default off in every environment;
 	// it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrends flags.Spec
 	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
-	// FEATURE_DISABLED feature=polls, 0 reads). VotePoll needs engagement on for the caller and polls NOT globally off.
+	// FEATURE_DISABLED feature=polls, rejected before any lookup). VotePoll needs engagement on for the caller and polls NOT globally off.
 	// It never ramps ahead of FEATURE_ENGAGEMENT and leaves off only once 100% of traffic is on a revision that stores
 	// and enforces polls. FEATURE_POLLS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeaturePolls flags.Spec
 	// FeatureDrafts is the client-only flag (wire name `drafts`, like ui_shell): no RPC guard; it is registered
 	// so GetMe.enabled_features reports it. FEATURE_DRAFTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDrafts flags.Spec
-	// FeatureGif is the flag (wire name `gif`) gating CreateUpload with image/gif (0 reads) and CreatePost
+	// FeatureGif is the flag (wire name `gif`) gating CreateUpload with image/gif and CreatePost
 	// with a GIF media doc. It never ramps ahead of FEATURE_MEDIA. FEATURE_GIF[_ALLOWLIST|_PERCENT], default off.
 	FeatureGif flags.Spec
 

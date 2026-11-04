@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -206,7 +205,6 @@ func (r *FirestoreRepo) InitGraph(b store.Batch, uid string, now time.Time) {
 // crash a request.
 func (r *FirestoreRepo) getGraph(ctx context.Context, uid string) (doc, error) {
 	snap, err := r.graphRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return doc{}, nil
@@ -224,11 +222,9 @@ func (r *FirestoreRepo) getGraph(ctx context.Context, uid string) (doc, error) {
 // It also returns the doc's Firestore CreateTime (zero if the doc doesn't exist): since
 // InitGraph creates graph/{uid} atomically with users/{uid} in CreateProfile's own transaction, this is a
 // free (already-fetched) proxy for account age — Block and Mute use it to pick the new-account quota tier
-// without needing a separate identity.Directory read (unlike Follow, whose documented budget already
-// includes a Directory lookup for the target's isPrivate flag).
+// without needing a separate identity.Directory read (unlike Follow, which looks up the target's isPrivate flag).
 func (r *FirestoreRepo) getGraphTx(ctx context.Context, tx *firestore.Transaction, uid string) (doc, time.Time, error) {
 	snap, err := tx.Get(r.graphRef(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return doc{}, time.Time{}, nil
@@ -248,7 +244,6 @@ func (r *FirestoreRepo) getGraphTx(ctx context.Context, tx *firestore.Transactio
 // Block costs 0 extra reads this way).
 func (r *FirestoreRepo) getGraphTxExists(ctx context.Context, tx *firestore.Transaction, uid string) (doc, bool, error) {
 	snap, err := tx.Get(r.graphRef(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return doc{}, false, nil
@@ -282,7 +277,7 @@ func followStateOf(d doc, uid string) FollowState {
 	return FollowStateNone
 }
 
-// GetSnapshot implements Repo for Reader.Snapshot's cache-miss path: 1 read.
+// GetSnapshot implements Repo for Reader.Snapshot's cache-miss path.
 func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, error) {
 	d, err := r.getGraph(ctx, uid)
 	if err != nil {
@@ -293,11 +288,10 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 
 var _ TxReader = (*FirestoreRepo)(nil)
 
-// SnapshotInTx implements TxReader : graph/{uid} read through tx, 1 read, no cache involved. A
+// SnapshotInTx implements TxReader : graph/{uid} read through tx, no cache involved. A
 // missing document is an empty Snapshot. Errors carry no uid (a Firestore error text would name the document path).
 func (r *FirestoreRepo) SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error) {
 	snap, err := tx.Get(r.graphRef(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Snapshot{}, nil
@@ -329,10 +323,10 @@ type followHooks struct {
 // request; public target: following-cap -> quota -> edge. A public target that is still in the caller's `requested`
 // (the privacy_public job has not run yet) takes the edge path and also deletes the request.
 //
-// Reads: target users 1 + caller graph 1 + quotas 1 (3 warm, the interceptor's caller read makes it 4 cold), +1 target
-// graph only for an overflowed caller. Writes: the edge 5 (follows doc, caller graph, 2 counters, quota) or a request 3
-// (followRequests Create, caller graph `requested` ArrayUnion, quota); 0 on any replay. Deletes: +1 only on the AQ4
-// path. The outcome tells the caller which of the three it was (Relationship.FollowState: FOLLOWING vs REQUESTED).
+// It reads the target users doc, the caller graph and quotas, plus the target graph only for an overflowed caller.
+// It writes either the edge (follows doc, caller graph, 2 counters, quota) or a request (followRequests Create,
+// caller graph `requested` ArrayUnion, quota), and nothing on any replay. It deletes a leftover request only on the
+// AQ4 path. The outcome tells the caller which of the three it was (Relationship.FollowState: FOLLOWING vs REQUESTED).
 func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
 	profiles, err := r.txProfilesReader()
 	if err != nil {
@@ -343,7 +337,6 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 	attempt := 0
 	requestPath := false
 	err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		attempt++
 		requestPath = false
 
@@ -394,7 +387,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			return nil
 		}
 
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		requestRef, err := r.requestRef(callerUID, targetUID)
 		if err != nil {
 			return err
@@ -471,7 +464,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 }
 
 // Unfollow is a blind batch: delete the follows doc with an Exists precondition, so a
-// replay (already unfollowed, or never followed) fails the whole batch atomically and costs 0 writes — the
+// replay (already unfollowed, or never followed) fails the whole batch atomically and writes nothing — the
 // precondition also makes this safe to race against Block, which deletes the same edge with the same
 // precondition (invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
 //
@@ -481,14 +474,13 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
 	// D1: unlike RunTransaction, a bare batch commit is not retried by the SDK when it loses a lock race with a
 	// Follow/Block transaction on the same docs (Aborted). Retry a bounded number of times with a short
-	// backoff; the budget is unchanged (0R/3W/1D) because a failed attempt writes nothing and each attempt
-	// counts into its own scratch counter that is only folded into the request counter on success.
+	// backoff; a failed attempt writes nothing.
 	edgeRef, err := r.followRef(callerUID, targetUID)
 	if err != nil {
 		return false, err
 	}
 	res, err := store.CommitWithRetry(ctx,
-		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		func() *store.FirestoreBatch { return store.NewFirestoreBatch(r.client) },
 		store.RetryConfig{MaxAttempts: unfollowMaxAttempts, Backoff: unfollowRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
 		func(b store.Batch) {
 			b.Delete(edgeRef, firestore.Exists)
@@ -515,7 +507,7 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 // WithdrawRequest is the second blind batch of Unfollow: the edge batch failed its precondition, so the
 // caller either had no edge or had a pending request. It deletes followRequests/{caller}_{target} with an Exists
 // precondition and removes the target from graph/{caller}.requested in the same batch (I-R). A failed precondition is
-// (false, nil): nothing to withdraw, 0 writes. 0 reads, 1 write, 1 delete; the same bounded contention retry as Unfollow.
+// (false, nil): nothing to withdraw. It reads nothing; the same bounded contention retry as Unfollow.
 //
 // the reasoning carries over: with I-R, the request doc exists exactly when the target is in `requested`, so a
 // missing doc means there is nothing to remove from the array either. Undo is never gated (no private_accounts check).
@@ -525,7 +517,7 @@ func (r *FirestoreRepo) WithdrawRequest(ctx context.Context, callerUID, targetUI
 		return false, err
 	}
 	res, err := store.CommitWithRetry(ctx,
-		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		func() *store.FirestoreBatch { return store.NewFirestoreBatch(r.client) },
 		store.RetryConfig{MaxAttempts: unfollowMaxAttempts, Backoff: unfollowRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
 		func(b store.Batch) {
 			b.Delete(reqRef, firestore.Exists)

@@ -9,7 +9,6 @@ import (
 
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -62,7 +61,7 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 					uid: {UserID: uid, Status: identity.AccountStatusActive, IsPrivate: tt.protected},
 				}}}
 				svc.SetDirectory(dir)
-				ctx, _ := budget.WithCounter(w3Ctx(uid))
+				ctx := w3Ctx(uid)
 
 				err := call(ctx, NewServer(svc))
 				wantSnapshotReads := 0

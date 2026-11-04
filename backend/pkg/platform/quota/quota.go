@@ -1,7 +1,7 @@
 // Package quota implements the per-user daily quotas at quotas/{uid}. The
-// mutating RPC reads the doc inside its own transaction (1 read), rejects RESOURCE_EXHAUSTED if the
+// mutating RPC reads the doc inside its own transaction, rejects RESOURCE_EXHAUSTED if the
 // caller is already at the limit, and appends the updated counters to the same atomic batch/transaction
-// it's already using for the entity write (1 write, no extra round trip).
+// it's already using for the entity write (no extra round trip).
 package quota
 
 import (
@@ -17,7 +17,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -216,11 +215,10 @@ func (s *Store) Ref(uid string) *firestore.DocumentRef {
 }
 
 // Get reads today's counters for uid inside tx, treating "not found" and "rolled over to a new day" the
-// same way: a fresh Record for today with all counters at 0. Counts against ctx's budget.Counter.
+// same way: a fresh Record for today with all counters at 0.
 func (s *Store) Get(ctx context.Context, tx *firestore.Transaction, uid string) (Record, error) {
 	today := Today()
 	snap, err := tx.Get(s.Ref(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Record{Day: today}, nil
@@ -258,7 +256,7 @@ func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kin
 
 // CheckAndReserveBoth reserves one unit of each of two kinds in ONE whole-record Set (CheckAndReserve called twice with the same rec
 // would write the second copy without the first increment, losing a unit). CreatePost into a community uses it for posts and
-// communityPosts, so the extra quota costs +0 writes. first is checked first: when both are over, first's error wins.
+// communityPosts, so the extra quota adds no write. first is checked first: when both are over, first's error wins.
 func CheckAndReserveBoth(b store.Batch, ref *firestore.DocumentRef, rec Record, first Kind, firstLimit int64, second Kind, secondLimit int64) error {
 	if rec.valueFor(first)+1 > firstLimit {
 		return ExceededError(first, time.Now())

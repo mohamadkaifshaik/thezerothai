@@ -19,7 +19,6 @@ import (
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 type fakeFlags struct{ on bool }
@@ -30,7 +29,7 @@ func ctxFor(uid string) context.Context {
 	return authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 reads (the enabled paths are in service_test.go).
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED without touching storage (the enabled paths are in service_test.go).
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"GetHomeTimeline": func(s *Server, ctx context.Context) error {
@@ -44,7 +43,7 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	}
 	for name, call := range calls {
 		t.Run(name+" flag off", func(t *testing.T) {
-			ctx, _ := budget.WithCounter(ctxFor("u1"))
+			ctx := ctxFor("u1")
 			err := call(NewServer(Deps{Flags: fakeFlags{}}), ctx)
 			var ae *apierr.Error
 			if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || ae.Code != connect.CodeFailedPrecondition {

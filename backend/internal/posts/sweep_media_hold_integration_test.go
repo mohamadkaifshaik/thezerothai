@@ -31,13 +31,12 @@ func TestSweepIT_MediaHold(t *testing.T) {
 	}
 	before := updateTime()
 
-	// Media off: held. The run's whole cost is the due query's one read.
-	res, c := e.sweep()
+	// Media off: held..
+	res := e.sweep()
 	if res.Outcome != SweepOK || res.Due != 1 || res.HeldMedia != 1 || res.Published != 0 || res.Deferred != 0 || res.Transient != 0 ||
 		res.Noop != 0 || res.WriteFailed != 0 || len(res.Failed) != 0 {
 		t.Fatalf("held run: res = %+v, want 1 due and 1 held", res)
 	}
-	assertCost(t, "held run", c, 1, 0)
 	if n := txns.Load(); n != 0 {
 		t.Errorf("%d publish transactions for a held item, want 0", n)
 	}
@@ -62,20 +61,17 @@ func TestSweepIT_MediaHold(t *testing.T) {
 	}
 
 	// A second held run is the same: nothing accumulates.
-	res, c = e.sweep()
+	res = e.sweep()
 	if res.HeldMedia != 1 || res.Published != 0 {
 		t.Fatalf("second held run: res = %+v", res)
 	}
-	assertCost(t, "second held run", c, 1, 0)
 
 	// Media on again: no special handling, the next run publishes it with its image.
 	delete(fl, mediaFlagName)
-	res, c = e.sweep()
+	res = e.sweep()
 	if res.Outcome != SweepOK || res.Published != 1 || res.HeldMedia != 0 || len(res.Failed) != 0 {
 		t.Fatalf("run after the flag returned: res = %+v, want 1 published", res)
 	}
-	// due query 1 + scheduled 1 + users 1 + quotas 1 + media 1 = 5 reads; post, postsCount, quotas, scheduled, media = 5 writes.
-	assertCost(t, "publish after the hold", c, 5, 5)
 	if n := txns.Load(); n != 1 {
 		t.Errorf("publish transactions = %d, want 1", n)
 	}

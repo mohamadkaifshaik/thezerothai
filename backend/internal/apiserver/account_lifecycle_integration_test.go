@@ -63,7 +63,7 @@ func newLifecycleEnv(t *testing.T) *lifecycleEnv {
 }
 
 // seedProtectedSetDoc creates privacy/protectedAuthors the way dev and prod always have it, so the identity
-// step's ArrayRemove is a real write on every run: the cost is deterministic whatever ran before on the emulator (D-2).
+// step's ArrayRemove is a real write on every run: the outcome is deterministic whatever ran before on the emulator.
 // Merge-only: it never clears uids another test protected.
 func seedProtectedSetDoc(t *testing.T, c *firestore.Client) {
 	t.Helper()
@@ -275,7 +275,7 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	}
 	lines := e.requestLinesFor("/dzeroth.identity.v1.IdentityService/RequestAccountExport")
 	if len(lines) != 1 {
-		t.Errorf("RequestAccountExport request line = %v, want reads <= 3 (interceptor + quotas), writes 2", lines)
+		t.Errorf("RequestAccountExport request lines = %v, want exactly one", lines)
 	}
 	msgs := e.pull(t)
 	if len(msgs) != 1 || msgs[0]["kind"] != "account_export" || msgs[0]["exportId"] != exp.Msg.GetExportId() {
@@ -331,15 +331,15 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	requestedAt := del.Msg.GetDeletionRequestedAt().AsTime()
 	lines = e.requestLinesFor("/dzeroth.identity.v1.IdentityService/DeleteAccount")
 	if len(lines) != 1 {
-		t.Errorf("DeleteAccount request line = %v, want reads <= 2, writes 1", lines)
+		t.Errorf("DeleteAccount request lines = %v, want exactly one", lines)
 	}
-	// Replay (a lost response): same timestamp, 0 writes, no ACCOUNT_RESTRICTED even though the user is DELETING now.
+	// Replay (a lost response): same timestamp, no ACCOUNT_RESTRICTED even though the user is DELETING now.
 	again, err := e.identity.DeleteAccount(ctx, authed(a.token, &identityv1.DeleteAccountRequest{IdempotencyKey: "chain-delete-key-0002"}))
 	if err != nil || !again.Msg.GetDeletionRequestedAt().AsTime().Equal(requestedAt) {
 		t.Fatalf("replay = %v, %v", again, err)
 	}
 	if lines = e.requestLinesFor("/dzeroth.identity.v1.IdentityService/DeleteAccount"); len(lines) != 2 {
-		t.Errorf("replay request line = %v, want 0 writes", lines)
+		t.Errorf("replay request lines = %v, want two in all", lines)
 	}
 	// Every other RPC is restricted for the DELETING caller.
 	_, err = e.identity.GetMe(ctx, authed(a.token, &identityv1.GetMeRequest{}))

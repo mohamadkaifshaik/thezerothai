@@ -1,7 +1,7 @@
 //go:build integration
 
 // privacy_public_integration_test.go exercises the privacy_public job against the Firestore emulator:
-// 0, 1, 100, 101 and 250 pending requests with the documented budget, a redelivery, a re-protect before and in
+// 0, 1, 100, 101 and 250 pending requests, a redelivery, a re-protect before and in
 // the middle of a run, a requester at the following cap and a requester that is gone. The full chain through
 // apiserver.Build (listener, Pub/Sub, push endpoint) is apiserver/privacy_public_integration_test.go.
 package graph_test
@@ -17,11 +17,10 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // pendingTo protects uid-p and makes n requesters request it through the real Follow path. Requesters are warmed in
-// the Directory cache, as on an instance that served them recently, so the job's own cost is measured.
+// the Directory cache, as on an instance that served them recently.
 func pendingTo(t *testing.T, w wired, n int) []string {
 	t.Helper()
 	mustCreateProfile(t, w.identity, "uid-p", "userp")
@@ -47,30 +46,18 @@ func pendingCount(t *testing.T, w wired) int {
 	return int(n)
 }
 
-func runJob(t *testing.T, w wired, ev graph.FollowEvents) (string, *budget.Counter) {
+func runJob(t *testing.T, w wired, ev graph.FollowEvents) string {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
-	out, err := w.graph.privacyJob(w.graph.repo).Run(ctx, "uid-p")
+	out, err := w.graph.privacyJob(w.graph.repo).Run(context.Background(), "uid-p")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	return out, counter
+	return out
 }
 
-func TestPrivacyPublic_Integration_Counts(t *testing.T) {
-	// reads = per page 1 (users) + 2 per request (the request inside the transaction, the requester graph); a run whose
-	// last page is exactly full adds one empty page (users 1 + the empty query 1). writes = 3 per request + 1 per page
-	// that accepted anything. deletes = 1 per request.
-	cases := []struct {
-		n                    int
-		reads, writes, pages int
-	}{
-		{0, 2, 0, 1},
-		{1, 1 + 2, 3 + 1, 1},
-		{100, (1 + 200) + 2, 300 + 1, 2},
-		{101, (1 + 200) + (1 + 2), 303 + 2, 2},
-		{250, (1 + 200) + (1 + 200) + (1 + 100), 750 + 3, 3},
-	}
+func TestPrivacyPublic_Integration_AcceptsEveryPage(t *testing.T) {
+	// The job accepts 100 requests per page: none, one, exactly one full page, one request over it, and several pages.
+	cases := []struct{ n int }{{0}, {1}, {100}, {101}, {250}}
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%d pending", tc.n), func(t *testing.T) {
 			ev := &acceptRecorder{}
@@ -78,7 +65,7 @@ func TestPrivacyPublic_Integration_Counts(t *testing.T) {
 			reqs := pendingTo(t, w, tc.n)
 			unprotect(t, w, "uid-p")
 
-			out, _ := runJob(t, w, ev)
+			out := runJob(t, w, ev)
 			if out != "done" {
 				t.Errorf("outcome = %q, want done", out)
 			}
@@ -105,7 +92,7 @@ func TestPrivacyPublic_Integration_Counts(t *testing.T) {
 
 			// A redelivery is a no-op: no edge twice, no counter doubled, one empty page.
 			ev.accepted = nil
-			out, _ = runJob(t, w, ev)
+			out = runJob(t, w, ev)
 			if _, followers := counts(t, w, "uid-p"); out != "done" || followers != int64(tc.n) || len(ev.accepted) != 0 {
 				t.Errorf("redelivery: outcome %q followersCount %d events %d, want done / %d / 0", out, followers, len(ev.accepted), tc.n)
 			}
@@ -116,7 +103,7 @@ func TestPrivacyPublic_Integration_Counts(t *testing.T) {
 func TestPrivacyPublic_Integration_ReprotectedBeforeRun(t *testing.T) {
 	w := newWired(t)
 	reqs := pendingTo(t, w, 3) // still protected
-	out, _ := runJob(t, w, nil)
+	out := runJob(t, w, nil)
 	if out != "stopped:protected" || pendingCount(t, w) != 3 {
 		t.Fatalf("outcome %q pending %d, want stopped:protected / 3", out, pendingCount(t, w))
 	}
@@ -150,7 +137,7 @@ func TestPrivacyPublic_Integration_ReprotectedMidRun(t *testing.T) {
 	reqs := pendingTo(t, w, 150)
 	unprotect(t, w, "uid-p")
 
-	out, _ := runJob(t, w, ev)
+	out := runJob(t, w, ev)
 	if out != "stopped:protected" {
 		t.Fatalf("outcome = %q, want stopped:protected", out)
 	}
@@ -195,7 +182,7 @@ func TestPrivacyPublic_Integration_CapInactiveAndGone(t *testing.T) {
 	w.identity.(identity.Directory).Forget(gone, suspended)
 	unprotect(t, w, "uid-p")
 
-	out, _ := runJob(t, w, ev)
+	out := runJob(t, w, ev)
 	if out != "done" {
 		t.Fatalf("outcome = %q", out)
 	}

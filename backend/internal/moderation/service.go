@@ -64,7 +64,7 @@ type Deps struct {
 type service struct {
 	d Deps
 	// exhausted remembers, per instance, the uids whose reports quota was found spent, so a client that keeps
-	// retrying an over-quota report costs 1 Firestore read (the replay lookup) until the IST day rolls over.
+	// retrying an over-quota report costs only the replay lookup until the IST day rolls over.
 	exhausted *cache.LRU[string, exhaustion]
 }
 
@@ -146,7 +146,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	logger.SetRequestField(ctx, fieldReason, string(in.Reason))
 	// A uid already known to be out of quota skips the profile, post and transaction reads. The report id needs no
 	// read, so one point read tells a replay of a report that is already OPEN (AlreadyReported, rule 4: it was
-	// written and needs no quota) from a genuinely new or reopened report, which is QUOTA_EXCEEDED. 1 read.
+	// written and needs no quota) from a genuinely new or reopened report, which is QUOTA_EXCEEDED.
 	if e, ok := s.exhausted.Get(uid); ok {
 		now := s.d.Now()
 		if now.Before(e.until) && (e.windowEnds.IsZero() || now.Before(e.windowEnds)) {
@@ -191,7 +191,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		}
 		rep.TargetOwnerID = p.AuthorID
 		rep.Evidence = &Evidence{Text: p.Text, AuthorHandle: p.Author.Handle, PostCreatedAt: p.CreatedAt, MediaIDs: mediaIDs(p.Media), PollChoices: pollChoices(p.Poll)}
-		// A REPOST carries no content of its own: the evidence is the original it embeds (already loaded, 0 reads).
+		// A REPOST carries no content of its own: the evidence is the original it embeds (already loaded).
 		// TargetOwnerID stays the reposter. A tombstone or missing snapshot keeps the empty evidence above.
 		if e := p.Embedded; p.Kind == posts.KindRepost && e != nil && !e.Unavailable && e.PostID != "" {
 			rep.Evidence = &Evidence{Text: e.Text, AuthorHandle: e.Author.Handle, PostCreatedAt: e.CreatedAt,
@@ -290,7 +290,7 @@ func (s *service) reportedMessage(ctx context.Context, uid, targetID string) (Re
 	return m, nil
 }
 
-// mediaIDs are the ids of the post's images (0 reads: the post is already loaded), nil for a text-only post.
+// mediaIDs are the ids of the post's images (the post is already loaded), nil for a text-only post.
 func mediaIDs(m []posts.MediaRef) []string {
 	if len(m) == 0 {
 		return nil
@@ -349,7 +349,7 @@ func noteRejected(ctx context.Context, err error) {
 	logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reason)
 }
 
-// pollChoices are the labels of the reported post's poll (0 reads, the post is loaded), nil without a poll.
+// pollChoices are the labels of the reported post's poll (the post is loaded), nil without a poll.
 func pollChoices(p *posts.Poll) []string {
 	if p == nil {
 		return nil

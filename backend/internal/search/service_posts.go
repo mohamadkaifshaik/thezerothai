@@ -176,13 +176,11 @@ type fetched struct {
 
 // search implements SearchPosts.
 //
-// Worst-case Firestore reads, interceptor included (writes 0): TOP, LATEST page 1 and MEDIA page 1 at page_size <= 30
-// cold 33 (interceptor 1, caller graph 1, userLikes 1, the tag entry 30), warm 0 to 3; LATEST page 1 at page_size 31 to 50:
-// 53 (query 50). LATEST windows are fixed tiers, never the page size itself (part 3, review L-1):
-// an older page is 23 at page_size <= 20 (query 20) and 53 at 21 to 50 (query 50); a tail page (the token of a window that
-// was not full, the end of the tag) reads 3 + the rows left, at most 32 after a page-1 entry and 52 after a 50-row window.
-// The client sends 20, so its cost is 33 / 23 / <= 32. MEDIA older scan 33 (scan 30).
-// An unsupported query, a grammar rejection and a bad token read nothing beyond the interceptor. The graph and userLikes
+// LATEST page 1 and TOP and MEDIA page 1 at page_size <= 30 are served from the tag entry (30 posts); LATEST page 1 at
+// page_size 31 to 50 queries 50. LATEST windows are fixed tiers, never the page size itself (part 3, review L-1): an
+// older page queries 20 at page_size <= 20 and 50 at 21 to 50; a tail page (the token of a window that was not full, the
+// end of the tag) reads the rest of the tag. The older MEDIA scan reads 30.
+// An unsupported query, a grammar rejection and a bad token read nothing. The graph and userLikes
 // reads are 60 s instance caches; userLikes is read only when a row is returned and engagement or bookmarks is on.
 //
 // LATEST filters the WHOLE window (moderation, blocks, mutes, Audience), then cuts to page_size, so the number of rows and
@@ -336,9 +334,8 @@ func latestWindow(limit int, tail bool) int {
 	return latestOlderSmall
 }
 
-// entry returns the newest tagEntrySize posts of tag, unfiltered: from the instance cache (0 reads) or one ByHashtag
-// (len(result) reads, minimum 1). Concurrent misses share one load; it runs detached from the first caller's
-// cancellation and is charged to that caller's counter. An empty result is cached too.
+// entry returns the newest tagEntrySize posts of tag, unfiltered: from the instance cache or one ByHashtag.
+// Concurrent misses share one load; it runs detached from the first caller's cancellation. An empty result is cached too.
 func (r *postsRuntime) entry(ctx context.Context, uid, tag string) (entry []*posts.Post, hit bool, err error) {
 	if ps, ok := r.entries.Get(tag); ok {
 		return ps, true, nil
@@ -408,8 +405,7 @@ func rankTop(rows []*posts.Post) {
 // row: moderation (!Visible), the blockedBy-overflow fail-closed rule, the author's and a QUOTE's embedded author's
 // block / blocked-by / mute state, then posts.Audience.Decide on the list surface (protected authors; a QUOTE of one is
 // kept with embed PROTECTED). The caller's own posts are kept. The graph snapshot is read once (cached 60 s) and only
-// when rows exist. A protected set that cannot be trusted is UNAVAILABLE (never a partial page). Reads: 0 beyond the
-// snapshot. The returned slice is fresh, so callers may reorder it.
+// when rows exist. A protected set that cannot be trusted is UNAVAILABLE (never a partial page). The returned slice is fresh, so callers may reorder it.
 func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Post) ([]*posts.Post, map[string]postsv1.EmbedViewerState, dropTally, graph.Snapshot, error) {
 	var tally dropTally
 	if len(rows) == 0 {

@@ -286,7 +286,7 @@ func mapErr(ctx context.Context, op, uid, cid string, err error) error {
 }
 
 // CreateCommunity implements Service. The creators check is first: a caller outside COMMUNITY_CREATORS gets
-// FORBIDDEN not_creator with 0 reads, whatever else is wrong with the request. Then the key and the text rules (0 reads), then one
+// FORBIDDEN not_creator before any read, whatever else is wrong with the request. Then the key and the text rules, then one
 // repository transaction. The new community and the owner's member doc fill the instance caches.
 func (s *service) CreateCommunity(ctx context.Context, uid string, in CreateInput) (View, error) {
 	begin(ctx, "create")
@@ -375,8 +375,7 @@ func (s *service) UpdateCommunity(ctx context.Context, uid string, in UpdateInpu
 	return View{Community: res.Community, Role: res.Community.RoleOf(uid)}, nil
 }
 
-// loadCommunity is the cache-first community read (60 s, D12): a hit costs 0 reads, a miss 1 (charged even when the document is
-// missing). A missing document is remembered for 60 s too. ErrNotFound for a missing doc. It does not apply the SUSPENDED rule.
+// loadCommunity is the cache-first community read (60 s): a hit is served from the instance cache, a miss reads the document. A missing document is remembered for 60 s too. ErrNotFound for a missing doc. It does not apply the SUSPENDED rule.
 func (s *service) loadCommunity(ctx context.Context, id string) (Community, error) {
 	if c, ok := s.cache.get(id); ok {
 		logger.SetRequestField(ctx, fieldCacheHit, true)
@@ -398,8 +397,8 @@ func (s *service) loadCommunity(ctx context.Context, id string) (Community, erro
 	return c, nil
 }
 
-// MemberState implements CachedMembers: uid's member-doc state from the 60 s instance cache (absence cached too; staleness bound 60 s, D12),
-// 1 read cold and 0 warm, without loading the community document.
+// MemberState implements CachedMembers: uid's member-doc state from the 60 s instance cache (absence cached too; staleness bound 60 s),
+// without loading the community document.
 func (s *service) MemberState(ctx context.Context, communityID, uid string) (MemberState, error) {
 	if st, ok := s.cache.getMember(communityID, uid); ok {
 		return st, nil
@@ -412,8 +411,8 @@ func (s *service) MemberState(ctx context.Context, communityID, uid string) (Mem
 	return st, nil
 }
 
-// roleFor completes the D4 role for uid: the community doc decides OWNER and MODERATOR (0 reads); otherwise the member doc does,
-// cache-first (60 s, absence cached too), 1 read when cold.
+// roleFor completes the D4 role for uid: the community doc decides OWNER and MODERATOR; otherwise the member doc does,
+// cache-first (60 s, absence cached too).
 func (s *service) roleFor(ctx context.Context, c Community, uid string) (Role, error) {
 	if r := c.RoleOf(uid); r != RoleNone {
 		return r, nil
@@ -431,10 +430,10 @@ func (s *service) roleFor(ctx context.Context, c Community, uid string) (Role, e
 	return RoleNone, nil
 }
 
-// GetCommunity implements Service. Order, cheapest first: the community (cache or 1 read), the SUSPENDED rule (the owner alone sees it,
-// N3: the one NOT_FOUND for everyone else, before any further read so the bytes and the read count match a missing id), the caller's
+// GetCommunity implements Service. Order, cheapest first: the community (cache first), the SUSPENDED rule (the owner alone sees it,
+// N3: the one NOT_FOUND for everyone else, before any further read so the response matches a missing id), the caller's
 // role, then the role holders' rows. Owner and moderators are live profiles (identity.Directory, cache-first) with the caller's
-// relationship from the caller's own graph snapshot (0 extra reads); every role holder is shown to every viewer whatever the blocks
+// relationship from the caller's own graph snapshot; every role holder is shown to every viewer whatever the blocks
 // (D7), but one whose account is not ACTIVE is left out for everyone.
 func (s *service) GetCommunity(ctx context.Context, uid, communityID string) (Detail, error) {
 	begin(ctx, "get")

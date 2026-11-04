@@ -205,7 +205,7 @@ func (ReplyPolicy) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{2}
 }
 
-// Whether the viewer may reply, as far as the server can tell without extra reads. Advisory only:
+// Whether the viewer may reply, as far as the server can tell without extra lookups. Advisory only:
 // CreatePost decides.
 type ReplyPermission int32
 
@@ -573,7 +573,7 @@ func (x *PollChoice) GetVotes() int64 {
 	return 0
 }
 
-// A poll on a root post. Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
+// A poll on a root post. Stored on the post doc, so it needs no extra lookup anywhere a post is read.
 // Counts are the post's instance-cached state (up to 60 s stale), except in the VotePoll response (the committed
 // counts). Per viewer: never cache a Post with a poll across viewers on the client.
 // In EmbeddedPost.poll (a repost or quote row) it is a frozen definition: labels and closes_at only, every votes 0,
@@ -1129,7 +1129,7 @@ func (x *CommunityRef) GetName() string {
 	return ""
 }
 
-// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
+// A post as seen by the caller. Viewer flags come from userLikes/{uid} (cached 60 s) while
 // FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens.
 // For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 type PostView struct {
@@ -1137,10 +1137,10 @@ type PostView struct {
 	Post             *Post                  `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
 	LikedByViewer    bool                   `protobuf:"varint,2,opt,name=liked_by_viewer,json=likedByViewer,proto3" json:"liked_by_viewer,omitempty"`
 	RepostedByViewer bool                   `protobuf:"varint,3,opt,name=reposted_by_viewer,json=repostedByViewer,proto3" json:"reposted_by_viewer,omitempty"`
-	// Whether the caller may reply. Timelines decide it with 0 reads for root posts only (EVERYONE, the
+	// Whether the caller may reply. Timelines decide it without a lookup for root posts only (EVERYONE, the
 	// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
 	// A post in a community conversation: GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
-	// viewer's role (+0 reads); GetPost and GetThread decide it from the caller's member doc; Home, profile, list and
+	// viewer's role; GetPost and GetThread decide it from the caller's member doc; Home, profile, list and
 	// search timelines answer UNKNOWN (CreatePost decides).
 	ViewerReplyPermission ReplyPermission `protobuf:"varint,4,opt,name=viewer_reply_permission,json=viewerReplyPermission,proto3,enum=dzeroth.posts.v1.ReplyPermission" json:"viewer_reply_permission,omitempty"`
 	// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
@@ -1150,9 +1150,8 @@ type PostView struct {
 	// own REPOST on the caller's own profile.
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
 	// Whether the caller bookmarked this item; true only for the caller, never another user's state. For a
-	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
-	// 0 extra reads when FEATURE_ENGAGEMENT is on for the viewer (the userLikes read already happens), +1 cold read
-	// (cached 60 s) when only FEATURE_BOOKMARKS is on; absent (false) when neither flag is on for the viewer. Staleness
+	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks, which
+	// FEATURE_ENGAGEMENT already reads (cached 60 s; read on its own when only FEATURE_BOOKMARKS is on); absent (false) when neither flag is on for the viewer. Staleness
 	// bound: the userLikes instance cache TTL (60 s). With only bookmarks on, liked_by_viewer and reposted_by_viewer
 	// stay false.
 	BookmarkedByViewer bool `protobuf:"varint,6,opt,name=bookmarked_by_viewer,json=bookmarkedByViewer,proto3" json:"bookmarked_by_viewer,omitempty"`
@@ -1166,7 +1165,7 @@ type PostView struct {
 	// The caller's own vote in this item's poll: 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
 	// the caller, or the vote is older than the newest 500 the server keeps for the check mark), 1-4 = choice index + 1.
 	// For a REPOST row it describes the original's poll (embedded.post_id), like liked_by_viewer. Hydrated from
-	// userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
+	// userLikes; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
 	// 0 on a withheld row.
 	ViewerPollChoice int32 `protobuf:"varint,8,opt,name=viewer_poll_choice,json=viewerPollChoice,proto3" json:"viewer_poll_choice,omitempty"`
 	// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author:

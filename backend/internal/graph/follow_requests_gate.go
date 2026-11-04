@@ -23,8 +23,9 @@ type globallyOffChecker interface {
 // able to manage its requests (and unprotect) after the flag is switched off: ramping the flag down never strands them.
 // A refusal is FEATURE_DISABLED with metadata feature=private_accounts.
 //
-// Firestore: 0 reads while the flag is not globally off. While it is, one identity.Directory.GetProfiles of the caller,
-// cache-first: 0 reads warm (the account-status interceptor just loaded the profile), 1 cold. 0 writes.
+// It does no Firestore access while the flag is not globally off. While it is, it makes one
+// identity.Directory.GetProfiles call for the caller, cache-first (the account-status interceptor just loaded the
+// profile). It writes nothing.
 func (s *service) FollowRequestsGate(ctx context.Context, callerUID string) (err error) {
 	defer begin(ctx, "follow_requests_gate")(&err)
 	return s.followRequestsGate(ctx, callerUID)

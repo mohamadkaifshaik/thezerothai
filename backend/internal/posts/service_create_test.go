@@ -18,7 +18,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const (
@@ -60,10 +59,8 @@ func newCreateEnv(opts ...Option) *createEnv {
 	return e
 }
 
-func (e *createEnv) create(in CreateInput) (*Post, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(googleCtx(context.Background(), testUID))
-	p, err := e.svc.Create(ctx, testUID, in)
-	return p, c, err
+func (e *createEnv) create(in CreateInput) (*Post, error) {
+	return e.svc.Create(googleCtx(context.Background(), testUID), testUID, in)
 }
 
 func wantAPIError(t *testing.T, err error, code connect.Code, reason commonv1.ErrorReason) *apierr.Error {
@@ -80,7 +77,7 @@ func wantAPIError(t *testing.T, err error, code connect.Code, reason commonv1.Er
 
 func TestCreate_StoresADR0003Shape(t *testing.T) {
 	e := newCreateEnv()
-	p, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Hello @Bob and @ghost #Go #go"})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Hello @Bob and @ghost #Go #go"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,14 +100,14 @@ func TestCreate_StoresADR0003Shape(t *testing.T) {
 		t.Fatalf("events=%d forgotten=%v", len(e.events.created), e.dir.forgotten)
 	}
 	if e.repo.postsCount != 1 {
-		t.Fatalf("postsCount=%d writes=%d, want 1 and 4", e.repo.postsCount, c.Writes())
+		t.Fatalf("postsCount=%d, want 1", e.repo.postsCount)
 	}
 }
 
 func TestCreate_AuthorRecentUpdatedFromWrittenData(t *testing.T) {
 	e := newCreateEnv()
 	e.cache.StoreAuthorRecent(testUID, nil, false, time.Now())
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "first"})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "first"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +140,7 @@ func TestCreate_Mentions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
 			e.graph.snap = tt.snap
-			p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: tt.text})
+			p, err := e.create(CreateInput{IdempotencyKey: key1, Text: tt.text})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -167,7 +164,7 @@ func TestCreate_MentionsDoNotRevealBlockers(t *testing.T) {
 	run := func(snap graph.Snapshot) ([]Mention, int) {
 		e := newCreateEnv()
 		e.graph.snap = snap
-		p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
+		p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,7 +188,7 @@ func TestCreate_ElevenMentionsStoreTen(t *testing.T) {
 		e.dir.handles[h] = "uid-" + h
 		parts = append(parts, "@"+h)
 	}
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: strings.Join(parts, " ")})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: strings.Join(parts, " ")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,10 +219,10 @@ func TestCreate_FeatureDisabledBeforeAnythingElse(t *testing.T) {
 			e := newCreateEnv()
 			in := tt.in
 			in.Text, in.IdempotencyKey = "", "bad" // invalid on purpose: the feature check must win
-			_, c, err := e.create(in)
+			_, err := e.create(in)
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 			if ae.Metadata["feature"] != tt.want || e.repo.createCalls != 0 {
-				t.Fatalf("feature=%q reads=%d writes=%d", ae.Metadata["feature"], c.Reads(), c.Writes())
+				t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 			}
 		})
 	}
@@ -246,10 +243,10 @@ func TestCreate_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
-			_, c, err := e.create(tt.in)
+			_, err := e.create(tt.in)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != tt.field || e.repo.createCalls != 0 {
-				t.Fatalf("field=%q reads=%d", ae.Metadata["field"], c.Reads())
+				t.Fatalf("field=%q creates=%d", ae.Metadata["field"], e.repo.createCalls)
 			}
 		})
 	}
@@ -271,7 +268,7 @@ func TestCreate_EmailNotVerified(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv(tt.opts...)
-			ctx, _ := budget.WithCounter(authn.WithClaims(context.Background(), tt.claims))
+			ctx := authn.WithClaims(context.Background(), tt.claims)
 			_, err := e.svc.Create(ctx, testUID, CreateInput{IdempotencyKey: key1, Text: "hi"})
 			if tt.wantOK {
 				if err != nil {
@@ -287,50 +284,50 @@ func TestCreate_EmailNotVerified(t *testing.T) {
 func TestCreate_NoProfile(t *testing.T) {
 	e := newCreateEnv()
 	delete(e.dir.profiles, testUID)
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
 }
 
 func TestCreate_ReplayAndKeyReuse(t *testing.T) {
 	e := newCreateEnv()
-	first, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
+	first, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Replay with a warm posts cache: 1 read (the idempotency doc), 0 writes, no second event.
-	again, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
+	// Replay with a warm posts cache: the same post, no second event.
+	again, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
 	if err != nil || again.ID != first.ID {
-		t.Fatalf("replay: id=%v err=%v reads=%d writes=%d", again, err, c.Reads(), c.Writes())
+		t.Fatalf("replay: id=%v err=%v", again, err)
 	}
 	if len(e.events.created) != 1 || e.repo.postsCount != 1 {
 		t.Fatalf("replay must not re-run effects: events=%d postsCount=%d", len(e.events.created), e.repo.postsCount)
 	}
 	// Normalisation first: the same text typed with CRLF/extra space hashes equal.
-	if p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "  hello  "}); err != nil || p.ID != first.ID {
+	if p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "  hello  "}); err != nil || p.ID != first.ID {
 		t.Fatalf("normalised replay: %v %v", p, err)
 	}
-	// Cold cache replay: 1 extra read for the post.
+	// Cold cache replay: the post is fetched again and is still the first one.
 	e.cache = NewCache(time.Minute, 0, 0)
 	e.svc.cache = e.cache
-	_, c, err = e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
-	if err != nil {
-		t.Fatalf("cold replay: err=%v reads=%d, want 2", err, c.Reads())
+	cold, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
+	if err != nil || cold.ID != first.ID {
+		t.Fatalf("cold replay: id=%v err=%v, want the first post", cold, err)
 	}
 	// A different body with the same key.
-	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "different"})
+	_, err = e.create(CreateInput{IdempotencyKey: key1, Text: "different"})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	// Another key is a new post.
-	if p, _, err := e.create(CreateInput{IdempotencyKey: key2, Text: "hello"}); err != nil || p.ID == first.ID {
+	if p, err := e.create(CreateInput{IdempotencyKey: key2, Text: "hello"}); err != nil || p.ID == first.ID {
 		t.Fatalf("new key: %v %v", p, err)
 	}
 }
 
 func TestCreate_ReplayOfDeletedPost(t *testing.T) {
 	e := newCreateEnv()
-	p, _, _ := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
+	p, _ := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
 	delete(e.repo.docs, p.ID)
 	e.cache.DeletePost(p.ID)
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
 	_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
@@ -350,7 +347,7 @@ func TestCreate_QuotaTiers(t *testing.T) {
 			pr := e.dir.profiles[testUID]
 			pr.CreatedAt = time.Unix(1_700_000_000, 0).Add(-tt.createdAt)
 			e.dir.profiles[testUID] = pr
-			if _, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"}); err != nil {
+			if _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"}); err != nil {
 				t.Fatal(err)
 			}
 			if e.repo.lastCreate.QuotaLimit != tt.wantLimit {
@@ -363,24 +360,24 @@ func TestCreate_QuotaTiers(t *testing.T) {
 func TestCreate_QuotaExceeded(t *testing.T) {
 	e := newCreateEnv()
 	e.repo.quotaUsed = 100
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 	ae := wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 	if ae.Metadata["quota"] != "posts" || len(e.events.created) != 0 || len(e.dir.forgotten) != 0 {
-		t.Fatalf("meta=%v writes=%d events=%d forgotten=%v", ae.Metadata, c.Writes(), len(e.events.created), e.dir.forgotten)
+		t.Fatalf("meta=%v events=%d forgotten=%v", ae.Metadata, len(e.events.created), e.dir.forgotten)
 	}
 	e = newCreateEnv()
 	pr := e.dir.profiles[testUID]
 	pr.CreatedAt = time.Unix(1_700_000_000, 0).Add(-time.Hour)
 	e.dir.profiles[testUID] = pr
 	e.repo.quotaUsed = 20
-	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+	_, err = e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 	_ = wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 }
 
 func TestCreate_UnexpectedErrorIsNotAnAPIError(t *testing.T) {
 	e := newCreateEnv()
 	e.repo.createErr = errBoom
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 	var ae *apierr.Error
 	if err == nil || errors.As(err, &ae) || !errors.Is(err, errBoom) {
 		t.Fatalf("err = %v, want a wrapped non-API error", err)
@@ -406,10 +403,10 @@ func TestCreate_ContentionIsRetryableBusy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
 			e.repo.createErr = tt.err
-			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 			ae := wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 			if ae.RetryAfter != time.Second || len(e.events.created) != 0 {
-				t.Fatalf("retryAfter=%v writes=%d events=%d", ae.RetryAfter, c.Writes(), len(e.events.created))
+				t.Fatalf("retryAfter=%v events=%d", ae.RetryAfter, len(e.events.created))
 			}
 		})
 	}
@@ -425,27 +422,6 @@ func TestCreate_ContentionIsRetryableBusy(t *testing.T) {
 			t.Fatalf("err = %v: a canceled request must not be reported as contention", err)
 		}
 	})
-}
-
-func TestCreate_Budget(t *testing.T) {
-	// Warm: author profile and handles cached -> 2 reads (idempotency + quotas), 4 writes.
-	e := newCreateEnv()
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "no mentions"})
-	if err != nil {
-		t.Fatalf("warm: err=%v reads=%d writes=%d", err, c.Reads(), c.Writes())
-	}
-	// Cold ceiling: 10 handles + idempotency 1 + quotas 1 = 12 here (+1 interceptor = 13; documented ceiling 14).
-	e = newCreateEnv()
-	var parts []string
-	for i := 0; i < 10; i++ {
-		h := "user" + string(rune('a'+i))
-		e.dir.handles[h] = "uid-" + h
-		parts = append(parts, "@"+h)
-	}
-	_, c, err = e.create(CreateInput{IdempotencyKey: key1, Text: strings.Join(parts, " ")})
-	if err != nil {
-		t.Fatalf("cold: err=%v reads=%d writes=%d", err, c.Reads(), c.Writes())
-	}
 }
 
 func TestWithAllowAnonymous_DefaultIsFalse(t *testing.T) {

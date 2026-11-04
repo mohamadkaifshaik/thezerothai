@@ -49,7 +49,7 @@ func (s *service) encodeLikesToken(uid string, a likesAnchor) string {
 }
 
 // decodeLikesToken opens token for uid, bound to likes|<uid> with the 24 h TTL. An empty token is the first page (nil).
-// A foreign, expired, tampered or malformed one, and one whose payload does not parse, is errListToken. Pure: 0 reads.
+// A foreign, expired, tampered or malformed one, and one whose payload does not parse, is errListToken. Pure.
 func (s *service) decodeLikesToken(uid, token string) (*likesAnchor, error) {
 	if token == "" {
 		return nil, nil
@@ -74,9 +74,9 @@ func (s *service) decodeLikesToken(uid, token string) (*likesAnchor, error) {
 func likesResume(recent []string, a likesAnchor) int { return pageresume.Index(recent, a) }
 
 // listLikedPosts implements LikesList.ListLikedPosts. Reads, in this order and each only when needed: userLikes through
-// the instance cache (1 cold; an empty array stops here), GetMany (the misses of the instance post cache), the caller's
-// graph snapshot (1, cached 60 s, skipped when every live row is the caller's own); the viewer state comes from the
-// same userLikes state (0 reads). Writes 0.
+// the instance cache (an empty array stops here), GetMany (the misses of the instance post cache), the caller's
+// graph snapshot (cached 60 s, skipped when every live row is the caller's own); the viewer state comes from the
+// same userLikes state. Nothing is written.
 //
 // Staleness: the id list is the instance-cached userLikes (60 s TTL; this instance's own likes and unlikes update it in
 // place), so a like made on another instance can take up to 60 s to appear. The posts are as fresh as the post cache.

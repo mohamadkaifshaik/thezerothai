@@ -17,10 +17,10 @@ import (
 func TestGetThread_ProtectedFocalIsTheDeletedFocalAnswer(t *testing.T) {
 	e := newThreadEnv()
 	e.protect(uCarol)
-	_, _, errProt := e.thread(ThreadInput{PostID: rReply1})
+	_, errProt := e.thread(ThreadInput{PostID: rReply1})
 	e2 := newThreadEnv()
 	delete(e2.repo.docs, rReply1)
-	_, _, errGone := e2.thread(ThreadInput{PostID: rReply1})
+	_, errGone := e2.thread(ThreadInput{PostID: rReply1})
 	a, b := wantAPIError(t, errProt, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED), wantAPIError(t, errGone, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if a.Message != b.Message || a.Code != b.Code || !reflect.DeepEqual(a.Metadata, b.Metadata) {
 		t.Fatalf("protected focal %+v differs from a deleted focal %+v", a, b)
@@ -42,7 +42,7 @@ func TestGetThread_ProtectedRepliesAreDroppedAndCounted(t *testing.T) {
 			e := newThreadEnv()
 			e.protect(uCarol)
 			e.graph.snap.Following = following(tt.follow...).Following
-			th, _, err := e.thread(ThreadInput{PostID: rRoot})
+			th, err := e.thread(ThreadInput{PostID: rRoot})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestGetThread_ProtectedContextIsATombstone(t *testing.T) {
 	// The parent (rReply1, carol) protected: the focal reply by the caller stays, the parent is a tombstone.
 	e := newThreadEnv()
 	e.protect(uCarol)
-	th, _, err := e.thread(ThreadInput{PostID: rReply4})
+	th, err := e.thread(ThreadInput{PostID: rReply4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestGetThread_ProtectedContextIsATombstone(t *testing.T) {
 	// The root (zed) protected: both are tombstones for a reply whose parent is the root; the focal's text is shown.
 	e = newThreadEnv()
 	e.protect(uZed)
-	th, _, err = e.thread(ThreadInput{PostID: rReply1})
+	th, err = e.thread(ThreadInput{PostID: rReply1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestGetThread_ProtectedContextIsATombstone(t *testing.T) {
 	e = newThreadEnv()
 	e.protect(uZed)
 	e.graph.snap.Following = following(uZed).Following
-	th, _, err = e.thread(ThreadInput{PostID: rReply1})
+	th, err = e.thread(ThreadInput{PostID: rReply1})
 	if err != nil || th.Parent == nil || th.Root == nil {
 		t.Fatalf("a follower sees the context: %+v %v", th, err)
 	}
@@ -90,12 +90,12 @@ func TestGetThread_ProtectedRepostContextIsATombstoneButQuoteIsKept(t *testing.T
 	e.protect(uDave)
 	root := e.repo.docs[rRoot]
 	root.Kind, root.EmbeddedAuthorID = KindQuote, uDave
-	th, _, err := e.thread(ThreadInput{PostID: rReply1})
+	th, err := e.thread(ThreadInput{PostID: rReply1})
 	if err != nil || th.Root == nil || th.RootUnavailable {
 		t.Fatalf("a quote of a protected post stays (it renders stripped): %+v %v", th, err)
 	}
 	root.Kind = KindRepost
-	th, _, err = e.thread(ThreadInput{PostID: rReply2})
+	th, err = e.thread(ThreadInput{PostID: rReply2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestGetThread_UnknownProtectedSetIsUnavailable(t *testing.T) {
 	e := newThreadEnv()
 	f := e.protect(uCarol)
 	f.err = errors.New("firestore down")
-	_, _, err := e.thread(ThreadInput{PostID: rRoot})
+	_, err := e.thread(ThreadInput{PostID: rRoot})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Code != connect.CodeUnavailable {
 		t.Fatalf("err = %v, want UNAVAILABLE (fail closed)", err)
@@ -117,7 +117,7 @@ func TestGetThread_UnknownProtectedSetIsUnavailable(t *testing.T) {
 
 func TestGetThread_WithoutALoaderNobodyIsProtected(t *testing.T) {
 	e := newThreadEnv()
-	th, _, err := e.thread(ThreadInput{PostID: rRoot})
+	th, err := e.thread(ThreadInput{PostID: rRoot})
 	if err != nil || len(th.Replies) != 4 {
 		t.Fatalf("replies = %d err = %v", len(th.Replies), err)
 	}

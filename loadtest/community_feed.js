@@ -1,6 +1,6 @@
 // community_feed: W5 Part B emulator load smoke.
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
-// dzeroth-prod: it mints about 450 users and raises every community, post and read-budget cap.
+// dzeroth-prod: it mints about 450 users and raises every community, post and rate-limit cap.
 //
 //   setup()       Signs in the creator OWNER (a fixed email and password pre-minted in the Auth emulator; its uid must be in
 //                 COMMUNITY_CREATORS when the API starts, see below), mints AUTHORS (default 12) authors, VIEWERS (12), HERD_VIEWERS (24)
@@ -15,8 +15,8 @@
 //                 on CB (all-cold, then warm entry); the hide on CH (open, refresh, HideCommunityPost, refresh with removed_ids,
 //                 a second viewer's open, RestoreCommunityPost, refresh); then one idle of COLD_SETTLE s and the cases that need a
 //                 cold instance: a refresh with 0 new on CE with a token that is one idle old (ADR value 4), the open of CA and the
-//                 refresh of CH again all-cold. A refresh inside the entry's 60 s returns nothing new and reads 0 (the staleness bound), so
-//                 the refresh with 5 new is measured twice: inside the TTL (0 reads, 0 posts) and after the idle (the incremental refill).
+//                 refresh of CH again all-cold. A refresh inside the entry's 60 s returns nothing new (the staleness bound), so
+//                 the refresh with 5 new is measured twice: inside the TTL (0 posts) and after the idle (the incremental refill).
 //   cold_herd     t=COLD_HERD_START (default 100): HERD_VIEWERS viewers open CG at once (page 20), the entry cold: how many fills?
 //   warm_herd     t=WARM_HERD_START (default 115): WARM_RATE (default 8) iterations a second for WARM_DURATION s (default 30): one open
 //                 (page 20) of CA by a herd viewer, then one refresh with the since_token (tags rpc=comm_open_warm, comm_refresh_warm).
@@ -25,7 +25,7 @@
 //   verify        t=VERIFY_START (default 195): reads communities/CJ.memberCount through the Firestore emulator REST API (a check,
 //                 not a measured path) and prints `CF VERIFY member_count=<n> expected=<joins ok + 1>` after the run in the summary.
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `fs_writes`, `fs_deletes`, `timeline_op`, `timeline_mode`,
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`timeline_op`, `timeline_mode`,
 // `cache_hit`, `removed`, `viewer_role`, `items_returned`, `items_filtered`, `community_txn_attempts`), see
 // loadtest/analyze_community_feed.js. k6 prints `CF PHASE <name> <iso>` and `CF STEP <name> <iso>` lines that the analyzer uses to cut the
 // log. Latency is emulator latency, indicative only. The emulator does not reproduce Firestore's per-document write limit or the
@@ -41,7 +41,7 @@
 //     -H "Authorization: Bearer owner" -H "Content-Type: application/json" -d "{\"localId\":\"<uid>\",\"emailVerified\":true}"
 //
 // API requirements (a local API against the emulators): ENV=local FEATURE_POSTS=on FEATURE_GRAPH=on
-// FEATURE_ENGAGEMENT=on (the budget counts the userLikes read) FEATURE_COMMUNITIES=on FEATURE_REMOVED_IDS=on, COMMUNITY_CREATORS=<owner uid>,
+// FEATURE_ENGAGEMENT=on FEATURE_COMMUNITIES=on FEATURE_REMOVED_IDS=on, COMMUNITY_CREATORS=<owner uid>,
 // and these raised (per instance / per user; every virtual user shares 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN,
 // RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN,
 // RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, RATE_LIMIT_COMMUNITIES_READ_PER_MIN, RATE_LIMIT_POST_CREATE_PER_MIN,

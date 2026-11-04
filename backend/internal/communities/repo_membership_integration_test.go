@@ -20,10 +20,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The budgets here are the service's own reads, the account-status interceptor's one profile read excluded (it is not part of this
-// harness) and the caller's profile lookup free (production: the interceptor has just loaded it, 0 reads). The budgets in
-// the RPC doc comments list Join 6 / 4, Leave 5 (6 for a moderator) / 3 and ListMyCommunities 52 / 2 with the interceptor included.
-
 const (
 	joinCID  = "0000000000000000701"
 	joinCID2 = "0000000000000000702"
@@ -33,7 +29,6 @@ const (
 func newJoinEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t, 100)
-	e.dir.free = true
 	e.svc.d.Limits.JoinsPerDay, e.svc.d.Limits.NewAccountJoinsPerDay, e.svc.d.Limits.NewAccountWindow = 20, 5, 72*time.Hour
 	return e
 }
@@ -83,27 +78,23 @@ func (e *env) quotaJoins(t *testing.T, uid string) int64 {
 	return n
 }
 
-func TestJoin_BudgetsColdWarmAndWrites(t *testing.T) {
+func TestJoin_ColdWarmAndWrites(t *testing.T) {
 	e := newJoinEnv(t)
 	e.seedOwned(t, joinCID, "owner")
 	u1, u2 := e.user("u1"), e.user("u2")
 
-	// cold: the community (cache miss, 1) + idempotency + member doc + memberships + quotas
-	measured(t, "JoinCommunity cold", func(ctx context.Context) {
-		v, err := e.join(ctx, u1, 1, joinCID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if v.Role != RoleMember || v.Community.MemberCount != 2 {
-			t.Errorf("view = role %v, count %d", v.Role, v.Community.MemberCount)
-		}
-	})
-	// warm: the community is cached, so another user's join reads idempotency + member doc + memberships + quotas
-	measured(t, "JoinCommunity warm", func(ctx context.Context) {
-		if _, err := e.join(ctx, u2, 1, joinCID); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// cold: the community is not cached yet
+	v, err := e.join(context.Background(), u1, 1, joinCID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Role != RoleMember || v.Community.MemberCount != 2 {
+		t.Errorf("view = role %v, count %d", v.Role, v.Community.MemberCount)
+	}
+	// warm: the community is cached, another user joins
+	if _, err := e.join(context.Background(), u2, 1, joinCID); err != nil {
+		t.Fatal(err)
+	}
 
 	if got := e.count(t, joinCID); got != 3 {
 		t.Errorf("memberCount = %d, want 3", got)
@@ -122,14 +113,17 @@ func TestJoin_BudgetsColdWarmAndWrites(t *testing.T) {
 	if res, _ := rec["result"].(map[string]any); !ok || res["id"] != joinCID || rec["expireAt"] == nil {
 		t.Errorf("idempotency record = %v", rec)
 	}
-	// the written member state is cached: GetCommunity reads no member doc
-	e.dir.free = false
-	measured(t, "GetCommunity after Join", func(ctx context.Context) {
-		d, err := e.svc.GetCommunity(ctx, u1, joinCID)
-		if err != nil || d.View.Role != RoleMember {
-			t.Fatalf("GetCommunity = %+v, %v", d.View, err)
-		}
-	})
+	// the written member state and the community are cached: GetCommunity answers MEMBER with both documents gone
+	if _, err := e.client.Doc("communities/" + joinCID + "/communityMembers/" + u1).Delete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.ref(joinCID).Delete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	d, err := e.svc.GetCommunity(context.Background(), u1, joinCID)
+	if err != nil || d.View.Role != RoleMember {
+		t.Fatalf("GetCommunity = %+v, %v", d.View, err)
+	}
 }
 
 func TestJoin_AlreadyAMemberWritesTheIdempotencyDocOnly(t *testing.T) {
@@ -145,12 +139,10 @@ func TestJoin_AlreadyAMemberWritesTheIdempotencyDocOnly(t *testing.T) {
 	}{{u1, RoleMember}, {"owner", RoleOwner}, {"mod1", RoleModerator}} {
 		e.user(tt.uid)
 		n := 10
-		measured(t, "Join by a member "+tt.uid, func(ctx context.Context) {
-			v, err := e.join(ctx, tt.uid, n, joinCID)
-			if err != nil || v.Role != tt.role {
-				t.Fatalf("view = %+v, err = %v, want %v", v, err, tt.role)
-			}
-		})
+		v, err := e.join(context.Background(), tt.uid, n, joinCID)
+		if err != nil || v.Role != tt.role {
+			t.Fatalf("view = %+v, err = %v, want %v", v, err, tt.role)
+		}
 	}
 	if got := e.count(t, joinCID); got != 3 {
 		t.Errorf("memberCount = %d, want 3 (owner, mod1, u1)", got)
@@ -168,16 +160,14 @@ func TestJoin_ReplayWritesNothingAndAnotherBodyIsRefused(t *testing.T) {
 	if _, err := e.join(context.Background(), u1, 1, joinCID); err != nil {
 		t.Fatal(err)
 	}
-	measured(t, "JoinCommunity replay", func(ctx context.Context) {
-		v, err := e.join(ctx, u1, 1, joinCID)
-		if err != nil || v.Role != RoleMember {
-			t.Fatalf("replay = %+v, %v", v, err)
-		}
-	})
+	v, err := e.join(context.Background(), u1, 1, joinCID)
+	if err != nil || v.Role != RoleMember {
+		t.Fatalf("replay = %+v, %v", v, err)
+	}
 	if got := e.count(t, joinCID); got != 2 {
 		t.Errorf("memberCount after a replay = %d, want 2", got)
 	}
-	_, err := e.join(context.Background(), u1, 1, joinCID2) // same key, another community
+	_, err = e.join(context.Background(), u1, 1, joinCID2) // same key, another community
 	wantAPIErr(t, err, connect.CodeInvalidArgument, rKeyReused, nil)
 	// a late replay cannot undo a newer leave
 	if _, err := e.leave(context.Background(), u1, 2, joinCID); err != nil {
@@ -199,10 +189,8 @@ func TestJoin_BannedArchivedSuspendedAndGone(t *testing.T) {
 	e.seedCommunity(t, Community{ID: joinCID3, Name: "Suspended", OwnerID: "owner", MemberCount: 1, Status: StatusSuspended}, nil)
 	b1 := e.user("b1")
 
-	measured(t, "Join banned", func(ctx context.Context) {
-		_, err := e.join(ctx, b1, 1, joinCID)
-		wantAPIErr(t, err, connect.CodePermissionDenied, rForbidden, map[string]string{"reason": "banned"})
-	})
+	_, err := e.join(context.Background(), b1, 1, joinCID)
+	wantAPIErr(t, err, connect.CodePermissionDenied, rForbidden, map[string]string{"reason": "banned"})
 	if _, ok := e.data(t, "idempotency/"+idempotency.Key(b1, "JoinCommunity", key(1))); ok {
 		t.Error("a refusal stored an idempotency record")
 	}
@@ -210,10 +198,11 @@ func TestJoin_BannedArchivedSuspendedAndGone(t *testing.T) {
 		t.Errorf("quota spent by a banned Join: %d", got)
 	}
 
-	measured(t, "Join archived", func(ctx context.Context) {
-		_, err := e.join(ctx, b1, 2, joinCID2)
-		wantAPIErr(t, err, connect.CodeFailedPrecondition, rState, map[string]string{"reason": "community_archived"})
-	})
+	_, err = e.join(context.Background(), b1, 2, joinCID2)
+	wantAPIErr(t, err, connect.CodeFailedPrecondition, rState, map[string]string{"reason": "community_archived"})
+	if _, ok := e.data(t, "idempotency/"+idempotency.Key(b1, "JoinCommunity", key(2))); ok {
+		t.Error("an ARCHIVED refusal stored an idempotency record")
+	}
 	// SUSPENDED: the one NOT_FOUND, byte-identical to a missing id
 	_, errSusp := e.join(context.Background(), "owner", 3, joinCID3)
 	_, errGone := e.join(context.Background(), "owner", 4, "0000000000000000799")
@@ -233,10 +222,8 @@ func TestJoin_CommunityDeletedInsideTheCacheWindowIsNotFound(t *testing.T) {
 	if _, err := e.repo.ref(joinCID).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_ = measured(t, "Join into a deleted community", func(ctx context.Context) {
-		_, err := e.join(ctx, u2, 1, joinCID)
-		wantAPIErr(t, err, connect.CodeNotFound, rNone, nil)
-	})
+	_, err := e.join(context.Background(), u2, 1, joinCID)
+	wantAPIErr(t, err, connect.CodeNotFound, rNone, nil)
 	if _, ok := e.data(t, "communities/"+joinCID+"/communityMembers/"+u2); ok {
 		t.Error("a member doc was written for a deleted community")
 	}
@@ -254,10 +241,8 @@ func TestJoin_FiftyFirstIsLimitReachedAndTheCapIsExact(t *testing.T) {
 		joined[i] = fmt.Sprintf("%019d", 9000+i)
 	}
 	e.seedMemberships(t, u, Memberships{Joined: joined})
-	measured(t, "Join at the cap", func(ctx context.Context) {
-		_, err := e.join(ctx, u, 1, joinCID)
-		wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
-	})
+	_, err := e.join(context.Background(), u, 1, joinCID)
+	wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
 	if got := e.quotaJoins(t, u); got != 0 {
 		t.Errorf("the cap spent quota: %d", got)
 	}
@@ -267,7 +252,7 @@ func TestJoin_FiftyFirstIsLimitReachedAndTheCapIsExact(t *testing.T) {
 		t.Fatalf("the 50th join: %v", err)
 	}
 	e.seedOwned(t, joinCID2, "owner")
-	_, err := e.join(context.Background(), u, 3, joinCID2)
+	_, err = e.join(context.Background(), u, 3, joinCID2)
 	wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
 	if ms, _ := e.memberships(t, u); len(ms.Joined) != 50 {
 		t.Errorf("joined = %d, want exactly 50", len(ms.Joined))
@@ -288,10 +273,11 @@ func TestJoin_DailyQuotaAndTheNewAccountTier(t *testing.T) {
 	if _, err := e.join(context.Background(), young, 1, joinCID); err != nil {
 		t.Fatal(err)
 	}
-	measured(t, "Join over the new-account quota", func(ctx context.Context) {
-		_, err := e.join(ctx, young, 2, joinCID2)
-		wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "community_joins"})
-	})
+	_, err := e.join(context.Background(), young, 2, joinCID2)
+	wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "community_joins"})
+	if _, ok := e.data(t, "idempotency/"+idempotency.Key(young, "JoinCommunity", key(2))); ok || e.quotaJoins(t, young) != 1 {
+		t.Errorf("the quota refusal left a trace: idempotency record %v, quota %d", ok, e.quotaJoins(t, young))
+	}
 	// a repeat of an existing membership is free even at the limit
 	if _, err := e.join(context.Background(), young, 3, joinCID); err != nil {
 		t.Errorf("already a member at the quota: %v", err)
@@ -302,7 +288,7 @@ func TestJoin_DailyQuotaAndTheNewAccountTier(t *testing.T) {
 		}
 	}
 	e.seedOwned(t, "0000000000000000704", "owner")
-	_, err := e.join(context.Background(), old, 20, "0000000000000000704")
+	_, err = e.join(context.Background(), old, 20, "0000000000000000704")
 	wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, nil)
 }
 
@@ -368,7 +354,7 @@ func TestJoin_SameUserTwoKeysJoinsOnce(t *testing.T) {
 	}
 }
 
-func TestLeave_BudgetsAndWrites(t *testing.T) {
+func TestLeave_UpdatesCountAndRecords(t *testing.T) {
 	e := newJoinEnv(t)
 	e.seedOwned(t, joinCID, "owner")
 	u1, u2 := e.user("u1"), e.user("u2")
@@ -377,13 +363,11 @@ func TestLeave_BudgetsAndWrites(t *testing.T) {
 			t.Fatal(i, err)
 		}
 	}
-	// warm community (cached by the joins): idempotency + member doc + memberships
-	measured(t, "LeaveCommunity", func(ctx context.Context) {
-		v, err := e.leave(ctx, u1, 2, joinCID)
-		if err != nil || v.Role != RoleNone {
-			t.Fatalf("view = %+v, err = %v", v, err) // member_count is the cached count minus one: it may lag other instances and this one by up to 60 s
-		}
-	})
+	// the community is cached by the joins
+	v, err := e.leave(context.Background(), u1, 2, joinCID)
+	if err != nil || v.Role != RoleNone {
+		t.Fatalf("view = %+v, err = %v", v, err) // member_count is the cached count minus one: it may lag other instances and this one by up to 60 s
+	}
 	if got := e.count(t, joinCID); got != 2 {
 		t.Errorf("memberCount = %d, want 2", got)
 	}
@@ -396,19 +380,18 @@ func TestLeave_BudgetsAndWrites(t *testing.T) {
 	if got := e.quotaJoins(t, u1); got != 1 {
 		t.Errorf("Leave refunded or charged quota: %d", got)
 	}
-	// replay: 0 writes
-	measured(t, "LeaveCommunity replay", func(ctx context.Context) {
-		if _, err := e.leave(ctx, u1, 2, joinCID); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// not a member: the idempotency doc only
-	measured(t, "Leave by a non-member", func(ctx context.Context) {
-		v, err := e.leave(ctx, u1, 3, joinCID)
-		if err != nil || v.Role != RoleNone {
-			t.Fatalf("view = %+v, err = %v", v, err)
-		}
-	})
+	// replay: changes nothing
+	if _, err := e.leave(context.Background(), u1, 2, joinCID); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.count(t, joinCID); got != 2 {
+		t.Errorf("memberCount after a Leave replay = %d, want 2", got)
+	}
+	// not a member: no change
+	v, err = e.leave(context.Background(), u1, 3, joinCID)
+	if err != nil || v.Role != RoleNone {
+		t.Fatalf("view = %+v, err = %v", v, err)
+	}
 	if got := e.count(t, joinCID); got != 2 {
 		t.Errorf("a non-member Leave changed memberCount to %d", got)
 	}
@@ -425,10 +408,8 @@ func TestLeave_OwnerBannedAndStates(t *testing.T) {
 	e.user("owner")
 	m1, b1 := e.user("m1"), e.user("b1")
 
-	measured(t, "Leave by the owner", func(ctx context.Context) {
-		_, err := e.leave(ctx, "owner", 1, joinCID)
-		wantAPIErr(t, err, connect.CodeFailedPrecondition, rState, map[string]string{"reason": "owner"})
-	})
+	_, err := e.leave(context.Background(), "owner", 1, joinCID)
+	wantAPIErr(t, err, connect.CodeFailedPrecondition, rState, map[string]string{"reason": "owner"})
 	if _, ok := e.data(t, "idempotency/"+idempotency.Key("owner", "LeaveCommunity", key(1))); ok {
 		t.Error("a refusal stored an idempotency record")
 	}
@@ -469,13 +450,11 @@ func TestLeave_ModeratorLeavesModeratorIDsAndGetCommunityFollows(t *testing.T) {
 	if err != nil || len(d.Moderators) != 2 || d.View.Role != RoleModerator {
 		t.Fatalf("GetCommunity before = %+v, %v", d, err)
 	}
-	// community read fresh: idempotency + member doc + memberships + community
-	measured(t, "Leave by a moderator", func(ctx context.Context) {
-		v, err := e.leave(ctx, mod1, 1, joinCID)
-		if err != nil || v.Role != RoleNone {
-			t.Fatalf("view = %+v, err = %v", v, err)
-		}
-	})
+	// the community is read fresh
+	v, err := e.leave(context.Background(), mod1, 1, joinCID)
+	if err != nil || v.Role != RoleNone {
+		t.Fatalf("view = %+v, err = %v", v, err)
+	}
 	com := e.community(t, joinCID)
 	if !slices.Equal(com.ModeratorIDs, []string{"mod2"}) || com.MemberCount != 2 || com.ModlogSeq != 1 || len(com.Modlog) != 1 ||
 		com.Modlog[0].Action != ActionModeratorLeft || com.Modlog[0].Actor != mod1 || com.Modlog[0].Seq != 1 || com.Modlog[0].Target != "" {
@@ -507,7 +486,6 @@ func TestLeave_ModeratorLeavesModeratorIDsAndGetCommunityFollows(t *testing.T) {
 
 func TestLeave_ModlogIsTrimmedToTheCap(t *testing.T) {
 	e := newEnv(t, 2)
-	e.dir.free = true
 	e.seedOwned(t, joinCID, "owner", "mod1", "mod2", "mod3")
 	e.user("mod1")
 	e.user("mod2")
@@ -538,11 +516,9 @@ func TestLeave_ModeratorPromotedElsewhereIsCaughtByModlogged(t *testing.T) {
 	if _, err := e.repo.membershipsRef(u).Update(ctx, []firestore.Update{{Path: "modlogged", Value: []string{joinCID}}}); err != nil {
 		t.Fatal(err)
 	}
-	measured(t, "Leave by a moderator the cache does not know", func(ctx context.Context) {
-		if _, err := e.leave(ctx, u, 2, joinCID); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if _, err := e.leave(context.Background(), u, 2, joinCID); err != nil {
+		t.Fatal(err)
+	}
 	if com := e.community(t, joinCID); len(com.ModeratorIDs) != 0 || len(com.Modlog) != 1 || com.Modlog[0].Action != ActionModeratorLeft {
 		t.Errorf("community = %+v, the promoted moderator must be gone from moderatorIds", com)
 	}
@@ -615,7 +591,7 @@ func TestModeratorLeaveRacingAJoinBurstStaysConsistent(t *testing.T) {
 	e := newJoinEnv(t)
 	e.seedOwned(t, joinCID, "owner", "mod1")
 	mod := e.user("mod1")
-	if _, err := e.svc.GetCommunity(context.Background(), mod, joinCID); err != nil { // the cache lists mod1, so the leave reads the hot doc
+	if _, err := e.svc.GetCommunity(context.Background(), mod, joinCID); err != nil { // the cache lists mod1, so the leave works on the hot doc
 		t.Fatal(err)
 	}
 	const n = 8
@@ -653,7 +629,7 @@ func TestModeratorLeaveRacingAJoinBurstStaysConsistent(t *testing.T) {
 	}
 }
 
-func TestListMyCommunities_BudgetsOrderAndFilters(t *testing.T) {
+func TestListMyCommunities_FiftyInNewestFirstOrder(t *testing.T) {
 	e := newJoinEnv(t)
 	e.svc.d.Limits.JoinsPerDay = 100
 	ids := make([]string, 50)
@@ -665,26 +641,16 @@ func TestListMyCommunities_BudgetsOrderAndFilters(t *testing.T) {
 	e.user("u1")
 	e.svc.creators["u1"] = struct{}{}
 
-	var got MyCommunities
-	measured(t, "ListMyCommunities cold", func(ctx context.Context) {
-		var err error
-		if got, err = e.svc.ListMyCommunities(ctx, "u1", ""); err != nil {
-			t.Fatal(err)
-		}
-	})
+	got, err := e.svc.ListMyCommunities(context.Background(), "u1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got.Items) != 50 || !got.CanCreate || got.Items[0].Community.Name != "C49" || got.Items[49].Community.Name != "C00" || got.Items[0].Role != RoleMember {
 		t.Errorf("list = %d items, can_create %v, first %q, last %q", len(got.Items), got.CanCreate, got.Items[0].Community.Name, got.Items[49].Community.Name)
 	}
-	measured(t, "ListMyCommunities warm", func(ctx context.Context) {
-		if _, err := e.svc.ListMyCommunities(ctx, "u1", ""); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// a page token is refused before any read
-	measured(t, "ListMyCommunities page_token", func(ctx context.Context) {
-		_, err := e.svc.ListMyCommunities(ctx, "u1", "x")
-		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
-	})
+	// a page token is refused
+	_, err = e.svc.ListMyCommunities(context.Background(), "u1", "x")
+	wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
 }
 
 func TestListMyCommunities_JoinOrderRolesAndSuspended(t *testing.T) {
@@ -745,9 +711,7 @@ func TestReader_RoleSeesEveryStateAndFillsFromWrites(t *testing.T) {
 	if _, err := e.leave(context.Background(), "m1", 1, joinCID); err != nil {
 		t.Fatal(err)
 	}
-	_ = measured(t, "Reader.Role after Leave", func(ctx context.Context) {
-		if got, err := r.Role(ctx, joinCID, "m1"); err != nil || got != RoleNone {
-			t.Errorf("Role = %v, %v", got, err)
-		}
-	})
+	if got, err := r.Role(context.Background(), joinCID, "m1"); err != nil || got != RoleNone {
+		t.Errorf("Role = %v, %v", got, err)
+	}
 }

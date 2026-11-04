@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestResolveHandles_StalePositiveEntry is: bob renames to bob2 and carol claims "bob" while this
@@ -18,7 +16,7 @@ func TestResolveHandles_StalePositiveEntry(t *testing.T) {
 		age          time.Duration
 		cachedHandle string // HandleLower of bob2's profile in the instance cache; "" = not cached
 		wantUID      string
-		wantReads    int64
+		wantFetches  int // repo lookups of handles
 	}{
 		{"11 s old: miss, carol wins", 11 * time.Second, "", carolUID, 1},
 		{"9 s old, profile shows the rename: miss, carol wins", 9 * time.Second, "bob2", carolUID, 1},
@@ -40,13 +38,15 @@ func TestResolveHandles_StalePositiveEntry(t *testing.T) {
 			}
 			clock = clock.Add(tt.age)
 
-			ctx, c := budget.WithCounter(context.Background())
-			got, err := svc.ResolveHandles(ctx, []string{"bob"})
+			got, err := svc.ResolveHandles(context.Background(), []string{"bob"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got["bob"] != tt.wantUID {
-				t.Fatalf("uid=%q reads=%d, want %q and %d", got["bob"], c.Reads(), tt.wantUID, tt.wantReads)
+				t.Fatalf("uid=%q, want %q", got["bob"], tt.wantUID)
+			}
+			if repo.resolveManyCalls != tt.wantFetches {
+				t.Fatalf("repo lookups = %d, want %d", repo.resolveManyCalls, tt.wantFetches)
 			}
 		})
 	}

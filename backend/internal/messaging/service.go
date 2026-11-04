@@ -100,7 +100,7 @@ func New(fc FlagChecker, d Deps) Service {
 }
 
 // guard is the flag gate of every method, run before any Firestore access. Disabled is FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=messaging, 0 reads. A nil checker is off for everyone.
+// FEATURE_DISABLED with metadata feature=messaging, before any read. A nil checker is off for everyone.
 func (s *service) guard(ctx context.Context, uid string, class flagClass) error {
 	enabled := func(uid, name string) bool {
 		if s.flags == nil {

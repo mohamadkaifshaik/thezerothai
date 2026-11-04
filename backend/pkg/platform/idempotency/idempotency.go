@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -87,10 +86,9 @@ func (s *Store) Ref(key string) *firestore.DocumentRef {
 }
 
 // Get reads the record for key inside tx (so it's part of the same read-modify-write transaction the
-// caller uses to check the entity). Returns ErrNotFound if absent. Counts against ctx's budget.Counter.
+// caller uses to check the entity). Returns ErrNotFound if absent.
 func (s *Store) Get(ctx context.Context, tx *firestore.Transaction, key string) (Record, error) {
 	snap, err := tx.Get(s.Ref(key))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Record{}, ErrNotFound

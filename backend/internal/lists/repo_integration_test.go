@@ -18,14 +18,10 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
-
-// The budgets below are the service's own reads on top of the account-status interceptor's one profile read (the interceptor is
-// not part of this harness): the budgets are CreateList 4 / UpdateList 3 / DeleteList 3 including it.
 
 type listsEnv struct {
 	client *firestore.Client
@@ -60,14 +56,6 @@ func newListsEnv(t *testing.T, created time.Time) *listsEnv {
 	return &listsEnv{client: client, repo: repo, svc: svc, node: node}
 }
 
-// measured runs fn with a fresh counter and asserts the budget (a ceiling), returning the counter for exact checks.
-func measured(t *testing.T, name string, fn func(ctx context.Context)) *budget.Counter {
-	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
-	fn(ctx)
-	return c
-}
-
 func key(n int) string { return fmt.Sprintf("integration-key-%04d", n) }
 
 func (e *listsEnv) doc(t *testing.T, id string) (map[string]any, bool) {
@@ -77,6 +65,12 @@ func (e *listsEnv) doc(t *testing.T, id string) (map[string]any, bool) {
 		return nil, false
 	}
 	return snap.Data(), true
+}
+
+// idemStored reports whether the idempotency document for (uid, rpc, key) exists.
+func (e *listsEnv) idemStored(uid, rpc, k string) bool {
+	_, err := e.client.Collection("idempotency").Doc(idempotency.Key(uid, rpc, k)).Get(context.Background())
+	return err == nil
 }
 
 func (e *listsEnv) quotaCount(t *testing.T, uid, field string) int64 {
@@ -90,7 +84,7 @@ func (e *listsEnv) quotaCount(t *testing.T, uid, field string) int64 {
 	return n
 }
 
-// seedLists writes n lists owned by owner with the given members (BulkWriter: no budget counted).
+// seedLists writes n lists owned by owner with the given members.
 func (e *listsEnv) seedLists(t *testing.T, owner string, n int, members []string) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -121,18 +115,13 @@ func create(t *testing.T, e *listsEnv, uid string, n int, name string, private *
 	return e.svc.CreateList(context.Background(), uid, CreateInput{Key: key(n), Name: name, IsPrivate: private})
 }
 
-// CreateList: 3 reads and 3 writes in the service (4 and 3 with the interceptor), private by default, and the stored document
-// has the shape with memberIds as an empty array.
-func TestCreateList_Integration_Budget(t *testing.T) {
+// CreateList: private by default, and the stored document has the shape with memberIds as an empty array.
+func TestCreateList_Integration_StoresDocument(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
-	var view View
-	measured(t, "CreateList", func(ctx context.Context) {
-		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "  Cricket ", Description: "ODI"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		view = v
-	})
+	view, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "  Cricket ", Description: "ODI"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(view.Header.ID) != 19 || view.Header.Name != "Cricket" || !view.Header.IsPrivate || view.Header.MemberCount != 0 || view.Owner.Handle != "owner" {
 		t.Errorf("view = %+v", view)
 	}
@@ -158,37 +147,40 @@ func TestCreateList_Integration_Budget(t *testing.T) {
 	}
 }
 
-// A replay returns the list's current header with 2 reads (the idempotency record, then the list; 3 with the interceptor, / L-3) and 0 writes, and creates no second list. The same
-// key with another body is IDEMPOTENCY_KEY_REUSED with 0 writes.
+// A replay returns the list.s current header, writes nothing and creates no second list. The same
+// key with another body is IDEMPOTENCY_KEY_REUSED and writes nothing.
 func TestCreateList_Integration_Replay(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	first, err := create(t, e, "owner", 1, "Cricket", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var replay View
-	measured(t, "CreateList replay", func(ctx context.Context) {
-		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		replay = v
-	})
+	replay, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if replay.Header != first.Header {
 		t.Errorf("replay header = %+v, want %+v", replay.Header, first.Header)
 	}
 	if n := e.quotaCount(t, "owner", "listCreates"); n != 1 {
 		t.Errorf("a replay spent quota: listCreates = %d", n)
 	}
+	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll(); len(docs) != 1 {
+		t.Errorf("lists after a replay = %d, want 1", len(docs))
+	}
 
-	measured(t, "CreateList key reused", func(ctx context.Context) {
-		_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Another name"})
-		wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
-	})
+	_, err = e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "Another name"})
+	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 	// is_private unset vs explicit true are different bodies for the same key.
 	yes := true
 	_, err = e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket", IsPrivate: &yes})
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
+	if n := e.quotaCount(t, "owner", "listCreates"); n != 1 {
+		t.Errorf("a refused key reuse spent quota: listCreates = %d", n)
+	}
+	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll(); len(docs) != 1 {
+		t.Errorf("lists after the refused key reuses = %d, want 1", len(docs))
+	}
 }
 
 // Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
@@ -245,17 +237,18 @@ func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	}
 }
 
-// At 20 lists CreateList is LIMIT_REACHED limit=lists with 0 writes; the count is charged (3 reads in the service).
+// At 20 lists CreateList is LIMIT_REACHED limit=lists and writes nothing.
 func TestCreateList_Integration_Cap(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedLists(t, "owner", 20, nil)
 	e.seedLists(t, "stranger", 3, nil) // another owner's lists do not count
-	measured(t, "CreateList at the cap", func(ctx context.Context) {
-		_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "21st"})
-		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "lists"})
-	})
+	_, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "21st"})
+	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "lists"})
 	if n := e.quotaCount(t, "owner", "listCreates"); n != 0 {
 		t.Errorf("the cap spent quota: %d", n)
+	}
+	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll(); len(docs) != 20 {
+		t.Errorf("lists after the refused 21st = %d, want 20", len(docs))
 	}
 	// 19 is below the cap.
 	e2 := newListsEnv(t, time.Now().Add(-72*time.Hour))
@@ -268,7 +261,7 @@ func TestCreateList_Integration_Cap(t *testing.T) {
 	}
 }
 
-// Quota tiers: 10 a day, 3 for an account younger than 24 h; the refusal is QUOTA_EXCEEDED list_creates with 0 writes.
+// Quota tiers: 10 a day, 3 for an account younger than 24 h; the refusal is QUOTA_EXCEEDED list_creates and writes nothing.
 func TestCreateList_Integration_QuotaTiers(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -286,12 +279,13 @@ func TestCreateList_Integration_QuotaTiers(t *testing.T) {
 					t.Fatalf("create %d: %v", i, err)
 				}
 			}
-			measured(t, "over the quota", func(ctx context.Context) {
-				_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(99), Name: "Over"})
-				wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_creates"})
-			})
+			_, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(99), Name: "Over"})
+			wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_creates"})
 			if n := e.quotaCount(t, "owner", "listCreates"); n != int64(tt.allowed) {
 				t.Errorf("listCreates = %d, want %d", n, tt.allowed)
+			}
+			if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll(); len(docs) != tt.allowed {
+				t.Errorf("lists after the refused create = %d, want %d", len(docs), tt.allowed)
 			}
 			// A replay of an earlier create still succeeds at the limit and is not charged.
 			if _, err := create(t, e, "owner", 1, "List 1", nil); err != nil {
@@ -301,22 +295,17 @@ func TestCreateList_Integration_QuotaTiers(t *testing.T) {
 	}
 }
 
-// UpdateList: 2 reads and 2 writes in the service (3 and 2 with the interceptor); nothing changed = 1 write; replay 1 read, 0
-// writes; field-level (members and createdAt survive); a rename and a visibility change are visible in the document.
+// UpdateList: nothing changed leaves the list document alone; a replay changes nothing; field-level (members and createdAt survive); a rename and a visibility change are visible in the document.
 func TestUpdateList_Integration(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	ids := e.seedLists(t, "owner", 1, []string{"m1", "m2"})
 	id := ids[0]
 	before, _ := e.doc(t, id)
 
-	var v View
-	measured(t, "UpdateList", func(ctx context.Context) {
-		var err error
-		v, err = e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	v, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if v.Header.Name != "New name" || !v.Header.IsPrivate || v.Header.MemberCount != 2 {
 		t.Errorf("view = %+v", v.Header)
 	}
@@ -325,29 +314,28 @@ func TestUpdateList_Integration(t *testing.T) {
 		t.Errorf("document = %v (members, owner and createdAt must survive a field-level update)", after)
 	}
 
-	// Nothing differs from what is stored: only the idempotency document is written.
-	measured(t, "UpdateList unchanged", func(ctx context.Context) {
-		if _, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(2), ListID: id, Name: ptr("New name")}); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// Nothing differs from what is stored: the list document is not rewritten (updatedAt stays).
+	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(2), ListID: id, Name: ptr("New name")}); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, _ := e.doc(t, id); fmt.Sprint(unchanged) != fmt.Sprint(after) {
+		t.Errorf("an unchanged update rewrote the list: %v -> %v", after, unchanged)
+	}
 
-	// Replay: the list as it is now (/ L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
+	// Replay: the list as it is now (the record holds the id only); the list is not changed.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(3), ListID: id, Name: ptr("Third")}); err != nil {
 		t.Fatal(err)
 	}
-	measured(t, "UpdateList replay", func(ctx context.Context) {
-		rv, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
-		if err != nil || rv.Header.Name != "Third" {
-			t.Errorf("replay = %+v, %v, want the current header", rv.Header, err)
-		}
-	})
+	rv, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
+	if err != nil || rv.Header.Name != "Third" {
+		t.Errorf("replay = %+v, %v, want the current header", rv.Header, err)
+	}
 	if d, _ := e.doc(t, id); d["name"] != "Third" {
 		t.Errorf("a replay changed the list: %v", d["name"])
 	}
 
 	// Same key, different body.
-	_, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr("Other")})
+	_, err = e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr("Other")})
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 	// An unset description and an empty description are different bodies for one key.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(4), ListID: id, Description: ptr("")}); err != nil {
@@ -357,7 +345,7 @@ func TestUpdateList_Integration(t *testing.T) {
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 }
 
-// Another user's list and a list that never existed are the same NOT_FOUND, byte for byte, with 0 writes; a deleted list is
+// Another user's list and a list that never existed are the same NOT_FOUND, byte for byte, and neither stores a key; a deleted list is
 // not recreated by an Update.
 func TestUpdateList_Integration_NotFoundIsOneAnswer(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
@@ -367,14 +355,12 @@ func TestUpdateList_Integration_NotFoundIsOneAnswer(t *testing.T) {
 
 	answer := func(id string, n int) (code connect.Code, msg string, reason commonv1.ErrorReason, meta map[string]string) {
 		var out *apierr.Error
-		measured(t, "UpdateList not found", func(ctx context.Context) {
-			_, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(n), ListID: id, Name: ptr("Hijack")})
-			var ae *apierr.Error
-			if !asAPI(err, &ae) {
-				t.Fatalf("err = %v", err)
-			}
-			out = ae
-		})
+		_, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(n), ListID: id, Name: ptr("Hijack")})
+		var ae *apierr.Error
+		if !asAPI(err, &ae) {
+			t.Fatalf("err = %v", err)
+		}
+		out = ae
 		return out.Code, out.Message, out.Reason, out.Metadata
 	}
 	c1, m1, r1, md1 := answer(foreign, 1)
@@ -384,6 +370,11 @@ func TestUpdateList_Integration_NotFoundIsOneAnswer(t *testing.T) {
 	}
 	if d, _ := e.doc(t, foreign); d["name"] == "Hijack" {
 		t.Error("another user's list was changed")
+	}
+	for n := 1; n <= 2; n++ {
+		if e.idemStored("owner", rpcUpdateList, key(n)) {
+			t.Errorf("a not-found update stored the idempotency key %d", n)
+		}
 	}
 
 	if err := e.svc.DeleteList(context.Background(), "owner", key(3), mine); err != nil {
@@ -413,46 +404,40 @@ func asAPI(err error, target **apierr.Error) bool {
 	return false
 }
 
-// DeleteList: 2 reads, 1 write (idempotency), 1 delete in the service (3, 1, 1 with the interceptor). A list that is not the
-// caller's, or is gone, is success with 1 write and no delete; a replay is 1 read, 0 writes.
+// DeleteList: a list that is not the caller.s, or is gone, is success and deletes nothing; a replay changes nothing.
 func TestDeleteList_Integration(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	mine := e.seedLists(t, "owner", 1, []string{"m1"})[0]
 	foreign := e.seedLists(t, "stranger", 1, nil)[0]
 
-	measured(t, "DeleteList", func(ctx context.Context) {
-		if err := e.svc.DeleteList(ctx, "owner", key(1), mine); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.svc.DeleteList(context.Background(), "owner", key(1), mine); err != nil {
+		t.Fatal(err)
+	}
 	if _, ok := e.doc(t, mine); ok {
 		t.Error("the list survived")
 	}
 
-	measured(t, "DeleteList foreign", func(ctx context.Context) {
-		if err := e.svc.DeleteList(ctx, "owner", key(2), foreign); err != nil {
-			t.Fatalf("foreign list: %v", err)
-		}
-	})
+	if err := e.svc.DeleteList(context.Background(), "owner", key(2), foreign); err != nil {
+		t.Fatalf("foreign list: %v", err)
+	}
 	if _, ok := e.doc(t, foreign); !ok {
 		t.Error("another user's list was deleted")
 	}
 
 	missing := e.node.Generate()
-	measured(t, "DeleteList missing", func(ctx context.Context) {
-		if err := e.svc.DeleteList(ctx, "owner", key(3), missing); err != nil {
-			t.Fatalf("missing list: %v", err)
-		}
-	})
+	if err := e.svc.DeleteList(context.Background(), "owner", key(3), missing); err != nil {
+		t.Fatalf("missing list: %v", err)
+	}
 
-	measured(t, "DeleteList replay", func(ctx context.Context) {
-		if err := e.svc.DeleteList(ctx, "owner", key(1), mine); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.svc.DeleteList(context.Background(), "owner", key(1), mine); err != nil {
+		t.Fatal(err)
+	}
 	// The same key for another list is a reused key.
 	err := e.svc.DeleteList(context.Background(), "owner", key(1), foreign)
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
+	if _, ok := e.doc(t, foreign); !ok {
+		t.Error("a refused key reuse deleted another user.s list")
+	}
 }
 
 // The late-retry hazard: a delete of a missing list stores its key, so the retry replays instead of acting on
@@ -473,7 +458,7 @@ func TestDeleteList_Integration_NoOpStoresTheKey(t *testing.T) {
 }
 
 // Eraser: a user who owns 2 lists and is a member of 3 others (and a 4th they own and are in). After the step their 2 lists
-// are gone, the 3 lists no longer name them but keep every other member, and a rerun writes nothing.
+// are gone, the 3 lists no longer name them but keep every other member, and a rerun changes nothing.
 func TestEraser_Integration(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	ctx := context.Background()
@@ -484,10 +469,9 @@ func TestEraser_Integration(t *testing.T) {
 
 	eraser := NewEraser(e.repo)
 	var cp Checkpoint
-	// Phase 1: 2 reads + 2 deletes. Phase 2: 3 reads + 3 writes.
+	// Phase 1 deletes the own lists. Phase 2 removes the user from the lists they are a member of.
 	{
-		ctx1, _ := budget.WithCounter(ctx)
-		next, done, err := eraser.PurgeUser(ctx1, "doomed", cp)
+		next, done, err := eraser.PurgeUser(ctx, "doomed", cp)
 		if err != nil || done {
 			t.Fatalf("own phase: done %v err %v", done, err)
 		}
@@ -508,8 +492,7 @@ func TestEraser_Integration(t *testing.T) {
 		}
 	}
 	{
-		ctx2, _ := budget.WithCounter(ctx)
-		next, done, err := eraser.PurgeUser(ctx2, "doomed", cp)
+		next, done, err := eraser.PurgeUser(ctx, "doomed", cp)
 		if err != nil || !done {
 			t.Fatalf("member phase: done %v err %v", done, err)
 		}
@@ -531,17 +514,27 @@ func TestEraser_Integration(t *testing.T) {
 		t.Errorf("an unrelated list changed: %v", d)
 	}
 
-	// A rerun from the start is two empty pages: 1 read each, 0 writes, 0 deletes.
+	// A rerun from the start is two empty pages and changes nothing: every list is exactly as the first run left it.
+	settled := map[string]string{}
+	for _, id := range append(append([]string{untouched}, others...), own...) {
+		d, ok := e.doc(t, id)
+		settled[id] = fmt.Sprint(ok, d)
+	}
 	var rerun Checkpoint
 	for i := range 2 {
-		rctx, c := budget.WithCounter(ctx)
-		next, done, err := eraser.PurgeUser(rctx, "doomed", rerun)
+		next, done, err := eraser.PurgeUser(ctx, "doomed", rerun)
 		if err != nil {
 			t.Fatal(err)
 		}
 		rerun = next
 		if done != (i == 1) {
-			t.Errorf("rerun page %d reads/writes/deletes = %d/%d/%d done %v, want 1/0/0 %v", i, c.Reads(), c.Writes(), c.Deletes(), done, i == 1)
+			t.Errorf("rerun page %d: done %v, want %v", i, done, i == 1)
+		}
+	}
+	for id, was := range settled {
+		d, ok := e.doc(t, id)
+		if now := fmt.Sprint(ok, d); now != was {
+			t.Errorf("the rerun changed list %s: %s -> %s", id, was, now)
 		}
 	}
 }
@@ -555,36 +548,34 @@ func TestEraser_Integration_Paging(t *testing.T) {
 	e.seedLists(t, "doomed", 501, nil)
 	eraser := NewEraser(e.repo)
 	var cp Checkpoint
-	wantReads := []int64{500, 1, 1}
-	wantDeletes := []int64{500, 1, 0}
-	for i := range wantReads {
-		ctx, c := budget.WithCounter(context.Background())
-		next, done, err := eraser.PurgeUser(ctx, "doomed", cp)
+	// A page is at most 500 deletes (Firestore's batch limit): the first call leaves the 501st list, the second removes it, the third finds none.
+	wantLeft := []int{1, 0, 0}
+	for i := range wantLeft {
+		next, done, err := eraser.PurgeUser(context.Background(), "doomed", cp)
 		if err != nil {
 			t.Fatal(err)
 		}
 		cp = next
 		if done != (i == 2) {
-			t.Errorf("call %d: reads %d deletes %d done %v, want %d %d %v", i+1, c.Reads(), c.Deletes(), done, wantReads[i], wantDeletes[i], i == 2)
+			t.Errorf("call %d: done %v, want %v", i+1, done, i == 2)
 		}
-	}
-	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "doomed").Limit(1).Documents(context.Background()).GetAll(); len(docs) != 0 {
-		t.Error("lists survived")
+		docs, err := e.client.Collection("lists").Where("ownerId", "==", "doomed").Limit(10).Documents(context.Background()).GetAll()
+		if err != nil || len(docs) != wantLeft[i] {
+			t.Errorf("after call %d: %d own lists left (err %v), want %d", i+1, len(docs), err, wantLeft[i])
+		}
 	}
 }
 
-// Export: own lists only (not the ones the user is a member of), with member ids, 1 read per list.
+// Export: own lists only (not the ones the user is a member of), with member ids.
 func TestExporter_Integration(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedLists(t, "owner", 2, []string{"m1"})
 	e.seedLists(t, "stranger", 2, []string{"owner"}) // a member, not the owner: not exported
 	var out []byte
 	buf := &bytesBuffer{}
-	measured(t, "export", func(ctx context.Context) {
-		if err := NewExporter(e.repo).ExportUser(ctx, "owner", buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewExporter(e.repo).ExportUser(context.Background(), "owner", buf); err != nil {
+		t.Fatal(err)
+	}
 	out = buf.b
 	if n := countSub(string(out), `"listId"`); n != 2 {
 		t.Errorf("exported %d lists, want 2: %s", n, out)
@@ -592,13 +583,11 @@ func TestExporter_Integration(t *testing.T) {
 	if countSub(string(out), `"owner"`) != 0 {
 		t.Errorf("the export names the owner uid or a foreign list: %s", out)
 	}
-	// An account with no lists: 1 read (an empty query bills 1).
+	// An account with no lists.
 	buf = &bytesBuffer{}
-	measured(t, "export empty", func(ctx context.Context) {
-		if err := NewExporter(e.repo).ExportUser(ctx, "nobody", buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewExporter(e.repo).ExportUser(context.Background(), "nobody", buf); err != nil {
+		t.Fatal(err)
+	}
 	if string(buf.b) != "{\"lists\":[]}\n" {
 		t.Errorf("empty export = %q", buf.b)
 	}

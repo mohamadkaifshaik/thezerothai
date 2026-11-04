@@ -38,7 +38,7 @@ type FlagChecker interface {
 
 // Guard is the flag gate every CommunityService method (and timeline's GetCommunityTimeline) runs before any Firestore access
 // (one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with
-// metadata feature=communities and 0 reads. A nil checker is off for everyone.
+// metadata feature=communities. A nil checker is off for everyone.
 func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, FlagName)
 	if err == nil {
@@ -56,13 +56,13 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 // a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline,
 // posts' CommunityGate (its member lookups use the cached MemberState) and moderation reach communities through it; *service implements it, next to Service.
 type Reader interface {
-	// Get is the cache-first community document: 0 reads warm, 1 cold (charged when the document is missing too, and a missing one is
-	// remembered for 60 s). ErrNotFound for a missing document. It does not apply the SUSPENDED rule: a caller that answers NOT_FOUND for
+	// Get is the cache-first community document; a missing one is
+	// remembered for 60 s. ErrNotFound for a missing document. It does not apply the SUSPENDED rule: a caller that answers NOT_FOUND for
 	// everyone checks Status itself (the owner alone may see a SUSPENDED community in GetCommunity and ListMyCommunities).
 	Get(ctx context.Context, communityID string) (Community, error)
 	// Role is the viewer's D4 role: OWNER and MODERATOR from the community document, MEMBER and BANNED from the member document, which is
-	// cached for 60 s with absence cached too. 0 extra reads warm, 1 cold.
+	// cached for 60 s with absence cached too.
 	Role(ctx context.Context, communityID, uid string) (Role, error)
-	// Memberships is uid's communityMemberships document, never cached: 1 read (charged when missing too).
+	// Memberships is uid's communityMemberships document, never cached.
 	Memberships(ctx context.Context, uid string) (Memberships, error)
 }

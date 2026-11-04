@@ -11,7 +11,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
@@ -167,12 +166,11 @@ func TestPostGate_CanReply(t *testing.T) {
 		member     MemberState
 		wantReason string // "" = allowed
 		wantState  bool
-		wantReads  int64
 	}{
-		{"joined member", StatusActive, MemberJoined, "", false, 2},
-		{"non-member", StatusActive, MemberNone, "not_member", false, 2},
-		{"banned looks like a non-member", StatusActive, MemberBanned, "not_member", false, 2},
-		{"archived", StatusArchived, MemberJoined, "", true, 1},
+		{"joined member", StatusActive, MemberJoined, "", false},
+		{"non-member", StatusActive, MemberNone, "not_member", false},
+		{"banned looks like a non-member", StatusActive, MemberBanned, "not_member", false},
+		{"archived", StatusArchived, MemberJoined, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,8 +179,7 @@ func TestPostGate_CanReply(t *testing.T) {
 			f.seed(Community{ID: testCID, Name: "Go", Status: tt.status})
 			f.repo.members[testCID+"|u1"] = tt.member
 			g := NewPostGate(f.svc, &gateMembers{}, nil)
-			ctx, _ := budget.WithCounter(context.Background())
-			err := g.CanReply(ctx, "u1", testCID)
+			err := g.CanReply(context.Background(), "u1", testCID)
 			switch {
 			case tt.wantState:
 				wantErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE, "reason", "community_archived")
@@ -191,9 +188,14 @@ func TestPostGate_CanReply(t *testing.T) {
 			case err != nil:
 				t.Fatal(err)
 			}
-			// Warm: +0 reads.
-			ctx2, _ := budget.WithCounter(context.Background())
-			_ = g.CanReply(ctx2, "u1", testCID)
+			// Warm: the answer comes from the service caches, so neither the community nor the member doc is fetched again.
+			fetched := f.repo.gets + f.repo.memberGet
+			if err2 := g.CanReply(context.Background(), "u1", testCID); (err2 == nil) != (err == nil) {
+				t.Fatalf("warm answer differs: %v vs %v", err2, err)
+			}
+			if got := f.repo.gets + f.repo.memberGet; got != fetched {
+				t.Fatalf("warm CanReply fetched %d more document(s)", got-fetched)
+			}
 		})
 	}
 	t.Run("missing and suspended are the one not found", func(t *testing.T) {
@@ -214,16 +216,19 @@ func TestPostGate_IsMember(t *testing.T) {
 	f.repo.members[testCID+"|u2"] = MemberBanned
 	g := NewPostGate(f.svc, &gateMembers{}, nil)
 	for uid, want := range map[string]bool{"u1": true, "u2": false, "u3": false} {
-		ctx, _ := budget.WithCounter(context.Background())
-		got, err := g.IsMember(ctx, uid, testCID)
+		got, err := g.IsMember(context.Background(), uid, testCID)
 		if err != nil || got != want {
 			t.Fatalf("%s: member=%v err=%v, want %v", uid, got, err, want)
 		}
 	}
+	// cold: each viewer cost one member doc fetch and the community document was never loaded
+	if f.repo.memberGet != 3 || f.repo.gets != 0 {
+		t.Fatalf("cold: member doc fetches = %d, community gets = %d, want 3 and 0", f.repo.memberGet, f.repo.gets)
+	}
 	// warm, and the community document was never read.
-	ctx, c := budget.WithCounter(context.Background())
-	if ok, _ := g.IsMember(ctx, "u1", testCID); !ok || f.repo.gets != 0 {
-		t.Fatalf("warm: ok=%v reads=%d community gets=%d", ok, c.Reads(), f.repo.gets)
+	memberDocs := f.repo.memberGet
+	if ok, _ := g.IsMember(context.Background(), "u1", testCID); !ok || f.repo.gets != 0 || f.repo.memberGet != memberDocs {
+		t.Fatalf("warm: ok=%v community gets=%d member doc gets +%d", ok, f.repo.gets, f.repo.memberGet-memberDocs)
 	}
 	t.Run("a Reader without member lookup falls back to Role", func(t *testing.T) {
 		t.Parallel()

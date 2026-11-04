@@ -21,7 +21,7 @@ func TestRepo_ListEvidenceRoundTripAndRetention(t *testing.T) {
 
 	rep := sampleReport("u-rep", TargetList, listID, "u-owner", t0)
 	rep.Evidence = &Evidence{AuthorHandle: "mallory", ListName: "targets", ListDescription: "people to watch", PostCreatedAt: t0.Add(-time.Hour)}
-	ctx, _ := counted()
+	ctx := context.Background()
 	if _, err := repo.Create(ctx, CreateParams{Report: rep, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}

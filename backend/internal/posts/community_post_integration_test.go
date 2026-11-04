@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -65,8 +64,8 @@ func seedMember(t *testing.T, client *firestore.Client, cid, uid, state string) 
 	}
 }
 
-// postIn creates a post (optionally quoting) into cid as uid. warm pre-loads the author profile outside the measured call.
-func (in *createInstance) postIn(t *testing.T, uid, key, cid, quoteOf string) (*Post, *budget.Counter, error) {
+// postIn creates a post (optionally quoting) into cid as uid. the author profile is pre-loaded unless in.cold.
+func (in *createInstance) postIn(t *testing.T, uid, key, cid, quoteOf string) (*Post, error) {
 	t.Helper()
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 	if !in.cold {
@@ -74,10 +73,8 @@ func (in *createInstance) postIn(t *testing.T, uid, key, cid, quoteOf string) (*
 			t.Errorf("warm profile: %v", err)
 		}
 	}
-	ctx, c := budget.WithCounter(ctx)
-	p, err := in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: "hello community", CommunityID: cid, CommunitiesEnabled: cid != "",
+	return in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: "hello community", CommunityID: cid, CommunitiesEnabled: cid != "",
 		QuoteOfPostID: quoteOf, QuotesEnabled: quoteOf != ""})
-	return p, c, err
 }
 
 func wantRefusal(t *testing.T, err error, code connect.Code, reason commonv1.ErrorReason, meta, val string) {
@@ -88,25 +85,23 @@ func wantRefusal(t *testing.T, err error, code connect.Code, reason commonv1.Err
 	}
 }
 
-// TestCommunityPost_StoresFieldsAndBudgetDelta: the doc fields, one quota Set for both counters, +0 writes, and +2 cold / +1 warm
-// reads over a plain CreatePost measured in the same test.
-func TestCommunityPost_StoresFieldsAndBudgetDelta(t *testing.T) {
+// TestCommunityPost_StoresFields: the doc fields and the counters, with a plain post storing none of the community fields.
+func TestCommunityPost_StoresFields(t *testing.T) {
 	client := newTestClient(t)
 	in, _ := newCommunityInstance(t, client, 100)
 	in.signUp(t, "uid-alice", "alice")
 	seedCommunityDoc(t, client, commCID, "Go Lang", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
 
-	_, _, err := in.create(t, "uid-alice", key(1), "plain")
+	_, err := in.create(t, "uid-alice", key(1), "plain")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cold: the communities cache of this instance is empty (community doc read: +1) and the member doc is read: +1.
-	p, _, err := in.postIn(t, "uid-alice", key(2), commCID, "")
+	p, err := in.postIn(t, "uid-alice", key(2), commCID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = in.postIn(t, "uid-alice", key(3), commCID, "")
+	_, err = in.postIn(t, "uid-alice", key(3), commCID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +127,7 @@ func TestCommunityPost_StoresFieldsAndBudgetDelta(t *testing.T) {
 		t.Fatalf("postsCount = %d, want 3", got)
 	}
 	// A plain post stores none of the fields.
-	pl, _, _ := in.create(t, "uid-alice", key(4), "another plain")
+	pl, _ := in.create(t, "uid-alice", key(4), "another plain")
 	snap, _ = client.Collection(postsCollection).Doc(pl.ID).Get(context.Background())
 	if _, err := snap.DataAt("communityId"); err == nil {
 		t.Fatal("a plain post stored communityId")
@@ -149,7 +144,7 @@ func TestCommunityPost_Refusals(t *testing.T) {
 	seedCommunityDoc(t, client, "0000000000000000802", "Old", "ARCHIVED")
 	seedCommunityDoc(t, client, "0000000000000000803", "Off", "SUSPENDED")
 	seedMember(t, client, commCID, "uid-bob", "BANNED")
-	base, _, err := in.create(t, "uid-bob", key(1), "bobs plain post, the quote target")
+	base, err := in.create(t, "uid-bob", key(1), "bobs plain post, the quote target")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +169,7 @@ func TestCommunityPost_Refusals(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, err := in.postIn(t, tt.uid, key(100+i), tt.cid, tt.quote)
+			_, err := in.postIn(t, tt.uid, key(100+i), tt.cid, tt.quote)
 			wantRefusal(t, err, tt.code, tt.reason, tt.meta, tt.val)
 		})
 	}
@@ -195,7 +190,7 @@ func TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost(t *testing.T) {
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
 
-	if _, _, err := in.postIn(t, "uid-alice", key(1), commCID, ""); err != nil {
+	if _, err := in.postIn(t, "uid-alice", key(1), commCID, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Warm this instance's own cached member state (JOINED), as a read path on it would have.
@@ -203,7 +198,7 @@ func TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost(t *testing.T) {
 		t.Fatalf("role = %v, %v", r, err)
 	}
 	seedMember(t, client, commCID, "uid-alice", "BANNED") // "another instance" bans her
-	_, _, err := in.postIn(t, "uid-alice", key(2), commCID, "")
+	_, err := in.postIn(t, "uid-alice", key(2), commCID, "")
 	wantRefusal(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", "banned")
 	if got := fieldInt(t, client, "quotas/uid-alice", "communityPosts"); got != 1 {
 		t.Fatalf("communityPosts = %d, want 1 (the refused post is not charged)", got)
@@ -219,29 +214,29 @@ func TestCommunityPost_QuotaAndCap(t *testing.T) {
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
 
-	first, _, err := in.postIn(t, "uid-alice", key(1), commCID, "")
+	first, err := in.postIn(t, "uid-alice", key(1), commCID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, c, err := in.postIn(t, "uid-alice", key(1), commCID, "") // replay
-	if err != nil || again.ID != first.ID {
-		t.Fatalf("replay: %v %v writes=%d", again, err, c.Writes())
+	again, err := in.postIn(t, "uid-alice", key(1), commCID, "") // replay
+	if err != nil || again.ID != first.ID || countDocs(t, client, postsCollection) != 1 {
+		t.Fatalf("replay: %v %v posts=%d, want the first post and one stored", again, err, countDocs(t, client, postsCollection))
 	}
-	if _, _, err := in.postIn(t, "uid-alice", key(2), commCID, ""); err != nil {
+	if _, err := in.postIn(t, "uid-alice", key(2), commCID, ""); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = in.postIn(t, "uid-alice", key(3), commCID, "")
+	_, err = in.postIn(t, "uid-alice", key(3), commCID, "")
 	wantRefusal(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", communities.LimitPostsPerCommunityDaily)
 	if got := fieldInt(t, client, "quotas/uid-alice", "communityPosts"); got != 2 {
 		t.Fatalf("communityPosts = %d, want 2", got)
 	}
 
-	// The daily quota: seed 50 used, the next post is refused with 0 writes and nothing is charged.
+	// The daily quota: seed 50 used, the next post is refused and nothing is charged.
 	in2, _ := newCommunityInstance(t, client, 1000)
 	if _, err := client.Doc("quotas/uid-alice").Set(context.Background(), map[string]any{"day": quota.Today(), "posts": int64(60), "communityPosts": int64(50)}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = in2.postIn(t, "uid-alice", key(4), commCID, "")
+	_, err = in2.postIn(t, "uid-alice", key(4), commCID, "")
 	wantRefusal(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "community_posts")
 	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 60 {
 		t.Fatalf("posts = %d, want 60 (a refusal charges nothing)", got)
@@ -256,18 +251,18 @@ func TestCommunityPost_QuoteIntoCommunity(t *testing.T) {
 	in.signUp(t, "uid-bob", "bob")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
-	base, _, err := in.create(t, "uid-bob", key(1), "to be quoted")
+	base, err := in.create(t, "uid-bob", key(1), "to be quoted")
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, _, err := in.postIn(t, "uid-alice", key(2), commCID, base.ID)
+	q, err := in.postIn(t, "uid-alice", key(2), commCID, base.ID)
 	if err != nil || q.Kind != KindQuote || q.CommunityID != commCID || q.Embedded == nil {
 		t.Fatalf("quote = %+v err = %v", q, err)
 	}
 }
 
 // TestByCommunity_PagesNewestFirst: 25 community posts page as 20 + 5, newest first, with the Before bound (older page) and the After
-// bounds (since, and the settle sentinel); a plain post is never returned; reads are len(result).
+// bounds (since, and the settle sentinel); a plain post is never returned.
 func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	client := newTestClient(t)
 	in, _ := newCommunityInstance(t, client, 1000)
@@ -276,15 +271,15 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	seedCommunityDoc(t, client, "0000000000000000804", "Other", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
 	seedMember(t, client, "0000000000000000804", "uid-alice", "JOINED")
-	if _, _, err := in.create(t, "uid-alice", key(900), "plain, never in the feed"); err != nil {
+	if _, err := in.create(t, "uid-alice", key(900), "plain, never in the feed"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := in.postIn(t, "uid-alice", key(901), "0000000000000000804", ""); err != nil {
+	if _, err := in.postIn(t, "uid-alice", key(901), "0000000000000000804", ""); err != nil {
 		t.Fatal(err)
 	}
 	var made []string // oldest first
 	for i := 1; i <= 25; i++ {
-		p, _, err := in.postIn(t, "uid-alice", key(i), commCID, "")
+		p, err := in.postIn(t, "uid-alice", key(i), commCID, "")
 		if err != nil {
 			t.Fatalf("post %d: %v", i, err)
 		}
@@ -293,7 +288,7 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	}
 	newest := func(i int) string { return made[len(made)-1-i] }
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	page1, err := in.svc.ByCommunity(ctx, commCID, Window{}, 20)
 	if err != nil || len(page1) != 20 {
 		t.Fatalf("page 1: %d posts, %v", len(page1), err)
@@ -304,7 +299,6 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 		}
 	}
 	last := page1[19]
-	ctx, _ = budget.WithCounter(context.Background())
 	page2, err := in.svc.ByCommunity(ctx, commCID, Window{Before: &Position{CreatedAt: last.CreatedAt, ID: last.ID}}, 20)
 	if err != nil || len(page2) != 5 {
 		t.Fatalf("page 2: %d posts, %v", len(page2), err)
@@ -333,30 +327,25 @@ func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	if err != nil || len(gap) != 4 || gap[0].ID != page1[5].ID {
 		t.Fatalf("gap: %d posts, %v", len(gap), err)
 	}
-	// An empty query still bills 1 read.
-	ctx, _ = budget.WithCounter(context.Background())
 	none, err := in.svc.ByCommunity(ctx, "0000000000000000899", Window{}, 20)
 	if err != nil || len(none) != 0 {
 		t.Fatalf("empty: %d, %v", len(none), err)
 	}
 }
 
-// replyIn replies to parent as uid on this instance (the author profile is pre-loaded outside the measured call, as postIn does).
-func (in *createInstance) replyIn(t *testing.T, uid, key, parent string) (*Post, *budget.Counter, error) {
+// replyIn replies to parent as uid on this instance (the author profile is pre-loaded, as postIn does).
+func (in *createInstance) replyIn(t *testing.T, uid, key, parent string) (*Post, error) {
 	t.Helper()
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 	if _, err := in.svc.directory.GetProfiles(context.Background(), []string{uid}); err != nil {
 		t.Errorf("warm profile: %v", err)
 	}
-	ctx, c := budget.WithCounter(ctx)
-	p, err := in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: "a reply", ReplyToPostID: parent, RepliesEnabled: true})
-	return p, c, err
+	return in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: "a reply", ReplyToPostID: parent, RepliesEnabled: true})
 }
 
-// TestCommunityReply_MembersOnlyAndBudget: a member's reply, to the root and to a reply, costs +2 reads cold and +0
-// warm over the same reply in a plain conversation, +0 writes; a non-member and a banned user get FORBIDDEN not_member with 0 writes; the rule
-// keys on the inherited conversationCommunityId (stored on the reply) and still holds when the root is hidden (communityId deleted).
-func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
+// TestCommunityReply_MembersOnly: a member's reply, to the root and to a reply, inherits the conversation community; a
+// non-member and a banned user get FORBIDDEN not_member and nothing is stored; the rule keys on the inherited conversationCommunityId (stored on the reply) and still holds when the root is hidden (communityId deleted).
+func TestCommunityReply_MembersOnly(t *testing.T) {
 	client := newTestClient(t)
 	author, _ := newCommunityInstance(t, client, 100)
 	for _, u := range []string{"alice", "bob", "carol", "dave"} {
@@ -367,29 +356,29 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 	seedMember(t, client, commCID, "uid-bob", "JOINED")
 	seedMember(t, client, commCID, "uid-dave", "BANNED")
 
-	root, _, err := author.postIn(t, "uid-alice", key(1), commCID, "")
+	root, err := author.postIn(t, "uid-alice", key(1), commCID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	plainRoot, _, err := author.create(t, "uid-alice", key(2), "plain root")
+	plainRoot, err := author.create(t, "uid-alice", key(2), "plain root")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Baseline: the same two replies in a plain conversation on a fresh instance.
 	plainIn, _ := newCommunityInstance(t, client, 100)
-	pr1, _, err := plainIn.replyIn(t, "uid-bob", key(10), plainRoot.ID)
+	pr1, err := plainIn.replyIn(t, "uid-bob", key(10), plainRoot.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = plainIn.replyIn(t, "uid-bob", key(11), pr1.ID)
+	_, err = plainIn.replyIn(t, "uid-bob", key(11), pr1.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// The community conversation on another fresh instance: cold caches for the community and the member doc.
 	in, _ := newCommunityInstance(t, client, 100)
-	r1, _, err := in.replyIn(t, "uid-bob", key(20), root.ID)
+	r1, err := in.replyIn(t, "uid-bob", key(20), root.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +386,7 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 		t.Fatalf("reply = conv %q communityId %q community %v, want the inherited conversation community only", r1.ConversationCommunityID, r1.CommunityID, r1.Community)
 	}
 	// A reply to a reply: the root is never read; warm: +0 over the plain warm reply.
-	r2, _, err := in.replyIn(t, "uid-bob", key(21), r1.ID)
+	r2, err := in.replyIn(t, "uid-bob", key(21), r1.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,12 +404,12 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 		n         int
 	}{{"uid-carol", "non-member", 30}, {"uid-dave", "banned", 31}} {
 		fresh, _ := newCommunityInstance(t, client, 100)
-		_, _, err := fresh.replyIn(t, tc.uid, key(tc.n), r2.ID)
+		_, err := fresh.replyIn(t, tc.uid, key(tc.n), r2.ID)
 		wantRefusal(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", "not_member")
 	}
 	// The member still may reply under the hidden root (new instance: root read from Firestore sees communityHidden).
 	fresh, _ := newCommunityInstance(t, client, 100)
-	hp, _, err := fresh.replyIn(t, "uid-bob", key(40), r2.ID)
+	hp, err := fresh.replyIn(t, "uid-bob", key(40), r2.ID)
 	if err != nil || hp.ConversationCommunityID != commCID {
 		t.Fatalf("member reply under a hidden root: %v %+v", err, hp)
 	}
@@ -431,7 +420,7 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 
 // TestCommunityReply_HiddenReplyInGetThread: a reply a moderator hid through the real seam leaves GetThread for
 // every viewer but its author, as the focal post's parent it is an unavailable parent, the focal reply is still served, replying to it stays allowed,
-// and the thread costs the same reads as before the hide (+0), cold and warm.
+// and a repeat read of the thread still works.
 func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 	client := newTestClient(t)
 	author, _ := newCommunityInstance(t, client, 100)
@@ -442,31 +431,28 @@ func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 	for _, u := range []string{"alice", "bob", "carol"} {
 		seedMember(t, client, commCID, "uid-"+u, "JOINED")
 	}
-	root, _, err := author.postIn(t, "uid-alice", key(1), commCID, "")
+	root, err := author.postIn(t, "uid-alice", key(1), commCID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bobReply, _, err := author.replyIn(t, "uid-bob", key(2), root.ID)
+	bobReply, err := author.replyIn(t, "uid-bob", key(2), root.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	carolReply, _, err := author.replyIn(t, "uid-carol", key(3), bobReply.ID)
+	carolReply, err := author.replyIn(t, "uid-carol", key(3), bobReply.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	thread := func(viewer, focal string) (*Thread, *budget.Counter) {
+	thread := func(viewer, focal string) *Thread {
 		t.Helper()
 		in, _ := newCommunityInstance(t, client, 100)
 		ctx := authn.WithClaims(context.Background(), authn.Claims{UID: viewer, SignInProvider: authn.SignInProviderGoogle})
-		ctx, c := budget.WithCounter(ctx)
 		th, err := in.svc.GetThread(ctx, viewer, ThreadInput{PostID: focal})
 		if err != nil {
 			t.Fatalf("GetThread(%s, %s): %v", viewer, focal, err)
 		}
-		return th, c
+		return th
 	}
-	_, _ = thread("uid-carol", root.ID)
-
 	// hide bob's reply through the real seam, as communities does in its transaction
 	m := NewCommunityModerator(client)
 	if err := client.RunTransaction(context.Background(), func(_ context.Context, tx *firestore.Transaction) error {
@@ -479,24 +465,24 @@ func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	th, _ := thread("uid-carol", root.ID)
+	th := thread("uid-carol", root.ID)
 	if got := idsOf(th.Replies); len(got) != 1 || got[0] != carolReply.ID {
 		t.Errorf("replies for another viewer = %v, want only %s (the reply under the hidden one stays)", got, carolReply.ID)
 	}
-	if th, _ := thread("uid-bob", root.ID); len(th.Replies) != 2 {
+	if th := thread("uid-bob", root.ID); len(th.Replies) != 2 {
 		t.Errorf("the author sees %v, want both replies", idsOf(th.Replies))
 	}
-	th, _ = thread("uid-carol", carolReply.ID)
+	th = thread("uid-carol", carolReply.ID)
 	if th.Parent != nil || !th.ParentUnavailable {
 		t.Errorf("parent = %+v unavailable=%v, want an unavailable parent", th.Parent, th.ParentUnavailable)
 	}
-	th, _ = thread("uid-carol", bobReply.ID)
+	th = thread("uid-carol", bobReply.ID)
 	if th.Focal == nil || th.Focal.ID != bobReply.ID {
 		t.Errorf("a hidden focal reply is not served: %+v", th.Focal)
 	}
 	// replying to the hidden reply stays allowed (R4)
 	in, _ := newCommunityInstance(t, client, 100)
-	if _, _, err := in.replyIn(t, "uid-alice", key(9), bobReply.ID); err != nil {
+	if _, err := in.replyIn(t, "uid-alice", key(9), bobReply.ID); err != nil {
 		t.Errorf("reply to a hidden reply: %v", err)
 	}
 }

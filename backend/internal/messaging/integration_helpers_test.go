@@ -18,7 +18,6 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
@@ -111,20 +110,18 @@ func (e *itEnv) mutual(a, b string) {
 	e.setSocial(b, graph.Snapshot{Following: map[string]bool{a: true}})
 }
 
-// send runs one SendMessage on svc under its own budget counter.
-func (e *itEnv) send(from string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, *budget.Counter, error) {
+// send runs one SendMessage.
+func (e *itEnv) send(from string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
 	return e.sendOn(e.svc, from, req)
 }
 
-func (e *itEnv) sendOn(svc *service, from string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(verifiedCtx())
-	resp, err := svc.Send(ctx, from, req)
-	return resp, c, err
+func (e *itEnv) sendOn(svc *service, from string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
+	return svc.Send(verifiedCtx(), from, req)
 }
 
 func (e *itEnv) must(from string, req *messagingv1.SendMessageRequest) *messagingv1.SendMessageResponse {
 	e.t.Helper()
-	resp, _, err := e.send(from, req)
+	resp, err := e.send(from, req)
 	if err != nil {
 		e.t.Fatalf("send: %v", err)
 	}

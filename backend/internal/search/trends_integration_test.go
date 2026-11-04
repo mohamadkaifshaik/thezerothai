@@ -3,8 +3,7 @@
 package search
 
 // against the Firestore emulator: the real trends/current repo, the real posts.Reader.CreatedAfter, the
-// refresher end to end, GetTrends through the instance copy, and the budget assertions:
-// refresh = 2 + new posts reads (document, hide list) and 1 write; GetTrends = 2 reads cold (the interceptor read is outside the service), 0 warm.
+// refresher end to end, and GetTrends through the instance copy.
 
 import (
 	"context"
@@ -17,7 +16,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -70,21 +68,18 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 	seedPost(t, c, 30, "a", "POST", at(30), "", "ancient")
 	const newPosts = 12 // 1,2,3,4,5,6 and 10..14 inside the window; the ancient one is outside
 
-	// GetTrends before any run: no document, 1 read, an empty list.
+	// GetTrends before any run: no document, an empty list.
 	svc := New(reg, WithTrends(store, nil))
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	got, err := svc.Trends(ctx, "u", 0, "")
 	if err != nil || len(got.Trends) != 0 || got.ComputedAt != nil {
 		t.Fatalf("before the first run: %v %v", got, err)
 	}
 
-	// The run: 1 read (document) + 1 (hide list) + 11 posts, 1 write.
+	// The run scans the 11 new posts and writes the document.
 	res, err := r.Run(context.Background())
 	if err != nil || res.Skipped != "" || res.PostsScanned != newPosts-1 {
 		t.Fatalf("res %+v err %v", res, err)
-	}
-	if res.FsReads != 2+newPosts-1+3 || res.FsWrites != 1 {
-		t.Fatalf("run cost %d reads, %d writes, want %d and 1 (2 + new posts, 1 write)", res.FsReads, res.FsWrites, newPosts+4)
 	}
 	doc, err := store.Get(context.Background())
 	if err != nil || doc == nil {
@@ -97,51 +92,43 @@ func TestTrends_Integration_RefreshAndGetTrends(t *testing.T) {
 		t.Fatalf("doc %+v", doc)
 	}
 
-	// A second run inside the interval is skipped as fresh: 1 read, no write.
-	if res, err := r.Run(context.Background()); err != nil || res.Skipped != SkipFresh || res.FsReads != 1 || res.FsWrites != 0 {
-		t.Fatalf("second run: %+v %v, want skipped fresh, 1 read, 0 writes", res, err)
+	// A second run inside the interval is skipped as fresh and leaves the document as it was.
+	if res, err := r.Run(context.Background()); err != nil || res.Skipped != SkipFresh {
+		t.Fatalf("second run: %+v %v, want skipped fresh", res, err)
 	}
-	// The kill switch: 0 reads, 0 writes against the real store.
+	// The kill switch skips the run before any work against the real store.
 	off := NewRefresher(store, reader, prot, nil, flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.Off}), RefresherConfig{})
-	if res, err := off.Run(context.Background()); err != nil || res.Skipped != SkipFlagOff || res.FsReads != 0 || res.FsWrites != 0 {
+	if res, err := off.Run(context.Background()); err != nil || res.Skipped != SkipFlagOff {
 		t.Fatalf("flag off: %+v %v", res, err)
+	}
+	if after, err := store.Get(context.Background()); err != nil || after == nil || !after.ComputedAt.Equal(doc.ComputedAt) || after.Watermark != doc.Watermark {
+		t.Fatalf("the skipped runs changed the document: %+v -> %+v (%v)", doc, after, err)
 	}
 
 	// GetTrends cold: the instance of this service never loaded the document after the run (it cached "no list" 10 min).
 	fresh := New(reg, WithTrends(store, nil))
-	ctx, _ = budget.WithCounter(context.Background())
-	got, err = fresh.Trends(ctx, "u", 0, "la")
+	got, err = fresh.Trends(context.Background(), "u", 0, "la")
 	if err != nil || len(got.Trends) != 1 || got.Trends[0].Tag != "launch" || got.Trends[0].PostCount != 3 || got.ComputedAt == nil {
 		t.Fatalf("GetTrends: %v %v", got, err)
 	}
-	ctx, _ = budget.WithCounter(context.Background())
-	if _, err := fresh.Trends(ctx, "u", 0, ""); err != nil {
+	if _, err := fresh.Trends(context.Background(), "u", 0, ""); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// TestTrends_Integration_RunBudget: the refresher's own counter (read through its log fields in the unit test) matches the
-// repo calls: 1 document read + N projected posts, 1 write. Asserted here on the repo and reader directly so a regression in
-// either one's billing fails CI.
-func TestTrends_Integration_RunBudget(t *testing.T) {
+// TestTrends_Integration_ProjectedPostsSkipCache: the reader returns every projected post in the window and keeps
+// them out of the posts cache.
+func TestTrends_Integration_ProjectedPostsSkipCache(t *testing.T) {
 	c := emulatorClient(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	store := NewTrendsRepo(c)
 	pc := posts.NewCache(time.Minute, 0, 0)
 	reader := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(c), Cache: pc})
 	for i := 1; i <= 40; i++ {
 		seedPost(t, c, i, fmt.Sprintf("u%d", i%4), "POST", now.Add(-time.Duration(41-i)*time.Minute), "", "x")
 	}
-	ctx, _ := budget.WithCounter(context.Background())
-	if _, err := store.Get(ctx); err != nil {
-		t.Fatal(err)
-	}
-	page, err := reader.CreatedAfter(ctx, posts.Position{CreatedAt: now.Add(-24 * time.Hour)}, 500)
+	page, err := reader.CreatedAfter(context.Background(), posts.Position{CreatedAt: now.Add(-24 * time.Hour)}, 500)
 	if err != nil || len(page) != 40 {
 		t.Fatalf("page %d err %v", len(page), err)
-	}
-	if err := store.Put(ctx, &TrendsDoc{ComputedAt: now}); err != nil {
-		t.Fatal(err)
 	}
 	// A projected post never reaches the posts cache.
 	for _, p := range page {

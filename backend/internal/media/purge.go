@@ -92,8 +92,7 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 // PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. It deletes every
 // document the owner has, whatever its state, retired AVATAR and BANNER documents included: until its TTL a retired
 // document still names the image, so an account deleted during the grace loses the objects
-// at once. done is true when the page was short (the account is DELETING, so no new uploads arrive). Reads: one per
-// document, minimum 1; deletes: one per document; GCS: free deletes, 2 public (deterministic names; 4 for a
+// at once. done is true when the page was short (the account is DELETING, so no new uploads arrive). GCS: free deletes, 2 public (deterministic names; 4 for a
 // suffixed document, both shapes) + up to 2 private per document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := p.repo.ListByOwner(ctx, uid, "", opsPage)
@@ -137,8 +136,7 @@ type exportedMedia struct {
 // Name is the export section name.
 func (*Purger) Name() string { return "media" }
 
-// WriteSection streams {"media":[...]} to w in pages of opsPage (memory stays bounded). Reads: one per document,
-// minimum 1.
+// WriteSection streams {"media":[...]} to w in pages of opsPage (memory stays bounded).
 func (p *Purger) WriteSection(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := io.WriteString(w, `{"media":[`); err != nil {
 		return fmt.Errorf("media: write export: %w", err)

@@ -29,27 +29,22 @@ func (e *repoEnv) seedBookmarks(t *testing.T, uid string, n int) []string {
 }
 
 // ListPage is the one list query: newest first by (createdAt, id), Limit always set, resumed by StartAfter on the last
-// row, reads = rows (an empty page bills 1), and it only ever sees the named user's subcollection.
-func TestBookmarkRepo_ListPagePagesAndBills(t *testing.T) {
+// row, and it only ever sees the named user's subcollection.
+func TestBookmarkRepo_ListPagePages(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
 	want := e.seedBookmarks(t, bmUID, 25)
 	e.seedBookmarks(t, "someone-else", 3)
 
-	var p1, p2, p3 []ExportedBookmark
-	measured(t, "ListPage 20", func(ctx context.Context) {
-		var err error
-		if p1, err = e.repo.ListPage(ctx, bmUID, nil, 20); err != nil {
-			t.Fatal(err)
-		}
-	})
+	p1, err := e.repo.ListPage(context.Background(), bmUID, nil, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	last := p1[len(p1)-1]
-	measured(t, "ListPage 20 (second)", func(ctx context.Context) {
-		var err error
-		if p2, err = e.repo.ListPage(ctx, bmUID, &posts.Position{CreatedAt: last.BookmarkedAt, ID: last.PostID}, 20); err != nil {
-			t.Fatal(err)
-		}
-	})
+	p2, err := e.repo.ListPage(context.Background(), bmUID, &posts.Position{CreatedAt: last.BookmarkedAt, ID: last.PostID}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(p1) != 20 || len(p2) != 5 {
 		t.Fatalf("pages = %d + %d rows, want 20 + 5", len(p1), len(p2))
 	}
@@ -60,14 +55,12 @@ func TestBookmarkRepo_ListPagePagesAndBills(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want newest first %v", got, want)
 	}
-	// An empty page bills one read (Firestore bills an empty query as one).
+	// Past the last row the page is empty.
 	tail := p2[len(p2)-1]
-	measured(t, "ListPage empty", func(ctx context.Context) {
-		var err error
-		if p3, err = e.repo.ListPage(ctx, bmUID, &posts.Position{CreatedAt: tail.BookmarkedAt, ID: tail.PostID}, 20); err != nil {
-			t.Fatal(err)
-		}
-	})
+	p3, err := e.repo.ListPage(context.Background(), bmUID, &posts.Position{CreatedAt: tail.BookmarkedAt, ID: tail.PostID}, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(p3) != 0 {
 		t.Errorf("past the end = %v", p3)
 	}
@@ -117,7 +110,7 @@ func TestBookmarkRepo_ListPageTieBreak(t *testing.T) {
 	}
 }
 
-// Prune: one batch, 0 reads, 1 write (userLikes) and 1 delete per id; the liked and reposted sets and the bookmarks
+// Prune: one batch that updates userLikes and deletes the bookmark docs; the liked and reposted sets and the bookmarks
 // that are not pruned survive (field-level update), a second prune of the same ids is harmless, and a user with no
 // userLikes doc gets one holding only the empty set.
 func TestBookmarkRepo_PruneIsOneFieldLevelBatch(t *testing.T) {
@@ -131,11 +124,9 @@ func TestBookmarkRepo_PruneIsOneFieldLevelBatch(t *testing.T) {
 	}
 	gone := []string{ids[1], ids[3]}
 
-	measured(t, "Prune", func(ctx context.Context) {
-		if err := e.repo.Prune(ctx, bmUID, gone); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.repo.Prune(context.Background(), bmUID, gone); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range gone {
 		if e.bookmarkExists(t, bmUID, id) {
 			t.Errorf("bookmark %s survived the prune", id)
@@ -164,11 +155,12 @@ func TestBookmarkRepo_PruneIsOneFieldLevelBatch(t *testing.T) {
 		t.Errorf("userLikes.bookmarks = %v after a repeated prune", got)
 	}
 	// No ids: nothing at all.
-	measured(t, "Prune none", func(ctx context.Context) {
-		if err := e.repo.Prune(ctx, bmUID, nil); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.repo.Prune(context.Background(), bmUID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.bookmarks(t, bmUID); len(got) != 3 {
+		t.Errorf("userLikes.bookmarks = %v after a prune of no ids", got)
+	}
 	// A user with no userLikes doc: the batch creates it holding only the (empty) set.
 	e.seedBookmarks(t, "fresh", 1)
 	if err := e.repo.Prune(ctx, "fresh", []string{"0000000000000000001"}); err != nil {

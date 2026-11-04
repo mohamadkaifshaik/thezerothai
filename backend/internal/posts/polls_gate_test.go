@@ -11,7 +11,7 @@ import (
 )
 
 // TestCreate_PollsGate: a request with a poll while FEATURE_POLLS is off for the caller is
-// FEATURE_DISABLED feature=polls with 0 reads, 0 writes and no repo call, and it comes after content_disclosure in the
+// FEATURE_DISABLED feature=polls with no repo call, and it comes after content_disclosure in the
 // Order. A caller with the flag on reaches the repository (stores the poll). A request without a poll is unaffected either way.
 func TestCreate_PollsGate(t *testing.T) {
 	tests := []struct {
@@ -30,12 +30,12 @@ func TestCreate_PollsGate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
 			tt.in.IdempotencyKey, tt.in.Text = key1, "hello"
-			p, c, err := e.create(tt.in)
+			p, err := e.create(tt.in)
 			switch {
 			case tt.wantFeature != "":
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 				if ae.Metadata["feature"] != tt.wantFeature || e.repo.createCalls != 0 {
-					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
+					t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 				}
 			default:
 				if err != nil || p == nil {

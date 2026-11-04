@@ -32,7 +32,7 @@ type FlagChecker interface {
 
 // Guard is the flag gate every ListService method (and timeline's GetListTimeline and SetHomeTabs) runs before any
 // Firestore access (one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=lists and 0 reads. A nil checker is off for everyone.
+// FEATURE_DISABLED with metadata feature=lists. A nil checker is off for everyone.
 func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, FlagName)
 	if err == nil {

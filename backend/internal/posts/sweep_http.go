@@ -1,6 +1,5 @@
 // sweep_http.go is the `/internal/cron/publish-scheduled` route ("The route", Sweep steps 6 and 7): POST
-// only, a 25 s context deadline, a budget.Counter of its own (system reads, never charged to a user's read
-// budget), route-level panic recovery, and the one `scheduled_sweep` line per run. Mount it behind the OIDC verifier
+// only, a 25 s context deadline, route-level panic recovery, and the one `scheduled_sweep` line per run. Mount it behind the OIDC verifier
 // (apiserver's routeTable.internal does).
 //
 // Response contract: 204 when the run processed what it fetched, even when some items failed (each is counted in the
@@ -18,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -33,7 +31,6 @@ func NewSweepHandler(sw Sweeper, log *slog.Logger, projectID string) http.Handle
 		started := time.Now()
 		ctx, cancel := context.WithTimeout(logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID)), sweepRunDeadline)
 		defer cancel()
-		ctx, counter := budget.WithCounter(ctx)
 
 		res, err := sw.Sweep(ctx)
 		// A due-query failure is the run's error: err when page 1 failed (nothing processed, 500, Scheduler's retry is
@@ -46,7 +43,7 @@ func NewSweepHandler(sw Sweeper, log *slog.Logger, projectID string) http.Handle
 		if err != nil {
 			res.Outcome = SweepError
 		}
-		attrs := append(res.logAttrs(counter), "latency_ms", time.Since(started).Milliseconds())
+		attrs := append(res.logAttrs(), "latency_ms", time.Since(started).Milliseconds())
 		attrs = append(attrs, logger.TraceAttrs(ctx)...)
 		// The one scheduled_sweep line is written for EVERY run, failed ones included (outcome=error, with the counts of what
 		// was processed). The Error Reporting entry is a separate line that carries only the scrubbed error.
@@ -64,9 +61,8 @@ func NewSweepHandler(sw Sweeper, log *slog.Logger, projectID string) http.Handle
 	}))
 }
 
-// logAttrs are the fields of the scheduled_sweep line: counts, the largest lateness and the run's Firestore usage, never
-// an id, a handle or text.
-func (r SweepResult) logAttrs(c *budget.Counter) []any {
+// logAttrs are the fields of the scheduled_sweep line: counts and the largest lateness, never an id, a handle or text.
+func (r SweepResult) logAttrs() []any {
 	reasons := make([]string, 0, len(r.Failed))
 	for k := range r.Failed {
 		reasons = append(reasons, string(k))
@@ -93,9 +89,6 @@ func (r SweepResult) logAttrs(c *budget.Counter) []any {
 		"skipped_bad_path", r.SkippedBadPath,
 		"undecodable", r.Undecodable,
 		"max_lateness_ms", r.MaxLateness.Milliseconds(),
-		"fs_reads", c.Reads(),
-		"fs_writes", c.Writes(),
-		"fs_deletes", c.Deletes(),
 		"outcome", r.Outcome,
 	}
 }

@@ -5,8 +5,8 @@ package apiserver
 // The flag-mode matrix of the four profile and graph flags over the real Build chain (Firestore and Auth emulators):
 // every mode (off, allowlist with a member and a non-member, an empty allowlist, percent 0, percent 50 on both sides of
 // the bucket, percent 50 plus an allowlisted uid, percent 100, on) against every gated RPC of each flag, with a refusal
-// asserted as FAILED_PRECONDITION + FEATURE_DISABLED with the right feature= metadata at EXACTLY 0 reads, 0 writes and 0
-// deletes (the account-status read is warmed first with GetMe on the same chain), plus the companion-flag precedence
+// asserted as FAILED_PRECONDITION + FEATURE_DISABLED with the right feature= metadata and nothing written
+// (the account-status read is warmed first with GetMe on the same chain), plus the companion-flag precedence
 // (media before profile_extras, posts before likes_list, graph before follow_suggestions) and the ungated paths that
 // must stay open. The percent bucket is recomputed here (fnv32a(name:uid) % 100) so the cohort is a checked contract.
 //
@@ -366,7 +366,7 @@ func TestW320_CompanionFlagPrecedence(t *testing.T) {
 //	    returns, the owner's own view included, at no extra read; the location stays; a rollout (an allowlist, even an empty
 //	    one, or a percent, even 0) is not the switch and shows both; the stored document keeps the values.
 //	A2: the exact value "" for any of the four fields is a clear and is accepted from any authenticated caller whatever the
-//	    flag (1 read, 1 write); whitespace-only is a SET and stays gated; a request that mixes a clear with a set is refused
+//	    flag; whitespace-only is a SET and stays gated; a request that mixes a clear with a set is refused
 //	    whole (FEATURE_DISABLED for a caller outside the cohort, and nothing is cleared).
 func TestW320_M1KillSwitchWebsiteAndClears(t *testing.T) {
 	const site = "https://example.com/m1"
@@ -454,7 +454,6 @@ func TestW320_M1KillSwitchWebsiteAndClears(t *testing.T) {
 			if got.GetLocation() != "" || got.GetWebsite() != "" || got.GetPinnedPostId() != "" || got.GetBannerUrl() != "" {
 				t.Errorf("%s: response after the clear = %v, want every field empty", tc.name, got)
 			}
-			// 1 read (the users doc) + 1 for the cold interceptor = 2; 1 write: the cost of any UpdateProfile.
 			for _, f := range []string{"location", "website", "pinnedPostId"} {
 				if v := r.w320Field(t, "users/"+o.uid, f); v != "" && v != nil {
 					t.Errorf("%s: stored %s = %v after the clear", tc.name, f, v)

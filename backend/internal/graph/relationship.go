@@ -27,13 +27,13 @@ type ProfileRelationship struct {
 }
 
 // GetProfileRelationship is the header RPC for exactly one target; it is never computed for list rows
-// (1 read each). It needs only FEATURE_GRAPH on for the caller, like every GraphService RPC; D9 gives it no flag
+// (it costs a read each). It needs only FEATURE_GRAPH on for the caller, like every GraphService RPC; D9 gives it no flag
 // of its own. It replaces the header's GetRelationships([uid]), which is unchanged.
 //
-// Order, and what each step costs in Firestore reads:
-//  1. flag, then target id format (VALIDATION), 0 reads.
-//  2. the caller's own id: NONE and false, 0 reads.
-//  3. the target blocked the caller (the caller's snapshot blockedBy, +1 read of the target's graph on a
+// Order of the steps:
+//  1. flag, then target id format (VALIDATION), before any read.
+//  2. the caller's own id: NONE and false, before any read.
+//  3. the target blocked the caller (the caller's snapshot blockedBy, plus a read of the target's graph for a
 //     blockedByOverflow caller): NOT_FOUND byte-identical to GetProfile (identity.ProfileNotFoundError), no
 //     Directory call, no edge read.
 //  4. the target missing, SUSPENDED or DELETING (identity.Directory, cache-first): the same NOT_FOUND.
@@ -41,10 +41,10 @@ type ProfileRelationship struct {
 //     edges and a blocked pair cannot follow.
 //  6. otherwise the edge follows/{target}_{caller}, from the pair cache or one point read.
 //
-// Reads: cold = caller graph 1 + edge 1 = 2 when the target's profile is warm in the Directory (the header's
-// GetProfile has just loaded it), +1 if that profile is cold, +1 on blockedByOverflow; the account-status
-// interceptor adds its own 1 on the request line ("3 cold"). Warm: 0. Refused as blocked-by: 1 cold
-// (the caller graph), 0 warm. The caller blocks the target: 1 + Directory, no edge read. Writes: 0.
+// It reads the caller graph and the edge; the target's profile is normally warm in the Directory (the header's
+// GetProfile has just loaded it), and a blockedByOverflow caller adds the target's graph. A refusal as blocked-by
+// needs only the caller graph. When the caller blocks the target it needs the caller graph and the Directory, no edge
+// read. It writes nothing.
 func (s *service) GetProfileRelationship(ctx context.Context, callerUID, targetUID string) (_ ProfileRelationship, err error) {
 	defer begin(ctx, "profile_relationship")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -88,7 +88,7 @@ func (s *service) GetProfileRelationship(ctx context.Context, callerUID, targetU
 }
 
 // followedBy answers "does follower follow followee" for one pair: the pair cache first (true and false both
-// cached, so a non-follower's repeat view is 0 reads), else one point read of the edge, cached from what it
+// cached, so a non-follower's repeat view is served from memory), else one point read of the edge, cached from what it
 // returned. The cache's staleness bound is documented at Cache.Edge; a Follow or Unfollow that lands between the
 // read and the Set can leave one stale answer for at most that bound.
 func (s *service) followedBy(ctx context.Context, follower, followee string) (bool, error) {

@@ -11,24 +11,18 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// List reads. As in the member-write tests, what is measured is the service's own Firestore operations on a cold path:
-// the real graph repository (one real read per snapshot, no instance cache), the real lists repository, and a directory that
-// charges one read for every profile except the caller's own (the account-status interceptor loaded it). The interceptor's one
-// read is not in this harness: add 1 to compare with lists.proto (GetList 5 / 2, ListUserLists 24 / 21,
-// ListListMembers 25 / 55). The planned budget counts the owner's profile inside the page's GetMany; here it is a separate (also charged)
-// read, so the totals are the planned ones minus 1.
+// List reads run against the real graph repository (no instance cache), the real lists repository and a directory that serves the
+// profiles of a map.
 
-// readDirectory serves profiles and charges one read per uid returned other than free (the caller).
+// readDirectory serves the profiles it holds.
 type readDirectory struct {
 	identity.Directory
 	profiles map[string]identity.Profile
-	free     string
 }
 
-func (d readDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+func (d readDirectory) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
 		p, ok := d.profiles[u]
@@ -36,9 +30,6 @@ func (d readDirectory) GetProfiles(ctx context.Context, uids []string) (map[stri
 			continue
 		}
 		out[u] = p
-		if u != d.free {
-			budget.FromContext(ctx).AddReads(1)
-		}
 	}
 	return out, nil
 }
@@ -48,10 +39,10 @@ type readIntEnv struct {
 	profiles map[string]identity.Profile
 }
 
-// svcFor builds a FRESH service for caller (a cold doc cache and no graph cache): every cold assertion needs one.
-func (e *readIntEnv) svcFor(caller string) *service {
+// svcFor builds a FRESH service (a cold doc cache and no graph cache).
+func (e *readIntEnv) svcFor() *service {
 	return New(Deps{
-		Repo: e.repo, Directory: readDirectory{profiles: e.profiles, free: caller}, IDs: e.node,
+		Repo: e.repo, Directory: readDirectory{profiles: e.profiles}, IDs: e.node,
 		Graph: graphFromRepo{graph.NewFirestoreRepo(e.client)}, CursorKey: readKey,
 		Limits: Limits{MaxPerUser: 20, CacheEntries: 100, MaxMembers: 150},
 	}).(*service)
@@ -99,75 +90,59 @@ func (e *readIntEnv) putList(t *testing.T, id, owner string, private, hidden boo
 
 func lid(i int) string { return fmt.Sprintf("00000000000000001%02d", 10+i) }
 
-// exact asserts the measured reads equal want (a regression in either direction is a finding) and the call wrote nothing.
-func exact(t *testing.T, name string, c *budget.Counter, wantReads int64) {
-	t.Helper()
-}
-
-func TestGetList_Integration_Budget(t *testing.T) {
+func TestGetList_Integration_Visibility(t *testing.T) {
 	e := newReadIntEnv(t, 0)
 	e.putList(t, lid(1), "owner", false, false, []string{"m1"})
 	e.putList(t, lid(2), "owner", true, false, nil)
 	hiddenID := lid(3)
 	e.putList(t, hiddenID, "owner", false, true, nil)
+	e.putList(t, lid(4), "owner", false, false, nil)
 	ctx := context.Background()
 
-	// owner: the list doc only (2 with the interceptor)
-	own := e.svcFor("owner")
-	c := budgetCall(func(ctx context.Context) {
-		if v, err := own.GetList(ctx, "owner", lid(1)); err != nil || v.Header.ID != lid(1) {
-			t.Fatalf("owner: %+v, %v", v, err)
-		}
-	})
-	exact(t, "GetList owner cold", c, 1)
-	c = budgetCall(func(ctx context.Context) { _, _ = own.GetList(ctx, "owner", lid(1)) })
-	exact(t, "GetList owner warm", c, 0)
+	own := e.svcFor()
+	if v, err := own.GetList(ctx, "owner", lid(1)); err != nil || v.Header.ID != lid(1) {
+		t.Fatalf("owner: %+v, %v", v, err)
+	}
 
 	// a private list the owner never shared: the owner still reads it
 	if _, err := own.GetList(ctx, "owner", lid(2)); err != nil {
 		t.Fatal(err)
 	}
 
-	// non-owner, public: list + caller graph + owner profile + owner graph (5 with the interceptor)
-	other := e.svcFor("viewer")
-	c = budgetCall(func(ctx context.Context) {
-		if _, err := other.GetList(ctx, "viewer", lid(1)); err != nil {
-			t.Fatal(err)
-		}
-	})
-	exact(t, "GetList non-owner cold", c, 4)
-
-	// private and hidden (stored hidden:true) and a missing id are one answer; the first two stop after the doc read
-	want := missingErr(t)
-	for name, id := range map[string]string{"private": lid(2), "hidden": hiddenID, "missing": lid(9)} {
-		other = e.svcFor("viewer")
-		c = budgetCall(func(ctx context.Context) {
-			_, err := other.GetList(ctx, "viewer", id)
-			if err == nil {
-				t.Fatalf("%s: visible to a non-owner", name)
-			}
-			sameError(t, err, want)
-		})
-		exact(t, "GetList refused "+name, c, 1)
+	// the owner's second read of a list is served from the instance cache: it still answers with the document gone
+	if _, err := own.GetList(ctx, "owner", lid(4)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.client.Collection("lists").Doc(lid(4)).Delete(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := own.GetList(ctx, "owner", lid(4)); err != nil || v.Header.ID != lid(4) {
+		t.Fatalf("warm owner read after the document was deleted: %+v, %v", v, err)
 	}
 
-	// owner blocks the viewer, and an overflowed owner: refused after the owner's graph (4 reads), the same bytes
-	e.seedGraph(t, "owner", nil, true)
-	other = e.svcFor("viewer")
-	c = budgetCall(func(ctx context.Context) {
-		_, err := other.GetList(ctx, "viewer", lid(1))
+	// non-owner, public
+	other := e.svcFor()
+	if _, err := other.GetList(ctx, "viewer", lid(1)); err != nil {
+		t.Fatal(err)
+	}
+
+	// private and hidden (stored hidden:true) and a missing id are one answer
+	want := missingErr(t)
+	for name, id := range map[string]string{"private": lid(2), "hidden": hiddenID, "missing": lid(9)} {
+		_, err := e.svcFor().GetList(ctx, "viewer", id)
+		if err == nil {
+			t.Fatalf("%s: visible to a non-owner", name)
+		}
 		sameError(t, err, want)
-	})
-	exact(t, "GetList owner overflow", c, 4)
+	}
+
+	// an overflowed owner graph refuses the viewer with the same bytes
+	e.seedGraph(t, "owner", nil, true)
+	_, err := e.svcFor().GetList(ctx, "viewer", lid(1))
+	sameError(t, err, want)
 }
 
-func budgetCall(fn func(ctx context.Context)) *budget.Counter {
-	ctx, c := budget.WithCounter(context.Background())
-	fn(ctx)
-	return c
-}
-
-func TestListUserLists_Integration_Budget(t *testing.T) {
+func TestListUserLists_Integration_Visibility(t *testing.T) {
 	e := newReadIntEnv(t, 0)
 	for i := 1; i <= 20; i++ {
 		e.putList(t, lid(i), "owner", i%2 == 0, i == 3, []string{"u1"})
@@ -175,61 +150,42 @@ func TestListUserLists_Integration_Budget(t *testing.T) {
 	e.putList(t, "0000000000000009901", "stranger", false, false, nil) // another owner's list is never returned
 
 	for _, size := range []int32{20, 50} {
-		// the caller's own lists: all 20 (21 with the interceptor)
-		own := e.svcFor("owner")
-		c := budgetCall(func(ctx context.Context) {
-			got, err := own.ListUserLists(ctx, "owner", UserListsInput{PageSize: size, ContainsUserID: "u1"})
-			if err != nil || len(got.Lists) != 20 || len(got.ContainingIDs) != 20 || got.NextPageToken != "" {
-				t.Fatalf("own page %d: %d lists, %d containing, token %q, %v", size, len(got.Lists), len(got.ContainingIDs), got.NextPageToken, err)
-			}
-		})
-		exact(t, fmt.Sprintf("ListUserLists own, page %d", size), c, 20)
+		// the caller's own lists: all 20
+		got, err := e.svcFor().ListUserLists(context.Background(), "owner", UserListsInput{PageSize: size, ContainsUserID: "u1"})
+		if err != nil || len(got.Lists) != 20 || len(got.ContainingIDs) != 20 || got.NextPageToken != "" {
+			t.Fatalf("own page %d: %d lists, %d containing, token %q, %v", size, len(got.Lists), len(got.ContainingIDs), got.NextPageToken, err)
+		}
 
-		// another owner's: caller graph + owner profile + owner graph + 20 docs read, 9 public and not hidden returned
-		other := e.svcFor("viewer")
-		c = budgetCall(func(ctx context.Context) {
-			got, err := other.ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "owner", PageSize: size})
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := []string{lid(1), lid(5), lid(7), lid(9), lid(11), lid(13), lid(15), lid(17), lid(19)}
-			if !reflect.DeepEqual(listIDs(got.Lists), want) {
-				t.Fatalf("page %d = %v, want %v", size, listIDs(got.Lists), want)
-			}
-		})
-		exact(t, fmt.Sprintf("ListUserLists other, page %d", size), c, 23)
+		// another owner's: 9 of the 20 are public and not hidden
+		got, err = e.svcFor().ListUserLists(context.Background(), "viewer", UserListsInput{OwnerID: "owner", PageSize: size})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{lid(1), lid(5), lid(7), lid(9), lid(11), lid(13), lid(15), lid(17), lid(19)}
+		if !reflect.DeepEqual(listIDs(got.Lists), want) {
+			t.Fatalf("page %d = %v, want %v", size, listIDs(got.Lists), want)
+		}
 	}
 
-	// page_size 1 for another owner: same single 20-doc query, all 9 public lists, no token
-	c1 := budgetCall(func(ctx context.Context) {
-		got, err := e.svcFor("viewer").ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "owner", PageSize: 1})
-		if err != nil || len(got.Lists) != 9 || got.NextPageToken != "" {
-			t.Fatalf("other page 1: %d lists, token %q, %v", len(got.Lists), got.NextPageToken, err)
-		}
-	})
-	exact(t, "ListUserLists other, page 1", c1, 23)
+	// page_size 1 for another owner: the filtering happens over the one 20-document query, so all 9 public lists come back with no token
+	got, err := e.svcFor().ListUserLists(context.Background(), "viewer", UserListsInput{OwnerID: "owner", PageSize: 1})
+	if err != nil || len(got.Lists) != 9 || got.NextPageToken != "" {
+		t.Fatalf("other page 1: %d lists, token %q, %v", len(got.Lists), got.NextPageToken, err)
+	}
 
-	// an owner with no lists: the empty query bills 1 (5 with the interceptor)
-	other := e.svcFor("viewer")
+	// an owner with no lists
 	e.profiles["empty"] = active("empty", false)
-	c := budgetCall(func(ctx context.Context) {
-		got, err := other.ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "empty"})
-		if err != nil || len(got.Lists) != 0 {
-			t.Fatalf("%v %v", got, err)
-		}
-	})
-	exact(t, "ListUserLists other, none", c, 4)
+	got, err = e.svcFor().ListUserLists(context.Background(), "viewer", UserListsInput{OwnerID: "empty"})
+	if err != nil || len(got.Lists) != 0 {
+		t.Fatalf("%v %v", got, err)
+	}
 
-	// a refused owner reads the graphs and the profile, never the list query
+	// an owner whose blocked-by set overflowed shows nothing to the viewer
 	e.seedGraph(t, "owner", nil, true)
-	other = e.svcFor("viewer")
-	c = budgetCall(func(ctx context.Context) {
-		got, err := other.ListUserLists(ctx, "viewer", UserListsInput{OwnerID: "owner"})
-		if err != nil || len(got.Lists) != 0 {
-			t.Fatalf("overflow owner: %v %v", got, err)
-		}
-	})
-	exact(t, "ListUserLists overflowed owner", c, 3)
+	got, err = e.svcFor().ListUserLists(context.Background(), "viewer", UserListsInput{OwnerID: "owner"})
+	if err != nil || len(got.Lists) != 0 {
+		t.Fatalf("overflow owner: %v %v", got, err)
+	}
 }
 
 func TestListUserLists_Integration_Paging(t *testing.T) {
@@ -237,7 +193,7 @@ func TestListUserLists_Integration_Paging(t *testing.T) {
 	for i := 1; i <= 7; i++ {
 		e.putList(t, lid(i), "owner", false, false, nil)
 	}
-	svc := e.svcFor("owner")
+	svc := e.svcFor()
 	var seen []string
 	tok := ""
 	for range 10 {
@@ -256,7 +212,7 @@ func TestListUserLists_Integration_Paging(t *testing.T) {
 	}
 }
 
-func TestListListMembers_Integration_Budget(t *testing.T) {
+func TestListListMembers_Integration_Pages(t *testing.T) {
 	e := newReadIntEnv(t, 60)
 	members := manyMembers(60) // m000 oldest ... m059 newest
 	e.putList(t, lid(1), "owner", false, false, members)
@@ -264,29 +220,20 @@ func TestListListMembers_Integration_Budget(t *testing.T) {
 	e.seedGraph(t, "viewer", nil, false)
 
 	for _, size := range []int32{20, 50} {
-		// non-owner: list + caller graph + owner profile + owner graph + one profile per kept member of the page
-		viewer := e.svcFor("viewer")
-		var page MembersPage
-		c := budgetCall(func(ctx context.Context) {
-			var err error
-			if page, err = viewer.ListListMembers(ctx, "viewer", lid(1), size, ""); err != nil {
-				t.Fatal(err)
-			}
-		})
-		kept := int64(size) - 1 // the dropped newest member costs no profile read
-		exact(t, fmt.Sprintf("ListListMembers non-owner, page %d", size), c, 4+kept)
-		if int64(len(page.Items)) != kept || page.Items[0].User.UserID != "m058" || page.NextPageToken == "" {
+		// non-owner: the dropped newest member leaves one fewer row on the page
+		page, err := e.svcFor().ListListMembers(context.Background(), "viewer", lid(1), size, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept := int(size) - 1
+		if len(page.Items) != kept || page.Items[0].User.UserID != "m058" || page.NextPageToken == "" {
 			t.Fatalf("page %d = %d rows first %v token %q", size, len(page.Items), page.Items[0].User.UserID, page.NextPageToken)
 		}
 
-		// owner: list + own graph + the page's profiles
-		own := e.svcFor("owner")
-		c = budgetCall(func(ctx context.Context) {
-			if _, err := own.ListListMembers(ctx, "owner", lid(1), size, ""); err != nil {
-				t.Fatal(err)
-			}
-		})
-		exact(t, fmt.Sprintf("ListListMembers owner, page %d", size), c, 2+kept)
+		// owner
+		if _, err := e.svcFor().ListListMembers(context.Background(), "owner", lid(1), size, ""); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -296,7 +243,7 @@ func TestListListMembers_Integration_PagesAreComplete(t *testing.T) {
 	e.putList(t, lid(1), "owner", false, false, members)
 	e.seedGraph(t, "owner", []string{"m010"}, false)
 	e.seedGraph(t, "viewer", nil, false)
-	svc := e.svcFor("viewer")
+	svc := e.svcFor()
 	var seen []string
 	tok := ""
 	for range 10 {
@@ -328,22 +275,21 @@ func TestListListMembers_Integration_RefusalsAreOneAnswer(t *testing.T) {
 	e.putList(t, lid(2), "owner", false, true, manyMembers(3))
 	want := missingErr(t)
 	for _, id := range []string{lid(1), lid(2), lid(9)} {
-		svc := e.svcFor("viewer")
+		svc := e.svcFor()
 		_, err := svc.ListListMembers(context.Background(), "viewer", id, 20, "")
 		sameError(t, err, want)
 	}
-	if _, err := e.svcFor("owner").ListListMembers(context.Background(), "owner", lid(2), 20, ""); err != nil {
+	if _, err := e.svcFor().ListListMembers(context.Background(), "owner", lid(2), 20, ""); err != nil {
 		t.Fatalf("the owner reads a hidden list: %v", err)
 	}
 }
 
-func TestRepoGet_Integration_MissingBillsOne(t *testing.T) {
+func TestRepoGet_Integration_Missing(t *testing.T) {
 	e := newReadIntEnv(t, 0)
-	ctx, c := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, err := e.repo.Get(ctx, lid(9)); err != ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
-	exact(t, "Repo.Get missing", c, 1)
 	if got, err := e.repo.ListByOwner(ctx, "nobody", "", 5); err != nil || len(got) != 0 {
 		t.Fatalf("%v %v", got, err)
 	}

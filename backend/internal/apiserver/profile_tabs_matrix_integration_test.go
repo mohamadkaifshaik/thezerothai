@@ -6,9 +6,9 @@ package apiserver
 // chain tests (profile_tabs_integration_test.go) leave empty:
 //   - the whole token matrix: every spelling of every effective tab issuing a page token and a since token, and every
 //     spelling consuming it; only a spelling that resolves to the SAME effective tab opens it, every other pair is
-//     VALIDATION on the right field with exactly 0 reads. Pre-W3 tokens are forged here with the frozen binding strings
+//     VALIDATION on the right field. Pre-W3 tokens are forged here with the frozen binding strings
 //     ("posts", "replies") so the claim "every pre-W3 token stays valid" does not rest on the server's own encoder;
-//   - an unknown tab number is VALIDATION field=tab at 0 reads, flag on or off;
+//   - an unknown tab number is VALIDATION field=tab, flag on or off;
 //   - NOT_FOUND for a missing, SUSPENDED, DELETING, blocking and blocking-with-overflowed-blockedBy author is byte for byte
 //     GetProfile's answer on the wire, for GetUserTimeline MEDIA and REPOSTS and for GetProfileRelationship;
 //   - the drop matrix on Reposts and Media: embedded author blocked, blocking, muted, and the
@@ -268,7 +268,7 @@ func TestW320_TabNotFoundBytesMatchGetProfile(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// ovBlocker case needs its own viewer: the overflow flag would also change what the plain blocker row costs.
+	// ovBlocker case needs its own viewer: the overflow flag would also change what the plain blocker row shows.
 	viewer2 := w.user(t)
 	if _, err := w.graph.Block(ctx, authed(ovBlocker.token, &graphv1.BlockRequest{IdempotencyKey: contractKey("w320-blk2"), UserId: viewer2.uid})); err != nil {
 		t.Fatal(err)
@@ -384,7 +384,7 @@ func w320SeedRepostWorld(t *testing.T, w *w320Chain) w320RepostWorld {
 // (Media tab, with images) is dropped when the author of the post it copies is blocked by the viewer, blocks the viewer or
 // is muted by the viewer; the copy of an unrelated author stays. A viewer whose blockedBy overflowed fails closed for
 // every foreign copy; the author's own view keeps everything. A viewer who blocks or mutes the AUTHOR still gets the
-// posts. Cold budget stays inside the ceiling (24 at page 20) in every row.
+// posts.
 func TestW320_TabDropMatrixOnRepostsAndMedia(t *testing.T) {
 	ctx := context.Background()
 	w := newW320Chain(t, w320TabsOn)
@@ -456,7 +456,6 @@ func TestW320_TabDropMatrixOnRepostsAndMedia(t *testing.T) {
 		if got := rows(r, ov, tabRepostsPB); len(got) != 0 {
 			t.Errorf("overflowed viewer's Reposts tab = %v, want no foreign copy (fail closed)", got)
 		}
-		// The +1 read of the target's own graph (checkVisible) is inside the 24 ceiling at 4 rows.
 		r2 := newW320Chain(t, w320TabsOn)
 		if got := rows(r2, ov, tabMediaPB); !slices.Equal(got, []string{plain}) {
 			t.Errorf("overflowed viewer's Media tab = %v, want only the post with no embed %s", got, plain)

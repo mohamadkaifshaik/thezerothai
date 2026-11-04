@@ -30,7 +30,6 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -90,9 +89,9 @@ func Recover(log *slog.Logger) connect.UnaryInterceptorFunc {
 }
 
 // Logging emits exactly one JSON log line per request, always at INFO ("One log line
-// per request, INFO"): rpc, uid_hash, latency_ms, code, fs_reads/fs_writes/fs_deletes, xff_hops,
+// per request, INFO"): rpc, uid_hash, latency_ms, code, xff_hops,
 // via_hosting; cache_hit is left to callers via context if needed. It also seeds the request's
-// budget.Counter, trace correlation field, and logger.RequestInfo: uid_hash and app_check_failed are
+// trace correlation field and logger.RequestInfo: uid_hash and app_check_failed are
 // populated by authn's interceptors, xff_hops/via_hosting by ratelimit.Interceptor (M2) — all of which run
 // *after* this one in the chain and can only hand data back up to this log line through the mutable
 // logger.RequestInfo pointer, never through ctx.WithValue alone (a context value set downstream is
@@ -120,7 +119,6 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 
 			trace := logger.TraceFromRequestHeader(req.Header(), projectID)
 			ctx = logger.WithTrace(ctx, trace)
-			ctx, counter := budget.WithCounter(ctx)
 			ctx, info := logger.WithRequestInfo(ctx)
 
 			resp, err := next(ctx, req)
@@ -153,9 +151,6 @@ func Logging(log *slog.Logger, projectID string) connect.UnaryInterceptorFunc {
 				"uid_hash", uidHash,
 				"latency_ms", latencyMS,
 				"code", code,
-				"fs_reads", counter.Reads(),
-				"fs_writes", counter.Writes(),
-				"fs_deletes", counter.Deletes(),
 				"app_check_failed", info.AppCheckFailed,
 				"xff_hops", info.XFFHops,
 				"via_hosting", info.ViaHosting,

@@ -15,7 +15,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -38,19 +37,19 @@ func (r *FirestoreRepo) removalRef(postID string) *firestore.DocumentRef {
 	return r.client.Collection(removalsCollection).Doc(postID)
 }
 
-// setRemoval adds the log write for postID (written by authorID) to b (1 write). now only sets expireAt.
+// setRemoval adds the log write for postID (written by authorID) to b. now only sets expireAt.
 func (r *FirestoreRepo) setRemoval(b store.Batch, postID, authorID string, state RemovalState, now time.Time) {
 	b.Set(r.removalRef(postID), removalDoc{State: string(state), AuthorID: authorID, ExpireAt: expiryBase(now).UTC().Add(RemovalRetention)})
 }
 
-// Newest implements RemovalSource. Reads: one per entry returned, minimum 1.
+// Newest implements RemovalSource.
 func (r *FirestoreRepo) Newest(ctx context.Context, floor time.Time, limit int) ([]RemovalEntry, error) {
 	q := r.client.Collection(removalsCollection).Where("createdAt", ">", floor.UTC()).
 		OrderBy("createdAt", firestore.Desc).OrderBy(firestore.DocumentID, firestore.Desc).Limit(limit)
 	return r.readRemovals(ctx, q)
 }
 
-// After implements RemovalSource. Reads: one per entry returned, minimum 1.
+// After implements RemovalSource.
 func (r *FirestoreRepo) After(ctx context.Context, afterAt time.Time, afterID string, limit int) ([]RemovalEntry, error) {
 	q := r.client.Collection(removalsCollection).OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
 	if afterID == "" {
@@ -61,7 +60,7 @@ func (r *FirestoreRepo) After(ctx context.Context, afterAt time.Time, afterID st
 	return r.readRemovals(ctx, q.Limit(limit))
 }
 
-// Window implements RemovalSource. Reads: one per entry returned, minimum 1.
+// Window implements RemovalSource.
 func (r *FirestoreRepo) Window(ctx context.Context, authors []string, after, upTo time.Time, limit int) ([]RemovalEntry, error) {
 	q := r.client.Collection(removalsCollection).Query
 	if len(authors) == 1 {
@@ -76,11 +75,6 @@ func (r *FirestoreRepo) Window(ctx context.Context, authors []string, after, upT
 
 func (r *FirestoreRepo) readRemovals(ctx context.Context, q firestore.Query) ([]RemovalEntry, error) {
 	docs, err := q.Documents(ctx).GetAll()
-	n := int64(len(docs))
-	if n == 0 {
-		n = 1
-	}
-	budget.FromContext(ctx).AddReads(n)
 	if err != nil {
 		return nil, fmt.Errorf("posts: removals query: %w", err)
 	}

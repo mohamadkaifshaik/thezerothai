@@ -211,7 +211,7 @@ func TestSearchPosts_PerMinuteBucket(t *testing.T) {
 }
 
 // TestTrendsDailyCap_StopsTheCapPlusFirstCall (acceptance): through the wired interceptor the (cap+1)-th GetTrends
-// call of one uid is RATE_LIMITED with limit=trends_daily and never reaches the handler (0 reads); another uid is
+// call of one uid is RATE_LIMITED with limit=trends_daily and never reaches the handler; another uid is
 // unaffected, and SearchPeople/SearchPosts keep their own search_daily count (GetTrends calls do not spend it).
 func TestTrendsDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	const dailyCap = 5

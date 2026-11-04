@@ -56,7 +56,7 @@ func (e *sweepIT) userExists(uid string) bool {
 }
 
 // TestSweepIT_FailuresCommitInsteadOfRollingBack: every permanent cause found inside the publish transaction stages the
-// item's one terminal transition and COMMITS: exactly 1 write, the reads up to that check, and no post, no counter, no
+// item's one terminal transition and COMMITS: exactly one terminal write, and no post, no counter, no
 // quota and no media attach.
 func TestSweepIT_FailuresCommitInsteadOfRollingBack(t *testing.T) {
 	const alice = "uid-alice"
@@ -69,24 +69,23 @@ func TestSweepIT_FailuresCommitInsteadOfRollingBack(t *testing.T) {
 		mutate  func(p *ScheduledPost)
 		status  ScheduledStatus
 		failure ScheduledFailure
-		reads   int64 // the run's: the due query's 1 plus the transaction's reads up to the failing check
 		// loads is how many times the media were read: only the media failures reach them.
 		loads int
 	}{
-		{"SUSPENDED fails ACCOUNT_RESTRICTED", func(e *sweepIT) { e.setUserField(alice, "status", "SUSPENDED") }, mediaDraft, ScheduledFailed, FailureAccountRestricted, 1 + 2, 0},
-		{"an unknown status never publishes", func(e *sweepIT) { e.setUserField(alice, "status", "WEIRD") }, nil, ScheduledFailed, FailureAccountRestricted, 1 + 2, 0},
-		{"DELETING cancels", func(e *sweepIT) { e.setUserField(alice, "status", "DELETING") }, mediaDraft, ScheduledCancelled, "", 1 + 2, 0},
+		{"SUSPENDED fails ACCOUNT_RESTRICTED", func(e *sweepIT) { e.setUserField(alice, "status", "SUSPENDED") }, mediaDraft, ScheduledFailed, FailureAccountRestricted, 0},
+		{"an unknown status never publishes", func(e *sweepIT) { e.setUserField(alice, "status", "WEIRD") }, nil, ScheduledFailed, FailureAccountRestricted, 0},
+		{"DELETING cancels", func(e *sweepIT) { e.setUserField(alice, "status", "DELETING") }, mediaDraft, ScheduledCancelled, "", 0},
 		{"a missing users doc cancels", func(e *sweepIT) {
 			if _, err := e.client.Collection("users").Doc(alice).Delete(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-		}, mediaDraft, ScheduledCancelled, "", 1 + 2, 0},
+		}, mediaDraft, ScheduledCancelled, "", 0},
 		{"an image attached elsewhere fails MEDIA_UNAVAILABLE", func(e *sweepIT) {
 			e.seedMedia(alice, map[string]any{"postId": "1111111111111111111"}, 1)
-		}, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1 + 4, 1},
-		{"an image owned by someone else", func(e *sweepIT) { e.seedMedia("uid-mallory", nil, 1) }, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1 + 4, 1},
-		{"an image that is gone", func(*sweepIT) {}, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1 + 4, 1},
-		{"an image that is not READY", func(e *sweepIT) { e.seedMedia(alice, map[string]any{"status": "PENDING"}, 1) }, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1 + 4, 1},
+		}, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1},
+		{"an image owned by someone else", func(e *sweepIT) { e.seedMedia("uid-mallory", nil, 1) }, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1},
+		{"an image that is gone", func(*sweepIT) {}, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1},
+		{"an image that is not READY", func(e *sweepIT) { e.seedMedia(alice, map[string]any{"status": "PENDING"}, 1) }, mediaDraft, ScheduledFailed, FailureMediaUnavailable, 1},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,14 +98,13 @@ func TestSweepIT_FailuresCommitInsteadOfRollingBack(t *testing.T) {
 			}
 			it := e.seedDue(alice, 1, muts...)
 
-			res, c := e.sweep()
+			res := e.sweep()
 			if res.Transient != 0 || res.Published != 0 || res.Noop != 0 {
 				t.Fatalf("res = %+v", res)
 			}
 			if tc.status == ScheduledCancelled && res.Cancelled != 1 || tc.status == ScheduledFailed && res.Failed[tc.failure] != 1 {
 				t.Errorf("res = %+v, want %s %s counted once", res, tc.status, tc.failure)
 			}
-			assertCost(t, tc.name, c, tc.reads, 1)
 			e.assertTerminal(it, tc.status, tc.failure)
 			e.assertNothingPublished(alice)
 			if got := e.media.loadCount(); got != tc.loads {
@@ -122,7 +120,7 @@ func TestSweepIT_FailuresCommitInsteadOfRollingBack(t *testing.T) {
 }
 
 // TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead: the posts quota is checked right after the account, so an
-// item bound to fail costs 3 reads, not 17 (review L-4). The account tier comes from the profile read INSIDE the
+// item bound to fail never reaches the media or the handles (review L-4). The account tier comes from the profile read INSIDE the
 // transaction, not from the cached directory.
 func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
 	setQuota := func(e *sweepIT, uid string, posts int64) {
@@ -145,12 +143,10 @@ func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
 		it := e.seedDue("uid-alice", 1, heavy(e))
 		setQuota(e, "uid-alice", 1)
 
-		res, c := e.sweep()
+		res := e.sweep()
 		if res.Failed[FailureQuotaExceeded] != 1 || res.Published != 0 {
 			t.Fatalf("res = %+v", res)
 		}
-		// due query 1 + scheduled 1 + users 1 + quotas 1; nothing else was read, one write (the scheduled doc).
-		assertCost(t, "quota exceeded", c, 1+3, 1)
 		if got := e.media.loadCount(); got != 0 {
 			t.Errorf("the media were read %d time(s) for an item over its quota", got)
 		}
@@ -166,7 +162,7 @@ func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
 		e.seedDue("uid-alice", 1)
 		setQuota(e, "uid-alice", 1)
 
-		res, _ := e.sweep()
+		res := e.sweep()
 		if res.Published != 1 || e.quotaPosts("uid-alice") != 2 {
 			t.Fatalf("res = %+v quota posts = %d, want published and the quota at 2", res, e.quotaPosts("uid-alice"))
 		}
@@ -176,7 +172,7 @@ func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
 		e.signUp("uid-alice", "alice")
 		e.seedDue("uid-alice", 1)
 		setQuota(e, "uid-alice", 1)
-		res, _ := e.sweep()
+		res := e.sweep()
 		if res.Published != 1 || e.quotaPosts("uid-alice") != 2 {
 			t.Fatalf("res = %+v quota = %d", res, e.quotaPosts("uid-alice"))
 		}
@@ -188,7 +184,7 @@ func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
 		if _, err := e.client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: "2001-01-01", Posts: 50}); err != nil {
 			t.Fatal(err)
 		}
-		res, _ := e.sweep()
+		res := e.sweep()
 		if res.Published != 1 || e.quotaPosts("uid-alice") != 1 {
 			t.Fatalf("res = %+v quota = %d, want published against a fresh day", res, e.quotaPosts("uid-alice"))
 		}
@@ -202,14 +198,14 @@ func TestSweepIT_ReadyUnscreenedImagesPublish(t *testing.T) {
 	e.seedDue("uid-alice", 1, func(p *ScheduledPost) {
 		p.Draft = &ScheduledDraft{Text: "unscreened", Media: []MediaRef{{ID: sweepMediaID(1)}}}
 	})
-	if res, _ := e.sweep(); res.Published != 1 {
+	if res := e.sweep(); res.Published != 1 {
 		t.Fatalf("res = %+v, want published (ADR-0005 READY_UNSCREENED handling is kept)", res)
 	}
 }
 
-// TestSweepIT_ChecksOutsideTheTransactionCostNothingToRead: expiry, UNSUPPORTED and INVALID_CONTENT are decided from the
-// query's snapshot: the run's only read is the query, its only write the precondition update. No users doc is needed.
-func TestSweepIT_ChecksOutsideTheTransactionCostNothingToRead(t *testing.T) {
+// TestSweepIT_ChecksOutsideTheTransaction: expiry, UNSUPPORTED and INVALID_CONTENT are decided from the
+// query's snapshot, so the item is failed by the precondition update alone. No users doc is needed.
+func TestSweepIT_ChecksOutsideTheTransaction(t *testing.T) {
 	tests := []struct {
 		name   string
 		mut    func(p *ScheduledPost)
@@ -223,11 +219,10 @@ func TestSweepIT_ChecksOutsideTheTransactionCostNothingToRead(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newSweepIT(t)
 			it := e.seedDue("uid-ghost", 1, tc.mut) // no users/uid-ghost: nothing may read it
-			res, c := e.sweep()
+			res := e.sweep()
 			if res.Failed[tc.reason] != 1 {
 				t.Fatalf("res = %+v, want FAILED %s", res, tc.reason)
 			}
-			assertCost(t, tc.name, c, 1, 1)
 			e.assertTerminal(it, ScheduledFailed, tc.reason)
 		})
 	}
@@ -245,7 +240,7 @@ func TestSweepIT_TransientFailuresCountAttemptsThenRetire(t *testing.T) {
 	}
 
 	for run := 1; run <= 2; run++ {
-		res, _ := e.sweep()
+		res := e.sweep()
 		doc := e.raw(it)
 		if res.Transient != 1 || doc["status"] != "PENDING" || doc["attempts"] != int64(run) || doc["draft"] == nil {
 			t.Fatalf("run %d: res = %+v doc = %v, want PENDING with attempts %d and the draft kept", run, res, doc, run)
@@ -254,7 +249,7 @@ func TestSweepIT_TransientFailuresCountAttemptsThenRetire(t *testing.T) {
 	if len(e.logs.lines("ReportedErrorEvent")) != 0 {
 		t.Error("an Error Reporting entry was raised before the last attempt")
 	}
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Transient != 1 || res.Failed[FailureInternal] != 1 {
 		t.Fatalf("third run: res = %+v, want FAILED INTERNAL", res)
 	}
@@ -285,7 +280,7 @@ func TestSweepIT_PanicInsideTheTransactionCallback(t *testing.T) {
 	fine := e.seedDue("uid-bob", 2)
 	e.media.panicOnLoad = true
 
-	res, _ := e.sweep() // must not panic
+	res := e.sweep() // must not panic
 	if res.Published != 1 || res.Failed[FailureInternal] != 1 || res.Transient != 0 {
 		t.Fatalf("res = %+v, want bob published and alice FAILED INTERNAL (not transient)", res)
 	}
@@ -329,7 +324,7 @@ func TestSweepIT_PanicOutsideTheCallbackIsRecoveredPerItem(t *testing.T) {
 		return nil
 	}
 
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Published != 2 || res.Failed[FailureInternal] != 1 {
 		t.Fatalf("res = %+v, want 2 published and 1 FAILED INTERNAL", res)
 	}
@@ -358,14 +353,13 @@ func TestSweepIT_WriteAfterTheEraserRecreatesNothing(t *testing.T) {
 		}
 	}
 
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Noop != 2 || res.Published != 0 || len(res.Failed) != 0 || res.WriteFailed != 0 {
 		t.Fatalf("res = %+v, want both items a quiet no-op", res)
 	}
 	if e.exists(expired) || e.exists(fresh) {
 		t.Fatal("a sweep write recreated a scheduled doc the eraser deleted")
 	}
-	// The query 2, the eraser's deletes are not reads; the publish transaction read the (missing) scheduled doc once.
 	e.assertNothingPublished("uid-alice")
 }
 
@@ -392,7 +386,7 @@ func TestSweepIT_StatusChangeBetweenTheQueryAndTheTransaction(t *testing.T) {
 			it := e.seedDue("uid-alice", 1)
 			e.fault.beforePublish = func(PublishParams) { e.setUserField("uid-alice", "status", tc.status) }
 
-			res, _ := e.sweep()
+			res := e.sweep()
 			if tc.want == ScheduledFailed && res.Failed[tc.failure] != 1 || tc.want == ScheduledCancelled && res.Cancelled != 1 {
 				t.Fatalf("res = %+v", res)
 			}
@@ -425,11 +419,10 @@ func TestSweepIT_PathShapeFilter(t *testing.T) {
 		}
 	}
 
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.SkippedBadPath != 4 || res.Due != 1 || res.Published != 1 {
 		t.Fatalf("res = %+v, want 4 skipped and the one good item published", res)
 	}
-	// They are billed as reads by the query, every run (the line alerts on them).
 	if got := e.raw(good)["status"]; got != "PUBLISHED" {
 		t.Errorf("good item = %v", got)
 	}
@@ -449,7 +442,7 @@ func TestSweepIT_ManyAuthorsAllPublish(t *testing.T) {
 		e.seedDue(uid, a*10+1)
 		e.seedDue(uid, a*10+2)
 	}
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Published != authors*2 || res.Transient != 0 {
 		t.Fatalf("res = %+v, want %d published", res, authors*2)
 	}

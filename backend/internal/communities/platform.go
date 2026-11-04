@@ -14,7 +14,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -27,17 +26,17 @@ var (
 
 // Platform is the operator surface behind `opsctl community` (D14). *FirestoreRepo implements it.
 type Platform interface {
-	// Get reads communities/{id} (1 read, charged when missing too). ErrNotFound for a missing document; the SUSPENDED rule is not applied.
+	// Get reads communities/{id}. ErrNotFound for a missing document; the SUSPENDED rule is not applied.
 	Get(ctx context.Context, id string) (Community, error)
-	// SetSuspended suspends (suspend=true) or restores a community: one transaction, 1 read, and 1 write (a field-level Update of status
-	// and updatedAt) only when the status changes. Suspend of a SUSPENDED community and restore of one that is not SUSPENDED write 0
+	// SetSuspended suspends (suspend=true) or restores a community: one transaction that writes (a field-level Update of status
+	// and updatedAt) only when the status changes. Suspend of a SUSPENDED community and restore of one that is not SUSPENDED write nothing
 	// (changed=false). Restore sets ACTIVE when ownerId is non-empty and ARCHIVED otherwise. before is the status found. ErrNotFound for a
 	// missing document.
 	SetSuspended(ctx context.Context, id string, suspend bool, now time.Time) (changed bool, before, after Status, err error)
-	// Archive is the owner's support request (F12): one transaction, 3 reads (the community, the owner's memberships, the owner's member
-	// document), and 2 writes (the community: status ARCHIVED, ownerId "", an OWNER_HANDOVER log entry with an empty target, modlogSeq,
-	// updatedAt; the owner's memberships: owned -= id, modlogged += id). The former owner stays a member. A community with no owner
-	// writes 0 (changed=false, the second read and third are skipped: 1 read). ErrSuspendedArchive for a SUSPENDED one, ErrNotFound for a
+	// Archive is the owner's support request (F12): one transaction that reads the community, the owner's memberships and the owner's member
+	// document, and writes the community (status ARCHIVED, ownerId "", an OWNER_HANDOVER log entry with an empty target, modlogSeq,
+	// updatedAt) and the owner's memberships (owned -= id, modlogged += id). The former owner stays a member. A community with no owner
+	// writes nothing (changed=false; the memberships and member document are not read). ErrSuspendedArchive for a SUSPENDED one, ErrNotFound for a
 	// missing one.
 	Archive(ctx context.Context, id string, now time.Time, modlogMax int) (ArchiveResult, error)
 }
@@ -54,9 +53,9 @@ type ArchiveResult struct {
 // of suspend-user. It is a batch form of the designed Append(ctx, cid, postID, at): suspend-user appends once per community per page, and a
 // page can hold several posts of one community (as-built note N10).
 type PlatformRemovals interface {
-	// Append adds the posts as the newest recentRemovals entries of cid at `at`: one transaction, 1 read, and 1 write (a field-level Update
+	// Append adds the posts as the newest recentRemovals entries of cid at `at`: one transaction that writes (a field-level Update
 	// of recentRemovals, removalsTruncatedAt when the cap drops an entry, updatedAt) only when at least one id is missing from the log. A
-	// post already listed is left as it is, so a re-run writes 0. appended is the number of entries added; ErrNotFound for a missing
+	// post already listed is left as it is, so a re-run writes nothing. appended is the number of entries added; ErrNotFound for a missing
 	// community (the status does not matter: a SUSPENDED community still keeps its log). limit <= 0 reads as COMMUNITY_RECENT_REMOVALS_MAX's
 	// default (50).
 	Append(ctx context.Context, cid string, postIDs []string, at time.Time, limit int) (appended int, err error)
@@ -98,7 +97,7 @@ func (r *FirestoreRepo) SetSuspended(ctx context.Context, id string, suspend boo
 		default:
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(id), []firestore.Update{{Path: "status", Value: string(next)}, {Path: "updatedAt", Value: now.UTC()}})
 		if err := b.Err(); err != nil {
 			return err
@@ -140,7 +139,7 @@ func (r *FirestoreRepo) Archive(ctx context.Context, id string, now time.Time, m
 		next.Status, next.OwnerID = StatusArchived, ""
 		log, seq := appendLog(c, LogEntry{At: now, Actor: c.OwnerID, Action: ActionOwnerHandover}, modlogMax)
 		ups := append([]firestore.Update{{Path: "status", Value: string(StatusArchived)}, {Path: "ownerId", Value: ""}}, logUpdates(&next, now, log, seq)...)
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(id), ups)
 		// I-M: the community leaves the former owner's owned; I-L: it joins their modlogged (the new entry names them as the actor).
 		r.stageModlogged(b, c.OwnerID, id, ms, exists, now, firestore.Update{Path: "owned", Value: firestore.ArrayRemove(id)})
@@ -183,7 +182,7 @@ func (r *FirestoreRepo) Append(ctx context.Context, cid string, postIDs []string
 		if !next.RemovalsTruncatedAt.Equal(c.RemovalsTruncatedAt) {
 			ups = append(ups, firestore.Update{Path: "removalsTruncatedAt", Value: next.RemovalsTruncatedAt})
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(cid), ups)
 		return b.Err()
 	})

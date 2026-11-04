@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -69,11 +68,9 @@ type RetryResult struct {
 }
 
 // CommitWithRetry builds and commits a precondition batch (a bare batch commit is not retried by the SDK, unlike
-// RunTransaction) with bounded, full-jitter exponential retry on contention. Each attempt counts into a scratch
-// counter folded into the request's counter only on success, so a lost race or failed precondition reports 0
-// writes. build must be repeatable. Errors other than contention/precondition are returned as is; exhausting
+// RunTransaction) with bounded, full-jitter exponential retry on contention. build must be repeatable. Errors other than contention/precondition are returned as is; exhausting
 // the attempts returns an error wrapping ErrContended; a context ending mid-backoff returns ctx's error.
-func CommitWithRetry(ctx context.Context, newBatch func(*budget.Counter) *FirestoreBatch, cfg RetryConfig, build func(Batch)) (RetryResult, error) {
+func CommitWithRetry(ctx context.Context, newBatch func() *FirestoreBatch, cfg RetryConfig, build func(Batch)) (RetryResult, error) {
 	sleep := cfg.Sleep
 	if sleep == nil {
 		sleep = Wait
@@ -85,8 +82,7 @@ func CommitWithRetry(ctx context.Context, newBatch func(*budget.Counter) *Firest
 				return RetryResult{Attempts: attempt}, err
 			}
 		}
-		var scratch budget.Counter
-		b := newBatch(&scratch)
+		b := newBatch()
 		build(b)
 		var err error
 		if cfg.Commit != nil {
@@ -96,9 +92,6 @@ func CommitWithRetry(ctx context.Context, newBatch func(*budget.Counter) *Firest
 		}
 		switch {
 		case err == nil:
-			c := budget.FromContext(ctx)
-			c.AddWrites(scratch.Writes())
-			c.AddDeletes(scratch.Deletes())
 			return RetryResult{Committed: true, Attempts: attempt + 1}, nil
 		case IsPreconditionFailed(err):
 			return RetryResult{Attempts: attempt + 1}, nil

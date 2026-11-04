@@ -15,7 +15,7 @@ import (
 type ExportSource interface {
 	ExportConversations(ctx context.Context, uid string) ([]ExportConv, error)
 	ExportMessages(ctx context.Context, uid, convID string, after *ExportMsg) ([]ExportMsg, error)
-	// GetEntry reads the caller's own entry of one conversation (folder from ExportConv.Folder): 1 read, found false when missing.
+	// GetEntry reads the caller's own entry of one conversation (folder from ExportConv.Folder): found false when missing.
 	// Only a conversation whose peer is blocked needs it (the frozen peer snapshot).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
 }
@@ -63,9 +63,8 @@ func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter
 
 // ExportUser implements Exporter: {"conversations":[...]} streamed to w, conversations newest first (by creation), each
 // with its messages newest first. Own messages carry their full text; received ones only a time and "received" (F5, the
-// peer's words are the peer's data); no peer uid appears. Reads: one per conversation, one per message of both sides
-// (the section orders the two), at most 50 peers per directory call; about 620 for the reference account (20
-// conversations, 300 own and 300 received messages). Memory: the conversation list and one page of 500 messages.
+// peer's words are the peer's data); no peer uid appears. It reads every conversation and every message of both sides
+// (the section orders the two), at most 50 peers per directory call. Memory: the conversation list and one page of 500 messages.
 func (x *exporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	convs, err := x.src.ExportConversations(ctx, uid)
 	if err != nil {

@@ -7,8 +7,7 @@ package apiserver
 //
 // The data is written through one chain (the "writer") and read through a second, freshly booted chain (the "reader")
 // on the same emulator project: the reader's instance caches (posts, graph, userLikes, users) are cold, which is the
-// worst case the documented budget describes. Reading through the writer would warm them with the seeding and prove
-// nothing about 43.
+// worst case. Reading through the writer would warm them with the seeding and prove nothing about a cold open.
 
 import (
 	"context"
@@ -75,9 +74,8 @@ func listChains(t *testing.T, mutate func(*config.Config)) (writer, reader *bmCh
 	return newBMChain(t, mutate), newBMChain(t, mutate)
 }
 
-// 25 bookmarks: the first call returns the newest 20 and a token, the second the remaining 5 and "". Cold reader:
-// page 1 costs exactly 43 reads (interceptor 1, query 20, GetMany 20, graph 1, userLikes 1) and writes nothing.
-func TestListBookmarksChain_PagingAndColdBudget(t *testing.T) {
+// 25 bookmarks: the first call returns the newest 20 and a token, the second the remaining 5 and "". Cold reader.
+func TestListBookmarksChain_PagingCold(t *testing.T) {
 	w, r := listChains(t, nil)
 	author, viewer := w.user(t), w.user(t)
 	var want []string // oldest bookmarked first
@@ -118,7 +116,7 @@ func TestListBookmarksChain_PagingAndColdBudget(t *testing.T) {
 		t.Error("like/repost flags leaked with FEATURE_ENGAGEMENT off")
 	}
 	// Every row is a bookmark of the caller, so every row says so, from the userLikes read the page
-	// already made (the 43-read budget above is unchanged).
+	// already made.
 	for i, row := range p1.GetBookmarks() {
 		if !row.GetPost().GetBookmarkedByViewer() {
 			t.Errorf("row %d: bookmarked_by_viewer = false on the caller's own bookmark list", i)
@@ -138,9 +136,9 @@ func TestListBookmarksChain_PagingAndColdBudget(t *testing.T) {
 	// Warm: the interceptor, graph and userLikes are cached now; the 5 posts are not.
 }
 
-// A full page of 50 (page_size 99 is clamped) costs 103 reads cold; the exactly-full page still has a token, whose
-// next page is empty and costs 1 query read.
-func TestListBookmarksChain_MaxPageColdBudget(t *testing.T) {
+// A full page of 50 (page_size 99 is clamped) is served cold; the exactly-full page still has a token, whose
+// next page is empty.
+func TestListBookmarksChain_MaxPageCold(t *testing.T) {
 	w, r := listChains(t, nil)
 	author, viewer := w.user(t), w.user(t)
 	for i := 0; i < 50; i++ {
@@ -159,8 +157,8 @@ func TestListBookmarksChain_MaxPageColdBudget(t *testing.T) {
 	}
 }
 
-// An empty list costs 2 reads cold (interceptor + the empty query) and reads no post, graph or userLikes doc.
-func TestListBookmarksChain_EmptyListIsTwoReads(t *testing.T) {
+// An empty list answers an empty page with no token, cold.
+func TestListBookmarksChain_EmptyList(t *testing.T) {
 	w, r := listChains(t, nil)
 	viewer := w.user(t)
 	resp, err := r.list(viewer, 0, "")
@@ -169,8 +167,7 @@ func TestListBookmarksChain_EmptyListIsTwoReads(t *testing.T) {
 	}
 }
 
-// A foreign or tampered token is INVALID_ARGUMENT VALIDATION page_token and the handler reads nothing: the second call
-// below is on a warm interceptor, so the whole request line shows 0 reads.
+// A foreign or tampered token is INVALID_ARGUMENT VALIDATION page_token and nothing is listed.
 func TestListBookmarksChain_ForeignAndTamperedTokens(t *testing.T) {
 	w, r := listChains(t, nil)
 	author, a, b := w.user(t), w.user(t), w.user(t)
@@ -205,7 +202,7 @@ func TestListBookmarksChain_ForeignAndTamperedTokens(t *testing.T) {
 
 // The drop rules and the lazy prune end to end. v bookmarks seven posts; afterwards one post is deleted, one taken
 // down, one author is blocked by v, one muted by v and one author blocks v. The page keeps the live post and v's own;
-// the deleted post's bookmark is pruned once (1 write for userLikes, 1 delete, no extra read), the rest stay.
+// the deleted post's bookmark is pruned once (its doc and its userLikes entry), the rest stay.
 func TestListBookmarksChain_DropRulesAndPrune(t *testing.T) {
 	ctx := context.Background()
 	w, r := listChains(t, nil)
@@ -258,7 +255,6 @@ func TestListBookmarksChain_DropRulesAndPrune(t *testing.T) {
 			t.Errorf("%s = %d, want %d", k, got, want)
 		}
 	}
-	// Interceptor 1 + query 7 + GetMany 7 + graph 1 + userLikes 1 = 17 reads; the prune adds 1 write and 1 delete.
 
 	// Only the deleted post's row was pruned; hidden, blocked, muted and blocker rows stay (a restore or an unblock
 	// brings them back).

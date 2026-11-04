@@ -23,7 +23,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -98,22 +97,6 @@ func (e *bmChain) remove(u bmUser, key, postID string) (*engagementv1.BookmarkSt
 	return r.Msg.GetState(), nil
 }
 
-// lineBudget is the last logged request line of rpc as a budget.Counter.
-func (e *chainEnv) lineBudget(t *testing.T, rpc string) *budget.Counter {
-	t.Helper()
-	lines := e.logs.requestLines(rpc)
-	if len(lines) == 0 {
-		t.Fatalf("no request line for %s", rpc)
-	}
-	l := lines[len(lines)-1]
-	num := func(k string) int64 { v, _ := l[k].(float64); return int64(v) }
-	c := &budget.Counter{}
-	c.AddReads(num("fs_reads"))
-	c.AddWrites(num("fs_writes"))
-	c.AddDeletes(num("fs_deletes"))
-	return c
-}
-
 func (e *bmChain) lastOutcome(rpc string) string {
 	lines := e.logs.requestLines(rpc)
 	if len(lines) == 0 {
@@ -155,7 +138,7 @@ func (e *bmChain) quotaUsed(t *testing.T, uid string) int64 {
 	return n
 }
 
-func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
+func TestBookmarksChain_AddRemoveLifecycle(t *testing.T) {
 	ctx := context.Background()
 	e := newBMChain(t, nil)
 	a, b := e.user(t), e.user(t)
@@ -168,7 +151,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// First add: 7 reads (interceptor 1, visibility 3, idempotency, quotas, userLikes), 4 writes.
+	// First add.
 	st, err := e.add(b, addKey, pid)
 	if err != nil || st.GetPostId() != pid || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark = %v, %v", st, err)
@@ -226,7 +209,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		t.Fatalf("GetUserTimeline = %v, %v: want bookmarked_by_viewer only", ut, err)
 	}
 
-	// Replay: the stored state, 5 reads at most and 0 writes.
+	// Replay: the stored state.
 	st, err = e.add(b, addKey, pid)
 	if err != nil || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark replay = %v, %v", st, err)
@@ -244,7 +227,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		t.Fatalf("GetPost of a post outside the set = %v, %v: bookmarked_by_viewer must be false", go1, err)
 	}
 
-	// A fresh key for the bookmarked post: success, 1 write (the idempotency doc), no quota charge.
+	// A fresh key for the bookmarked post: success, no quota charge.
 	st, err = e.add(b, contractKey("bm-add"), pid)
 	if err != nil || !st.GetBookmarked() || st.GetPostId() != pid {
 		t.Fatalf("AddBookmark existing = %v, %v", st, err)
@@ -253,7 +236,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		t.Errorf("quotas.bookmarks = %d after an existing add, want 1", got)
 	}
 
-	// Remove: 2 reads (interceptor, idempotency), 2 writes (idempotency doc, userLikes) and 1 delete.
+	// Remove.
 	st, err = e.remove(b, rmKey, pid)
 	if err != nil || st.GetBookmarked() || st.GetPostId() != pid {
 		t.Fatalf("RemoveBookmark = %v, %v", st, err)
@@ -271,7 +254,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		}
 	}
 
-	// Replay after Remove: the stored state, 0 writes, the bookmark does not come back; Add's replay, too, returns
+	// Replay after Remove: the stored state, the bookmark does not come back; Add's replay, too, returns
 	// its stored bookmarked=true without re-creating anything (a late retry never undoes or redoes a newer toggle).
 	st, err = e.remove(b, rmKey, pid)
 	if err != nil || st.GetBookmarked() {
@@ -296,7 +279,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 		t.Fatal("a replayed Remove deleted a bookmark that was added again after it")
 	}
 
-	// Remove of something never bookmarked: a no-op, 1 write (the idempotency doc), 0 deletes.
+	// Remove of something never bookmarked: a no-op.
 	st, err = e.remove(b, contractKey("bm-rm"), other)
 	if err != nil || st.GetBookmarked() {
 		t.Fatalf("RemoveBookmark no-op = %v, %v", st, err)

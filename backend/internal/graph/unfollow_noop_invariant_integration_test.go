@@ -5,10 +5,10 @@
 // graph/{a}.following <=> users/{a} and users/{b} exist", which is what makes Unfollow's blind-batch no-op
 // (repo_firestore.go Unfollow: failed precondition => (false, nil) => NONE) correct.
 //
-//  1. Every no-op cause the code can produce ends with the target NOT in following, no edge doc, 0 reads /
-//     0 writes / 0 deletes, and the identical NONE answer (nothing that could tell "deleted" from "blocked").
+//  1. Every no-op cause the code can produce ends with the target NOT in following, no edge doc,
+//     and the identical NONE answer (nothing that could tell "deleted" from "blocked").
 //  2. The one ops-only stuck state (S2: edge + following entry exist, users/{target} is gone) is seeded
-//     directly: Unfollow is still the same 0-cost NONE, the invariant checker flags it, and running PurgeUser
+//     directly: Unfollow is still the same NONE, the invariant checker flags it, and running PurgeUser
 //     to completion (the documented repair) restores every invariant.
 package graph_test
 
@@ -39,26 +39,27 @@ func assertNotFollowing(t *testing.T, w wired, a, b string) {
 	}
 }
 
-// noopUnfollow calls Unfollow under the documented no-op budget (0R/0W/0D) and requires the NONE answer.
+// noopUnfollow calls Unfollow and requires the NONE answer.
 func noopUnfollow(t *testing.T, w wired, label, caller, key, target string) graph.Relationship {
 	t.Helper()
 	var rel graph.Relationship
-	measured(t, label, func(ctx context.Context) {
+	{
+		ctx := context.Background()
 		var err error
 		rel, err = w.graph.Unfollow(ctx, caller, key, target)
 		must(t, label, err)
-	})
+	}
 	if !reflect.DeepEqual(rel, wantNoopRel(target)) {
 		t.Errorf("%s: rel = %+v, want %+v", label, rel, wantNoopRel(target))
 	}
 	return rel
 }
 
-// TestT32_Unfollow_NoopCauses_LeaveInvariantAndCostNothing covers each cause of a no-op Unfollow that API paths
+// TestT32_Unfollow_NoopCauses_LeaveInvariant covers each cause of a no-op Unfollow that API paths
 // can produce (reachability table): never followed (incl. a target that never existed), replay,
 // blocked either way, edge removed by Block, and edge removed by the target's purge (step 2). Self-unfollow is
 // the service-level no-op that never reaches Firestore.
-func TestT32_Unfollow_NoopCauses_LeaveInvariantAndCostNothing(t *testing.T) {
+func TestT32_Unfollow_NoopCauses_LeaveInvariant(t *testing.T) {
 	const a, b = "uid-a", "uid-b"
 	ctx := context.Background()
 	causes := []struct {
@@ -140,7 +141,7 @@ func TestT32_Unfollow_NoopCauses_LeaveInvariantAndCostNothing(t *testing.T) {
 
 // TestT32_Unfollow_RaceWithTargetPurge races Unfollow(a->b) against the full purge of b (step 2 deletes the
 // same edge with the same Exists precondition). Whichever wins, the target must end up out of following, the
-// counters must be exact (sweep), and a follow-up Unfollow must be a 0-cost NONE.
+// counters must be exact (sweep), and a follow-up Unfollow must be a NONE.
 func TestT32_Unfollow_RaceWithTargetPurge(t *testing.T) {
 	const iterations = 4
 	w := newWired(t)
@@ -192,7 +193,7 @@ func TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs(t *testing.T) {
 		t.Fatalf("seed S2: delete users/%s: %v", b, err)
 	}
 
-	// The user is stuck: Unfollow answers the same 0-cost NONE as every other no-op and changes nothing.
+	// The user is stuck: Unfollow answers the same NONE as every other no-op and changes nothing.
 	noopUnfollow(t, w, "Unfollow (S2 stuck)", a, key2, b)
 	if g := graphArrays(t, w.client, a); !contains(g["following"], b) {
 		t.Fatalf("graph/%s.following = %v; S2 seed lost the following entry", a, g["following"])
@@ -231,6 +232,6 @@ func TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs(t *testing.T) {
 	if docExists(t, w.client, "users/"+b) {
 		t.Errorf("users/%s was resurrected by the repair", b)
 	}
-	// Idempotent: the user is no longer stuck and a replayed Unfollow stays a 0-cost NONE.
+	// Idempotent: the user is no longer stuck and a replayed Unfollow stays a NONE.
 	noopUnfollow(t, w, "Unfollow (after S2 repair)", a, key3, b)
 }

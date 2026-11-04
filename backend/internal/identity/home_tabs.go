@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -30,7 +29,7 @@ const (
 )
 
 // ListsFlag and CommunitiesFlag are the wire names of the flags that gate a tab kind in GetMe.home_tabs (identity cannot
-// import lists; GetMe reads the per-caller answer from the enabled_features list it already computed, 0 reads).
+// import lists; GetMe reads the per-caller answer from the enabled_features list it already computed, no read).
 const (
 	ListsFlag       = "lists"
 	CommunitiesFlag = "communities"
@@ -110,8 +109,8 @@ func NewHomeTabs(repo *FirestoreRepo, idem *idempotency.Store, cache *Cache) *Ho
 	return &HomeTabsAdapter{repo: repo, idem: idem, cache: cache, now: time.Now}
 }
 
-// Current returns uid's stored tabs, cache-first through the 60 s profile cache (0 reads when the account-status
-// interceptor has loaded the profile, else 1). Staleness bound: CACHE_TTL on another instance.
+// Current returns uid's stored tabs, cache-first through the 60 s profile cache (no read when the account-status
+// interceptor has already loaded the profile). Staleness bound: CACHE_TTL on another instance.
 func (h *HomeTabsAdapter) Current(ctx context.Context, uid string) ([]HomeTab, error) {
 	if p, ok := h.cache.GetProfile(uid); ok {
 		return p.HomeTabs(), nil
@@ -125,10 +124,10 @@ func (h *HomeTabsAdapter) Current(ctx context.Context, uid string) ([]HomeTab, e
 }
 
 // Replace runs the SetHomeTabs transaction. Reads, fresh and in this order: the idempotency document,
-// users/{uid} (2 reads). A record that exists with the same hash is a replay: the stored tabs are returned and nothing is
+// users/{uid}. A record that exists with the same hash is a replay: the stored tabs are returned and nothing is
 // written; with another hash it is ErrKeyReused. Otherwise next(current) (pure: it reruns on a transaction retry) yields the
-// new order; writes: the field-level homeTabs update plus the idempotency document (2), or the idempotency document alone
-// when nothing changed (1). The profile cache is updated from the written data only after the commit.
+// new order; it writes the field-level homeTabs update plus the idempotency document, or the idempotency document alone
+// when nothing changed. The profile cache is updated from the written data only after the commit.
 func (h *HomeTabsAdapter) Replace(ctx context.Context, uid, key, requestHash string, next func(current []HomeTab) ([]HomeTab, error)) ([]HomeTab, error) {
 	idemKey := idempotency.Key(uid, rpcSetHomeTabs, key)
 	var out []HomeTab
@@ -143,9 +142,7 @@ func (h *HomeTabsAdapter) Replace(ctx context.Context, uid, key, requestHash str
 		if replay && rec.RequestHash != requestHash {
 			return ErrKeyReused
 		}
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(h.repo.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -166,7 +163,7 @@ func (h *HomeTabsAdapter) Replace(ctx context.Context, uid, key, requestHash str
 			return err
 		}
 		out = nxt
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if !slices.Equal(cur, nxt) {
 			b.Update(h.repo.userRef(uid), []firestore.Update{homeTabsUpdate(nxt)})
 			d.HomeTabs = nxt
@@ -197,17 +194,15 @@ func (h *HomeTabsAdapter) refresh(uid string, d *userDoc) {
 	}
 }
 
-// edit is the shared body of Unpin and Retitle: one transaction that reads users/{uid} fresh (1 read), lets fn change the
-// order, and writes homeTabs field-level only when fn changed something (1 write). hit reports whether fn found its tab. A
+// edit is the shared body of Unpin and Retitle: one transaction that reads users/{uid} fresh, lets fn change the
+// order, and writes homeTabs field-level only when fn changed something. hit reports whether fn found its tab. A
 // missing document is "nothing to do".
 func (h *HomeTabsAdapter) edit(ctx context.Context, uid string, fn func(cur []HomeTab) (next []HomeTab, hit bool)) (bool, error) {
 	var hit bool
 	var written *userDoc
 	_, err := store.RunTransaction(ctx, h.repo.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		hit, written = false, nil
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(h.repo.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return nil
@@ -223,7 +218,7 @@ func (h *HomeTabsAdapter) edit(ctx context.Context, uid string, fn func(cur []Ho
 		if !found || slices.Equal(d.HomeTabs, nxt) {
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(h.repo.userRef(uid), []firestore.Update{homeTabsUpdate(nxt)})
 		d.HomeTabs = nxt
 		written = &d
@@ -236,7 +231,7 @@ func (h *HomeTabsAdapter) edit(ctx context.Context, uid string, fn func(cur []Ho
 	return hit, nil
 }
 
-// Unpin implements lists.Pins: removes the LIST tab for listID from uid's order. 1 read, 1 write only when it is pinned.
+// Unpin implements lists.Pins: removes the LIST tab for listID from uid's order. It writes only when the list is pinned.
 func (h *HomeTabsAdapter) Unpin(ctx context.Context, uid, listID string) error {
 	_, err := h.edit(ctx, uid, func(cur []HomeTab) ([]HomeTab, bool) {
 		i := slices.IndexFunc(cur, func(t HomeTab) bool { return t.Kind == HomeTabKindList && t.ID == listID })
@@ -249,7 +244,7 @@ func (h *HomeTabsAdapter) Unpin(ctx context.Context, uid, listID string) error {
 }
 
 // Retitle implements lists.Pins: sets the stored title of uid's pinned tab for listID. pinned reports whether the list is
-// pinned. 1 read; 1 write only when it is pinned under another title.
+// pinned. It writes only when the list is pinned under another title.
 func (h *HomeTabsAdapter) Retitle(ctx context.Context, uid, listID, name string) (pinned bool, err error) {
 	return h.edit(ctx, uid, func(cur []HomeTab) ([]HomeTab, bool) {
 		i := slices.IndexFunc(cur, func(t HomeTab) bool { return t.Kind == HomeTabKindList && t.ID == listID })

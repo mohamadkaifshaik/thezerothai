@@ -13,7 +13,6 @@ import (
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -31,8 +30,8 @@ type device struct {
 func (e *itEnv) openDevice(uid, convID string, folder messagingv1.Folder) device {
 	e.t.Helper()
 	svc := e.msgSvc()
-	tr, _ := e.mustListMsgs(svc, uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
-	li, _ := e.mustList(svc, uid, &messagingv1.ListConversationsRequest{Folder: folder})
+	tr := e.mustListMsgs(svc, uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	li := e.mustList(svc, uid, &messagingv1.ListConversationsRequest{Folder: folder})
 	d := device{uid: uid, thread: tr.GetSinceToken(), folder: folder, inbox: li.GetSinceToken()}
 	for _, c := range li.GetConversations() {
 		d.inboxOrder = append(d.inboxOrder, c.GetId())
@@ -56,11 +55,11 @@ func isSinceRetired(err error) bool {
 func (e *itEnv) wantTakedownReached(d device, convID, msgID string, previewRemoved bool) {
 	e.t.Helper()
 	svc := e.msgSvc() // answers after the change: a cold instance
-	_, _, err := e.listMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: d.thread})
+	_, err := e.listMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: d.thread})
 	if !isSinceRetired(err) {
 		e.t.Fatalf("%s: the old thread token was not retired: %v", d.uid, err)
 	}
-	first, _ := e.mustListMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	first := e.mustListMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
 	var seen bool
 	for _, m := range first.GetMessages() {
 		if m.GetId() == msgID {
@@ -74,11 +73,11 @@ func (e *itEnv) wantTakedownReached(d device, convID, msgID string, previewRemov
 		e.t.Errorf("%s: the first page lost the tombstone", d.uid)
 	}
 	// The new token works, and the cold open is the only reload: a poll with it is accepted.
-	if _, _, perr := e.listMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: first.GetSinceToken()}); perr != nil {
+	if _, perr := e.listMsgs(svc, d.uid, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: first.GetSinceToken()}); perr != nil {
 		e.t.Errorf("%s: the token of the cold open is refused: %v", d.uid, perr)
 	}
 
-	ref, _ := e.mustList(svc, d.uid, &messagingv1.ListConversationsRequest{Folder: d.folder, SinceToken: d.inbox})
+	ref := e.mustList(svc, d.uid, &messagingv1.ListConversationsRequest{Folder: d.folder, SinceToken: d.inbox})
 	if !previewRemoved {
 		// The entry may come back because the sends are still inside the 5 s settle window of the device's token (the client
 		// dedupes by id); what matters is that its preview is untouched by the takedown.
@@ -99,7 +98,7 @@ func (e *itEnv) wantTakedownReached(d device, convID, msgID string, previewRemov
 	if !conv.GetUpdatedAt().AsTime().Equal(d.inboxUpdated) {
 		e.t.Errorf("%s: updated_at moved from %v to %v: the inbox order must not change", d.uid, d.inboxUpdated, conv.GetUpdatedAt().AsTime())
 	}
-	fresh, _ := e.mustList(svc, d.uid, &messagingv1.ListConversationsRequest{Folder: d.folder})
+	fresh := e.mustList(svc, d.uid, &messagingv1.ListConversationsRequest{Folder: d.folder})
 	if got := respIDs(fresh); len(got) != len(d.inboxOrder) || (len(got) > 0 && got[0] != d.inboxOrder[0]) {
 		e.t.Errorf("%s: inbox order %v, was %v", d.uid, got, d.inboxOrder)
 	}
@@ -110,7 +109,7 @@ func TestTakedownReach_LastMessageReachesBothParticipants(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
 	devs := []device{e.openDevice(alice, convID, messagingv1.Folder_FOLDER_INBOX), e.openDevice(bob, convID, messagingv1.Folder_FOLDER_INBOX)}
-	if _, _, err := e.takedown(convID, m2, false); err != nil {
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range devs {
@@ -126,7 +125,7 @@ func TestTakedownReach_RequestConversation(t *testing.T) {
 	last := e.msgsOrdered(convID)[1]
 	recipient := e.openDevice(bob, convID, messagingv1.Folder_FOLDER_REQUESTS)
 	requester := e.openDevice(alice, convID, messagingv1.Folder_FOLDER_INBOX)
-	if _, _, err := e.takedown(convID, last, false); err != nil {
+	if _, err := e.takedown(convID, last, false); err != nil {
 		t.Fatal(err)
 	}
 	e.wantTakedownReached(recipient, convID, last, true)
@@ -140,7 +139,7 @@ func TestTakedownReach_NotTheLastMessage(t *testing.T) {
 	convID, m1, _ := twoMessages(t, e)
 	devs := []device{e.openDevice(alice, convID, messagingv1.Folder_FOLDER_INBOX), e.openDevice(bob, convID, messagingv1.Folder_FOLDER_INBOX)}
 	before, _ := e.entry(alice, dmInboxCollection, convID)
-	res, c, err := e.takedown(convID, m1, false)
+	res, err := e.takedown(convID, m1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +150,6 @@ func TestTakedownReach_NotTheLastMessage(t *testing.T) {
 	if conv.Rev != 1 {
 		t.Errorf("rev = %d, want 1: the revision is bumped even when no preview shows the message", conv.Rev)
 	}
-	wantBudget(t, "takedown not last", c, 4, 2)
 	if after, _ := e.entry(alice, dmInboxCollection, convID); !after.ChangedAt.Equal(before.ChangedAt) {
 		t.Errorf("changedAt moved from %v to %v for a message that is not the preview", before.ChangedAt, after.ChangedAt)
 	}
@@ -160,29 +158,25 @@ func TestTakedownReach_NotTheLastMessage(t *testing.T) {
 	}
 }
 
-// The written fields and budget of one takedown: removedAt, rev +1 once (a repeat does not bump it), updatedAt strictly later,
+// The written fields of one takedown: removedAt, rev +1 once (a repeat does not bump it), updatedAt strictly later,
 // changedAt (server time) on the rewritten previews, lastMessageAt untouched; a dry run changes nothing.
-func TestTakedownReach_WritesAndBudget(t *testing.T) {
+func TestTakedownReach_Writes(t *testing.T) {
 	e := newIT(t, nil)
 	e.tick(-time.Hour) // the sends are stamped an hour before the takedown's server time
 	convID, _, m2 := twoMessages(t, e)
 	convBefore, _ := e.conv(convID)
 	entryBefore, _ := e.entry(alice, dmInboxCollection, convID)
 
-	if _, c, err := e.takedown(convID, m2, true); err != nil {
+	if _, err := e.takedown(convID, m2, true); err != nil {
 		t.Fatal(err)
-	} else {
-		wantBudget(t, "dry run", c, 4, 0)
 	}
 	if conv, _ := e.conv(convID); conv.Rev != 0 || e.msgs(convID)[m2].State != msgVisible {
 		t.Fatalf("a dry run wrote: rev %d, state %s", conv.Rev, e.msgs(convID)[m2].State)
 	}
 
-	_, c, err := e.takedown(convID, m2, false)
-	if err != nil {
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
-	wantBudget(t, "takedown", c, 4, 4)
 	conv, _ := e.conv(convID)
 	if conv.Rev != 1 || !conv.UpdatedAt.After(convBefore.UpdatedAt) {
 		t.Errorf("conversation rev %d updatedAt %v (was %v), want rev 1 and a later updatedAt", conv.Rev, conv.UpdatedAt, convBefore.UpdatedAt)
@@ -197,13 +191,16 @@ func TestTakedownReach_WritesAndBudget(t *testing.T) {
 		}
 	}
 
-	_, c, err = e.takedown(convID, m2, false)
-	if err != nil {
+	msgAfter := e.msgs(convID)[m2]
+	convAfter, _ := e.conv(convID)
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
-	wantBudget(t, "repeat", c, 1, 0)
-	if conv, _ := e.conv(convID); conv.Rev != 1 {
-		t.Errorf("a repeat bumped rev to %d", conv.Rev)
+	if conv, _ := e.conv(convID); conv.Rev != 1 || !conv.UpdatedAt.Equal(convAfter.UpdatedAt) {
+		t.Errorf("a repeat wrote: rev %d updatedAt %v (was rev 1, %v)", conv.Rev, conv.UpdatedAt, convAfter.UpdatedAt)
+	}
+	if msg := e.msgs(convID)[m2]; !msg.RemovedAt.Equal(msgAfter.RemovedAt) {
+		t.Errorf("a repeat moved removedAt from %v to %v", msgAfter.RemovedAt, msg.RemovedAt)
 	}
 }
 
@@ -216,7 +213,7 @@ func TestTakedownReach_OperatorClockAheadDoesNotPoisonLaterStamps(t *testing.T) 
 	convID, _, m2 := twoMessages(t, e)
 	e.repo.now = func() time.Time { return time.Now().Add(10 * time.Minute) } // the operator's laptop
 	alice1 := e.openDevice(alice, convID, messagingv1.Folder_FOLDER_INBOX)
-	if _, _, err := e.takedown(convID, m2, false); err != nil {
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
 	ceiling := time.Now().Add(time.Minute) // generous: server time plus the test's own fake-clock lead
@@ -226,7 +223,7 @@ func TestTakedownReach_OperatorClockAheadDoesNotPoisonLaterStamps(t *testing.T) 
 	}
 
 	svc := e.newService()
-	if _, err := e.del(svc, alice, convID); err != nil {
+	if err := e.del(svc, alice, convID); err != nil {
 		t.Fatal(err)
 	}
 	conv, _ = e.conv(convID)
@@ -240,11 +237,11 @@ func TestTakedownReach_OperatorClockAheadDoesNotPoisonLaterStamps(t *testing.T) 
 		t.Fatalf("the reply is stamped %v, in the future (ceiling %v)", created, ceiling)
 	}
 	// alice's device: the inbox since refresh returns the conversation with the reply, and the thread shows the reply.
-	ref, _ := e.mustList(e.msgSvc(), alice, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: alice1.inbox})
+	ref := e.mustList(e.msgSvc(), alice, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: alice1.inbox})
 	if len(ref.GetConversations()) != 1 || ref.GetConversations()[0].GetLastMessage().GetSnippet() != "reply after the delete" {
 		t.Fatalf("alice's inbox refresh = %v, want the conversation previewing the reply", respIDs(ref))
 	}
-	first, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	first := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: convID})
 	if len(first.GetMessages()) != 1 || first.GetMessages()[0].GetId() != reply {
 		t.Errorf("alice's thread = %d messages, want only the reply after her delete", len(first.GetMessages()))
 	}
@@ -258,14 +255,14 @@ func TestTakedownReach_TwoInstances(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
 	stale := e.msgSvc()
-	first, _ := e.mustListMsgs(stale, alice, &messagingv1.ListMessagesRequest{ConversationId: convID}) // caches rev 0
+	first := e.mustListMsgs(stale, alice, &messagingv1.ListMessagesRequest{ConversationId: convID}) // caches rev 0
 	old := first.GetSinceToken()
-	if _, _, err := e.takedown(convID, m2, false); err != nil {
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
 	fresh := e.msgSvc()
 	poll := func(svc *service, tok string) (*messagingv1.ListMessagesResponse, error) {
-		resp, _, err := e.listMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: tok})
+		resp, err := e.listMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: tok})
 		return resp, err
 	}
 	if _, err := poll(fresh, old); !isSinceRetired(err) {
@@ -280,7 +277,7 @@ func TestTakedownReach_TwoInstances(t *testing.T) {
 	}
 
 	// The cold open on a fresh instance seals rev 1.
-	cold, _ := e.mustListMsgs(fresh, alice, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	cold := e.mustListMsgs(fresh, alice, &messagingv1.ListMessagesRequest{ConversationId: convID})
 	if _, rev, err := cursor.DecodeRevAtTTL(testCursorKey, messagesSinceBinding(alice, convID), cold.GetSinceToken(), e.now(), RefreshTokenTTL); err != nil || rev != 1 {
 		t.Fatalf("cold open token rev = %d (%v), want 1", rev, err)
 	}
@@ -309,24 +306,23 @@ func TestTakedownReach_TwoInstances(t *testing.T) {
 }
 
 // Tokens issued before this change: a thread token of the plain format on a conversation with no revision is accepted; an inbox
-// since token of the earlier kind is VALIDATION and costs no read beyond the interceptor's.
+// since token of the earlier kind is VALIDATION and is refused.
 func TestTakedownReach_LegacyTokens(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, _ := twoMessages(t, e)
 	svc := e.msgSvc()
 	legacyThread := cursor.EncodeAt(testCursorKey, messagesSinceBinding(alice, convID), cursor.Cursor{CreatedAt: e.now().Add(-time.Minute), DocID: "-"}, e.now())
-	if _, _, err := e.listMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: legacyThread}); err != nil {
+	if _, err := e.listMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: legacyThread}); err != nil {
 		t.Errorf("a legacy thread token on a conversation with no rev: %v", err)
 	}
 	legacyInbox := cursor.EncodeAt(testCursorKey, "messaging|conversations|since|"+alice+"|"+dmInboxCollection, cursor.Cursor{CreatedAt: e.now().Add(-time.Minute), DocID: "-"}, e.now())
-	_, c, err := e.list(svc, alice, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: legacyInbox})
+	_, err := e.list(svc, alice, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: legacyInbox})
 	if !isSinceRetired(err) {
-		t.Errorf("legacy inbox token: err %v, reads %d, want VALIDATION since_token with only the interceptor's read", err, c.Reads())
+		t.Errorf("legacy inbox token: err %v, want VALIDATION since_token", err)
 	}
 }
 
-// Every send writes changedAt equal to lastMessageAt on both entries, without a read or write more (send budgets are asserted
-// by the send tests).
+// Every send writes changedAt equal to lastMessageAt on both entries, on top of what a send already did.
 func TestTakedownReach_SendWritesChangedAt(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, _ := twoMessages(t, e)
@@ -356,10 +352,10 @@ func TestTakedownReach_EraserReachesThePeer(t *testing.T) {
 		t.Fatalf("rev after the erasure = %d, want 1", conv.Rev)
 	}
 	svc := e.msgSvc()
-	if _, _, err := e.listMsgs(svc, bob, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: d.thread}); !isSinceRetired(err) {
+	if _, err := e.listMsgs(svc, bob, &messagingv1.ListMessagesRequest{ConversationId: convID, SinceToken: d.thread}); !isSinceRetired(err) {
 		t.Fatalf("bob's cached thread token survived the erasure: %v", err)
 	}
-	first, _ := e.mustListMsgs(svc, bob, &messagingv1.ListMessagesRequest{ConversationId: convID})
+	first := e.mustListMsgs(svc, bob, &messagingv1.ListMessagesRequest{ConversationId: convID})
 	var tomb bool
 	for _, m := range first.GetMessages() {
 		if m.GetId() == last {
@@ -369,7 +365,7 @@ func TestTakedownReach_EraserReachesThePeer(t *testing.T) {
 	if !tomb || first.GetConversation().GetPeer().GetDisplayName() != DeletedAccountName {
 		t.Errorf("first page: tombstone %v, header %q", tomb, first.GetConversation().GetPeer().GetDisplayName())
 	}
-	ref, _ := e.mustList(svc, bob, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: d.inbox})
+	ref := e.mustList(svc, bob, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: d.inbox})
 	if len(ref.GetConversations()) != 1 {
 		t.Fatalf("inbox refresh = %d entries, want the rewritten one", len(ref.GetConversations()))
 	}
@@ -384,7 +380,7 @@ func TestTakedownReach_EraserReachesThePeer(t *testing.T) {
 }
 
 // Accept: the accepter's other device holds an INBOX since token from before; the conversation shows up in its next INBOX
-// refresh. Accept's budget stays 3 / 2 / 1; an already accepted replay writes nothing and does not move changedAt.
+// refresh. An already accepted replay writes nothing and does not move changedAt.
 func TestTakedownReach_AcceptReachesTheOtherDevice(t *testing.T) {
 	e := newIT(t, nil)
 	convID := e.request(2)
@@ -393,17 +389,17 @@ func TestTakedownReach_AcceptReachesTheOtherDevice(t *testing.T) {
 		t.Fatalf("setup: the inbox already lists %v", other.inboxOrder)
 	}
 	e.tick(time.Minute)
-	_, err := e.accept(e.newService(), bob, convID)
+	err := e.accept(e.newService(), bob, convID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := e.mustList(e.msgSvc(), bob, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: other.inbox})
+	ref := e.mustList(e.msgSvc(), bob, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: other.inbox})
 	if got := respIDs(ref); len(got) != 1 || got[0] != convID {
 		t.Fatalf("the other device's INBOX refresh = %v, want the accepted conversation", got)
 	}
 	moved, _ := e.entry(bob, dmInboxCollection, convID)
 	e.tick(time.Minute)
-	_, err = e.accept(e.newService(), bob, convID)
+	err = e.accept(e.newService(), bob, convID)
 	if err != nil {
 		t.Fatalf("replay: err %v, want success", err)
 	}
@@ -428,9 +424,4 @@ func (e *itEnv) msgsOrdered(convID string) []string {
 		}
 	}
 	return ids
-}
-
-// wantBudget asserts exact reads and writes of a counter (the takedown budgets of the RPC doc comment).
-func wantBudget(t *testing.T, label string, c *budget.Counter, reads, writes int64) {
-	t.Helper()
 }

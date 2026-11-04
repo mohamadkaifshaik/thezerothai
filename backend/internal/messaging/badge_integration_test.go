@@ -6,11 +6,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// on the emulator: count of dmInbox where unreadCount > 0, Limit 100, 1 read; 3 -> 3, 150 -> 100, requests and
+// on the emulator: count of dmInbox where unreadCount > 0, Limit 100; 3 -> 3, 150 -> 100, requests and
 // read entries never count.
 func TestIntegration_UnreadConversationsCount(t *testing.T) {
 	e := newIT(t, nil)
@@ -22,17 +20,16 @@ func TestIntegration_UnreadConversationsCount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	count := func(uid string) (int64, *budget.Counter) {
+	count := func(uid string) int64 {
 		t.Helper()
-		cctx, c := budget.WithCounter(ctx)
-		n, err := NewUnreadBadge(e.repo).UnreadConversations(cctx, uid)
+		n, err := NewUnreadBadge(e.repo).UnreadConversations(ctx, uid)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return n, c
+		return n
 	}
 
-	if n, _ := count(carol); n != 0 {
+	if n := count(carol); n != 0 {
 		t.Errorf("no entries: count = %d, want 0", n)
 	}
 
@@ -43,7 +40,7 @@ func TestIntegration_UnreadConversationsCount(t *testing.T) {
 	for i := 60; i < 64; i++ {
 		seed(alice, dmRequestsCollection, i, 2) // requests: not counted
 	}
-	n, _ := count(alice)
+	n := count(alice)
 	if n != 3 {
 		t.Errorf("3 unread: count = %d, want 3", n)
 	}
@@ -51,7 +48,7 @@ func TestIntegration_UnreadConversationsCount(t *testing.T) {
 	for i := 0; i < 150; i++ {
 		seed(bob, dmInboxCollection, i, 1)
 	}
-	n, _ = count(bob)
+	n = count(bob)
 	if n != 100 {
 		t.Errorf("150 unread: count = %d, want the cap 100", n)
 	}

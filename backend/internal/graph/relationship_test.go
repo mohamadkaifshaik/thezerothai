@@ -14,7 +14,6 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -73,7 +72,7 @@ func (f relFixture) get(caller, target string) (ProfileRelationship, error) {
 }
 
 // TestGetProfileRelationship_Matrix: the relationship comes from the caller's snapshot, followed_by from
-// the edge follows/{target}_{caller}, and every refusal costs no edge read.
+// the edge follows/{target}_{caller}, and every refusal makes no edge read.
 func TestGetProfileRelationship_Matrix(t *testing.T) {
 	const a, b = "uid-a", "uid-b" // a is the caller, b the target
 	tests := []struct {
@@ -558,7 +557,7 @@ func TestGetProfileRelationship_FlagMatrix(t *testing.T) {
 			svc := New(Deps{Repo: repo, Cache: NewCache(time.Minute), Flags: flags.NewRegistry(tt.reg...)})
 			dir := &countingDirectory{Directory: activeProfiles(target)}
 			svc.SetDirectory(dir)
-			ctx, _ := budget.WithCounter(w3Ctx(tt.uid))
+			ctx := w3Ctx(tt.uid)
 
 			resp, err := NewServer(svc).GetProfileRelationship(ctx, connect.NewRequest(&graphv1.GetProfileRelationshipRequest{UserId: target}))
 			if tt.wantPass {

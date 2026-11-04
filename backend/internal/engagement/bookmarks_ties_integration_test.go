@@ -81,11 +81,9 @@ func TestBookmarkExporter_TiesAcrossThePageBoundary(t *testing.T) {
 		}
 	})
 	var buf bytes.Buffer
-	measured(t, "export at the cap", func(ctx context.Context) {
-		if err := NewBookmarkExporter(e.repo).ExportUser(ctx, "bm-ties", &buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewBookmarkExporter(e.repo).ExportUser(context.Background(), "bm-ties", &buf); err != nil {
+		t.Fatal(err)
+	}
 	var doc struct {
 		Bookmarks []struct {
 			PostID       string    `json:"postId"`
@@ -159,7 +157,7 @@ func TestBookmarkRepo_ListPageOverTiesAndSubMicrosecondTimes(t *testing.T) {
 	}
 }
 
-// Re-running the whole eraser after a full erase at the cap is a no-op that costs one read per invocation, and a
+// Re-running the whole eraser after a full erase at the cap is a no-op, and a
 // checkpoint that is lost (the zero value) just starts again: the second run deletes nothing and recreates nothing.
 func TestBookmarkEraser_RerunAtTheCap(t *testing.T) {
 	e := newRepoEnv(t)
@@ -190,11 +188,9 @@ func TestBookmarkEraser_RerunAtTheCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		measured(t, "re-run", func(ctx context.Context) {
-			if _, done, err := step.PurgeUser(ctx, uid, BookmarkCheckpoint{}); err != nil || !done {
-				t.Fatalf("re-run: done %v err %v", done, err)
-			}
-		})
+		if _, done, err := step.PurgeUser(context.Background(), uid, BookmarkCheckpoint{}); err != nil || !done {
+			t.Fatalf("re-run: done %v err %v", done, err)
+		}
 		if e.exists(t, "userLikes/"+uid) {
 			t.Fatal("the re-run recreated userLikes")
 		}

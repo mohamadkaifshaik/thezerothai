@@ -13,7 +13,7 @@
 //
 // Ids: list_id is a 64-bit Snowflake rendered as a 19-digit decimal string, like a post id (rule 1). It is
 // time-ordered and therefore guessable, so authorization never relies on it. A list_id that is not 19 digits =>
-// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "list_id", 0 reads.
+// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "list_id", before any lookup.
 //
 // Who sees a list (founder decision F3): a list is created PRIVATE unless the request says otherwise. A
 // private list, a list hidden by the platform (opsctl), a list whose owner blocks the caller, a list whose owner
@@ -30,23 +30,23 @@
 // dropped member stays in storage; the owner's next write to the list removes members who block the owner.
 //
 // Flag FEATURE_LISTS (wire name "lists", default off): every RPC here needs it on for the caller, else
-// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads. Clients learn it from
+// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", before any lookup. Clients learn it from
 // IdentityService.GetMe enabled_features.
 //
 // Idempotency (rule 4): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
-// VALIDATION "idempotency_key", 0 reads) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
-// (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome with 0 writes,
+// VALIDATION "idempotency_key", before any lookup) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
+// (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome and writes nothing,
 // whatever happened since; the same key with a different request body => INVALID_ARGUMENT +
 // IDEMPOTENCY_KEY_REUSED. A mutation that changes nothing (adding a member already there, removing one who is not)
-// still stores the idempotency document (1 write), so a late retry can never undo a newer change.
+// still stores the idempotency document, so a late retry can never undo a newer change.
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in list_id | user_id | owner_id | contains_user_id | name |
-//   description | page_token | idempotency_key; 0 reads beyond the account-status interceptor.
+//   description | page_token | idempotency_key; before any lookup.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists".
 // - NOT_FOUND: one message for every cause above.
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "lists" (LISTS_MAX_PER_USER, 20 lists per owner) or
-//   "list_members" (LIST_MAX_MEMBERS, 150 members per list); 0 writes.
+//   "list_members" (LIST_MAX_MEMBERS, 150 members per list); nothing is written.
 // - FAILED_PRECONDITION + PROTECTED_ACCOUNT (AddListMember only, above).
 // - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "list_creates" (10 per IST day, 3 for accounts younger
 //   than 24 h) or "list_adds" (300 per IST day, 50 for new accounts); exact, in the transaction.
@@ -55,9 +55,6 @@
 //   LIST_MUTATIONS_PER_DAY (500 per uid per instance, metadata["limit"] = "list_mutation_daily", shared by the six
 //   list and Home-tab mutations); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
-//
-// Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor.
 
 package listsv1
 

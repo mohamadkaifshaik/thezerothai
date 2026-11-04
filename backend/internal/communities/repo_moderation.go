@@ -8,7 +8,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -95,12 +94,12 @@ func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Tra
 }
 
 // ModeratePost implements ModerationRepo. One transaction. Reads, fresh and in this order: idempotency (a replay returns
-// here, 1 read), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
+// here), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
 // written and an error is not recorded), the actor's memberships, and last the post through PostModerator (ErrPostNotFound when
-// it was not created into this community and is not a reply of its conversation), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
+// it was not created into this community and is not a reply of its conversation), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16: the author's current role decides; checked on the one post read, before any write); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise it writes
 // the post (field-level, in posts), the community (one Update: for a root recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
-// entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, +1 when the
-// community is not yet in the actor's modlogged (A6).
+// entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, and the actor's
+// memberships when the community is not yet in their modlogged (A6).
 func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) (ModeratePostResult, error) {
 	if err := r.ready(); err != nil {
 		return ModeratePostResult{}, err
@@ -144,7 +143,7 @@ func (r *FirestoreRepo) ModeratePost(ctx context.Context, p ModeratePostParams) 
 		if !found {
 			return ErrPostNotFound
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		outcome, next := Unchanged, c
 		if changed {
 			now := r.now().UTC()
@@ -209,8 +208,7 @@ func removalsAfter(c Community, postID string, restore bool, now time.Time, limi
 // target's memberships and the actor's memberships. Nothing more is read once the request is known to change nothing, and the idempotency
 // document is then the only write. A BAN of a JOINED target is one Update of the member doc (state BANNED, bannedAt set, joinedAt deleted);
 // of a non-member a Create. Every change appends one log entry to the community's single Update and adds the community to the modlogged of
-// the actor and of the target (A6, I-L). Writes: BAN 4, UNBAN 3 + 1 delete, MAKE and REMOVE_MODERATOR 2 to 3, +1 for the actor's first
-// entry in this community, worst 5.
+// the actor and of the target (A6, I-L).
 func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleResult, error) {
 	if err := r.ready(); err != nil {
 		return SetRoleResult{}, err
@@ -261,7 +259,7 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 		} else if targetRole == RoleOwner {
 			return ErrBadTarget
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		unchanged := func(st MemberState) error {
 			r.putIdem(b, p.UID, p.IdemKey, rpcSetMemberRole, p.RequestHash, p.ID)
 			if err := b.Err(); err != nil {

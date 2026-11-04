@@ -303,9 +303,8 @@ func (l *Lifecycle) publish(ctx context.Context, msg JobMessage) error {
 	return l.pub.Publish(ctx, data)
 }
 
-// DeleteAccount: one transaction sets DELETING + the deletion state (first call: 1 read, 1 write; a
-// replay 2 reads, 0 writes, 3 with the interceptor's cold profile read), then it publishes the job message. A publish
-// failure still returns success (ERROR account_delete_enqueue_failed). A replay re-publishes the current seq only
+// DeleteAccount: one transaction sets DELETING + the deletion state (a replay writes nothing), then it publishes
+// the job message. A publish failure still returns success (ERROR account_delete_enqueue_failed). A replay re-publishes the current seq only
 // when the job has made no progress for deleteRepublishAfter (M2), so a replay storm cannot start duplicate slices;
 // the daily backstop covers the rest. The throttle reads deletionJob.progressAt from the profile the replay already
 // read, so it adds no Firestore operation. The caller's recent sign-in and the flag are checked by the handler; the
@@ -347,8 +346,8 @@ func exportNotFound() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "export not found")
 }
 
-// RequestAccountExport: reads 1 (first call: +1 quotas), writes 2 (exports + quotas); a replay with the same key
-// reads 2 (quotas, then the exports doc) and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
+// RequestAccountExport: the first call writes the exports doc and the quota; a replay with the same key
+// reads the quota, then the exports doc, and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
 // failure still returns success (ERROR account_export_enqueue_failed). A replay re-publishes only a PENDING export
 // older than exportRepublishAfter (L-4: a lost publish is recovered by the client's retry, without a replay storm
 // re-composing the export); the daily backstop covers the rest. The throttle reads createdAt from the doc the replay
@@ -389,7 +388,7 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 	return ExportView{ID: doc.ID, Status: doc.Status, ExpiresAt: doc.ExpireAt}, nil
 }
 
-// GetAccountExport: 1 read (fresh), 0 writes. An unknown id, another user's id, a malformed id and an expired
+// GetAccountExport: one fresh read, never a write. An unknown id, another user's id, a malformed id and an expired
 // export all give the same NOT_FOUND, bytes included. READY gets a fresh signed GET URL per call
 // that is never stored or logged.
 func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string) (ExportView, error) {

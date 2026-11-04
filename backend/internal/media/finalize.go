@@ -419,7 +419,7 @@ func (s *service) rejectChanged(ctx context.Context, d *Doc) (Result, error) {
 }
 
 // screeningElsewhere answers a finalize that found another call holding the screening claim, or lost the race for it
-// (M-3). It spends nothing and writes nothing: the document is read once (1 read) and the answer is the
+// (M-3). It spends nothing and writes nothing: the document is read once and the answer is the
 // idempotent result when the other call has finished, otherwise the retryable MEDIA_NOT_READY (uploadMissing with
 // afterVerify false), which the client already handles as "try again shortly".
 func (s *service) screeningElsewhere(ctx context.Context, uid string, d *Doc) (Result, int64, error) {
@@ -427,8 +427,8 @@ func (s *service) screeningElsewhere(ctx context.Context, uid string, d *Doc) (R
 	return s.uploadMissing(ctx, uid, d, false, nil)
 }
 
-// releaseClaim clears the screening claim after a failed attempt (best effort, 1 write). The write is conditional on
-// the claim's own UpdateTime, so it never undoes a newer state; when assessed it also increments screenAssessed (+0 writes); a conflict means the document already moved on
+// releaseClaim clears the screening claim after a failed attempt (best effort). The write is conditional on
+// the claim's own UpdateTime, so it never undoes a newer state; when assessed it also increments screenAssessed in the same write; a conflict means the document already moved on
 // (another call resolved it, or the claim expired and was retaken) and is not an error. A failure is only logged:
 // the claim expires on its own after screeningClaimTTL.
 func (s *service) releaseClaim(ctx context.Context, d *Doc, assessed bool) {
@@ -442,7 +442,7 @@ func (s *service) releaseClaim(ctx context.Context, d *Doc, assessed bool) {
 // errUploadMissing is verify's signal that a private upload object is not there.
 var errUploadMissing = errors.New("media: upload object missing")
 
-// resolvedElsewhere reports the result of a document a concurrent FinalizeUpload already resolved (1 read, only
+// resolvedElsewhere reports the result of a document a concurrent FinalizeUpload already resolved (only
 // on error paths). ok is false when the document is still PENDING or cannot be read.
 func (s *service) resolvedElsewhere(ctx context.Context, d *Doc) (Result, bool) {
 	r, _, err := s.reload(ctx, d.OwnerID, d.ID, 0)
@@ -470,7 +470,7 @@ func (s *service) dropOrphanedCopies(ctx context.Context, d *Doc, r Result, obje
 // uploadMissing answers a finalize that found a private upload object gone. Two causes look identical from the
 // bucket: the client has not finished uploading, or a concurrent FinalizeUpload (a client retry) already published
 // the image and deleted the private copies after this call loaded the document as PENDING. The document tells them
-// apart (1 read, only on this path): a resolved document is the idempotent answer, a still-PENDING one is genuinely
+// apart (read only on this path): a resolved document is the idempotent answer, a still-PENDING one is genuinely
 // not uploaded yet. afterVerify is true on the Publish path, where verify had just seen the objects: a still
 // PENDING document then is not a lost race but a broken source or bucket, so it is an internal error (visible in
 // Error Reporting) rather than a silent client retry. screeningElsewhere reuses it with afterVerify false: a still-PENDING
@@ -490,7 +490,7 @@ func (s *service) uploadMissing(ctx context.Context, uid string, d *Doc, afterVe
 	return Result{}, 0, mediaNotReady(d.ID, "the upload is not complete yet")
 }
 
-// reload returns the document another concurrent FinalizeUpload resolved first (1 read).
+// reload returns the document another concurrent FinalizeUpload resolved first.
 func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Result, int64, error) {
 	docs, err := s.Repo.GetMany(ctx, []string{id})
 	if err != nil {
@@ -711,8 +711,8 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 	// This call won the REJECTED write, so nothing can publish this document any more. A public copy may still
 	// exist from an earlier call that copied the full image and then lost its changed-thumbnail reject to a retaken
 	// claim (rejectChanged returned PENDING, so dropOrphanedCopies could not delete safely: the claim holder may be
-	// about to publish the same names). The names are deterministic, so sweep both: 2 idempotent DELETEs (free, a
-	// missing object is success), 0 Firestore reads or writes. A publisher that copies after this point loses its
+	// about to publish the same names). The names are deterministic, so sweep both: two idempotent DELETEs (a
+	// missing object is success), with no Firestore read or write. A publisher that copies after this point loses its
 	// Resolve and drops its own copies (dropOrphanedCopies sees REJECTED).
 	s.dropPublicNames(ctx, d)
 	return Result{MediaID: d.ID, Status: StatusRejected, RejectionReason: reason}, nil

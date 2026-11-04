@@ -20,7 +20,7 @@ const (
 	// pollViewerVotesCeiling bounds POLL_VIEWER_VOTES_KEPT: the userLikes.pollVotes array stays far below the 40,000
 	// index-entry and 1 MiB document limits (it is also index-exempt).
 	pollViewerVotesCeiling = 1000
-	// pollVoteChangesCeiling bounds POLL_VOTE_CHANGES_MAX: each change is 4 writes, and the count-flapping bound of one
+	// pollVoteChangesCeiling bounds POLL_VOTE_CHANGES_MAX: each change is a multi-document write, and the count-flapping bound of one
 	// account is 1 + this many moves of a poll's counts. Raising it past 20 needs a design decision, not an env var.
 	pollVoteChangesCeiling = 20
 	// gifFramesCeiling, gifEdgeCeiling and gifFrameAreaCeiling bound the decode guards: a raised value is
@@ -31,7 +31,7 @@ const (
 	// mediaScreenAttemptsCeiling bounds MEDIA_MAX_SCREEN_ATTEMPTS: every attempt can bill up to 2 Vision units (H-3).
 	mediaScreenAttemptsCeiling = 10
 	// mediaScreenRetriesCeiling bounds MEDIA_MAX_SCREEN_RETRIES: with the attempts it sets the claims
-	// ceiling, and every claim can bill up to 2 Vision units (8 claims x 2 = 16 per document at the defaults).
+	// ceiling, and every claim can bill up to 2 Vision units.
 	mediaScreenRetriesCeiling = 10
 	// mediaVisionUnitsDayCeiling and mediaVisionUnitsDayNewAccountCeiling bound the per-uid daily Vision-units caps (A5.5).
 	mediaVisionUnitsDayCeiling           = 200

@@ -13,23 +13,22 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// profileInTx runs ProfileInTx in a read-only transaction and returns what it saw and what it cost.
-func profileInTx(t *testing.T, client *firestore.Client, repo *identity.FirestoreRepo, uid string) (identity.Profile, *budget.Counter, error) {
+// profileInTx runs ProfileInTx in a read-only transaction and returns what it saw.
+func profileInTx(t *testing.T, client *firestore.Client, repo *identity.FirestoreRepo, uid string) (identity.Profile, error) {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var got identity.Profile
 	err := client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		p, err := repo.ProfileInTx(ctx, tx, uid)
 		got = p
 		return err
 	})
-	return got, counter, err
+	return got, err
 }
 
-// TestProfileInTx_Integration: the transaction-scoped profile read costs exactly 1 read,
+// TestProfileInTx_Integration: the transaction-scoped profile read
 // returns the profile unfiltered by status (SUSPENDED and DELETING come back, unlike Directory.GetProfiles), reports
 // ErrNotFound for an absent document, and never puts the uid in the error text.
 func TestProfileInTx_Integration(t *testing.T) {
@@ -41,7 +40,7 @@ func TestProfileInTx_Integration(t *testing.T) {
 	}
 
 	t.Run("active", func(t *testing.T) {
-		p, _, err := profileInTx(t, client, repo, "uid-tx-1")
+		p, err := profileInTx(t, client, repo, "uid-tx-1")
 		if err != nil {
 			t.Fatalf("ProfileInTx: %v", err)
 		}
@@ -58,7 +57,7 @@ func TestProfileInTx_Integration(t *testing.T) {
 			if _, err := client.Collection("users").Doc("uid-tx-1").Update(context.Background(), []firestore.Update{{Path: "status", Value: st.stored}}); err != nil {
 				t.Fatal(err)
 			}
-			p, _, err := profileInTx(t, client, repo, "uid-tx-1")
+			p, err := profileInTx(t, client, repo, "uid-tx-1")
 			if err != nil || p.Status != st.want {
 				t.Fatalf("profile status = %v err = %v, want %v", p.Status, err, st.want)
 			}
@@ -66,7 +65,7 @@ func TestProfileInTx_Integration(t *testing.T) {
 	}
 
 	t.Run("absent", func(t *testing.T) {
-		_, _, err := profileInTx(t, client, repo, "uid-tx-missing")
+		_, err := profileInTx(t, client, repo, "uid-tx-missing")
 		if !errors.Is(err, identity.ErrNotFound) {
 			t.Fatalf("err = %v, want ErrNotFound", err)
 		}

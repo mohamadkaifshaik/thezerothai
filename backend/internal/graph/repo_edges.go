@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -21,7 +20,7 @@ type Lists struct {
 	Muted   []string
 }
 
-// GetLists implements Repo: 1 read.
+// GetLists implements Repo.
 func (r *FirestoreRepo) GetLists(ctx context.Context, uid string) (Lists, error) {
 	d, err := r.getGraph(ctx, uid)
 	if err != nil {
@@ -79,15 +78,9 @@ func (r *FirestoreRepo) ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, err
 	return runEdgeQuery(ctx, query, "list edges "+q.UID)
 }
 
-// runEdgeQuery executes a follows query, charges its reads to the request budget (len(result), minimum 1: Firestore
-// bills an empty query as one read) and decodes the documents. what names the caller in the error text.
+// runEdgeQuery executes a follows query and decodes the documents. what names the caller in the error text.
 func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Edge, error) {
 	docs, err := query.Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, fmt.Errorf("graph: %s: %w", what, err)
 	}
@@ -103,7 +96,7 @@ func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Ed
 }
 
 // FollowEdgeExists implements Repo: a point read of follows/{followerUID}_{followeeUID} through followRef (the one
-// place a follows doc id is built). Reads 1, charged whether or not the document exists. The error text names
+// place a follows doc id is built). The error text names
 // no uid of its own; the caller redacts the Firestore text, which embeds the path.
 func (r *FirestoreRepo) FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error) {
 	ref, err := r.followRef(followerUID, followeeUID)
@@ -111,7 +104,6 @@ func (r *FirestoreRepo) FollowEdgeExists(ctx context.Context, followerUID, follo
 		return false, err
 	}
 	_, err = ref.Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	switch status.Code(err) {
 	case codes.OK:
 		return true, nil

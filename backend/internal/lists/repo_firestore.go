@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -132,7 +131,7 @@ func (r *FirestoreRepo) putIdem(b store.Batch, uid, key, rpc, hash string, resul
 	})
 }
 
-// lookup reads the idempotency document in tx (1 read). found with a nil error is a replay; found with ErrKeyReused is a
+// lookup reads the idempotency document in tx. found with a nil error is a replay; found with ErrKeyReused is a
 // record that belongs to another request body; not found means the caller proceeds.
 func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, key, hash string) (rec idempotency.Record, found bool, err error) {
 	rec, err = r.idem.Get(ctx, tx, key)
@@ -150,7 +149,7 @@ func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, k
 }
 
 // countOwned counts uid's lists inside tx, stopping at max (the cap check is exact: n >= max means full). An aggregation
-// is invisible to the store wrappers, so it is charged by hand: one read per 1,000 entries counted, minimum 1.
+// is invisible to the store wrappers.
 func (r *FirestoreRepo) countOwned(ctx context.Context, tx *firestore.Transaction, uid string, limit int) (int64, error) {
 	q := r.col().Where("ownerId", "==", uid).Limit(limit)
 	res, err := q.NewAggregationQuery().WithCount("n").Transaction(tx).Get(ctx)
@@ -163,12 +162,11 @@ func (r *FirestoreRepo) countOwned(ctx context.Context, tx *firestore.Transactio
 	if err := res.DataTo(&out); err != nil {
 		return 0, fmt.Errorf("lists: count decode: %w", err)
 	}
-	budget.FromContext(ctx).AddReads(out.N/1000 + 1)
 	return out.N, nil
 }
 
 // Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a
-// replay returns here: 1 read), quotas/{uid}, count() of the owner's lists (3 reads; the cap is exact). Writes 3: Create the
+// replay returns here), quotas/{uid}, count() of the owner's lists (the cap is exact). Writes: Create the
 // list, Create the idempotency document, the quota record. At the cap or over the quota nothing is written.
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	if err := r.ready(); err != nil {
@@ -199,7 +197,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		if n >= int64(p.MaxPerUser) {
 			return ErrListLimit
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.ListCreates, p.QuotaLimit); err != nil {
 			return err
 		}
@@ -221,11 +219,10 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	return res, err
 }
 
-// getOwned reads lists/{id} inside tx (1 read) and decodes it, or ErrNotFound when it is missing or not uid's. The two are
+// getOwned reads lists/{id} inside tx and decodes it, or ErrNotFound when it is missing or not uid's. The two are
 // indistinguishable to every caller.
 func (r *FirestoreRepo) getOwned(ctx context.Context, tx *firestore.Transaction, uid, id string) (listDoc, error) {
 	snap, err := tx.Get(r.ref(id))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return listDoc{}, ErrNotFound
@@ -242,9 +239,9 @@ func (r *FirestoreRepo) getOwned(ctx context.Context, tx *firestore.Transaction,
 	return d, nil
 }
 
-// Update implements Repo: one transaction. Reads, fresh: idempotency (a replay returns: 1 read), the list (2 reads). The
+// Update implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the list. The
 // list changes through a field-level Update (it fails on a missing document, never a Set, so a write can not recreate a
-// deleted list): 2 writes (list, idempotency), or 1 when no set field differs from what is stored. A missing, foreign or
+// deleted list): the list and idempotency document are written, or only the idempotency document when no set field differs from what is stored. A missing, foreign or
 // deleted list is ErrNotFound and writes nothing (an error is not recorded).
 func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResult, error) {
 	if err := r.ready(); err != nil {
@@ -282,7 +279,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 			updates = append(updates, firestore.Update{Path: "isPrivate", Value: *p.IsPrivate})
 			d.IsPrivate = *p.IsPrivate
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		outcome := Unchanged
 		if len(updates) > 0 {
 			d.UpdatedAt = r.now().UTC()
@@ -302,9 +299,9 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 	return res, err
 }
 
-// Delete implements Repo: one transaction. Reads, fresh: idempotency (a replay returns: 1 read), the list (2 reads). The
-// owner's list is deleted with an Exists precondition (1 delete) and the idempotency document is written (1 write). A
-// list that is missing or not the caller's is success with no effect: still the idempotency document (1 write), so a late
+// Delete implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the list. The
+// owner's list is deleted with an Exists precondition and the idempotency document is written. A
+// list that is missing or not the caller's is success with no effect: the idempotency document is still written, so a late
 // retry replays (the DeletePost precedent).
 func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResult, error) {
 	if err := r.ready(); err != nil {
@@ -324,7 +321,7 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 		if gerr != nil && !errors.Is(gerr, ErrNotFound) {
 			return gerr
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		deleted := gerr == nil
 		if deleted {
 			b.Delete(r.ref(p.ListID), firestore.Exists)

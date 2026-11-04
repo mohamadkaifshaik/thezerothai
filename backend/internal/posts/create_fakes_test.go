@@ -14,27 +14,22 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Create implements Repo for unit tests: an in-memory model of the CreatePost transaction that charges the same
-// reads and writes as repo_create.go (replay 1 read; first call 2 reads and 4 writes) and models the idempotency
-// doc, the daily quota and the post counter.
+// Create implements Repo for unit tests: an in-memory model of the CreatePost transaction that models the
+// idempotency doc, the daily quota and the post counter.
 func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	r.createCalls++
-	c := budget.FromContext(ctx)
 	if r.idem == nil {
 		r.idem = map[string]fakeIdem{}
 	}
-	c.AddReads(1)
 	if rec, ok := r.idem[p.IdemKey]; ok {
 		if rec.hash != p.RequestHash {
 			return CreateResult{Attempts: 1}, ErrIdempotencyKeyReused
 		}
 		return CreateResult{ReplayID: rec.postID, Attempts: 1}, nil
 	}
-	c.AddReads(1)
 	if p.ParentID != "" {
 		if _, ok := r.docs[p.ParentID]; !ok || r.parentGone {
 			return CreateResult{Attempts: 1}, ErrParentGone
@@ -64,17 +59,15 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 	r.docs[id] = &post
 	r.idem[p.IdemKey] = fakeIdem{hash: p.RequestHash, postID: id}
 	r.postsCount++
-	c.AddWrites(4)
 	if p.ParentID != "" {
 		r.docs[p.ParentID].ReplyCount++
-		c.AddWrites(1)
 	}
 	r.lastCreate = p
 	return CreateResult{Post: &post, Attempts: 1}, nil
 }
 
-// DeleteOwn implements Repo for unit tests: 0 reads; on success 1 write (postsCount) + 1 delete. A post that is
-// absent models a lost Exists precondition (deleted=false, nothing charged).
+// DeleteOwn implements Repo for unit tests: on success it decrements postsCount and removes the doc. A post that
+// is absent models a lost Exists precondition (deleted=false).
 func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string, stage ...func(store.Batch)) (bool, error) {
 	r.deleteCalls++
 	if r.deleteErr != nil {
@@ -86,14 +79,11 @@ func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string, stage ...
 	}
 	delete(r.docs, id)
 	r.postsCount--
-	c := budget.FromContext(ctx)
-	c.AddWrites(1)
-	c.AddDeletes(1)
 	return true, nil
 }
 
 // Conversation implements Repo for unit tests: the conversation's posts in id order strictly after `after`,
-// at most limit, charged like a query (one read per result, minimum 1).
+// at most limit.
 func (r *fakeRepo) Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error) {
 	r.conversationCalls++
 	r.lastAfter, r.lastLimit = after, limit
@@ -111,15 +101,10 @@ func (r *fakeRepo) Conversation(ctx context.Context, conversationID string, afte
 	for _, id := range ids {
 		out = append(out, r.docs[id])
 	}
-	n := int64(len(out))
-	if n == 0 {
-		n = 1
-	}
-	budget.FromContext(ctx).AddReads(n)
 	return out, r.conversationErr
 }
 
-// AddReplyCount implements Repo for unit tests: 1 write when the parent exists.
+// AddReplyCount implements Repo for unit tests: bumps the parent when it exists.
 func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
 	r.replyCountCalls++
 	if r.replyCountErr != nil {
@@ -127,23 +112,21 @@ func (r *fakeRepo) AddReplyCount(ctx context.Context, parentID string, delta int
 	}
 	if p, ok := r.docs[parentID]; ok {
 		p.ReplyCount += delta
-		budget.FromContext(ctx).AddWrites(1)
 	}
 	return nil
 }
 
-// AddQuoteCount implements Repo for unit tests: 1 write when the quoted post exists.
+// AddQuoteCount implements Repo for unit tests: bumps the quoted post when it exists.
 func (r *fakeRepo) AddQuoteCount(ctx context.Context, id string, delta int64) error {
 	if p, ok := r.docs[id]; ok {
 		p.QuoteCount += delta
-		budget.FromContext(ctx).AddWrites(1)
 	}
 	return nil
 }
 
 type fakeIdem struct{ hash, postID string }
 
-// fakeDirectory implements identity.Directory with counted reads.
+// fakeDirectory implements identity.Directory.
 type fakeDirectory struct {
 	profiles   map[string]identity.Profile
 	handles    map[string]string
@@ -151,7 +134,6 @@ type fakeDirectory struct {
 	profileErr error
 	resolveErr error // ResolveHandles failure
 	forgotten  []string
-	cachedH    map[string]bool // handles already cached (cost 0 reads)
 }
 
 func (d *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
@@ -178,16 +160,11 @@ func (d *fakeDirectory) ResolveHandles(ctx context.Context, lowers []string) (ma
 		return nil, d.resolveErr
 	}
 	out := map[string]string{}
-	var reads int64
 	for _, h := range lowers {
-		if !d.cachedH[h] {
-			reads++
-		}
 		if u, ok := d.handles[h]; ok {
 			out[h] = u
 		}
 	}
-	budget.FromContext(ctx).AddReads(reads)
 	return out, nil
 }
 
@@ -197,7 +174,7 @@ func (d *fakeDirectory) ForgetUnread(...string) {}
 
 var _ identity.Directory = (*fakeDirectory)(nil)
 
-// fakeGraph implements graph.Reader; each uncached Snapshot costs 1 read.
+// fakeGraph implements graph.Reader.
 type fakeGraph struct {
 	snap  graph.Snapshot
 	snaps map[string]graph.Snapshot // per-uid override of snap
@@ -209,7 +186,6 @@ type fakeGraph struct {
 func (g *fakeGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
 	g.calls++
 	g.asked = append(g.asked, uid)
-	budget.FromContext(ctx).AddReads(1)
 	if err := g.errs[uid]; err != nil {
 		return graph.Snapshot{}, err
 	}

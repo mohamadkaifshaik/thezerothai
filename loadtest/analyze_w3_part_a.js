@@ -1,4 +1,4 @@
-// analyze_w3_part_a.js: W3 Part A reads per call from the API's JSON request log (scenario profile_w3_part_a.js).
+// analyze_w3_part_a.js: W3 Part A server latency per call from the API's JSON request log (scenario profile_w3_part_a.js).
 // Plain Node, no dependencies.
 //
 //   node loadtest/analyze_w3_part_a.js api.log          per call position and per RPC
@@ -44,7 +44,6 @@ const pct = (a, p) => {
   const s = [...a].sort((x, y) => x - y);
   return s[Math.min(s.length - 1, Math.ceil((p / 100) * s.length) - 1)];
 };
-const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 const label = (r) => {
   const parts = [short(r.rpc)];
   if (r.tab) parts.push(`tab=${r.tab}`);
@@ -54,15 +53,9 @@ const label = (r) => {
   if (r.suggestions_cache_hit !== undefined) parts.push(`sugg_cache_hit=${r.suggestions_cache_hit}`);
   return parts.join(' ');
 };
-const hist = (xs) => {
-  const h = {};
-  for (const x of xs) h[x] = (h[x] || 0) + 1;
-  return JSON.stringify(h);
-};
 const row = (key, rows) => {
-  const reads = rows.map((r) => r.fs_reads || 0);
   const lat = rows.map((r) => r.latency_ms || 0);
-  return `${key}: calls=${rows.length} fs_reads min=${Math.min(...reads)} mean=${mean(reads).toFixed(2)} max=${Math.max(...reads)} hist=${hist(reads)} writes_max=${Math.max(...rows.map((r) => r.fs_writes || 0))} server_ms p50=${pct(lat, 50)} p95=${pct(lat, 95)}`;
+  return `${key}: calls=${rows.length} server_ms p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)}`;
 };
 
 const byPos = new Map();

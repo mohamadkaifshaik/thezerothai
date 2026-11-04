@@ -12,8 +12,7 @@ import (
 )
 
 // Request-line kinds of AcceptMessageRequest and DeleteConversation. The line also carries
-// conversation_hash, state, replay, folder (delete), refused_reason and the fs_reads / fs_writes / fs_deletes the logging
-// interceptor adds: never a uid, a conversation id, a snippet or text.
+// conversation_hash, state, replay, folder (delete), and refused_reason: never a uid, a conversation id, a snippet or text.
 const (
 	kindAccept = "accept"
 	kindDelete = "delete"
@@ -23,9 +22,9 @@ const (
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient, the other participant (CANNOT_MESSAGE, the same
 // bytes as a block; evaluated without a read, inside the transaction, only when something would be written). A malformed
-// idempotency_key or conversation_id is VALIDATION with 0 reads. The key is format-validated but not stored (the rule for
+// idempotency_key or conversation_id is VALIDATION before any read. The key is format-validated but not stored (the rule for
 // a key the RPC does not use; founder decision 2026-10-29, option (a)): the RPC is idempotent by
-// state, and a replay is success with 0 writes.
+// state, and a replay is success and writes nothing.
 //
 // Only the recipient of the request (requestTo) may accept. An unknown id, a non-participant, the requester and a
 // conversation that never was a request answer one byte-identical NOT_FOUND, as does a request the caller already deleted
@@ -34,18 +33,12 @@ const (
 // written. After a commit the instance's conversation cache is replaced from the written data (the
 // state is not trusted from a cache by Send, but ListMessages reads it) and the caller's badge cache is evicted: the
 // entry's unreadCount now counts in the Inbox badge (Deps.Badge; nil until then). Nothing is emitted.
-//
-// Worst-case Firestore cost (budget.Counter, the account-status interceptor read counted as the proto comment does):
-//   - accept: reads 4 (interceptor 1, conversation 1, request entry 1, the requester's entry 1), planning 3.5; writes 3
-//     (conversation state, dmInbox entry, the requester's entry with requestPending cleared; 2 when the requester deleted
-//     that entry, which is never recreated); deletes 1 (dmRequests entry)
-//   - already accepted: reads 2 (the requester's entry is not read), writes 0; unknown id, non-participant or the requester: NOT_FOUND after 2 reads
 func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.AcceptMessageRequestRequest) (*messagingv1.AcceptMessageRequestResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err
 	}
 	logger.SetRequestField(ctx, fieldKind, kindAccept)
-	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): 0 reads.
+	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): no read.
 	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "accepting message requests"); err != nil {
 		return nil, err
 	}
@@ -76,7 +69,7 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 // Delete implements Service.Delete: "delete for me", also "delete request".
 //
 // Flag: not globally off (a user dropped from the allowlist can still clean up). A malformed idempotency_key or
-// conversation_id is VALIDATION with 0 reads.
+// conversation_id is VALIDATION before any read.
 //
 // The transaction sets clearedAt[caller] = now on the conversation, stores the digest of the idempotency_key as
 // clearedKey[caller] in the same update (no extra read or write) and deletes the caller's own
@@ -93,12 +86,6 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 // This instance's conversation cache is replaced from the written data, so clearedAt takes effect here at once; other
 // instances converge within the cache TTL, 60 s (D14). The caller's badge cache is evicted when an entry was deleted
 // (its unread count leaves the Inbox badge; Deps.Badge, nil until then).
-//
-// Worst-case Firestore cost (budget.Counter, interceptor counted as the proto comment does):
-//   - delete: reads 3 (interceptor 1, conversation 1, the caller's entry 1), planning 2.5; writes 1 (clearedAt and clearedKey
-//     on the conversation); deletes 1 (the caller's entry)
-//   - retry with the same key: reads 2 (the entry is not read), writes 0, deletes 0; any other repeat: reads 3, writes 0,
-//     deletes 0; unknown id or non-participant: NOT_FOUND after 2 reads
 func (s *service) Delete(ctx context.Context, uid string, req *messagingv1.DeleteConversationRequest) (*messagingv1.DeleteConversationResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
 		return nil, err
@@ -146,7 +133,7 @@ func (s *service) lifecycleErr(ctx context.Context, uid, convID, op string, err 
 	return s.failure(ctx, op, uid, convID, err)
 }
 
-// validateKeyAndConv is step 1 of Accept, Delete and MarkRead, 0 reads: the key's format, then the conversation id. Accept
+// validateKeyAndConv is step 1 of Accept, Delete and MarkRead, before any read: the key's format, then the conversation id. Accept
 // and MarkRead do not store the key (idempotent by state, founder decision 2026-10-29: the rule for a key the RPC does
 // not use, "unused but still format-validated"); Delete stores its digest (clearedKey). A malformed key is VALIDATION
 // idempotency_key.

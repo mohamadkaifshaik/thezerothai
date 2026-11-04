@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -25,7 +24,6 @@ type fakeLists struct {
 }
 
 func (f *fakeLists) SetHidden(ctx context.Context, id string, hidden bool, _ time.Time) (bool, error) {
-	budget.FromContext(ctx).AddReads(1)
 	if f.err != nil {
 		return false, f.err
 	}
@@ -37,12 +35,10 @@ func (f *fakeLists) SetHidden(ctx context.Context, id string, hidden bool, _ tim
 	}
 	f.hidden = hidden
 	f.sets++
-	budget.FromContext(ctx).AddWrites(1)
 	return true, nil
 }
 
 func (f *fakeLists) Get(ctx context.Context, id string) (lists.List, error) {
-	budget.FromContext(ctx).AddReads(1)
 	if !f.exists {
 		return lists.List{}, lists.ErrNotFound
 	}
@@ -81,18 +77,18 @@ func TestLists_UsageAndValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			f := &fakeLists{exists: true}
-			code, out, errOut := runLists(f, "", tt.args...)
+			code, _, errOut := runLists(f, "", tt.args...)
 			if code != 2 || !strings.Contains(errOut, tt.want) {
 				t.Fatalf("code=%d stderr=%q, want 2 containing %q", code, errOut, tt.want)
 			}
-			if f.sets != 0 || strings.Contains(out, "cost:") {
-				t.Errorf("a usage error did work: sets=%d out=%q", f.sets, out)
+			if f.sets != 0 {
+				t.Errorf("a usage error did work: sets=%d", f.sets)
 			}
 		})
 	}
 }
 
-func TestLists_HideRestoreCostAndOutput(t *testing.T) {
+func TestLists_HideRestoreAndOutput(t *testing.T) {
 	t.Parallel()
 	f := &fakeLists{exists: true}
 	hash := logger.HashUID(testListID)
@@ -102,11 +98,11 @@ func TestLists_HideRestoreCostAndOutput(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"hide", []string{"lists", "hide", testListID}, []string{"hidden: list_hash=" + hash, "within 60 s", "wrote=true", "cost: reads=1 writes=1"}, nil},
-		{"hide again", []string{"lists", "hide", testListID}, []string{"already hidden", "wrote=false", "cost: reads=1 writes=0"}, nil},
-		{"dry-run restore writes nothing", []string{"lists", "restore", testListID, "--dry-run"}, []string{"currently hidden=true", "would write", "cost: reads=1 writes=0"}, []string{"audit:"}},
-		{"restore", []string{"lists", "restore", testListID}, []string{"restored: list_hash=" + hash, "wrote=true", "cost: reads=1 writes=1"}, nil},
-		{"restore again", []string{"lists", "restore", testListID}, []string{"not hidden", "wrote=false", "cost: reads=1 writes=0"}, nil},
+		{"hide", []string{"lists", "hide", testListID}, []string{"hidden: list_hash=" + hash, "within 60 s", "wrote=true"}, nil},
+		{"hide again", []string{"lists", "hide", testListID}, []string{"already hidden", "wrote=false"}, nil},
+		{"dry-run restore writes nothing", []string{"lists", "restore", testListID, "--dry-run"}, []string{"currently hidden=true", "would write"}, []string{"audit:"}},
+		{"restore", []string{"lists", "restore", testListID}, []string{"restored: list_hash=" + hash, "wrote=true"}, nil},
+		{"restore again", []string{"lists", "restore", testListID}, []string{"not hidden", "wrote=false"}, nil},
 	}
 	for _, s := range steps {
 		code, out, errOut := runLists(f, "", append(s.args, "--project", "dzeroth-dev")...)
@@ -138,7 +134,7 @@ func TestLists_MissingListIsRefused(t *testing.T) {
 	for _, args := range [][]string{{"lists", "hide", testListID}, {"lists", "restore", testListID}, {"lists", "hide", testListID, "--dry-run"}} {
 		f := &fakeLists{}
 		code, out, errOut := runLists(f, "", append(args, "--project", "dzeroth-dev")...)
-		if code != 1 || !strings.Contains(errOut, "no such list") || strings.Contains(out, "audit:") || !strings.Contains(out, "writes=0") {
+		if code != 1 || !strings.Contains(errOut, "no such list") || strings.Contains(out, "audit:") || f.sets != 0 {
 			t.Errorf("%v: code=%d stdout=%q stderr=%q", args, code, out, errOut)
 		}
 	}

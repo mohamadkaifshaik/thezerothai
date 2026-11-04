@@ -12,19 +12,18 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB; BANNER:
   /// full <= 1 MiB, thumb <= 128 KiB).
   /// BANNER needs FEATURE_MEDIA and FEATURE_PROFILE_EXTRAS on for the caller, else FAILED_PRECONDITION +
-  /// FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 reads. Its one item declares width <= 1500,
+  /// FEATURE_DISABLED, metadata["feature"] = "profile_extras", before any lookup. Its one item declares width <= 1500,
   /// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
   /// metadata["field"] = "width" (layout hints only: the server checks magic bytes, not pixels).
   /// Quota: 20 media/day/user (quotas/{uid}), shared by every purpose. Rejected with DEGRADED_MODE when
   /// DEGRADED_MODE != off.
   /// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
   /// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
-  /// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
   /// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
-  /// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", 0 reads. POST purpose only (AVATAR and
+  /// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR and
   /// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
   /// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
-  /// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type"). Same Firestore cost as a photo.
+  /// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
   Future<dzerothmediav1media.CreateUploadResponse> createUpload(
     dzerothmediav1media.CreateUploadRequest input, {
     connect.Headers? headers,
@@ -51,10 +50,8 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// Naturally idempotent: items already READY/REJECTED are returned as-is.
   /// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
   /// thumbnail) + 1-2 Vision fetches; deletes are free.
-  /// Firestore: reads 2n+1 worst case (n media docs, Vision counter cached 60 s, +1 per item when the upload
-  /// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
-  /// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
-  /// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
+  /// The Vision counter is cached 60 s. Per item the call writes one screening claim and one resolve, or a claim and a
+  /// release after a failed attempt. One call per image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
   /// GIF: Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
   /// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
   /// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
@@ -63,7 +60,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// too long" for the limits), objects deleted. At the Vision cap a GIF is REJECTED for every account, never
   /// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
   /// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
-  /// with it; the full GIF is published unchanged. Firestore cost as above.
+  /// with it; the full GIF is published unchanged.
   /// Screening failures (behaviour arrives later): the screening UNAVAILABLE ("image checks
   /// are temporarily unavailable") carries retry_after (5 s); retry the same FinalizeUpload with the same media id, no
   /// re-upload. RESOURCE_EXHAUSTED + RATE_LIMITED with metadata["limit"] = "media_vision_units_daily" is the per-user daily

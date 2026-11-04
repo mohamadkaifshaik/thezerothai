@@ -37,13 +37,11 @@ func TestExporter_Integration_MemberOf(t *testing.T) {
 		"bob":   {UserID: "bob", Handle: "bob", Status: identity.AccountStatusActive},
 	}}
 	buf := &bytesBuffer{}
-	// 4 lists name "me" (701-704): 4 reads, + 1 for the own list of the `lists` part. No slack for a second query or a per-list read.
-	measured(t, "export member-of", func(ctx context.Context) {
-		x := NewExporter(e.repo).WithMembership(e.repo, handles, &fakeSocial{snap: graph.Snapshot{}})
-		if err := x.ExportUser(ctx, "me", buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// 4 lists name "me" (701-704); the own list 704 is exported in the lists part and not repeated in member-of.
+	x := NewExporter(e.repo).WithMembership(e.repo, handles, &fakeSocial{snap: graph.Snapshot{}})
+	if err := x.ExportUser(context.Background(), "me", buf); err != nil {
+		t.Fatal(err)
+	}
 	out := strings.ReplaceAll(string(buf.b), "\n", "")
 	want := `"lists_member_of":{"public":[{"listId":"0000000000000000701","ownerHandle":"alice","name":"Public A"}],"redactedCount":2}`
 	if !strings.Contains(out, want) {
@@ -77,13 +75,11 @@ func TestExporter_Integration_MemberOfPages(t *testing.T) {
 		}
 	}
 	buf := &bytesBuffer{}
-	c := measured(t, "export member-of 101", func(ctx context.Context) {
-		if err := NewExporter(e.repo).WithMembership(e.repo, &fakeHandles{profs: profs}, &fakeSocial{}).ExportUser(ctx, "me", buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewExporter(e.repo).WithMembership(e.repo, &fakeHandles{profs: profs}, &fakeSocial{}).ExportUser(context.Background(), "me", buf); err != nil {
+		t.Fatal(err)
+	}
 	// 100 on the first page, 1 on the second; the second page is short, so no third query.
 	if n := countSub(string(buf.b), `"ownerHandle"`); n != 101 {
-		t.Errorf("exported %d memberships with %d reads, want 101 / 102 (101 memberships + 1 for the empty own-lists query)", n, c.Reads())
+		t.Errorf("exported %d memberships, want 101 (none lost at the page boundary)", n)
 	}
 }

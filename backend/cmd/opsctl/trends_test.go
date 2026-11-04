@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/search"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeTrends is a search.TrendsStore for the hide commands. The embedded nil interface covers Get, Put and Load, which
@@ -22,7 +21,6 @@ type fakeTrends struct {
 }
 
 func (f *fakeTrends) Hidden(ctx context.Context) ([]string, error) {
-	budget.FromContext(ctx).AddReads(1)
 	return slices.Clone(f.keys), f.err
 }
 
@@ -31,7 +29,6 @@ func (f *fakeTrends) Hide(ctx context.Context, tag string) (search.HideResult, e
 	if err != nil {
 		return search.HideResult{}, err
 	}
-	budget.FromContext(ctx).AddReads(1)
 	if f.err != nil {
 		return search.HideResult{}, f.err
 	}
@@ -42,7 +39,6 @@ func (f *fakeTrends) Hide(ctx context.Context, tag string) (search.HideResult, e
 		return search.HideResult{Key: key, Count: len(f.keys)}, search.ErrHiddenFull
 	}
 	f.keys = append(f.keys, key)
-	budget.FromContext(ctx).AddWrites(1)
 	return search.HideResult{Key: key, Changed: true, Count: len(f.keys)}, nil
 }
 
@@ -51,13 +47,11 @@ func (f *fakeTrends) Unhide(ctx context.Context, tag string) (search.HideResult,
 	if err != nil {
 		return search.HideResult{}, err
 	}
-	budget.FromContext(ctx).AddReads(1)
 	i := slices.Index(f.keys, key)
 	if i < 0 {
 		return search.HideResult{Key: key, Count: len(f.keys)}, nil
 	}
 	f.keys = slices.Delete(f.keys, i, i+1)
-	budget.FromContext(ctx).AddWrites(1)
 	return search.HideResult{Key: key, Changed: true, Count: len(f.keys)}, nil
 }
 
@@ -113,7 +107,7 @@ func TestTrends_HideUnhideList(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("hide: code %d stderr %q", code, errOut)
 	}
-	for _, want := range []string{`hidden: "slur" (1 on the list)`, "within 10 min", "audit: trends hide project=dzeroth-dev at=1970-01-12T13:46:40Z key=slur wrote=true count=1", "cost: reads=1 writes=1"} {
+	for _, want := range []string{`hidden: "slur" (1 on the list)`, "within 10 min", "audit: trends hide project=dzeroth-dev at=1970-01-12T13:46:40Z key=slur wrote=true count=1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("hide output lacks %q:\n%s", want, out)
 		}
@@ -121,23 +115,23 @@ func TestTrends_HideUnhideList(t *testing.T) {
 
 	// A repeat writes nothing.
 	code, out, _ = runTrends(f, "", "trends", "hide", "SLUR", "--project", "dzeroth-dev")
-	if code != 0 || !strings.Contains(out, "already hidden") || !strings.Contains(out, "wrote=false") || !strings.Contains(out, "cost: reads=1 writes=0") {
+	if code != 0 || !strings.Contains(out, "already hidden") || !strings.Contains(out, "wrote=false") {
 		t.Errorf("repeat hide: code %d\n%s", code, out)
 	}
 
 	code, out, _ = runTrends(f, "", "trends", "list", "--project", "dzeroth-dev")
-	if code != 0 || !strings.Contains(out, "1 hidden key(s)\nslur\n") || !strings.Contains(out, "cost: reads=1 writes=0") {
+	if code != 0 || !strings.Contains(out, "1 hidden key(s)\nslur\n") {
 		t.Errorf("list: code %d\n%s", code, out)
 	}
 
 	code, out, _ = runTrends(f, "", "trends", "unhide", "slur", "--project", "dzeroth-dev")
-	if code != 0 || !strings.Contains(out, `unhidden: "slur" (0 on the list)`) || !strings.Contains(out, "audit: trends unhide") || !strings.Contains(out, "cost: reads=1 writes=1") {
+	if code != 0 || !strings.Contains(out, `unhidden: "slur" (0 on the list)`) || !strings.Contains(out, "audit: trends unhide") {
 		t.Errorf("unhide: code %d\n%s", code, out)
 	}
 
 	// Unhiding what is not there is success with 0 writes.
 	code, out, _ = runTrends(f, "", "trends", "unhide", "slur", "--project", "dzeroth-dev")
-	if code != 0 || !strings.Contains(out, "not on the hide list") || !strings.Contains(out, "cost: reads=1 writes=0") {
+	if code != 0 || !strings.Contains(out, "not on the hide list") {
 		t.Errorf("unhide again: code %d\n%s", code, out)
 	}
 }

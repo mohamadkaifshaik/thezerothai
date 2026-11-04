@@ -98,7 +98,7 @@ func TestPollLimits_ZeroValueRejectsEveryPoll(t *testing.T) {
 	}
 }
 
-// TestCreate_PollValidation drives the service: every refusal is VALIDATION field=poll with 0 reads, 0 writes and no repo call
+// TestCreate_PollValidation drives the service: every refusal is VALIDATION field=poll with no repo call
 // And the combinations are refused whichever way they are reached.
 func TestCreate_PollValidation(t *testing.T) {
 	t.Parallel()
@@ -128,22 +128,22 @@ func TestCreate_PollValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			e := newCreateEnv()
-			_, c, err := e.create(tt.in)
+			_, err := e.create(tt.in)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != "poll" || e.repo.createCalls != 0 {
-				t.Fatalf("field=%q reads=%d writes=%d creates=%d, want poll and nothing touched", ae.Metadata["field"], c.Reads(), c.Writes(), e.repo.createCalls)
+				t.Fatalf("field=%q creates=%d, want poll and nothing touched", ae.Metadata["field"], e.repo.createCalls)
 			}
 		})
 	}
 }
 
-// TestCreate_PollStored: a valid poll is stored in the same write (the fake charges the root-post 2 reads and 4 writes, so
-// +0/+0), the labels are normalised, closesAt = createdAt + duration from the attempt (never the client), counts are all 0,
+// TestCreate_PollStored: a valid poll is stored in the same write, the labels are normalised, closesAt = createdAt + duration
+// from the attempt (never the client), counts are all 0,
 // and the response carries the poll. The author's response shows the per-choice counts.
 func TestCreate_PollStored(t *testing.T) {
 	t.Parallel()
 	e := newCreateEnv()
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Which?", PollsEnabled: true,
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Which?", PollsEnabled: true,
 		Poll: &PollInput{Choices: []string{" Yes ", "No", "Maybe"}, DurationMinutes: 1440}})
 	if err != nil {
 		t.Fatal(err)
@@ -212,19 +212,19 @@ func TestCreate_PollReplayAndReuse(t *testing.T) {
 	t.Parallel()
 	e := newCreateEnv()
 	in := CreateInput{IdempotencyKey: key1, Text: "Which?", PollsEnabled: true, Poll: goodPoll()}
-	first, _, err := e.create(in)
+	first, err := e.create(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, c, err := e.create(in)
-	if err != nil || again.ID != first.ID {
-		t.Fatalf("replay: %v %v writes=%d", again, err, c.Writes())
+	again, err := e.create(in)
+	if err != nil || again.ID != first.ID || e.repo.postsCount != 1 {
+		t.Fatalf("replay: %v %v postsCount=%d, want the first post and one stored", again, err, e.repo.postsCount)
 	}
 	in.Poll = &PollInput{Choices: []string{"Yes", "Maybe"}, DurationMinutes: 1440}
-	_, _, err = e.create(in)
+	_, err = e.create(in)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	in.Poll = nil
-	_, _, err = e.create(in)
+	_, err = e.create(in)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 

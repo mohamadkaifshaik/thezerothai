@@ -13,7 +13,7 @@ import (
 const cacheTTL = 60 * time.Second
 
 // negativeTTL is the staleness bound of a negative community entry (an id whose point read found no document), the lists precedent
-// A repeat probe of a missing id then costs 0 reads and answers as fast as a cached one, so latency tells the
+// A repeat probe of a missing id is then answered from the cache as fast as a hit, so latency tells the
 // two apart no better than the byte-identical NOT_FOUND does.
 const negativeTTL = 60 * time.Second
 

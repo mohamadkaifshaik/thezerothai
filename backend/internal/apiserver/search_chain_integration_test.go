@@ -5,8 +5,8 @@ package apiserver
 // Search and trends over the real Build chain on the emulators. The package tests in internal/search run
 // the service below the interceptors (the account-status read, the rate limiters, the daily cap, the
 // degraded-mode gate and the OIDC wall are all absent there), so the figures asserted here are the WHOLE-request figures
-// of the proto doc comments, measured on the request log's fs_reads / fs_writes of a second Build over the same emulator
-// project (cold caches), and the wire bytes are what a client receives.
+// of the proto doc comments are read from a second Build over the same emulator project (cold caches), and the wire
+// bytes are what a client receives.
 
 import (
 	"bytes"
@@ -141,6 +141,14 @@ func (e *searchChain) trends(who sUser, limit int32, prefix string) (*searchv1.G
 	return r.Msg, nil
 }
 
+// requireWarm fails unless the newest request line of rpc was answered from the instance cache (cache_hit).
+func (e *searchChain) requireWarm(t *testing.T, rpc string) {
+	t.Helper()
+	if l := e.lastLine(t, rpc); l["cache_hit"] != true {
+		t.Errorf("%s repeat: cache_hit = %v, want true", rpc, l["cache_hit"])
+	}
+}
+
 // lastLine is the newest request line of rpc.
 func (e *searchChain) lastLine(t *testing.T, rpc string) map[string]any {
 	t.Helper()
@@ -263,8 +271,6 @@ func TestSearchChain_FlagModes(t *testing.T) {
 							continue
 						}
 						wantReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", name)
-						// FEATURE_DISABLED answers before any Firestore access beyond the interceptor's status read.
-						e.lastLine(t, r.rpc)
 					}
 				}
 			})
@@ -294,13 +300,13 @@ func TestSearchChain_FlagModes(t *testing.T) {
 	}
 }
 
-// --- Budgets through the chain ----------------------------------------------------------------
+// --- Pages, clamps and the warm path through the chain -----------------------------------------
 
-// The documented whole-request figures: SearchPeople 7 (limit 5) / 22 (limit 20), 0-2 warm; SearchPosts 33 first page of
-// TOP / LATEST / MEDIA, 23 older LATEST page at 20, 33 MEDIA scan, 0-3 warm; GetTrends 3 cold (the list and the hide list), 0-1 warm. Writes 0.
-func TestSearchChain_BudgetTable(t *testing.T) {
+// SearchPeople at limit 5 and 20, SearchPosts first pages of TOP / LATEST / MEDIA and the older LATEST / MEDIA pages,
+// GetTrends with and without a prefix; each repeat on the same instance is answered from its cache (cache_hit).
+func TestSearchChain_PagesClampsAndWarmPath(t *testing.T) {
 	setup := newSearchChain(t, func(c *config.Config) {
-		c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On} // the userLikes read of the documented 33
+		c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
 	})
 	caller := setup.user(t)
 	// 24 handles share a prefix: more than the clamp of 20.
@@ -333,18 +339,16 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		if err != nil || len(r.GetUsers()) != 5 {
 			t.Fatalf("rows = %d, err = %v", len(r.GetUsers()), err)
 		}
-		e.lastLine(t, pe)
 		if _, err = e.people(caller, pfx, 5); err != nil {
 			t.Fatal(err)
 		}
-		e.lastLine(t, pe)
+		e.requireWarm(t, pe)
 
 		e = cold()
 		r, err = e.people(caller, "@"+strings.ToUpper(pfx), 50) // 50 clamps to 20; the sigil and case are normalised away
 		if err != nil || len(r.GetUsers()) != 20 {
 			t.Fatalf("rows = %d, err = %v (limit 50 must clamp to 20)", len(r.GetUsers()), err)
 		}
-		e.lastLine(t, pe)
 		for i, it := range r.GetUsers() { // handleLower order
 			if want := fmt.Sprintf("%s%02d", pfx, i); it.GetUser().GetHandle() != want {
 				t.Errorf("row %d = %q, want %q", i, it.GetUser().GetHandle(), want)
@@ -353,7 +357,7 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		if _, err = e.people(caller, pfx, 20); err != nil {
 			t.Fatal(err)
 		}
-		e.lastLine(t, pe)
+		e.requireWarm(t, pe)
 	})
 
 	t.Run("SearchPosts first pages, older pages, warm", func(t *testing.T) {
@@ -363,11 +367,10 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 			if err != nil || len(r.GetPosts()) == 0 {
 				t.Fatalf("%v: %d rows, err = %v", tab, len(r.GetPosts()), err)
 			}
-			e.lastLine(t, po)
 			if _, err = e.posts(caller, "#"+tag, tab, 20, ""); err != nil {
 				t.Fatal(err)
 			}
-			e.lastLine(t, po)
+			e.requireWarm(t, po)
 		}
 
 		latest, err := setup.posts(caller, tag, searchv1.SearchTab_SEARCH_TAB_LATEST, 20, "")
@@ -379,7 +382,6 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		if err != nil || len(older.GetPosts()) != 20 {
 			t.Fatalf("LATEST older page: %d rows, err %v", len(older.GetPosts()), err)
 		}
-		e.lastLine(t, po)
 
 		media, err := setup.posts(caller, tag, searchv1.SearchTab_SEARCH_TAB_MEDIA, 20, "")
 		if err != nil || media.GetNextPageToken() == "" {
@@ -389,21 +391,19 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		if _, err = e.posts(caller, tag, searchv1.SearchTab_SEARCH_TAB_MEDIA, 20, media.GetNextPageToken()); err != nil {
 			t.Fatal(err)
 		}
-		e.lastLine(t, po)
 	})
 
-	t.Run("GetTrends cold 3, warm at most 1, prefix at no extra read", func(t *testing.T) {
+	t.Run("GetTrends cold, then a prefix from the cached list", func(t *testing.T) {
 		e := cold()
 		r, err := e.trends(caller, 0, "")
 		if err != nil || len(r.GetTrends()) != 3 || r.GetComputedAt() == nil {
 			t.Fatalf("trends = %v, err %v", r.GetTrends(), err)
 		}
-		e.lastLine(t, tr)
 		r, err = e.trends(caller, 0, "#LAM")
 		if err != nil || len(r.GetTrends()) != 1 || r.GetTrends()[0].GetTag() != "lamp" {
 			t.Fatalf("prefix lam = %v, err %v (the tags are launch, lamp, go)", r.GetTrends(), err)
 		}
-		e.lastLine(t, tr)
+		e.requireWarm(t, tr)
 	})
 
 	// A denylisted tag (TRENDS_DENYLIST) and a tag on trends/hidden both leave the served list at once, and the rest is
@@ -427,13 +427,12 @@ func TestSearchChain_BudgetTable(t *testing.T) {
 		if err != nil || len(r.GetTrends()) != 1 || r.GetTrends()[0].GetTag() != "lamp" || r.GetTrends()[0].GetRank() != 1 {
 			t.Fatalf("trends = %v, err %v, want only lamp at rank 1", r.GetTrends(), err)
 		}
-		e.lastLine(t, tr)
 	})
 }
 
-// --- Grammar through the chain: each rejection costs the interceptor's read at most ------------------------
+// --- Grammar through the chain ------------------------------------------------------------------------------
 
-func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
+func TestSearchChain_GrammarRejections(t *testing.T) {
 	e := newSearchChain(t, nil)
 	caller := e.user(t)
 	long := strings.Repeat("a", 51)
@@ -445,22 +444,19 @@ func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
 		t.Run("people/"+tc.name, func(t *testing.T) {
 			_, err := e.people(caller, tc.q, 5)
 			wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "query")
-			e.lastLine(t, searchv1connect.SearchServiceSearchPeopleProcedure)
 		})
 		t.Run("posts/"+tc.name, func(t *testing.T) {
 			_, err := e.posts(caller, tc.q, searchv1.SearchTab_SEARCH_TAB_LATEST, 0, "")
 			wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "query")
-			e.lastLine(t, searchv1connect.SearchServiceSearchPostsProcedure)
 		})
 	}
 	// One character: too short for people (VALIDATION), a valid tag for posts.
 	_, err := e.people(caller, "a", 5)
 	wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "query")
-	e.lastLine(t, searchv1connect.SearchServiceSearchPeopleProcedure)
 	if _, err = e.posts(caller, "a", searchv1.SearchTab_SEARCH_TAB_LATEST, 0, ""); err != nil {
 		t.Errorf("a one-character plain word is a valid tag for posts: %v", err)
 	}
-	// Unsupported (not an error): an answer with unsupported_query and nothing read beyond the interceptor.
+	// Unsupported (not an error): an answer with unsupported_query.
 	for _, tc := range []struct {
 		name, q string
 		people  bool
@@ -475,17 +471,15 @@ func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
 				if err != nil || !r.GetUnsupportedQuery() || len(r.GetUsers()) != 0 {
 					t.Fatalf("people(%q) = %v, %v; want unsupported", tc.q, r, err)
 				}
-				e.lastLine(t, searchv1connect.SearchServiceSearchPeopleProcedure)
 				return
 			}
 			r, err := e.posts(caller, tc.q, searchv1.SearchTab_SEARCH_TAB_LATEST, 0, "")
 			if err != nil || !r.GetUnsupportedQuery() || len(r.GetPosts()) != 0 {
 				t.Fatalf("posts(%q) = %v, %v; want unsupported", tc.q, r, err)
 			}
-			e.lastLine(t, searchv1connect.SearchServiceSearchPostsProcedure)
 		})
 	}
-	// GetTrends: a bad prefix and a negative limit are VALIDATION with no read beyond the interceptor.
+	// GetTrends: a bad prefix and a negative limit are VALIDATION.
 	for _, tc := range []struct {
 		name, prefix string
 		limit        int32
@@ -493,7 +487,6 @@ func TestSearchChain_GrammarRejectionsReadNothing(t *testing.T) {
 	}{{"control prefix", "a\x07", 0, "prefix"}, {"bidi prefix", "a‮", 0, "prefix"}, {"51-code-point prefix", long, 0, "prefix"}, {"negative limit", "", -1, "limit"}} {
 		_, err := e.trends(caller, tc.limit, tc.prefix)
 		wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", tc.field)
-		e.lastLine(t, searchv1connect.SearchServiceGetTrendsProcedure)
 	}
 }
 
@@ -532,7 +525,6 @@ func TestSearchChain_PageTokenBinding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := e.posts(tc.who, tc.query, tc.tab, 20, tc.token)
 			wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "page_token")
-			e.lastLine(t, searchv1connect.SearchServiceSearchPostsProcedure)
 		})
 	}
 	// "Expired" needs a clock: it is proved below the chain (internal/search TestPageToken_Rejections, a fake clock).
@@ -820,7 +812,7 @@ func TestSearchChain_TrendsRefreshEndToEnd(t *testing.T) {
 	if time.Since(doc.ComputedAt) > time.Minute {
 		t.Errorf("computedAt = %v, the run did not write", doc.ComputedAt)
 	}
-	// The request log of the run: one trends_refresh line, 1 write, no uid.
+	// The request log of the run: one trends_refresh line, no uid.
 	var refreshLine string
 	for _, line := range strings.Split(e2.logs.buf.String(), "\n") {
 		if strings.Contains(line, `"msg":"trends_refresh"`) {
@@ -1040,7 +1032,7 @@ func TestSearchChain_RequestLinesCarryNoRawQuery(t *testing.T) {
 		t.Errorf("posts line = %v", po)
 	}
 	tr := e.lastLine(t, searchv1connect.SearchServiceGetTrendsProcedure)
-	for _, k := range []string{"results", "cache_hit", "computed_age_s", "fs_reads"} {
+	for _, k := range []string{"results", "cache_hit", "computed_age_s"} {
 		if _, ok := tr[k]; !ok {
 			t.Errorf("GetTrends line lacks %s: %v", k, tr)
 		}

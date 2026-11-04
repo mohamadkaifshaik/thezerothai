@@ -3,9 +3,9 @@
 package apiserver
 
 // The gaps the tests left against the ticket, over the real Build chain on the emulators (so the account
-// status interceptor, the flag guards, the wire errors and the request-line budgets are the production ones):
-//   - SetHomeTabs is gated by FEATURE_LISTS at 1 read (the interceptor's) and 0 writes;
-//   - a pinned list that later turns private, is deleted or is hidden dangles: GetMe still returns the tab at +0 reads, the list
+// status interceptor, the flag guards, the wire errors and the request lines are the production ones):
+//   - SetHomeTabs is gated by FEATURE_LISTS and writes nothing;
+//   - a pinned list that later turns private, is deleted or is hidden dangles: GetMe still returns the tab, the list
 //     answers the one NOT_FOUND, and the tab can still be moved or removed but never pinned afresh;
 //   - GetListTimeline page size (0 -> 20, 500 -> 50), the opaque cursor walk, and a list made private between two pages;
 //   - the block matrix with real accounts (the viewer blocks a member, a member blocks the viewer);
@@ -117,7 +117,7 @@ func TestW515_SetHomeTabsIsGatedByTheListsFlag(t *testing.T) {
 }
 
 // A tab already stored is kept without a re-read, so a pin that became unreadable can still be reordered or
-// removed; it is returned by GetMe at +0 reads; the list answers the one NOT_FOUND; a fresh pin of it is VALIDATION `tabs`.
+// removed; it is returned by GetMe; the list answers the one NOT_FOUND; a fresh pin of it is VALIDATION `tabs`.
 func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	c := newLTChain(t, nil)
 	owner, viewer := c.user(t), c.user(t)
@@ -170,7 +170,7 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 		t.Fatalf("the owner still reads a list made private: %v", err)
 	}
 
-	// Moving and removing stored tabs needs no read of the dangling lists: interceptor + idempotency + users, 2 writes.
+	// Moving and removing stored tabs needs no read of the dangling lists.
 	moved, err := c.setTabs(viewer, "reorder", toRename, toDelete, toPrivate)
 	if err != nil {
 		t.Fatalf("reorder with dangling tabs: %v", err)
@@ -228,8 +228,7 @@ func TestW515_PinnedListThatBecameHidden(t *testing.T) {
 	w320Reason(t, "pin a hidden list", err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "tabs")
 }
 
-// The worst SetHomeTabs shape of the budget table: 5 lists of 5 distinct owners on a cold instance (19 reads: interceptor,
-// idempotency, users, 5 lists, caller graph, 5 owner profiles and 5 owner graphs), 2 writes.
+// The worst SetHomeTabs shape: 5 lists of 5 distinct owners on a cold instance.
 func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	setup := newLTChain(t, nil)
 	viewer := setup.user(t)

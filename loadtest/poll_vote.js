@@ -1,6 +1,6 @@
 // poll_vote: W6 emulator load smoke. One file, one
 // timeline of phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
-// dzeroth-prod: it creates about 3,500 users and raises every vote, post and read-budget cap.
+// dzeroth-prod: it creates about 3,500 users and raises every vote, post and rate-limit cap.
 //
 //   setup()       Mints NUM_VOTERS + 8 users (voters have never made a call; the author is user 0), seeds the poll that the cold
 //                 phase uses, a poll with a 1 minute duration (POLL_MIN_DURATION=1m on the API) that closes while the script idles,
@@ -9,7 +9,7 @@
 //   cold_calls    t=0, ONE virtual user, serial; every call is preceded by a `W6 STEP <name> <iso time>` marker so the analyzer can
 //                 give each request line its case: CreatePost with a poll and a plain post; VotePoll by a cold viewer, the replay
 //                 (same key), ALREADY_VOTED (new key, other choice), a second cold viewer (the post is now cached), a REPOST id
-//                 (the +2 reads path), refusals (the author, a choice out of range, a post without a poll), a vote on the closed
+//                 (the path through the repost row), refusals (the author, a choice out of range, a post without a poll), a vote on the closed
 //                 poll (POLL_CLOSED); GetPost of the closed poll (counts visible), of an open poll by a voter and a non-voter.
 //   hot_poll      t=HOT_START (default 5): HOT_RATE (default 50) VotePoll a second for HOT_DURATION s (default 60) on ONE poll,
 //                 each from a different voter (a natural key allows one vote per account per poll), so 3,000 distinct voters. The
@@ -20,7 +20,7 @@
 //   verify        t=VERIFY_START (default 100): GetPost of the hot poll by its author, then poll.total must equal the number of
 //                 2xx votes and the choice counts must sum to it (nothing lost, nothing double counted).
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `fs_writes`, `fs_deletes`, `txn_attempts`, `outcome`,
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`txn_attempts`, `outcome`,
 // `contention`, `code`), see loadtest/analyze_poll.js. k6 prints `W6 PHASE <name> <iso>` and `W6 STEP <name> <iso>` lines (stdout/stderr)
 // that the analyzer uses to cut the log. Latency is emulator latency, indicative only. The emulator's locking does NOT reproduce real
 // Firestore's roughly 1 write/s per document soft limit: the hot-poll result is behaviour (nothing lost, retries bounded), not a

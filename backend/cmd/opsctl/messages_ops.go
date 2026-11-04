@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -50,11 +49,8 @@ func conversationHashForAudit(convID string) string {
 // migratePlaceholder is `opsctl messages migrate-placeholder --project P [--dry-run]` (L-2): a dev-only, one-off
 // rewrite of the legacy erased-user placeholder "deleted" to messaging.DeletedUID ("_deleted") in conversations
 // (participants, gone, requestFrom, requestTo), messages (senderId) and the surviving peer's entry (peerId). Run --dry-run
-// first: it reads the same documents and writes nothing. It is idempotent (a rerun finds nothing and writes 0) and resumable
+// first: it reads the same documents and writes nothing. It is idempotent (a rerun finds nothing and writes nothing) and resumable
 // (the conversation is rewritten last). The caller has already refused a -prod project: messaging was never on in prod.
-//
-// Cost: see messaging.FirestoreRepo.MigratePlaceholder: 1 read per conversation found, per matching message and per entry
-// probe, +1 per conversation for its (possibly empty) message query; at most 1 write per matching document.
 func migratePlaceholder(ctx context.Context, b *backends, project string, dryRun bool, out io.Writer) error {
 	if b.placeholder == nil {
 		return errors.New("messages migrate-placeholder: no migrator configured")
@@ -62,7 +58,6 @@ func migratePlaceholder(ctx context.Context, b *backends, project string, dryRun
 	if isProd(project) {
 		return errors.New("messages migrate-placeholder is dev only")
 	}
-	ctx, _ = budget.WithCounter(ctx)
 	var total messaging.PlaceholderPage
 	err := driveLoop(ctx, out, "",
 		func(ctx context.Context, after string) (string, bool, error) {

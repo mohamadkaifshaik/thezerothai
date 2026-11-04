@@ -31,7 +31,7 @@ const (
 // guardBookmarks is the flag gate of the three RPCs, run before any Firestore access: FEATURE_POSTS first (the posts
 // guard), then FEATURE_BOOKMARKS. FEATURE_ENGAGEMENT is deliberately not required. A checker without
 // GloballyOff (posts.GloballyOffChecker) gets the per-caller answer for all three. Disabled is FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=bookmarks and 0 reads. It returns the caller's uid.
+// FEATURE_DISABLED with metadata feature=bookmarks, before any Firestore access. It returns the caller's uid.
 func (s *Server) guardBookmarks(ctx context.Context, who bookmarkCaller) (string, error) {
 	if err := posts.GuardFeature(ctx, s.flags); err != nil {
 		return "", err
@@ -78,10 +78,9 @@ func (s *Server) bookmarkCall(ctx context.Context, rpc string, who bookmarkCalle
 }
 
 // AddBookmark is behind FEATURE_POSTS and FEATURE_BOOKMARKS on for the caller (not FEATURE_ENGAGEMENT); the rules are
-// Bookmarks.AddBookmark. Worst case: 7 reads cold (interceptor 1, visibility check 3, idempotency, quotas, userLikes;
-// +2 for a REPOST id, +1 on blockedBy overflow), 3 warm; 4 writes (bookmark, idempotency doc, quotas, userLikes) and
-// 1 TTL delete later. A replay costs 5 cold / 1 warm reads, 0 writes; an existing bookmark writes 1 (the idempotency doc, so a late retry replays); the cap and the quota
-// write 0.
+// Bookmarks.AddBookmark. A new bookmark writes the bookmark, the idempotency doc, quotas and userLikes, and its
+// idempotency doc is removed later by its TTL. A replay writes nothing; an existing bookmark writes only the
+// idempotency doc (so a late retry replays); the cap and the quota write nothing.
 //
 //nolint:dupl // mirrors RemoveBookmark over distinct generated proto types
 func (s *Server) AddBookmark(ctx context.Context, req *connect.Request[engagementv1.AddBookmarkRequest]) (*connect.Response[engagementv1.AddBookmarkResponse], error) {
@@ -95,8 +94,9 @@ func (s *Server) AddBookmark(ctx context.Context, req *connect.Request[engagemen
 }
 
 // RemoveBookmark is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off; the rules are
-// Bookmarks.RemoveBookmark. Worst case: 2 reads cold (interceptor 1, idempotency), 1 warm; 2 writes (idempotency doc,
-// userLikes) and 1 delete, plus 1 TTL delete later. A missing bookmark writes 1 (the idempotency doc); a replay writes 0.
+// Bookmarks.RemoveBookmark. It reads the idempotency doc, writes it and userLikes, and deletes the
+// bookmark; the idempotency doc is removed later by its TTL. A missing bookmark writes only the idempotency doc; a
+// replay writes nothing.
 //
 //nolint:dupl // mirrors AddBookmark over distinct generated proto types
 func (s *Server) RemoveBookmark(ctx context.Context, req *connect.Request[engagementv1.RemoveBookmarkRequest]) (*connect.Response[engagementv1.RemoveBookmarkResponse], error) {
@@ -111,11 +111,10 @@ func (s *Server) RemoveBookmark(ctx context.Context, req *connect.Request[engage
 
 // ListBookmarks is behind FEATURE_POSTS and a FEATURE_BOOKMARKS that is not globally off; the rules are
 // Bookmarks.ListBookmarks. The caller can only read their own subcollection (the path comes from the token uid, the
-// page token is bound to bookmarks|<uid>). Worst case reads cold: 43 at page 20 and 103 at page 50 (interceptor 1,
-// bookmark query 1 + page, GetMany <= page, graph snapshot 1, userLikes 1), 2 for an empty list, 1 + page when the
-// posts are cached (warm); a foreign, expired or tampered token is VALIDATION page_token with 0 reads. Writes 0; a
-// page that finds bookmarks of deleted posts prunes them: 1 write (userLikes) and 1 delete per row, 0 extra reads,
-// once per row.
+// page token is bound to bookmarks|<uid>). It reads the bookmark rows, GetMany for posts that are not cached, the graph
+// snapshot and userLikes; a foreign, expired or tampered token is VALIDATION page_token, rejected before any
+// lookup. It writes nothing, except that a page that finds bookmarks of deleted posts prunes them: one userLikes
+// update and one delete per row, with no extra reads, once per row.
 func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagementv1.ListBookmarksRequest]) (*connect.Response[engagementv1.ListBookmarksResponse], error) {
 	ctx, cancel, uid, err := s.bookmarkEntry(ctx, "ListBookmarks", notGloballyOff)
 	if err != nil {

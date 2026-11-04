@@ -38,9 +38,9 @@ func NewServer(svc Service, fc FlagChecker) *Server { return &Server{svc: svc, f
 
 var _ moderationv1connect.ModerationServiceHandler = (*Server)(nil)
 
-// ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads, when off). A MESSAGE report
-// also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS and a COMMUNITY report FEATURE_COMMUNITIES (guardNotGloballyOff, feature=messaging, lists or communities). Worst case reads and writes per
-// target are on Service.Report: COMMUNITY 5 reads cold / 2 warm, 2 writes; LIST 7 reads cold / 2 warm, 2 writes (report, quotas); MESSAGE 6 reads cold / 3 warm (interceptor included), 3 writes (report, quotas, and the evidence child holding the message text).
+// ReportContent is behind FEATURE_REPORTS (FAILED_PRECONDITION + FEATURE_DISABLED, before any read, when off). A MESSAGE report
+// also needs FEATURE_MESSAGING not globally off, and a LIST report FEATURE_LISTS and a COMMUNITY report FEATURE_COMMUNITIES (guardNotGloballyOff, feature=messaging, lists or communities). What each target reads
+// is on Service.Report; a MESSAGE report also writes the evidence child holding the message text.
 func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderationv1.ReportContentRequest]) (*connect.Response[moderationv1.ReportContentResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -57,7 +57,7 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	targetType := targetTypeFromProto(m.GetTargetType())
 	switch targetType {
 	case TargetMessage, TargetList, TargetCommunity:
-		// Before any work, so the exhausted-quota fast path (1 read) never runs for a switched-off feature.
+		// Before any work, so the exhausted-quota fast path never runs for a switched-off feature.
 		if err := s.guardNotGloballyOff(ctx, uid, secondFlag(targetType)); err != nil {
 			return nil, err
 		}
@@ -92,7 +92,7 @@ func secondFlag(t TargetType) string {
 // feature (messaging or lists) only has to be not
 // globally off, so a user dropped from the allowlist or percent bucket can still report what they received. A checker
 // without GloballyOff (posts.GloballyOffChecker) gets the stricter per-caller answer. Disabled is FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=messaging, 0 reads.
+// FEATURE_DISABLED with metadata feature=messaging, before any read.
 func (s *Server) guardNotGloballyOff(ctx context.Context, uid, feature string) error {
 	on := s.flags != nil && s.flags.Enabled(uid, feature)
 	if g, ok := s.flags.(posts.GloballyOffChecker); ok {

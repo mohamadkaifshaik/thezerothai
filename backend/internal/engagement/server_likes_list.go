@@ -22,7 +22,7 @@ const LikesListFlagName = "likes_list"
 
 // guardLikesList is the flag gate of ListLikedPosts, run before any Firestore access: FEATURE_POSTS first (the posts
 // guard), then FEATURE_LIKES_LIST on for the caller. FEATURE_ENGAGEMENT is deliberately not required. Disabled is
-// FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=likes_list and 0 reads. It returns the caller's uid.
+// FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=likes_list, before any Firestore access. It returns the caller's uid.
 func (s *Server) guardLikesList(ctx context.Context) (string, error) {
 	if err := posts.GuardFeature(ctx, s.flags); err != nil {
 		return "", err
@@ -37,10 +37,9 @@ func (s *Server) guardLikesList(ctx context.Context) (string, error) {
 
 // ListLikedPosts is the caller's own likes, newest first (owner-only: the request has no user id, so the
 // source is always userLikes/{token uid} and the page token is bound to likes|<uid>). It is behind FEATURE_POSTS and
-// FEATURE_LIKES_LIST on for the caller (not FEATURE_ENGAGEMENT); the rules are LikesList.ListLikedPosts. Worst case
-// reads cold: 23 at page 20 and 53 at page 50 (interceptor 1, userLikes 1, posts GetMany <= page, caller graph 1), 2
-// for an empty array, 20 / 50 warm (posts cached), 0 for a foreign, expired or tampered token past the interceptor;
-// 0 writes (no pruning). A client keeps following next_page_token until it is "" because dropped rows shorten a page.
+// FEATURE_LIKES_LIST on for the caller (not FEATURE_ENGAGEMENT); the rules are LikesList.ListLikedPosts. It reads
+// userLikes, posts through GetMany (only the misses of the post cache) and the caller graph; a foreign, expired or
+// tampered token is rejected before any lookup. It writes nothing (no pruning). A client keeps following next_page_token until it is "" because dropped rows shorten a page.
 func (s *Server) ListLikedPosts(ctx context.Context, req *connect.Request[engagementv1.ListLikedPostsRequest]) (*connect.Response[engagementv1.ListLikedPostsResponse], error) {
 	uid, err := s.guardLikesList(ctx)
 	if err != nil {

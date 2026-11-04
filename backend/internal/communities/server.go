@@ -15,7 +15,7 @@ import (
 const rpcDeadline = 8 * time.Second
 
 // Server is the CommunityService handler. It mounts every route so the interceptor chain (App Check, ID token, account status, rate
-// limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES) before anything else: a
+// limits, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES) before anything else: a
 // caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate
 // CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity, LeaveCommunity and ListMyCommunities call the
 // Service; ListCommunities and ListCommunityMembers call it too; the four moderation methods (server_moderation.go) call it too. A Server built without a Service answers Unimplemented for the implemented ones as well.
@@ -41,7 +41,7 @@ func (s *Server) gate(ctx context.Context) error {
 	return Guard(ctx, s.flags, uid)
 }
 
-// entry is the shared front of the implemented handlers: the flag gate (0 reads), the wiring check and the RPC deadline.
+// entry is the shared front of the implemented handlers: the flag gate, the wiring check and the RPC deadline.
 func (s *Server) entry(ctx context.Context, rpc string) (context.Context, context.CancelFunc, string, error) {
 	if err := s.gate(ctx); err != nil {
 		return nil, nil, "", err

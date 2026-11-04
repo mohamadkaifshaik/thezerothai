@@ -1,13 +1,13 @@
 // service_sweep_item.go is the per-item rule set of the publish sweep ("Sweep" steps 3 to 5), cheapest and
 // most decisive check first (review L-4):
 //
-//  1. expiry: now - publishAt > SCHEDULED_MAX_LATENESS -> FAILED EXPIRED (0 reads)
+//  1. expiry: now - publishAt > SCHEDULED_MAX_LATENESS -> FAILED EXPIRED (no reads)
 //  2. schemaVersion above ours -> FAILED UNSUPPORTED; no draft, an unreadable policy or media shape, or text that no
-//     longer parses -> FAILED INVALID_CONTENT (CPU only, 0 reads)
+//     longer parses -> FAILED INVALID_CONTENT (CPU only)
 //  3. the publish transaction (repo_publish_scheduled.go): status, quota, media, mentions, then the post
 //
 // Every write outside the transaction (expiry, UNSUPPORTED, INVALID_CONTENT, attempts++, FAILED after the attempts
-// limit or a panic) is an Update with firestore.LastUpdateTime(the query snapshot's UpdateTime), 0 reads, 1 write. A
+// limit or a panic) is an Update with firestore.LastUpdateTime(the query snapshot's UpdateTime). A
 // failed precondition means someone else moved the item on and is a quiet no-op, never "fixed" with an unconditional
 // write, and nothing here ever uses Set or merge: a write after the eraser cannot recreate a purged doc (review L-7).
 package posts
@@ -42,7 +42,7 @@ func (s *service) precheck(it *ScheduledPost, now time.Time) (PublishParams, Sch
 // heldForMedia reports whether the item is to be left alone because FEATURE_MEDIA is globally off (the caller asks only
 // then): it carries images and nothing before the publish transaction would retire it. Expired, UNSUPPORTED and
 // INVALID_CONTENT items are therefore not held (they never depended on the flag and are retired as always, so a hold
-// cannot keep content forever). CPU only, 0 reads. The sweep calls it BEFORE the per-author cap, so a held item neither
+// cannot keep content forever). CPU only. The sweep calls it BEFORE the per-author cap, so a held item neither
 // costs a write nor uses one of its author's slots in the run.
 func (s *service) heldForMedia(it *ScheduledPost, now time.Time) bool {
 	if it.Draft == nil || len(it.Draft.Media) == 0 {
@@ -128,7 +128,7 @@ func (s *service) publishParams(it *ScheduledPost) (PublishParams, bool) {
 		p.MediaIDs, p.MediaAlts = nil, nil
 	}
 	if candidates := parsed.Mentions; len(candidates) > 0 {
-		// Mentions resolve at publish, inside each attempt, last (handles may have changed). Cache-first: 0 to 10 reads.
+		// Mentions resolve at publish, inside each attempt, last (handles may have changed). Cache-first.
 		p.ResolveMentions = func(ctx context.Context) ([]Mention, error) { return s.resolveMentions(ctx, it.UID, candidates) }
 	}
 	return p, true
@@ -149,7 +149,7 @@ func (s *service) settle(ctx context.Context, it *ScheduledPost, res PublishResu
 			s.sweep.RecordAuthorAge(it.UID, res.AuthorCreatedAt) // before the emitter consults the new-account tier
 		}
 		// The post is committed, so its notification publish must not be cancelled by the run's 25 s deadline when this was a
-		// late item: WithoutCancel keeps the trace and budget values, and the emitter applies its own publish timeout.
+		// late item: WithoutCancel keeps the trace values, and the emitter applies its own publish timeout.
 		s.events.Created(context.WithoutCancel(ctx), post)
 	case PublishCancelled:
 		tally.add(func(r *SweepResult) { r.Cancelled++ })
@@ -184,8 +184,8 @@ func (s *service) transient(ctx context.Context, it *ScheduledPost, err error, t
 	}
 }
 
-// endItem moves the item to a terminal state with the query snapshot's UpdateTime as the precondition (0 reads, 1
-// write). applied=false (changed, or gone) is a quiet no-op.
+// endItem moves the item to a terminal state with the query snapshot's UpdateTime as the precondition.
+// applied=false (changed, or gone) is a quiet no-op.
 func (s *service) endItem(ctx context.Context, it *ScheduledPost, tr ScheduledTransition, tally *sweepTally) {
 	bctx, cancel := bookkeepingCtx(ctx)
 	defer cancel()
@@ -210,7 +210,7 @@ func (s *service) bookkeepingFailed(ctx context.Context, it *ScheduledPost, err 
 }
 
 // bookkeepingCtx is a short context detached from the item's cancellation: an item that hit the run deadline can still
-// be counted. WithoutCancel keeps the budget counter and the trace values (review M-2).
+// be counted. WithoutCancel keeps the trace values (review M-2).
 func bookkeepingCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), sweepBookkeepingTimeout)
 }

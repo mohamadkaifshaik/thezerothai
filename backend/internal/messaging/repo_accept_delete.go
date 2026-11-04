@@ -10,16 +10,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Accept implements Repo: one transaction.
 //
-// Reads, fresh and before any write: conversations/{convId} (1), then the caller's dmRequests entry (1), then the requester's
-// own dmInbox entry (1; it carries requestPending): 3 in all, 4 with the interceptor. The
+// Reads, fresh and before any write: conversations/{convId}, then the caller's dmRequests entry, then the requester's
+// own dmInbox entry (it carries requestPending). The
 // rules of decideAccept apply to the conversation first, so an unknown id, a non-participant and the requester are
-// ErrNotFound after 1 read, and an ACCEPTED conversation is success after 1 read with nothing written. A missing
+// ErrNotFound after the first read, and an ACCEPTED conversation is success with nothing written. A missing
 // dmRequests entry (the recipient deleted the request for themselves) is ErrNotFound as well: a deleted conversation
 // answers like an unknown one (D11).
 //
@@ -27,8 +26,8 @@ import (
 // read (unreadCount, lastReadAt and the rest kept, changedAt = the accept stamp so the accepter's other devices pick the
 // conversation up in their next INBOX since refresh; a whole-document Set, so an inbox entry that should not exist cannot
 // make it fail); the requester's dmInbox entry as a field-level Update (requestPending deleted, changedAt = the accept stamp),
-// only when it exists (never created: +1 write, 2 when the requester deleted it for themselves); 1 delete: the
-// dmRequests entry. The requester's own entry already lives in the requester's dmInbox, so
+// only when it exists (never created, so a requester who deleted it for themselves costs nothing); and the
+// dmRequests entry is deleted. The requester's own entry already lives in the requester's dmInbox, so
 // the move makes both sides see the conversation in the Inbox. Nothing is emitted: a request message never pushed (F7) and
 // accepting is not a message.
 //
@@ -39,7 +38,6 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 	attempts, err := store.RunTransactionRetry(ctx, r.txRunner(), store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			res = AcceptResult{}
-			c := budget.FromContext(ctx)
 			conv, err := r.txConversation(ctx, tx, p.ConvID)
 			if err != nil {
 				return err
@@ -57,7 +55,6 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 				return errPeerFlagOff
 			}
 			esnap, err := tx.Get(r.requestsRef(p.UID, p.ConvID))
-			c.AddReads(1)
 			switch status.Code(err) {
 			case codes.OK:
 			case codes.NotFound:
@@ -71,7 +68,6 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 			// would fail the whole transaction and a Set would create a ghost entry the changedAt query returns.
 			reqRef := r.inboxRef(conv.RequestFrom, p.ConvID)
 			rsnap, rerr := tx.Get(reqRef)
-			c.AddReads(1)
 			requesterHasEntry := false
 			switch status.Code(rerr) {
 			case codes.OK:
@@ -82,7 +78,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 			}
 
 			now := notBefore(wireTime(p.Now), conv.UpdatedAt) // updatedAt only moves forward, whatever the clock skew
-			b := store.NewFirestoreTxBatch(tx, c)
+			b := store.NewFirestoreTxBatch(tx)
 			b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
 			// changedAt = the same stamp as updatedAt: the accepter's other devices see the conversation in their next INBOX
 			// since refresh. Their REQUESTS cache drops the row locally; a delete never surfaces in since.
@@ -109,27 +105,26 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 
 // Delete implements Repo: DeleteConversation, "delete for me", one transaction.
 //
-// Reads, fresh and before any write: conversations/{convId} (1), then the caller's own entry (1), in the folder the
+// Reads, fresh and before any write: conversations/{convId}, then the caller's own entry, in the folder the
 // conversation document says it lives in (decideDelete: dmRequests for the recipient of an unaccepted request, dmInbox
-// otherwise), so no probe of the other folder is needed: 2 reads in all. An unknown id and a non-participant are
-// ErrNotFound after 1 read.
+// otherwise), so no probe of the other folder is needed. An unknown id and a non-participant are
+// ErrNotFound after the first read.
 //
 // Writes: clearedAt.{caller} = now and clearedKey.{caller} = the key digest on the conversation, one field-level Update of
 // those two map keys with updatedAt (the peer's keys are never touched; the key costs no read and no write of its own),
-// and 1 delete: the caller's entry. The peer's entry, the messages and the conversation state are
+// and the caller's entry is deleted. The peer's entry, the messages and the conversation state are
 // untouched: a deleted request stays a REQUEST for the sender, whose cap still applies, and a later message of the peer
 // recreates the caller's entry (Send's Set with MergeAll) while ListMessages shows only what is newer than clearedAt.
 //
 // Replays, checked in this order: (1) the digest equals clearedKey.{caller}, so this is a retry of the caller's last delete:
-// success with nothing written and the entry not even read (1 read), whatever happened since (a newer message stays visible
+// success with nothing written and the entry not even read, whatever happened since (a newer message stays visible
 // and its recreated entry stays); (2) no entry and a clearedAt already set (deleteIsReplay, a retry under another key):
-// success, nothing written, 2 reads. An entry gone but no clearedAt (an anomaly) still sets clearedAt: 1 write, 0 deletes.
+// success, nothing written. An entry gone but no clearedAt (an anomaly) still sets clearedAt, with nothing to delete.
 func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResult, error) {
 	var res DeleteResult
 	attempts, err := store.RunTransactionRetry(ctx, r.txRunner(), store.TxnRetry{Timeout: txTimeout, MaxRuns: maxTxRuns, Backoff: txBackoff},
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			res = DeleteResult{}
-			c := budget.FromContext(ctx)
 			conv, err := r.txConversation(ctx, tx, p.ConvID)
 			if err != nil {
 				return err
@@ -145,7 +140,6 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 			}
 			entry := r.entryRef(p.UID, p.ConvID, folder)
 			esnap, err := tx.Get(entry)
-			c.AddReads(1)
 			exists := true
 			var lastMessageAt time.Time
 			switch status.Code(err) {
@@ -176,7 +170,7 @@ func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResul
 			if p.KeyDigest != "" {
 				updates = append(updates, firestore.Update{FieldPath: firestore.FieldPath{"clearedKey", p.UID}, Value: p.KeyDigest})
 			}
-			b := store.NewFirestoreTxBatch(tx, c)
+			b := store.NewFirestoreTxBatch(tx)
 			b.Update(r.convRef(p.ConvID), updates)
 			if exists {
 				b.Delete(entry)

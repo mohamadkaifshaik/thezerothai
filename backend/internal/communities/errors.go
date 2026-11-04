@@ -22,7 +22,7 @@ const (
 	// ReasonNotOwner: anyone but the owner updates the community or appoints or removes a moderator, or a moderator acts on the
 	// owner or on a moderator.
 	ReasonNotOwner ForbiddenReason = "not_owner"
-	// ReasonNotCreator: CreateCommunity by a caller outside COMMUNITY_CREATORS (0 reads beyond the interceptor).
+	// ReasonNotCreator: CreateCommunity by a caller outside COMMUNITY_CREATORS.
 	ReasonNotCreator ForbiddenReason = "not_creator"
 )
 
@@ -45,7 +45,7 @@ func Forbidden(reason ForbiddenReason) *apierr.Error {
 		WithMeta("reason", string(reason))
 }
 
-// StateConflict is FAILED_PRECONDITION + COMMUNITY_STATE with metadata["reason"] = reason (0 writes).
+// StateConflict is FAILED_PRECONDITION + COMMUNITY_STATE with metadata["reason"] = reason.
 func StateConflict(reason StateReason) *apierr.Error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE, "the community state does not allow that").
 		WithMeta("reason", string(reason))
@@ -61,7 +61,7 @@ const (
 	LimitModerators = "community_moderators"
 )
 
-// LimitReached is FAILED_PRECONDITION + LIMIT_REACHED with metadata["limit"] = limit (one of the Limit* names; 0 writes).
+// LimitReached is FAILED_PRECONDITION + LIMIT_REACHED with metadata["limit"] = limit (one of the Limit* names).
 func LimitReached(limit string) *apierr.Error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit reached").
 		WithMeta("limit", limit)

@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -56,8 +55,8 @@ type PrivacyUpdate struct {
 type PrivacyRepo interface {
 	// UpdateProfileWithPrivacy behaves like Repo.UpdateProfile and additionally, when mutate changes IsPrivate,
 	// runs the D8 transaction (reads: users fresh, quotas, and for a protect the set doc; writes: users, the set doc,
-	// quotas). A request whose is_private equals the stored value costs what Repo.UpdateProfile costs and charges no
-	// quota. It returns the quota.ExceededError (QUOTA_EXCEEDED privacy_toggles) or ErrProtectedSetFull with 0 writes.
+	// quotas). A request whose is_private equals the stored value behaves like Repo.UpdateProfile and uses no
+	// quota. It returns the quota.ExceededError (QUOTA_EXCEEDED privacy_toggles) or ErrProtectedSetFull and writes nothing.
 	UpdateProfileWithPrivacy(ctx context.Context, uid string, mutate func(*Profile), lim PrivacyLimits) (PrivacyUpdate, error)
 }
 
@@ -75,10 +74,9 @@ func (r *FirestoreRepo) protectedSetRef() *firestore.DocumentRef {
 	return r.client.Collection(privacyCollection).Doc(protectedAuthorsDoc)
 }
 
-// LoadProtectedSet implements ProtectedSetSource: 1 read; a missing doc is an empty set.
+// LoadProtectedSet implements ProtectedSetSource: one read of the set doc; a missing doc is an empty set.
 func (r *FirestoreRepo) LoadProtectedSet(ctx context.Context) ([]string, error) {
 	snap, err := r.protectedSetRef().Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
@@ -94,16 +92,15 @@ func (r *FirestoreRepo) LoadProtectedSet(ctx context.Context) ([]string, error) 
 
 // UpdateProfileWithPrivacy implements PrivacyRepo.
 //
-// Worst case, one transaction: protect 3 reads (users, quotas, set doc) and 3 writes (users, set doc, quotas);
-// unprotect 2 reads (users, quotas) and 3 writes; equal value or no is_private 1 read and 0 or 1 write. Quota or cap
-// refusal: the same reads, 0 writes.
+// One transaction: a protect reads users, quotas and the set doc and writes users, the set doc and quotas; an
+// unprotect reads users and quotas and writes users, the set doc and quotas; an equal value or no is_private reads
+// users and writes at most users. A quota or
+// cap refusal writes nothing.
 func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string, mutate func(*Profile), lim PrivacyLimits) (PrivacyUpdate, error) {
 	var out PrivacyUpdate
 	attempts, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		out = PrivacyUpdate{} // the transaction may run more than once
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -121,7 +118,7 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 		if profile == before {
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if profile.IsPrivate == before.IsPrivate {
 			b.Set(r.userRef(uid), profileToDoc(profile))
 			return b.Err()
@@ -136,7 +133,6 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 		var uids []string
 		if profile.IsPrivate {
 			sd, serr := tx.Get(r.protectedSetRef())
-			counter.AddReads(1)
 			switch {
 			case serr == nil:
 				var psd protectedSetDoc
@@ -179,7 +175,7 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 }
 
 // RemoveFromProtectedSet is the identity eraser step's clean-up: one field-level Update with
-// ArrayRemove(uid) on privacy/protectedAuthors, 0 reads, at most 1 write. Idempotent. NotFound (no set doc yet) is
+// ArrayRemove(uid) on privacy/protectedAuthors, with no read. Idempotent. NotFound (no set doc yet) is
 // success and never creates the doc. Unconditional on users.isPrivate so a drifted entry cannot outlive the account.
 func (r *FirestoreRepo) RemoveFromProtectedSet(ctx context.Context, uid string) error {
 	_, err := r.protectedSetRef().Update(ctx, []firestore.Update{
@@ -192,6 +188,5 @@ func (r *FirestoreRepo) RemoveFromProtectedSet(ctx context.Context, uid string) 
 		}
 		return logger.RedactErr(fmt.Errorf("identity: remove from protected set: %w", err), uid)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }

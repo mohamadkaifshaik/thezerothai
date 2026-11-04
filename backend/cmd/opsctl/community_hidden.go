@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const communityHiddenUsage = `  opsctl community hidden CID --project P [--page-token T]                        (read-only: the posts and replies a moderator hid, ids and times only, 50 a page)
@@ -89,19 +88,16 @@ func hiddenToken(id string) string { return hiddenPageTokenPrefix + id }
 // hijacked moderator hid, or a raid cleaned badly. Output holds ids and times only: never text, a name or a uid; the community appears only as
 // community_hash. It works in any community status and any flag state (it touches documents only).
 //
-// hidden: read-only. Per page 1 (the community) + max(1, rows) reads, rows <= 50; 0 writes.
-// restore-hidden: per page 1 + max(1, rows) reads (<= 51) and <= rows + 1 writes (a field-level Update per restored post, one community
-// Update for the recentRemovals deletes and the run's single RESTORE modlog entry with the actor _platform). A re-run with nothing hidden is 2
-// reads, 0 writes; --dry-run makes the same reads and 0 writes. --since T keeps posts hidden before T and skips (skipped_no_time) those hidden
+// hidden: read-only. restore-hidden: a field-level Update per restored post, one community
+// Update for the recentRemovals deletes and the run's single RESTORE modlog entry with the actor _platform. A re-run with nothing hidden
+// writes nothing; --dry-run reads the same documents and writes nothing. --since T keeps posts hidden before T and skips (skipped_no_time) those hidden
 // before communityHiddenAt existed; a run without --since restores them. A post with `moderation` set stays hidden (skipped_platform).
 // Staleness: opsctl cannot evict a server cache. A restored root returns to community feeds within 5 minutes (communityEntryMaxAge), a
-// restored reply to thread pages at once and to parent slots within 60 s. The cost line is printed last.
+// restored reply to thread pages at once and to parent slots within 60 s.
 func hiddenCommand(ctx context.Context, b *backends, project, sub, cid string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.hidden == nil {
 		return errors.New("community: no hidden-post recovery configured")
 	}
-	ctx, counter := budget.WithCounter(ctx)
-	defer func() { fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes()) }()
 	after, err := decodeHiddenToken(a.pageToken)
 	if err != nil {
 		return err

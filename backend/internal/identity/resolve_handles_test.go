@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"sort"
 	"testing"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func handleNames(n int) []string {
@@ -19,17 +17,16 @@ func handleNames(n int) []string {
 	return out
 }
 
-func resolveWithBudget(t *testing.T, svc *service, in []string) (map[string]string, int64) {
+func resolve(t *testing.T, svc *service, in []string) map[string]string {
 	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
-	got, err := svc.ResolveHandles(ctx, in)
+	got, err := svc.ResolveHandles(context.Background(), in)
 	if err != nil {
 		t.Fatalf("ResolveHandles: %v", err)
 	}
-	return got, c.Reads()
+	return got
 }
 
-// TestResolveHandles_TenHandlesSixCached is the acceptance: 10 handles with 6 cached = 4 reads in one GetAll.
+// TestResolveHandles_TenHandlesSixCached is the acceptance: 10 handles with 6 cached = the other 4 fetched in one GetAll.
 func TestResolveHandles_TenHandlesSixCached(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
@@ -41,9 +38,9 @@ func TestResolveHandles_TenHandlesSixCached(t *testing.T) {
 		svc.cache.SetHandleUID(h, fmt.Sprintf("uid-%d", i))
 	}
 
-	got, reads := resolveWithBudget(t, svc, names)
-	if reads != 4 || repo.resolveManyCalls != 1 {
-		t.Fatalf("reads=%d GetAll calls=%d, want 4 and 1", reads, repo.resolveManyCalls)
+	got := resolve(t, svc, names)
+	if repo.resolveManyCalls != 1 {
+		t.Fatalf("GetAll calls=%d, want 1", repo.resolveManyCalls)
 	}
 	if !reflect.DeepEqual(repo.resolveManyArgs[0], names[6:]) {
 		t.Fatalf("fetched %v, want only the uncached %v", repo.resolveManyArgs[0], names[6:])
@@ -53,9 +50,9 @@ func TestResolveHandles_TenHandlesSixCached(t *testing.T) {
 	}
 
 	// Everything is cached now.
-	_, reads = resolveWithBudget(t, svc, names)
-	if reads != 0 || repo.resolveManyCalls != 1 {
-		t.Fatalf("repeat: reads=%d calls=%d, want 0 and 1", reads, repo.resolveManyCalls)
+	_ = resolve(t, svc, names)
+	if repo.resolveManyCalls != 1 {
+		t.Fatalf("repeat: calls=%d, want 1 (all cached)", repo.resolveManyCalls)
 	}
 }
 
@@ -66,29 +63,28 @@ func TestResolveHandles(t *testing.T) {
 		stored    map[string]string
 		wantMap   map[string]string
 		wantCalls int
-		wantReads int64
 		wantFetch []string
 	}{
-		{"no handles", nil, nil, map[string]string{}, 0, 0, nil},
+		{"no handles", nil, nil, map[string]string{}, 0, nil},
 		{
-			"unknown handle is absent and still one read",
-			[]string{"ghost"}, map[string]string{}, map[string]string{}, 1, 1, []string{"ghost"},
+			"unknown handle is absent and still looked up",
+			[]string{"ghost"}, map[string]string{}, map[string]string{}, 1, []string{"ghost"},
 		},
 		{
 			"known and unknown mixed",
-			[]string{"alice", "ghost"}, map[string]string{"alice": "uid-a"}, map[string]string{"alice": "uid-a"}, 1, 2, []string{"alice", "ghost"},
+			[]string{"alice", "ghost"}, map[string]string{"alice": "uid-a"}, map[string]string{"alice": "uid-a"}, 1, []string{"alice", "ghost"},
 		},
 		{
 			"input is lower-cased and deduplicated",
-			[]string{"Alice", "ALICE", "alice"}, map[string]string{"alice": "uid-a"}, map[string]string{"alice": "uid-a"}, 1, 1, []string{"alice"},
+			[]string{"Alice", "ALICE", "alice"}, map[string]string{"alice": "uid-a"}, map[string]string{"alice": "uid-a"}, 1, []string{"alice"},
 		},
 		{
-			"malformed and reserved handles cost nothing",
-			[]string{"ab", "admin", "has-dash", "abcdefghijklmnop", ""}, map[string]string{"admin": "uid-x"}, map[string]string{}, 0, 0, nil,
+			"malformed and reserved handles are never looked up",
+			[]string{"ab", "admin", "has-dash", "abcdefghijklmnop", ""}, map[string]string{"admin": "uid-x"}, map[string]string{}, 0, nil,
 		},
 		{
-			"valid among skipped is the only read",
-			[]string{"ab", "bob", "root"}, map[string]string{"bob": "uid-b"}, map[string]string{"bob": "uid-b"}, 1, 1, []string{"bob"},
+			"valid among skipped is the only lookup",
+			[]string{"ab", "bob", "root"}, map[string]string{"bob": "uid-b"}, map[string]string{"bob": "uid-b"}, 1, []string{"bob"},
 		},
 	}
 	for _, tc := range tests {
@@ -98,12 +94,12 @@ func TestResolveHandles(t *testing.T) {
 				repo.handles[h] = uid
 			}
 			svc := newTestService(repo)
-			got, reads := resolveWithBudget(t, svc, tc.in)
+			got := resolve(t, svc, tc.in)
 			if !reflect.DeepEqual(got, tc.wantMap) {
 				t.Fatalf("map = %v, want %v", got, tc.wantMap)
 			}
-			if repo.resolveManyCalls != tc.wantCalls || reads != tc.wantReads {
-				t.Fatalf("calls=%d reads=%d, want %d and %d", repo.resolveManyCalls, reads, tc.wantCalls, tc.wantReads)
+			if repo.resolveManyCalls != tc.wantCalls {
+				t.Fatalf("calls=%d, want %d", repo.resolveManyCalls, tc.wantCalls)
 			}
 			if tc.wantFetch != nil {
 				fetched := append([]string(nil), repo.resolveManyArgs[0]...)
@@ -117,17 +113,18 @@ func TestResolveHandles(t *testing.T) {
 }
 
 // TestResolveHandles_NegativeCache: an unknown handle is remembered as free for the 10 s negative TTL, so a
-// repeat costs 0 reads; CreateProfile claiming it clears the entry.
+// repeat does not reach the repo; CreateProfile claiming it clears the entry.
 func TestResolveHandles_NegativeCache(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestService(repo)
 
-	if _, reads := resolveWithBudget(t, svc, []string{"newbie"}); reads != 1 {
-		t.Fatalf("first reads = %d, want 1", reads)
+	resolve(t, svc, []string{"newbie"})
+	if repo.resolveManyCalls != 1 {
+		t.Fatalf("first calls = %d, want 1", repo.resolveManyCalls)
 	}
-	got, reads := resolveWithBudget(t, svc, []string{"newbie"})
-	if len(got) != 0 || reads != 0 || repo.resolveManyCalls != 1 {
-		t.Fatalf("repeat: got=%v reads=%d calls=%d, want empty, 0, 1", got, reads, repo.resolveManyCalls)
+	got := resolve(t, svc, []string{"newbie"})
+	if len(got) != 0 || repo.resolveManyCalls != 1 {
+		t.Fatalf("repeat: got=%v calls=%d, want empty and 1", got, repo.resolveManyCalls)
 	}
 	// The negative cache is shared with CheckHandleAvailability (no second cache).
 	if ok, _, err := svc.CheckHandleAvailability(context.Background(), "newbie"); err != nil || !ok || repo.resolveCalls != 0 {
@@ -137,7 +134,7 @@ func TestResolveHandles_NegativeCache(t *testing.T) {
 	// Claiming the handle (SetProfile) clears the negative entry, so the next resolve sees it.
 	repo.handles["newbie"] = "uid-n"
 	svc.cache.SetProfile(Profile{UserID: "uid-n", Handle: "newbie", HandleLower: "newbie"})
-	got, _ = resolveWithBudget(t, svc, []string{"newbie"})
+	got = resolve(t, svc, []string{"newbie"})
 	if got["newbie"] != "uid-n" {
 		t.Fatalf("got %v, want newbie -> uid-n", got)
 	}
@@ -148,7 +145,7 @@ func TestResolveHandles_SharesTheHandleCache(t *testing.T) {
 	repo := newFakeRepo()
 	repo.handles["taken"] = "uid-t"
 	svc := newTestService(repo)
-	resolveWithBudget(t, svc, []string{"taken"})
+	resolve(t, svc, []string{"taken"})
 	ok, _, err := svc.CheckHandleAvailability(context.Background(), "taken")
 	if err != nil || ok || repo.resolveCalls != 0 {
 		t.Fatalf("ok=%v err=%v resolveCalls=%d, want taken from the cache", ok, err, repo.resolveCalls)
@@ -178,7 +175,7 @@ func TestResolveHandles_Errors(t *testing.T) {
 		}
 		repo.resolveManyErr = nil
 		repo.handles["alice"] = "uid-a"
-		got, _ := resolveWithBudget(t, svc, []string{"alice"})
+		got := resolve(t, svc, []string{"alice"})
 		if got["alice"] != "uid-a" {
 			t.Fatalf("a failed lookup poisoned the cache: %v", got)
 		}

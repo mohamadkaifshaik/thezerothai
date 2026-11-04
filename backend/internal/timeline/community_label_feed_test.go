@@ -30,7 +30,7 @@ func TestCommunity_HiddenPostDroppedAndNeverLabelled(t *testing.T) {
 	keep := c.labelled(c.cp.add(testCID, "a1", c.ms(-10*time.Second)))
 	hidden := c.labelled(c.cp.add(testCID, "a2", c.ms(-20*time.Second)))
 	hidden.CommunityHidden = true
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, []string{keep.ID}) {
 		t.Fatalf("posts = %v, want only the visible one", got)
 	}
@@ -65,10 +65,10 @@ func TestCommunity_GloballyOffCarriesNoLabel(t *testing.T) {
 		c := newCommRig(t)
 		c.srv.deps.Flags = flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: communities.FlagName, Mode: flags.Off})
 		c.labelled(c.cp.add(testCID, "a1", c.ms(-10*time.Second)))
-		resp, counter, err := c.get("me", testCID, "", "", 20)
+		resp, err := c.get("me", testCID, "", "", 20)
 		wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": "communities"})
 		if resp != nil {
-			t.Fatalf("resp = %v, reads = %d", resp, counter.Reads())
+			t.Fatalf("resp = %v, want none", resp)
 		}
 	})
 	for _, tt := range []struct {
@@ -84,7 +84,7 @@ func TestCommunity_GloballyOffCarriesNoLabel(t *testing.T) {
 			c := newCommRig(t)
 			c.srv.deps.Flags = tt.fc
 			p := c.labelled(c.cp.add(testCID, "a1", c.ms(-10*time.Second)))
-			resp, _ := c.must("", "", 20)
+			resp := c.must("", "", 20)
 			if got := commIDs(resp); !slices.Equal(got, []string{p.ID}) {
 				t.Fatalf("posts = %v", got)
 			}

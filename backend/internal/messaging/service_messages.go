@@ -42,16 +42,16 @@ func messagesPageBinding(uid, convID string) string {
 //
 // Flag: not globally off. Validation before any read: conversation_id is 32 lower-case hex (VALIDATION
 // "conversation_id"), page_token and since_token not both, then the token itself (sealed, bound to the uid, the
-// conversation and the token kind, 30 days; a foreign, tampered or expired token is VALIDATION, 0 reads).
+// conversation and the token kind, 30 days; a foreign, tampered or expired token is VALIDATION, before any read).
 //
 // Participant check: the conversation document (instance cache 60 s for a participant, so a clearedAt set on another instance is seen
 // within 60 s; a non-participant never reads from or writes to it). A missing document and a non-participant answer one
-// byte-identical NOT_FOUND after exactly 2 reads (interceptor, conversation), warm or cold.
+// byte-identical NOT_FOUND, warm or cold.
 //
 // Thread revision: a since token carries the conversation's `rev` as its issuer saw it. After the
 // participant check, a token with a lower rev (a takedown or an erasure changed the thread) is VALIDATION since_token with
-// the bytes of an expired token, at most 2 reads (interceptor, conversation), no query; a higher rev means this instance's
-// 60 s copy is stale, so the copy is dropped (0 reads) and the higher rev is sealed again. A foreign or tampered token is
+// the bytes of an expired token, with no query beyond the conversation read; a higher rev means this instance's
+// 60 s copy is stale, so the copy is dropped (no read) and the higher rev is sealed again. A foreign or tampered token is
 // still refused before any read.
 //
 // Messages come newest first, `createdAt DESC, __name__ DESC`, without those at or before clearedAt[caller]. A tombstone
@@ -66,7 +66,7 @@ func messagesPageBinding(uid, convID string) string {
 //
 // First page only: one more read, the caller's own entry (users/{uid}/dmInbox/{id}, or dmRequests when entryFolder
 // says the caller is the recipient of an unaccepted request). The folder comes from the 60 s conversation copy, so an accept
-// on another instance is seen within 60 s, and a stale answer is only a missing entry, which reads 0. The entry fills
+// on another instance is seen within 60 s, and a stale answer is only a missing entry. The entry fills
 // Conversation.unread_count and silent; a missing entry (delete-for-me, never created) is 0 / false. It runs after the
 // participant check, so NOT_FOUND is unchanged. A since refresh and an older page never read it.
 //
@@ -78,13 +78,6 @@ func messagesPageBinding(uid, convID string) string {
 // snapshot is used only when the entry exists and names this peer (an eraser rewriting the entry's peerId to DeletedUID is the
 // placeholder); an older page reads no entry, so it answers the placeholder, never the live handle or avatar. The directory
 // lookup runs in parallel with the graph read (no serial wait on the graph) and supplies liveness for the unblocked case.
-//
-// Worst-case Firestore cost (budget.Counter; the account-status interceptor read counted, as the proto comment does):
-//   - first page of 20 / 50: 25 / 55 reads cold (interceptor 1, conversation 1, query page, peer users 1, caller graph 1,
-//     caller entry 1), planning 16; warm caches: interceptor + page + entry = 22 / 52
-//   - older page of 20 / 50: 24 / 54 reads cold (the same without the entry), planning 15; warm caches: 1 + page = 21 / 51
-//   - since poll: 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2
-//   - NOT_FOUND: at most 2 reads; writes 0
 func (s *service) ListMessages(ctx context.Context, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
 		return nil, err
@@ -365,9 +358,6 @@ func (s *service) messagesErr(ctx context.Context, uid, convID string, err error
 // uid, so a non-participant or an unknown or deleted conversation simply has no entry and the answer is success with 0
 // writes, the same as a conversation that is already read. After a write the badge cache of this instance is evicted
 // (Deps.Badge; nil until then). The read time is never shown to the peer.
-//
-// Worst-case Firestore cost: reads 0 here (1 for the interceptor, planning 0.3); writes 1, 0 when the entry is missing.
-// Under DEGRADED_MODE=readonly the interceptor refuses before this runs.
 func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.MarkConversationReadRequest) (*messagingv1.MarkConversationReadResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
 		return nil, err

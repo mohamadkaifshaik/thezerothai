@@ -32,7 +32,7 @@ func NewServer(svc Service, fl FlagChecker) *Server { return &Server{svc: svc, f
 
 var _ notificationsv1connect.NotificationServiceHandler = (*Server)(nil)
 
-// guard is the flag check shared by every RPC: FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads.
+// guard is the flag check shared by every RPC: FAILED_PRECONDITION + FEATURE_DISABLED.
 func (s *Server) guard(ctx context.Context) (string, error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {

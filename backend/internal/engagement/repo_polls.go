@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -44,7 +43,7 @@ func (r *FirestoreRepo) pollVoteRef(postID, uid string) *firestore.DocumentRef {
 	return r.client.Collection(pollVotesCollection).Doc(docID(postID, uid))
 }
 
-// Vote implements PollRepo: one batch, 0 reads, 3 writes (vote doc, the post's counters, userLikes.pollVotes). It retries lock-race
+// Vote implements PollRepo: one batch with no reads (vote doc, the post's counters, userLikes.pollVotes). It retries lock-race
 // aborts a bounded number of times (store.CommitWithRetry); exhausted, the error wraps store.ErrContended.
 func (r *FirestoreRepo) Vote(ctx context.Context, p VoteParams) (VoteOutcome, error) {
 	if r.w.Writer == nil {
@@ -78,10 +77,9 @@ func (r *FirestoreRepo) Vote(ctx context.Context, p VoteParams) (VoteOutcome, er
 	}
 }
 
-// GetVote implements PollRepo: 1 read of pollVotes/{postId}_{uid}.
+// GetVote implements PollRepo: reads pollVotes/{postId}_{uid}.
 func (r *FirestoreRepo) GetVote(ctx context.Context, uid, postID string) (VoteState, bool, error) {
 	snap, err := r.pollVoteRef(postID, uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return VoteState{}, false, nil
@@ -95,7 +93,7 @@ func (r *FirestoreRepo) GetVote(ctx context.Context, uid, postID string) (VoteSt
 	return VoteState{Choice: d.Choice, Changes: d.Changes, UpdateTime: snap.UpdateTime}, true, nil
 }
 
-// ChangeVote implements PollRepo: ONE batch, 0 reads, 4 writes. The hot post document is written by Increment,
+// ChangeVote implements PollRepo: ONE batch, no reads. The hot post document is written by Increment,
 // never read. Only the vote doc (LastUpdateTime = the version the caller read) and the post (the Exists precondition of the counter Update)
 // carry preconditions; userLikes is two field-level merges (ArrayRemove of the old entry, ArrayUnion of the new one: one write cannot carry two
 // transforms on one field), so a missing userLikes doc never fails the commit and "the vote doc did not move" still means "the post is gone".
@@ -146,7 +144,6 @@ func (r *FirestoreRepo) TrimPollVotes(ctx context.Context, uid string, drop []st
 		{Path: "pollVotes", Value: firestore.ArrayRemove(toAny(drop)...)},
 		{Path: "updatedAt", Value: r.now().UTC()},
 	})
-	budget.FromContext(ctx).AddWrites(1)
 	if err != nil && status.Code(err) != codes.NotFound {
 		return fmt.Errorf("engagement: trim userLikes pollVotes: %w", err)
 	}

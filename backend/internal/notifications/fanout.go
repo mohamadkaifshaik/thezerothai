@@ -11,7 +11,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
@@ -175,12 +174,12 @@ type Outcome struct {
 // Deliver processes one event idempotently. A non-nil error means "retry": at least one recipient hit
 // a transient failure; the recipients that succeeded are unaffected by the redelivery (natural keys).
 //
-// Budget: the actor and recipients are evicted from the profile cache first so the ACTIVE check is fresh (see
-// below), then one GetAll: 1 + R reads (R <= 10 recipients; typically 2). Per recipient: graph snapshot (cached
-// 60 s: 0-1 read, +1 when the recipient's blockedBy overflowed and the actor's graph is read), 1 write for the row
-// (a duplicate costs 1 read), devices <= 5 reads; a like folded into an existing row costs 1 read and 1 write (0
-// writes when that actor is already in the row: a redelivery is write-free). A recipient over the hourly push limit
-// (N-2) costs 0 device reads and no FCM call: the limiter is consulted before Repo.Devices.
+// The actor and recipients are evicted from the profile cache first so the ACTIVE check is fresh (see
+// below), then one GetAll (R <= 10 recipients). Per recipient: graph snapshot (cached
+// 60 s; the actor's graph is also read when the recipient's blockedBy overflowed), one write for the row, devices (at
+// most 5); a like folded into an existing row is one transaction that writes nothing when that actor is already in the
+// row: a redelivery is write-free. A recipient over the hourly push limit
+// (N-2) gets no device read and no FCM call: the limiter is consulted before Repo.Devices.
 //
 // Right to delete: the fresh status read narrows the race with an account purge from "the profile
 // cache TTL plus any redelivery delay" to the milliseconds between that read and the Create. It cannot be zero
@@ -268,7 +267,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		}
 		if e.Type.postBearing() && f.d.Audience != nil {
 			// A protected actor's post-bearing event reaches only recipients who may see the actor.
-			// 0 reads: the recipient's snapshot is already in hand and the protected set is an instance copy.
+			// No read: the recipient's snapshot is already in hand and the protected set is an instance copy.
 			// Fail closed (AQ5): an unavailable set is a retry (Pub/Sub redelivers), never a row.
 			can, err := f.d.Audience.CanSee(ctx, r, e.ActorID, snap.Following[e.ActorID])
 			if err != nil {
@@ -303,7 +302,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 					errs = append(errs, err)
 				} else {
 					// AddActor moves the row's createdAt forward, so it counts as unread again: evict the cached
-					// unread count like a Create does (0 reads).
+					// unread count like a Create does.
 					createdFor = append(createdFor, r)
 				}
 			}
@@ -344,7 +343,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 }
 
 // blockedBy reports whether actor has blocked recipient. The recipient's snapshot (already fetched) answers
-// unless its blockedBy set overflowed, in which case the actor's own graph is consulted (+1 read, cached).
+// unless its blockedBy set overflowed, in which case the actor's own graph is consulted (cached).
 func (f *Fanout) blockedBy(ctx context.Context, recipient, actor string, snap graph.Snapshot) (bool, error) {
 	if snap.BlockedBy[actor] {
 		return true, nil
@@ -418,17 +417,13 @@ func (f *Fanout) Handler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(ctx, handlerBudget)
 		defer cancel()
-		ctx, counter := budget.WithCounter(ctx)
 		started := f.d.Now()
 		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, ConversationID: m.ConversationID, At: time.UnixMilli(m.AtMillis)})
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
 			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed, "suppressed_protected", out.SuppressedProtected,
 			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned, "push_throttled", out.Throttled,
-			// rpc and fanout_fs_reads make the handler's Firestore cost a project-level field: `make cost` prints
-			// both, and the fan-out is otherwise invisible next to the Connect request lines.
-			"rpc", fanoutRPC, "fanout_fs_reads", counter.Reads(),
-			"fs_reads", counter.Reads(), "fs_writes", counter.Writes(), "fs_deletes", counter.Deletes(),
+			"rpc", fanoutRPC,
 			"elapsed_ms", f.d.Now().Sub(started).Milliseconds(),
 		}, logger.TraceAttrs(ctx)...)
 		if derr != nil {

@@ -19,7 +19,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func newTestClient(t *testing.T) *firestore.Client {
@@ -37,12 +36,12 @@ func newTestClient(t *testing.T) *firestore.Client {
 	return client
 }
 
-func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
+func TestCreateProfile_Integration_Replay(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	now := time.Now().UTC()
 
 	profile, replay, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil)
@@ -55,17 +54,15 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 	if profile.Handle != "Alice" || profile.HandleLower != "alice" {
 		t.Fatalf("unexpected profile: %+v", profile)
 	}
-	// Proto doc comment: worst case reads 2, writes 3.
 
 	// Verify the graph doc was created (identity.GraphInitializer seam).
 	if _, err := client.Collection("graph").Doc("uid-1").Get(ctx); err != nil {
 		t.Errorf("expected graph/uid-1 to exist: %v", err)
 	}
 
-	// Replay: same uid, any handle/displayName -> returns the existing profile, no new writes. A replay
-	// only reads users/{uid} (it never gets to the handle check), so its budget is tighter than the
-	// documented worst case.
-	ctx2, _ := budget.WithCounter(context.Background())
+	// Replay: same uid, any handle/displayName -> returns the existing profile, no new writes: the
+	// replay stops at users/{uid} and never claims handles/bob.
+	ctx2 := context.Background()
 	replayed, isReplay, err := repo.CreateProfile(ctx2, "uid-1", "Bob", "bob", "Bob B.", now, nil)
 	if err != nil {
 		t.Fatalf("CreateProfile() replay error = %v", err)
@@ -75,6 +72,9 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 	}
 	if replayed.Handle != "Alice" {
 		t.Fatalf("replay should return the original profile, got handle %q", replayed.Handle)
+	}
+	if _, err := client.Collection("handles").Doc("bob").Get(ctx); err == nil {
+		t.Error("a replay claimed handles/bob")
 	}
 }
 
@@ -96,7 +96,7 @@ func TestCreateProfile_Integration_HandleRace(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			ctx, _ := budget.WithCounter(context.Background())
+			ctx := context.Background()
 			p, _, err := repo.CreateProfile(ctx, fmt.Sprintf("uid-race-%d", i), "Racer", "racer", fmt.Sprintf("Racer %d", i), now, nil)
 			results[i] = err
 			profiles[i] = p
@@ -132,12 +132,12 @@ func TestCreateProfile_Integration_HandleTaken(t *testing.T) {
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("first CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	if _, _, err := repo.CreateProfile(ctx2, "uid-2", "Alice", "alice", "Someone Else", now, nil); err != identity.ErrHandleTaken {
 		t.Fatalf("expected ErrHandleTaken, got %v", err)
 	}
@@ -145,18 +145,18 @@ func TestCreateProfile_Integration_HandleTaken(t *testing.T) {
 
 const changeHandleCooldown = 7 * 24 * time.Hour
 
-func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
+func TestChangeHandle_Integration_FreesOldHandle(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	updated, oldLower, err := repo.ChangeHandle(ctx2, "uid-1", "Alicia", "alicia", now.Add(8*24*time.Hour), changeHandleCooldown)
 	if err != nil {
 		t.Fatalf("ChangeHandle() error = %v", err)
@@ -167,28 +167,28 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 	if oldLower != "alice" {
 		t.Fatalf("invalidateOldHandleLower = %q, want alice", oldLower)
 	}
-	// Proto doc comment: reads 2, writes 2, deletes 1.
 
 	// The old handle must be free again.
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
 
-// TestChangeHandle_Integration_TrueNoOp (M4): requesting the caller's exact current handle is a pure read,
-// 0 writes, 0 deletes — and never touches the cooldown, so it can be repeated freely.
+// TestChangeHandle_Integration_TrueNoOp (M4): requesting the caller's exact current handle changes nothing
+// (no write, no delete) and never touches the cooldown, so it can be repeated freely.
 func TestChangeHandle_Integration_TrueNoOp(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	docBefore := userData(t, client, "uid-1")
+	ctx2 := context.Background()
 	updated, oldLower, err := repo.ChangeHandle(ctx2, "uid-1", "Alice", "alice", now, changeHandleCooldown)
 	if err != nil {
 		t.Fatalf("ChangeHandle() error = %v", err)
@@ -196,21 +196,24 @@ func TestChangeHandle_Integration_TrueNoOp(t *testing.T) {
 	if updated.Handle != "Alice" || oldLower != "" {
 		t.Fatalf("got (profile=%+v, oldLower=%q), want unchanged profile and oldLower=\"\"", updated, oldLower)
 	}
+	if after := userData(t, client, "uid-1"); !mapsEqualAny(docBefore, after) {
+		t.Errorf("a true no-op rewrote the user document: %v -> %v", docBefore, after)
+	}
 }
 
 // TestChangeHandle_Integration_CaseOnlyRename (M4): same handleLower, different case — updates the
-// display form (1 write to users only), never touches handles/{} or the cooldown.
+// display form (users only), never touches handles/{} or the cooldown.
 func TestChangeHandle_Integration_CaseOnlyRename(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	updated, oldLower, err := repo.ChangeHandle(ctx2, "uid-1", "Alice", "alice", now, changeHandleCooldown)
 	if err != nil {
 		t.Fatalf("ChangeHandle() error = %v", err)
@@ -220,20 +223,20 @@ func TestChangeHandle_Integration_CaseOnlyRename(t *testing.T) {
 	}
 
 	// The uniqueness key never moved, so it must still resolve immediately (no free-then-reclaim window).
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if uid, err := repo.ResolveHandle(ctx3, "alice"); err != nil || uid != "uid-1" {
 		t.Fatalf("ResolveHandle(alice) = (%q, %v), want (uid-1, nil)", uid, err)
 	}
 }
 
 // TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead (M4): cooldown is enforced against the doc
-// read fresh inside the transaction; when it blocks, the new handle is never even read (1 read, not 2).
+// read fresh inside the transaction; when it blocks, the new handle is never claimed.
 func TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -241,7 +244,7 @@ func TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead(t *testing.T) {
 		t.Fatalf("first ChangeHandle: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	_, _, err := repo.ChangeHandle(ctx2, "uid-1", "Bob", "bob", now.Add(time.Hour), changeHandleCooldown)
 	var cooldownErr *identity.ErrHandleChangeCooldown
 	if !errors.As(err, &cooldownErr) {
@@ -250,17 +253,20 @@ func TestChangeHandle_Integration_CooldownBlocksBeforeSecondRead(t *testing.T) {
 	if cooldownErr.RetryAfter <= 0 {
 		t.Error("expected a positive RetryAfter")
 	}
+	if _, err := client.Collection("handles").Doc("bob").Get(ctx); err == nil {
+		t.Error("a refused change claimed handles/bob")
+	}
 }
 
 // TestChangeHandle_Integration_IdempotentRetryOwnedHandle (M4): handles/{new} already existing and owned
 // by the caller must succeed (not ErrHandleTaken) and still finish the rename (update users, free the old
-// handle) — the same 2 writes + 1 delete as the common path.
+// handle) as on the common path.
 func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -269,7 +275,7 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 		t.Fatalf("seed handles/bob: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	updated, oldLower, err := repo.ChangeHandle(ctx2, "uid-1", "Bob", "bob", now, changeHandleCooldown)
 	if err != nil {
 		t.Fatalf("ChangeHandle() error = %v, want success (idempotent retry)", err)
@@ -278,24 +284,24 @@ func TestChangeHandle_Integration_IdempotentRetryOwnedHandle(t *testing.T) {
 		t.Fatalf("got (profile=%+v, oldLower=%q), want (HandleLower=bob, oldLower=alice)", updated, oldLower)
 	}
 
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, _, err := repo.CreateProfile(ctx3, "uid-2", "Alice", "alice", "New Alice", now, nil); err != nil {
 		t.Fatalf("expected old handle 'alice' to be free after rename: %v", err)
 	}
 }
 
-func TestGetProfile_Integration_Budget(t *testing.T) {
+func TestGetProfile_Integration(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	got, err := repo.GetProfile(ctx2, "uid-1")
 	if err != nil {
 		t.Fatalf("GetProfile() error = %v", err)
@@ -304,24 +310,24 @@ func TestGetProfile_Integration_Budget(t *testing.T) {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
 
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, err := repo.GetProfile(ctx3, "ghost"); err != identity.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestResolveHandle_Integration_Budget(t *testing.T) {
+func TestResolveHandle_Integration(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	uid, err := repo.ResolveHandle(ctx2, "alice")
 	if err != nil {
 		t.Fatalf("ResolveHandle() error = %v", err)
@@ -330,24 +336,24 @@ func TestResolveHandle_Integration_Budget(t *testing.T) {
 		t.Fatalf("ResolveHandle() = %q, want uid-1", uid)
 	}
 
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, err := repo.ResolveHandle(ctx3, "ghost"); err != identity.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestUpdateProfile_Integration_Budget(t *testing.T) {
+func TestUpdateProfile_Integration(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	updated, err := repo.UpdateProfile(ctx2, "uid-1", func(p *identity.Profile) {
 		p.Bio = "hello world"
 	})
@@ -357,28 +363,25 @@ func TestUpdateProfile_Integration_Budget(t *testing.T) {
 	if updated.Bio != "hello world" {
 		t.Fatalf("unexpected profile: %+v", updated)
 	}
-	// service.go / repo_firestore.go doc comment: 1 read, 1 write (Phase 0; proto's "2 reads" includes
-	// the avatar-media read, not implemented until the media module exists).
-
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, err := repo.UpdateProfile(ctx3, "ghost", func(*identity.Profile) {}); err != identity.ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
-func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
+func TestUnreadNotificationCount_Integration(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
 	now := time.Now().UTC()
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := repo.CreateProfile(ctx, "uid-1", "Alice", "alice", "Alice A.", now, nil); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	// No notifications yet: the count() aggregation still costs exactly 1 read.
-	ctx2, _ := budget.WithCounter(context.Background())
+	// No notifications yet: the count() aggregation answers 0.
+	ctx2 := context.Background()
 	n, err := repo.UnreadNotificationCount(ctx2, "uid-1", time.Time{})
 	if err != nil {
 		t.Fatalf("UnreadNotificationCount() error = %v", err)
@@ -387,8 +390,7 @@ func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
 		t.Fatalf("UnreadNotificationCount() = %d, want 0", n)
 	}
 
-	// Seed two notifications after `since` and one before; only the two after should count, still 1 read
-	// regardless of how many match (aggregation query, not a per-doc read).
+	// Seed two notifications after `since` and one before; only the two after should count.
 	notifs := client.Collection("users").Doc("uid-1").Collection("notifications")
 	if _, err := notifs.Doc("n1").Set(ctx, map[string]any{"createdAt": now.Add(time.Hour)}); err != nil {
 		t.Fatalf("seed notification: %v", err)
@@ -400,7 +402,7 @@ func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
 		t.Fatalf("seed notification: %v", err)
 	}
 
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	n, err = repo.UnreadNotificationCount(ctx3, "uid-1", now)
 	if err != nil {
 		t.Fatalf("UnreadNotificationCount() error = %v", err)
@@ -419,7 +421,7 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 	refuse := errors.New("refused by authorize")
 
 	calls := 0
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return refuse })
 	if !errors.Is(err, refuse) {
 		t.Fatalf("err = %v, want the authorize error", err)
@@ -433,7 +435,7 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 		}
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return nil }); err != nil {
 		t.Fatal(err)
 	}

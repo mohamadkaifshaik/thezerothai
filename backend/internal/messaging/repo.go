@@ -14,33 +14,31 @@ import (
 // Repo is the storage seam of messaging.Service: the three collections behind one interface, so a group
 // fan-out or a listener-backed store changes no caller (seam). FirestoreRepo is the implementation.
 type Repo interface {
-	// GetConversation reads conversations/{id}: 1 read. found is false for a missing document.
+	// GetConversation reads conversations/{id}. found is false for a missing document.
 	GetConversation(ctx context.Context, id string) (conv ConvDoc, found bool, err error)
 	// Send runs the SendMessage transaction.
 	Send(ctx context.Context, p SendParams) (SendResult, error)
-	// ListEntries reads one page of the caller's entries in a folder: reads max(len(rows), 1).
+	// ListEntries reads one page of the caller's entries in a folder.
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
-	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
+	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap.
 	CountRequests(ctx context.Context, uid string) (int64, error)
-	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
-	//1 read.
+	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap.
 	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
-	// ListMessages reads one page of a conversation's messages: reads max(len(rows), 1).
+	// ListMessages reads one page of a conversation's messages.
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
-	// precondition: 0 reads, 1 write; found is false (0 writes) when neither entry exists.
+	// precondition, with no read; found is false (and nothing is written) when neither entry exists.
 	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
-	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder): 1 read, billed
-	// whether or not the document exists. found is false for a missing entry (delete-for-me, or never created).
+	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder). found is false for a missing entry (delete-for-me, or never created).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
-	// GetMessage reads one stored message (report a message): 1 read; found is false for a missing document.
+	// GetMessage reads one stored message (report a message); found is false for a missing document.
 	GetMessage(ctx context.Context, convID, msgID string) (msg MsgDoc, found bool, err error)
-	// Accept runs the AcceptMessageRequest transaction: 2 reads (the conversation, the caller's dmRequests entry),
-	// 2 writes and 1 delete; an already accepted conversation 1 read and nothing written.
+	// Accept runs the AcceptMessageRequest transaction: it reads the conversation and the caller's dmRequests entry, writes two docs and deletes
+	// the request entry; an already accepted conversation reads once and writes nothing.
 	Accept(ctx context.Context, p AcceptParams) (AcceptResult, error)
-	// Delete runs the DeleteConversation transaction: 2 reads (the conversation, the caller's entry), 1 write
-	// (clearedAt, clearedKey) and 1 delete (the entry); a retry with the same key 1 read in the transaction and nothing written,
-	// any other repeat of a delete that already happened 2 reads and nothing written.
+	// Delete runs the DeleteConversation transaction: it reads the conversation and the caller's entry, writes
+	// clearedAt and clearedKey and deletes the entry; a retry with the same key, or any other repeat of a delete that
+	// already happened, writes nothing.
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
 }
 
@@ -49,7 +47,7 @@ type AcceptParams struct {
 	UID, ConvID string
 	Now         time.Time
 	// PeerAllowed reports whether the other participant has messaging on (the per-recipient half of the flag gate). It is
-	// pure (flags are env vars, 0 reads) and runs inside the transaction once the peer is known, only when something
+	// pure (flags are env vars, no read) and runs inside the transaction once the peer is known, only when something
 	// would be written. nil allows.
 	PeerAllowed func(peerUID string) bool
 }
@@ -134,11 +132,11 @@ type SendParams struct {
 	// MaxUnanswered is MESSAGES_REQUEST_MAX_UNANSWERED; DMNewLimit the daily new-conversation quota for this caller
 	// (the new-account tier already applied).
 	MaxUnanswered, DMNewLimit int64
-	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached,
-	// 1 read). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
+	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached).
+	// Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
 	// the conversation mutual; Muted[caller] makes it silent.
 	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
-	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx, +1 read). It
+	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx). It
 	// is called only when this send creates the conversation (purge race, security review L-3); a missing
 	// document or a status other than ACTIVE refuses the send. Required for a new conversation.
 	RecipientInTx func(ctx context.Context, tx *firestore.Transaction) (identity.Profile, error)

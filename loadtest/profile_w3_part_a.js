@@ -8,21 +8,20 @@
 //                      (nothing cached). Then the other viewers do the profile-open flow GetProfile -> GetProfileRelationship ->
 //                      MEDIA p20 (twice) -> REPOSTS p20 (twice), odd viewers then MEDIA p50 and its second page. Then a "viral
 //                      profile" load: RATE calls/s (default 15) for DURATION (default 20s) of random viewers on the same
-//                      author's Media tab (the tabs have no result cache, so every call reads its page).
+//                      author's Media tab (the tabs have no result cache, so every call loads its page).
 //   MODE=likes         ListLikedPosts (likes_list). PAIRS pairs of viewers (default 2): each likes LIKES (default 60) posts of its
 //                      own authors (disjoint sets, so no viewer warms another's post cache); setup idles SETTLE seconds (default
 //                      75 > CACHE_TTL 60 s); even viewers page at 20 and odd at 50, a cold pass then an immediate warm pass.
-//                      CAP_LIKES=1000 adds one viewer at the 1,000-like cap that scrolls the whole list at page 50 (the read
-//                      budget bound).
+//                      CAP_LIKES=1000 adds one viewer at the 1,000-like cap that scrolls the whole list at page 50.
 //   MODE=suggestions   ListSuggestedUsers (follow_suggestions). VIEWERS viewers (default 6) each follow FOLLOWEES (default 30)
 //                      accounts; the newest 30 of those follow FOF_PER_FOLLOWEE (default 4) of CANDIDATES (default 60) accounts.
 //                      Call 1 is cold, call 2 immediate (warm), call 3 after SETTLE_WARM seconds (default 65: the 60 s profile
 //                      cache expired, the 1 h suggestion entry not). CURATED_VIEWERS (default 3) follow nobody and hit the
 //                      curated list: the API must run with SUGGESTED_USER_IDS set to CURATED_IDS (printed by `node
 //                      loadtest/analyze_w3_part_a.js --curated-ids`; CURATED_N uids of 28 characters). FOLLOWEES=600 VIEWERS=1 is
-//                      the "user following 600 accounts" shape (the read cap must not grow with F).
+//                      the "user following 600 accounts" shape (latency must not grow with F).
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `source`, `candidates`,
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`source`, `candidates`,
 // `tab`), see loadtest/analyze_w3_part_a.js. Latency is emulator latency, indicative only.
 //
 // API requirements (a local API against the emulators, nothing else):
@@ -235,7 +234,7 @@ function tabCall(viewer, uid, tab, pageSize, pageToken, tag) {
   return call(TL, 'GetUserTimeline', { userId: uid, tab, pageSize, pageToken: pageToken || '' }, viewer, tag, { page_size: String(pageSize) });
 }
 
-// tabsSolo runs alone before anything else touches the instance: the fully cold figures of the budget tests.
+// tabsSolo runs alone before anything else touches the instance: the fully cold figures.
 export function tabsSolo(data) {
   const [v0, v1] = data.viewers;
   tabCall(v0, data.author.uid, MEDIA, 20, '', 'tab_media_p20_cold');
@@ -298,7 +297,7 @@ export function likesRun(data) {
     expectRows(pageThrough(data.viewers[i], ps, 'likes_warm'), data.total, `viewer ${i} warm`);
     return;
   }
-  // The viewer at the 1,000-like cap scrolls the whole list at page 50 (20 pages); every call is charged to the read budget.
+  // The viewer at the 1,000-like cap scrolls the whole list at page 50 (20 pages).
   expectRows(pageThrough(data.capViewer, 50, 'likes_cap'), CAP_LIKES, 'cap viewer');
 }
 

@@ -57,8 +57,8 @@ func TestDeleteAccount(t *testing.T) {
 		if p.Status != AccountStatusDeleting || p.DeletionJob == nil || p.DeletionJob.Seq != 0 || !p.DeletionRequestedAt.Equal(at) || !at.Equal(h.clock.Now().UTC()) {
 			t.Errorf("profile = %+v, requestedAt = %v", p, at)
 		}
-		if h.repo.writes != 1 || h.repo.reads != 1 {
-			t.Errorf("reads/writes = %d/%d, want 1/1", h.repo.reads, h.repo.writes)
+		if h.repo.writes != 1 {
+			t.Errorf("writes = %d, want 1 (the DELETING transition)", h.repo.writes)
 		}
 		if h.pub.count() != 1 || h.pub.msgs[0] != (JobMessage{Kind: JobKindAccountDelete, UID: "u1", Seq: 0}) {
 			t.Errorf("published = %+v", h.pub.msgs)

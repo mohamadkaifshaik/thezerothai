@@ -88,8 +88,7 @@ func TestProfileSnapshot_RenameRewritesNewest100Posts(t *testing.T) {
 	if _, err := e.identity.ChangeHandle(ctx, authed(u.token, &identityv1.ChangeHandleRequest{IdempotencyKey: "rename-key-000000001", NewHandle: newHandle})); err != nil {
 		t.Fatalf("ChangeHandle: %v", err)
 	}
-	// RPC cost: users + handles reads (+ the interceptor's profile read, cold), 2 writes + 1 delete; the job is
-	// a publish, no Firestore.
+	// The RPC only publishes the job.
 	if lines := e.requestLinesFor("/dzeroth.identity.v1.IdentityService/ChangeHandle"); len(lines) != 1 {
 		t.Errorf("ChangeHandle request line = %v", lines)
 	}
@@ -116,7 +115,7 @@ func TestProfileSnapshot_RenameRewritesNewest100Posts(t *testing.T) {
 	if len(lines) != 1 || lines[0]["outcome"] != "refreshed" || lines[0]["updated_posts"].(float64) != 100 {
 		t.Fatalf("job lines = %v", lines)
 	}
-	// Budget: 1 users read + 100 post reads; 100 writes in one batch.
+	// The refresh updates the newest 100 posts in one batch.
 
 	// Replay-safe: the same message again rewrites nothing.
 	if code := e.deliver(t, msgs[0]); code != http.StatusNoContent {
@@ -143,9 +142,8 @@ func TestProfileSnapshot_DisplayNameEditAndDailyQuota(t *testing.T) {
 	if err := edit("Alpha"); err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
-	// 1 users read (+ interceptor cold read) and quotas: reads <= 3, writes 2 (users + quotas).
 	if lines := e.requestLinesFor("/dzeroth.identity.v1.IdentityService/UpdateProfile"); len(lines) != 1 {
-		t.Errorf("UpdateProfile request line = %v, want reads <= 3, writes 2", lines)
+		t.Errorf("UpdateProfile request lines = %v, want exactly one", lines)
 	}
 	msgs := e.pull(t)
 	if len(msgs) != 1 {

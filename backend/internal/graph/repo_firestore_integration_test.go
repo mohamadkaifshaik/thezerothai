@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -32,19 +31,18 @@ func newTestClient(t *testing.T) *firestore.Client {
 }
 
 // TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot (acceptance): a doc created by InitGraph
-// decodes to five empty sets with no error, and GetSnapshot's cache-miss path costs exactly 1 read.
+// decodes to five empty sets with no error.
 func TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot(t *testing.T) {
 	client := newTestClient(t)
 	repo := graph.NewFirestoreRepo(client)
 
-	ctx, counter := budget.WithCounter(context.Background())
-	b := store.NewFirestoreBatch(client, counter)
+	b := store.NewFirestoreBatch(client)
 	repo.InitGraph(b, "uid-1", time.Now().UTC())
-	if err := b.Commit(ctx); err != nil {
+	if err := b.Commit(context.Background()); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	snap, err := repo.GetSnapshot(ctx2, "uid-1")
 	if err != nil {
 		t.Fatalf("GetSnapshot() error = %v", err)
@@ -72,14 +70,14 @@ func TestGetSnapshot_Integration_MissingDocIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestSnapshot_Integration_ServiceCachesWithin60s: two Reader.Snapshot calls within the
-// cache TTL cost exactly 1 Firestore read.
+// TestSnapshot_Integration_ServiceCachesWithin60s: a second Reader.Snapshot call within the cache TTL is served from
+// the cache, so it does not see a change written to the document after the first call.
 func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 	client := newTestClient(t)
 	repo := graph.NewFirestoreRepo(client)
 
-	ctx0, _ := budget.WithCounter(context.Background())
-	b := store.NewFirestoreBatch(client, nil)
+	ctx0 := context.Background()
+	b := store.NewFirestoreBatch(client)
 	repo.InitGraph(b, "uid-1", time.Now().UTC())
 	if err := b.Commit(ctx0); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -87,11 +85,22 @@ func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 
 	svc := graph.New(graph.Deps{Repo: repo, Cache: graph.NewCache(time.Minute)})
 
-	ctx, _ := budget.WithCounter(context.Background())
-	if _, err := svc.Snapshot(ctx, "uid-1"); err != nil {
+	ctx := context.Background()
+	first, err := svc.Snapshot(ctx, "uid-1")
+	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if _, err := svc.Snapshot(ctx, "uid-1"); err != nil {
+	if first.Blocked["uid-2"] {
+		t.Fatalf("first Snapshot = %+v, want nothing blocked yet", first)
+	}
+	if _, err := client.Collection("graph").Doc("uid-1").Update(ctx, []firestore.Update{{Path: "blocked", Value: firestore.ArrayUnion("uid-2")}}); err != nil {
+		t.Fatalf("write blocked: %v", err)
+	}
+	second, err := svc.Snapshot(ctx, "uid-1")
+	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if second.Blocked["uid-2"] {
+		t.Errorf("second Snapshot = %+v saw a write made after the first call: it was not served from the cache", second)
 	}
 }

@@ -169,7 +169,7 @@ func TestUnfollow_WithdrawErrorsMap(t *testing.T) {
 	}
 }
 
-// REQUESTED comes from the caller's own Snapshot at 0 reads, and an edge always wins (I-X).
+// REQUESTED comes from the caller's own Snapshot, and an edge always wins (I-X).
 func TestRelationshipFor_Requested(t *testing.T) {
 	tests := []struct {
 		name string

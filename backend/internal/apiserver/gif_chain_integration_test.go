@@ -4,7 +4,7 @@ package apiserver
 
 // GIF post media over the real Build chain: a READY GIF media document (seeded the way FinalizeUpload leaves it; a
 // signed PUT cannot be minted against the emulators) flows through CreatePost behind FEATURE_GIF, the wire carries
-// MediaRef.content_type, the Firestore cost is the same as for a photo, and DeletePost + post_delete remove the document.
+// MediaRef.content_type, and DeletePost + post_delete remove the document.
 
 import (
 	"context"
@@ -23,6 +23,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
+
+// countWhere is how many documents of collection have field == value, to prove a refusal left nothing behind.
+func (e *lifecycleEnv) countWhere(t *testing.T, collection, field, value string) int {
+	t.Helper()
+	docs, err := e.fs.Collection(collection).Where(field, "==", value).Documents(context.Background()).GetAll()
+	if err != nil {
+		t.Fatalf("count %s where %s: %v", collection, field, err)
+	}
+	return len(docs)
+}
 
 func (e *lifecycleEnv) seedGIF(t *testing.T, uid string) string {
 	t.Helper()
@@ -51,8 +61,8 @@ func TestGIFChain_CreatePostGateWireAndDelete(t *testing.T) {
 	if d.GetMetadata()["feature"] != "gif" {
 		t.Fatalf("metadata = %v, want feature=gif", d.GetMetadata())
 	}
-	if c := off.costOf(t, "/dzeroth.posts.v1.PostService/CreatePost"); c[1] != 0 {
-		t.Errorf("a refused GIF post wrote %v documents, want 0", c[1])
+	if n := off.countWhere(t, "posts", "authorId", a.uid); n != 0 {
+		t.Errorf("a refused GIF post left %d post documents, want 0", n)
 	}
 
 	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
@@ -69,10 +79,6 @@ func TestGIFChain_CreatePostGateWireAndDelete(t *testing.T) {
 	m := post.GetMedia()[0]
 	if m.GetContentType() != "image/gif" || !strings.HasSuffix(m.GetUrl(), ".gif") || !strings.HasSuffix(m.GetThumbUrl(), "_t.jpg") {
 		t.Fatalf("wire media = %v", m)
-	}
-	// Same cost as a photo post with one image (media_chain_integration_test.go): reads <= 5, writes 5.
-	if c := e.costOf(t, "/dzeroth.posts.v1.PostService/CreatePost"); c[0] > 5 || c[1] != 5 {
-		t.Errorf("CreatePost with a GIF = %v, want reads <= 5 and writes 5", c)
 	}
 
 	e.pull(t)

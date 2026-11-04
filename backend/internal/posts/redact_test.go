@@ -21,12 +21,12 @@ func TestServiceErrorsNeverCarryRawUids(t *testing.T) {
 	}{
 		{"create: load author", func(e *createEnv) error {
 			e.dir.profileErr = leak(testUID)
-			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
 			return err
 		}},
 		{"create: resolve mentions", func(e *createEnv) error {
 			e.dir.resolveErr = leak(testUID)
-			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi @bob"})
 			return err
 		}},
 		{"get: load author", func(e *createEnv) error {

@@ -162,8 +162,8 @@ func (s *service) SetMemberRole(ctx context.Context, uid string, in RoleInput) (
 
 func logBinding(uid, cid string) string { return logBindingLabel + "|" + uid + "|" + cid }
 
-// ListModerationLog implements Moderation. Order, cheapest first: the community id and the sealed page token (0 reads), the community
-// (cache or 1 read; missing and SUSPENDED are the one NOT_FOUND), the role (owner and moderators only; staleness bound 60 s, so a
+// ListModerationLog implements Moderation. Order, cheapest first: the community id and the sealed page token (checked before any read), the community
+// (cache first; missing and SUSPENDED are the one NOT_FOUND), the role (owner and moderators only; staleness bound 60 s, so a
 // moderator removed on another instance reads the log for at most a minute), then the live profiles of the people on the page. ARCHIVED
 // is readable. The token carries the last seq returned.
 func (s *service) ListModerationLog(ctx context.Context, uid string, in LogInput) (LogPage, error) {

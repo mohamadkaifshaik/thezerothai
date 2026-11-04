@@ -8,7 +8,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -50,18 +49,15 @@ var _ PlaceholderMigrator = (*FirestoreRepo)(nil)
 // Every write is a field-level Update carrying the LastUpdateTime of the document as read (a document changed meanwhile
 // fails the call with FailedPrecondition and the rerun re-reads it; nothing is ever recreated or overwritten with Set). No
 // rev, updatedAt or changedAt moves: no client-visible value changes, since the legacy value was never shown. A rerun finds
-// nothing and writes 0 (1 read for the empty query).
+// nothing and writes nothing.
 //
-// Reads: 1 per conversation returned by the query, 1 per matching message (+1 for a conversation's empty message query),
-// 1 for the entry probe; writes: at most 1 per matching message, entry and conversation. Dev only (the command refuses *-prod).
+// It writes at most once per matching message, entry and conversation. Dev only (the command refuses *-prod).
 func (r *FirestoreRepo) MigratePlaceholder(ctx context.Context, after string, dryRun bool) (PlaceholderPage, error) {
-	c := budget.FromContext(ctx)
 	q := r.client.Collection(conversationsCollection).Where("participants", "array-contains", legacyDeletedUID).OrderBy(firestore.DocumentID, firestore.Asc)
 	if after != "" {
 		q = q.StartAfter(r.convRef(after))
 	}
 	docs, err := q.Limit(migratePage).Documents(ctx).GetAll()
-	c.AddQueryReads(len(docs))
 	if err != nil {
 		return PlaceholderPage{}, redactErr(fmt.Errorf("messaging: migrate list conversations: %w", err), after)
 	}
@@ -83,7 +79,7 @@ func (r *FirestoreRepo) MigratePlaceholder(ctx context.Context, after string, dr
 			return out, err
 		}
 		if !dryRun {
-			b := store.NewFirestoreBatch(r.client, c)
+			b := store.NewFirestoreBatch(r.client)
 			b.Update(d.Ref, legacySwap(conv), firestore.LastUpdateTime(d.UpdateTime))
 			if cerr := b.Commit(ctx); cerr != nil {
 				return out, redactErr(fmt.Errorf("messaging: migrate conversation: %w", cerr), convID)
@@ -120,7 +116,6 @@ func legacySwap(conv ConvDoc) []firestore.Update {
 // migrateMessages rewrites senderId on every message of the conversation that holds the legacy value, in pages of 500, and
 // returns how many. In a dry run it counts them (all pages walked).
 func (r *FirestoreRepo) migrateMessages(ctx context.Context, convID string, dryRun bool) (int, error) {
-	c := budget.FromContext(ctx)
 	col := r.convRef(convID).Collection(messagesCollection)
 	total, cursor := 0, ""
 	for {
@@ -129,7 +124,6 @@ func (r *FirestoreRepo) migrateMessages(ctx context.Context, convID string, dryR
 			q = q.StartAfter(col.Doc(cursor))
 		}
 		docs, err := q.Limit(lifecyclePage).Documents(ctx).GetAll()
-		c.AddQueryReads(len(docs))
 		if err != nil {
 			return total, redactErr(fmt.Errorf("messaging: migrate list messages: %w", err), convID, cursor)
 		}
@@ -137,7 +131,7 @@ func (r *FirestoreRepo) migrateMessages(ctx context.Context, convID string, dryR
 			return total, nil
 		}
 		if !dryRun {
-			b := store.NewFirestoreBatch(r.client, c)
+			b := store.NewFirestoreBatch(r.client)
 			for _, d := range docs {
 				b.Update(d.Ref, []firestore.Update{{Path: "senderId", Value: DeletedUID}}, firestore.LastUpdateTime(d.UpdateTime))
 			}
@@ -154,7 +148,7 @@ func (r *FirestoreRepo) migrateMessages(ctx context.Context, convID string, dryR
 }
 
 // migrateEntry rewrites peerId on the surviving participant's own entry when it holds the legacy value; returns 1 when it
-// did (or, in a dry run, would). A conversation with no live participant (both gone) has no entry to fix. Reads 1.
+// did (or, in a dry run, would). A conversation with no live participant (both gone) has no entry to fix.
 func (r *FirestoreRepo) migrateEntry(ctx context.Context, conv ConvDoc, convID string, dryRun bool) (int, error) {
 	survivor := ""
 	for _, p := range conv.Participants {
@@ -165,10 +159,8 @@ func (r *FirestoreRepo) migrateEntry(ctx context.Context, conv ConvDoc, convID s
 	if survivor == "" {
 		return 0, nil
 	}
-	c := budget.FromContext(ctx)
 	ref := r.entryRef(survivor, convID, entryFolder(conv, survivor))
 	snap, err := ref.Get(ctx)
-	c.AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return 0, nil // the survivor deleted the conversation for themselves
 	}
@@ -183,7 +175,7 @@ func (r *FirestoreRepo) migrateEntry(ctx context.Context, conv ConvDoc, convID s
 		return 0, nil
 	}
 	if !dryRun {
-		b := store.NewFirestoreBatch(r.client, c)
+		b := store.NewFirestoreBatch(r.client)
 		b.Update(ref, []firestore.Update{{Path: "peerId", Value: DeletedUID}}, firestore.LastUpdateTime(snap.UpdateTime))
 		if cerr := b.Commit(ctx); cerr != nil {
 			return 0, redactErr(fmt.Errorf("messaging: migrate entry: %w", cerr), survivor, convID)

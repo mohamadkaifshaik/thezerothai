@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -143,7 +142,7 @@ func TestBookmarkServer_FlagMatrix(t *testing.T) {
 				want = tt.wantAdd
 			}
 			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ctx, _ := budget.WithCounter(uidCtx(tt.uid))
+				ctx := uidCtx(tt.uid)
 				err := c.call(bmServer(flags.NewRegistry(tt.reg...)), ctx)
 				if want {
 					assertPassedGate(t, err, c)

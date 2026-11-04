@@ -16,13 +16,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// TestE2E_UnverifiedAccountRotation_CostsNoReads (audit item 3, AC4): mint five unverified password accounts
+// TestE2E_UnverifiedAccountRotation_AnswersFromTokenClaims: mint five unverified password accounts
 // and rotate 20 calls over them, alternating GetMe and CheckHandleAvailability. Every call is answered from the
-// token claims (EMAIL_NOT_VERIFIED / PROFILE_REQUIRED) with fs_reads == 0, gate=email_unverified and no
+// token claims (EMAIL_NOT_VERIFIED / PROFILE_REQUIRED) with gate=email_unverified and no
 // limit_name. PerUserPerMinute = 1 and CheckHandle 1/min make the gate-before-limiter order observable: if any
 // minted uid reached the limiter, its second call would be RATE_LIMITED. A bank of minted uids therefore creates
-// no limiter state and no Firestore read.
-func TestE2E_UnverifiedAccountRotation_CostsNoReads(t *testing.T) {
+// no limiter state.
+func TestE2E_UnverifiedAccountRotation_AnswersFromTokenClaims(t *testing.T) {
 	skipIfNoEmulators(t)
 	const accounts, calls = 5, 20
 	log, logs := captureLogger()

@@ -15,11 +15,9 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// Emulator tests of the Scheduler over the real FirestoreRepo. Budgets are the service's own
-// reads: the SchedulePost proto numbers minus the account-status interceptor's cached profile read.
+// Emulator tests of the Scheduler over the real FirestoreRepo.
 
 type schedSvcIT struct {
 	*schedEnv
@@ -47,8 +45,8 @@ func newSchedSvcIT(t *testing.T, mut ...func(*ScheduleLimits)) *schedSvcIT {
 	}
 }
 
-func (e *schedSvcIT) ctx(uid string) (context.Context, *budget.Counter) {
-	return budget.WithCounter(googleCtx(context.Background(), uid))
+func (e *schedSvcIT) ctx(uid string) context.Context {
+	return googleCtx(context.Background(), uid)
 }
 
 // in builds a request for a distinct key n at schedNow + 1h + n*10min (outside every other item's +/-4 min window).
@@ -65,7 +63,7 @@ func (e *schedSvcIT) in(n int, mut ...func(*ScheduleInput)) ScheduleInput {
 
 func (e *schedSvcIT) mustSchedule(t *testing.T, uid string, in ScheduleInput) *ScheduledPost {
 	t.Helper()
-	ctx, _ := e.ctx(uid)
+	ctx := e.ctx(uid)
 	p, err := e.svc.Schedule(ctx, uid, in)
 	if err != nil {
 		t.Fatalf("Schedule(%s): %v", in.IdempotencyKey, err)
@@ -86,13 +84,12 @@ func (e *schedSvcIT) seedMedia(t *testing.T, owner string, ns ...int) {
 
 func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 	e := newSchedSvcIT(t)
-	ctx, _ := e.ctx("alice")
+	ctx := e.ctx("alice")
 	in := e.in(1, func(i *ScheduleInput) { i.PublishAt = i.PublishAt.Add(37 * time.Second) })
 	p, err := e.svc.Schedule(ctx, "alice", in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// doc 1 + pending count 1 + window count 1 + quotas 1; writes: the doc and quotas.schedules.
 	if p.Status != ScheduledPending || !p.PublishAt.Equal(p.PublishAt.Truncate(time.Minute)) {
 		t.Errorf("item = %+v", p)
 	}
@@ -107,10 +104,10 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 		t.Fatalf("schedules = %d, want 1", e.schedules(t, "alice"))
 	}
 
-	// A replay, even after the lead time passed: the stored item, 1 read, 0 writes, no quota charge.
+	// A replay, even after the lead time passed: the stored item, no quota charge.
 	late := e.svc
 	late.now = func() time.Time { return schedNow.Add(24 * time.Hour) }
-	rctx, _ := e.ctx("alice")
+	rctx := e.ctx("alice")
 	again, err := late.Schedule(rctx, "alice", in)
 	if err != nil || again.ID != p.ID {
 		t.Fatalf("replay = %+v, %v", again, err)
@@ -125,7 +122,7 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 		"another minute": func(i *ScheduleInput) { i.PublishAt = i.PublishAt.Add(time.Minute) },
 		"another text":   func(i *ScheduleInput) { i.Text = "different" },
 	} {
-		kctx, _ := e.ctx("alice")
+		kctx := e.ctx("alice")
 		_, err := e.svc.Schedule(kctx, "alice", e.in(1, mut))
 		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	}
@@ -136,7 +133,7 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 	} else if posts, _ := snap.DataAt("posts"); posts != int64(0) {
 		t.Errorf("quotas.posts = %v, want 0 (charged at publish)", posts)
 	}
-	lctx, _ := e.ctx("bob")
+	lctx := e.ctx("bob")
 	if page, err := e.svc.ListScheduled(lctx, "bob", 0, ""); err != nil || len(page.Items) != 0 {
 		t.Errorf("bob's list = %+v, %v", page, err)
 	}
@@ -147,7 +144,7 @@ func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
 	e.seedMedia(t, "alice", 1, 2, 3, 4)
 	e.seedMedia(t, "bob", 9)
 
-	ctx, _ := e.ctx("alice")
+	ctx := e.ctx("alice")
 	p, err := e.svc.Schedule(ctx, "alice", e.in(1, func(i *ScheduleInput) {
 		i.MediaIDs, i.MediaAltTexts = []string{itMediaID(1), itMediaID(2), itMediaID(3), itMediaID(4)}, []string{"a", "", "c", ""}
 	}))
@@ -160,7 +157,7 @@ func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
 
 	// Someone else's and unknown images are MEDIA_NOT_READY with nothing written and no quota spent.
 	for _, id := range map[string]string{"someone else's": itMediaID(9), "unknown": itMediaID(77)} {
-		mctx, _ := e.ctx("alice")
+		mctx := e.ctx("alice")
 		_, err := e.svc.Schedule(mctx, "alice", e.in(2, func(i *ScheduleInput) { i.MediaIDs = []string{id} }))
 		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 	}
@@ -169,9 +166,9 @@ func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
 	}
 
 	e.mustSchedule(t, "alice", e.in(3)) // 2 of 2
-	// At the cap the call costs 4 service reads (doc, pending, window, quotas) even with four images named: the cap
+	// At the cap the call is refused even with four images named: the cap
 	// is checked before the media read. Unknown ids prove it: a media read would answer MEDIA_NOT_READY instead.
-	cctx, _ := e.ctx("alice")
+	cctx := e.ctx("alice")
 	_, err = e.svc.Schedule(cctx, "alice", e.in(4, func(i *ScheduleInput) {
 		i.MediaIDs = []string{itMediaID(51), itMediaID(52), itMediaID(53), itMediaID(54)}
 	}))
@@ -194,7 +191,7 @@ func TestSchedulerIT_PendingAndWindowCaps(t *testing.T) {
 	e.mustSchedule(t, "alice", e.in(1, at(0)))
 	e.mustSchedule(t, "alice", e.in(2, at(1)))
 	e.mustSchedule(t, "alice", e.in(3, at(2)))
-	wctx, _ := e.ctx("alice")
+	wctx := e.ctx("alice")
 	_, err := e.svc.Schedule(wctx, "alice", e.in(4, at(3)))
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if ae.Metadata["limit"] != "scheduled_window" {
@@ -203,13 +200,13 @@ func TestSchedulerIT_PendingAndWindowCaps(t *testing.T) {
 	// doc 1 + pending count 1 + quotas 1 + window count 1 + the document of this key 1 (a full window is checked for a
 	// concurrent duplicate); documented 6 with the interceptor.
 	// +5 min from the last is outside every window; -4 min inclusive is inside.
-	octx, _ := e.ctx("alice")
+	octx := e.ctx("alice")
 	if _, err := e.svc.Schedule(octx, "alice", e.in(5, at(7))); err != nil { // 4th pending item; 7 is 5 min after 2
 		t.Fatalf("outside the window: %v", err)
 	}
 
 	// 4 pending = SCHEDULED_MAX_PENDING: the next one, far away from the others, hits the pending cap first.
-	pctx, _ := e.ctx("alice")
+	pctx := e.ctx("alice")
 	_, err = e.svc.Schedule(pctx, "alice", e.in(6, at(600)))
 	ae = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if ae.Metadata["limit"] != "scheduled_pending" {
@@ -217,16 +214,16 @@ func TestSchedulerIT_PendingAndWindowCaps(t *testing.T) {
 	}
 
 	// A replay of an existing key still answers with the caps full (L-6); a cancelled slot is free again.
-	rctx, _ := e.ctx("alice")
+	rctx := e.ctx("alice")
 	if again, err := e.svc.Schedule(rctx, "alice", e.in(1, at(0))); err != nil || again.Status != ScheduledPending {
 		t.Fatalf("replay with caps full = %+v, %v", again, err)
 	}
 	id1, _ := ScheduledID("alice", schedKeyFor(1))
-	cctx, _ := e.ctx("alice")
+	cctx := e.ctx("alice")
 	if _, err := e.svc.CancelScheduled(cctx, "alice", schedKeyFor(90), id1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.svc.Schedule(func() context.Context { c, _ := e.ctx("alice"); return c }(), "alice", e.in(6, at(600))); err != nil {
+	if _, err := e.svc.Schedule(e.ctx("alice"), "alice", e.in(6, at(600))); err != nil {
 		t.Fatalf("after freeing a slot: %v", err)
 	}
 }
@@ -253,7 +250,7 @@ func TestSchedulerIT_ListPagination(t *testing.T) {
 	var got []string
 	token := ""
 	for page := 0; page < 5; page++ {
-		ctx, _ := e.ctx("alice")
+		ctx := e.ctx("alice")
 		res, err := e.svc.ListScheduled(ctx, "alice", 2, token)
 		if err != nil {
 			t.Fatalf("page %d: %v", page, err)
@@ -270,17 +267,17 @@ func TestSchedulerIT_ListPagination(t *testing.T) {
 	}
 
 	// A token of another user, a garbage token, and a page_size over the maximum.
-	ctx, _ := e.ctx("alice")
+	ctx := e.ctx("alice")
 	first, err := e.svc.ListScheduled(ctx, "alice", 2, "")
 	if err != nil || first.NextPageToken == "" {
 		t.Fatal(err)
 	}
 	for name, tc := range map[string]struct{ uid, tok string }{"foreign": {"bob", first.NextPageToken}, "garbage": {"alice", "zzz"}} {
-		fctx, fc := e.ctx(tc.uid)
+		fctx := e.ctx(tc.uid)
 		_, err := e.svc.ListScheduled(fctx, tc.uid, 2, tc.tok)
 		ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 		if ae.Metadata["field"] != "page_token" {
-			t.Errorf("%s: field %q reads %d", name, ae.Metadata["field"], fc.Reads())
+			t.Errorf("%s: field %q", name, ae.Metadata["field"])
 		}
 	}
 	big, err := e.svc.ListScheduled(ctx, "alice", 5000, "")
@@ -300,14 +297,12 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 	e.seed(t, published)
 	bobs := e.mustSchedule(t, "bob", e.in(1))
 
-	cancel := func(uid, id string) (*ScheduledPost, *budget.Counter, error) {
-		ctx, c := e.ctx(uid)
-		p, err := e.svc.CancelScheduled(ctx, uid, schedKeyFor(99), id)
-		return p, c, err
+	cancel := func(uid, id string) (*ScheduledPost, error) {
+		return e.svc.CancelScheduled(e.ctx(uid), uid, schedKeyFor(99), id)
 	}
 
-	// PENDING -> CANCELLED: 1 read, 1 write, draft gone, TTL stamped.
-	got, _, err := cancel("alice", pending.ID)
+	// PENDING -> CANCELLED: draft gone, TTL stamped.
+	got, err := cancel("alice", pending.ID)
 	if err != nil || got.Status != ScheduledCancelled || got.Draft != nil {
 		t.Fatalf("cancel pending = %+v, %v", got, err)
 	}
@@ -319,17 +314,17 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 		t.Error("the draft survived the cancel")
 	}
 
-	// Again: idempotent by state, 0 writes.
-	got, _, err = cancel("alice", pending.ID)
+	// Again: idempotent by state.
+	got, err = cancel("alice", pending.ID)
 	if err != nil || got.Status != ScheduledCancelled {
 		t.Fatalf("second cancel = %+v, %v", got, err)
 	}
 
 	// FAILED is dismissed (founder decision), PUBLISHED is returned unchanged with its post id.
-	if got, _, err = cancel("alice", failed.ID); err != nil || got.Status != ScheduledCancelled {
+	if got, err = cancel("alice", failed.ID); err != nil || got.Status != ScheduledCancelled {
 		t.Fatalf("cancel failed = %+v, %v", got, err)
 	}
-	got, _, err = cancel("alice", published.ID)
+	got, err = cancel("alice", published.ID)
 	if err != nil || got.Status != ScheduledPublished || got.PostID != published.PostID {
 		t.Fatalf("cancel published = %+v, %v", got, err)
 	}
@@ -338,8 +333,8 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 	}
 
 	// Unknown and another user's id are the same NOT_FOUND; bob's item is untouched.
-	_, _, errUnknown := cancel("alice", "0123456789abcdef0123456789abcdef")
-	_, _, errForeign := cancel("alice", bobs.ID)
+	_, errUnknown := cancel("alice", "0123456789abcdef0123456789abcdef")
+	_, errForeign := cancel("alice", bobs.ID)
 	a := wantAPIError(t, errUnknown, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	b := wantAPIError(t, errForeign, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if a.Message != b.Message {
@@ -351,7 +346,7 @@ func TestSchedulerIT_Cancel(t *testing.T) {
 
 	// Malformed input never reaches Firestore.
 	for _, tc := range []struct{ key, id string }{{schedKeyFor(1), "NOT-HEX"}, {"short", pending.ID}} {
-		ctx, _ := e.ctx("alice")
+		ctx := e.ctx("alice")
 		_, err := e.svc.CancelScheduled(ctx, "alice", tc.key, tc.id)
 		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 	}
@@ -375,7 +370,7 @@ func TestSchedulerIT_ConcurrentDuplicates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			ctx, _ := e.ctx("alice")
+			ctx := e.ctx("alice")
 			p, err := e.svc.Schedule(ctx, "alice", in)
 			mu.Lock()
 			defer mu.Unlock()

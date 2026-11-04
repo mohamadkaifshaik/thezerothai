@@ -3,7 +3,7 @@
 package apiserver
 
 // GIF finalize over the real Build chain with the real Storage emulator: FinalizeUpload of a GIF (read, pre-scan,
-// sampled sheet, publish, delete), then CreatePost, the wire shape, the cost against a photo's, SchedulePost's refusal and
+// sampled sheet, publish, delete), then CreatePost, the wire shape, SchedulePost's refusal and
 // DeletePost -> post_delete removing the public objects.
 //
 // A signed PUT URL cannot be minted against the emulators (no signing credentials), so the PENDING document that CreateUpload
@@ -216,7 +216,6 @@ func TestGIFChain_FinalizePostScheduleAndDelete(t *testing.T) {
 	if _, err := finalize("gif-fin-photo-00000001", photo); err != nil {
 		t.Fatalf("finalize photo: %v", err)
 	}
-	photoCost := g.costOf(t, "/dzeroth.media.v1.MediaService/FinalizeUpload")
 	photoUnits := g.visionUnits(t)
 
 	gid := g.uploadGIF(t, a, "g1")
@@ -235,10 +234,6 @@ func TestGIFChain_FinalizePostScheduleAndDelete(t *testing.T) {
 	// Vision: 2 units for the GIF (sheet + thumbnail); a photo is 1 (the thumbnail is not screened by default).
 	if got := g.visionUnits(t) - photoUnits; got != 2 {
 		t.Errorf("GIF vision units = %d, want 2 (photo spent %d)", got, photoUnits)
-	}
-	// Firestore cost: unchanged against a photo's finalize ("Firestore unchanged").
-	if gifCost := g.costOf(t, "/dzeroth.media.v1.MediaService/FinalizeUpload"); gifCost[1] != photoCost[1] || gifCost[0] > photoCost[0] { // reads: the photo run also loaded the Vision counter into the instance cache
-		t.Errorf("FinalizeUpload cost gif %v, photo %v: the GIF path must write the same documents and read no more", gifCost, photoCost)
 	}
 	// Storage: the private pair is gone, the public pair is there with the right types.
 	for _, o := range []string{"u/" + a.uid + "/" + gid + ".gif", "u/" + a.uid + "/" + gid + "_t.jpg"} {
@@ -277,8 +272,8 @@ func TestGIFChain_FinalizePostScheduleAndDelete(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != "media_ids" {
 		t.Fatalf("gif+photo: reason %v metadata %v, want VALIDATION media_ids", d.GetReason(), d.GetMetadata())
 	}
-	if c := g.costOf(t, "/dzeroth.posts.v1.PostService/CreatePost"); c[1] != 0 {
-		t.Errorf("refused GIF+photo wrote %v documents, want 0", c[1])
+	if n := g.countWhere(t, "posts", "authorId", a.uid); n != 0 {
+		t.Errorf("refused GIF+photo left %d post documents, want 0", n)
 	}
 	// SchedulePost with the GIF: refused the same way.
 	_, err = g.posts.SchedulePost(ctx, authed(a.token, &postsv1.SchedulePostRequest{
@@ -297,9 +292,6 @@ func TestGIFChain_FinalizePostScheduleAndDelete(t *testing.T) {
 	post := pr.Msg.GetPost().GetPost()
 	if m := post.GetMedia(); len(m) != 1 || m[0].GetContentType() != "image/gif" || m[0].GetUrl() != ref.GetUrl() {
 		t.Fatalf("post media = %v", m)
-	}
-	if c := g.costOf(t, "/dzeroth.posts.v1.PostService/CreatePost"); c[0] > 5 || c[1] != 5 {
-		t.Errorf("CreatePost with a GIF = %v, want reads <= 5 and writes 5 (the photo budget)", c)
 	}
 
 	// DeletePost -> post_delete removes the public objects, not just the document.
@@ -337,7 +329,7 @@ func TestGIFChain_CreateUploadGatesOverTheWire(t *testing.T) {
 	}
 	post := mediav1.MediaPurpose_MEDIA_PURPOSE_POST
 
-	t.Run("flag off: FEATURE_DISABLED with 0 reads and 0 writes", func(t *testing.T) {
+	t.Run("flag off: FEATURE_DISABLED and no upload document", func(t *testing.T) {
 		e := newLifecycleEnvCfg(t, nil, mediaOn)
 		a := e.newUser(t)
 		mc := mediav1connect.NewMediaServiceClient(http.DefaultClient, e.url)
@@ -346,8 +338,8 @@ func TestGIFChain_CreateUploadGatesOverTheWire(t *testing.T) {
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "gif" {
 			t.Fatalf("reason %v metadata %v", d.GetReason(), d.GetMetadata())
 		}
-		if c := e.costOf(t, "/dzeroth.media.v1.MediaService/CreateUpload"); c[0] != 0 || c[1] != 0 {
-			t.Errorf("a disabled GIF CreateUpload cost %v, want 0 reads and 0 writes", c)
+		if n := e.countWhere(t, "media", "ownerId", a.uid); n != 0 {
+			t.Errorf("a disabled GIF CreateUpload left %d media documents, want 0", n)
 		}
 	})
 

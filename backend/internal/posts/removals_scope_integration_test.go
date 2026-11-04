@@ -4,65 +4,74 @@ package posts
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// refreshReads is the shared refresh's reads the request logged (the refresh runs under a detached counter, RID-4).
-func refreshReads(info *logger.RequestInfo) int64 {
-	v, ok := info.Get("removal_log_reads")
-	if !ok {
-		return 0
-	}
-	n, _ := v.(int64)
-	return n
+// queryRecorder wraps a RemovalSource and records which query each call ran.
+type queryRecorder struct {
+	RemovalSource
+	names []string
 }
 
-// TestRemovalLog_SharedInstantBurstBudget is the B1 regression on the real repo, per feed (amendment 2026-10-18 (b)):
-// a 120-entry single-timestamp burst by "spammer" costs the cold load once and one read per TTL after it; a viewer
-// who does not show the spammer is never reset and pays only the 1-read window query; the spammer's own feed resets.
-func TestRemovalLog_SharedInstantBurstBudget(t *testing.T) {
+func (q *queryRecorder) Newest(ctx context.Context, floor time.Time, limit int) ([]RemovalEntry, error) {
+	q.names = append(q.names, "newest")
+	return q.RemovalSource.Newest(ctx, floor, limit)
+}
+
+func (q *queryRecorder) After(ctx context.Context, afterAt time.Time, afterID string, limit int) ([]RemovalEntry, error) {
+	q.names = append(q.names, "after")
+	return q.RemovalSource.After(ctx, afterAt, afterID, limit)
+}
+
+func (q *queryRecorder) Window(ctx context.Context, authors []string, after, upTo time.Time, limit int) ([]RemovalEntry, error) {
+	q.names = append(q.names, "window")
+	return q.RemovalSource.Window(ctx, authors, after, upTo, limit)
+}
+
+// TestRemovalLog_SharedInstantBurst is the B1 regression on the real repo, per feed (amendment 2026-10-18 (b)):
+// a 120-entry single-timestamp burst by "spammer" loads the cache once and every TTL after it is only an incremental
+// query; a viewer who does not show the spammer is never reset; the spammer's own feed resets.
+func TestRemovalLog_SharedInstantBurst(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
 	seedSharedInstantRemovals(t, repo, 120)
 
 	now := time.Now()
 	// The real clock may sit before defaultRemovalAuthorScopedFrom; move the cutover before the window.
-	log := NewRemovalLog(repo, time.Minute, func() time.Time { return now }, WithAuthorScopedFromForTest(now.Add(-24*time.Hour)))
+	rec := &queryRecorder{RemovalSource: repo}
+	log := NewRemovalLog(rec, time.Minute, func() time.Time { return now }, WithAuthorScopedFromForTest(now.Add(-24*time.Hour)))
 	cutoff := now.Add(-time.Hour)
-	call := func(authors ...string) (ids []string, trunc bool, reqReads, refresh int64) {
-		ictx, info := logger.WithRequestInfo(context.Background())
-		ctx, c := budget.WithCounter(ictx)
-		ids, trunc, err := log.RemovedSince(ctx, cutoff, RemovalScope{Authors: authors})
+	call := func(authors ...string) (ids []string, trunc bool, queries []string) {
+		before := len(rec.names)
+		ids, trunc, err := log.RemovedSince(context.Background(), cutoff, RemovalScope{Authors: authors})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ids, trunc, c.Reads(), refreshReads(info)
+		return ids, trunc, append([]string(nil), rec.names[before:]...)
 	}
 
-	ids, trunc, req, refresh := call("viewer")
+	ids, trunc, queries := call("viewer")
 	if trunc || len(ids) != 0 {
 		t.Fatalf("viewer that does not show the spammer: ids=%d trunc=%v, want none/false", len(ids), trunc)
 	}
-	if refresh != RemovalMaxIDs || req != 1 {
-		t.Fatalf("cold: refresh reads=%d (want %d, detached) request reads=%d (want 1: the empty window query)", refresh, RemovalMaxIDs, req)
+	if len(queries) == 0 || queries[0] != "newest" {
+		t.Fatalf("cold: queries = %v, want the cache loaded by a newest query first", queries)
 	}
-	if _, trunc, req, refresh = call("spammer"); !trunc || refresh != 0 || req > RemovalWindowWorstReads {
-		t.Fatalf("spammer's own feed: trunc=%v refresh=%d request reads=%d, want a reset within %d reads", trunc, refresh, req, RemovalWindowWorstReads)
+	if _, trunc, _ = call("spammer"); !trunc {
+		t.Fatal("the spammer's own feed must be reset (120 ids cannot be listed)")
 	}
 	for step := 1; step <= 5; step++ {
 		now = now.Add(time.Minute)
-		if _, trunc, _, refresh = call("viewer"); trunc || refresh != 1 {
-			t.Fatalf("TTL step %d: trunc=%v refresh reads=%d, want false/1", step, trunc, refresh)
+		if _, trunc, queries = call("viewer"); trunc || len(queries) == 0 || queries[0] != "after" || slices.Contains(queries, "newest") {
+			t.Fatalf("TTL step %d: trunc=%v queries=%v, want false and an incremental after query without a reload", step, trunc, queries)
 		}
 	}
 }
 
 // TestRemovalSource_WindowScopesByAuthor runs the per-feed window query on the emulator: author filter (== for one
-// author, in for several), the (after, upTo] bounds, newest first, the Limit and the read charge.
+// author, in for several), the (after, upTo] bounds, newest first, and the Limit.
 func TestRemovalSource_WindowScopesByAuthor(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -75,19 +84,16 @@ func TestRemovalSource_WindowScopesByAuthor(t *testing.T) {
 	}
 	after, upTo := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
 
-	cctx, _ := budget.WithCounter(ctx)
-	got, err := repo.Window(cctx, []string{"bob"}, after, upTo, 10)
+	got, err := repo.Window(ctx, []string{"bob"}, after, upTo, 10)
 	if err != nil || len(got) != 2 || got[0].AuthorID != "bob" {
 		t.Fatalf("one author: %+v err=%v", got, err)
 	}
 
-	cctx, _ = budget.WithCounter(ctx)
-	if got, err = repo.Window(cctx, []string{"alice", "bob", "nobody"}, after, upTo, 10); err != nil || len(got) != 3 {
+	if got, err = repo.Window(ctx, []string{"alice", "bob", "nobody"}, after, upTo, 10); err != nil || len(got) != 3 {
 		t.Fatalf("in: %+v err=%v", got, err)
 	}
 
-	cctx, _ = budget.WithCounter(ctx)
-	if got, err = repo.Window(cctx, []string{"alice", "bob"}, after, upTo, 2); err != nil || len(got) != 2 {
+	if got, err = repo.Window(ctx, []string{"alice", "bob"}, after, upTo, 2); err != nil || len(got) != 2 {
 		t.Fatalf("limit: %+v err=%v", got, err)
 	}
 
@@ -99,8 +105,7 @@ func TestRemovalSource_WindowScopesByAuthor(t *testing.T) {
 	if got, err = repo.Window(ctx, []string{"alice", "bob"}, after, at, 10); err != nil || len(got) == 0 {
 		t.Fatalf("upTo == createdAt must include: %+v err=%v", got, err)
 	}
-	cctx, _ = budget.WithCounter(ctx)
-	if got, err = repo.Window(cctx, []string{"nobody"}, after, upTo, 10); err != nil || len(got) != 0 {
+	if got, err = repo.Window(ctx, []string{"nobody"}, after, upTo, 10); err != nil || len(got) != 0 {
 		t.Fatalf("empty: %+v err=%v", got, err)
 	}
 }
@@ -139,7 +144,7 @@ func TestRemovalLog_WritersStampTheAuthor(t *testing.T) {
 }
 
 // TestPurgeUser_DeletesTheUsersRemovalEntries (right to delete): phase 2 removes exactly the entries
-// whose authorId is the user, after the copies phase; other authors' entries stay. Deletes one per entry.
+// whose authorId is the user, after the copies phase; other authors' entries stay.
 func TestPurgeUser_DeletesTheUsersRemovalEntries(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -153,7 +158,7 @@ func TestPurgeUser_DeletesTheUsersRemovalEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	cp, done, calls := Checkpoint{}, false, 0
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	for !done && calls < 10 {
 		var err error
 		if cp, done, err = repo.PurgeUser(ctx, "u-gone", cp); err != nil {

@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -29,12 +28,11 @@ func TestCommitWithRetry(t *testing.T) {
 		wantCommits   int
 		wantAttempts  int
 		wantCeilings  []time.Duration
-		wantWrites    int64
 	}{
-		{name: "first try", results: []error{nil}, wantCommitted: true, wantCommits: 1, wantAttempts: 1, wantWrites: 1},
+		{name: "first try", results: []error{nil}, wantCommitted: true, wantCommits: 1, wantAttempts: 1},
 		{name: "wins after contention", results: []error{aborted, aborted, nil}, wantCommitted: true, wantCommits: 3, wantAttempts: 3,
-			wantCeilings: []time.Duration{10, 20}, wantWrites: 1},
-		{name: "precondition failed is a 0-write no-op", results: []error{aborted, notFound}, wantCommits: 2, wantAttempts: 2, wantCeilings: []time.Duration{10}},
+			wantCeilings: []time.Duration{10, 20}},
+		{name: "precondition failed is a no-op", results: []error{aborted, notFound}, wantCommits: 2, wantAttempts: 2, wantCeilings: []time.Duration{10}},
 		{name: "exhausted", results: []error{aborted, aborted, aborted, aborted}, wantCommits: 4, wantAttempts: 4,
 			wantCeilings: []time.Duration{10, 20, 40}, wantErr: func(e error) bool { return errors.Is(e, ErrContended) }},
 		{name: "other error not retried", results: []error{boom}, wantCommits: 1, wantAttempts: 1,
@@ -47,11 +45,10 @@ func TestCommitWithRetry(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			ctx, counter := budget.WithCounter(ctx)
-			commits := 0
+			commits, newBatches, builds := 0, 0, 0
 			var ceilings []time.Duration
 			res, err := CommitWithRetry(ctx,
-				func(c *budget.Counter) *FirestoreBatch { return NewFirestoreBatch(&firestore.Client{}, c) },
+				func() *FirestoreBatch { newBatches++; return NewFirestoreBatch(&firestore.Client{}) },
 				RetryConfig{
 					MaxAttempts: 4, Backoff: 10,
 					Commit: func(context.Context, *FirestoreBatch) error {
@@ -66,7 +63,7 @@ func TestCommitWithRetry(t *testing.T) {
 						return ctx.Err()
 					},
 				},
-				func(b Batch) { b.Delete((&firestore.Client{}).Doc("c/d")) })
+				func(b Batch) { builds++; b.Delete((&firestore.Client{}).Doc("c/d")) })
 			if res.Committed != tt.wantCommitted || res.Attempts != tt.wantAttempts || commits != tt.wantCommits {
 				t.Errorf("committed/attempts/commits = %v/%d/%d", res.Committed, res.Attempts, commits)
 			}
@@ -76,8 +73,9 @@ func TestCommitWithRetry(t *testing.T) {
 			if tt.wantCeilings != nil && fmt.Sprint(ceilings) != fmt.Sprint(tt.wantCeilings) {
 				t.Errorf("ceilings = %v, want %v", ceilings, tt.wantCeilings)
 			}
-			if counter.Deletes() != tt.wantWrites {
-				t.Errorf("deletes = %d, want %d", counter.Deletes(), tt.wantWrites)
+			// Every attempt starts a fresh batch and rebuilds it, so a retried commit never carries the failed attempt's operations.
+			if newBatches != tt.wantCommits || builds != tt.wantCommits {
+				t.Errorf("new batches/builds = %d/%d, want one each per commit (%d)", newBatches, builds, tt.wantCommits)
 			}
 		})
 	}

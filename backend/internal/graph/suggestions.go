@@ -23,11 +23,10 @@ const FollowSuggestionsFlagName = "follow_suggestions"
 type SuggestionLimits struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query (<= 30).
 	SampleFollowees int
-	// EdgeLimit is the Limit of that query (<= 50; 0 means the config default 20). It sets the cold cap: 2 + EdgeLimit +
-	// HydrateMax = 32 reads at the defaults, 42 at 30.
+	// EdgeLimit is the Limit of that query (<= 50; 0 means the config default 20). It bounds the cold path together with
+	// HydrateMax.
 	EdgeLimit int
-	// HydrateMax is the most candidates hydrated through identity.Directory (<= 50). The curated path costs 2 + HydrateMax =
-	// 12 at the default 10; a warm call costs 1 to 2.
+	// HydrateMax is the most candidates hydrated through identity.Directory (<= 50). The curated path skips the edge query.
 	HydrateMax int
 	// MaxResults is the most users one call returns (<= 5, the proto clamp).
 	MaxResults int
@@ -47,13 +46,10 @@ type SuggestionLimits struct {
 // candidates (non-ACTIVE and deleted users drop out), then the cache. The "fewer than 3" decision between friends of
 // friends and the curated list is made inside the Suggester, after the exclusion matrix.
 //
-// Firestore: hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= HydrateMax 10;
-// 2 + EdgeLimit + HydrateMax, so 42 only if a project sets EdgeLimit 30), 12 on the curated
-// path (1 + 1 + 10; the edge query is skipped when the caller follows fewer than 3 accounts), 1 warm (the interceptor;
-// the cache holds the hydrated rows) or 2 warm when the viewer's 60 s snapshot has expired (the re-filter loads
-// graph/{viewer} once, L-1), planning 27.6 per call (0.95 x (0.85 x 32 + 0.15 x 12) + 0.05 x 1.5); 0 writes. This
-// method itself accounts for the reads past the interceptor: 31 cold worst, 0 warm with a cached snapshot, 1 warm
-// without. Request log: source (fof | curated | none), candidates (uids sent to hydration), suggestions_cache_hit,
+// Reads are bounded: the caller graph, at most EdgeLimit follow edges and at most HydrateMax hydrated profiles; the
+// curated path skips the edge query (the caller follows fewer than 3 accounts). A warm hit serves the cached
+// hydrated rows and only re-filters them, which loads graph/{viewer} once when the viewer's 60 s snapshot has
+// expired (L-1). It writes nothing. Request log: source (fof | curated | none), candidates (uids sent to hydration), suggestions_cache_hit,
 // graph_cache_hit.
 //
 // Staleness: a viewer's rows may be up to SUGGESTIONS_CACHE_TTL (1 h) old as to who is ACTIVE or still exists, but
@@ -128,14 +124,14 @@ func (s *service) usableCandidates(viewer string, snap Snapshot, candidates []st
 }
 
 // refilterCached drops, from a warm hit's rows, whoever the viewer's snapshot now excludes (L-1). The snapshot
-// comes from s.Snapshot: the 60 s snapshot cache when it holds one (0 reads), else ONE read of graph/{viewer}, which
+// comes from s.Snapshot: the 60 s snapshot cache when it holds one, else ONE read of graph/{viewer}, which
 // is then cached for 60 s like every other read path. So a user who blocked the viewer on another
 // instance, or whom the viewer followed or blocked elsewhere, is gone from the answer within 60 s, never after the
 // 1 h entry. The entry itself is not rewritten: it keeps its original expiry.
 //
 // Fails closed: a snapshot read error is returned (the caller maps it exactly as on the cold path) rather than served
 // as an empty list, because the client keeps an OK answer for 24 h and would store "no suggestions"; an overflowed
-// blockedBy (a blocker cannot be ruled out at 0 reads) yields no rows. Returns a new slice.
+// blockedBy (a blocker cannot be ruled out without a read) yields no rows. Returns a new slice.
 func (s *service) refilterCached(ctx context.Context, viewer string, items []ListItem) ([]ListItem, error) {
 	snap, err := s.Snapshot(ctx, viewer)
 	if err != nil {

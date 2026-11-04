@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -40,9 +39,9 @@ type TakedownResult struct {
 // Moderator is messaging's operator seam: `opsctl messages takedown` takes one message down. The
 // FirestoreRepo implements it; it is not part of the Repo the service uses.
 type Moderator interface {
-	// TakedownMessage tombstones one message. Reads: the message 1, and for a VISIBLE one the conversation 1 and each
-	// participant's entry that still exists (at most 2); writes: the message 1, the conversation 1 (revision) and each entry
-	// whose preview is that message (at most 2), so at most 4 reads and 4 writes; a repeat 1 read, 0 writes. Returns ErrNotFound for a message or conversation that does not exist.
+	// TakedownMessage tombstones one message. It reads the message, and for a VISIBLE one the conversation and each
+	// participant's entry that still exists (at most 2); it writes the message, the conversation (revision) and each entry
+	// whose preview is that message (at most 2); a repeat writes nothing. Returns ErrNotFound for a message or conversation that does not exist.
 	TakedownMessage(ctx context.Context, convID, msgID string, dryRun bool) (TakedownResult, error)
 }
 
@@ -57,7 +56,7 @@ var _ Moderator = (*FirestoreRepo)(nil)
 // forward, the message `removedAt`, and each rewritten entry `changedAt` in server time (the next ListConversations since
 // refresh returns it). The revision is bumped even when no entry previews the message.
 //
-// Idempotent: a message that is already REMOVED or DELETED_ACCOUNT is left alone (1 read, 0 writes). A participant that is
+// Idempotent: a message that is already REMOVED or DELETED_ACCOUNT is left alone. A participant that is
 // the DeletedUID placeholder, or whose entry no longer exists (deleted for themselves), is skipped. The tombstone keeps
 // senderId, so the sender's own account deletion later finds the message through `senderId == uid` and keeps the REMOVED
 // state (TombstonePage, whose writes carry the document's LastUpdateTime, so a takedown that commits during a page is never
@@ -75,10 +74,8 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 		func(ctx context.Context, tx *firestore.Transaction) error {
 			out = TakedownResult{}
 			r.hooks.takedownRunStart()
-			c := budget.FromContext(ctx)
 
 			msnap, err := tx.Get(r.msgRef(convID, msgID))
-			c.AddReads(1)
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
 			}
@@ -96,7 +93,6 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 			out.After = msgRemoved
 
 			csnap, err := tx.Get(r.convRef(convID))
-			c.AddReads(1)
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound // a message without its conversation is part of a tree being deleted
 			}
@@ -116,7 +112,6 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 				}
 				ref := r.entryRef(uid, convID, entryFolder(conv, uid))
 				esnap, eerr := tx.Get(ref)
-				c.AddReads(1)
 				if status.Code(eerr) == codes.NotFound {
 					continue // the participant deleted the conversation for themselves
 				}
@@ -139,7 +134,7 @@ func (r *FirestoreRepo) TakedownMessage(ctx context.Context, convID, msgID strin
 				return nil
 			}
 
-			b := store.NewFirestoreTxBatch(tx, c)
+			b := store.NewFirestoreTxBatch(tx)
 			b.Update(r.msgRef(convID, msgID), []firestore.Update{
 				{Path: "state", Value: msgRemoved}, {Path: "text", Value: ""}, {Path: "requestHash", Value: ""},
 				{Path: "removedAt", Value: firestore.ServerTimestamp},

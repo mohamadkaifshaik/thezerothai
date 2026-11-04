@@ -250,7 +250,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		fcm := notifications.NewFCMSender(fbApp)
 		pushSender, tokenValidator = fcm, fcm // one lazily created messaging client for sends and dry runs
 	}
-	// N-1: the per-actor recipient cap. "New account" is decided with 0 reads from actorAges, which the account-status
+	// N-1: the per-actor recipient cap. "New account" is decided from actorAges without a read, which the account-status
 	// adapter fills on every authenticated request (graph Follow and post create evict the actor's cached profile just
 	// before they emit, so a cache peek at emit time would always miss), falling back to a profile cache peek. An
 	// unknown actor counts as established: the stricter tier is best effort, never a read.
@@ -333,8 +333,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			// new (and the profile cache entry is evicted right after the publish): hand it the createdAt the publish read.
 			RecordAuthorAge: actorAges.Record,
 			Limits: posts.SweepLimits{
-				PerAuthorPerRun: cfg.Scheduled.PerAuthorPerRun, AuthorReadsWarn: cfg.Scheduled.AuthorReadsWarn,
-				Limit: cfg.Scheduled.SweepLimit, MaxPages: cfg.Scheduled.SweepMaxPages, Concurrency: cfg.Scheduled.SweepConcurrency,
+				PerAuthorPerRun: cfg.Scheduled.PerAuthorPerRun,
+				Limit:           cfg.Scheduled.SweepLimit, MaxPages: cfg.Scheduled.SweepMaxPages, Concurrency: cfg.Scheduled.SweepConcurrency,
 				MaxLateness: cfg.Scheduled.MaxLateness, MaxAttempts: cfg.Scheduled.MaxAttempts, TerminalTTL: cfg.Scheduled.TerminalTTL,
 			},
 		},
@@ -423,7 +423,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned}))
 
 	// SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
-	// block test is the held graph snapshot, 0 reads), exactly as the timelines do.
+	// block test is the held graph snapshot, no read), exactly as the timelines do.
 	searchAudience := posts.NewSnapshotAudience(protectedAuthors)
 
 	// L-5: every module reads a nil loader or audience as "nobody is protected", so a refactor that drops one seam
@@ -660,7 +660,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Communities: all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
-	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity,
+	// feature=communities) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity,
 	// LeaveCommunity and ListMyCommunities run the service; replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
 	communitiesSvc := communities.New(communities.Deps{
 		// A committed restore drops this instance's shared feed entry (timeline is built above; communities never imports it).
@@ -693,7 +693,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	// Search and trends: FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
-	// each FEATURE_DISABLED with 0 Firestore reads. SearchPeople reads identity.Directory.SearchHandles through a
+	// each FEATURE_DISABLED without any Firestore read. SearchPeople reads identity.Directory.SearchHandles through a
 	// shared prefix cache and filters with the caller's graph snapshot. SearchPosts reads
 	// posts.Reader.ByHashtag and decides every row through a snapshot-based posts.Audience over the one protected-set
 	// loader. GetTrends reads trends/current through a 10 min instance copy; the refresher is the
@@ -738,9 +738,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		trendsRefresher,
 	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
-	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
-	// budget counter and panic recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
-	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204 with 0 reads.
+	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic
+	// recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
+	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204.
 	routes.internal("/internal/cron/publish-scheduled", posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
@@ -752,7 +752,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// flood is rejected before it costs any App Check / ID token JWT-verify CPU (that verification happens
 	// only once a request reaches a Connect handler's own interceptor chain inside mux, below this layer).
 	// This is a *different* Limiter instance from the one ratelimit.Interceptor uses above (rlIP): a
-	// request is never double-charged against the same bucket for the two layers.
+	// request is never counted twice against the same bucket for the two layers.
 	//
 	// Hardening: http.MaxBytesHandler caps the raw request-body bytes read off the socket (before any
 	// decompression) for every route on mux, using the same limits.MaxRequestBytes as

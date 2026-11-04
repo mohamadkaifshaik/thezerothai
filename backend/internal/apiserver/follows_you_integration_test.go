@@ -5,7 +5,7 @@ package apiserver
 // GraphService.GetProfileRelationship, "Follows you", over the real Build chain on the emulators.
 // The graph package has the module-level matrix (TestW311_*); this file proves the same rules through the production
 // chain (interceptors, flag gate, rate-limit config, error mapping, request log): the full relationship matrix with real
-// Follow / Block / Mute calls, the budget in the order a profile header uses it (GetProfile, then the relationship call),
+// Follow / Block / Mute calls, the calls in the order a profile header makes them (GetProfile, then the relationship call),
 // the pair-cache eviction on the TARGET's Follow and Unfollow and on a Block in both directions, and the staleness
 // bound across two instances (the other instance converges within CACHE_TTL; a short TTL here makes that checkable).
 // NOT_FOUND byte identity for missing, SUSPENDED, DELETING and blocking targets is asserted in
@@ -55,9 +55,7 @@ func (e *bmChain) w320Block(t *testing.T, who bmUser, target string) {
 }
 
 // TestW320_FollowsYouMatrix: eleven relationship states, each built with the real RPCs on a writer chain and read on a
-// cold reader through the header sequence (GetProfile of the target, then GetProfileRelationship). Cold cost: 3 reads
-// after the header's GetProfile warmed the target (interceptor, caller graph, edge doc), +1 on overflow, 1
-// when the answer is the blocked-by refusal (the caller graph; no edge, no Directory read), 0 for the caller's own id.
+// cold reader through the header sequence (GetProfile of the target, then GetProfileRelationship).
 func TestW320_FollowsYouMatrix(t *testing.T) {
 	ctx := context.Background()
 	type want struct {
@@ -71,33 +69,32 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 		name  string
 		setup func(t *testing.T, w *w320Chain, v, tg bmUser)
 		want  want
-		reads int64
 	}{
-		{"no relation", func(t *testing.T, w *w320Chain, v, tg bmUser) {}, want{none, false, false, false}, 3},
-		{"the target follows the caller", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, tg, v.uid) }, want{none, false, false, true}, 3},
-		{"the caller follows the target only", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, v, tg.uid) }, want{following, false, false, false}, 3},
-		{"mutual follow", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, v, tg.uid); w.w320Follow(t, tg, v.uid) }, want{following, false, false, true}, 3},
+		{"no relation", func(t *testing.T, w *w320Chain, v, tg bmUser) {}, want{none, false, false, false}},
+		{"the target follows the caller", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, tg, v.uid) }, want{none, false, false, true}},
+		{"the caller follows the target only", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, v, tg.uid) }, want{following, false, false, false}},
+		{"mutual follow", func(t *testing.T, w *w320Chain, v, tg bmUser) { w.w320Follow(t, v, tg.uid); w.w320Follow(t, tg, v.uid) }, want{following, false, false, true}},
 		{"the caller mutes the target, who follows the caller", func(t *testing.T, w *w320Chain, v, tg bmUser) {
 			w.w320Follow(t, tg, v.uid)
 			if _, err := w.graph.Mute(ctx, authed(v.token, &graphv1.MuteRequest{IdempotencyKey: contractKey("w320-m"), UserId: tg.uid})); err != nil {
 				t.Fatal(err)
 			}
-		}, want{none, false, true, true}, 3},
+		}, want{none, false, true, true}},
 		{"the caller blocks a target who had followed them: Block removed the edge, no edge read", func(t *testing.T, w *w320Chain, v, tg bmUser) {
 			w.w320Follow(t, tg, v.uid)
 			w.w320Block(t, v, tg.uid)
-		}, want{none, true, false, false}, 2},
+		}, want{none, true, false, false}},
 		{"block then unblock: the edge does not come back", func(t *testing.T, w *w320Chain, v, tg bmUser) {
 			w.w320Follow(t, tg, v.uid)
 			w.w320Block(t, v, tg.uid)
 			if _, err := w.graph.Unblock(ctx, authed(v.token, &graphv1.UnblockRequest{IdempotencyKey: contractKey("w320-ub"), UserId: tg.uid})); err != nil {
 				t.Fatal(err)
 			}
-		}, want{none, false, false, false}, 3},
+		}, want{none, false, false, false}},
 		{"unfollow removes the edge", func(t *testing.T, w *w320Chain, v, tg bmUser) {
 			w.w320Follow(t, tg, v.uid)
 			w.w320Unfollow(t, tg, v.uid)
-		}, want{none, false, false, false}, 3},
+		}, want{none, false, false, false}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newW320Chain(t, nil)
@@ -115,14 +112,14 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 				rel.GetMuting() != tc.want.muting || got.GetFollowedBy() != tc.want.followedBy {
 				t.Errorf("answer = %v, want %+v", got, tc.want)
 			}
-			// A repeat is free: the snapshot and the pair are cached, the interceptor is warm.
+			// A repeat is answered from the cache.
 			if _, err := r.w320Rel(v, tg.uid); err != nil {
 				t.Fatal(err)
 			}
 		})
 	}
 
-	t.Run("the caller's own id: NONE, false, nothing read past the interceptor", func(t *testing.T) {
+	t.Run("the caller's own id: NONE, false, answered without an edge", func(t *testing.T) {
 		w := newW320Chain(t, nil)
 		v := w.user(t)
 		w.w320Warm(t, v)
@@ -131,7 +128,7 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 			t.Fatalf("self = %v, %v", got, err)
 		}
 	})
-	t.Run("a malformed user_id is VALIDATION field=user_id at 0 reads", func(t *testing.T) {
+	t.Run("a malformed user_id is VALIDATION field=user_id", func(t *testing.T) {
 		w := newW320Chain(t, nil)
 		v := w.user(t)
 		w.w320Warm(t, v)
@@ -140,7 +137,7 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 			w320Reason(t, fmt.Sprintf("user_id=%q", bad), err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "user_id")
 		}
 	})
-	t.Run("the target blocked the caller: NOT_FOUND after the caller graph only, with and without overflow", func(t *testing.T) {
+	t.Run("the target blocked the caller: NOT_FOUND, with and without overflow", func(t *testing.T) {
 		w := newW320Chain(t, nil)
 		v, blocker, ovBlocker := w.user(t), w.user(t), w.user(t)
 		v2 := w.user(t)
@@ -152,25 +149,21 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 		r := newW320Chain(t, nil)
 		_, err := r.w320Rel(v, blocker.uid)
 		wireError(t, err, connect.CodeNotFound)
-		// interceptor 1 + caller graph 1; no Directory call, no edge read.
 		_, err = r.w320Rel(v2, ovBlocker.uid)
 		wireError(t, err, connect.CodeNotFound)
-		// overflow: interceptor 1 + caller graph 1 + the target's own graph 1.
 	})
 }
 
 // TestW320_FollowsYouPairCache: the pair cache on ONE instance. The answer is cached both ways; the
 // TARGET's Follow and Unfollow evict it at once (no wait for the TTL), a Block in either direction evicts it, and the
-// caller's own Follow and Unfollow never change this edge, so they cost the cache nothing.
+// caller's own Follow and Unfollow never change this edge, so they leave the cache alone.
 func TestW320_FollowsYouPairCache(t *testing.T) {
 	w := newW320Chain(t, nil)
 	v, tg := w.user(t), w.user(t)
 	w.w320Warm(t, v)
 	w.w320Profile(t, v, tg.uid) // the header's GetProfile warms the target
-	// maxReads is the ceiling for the step: 0 when nothing was invalidated; after a write on this instance the caller's
-	// snapshot and the target's profile may be re-read too (3 = snapshot, profile, edge; 4 with the interceptor), the pair is
-	// what the hit flag proves.
-	rel := func(want bool, what string, maxReads int64, hit bool) {
+	// The hit flag proves whether the pair came from the cache.
+	rel := func(want bool, what string, hit bool) {
 		t.Helper()
 		got, err := w.w320Rel(v, tg.uid)
 		if err != nil {
@@ -183,22 +176,22 @@ func TestW320_FollowsYouPairCache(t *testing.T) {
 			t.Errorf("%s: followed_by_cache_hit = %v, want %v", what, l["followed_by_cache_hit"], hit)
 		}
 	}
-	rel(false, "first look (snapshot + edge, 2 reads past the warm interceptor)", 2, false)
-	rel(false, "repeat: false is cached too", 0, true)
+	rel(false, "first look (snapshot + edge)", false)
+	rel(false, "repeat: false is cached too", true)
 
 	w.w320Follow(t, tg, v.uid) // the TARGET follows the caller: this instance evicts the pair
-	rel(true, "after the target's Follow the pair is re-read (cache miss)", 4, false)
-	rel(true, "and cached again", 0, true)
+	rel(true, "after the target's Follow the pair is re-read (cache miss)", false)
+	rel(true, "and cached again", true)
 
 	w.w320Follow(t, v, tg.uid) // the caller's own Follow does not touch this edge
-	rel(true, "the caller's own Follow keeps the cached pair", 4, true)
+	rel(true, "the caller's own Follow keeps the cached pair", true)
 	w.w320Unfollow(t, v, tg.uid)
-	rel(true, "the caller's own Unfollow keeps the cached pair", 4, true)
+	rel(true, "the caller's own Unfollow keeps the cached pair", true)
 
 	w.w320Unfollow(t, tg, v.uid) // the target unfollows: evicted
-	rel(false, "after the target's Unfollow the pair is re-read", 4, false)
+	rel(false, "after the target's Unfollow the pair is re-read", false)
 	w.w320Follow(t, tg, v.uid)
-	rel(true, "target follows again", 4, false)
+	rel(true, "target follows again", false)
 
 	w.w320Block(t, v, tg.uid) // the caller blocks the target: Block removed both edges; the pair is evicted
 	got, err := w.w320Rel(v, tg.uid)
@@ -208,10 +201,10 @@ func TestW320_FollowsYouPairCache(t *testing.T) {
 	if _, err := w.graph.Unblock(context.Background(), authed(v.token, &graphv1.UnblockRequest{IdempotencyKey: contractKey("w320-ub"), UserId: tg.uid})); err != nil {
 		t.Fatal(err)
 	}
-	rel(false, "after Unblock the old edge is gone (Block removed it) and the stale 'true' is not served", 4, false)
+	rel(false, "after Unblock the old edge is gone (Block removed it) and the stale 'true' is not served", false)
 
 	w.w320Follow(t, tg, v.uid)
-	rel(true, "target follows once more", 4, false)
+	rel(true, "target follows once more", false)
 	w.w320Block(t, tg, v.uid) // the TARGET blocks the caller: the pair is evicted and the caller now gets NOT_FOUND
 	_, err = w.w320Rel(v, tg.uid)
 	wireError(t, err, connect.CodeNotFound)

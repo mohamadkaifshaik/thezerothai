@@ -15,22 +15,18 @@ import (
 	"google.golang.org/api/iterator"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func (in *createInstance) del(uid, id string) (*budget.Counter, error) {
+func (in *createInstance) del(uid, id string) error {
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
-	ctx, c := budget.WithCounter(ctx)
-	return c, in.svc.Delete(ctx, uid, "0123456789abcdef", id)
+	return in.svc.Delete(ctx, uid, "0123456789abcdef", id)
 }
 
-func (in *createInstance) get(caller, id string) (*budget.Counter, *Post, error) {
+func (in *createInstance) get(caller, id string) (*Post, error) {
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: caller, SignInProvider: authn.SignInProviderGoogle})
-	// Warm the caller's own profile (the account-status interceptor's read, outside this RPC's budget).
+	// Warm the caller's own profile, as the account-status interceptor does before the RPC runs.
 	_, _ = in.svc.directory.GetProfiles(ctx, []string{caller})
-	ctx, c := budget.WithCounter(ctx)
-	p, err := in.svc.GetForViewer(ctx, caller, id)
-	return c, p, err
+	return in.svc.GetForViewer(ctx, caller, id)
 }
 
 func postExists(t *testing.T, client *firestore.Client, id string) bool {
@@ -42,17 +38,17 @@ func postExists(t *testing.T, client *firestore.Client, id string) bool {
 	return snap.Exists()
 }
 
-// TestDelete_Integration_BudgetsAndNoOps covers the DeletePost acceptance criteria on the emulator.
-func TestDelete_Integration_BudgetsAndNoOps(t *testing.T) {
+// TestDelete_Integration_AndNoOps covers the DeletePost acceptance criteria on the emulator.
+func TestDelete_Integration_AndNoOps(t *testing.T) {
 	client := newTestClient(t)
 	author := newCreateInstance(t, client, time.Nanosecond)
 	author.signUp(t, "uid-alice", "alice")
 	author.signUp(t, "uid-bob", "bob")
-	mine, _, err := author.create(t, "uid-alice", key(1), "mine")
+	mine, err := author.create(t, "uid-alice", key(1), "mine")
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, _, err := author.create(t, "uid-bob", key(2), "theirs")
+	theirs, err := author.create(t, "uid-bob", key(2), "theirs")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,8 +59,8 @@ func TestDelete_Integration_BudgetsAndNoOps(t *testing.T) {
 	// A second, cold instance: the post read is the only read (the interceptor's read is outside the call).
 	in := newCreateInstance(t, client, time.Nanosecond)
 
-	// Another user's post: success, 0 writes, 0 deletes, the post survives.
-	_, err = in.del("uid-alice", theirs.ID)
+	// Another user's post: success, the post survives.
+	err = in.del("uid-alice", theirs.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,13 +68,13 @@ func TestDelete_Integration_BudgetsAndNoOps(t *testing.T) {
 		t.Fatal("another user's post was deleted")
 	}
 	// Unknown id: the same shape.
-	_, err = in.del("uid-alice", pid(424242))
+	err = in.del("uid-alice", pid(424242))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Own post, cold: 1 read, 1 write (postsCount), 1 delete.
-	_, err = in.del("uid-alice", mine.ID)
+	// Own post, cold: deleted, and postsCount is decremented.
+	err = in.del("uid-alice", mine.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +85,8 @@ func TestDelete_Integration_BudgetsAndNoOps(t *testing.T) {
 		t.Fatalf("postsCount = %d, want 0", got)
 	}
 
-	// Second delete: success, 1 read (the post is gone), 0 writes, 0 deletes, no second decrement.
-	_, err = in.del("uid-alice", mine.ID)
+	// Second delete: success, no second decrement.
+	err = in.del("uid-alice", mine.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,12 +94,12 @@ func TestDelete_Integration_BudgetsAndNoOps(t *testing.T) {
 		t.Fatalf("postsCount = %d after a repeat, want 0", got)
 	}
 
-	// Warm own delete: the post is in this instance's cache (own create), so 0 reads.
-	warm, _, err := in.create(t, "uid-alice", key(3), "warm")
+	// Warm own delete: the post is in this instance's cache (own create).
+	warm, err := in.create(t, "uid-alice", key(3), "warm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = in.del("uid-alice", warm.ID)
+	err = in.del("uid-alice", warm.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +113,7 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 	author.signUp(t, "uid-alice", "alice")
 	var ids []string
 	for i := 1; i <= 2; i++ {
-		p, _, err := author.create(t, "uid-alice", key(i), "p")
+		p, err := author.create(t, "uid-alice", key(i), "p")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +134,7 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, errs[i] = in.del("uid-alice", ids[0])
+			errs[i] = in.del("uid-alice", ids[0])
 		}()
 	}
 	close(start)
@@ -163,26 +159,25 @@ func setGraph(t *testing.T, client *firestore.Client, uid string, updates []fire
 	}
 }
 
-// TestGetPost_Integration_VisibilityAndBudget: the GetPost acceptance criteria with real identity and graph.
-func TestGetPost_Integration_VisibilityAndBudget(t *testing.T) {
+// TestGetPost_Integration_Visibility: the GetPost acceptance criteria with real identity and graph.
+func TestGetPost_Integration_Visibility(t *testing.T) {
 	client := newTestClient(t)
 	setup := newCreateInstance(t, client, time.Nanosecond)
 	setup.signUp(t, "uid-alice", "alice")
 	setup.signUp(t, "uid-bob", "bob")
-	bobPost, _, err := setup.create(t, "uid-bob", key(1), "from bob")
+	bobPost, err := setup.create(t, "uid-bob", key(1), "from bob")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Cold instance, caller alice: post 1 + author users 1 + caller graph 1 = 3 (the caller's own profile read
-	// belongs to the interceptor), 0 writes.
+	// Cold instance, caller alice: the post, the author and the caller graph are all loaded, nothing written.
 	in := newCreateInstance(t, client, time.Nanosecond)
-	_, p, err := in.get("uid-alice", bobPost.ID)
+	p, err := in.get("uid-alice", bobPost.ID)
 	if err != nil || p.ID != bobPost.ID {
 		t.Fatalf("get: %v %v", p, err)
 	}
 	// Warm: everything cached.
-	_, _, err = in.get("uid-alice", bobPost.ID)
+	_, err = in.get("uid-alice", bobPost.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,40 +186,40 @@ func TestGetPost_Integration_VisibilityAndBudget(t *testing.T) {
 	setGraph(t, client, "uid-alice", []firestore.Update{
 		{Path: "blocked", Value: firestore.ArrayUnion("uid-bob")}, {Path: "muted", Value: firestore.ArrayUnion("uid-bob")}})
 	in = newCreateInstance(t, client, time.Nanosecond)
-	if _, _, err := in.get("uid-alice", bobPost.ID); err != nil {
+	if _, err := in.get("uid-alice", bobPost.ID); err != nil {
 		t.Fatalf("a caller who blocked the author still gets the post: %v", err)
 	}
 
 	// Bob blocked alice (alice.blockedBy has bob): NOT_FOUND, same bytes as a deleted post.
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "blockedBy", Value: firestore.ArrayUnion("uid-bob")}})
 	in = newCreateInstance(t, client, time.Nanosecond)
-	_, _, blockedErr := in.get("uid-alice", bobPost.ID)
+	_, blockedErr := in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, blockedErr)
-	_, _, missingErr := in.get("uid-alice", pid(777))
+	_, missingErr := in.get("uid-alice", pid(777))
 	wantPostNotFound(t, missingErr)
 	if blockedErr.Error() != missingErr.Error() {
 		t.Fatalf("not byte-identical: %q vs %q", blockedErr, missingErr)
 	}
 
-	// Overflowed blockedBy: bob's own graph is consulted, +1 read.
+	// Overflowed blockedBy: bob's own graph is consulted.
 	setGraph(t, client, "uid-alice", []firestore.Update{
 		{Path: "blockedBy", Value: firestore.ArrayRemove("uid-bob")}, {Path: "blockedByOverflow", Value: true}})
 	setGraph(t, client, "uid-bob", []firestore.Update{{Path: "blocked", Value: firestore.ArrayUnion("uid-alice")}})
 	in = newCreateInstance(t, client, time.Nanosecond)
-	_, _, err = in.get("uid-alice", bobPost.ID)
+	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
 
 	// Deleted by its author: NOT_FOUND once the 60 s cache entry is gone (here: another cold instance at once).
-	if _, err := setup.del("uid-bob", bobPost.ID); err != nil {
+	if err := setup.del("uid-bob", bobPost.ID); err != nil {
 		t.Fatal(err)
 	}
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "blockedByOverflow", Value: false}})
 	in = newCreateInstance(t, client, time.Nanosecond)
-	_, _, err = in.get("uid-alice", bobPost.ID)
+	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
 
 	// Suspended author: same answer.
-	live, _, err := setup.create(t, "uid-bob", key(9), "again")
+	live, err := setup.create(t, "uid-bob", key(9), "again")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +227,7 @@ func TestGetPost_Integration_VisibilityAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	in = newCreateInstance(t, client, time.Nanosecond)
-	_, _, err = in.get("uid-alice", live.ID)
+	_, err = in.get("uid-alice", live.ID)
 	wantPostNotFound(t, err)
 }
 
@@ -283,8 +278,8 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 	seedMany(t, client, uid, 1203, 1)
 	seedMany(t, client, "uid-keep", 7, 5000)
 
-	// Dry run: counts only, 0 writes.
-	dctx, _ := budget.WithCounter(context.Background())
+	// Dry run: counts only, nothing deleted.
+	dctx := context.Background()
 	plan, err := repo.PlanPurge(dctx, uid)
 	if err != nil || plan.Posts != 1203 {
 		t.Fatalf("plan = %+v, %v", plan, err)
@@ -293,7 +288,7 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 		t.Fatalf("dry run changed data: %d posts", got)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	// First batch, then the process "dies".
 	cp, done, err := repo.PurgeUser(ctx, uid, Checkpoint{})
 	if err != nil || done || cp.Deleted != 500 {
@@ -323,11 +318,9 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 	if got := countByAuthor(t, client, "uid-keep"); got != 7 {
 		t.Fatalf("another user's posts: %d, want 7", got)
 	}
-	// O(posts): one read and one delete per post, no counter writes (the user doc is deleted anyway).
-
-	// Purging a user with no posts: the posts query (1 read) hands over to the copy phase, whose empty query
-	// (1 read) hands over to the postRemovals phase, whose empty query (1 read) finishes it: three calls, three reads.
-	ectx, ec := budget.WithCounter(context.Background())
+	// Purging a user with no posts: the posts phase hands over to the copy phase, which hands over to the
+	// postRemovals phase, which finishes it: three calls.
+	ectx := context.Background()
 	ecp, done, err := repo.PurgeUser(ectx, uid, Checkpoint{})
 	if err != nil || done {
 		t.Fatalf("empty purge, posts phase: done=%v err=%v", done, err)
@@ -337,7 +330,7 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 		t.Fatalf("empty purge, copy phase: done=%v err=%v", done, err)
 	}
 	if _, done, err := repo.PurgeUser(ectx, uid, ecp); err != nil || !done {
-		t.Fatalf("empty purge, removals phase: done=%v err=%v reads=%d", done, err, ec.Reads())
+		t.Fatalf("empty purge, removals phase: done=%v err=%v", done, err)
 	}
 }
 
@@ -348,7 +341,7 @@ func TestExport_Integration(t *testing.T) {
 	seedMany(t, client, "uid-u", 1203, 1)
 	seedMany(t, client, "uid-other", 3, 9000)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var buf bytes.Buffer
 	if err := repo.ExportUser(ctx, "uid-u", &buf); err != nil {
 		t.Fatal(err)

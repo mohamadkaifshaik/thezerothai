@@ -42,7 +42,7 @@ func TestSweepMediaHold_HeldItemIsLeftUntouched(t *testing.T) {
 	it := e.dueItem("uid-alice", 1, withImages(1, 2))
 	queried := e.repo.doc("uid-alice", it.ID)
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSweepMediaHold_HeldItemsDoNotUseTheAuthorCap(t *testing.T) {
 	}
 	bob := e.dueItem("uid-bob", 7)
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestSweepMediaHold_PermanentVerdictsStillApply(t *testing.T) {
 			e, _ := mediaOffEnv(t)
 			it := e.dueItem("uid-alice", 1, withImages(1), func(p *ScheduledPost) { tc.mut(e, p) })
 
-			res, c, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -146,12 +146,18 @@ func TestSweepMediaHold_PermanentVerdictsStillApply(t *testing.T) {
 			got := e.repo.doc("uid-alice", it.ID)
 			if tc.wantFail == "" {
 				if res.HeldMedia != 1 || len(res.Failed) != 0 || got.Status != ScheduledPending {
-					t.Errorf("res = %+v item = %+v writes = %d, want it held: PENDING, 0 writes", res, got, c.Writes())
+					t.Errorf("res = %+v item = %+v, want it held: PENDING", res, got)
+				}
+				if n := len(e.repo.callsOf("transition")) + len(e.repo.callsOf("bump")); n != 0 {
+					t.Errorf("a held item cost %d bookkeeping writes, want 0", n)
 				}
 				return
 			}
 			if res.HeldMedia != 0 || res.Failed[tc.wantFail] != 1 || got.Status != ScheduledFailed || got.Failure != tc.wantFail {
-				t.Errorf("res = %+v item = %+v cost = %d/%d, want FAILED %s with the usual 1 read 1 write and nothing held", res, got, c.Reads(), c.Writes(), tc.wantFail)
+				t.Errorf("res = %+v item = %+v, want FAILED %s and nothing held", res, got, tc.wantFail)
+			}
+			if n := len(e.repo.callsOf("transition")); n != 1 {
+				t.Errorf("transitions = %d, want exactly one FAILED precondition write", n)
 			}
 		})
 	}
@@ -162,7 +168,7 @@ func TestSweepMediaHold_PublishesNormallyOnceMediaIsBackOn(t *testing.T) {
 	e, fl := mediaOffEnv(t)
 	it := e.dueItem("uid-alice", 1, withImages(1, 2))
 
-	if res, _, err := e.sweep(context.Background()); err != nil || res.HeldMedia != 1 || res.Published != 0 {
+	if res, err := e.sweep(context.Background()); err != nil || res.HeldMedia != 1 || res.Published != 0 {
 		t.Fatalf("first run: res = %+v err = %v, want it held", res, err)
 	}
 	if n := len(e.repo.callsOf("publish")); n != 0 {
@@ -170,7 +176,7 @@ func TestSweepMediaHold_PublishesNormallyOnceMediaIsBackOn(t *testing.T) {
 	}
 
 	delete(fl, mediaFlagName) // FEATURE_MEDIA is on again
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +217,7 @@ func TestSweepMediaHold_OnlyTheKillSwitchHolds(t *testing.T) {
 			e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Flags = flags.NewRegistry(specs...) })
 			e.dueItem("uid-alice", 1, withImages(1))
 
-			res, _, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil || res.Outcome != tc.wantOutcome || res.HeldMedia != tc.wantHeld || res.Published != tc.wantPublish {
 				t.Fatalf("res = %+v err = %v, want %d held and %d published", res, err, tc.wantHeld, tc.wantPublish)
 			}
@@ -219,8 +225,8 @@ func TestSweepMediaHold_OnlyTheKillSwitchHolds(t *testing.T) {
 	}
 }
 
-// The no-op cases come first and keep their meaning: no checker, a scheduling flag off or read-only mode end the run with
-// 0 reads before anything is classified, whatever the media flag says.
+// The no-op cases come first and keep their meaning: no checker, a scheduling flag off or read-only mode end the run
+// before anything is classified, whatever the media flag says.
 func TestSweepMediaHold_NoOpCasesAreUnchanged(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -237,9 +243,9 @@ func TestSweepMediaHold_NoOpCasesAreUnchanged(t *testing.T) {
 			e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Flags, d.ReadOnly = tc.flags, tc.readOnly })
 			e.dueItem("uid-alice", 1, withImages(1))
 
-			res, c, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil || res.Outcome != tc.want || res.HeldMedia != 0 || res.Due != 0 || e.repo.dueCalls != 0 {
-				t.Errorf("res = %+v err = %v reads = %d writes = %d due calls = %d, want outcome %q and nothing touched", res, err, c.Reads(), c.Writes(), e.repo.dueCalls, tc.want)
+				t.Errorf("res = %+v err = %v due calls = %d, want outcome %q and nothing touched", res, err, e.repo.dueCalls, tc.want)
 			}
 		})
 	}
@@ -250,7 +256,7 @@ func TestSweepMediaHold_MediaOnHoldsNothing(t *testing.T) {
 	e := newSweepEnv(t) // sweepFlags{}: nothing is off
 	e.dueItem("uid-alice", 1, withImages(1))
 	e.dueItem("uid-alice", 2)
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil || res.HeldMedia != 0 || res.Published != 2 {
 		t.Fatalf("res = %+v err = %v, want both published, none held", res, err)
 	}
@@ -314,7 +320,7 @@ func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
 		e, late := setup(t)
 		queried := e.repo.doc("uid-late", late.ID)
 
-		res, c, err := e.sweep(context.Background())
+		res, err := e.sweep(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -322,7 +328,7 @@ func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
 			t.Fatalf("res = %+v, want the window (100 due) entirely held and nothing published: the symptom the runbook names", res)
 		}
 		if e.repo.dueCalls != 2 || len(e.repo.callsOf("publish")) != 0 {
-			t.Errorf("due calls %d reads %d writes %d publishes %d, want 2 pages of 50, 100 reads, nothing else", e.repo.dueCalls, c.Reads(), c.Writes(), len(e.repo.callsOf("publish")))
+			t.Errorf("due calls %d publishes %d, want 2 pages of 50 and no publish", e.repo.dueCalls, len(e.repo.callsOf("publish")))
 		}
 		if got := e.repo.doc("uid-late", late.ID); got.Status != ScheduledPending || !got.UpdateTime.Equal(queried.UpdateTime) {
 			t.Errorf("the text-only item = %+v, want it untouched (it was never read)", got)
@@ -332,7 +338,7 @@ func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
 	t.Run("window raised past the held items: the text-only item publishes", func(t *testing.T) {
 		e, late := setup(t, func(d *SweepDeps, _ *sweepEnv) { d.Limits.MaxPages = 3 })
 
-		res, _, err := e.sweep(context.Background())
+		res, err := e.sweep(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

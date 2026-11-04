@@ -102,7 +102,7 @@ type Post struct {
 	ReplyToHandle string
 	// ReplyToAuthorID is the parent post's author (the reply's notification recipient). It is TRANSIENT:
 	// set only on the *Post that CreatePost hands to PostEvents.Created (from the parent already read by the reply
-	// validation, 0 extra reads) and never persisted: a Post read back from Firestore leaves it empty.
+	// validation) and never persisted: a Post read back from Firestore leaves it empty.
 	ReplyToAuthorID string
 	ConversationID  string
 	QuoteOfID       string
@@ -235,8 +235,7 @@ type Window struct {
 }
 
 // Reader is posts' read-only seam for other modules (timeline, later search and notifications). Every method
-// is cache-first, every query has a Limit, and every Firestore read is charged to the request's
-// budget.Counter (an empty query costs 1 read).
+// is cache-first and every query has a Limit.
 //
 // Posts returned are shared and immutable.
 //
@@ -245,42 +244,41 @@ type Window struct {
 // must filter (block, mute and author status via graph.Reader and identity.Directory) and drop
 // every post with !Visible() before returning anything to a client.
 type Reader interface {
-	// Get returns one post, or ErrNotFound. Cache hit: 0 reads; miss: 1 read.
+	// Get returns one post, or ErrNotFound. A cached post is served from memory.
 	Get(ctx context.Context, id string) (*Post, error)
 	// GetMany returns the posts that exist for ids (at most MaxGetMany, duplicates ignored); missing ids are
-	// absent from the map. Cached ids cost 0; the rest are fetched in one GetAll, 1 read each.
+	// absent from the map. Cached ids are served from memory; the rest are fetched in one GetAll.
 	GetMany(ctx context.Context, ids []string) (map[string]*Post, error)
 	// ByAuthors returns root posts (isReply == false) by any of authorIDs (at most MaxByAuthors), newest first,
 	// inside window, at most limit (clamped to 1..50). The caller passes only the authors the author-recent
-	// cache does not cover. Reads: len(result), minimum 1.
+	// cache does not cover.
 	ByAuthors(ctx context.Context, authorIDs []string, window Window, limit int) ([]*Post, error)
 	// ByAuthor returns one author's posts, newest first, inside window, at most limit (clamped to 1..50).
 	// includeReplies=false restricts to root posts (the Posts tab); true is the Replies-tab query with no
-	// isReply filter. Reads: len(result), minimum 1.
+	// isReply filter.
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, window Window, limit int) ([]*Post, error)
 
 	// ByAuthorMedia returns authorID's posts that carry their own images (hasMedia == true: root posts, replies and
 	// quotes with images, never a REPOST), newest first, inside window (Before resumes strictly older; After is the
 	// since bound), at most limit (clamped to 1..50). Query: authorId == X && hasMedia == true ORDER BY createdAt DESC,
-	// __name__ DESC, served by the composite index posts(authorId, hasMedia, createdAt desc). Reads:
-	// len(result), minimum 1 (charged with AddQueryReads); no cache read and no cache write other than filling the posts
-	// cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline applies the drop rules)
-	// and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
+	// __name__ DESC, served by the composite index posts(authorId, hasMedia, createdAt desc). It does no cache read and no cache write other
+	// than filling the posts cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline
+	// applies the drop rules) and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
 	// index is not READY and `opsctl backfill-has-media` has not run (the emulator does not enforce indexes; Firestore
 	// answers FAILED_PRECONDITION without it): the timeline gates the call on the profile_tabs flag.
 	ByAuthorMedia(ctx context.Context, authorID string, window Window, limit int) ([]*Post, error)
 	// ByAuthorKind returns authorID's posts of one kind (the Reposts tab passes KindRepost), newest first, inside
 	// window, at most limit (clamped to 1..50). Query: authorId == X && kind == K ORDER BY createdAt DESC, __name__
 	// DESC, served by the composite index posts(authorId, kind, createdAt desc). An empty or unknown kind is
-	// refused before any read. Reads, filtering and the index precondition are ByAuthorMedia's: the timeline drops a
+	// refused before any read. Filtering and the index precondition are ByAuthorMedia's: the timeline drops a
 	// REPOST whose embedded author the viewer blocks or mutes (or who blocks the viewer) and every !Visible() row.
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, window Window, limit int) ([]*Post, error)
 
 	// ByHashtag returns posts whose stored hashtags contain tag (a bare lower-case NFC body: no "#", no spaces; the
 	// caller normalises), newest first, inside window, at most limit (clamped to 1..50). Query: hashtags
 	// array-contains tag ORDER BY createdAt DESC, __name__ DESC on the existing composite index posts(hashtags CONTAINS,
-	// createdAt DESC); no new index. A REPOST stores hashtags [] so it never matches. Reads: len(result), minimum 1;
-	// results fill the posts cache like ByAuthor. Unfiltered: NO visibility, block, mute or audience filtering; posts a
+	// createdAt DESC); no new index. A REPOST stores hashtags [] so it never matches. Results fill the posts cache like
+	// ByAuthor. Unfiltered: NO visibility, block, mute or audience filtering; posts a
 	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search)
 	// must drop !Visible and decide each post through posts.Audience with SurfaceList.
 	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
@@ -289,7 +287,7 @@ type Reader interface {
 	// ORDER BY __name__ DESC` with id-bound windows (automatic single-field index, proven on dzeroth-dev), never the createdAt
 	// order of the other methods. Before resumes strictly older (StartAfter), After stops strictly newer (EndBefore); an After whose id is
 	// the all-zero sentinel (the timeline settle watermark) is the inclusive EndAt of the smallest Snowflake of its
-	// millisecond. Reads: len(result), minimum 1; results fill the posts cache. Unfiltered like every Reader method: the caller drops
+	// millisecond. Results fill the posts cache. Unfiltered like every Reader method: the caller drops
 	// !Visible() rows and applies blocks, mutes and audience.
 	ByCommunity(ctx context.Context, cid string, window Window, limit int) ([]*Post, error)
 	// CreatedAfter returns posts created strictly after the watermark, OLDEST first (createdAt ASC, __name__ ASC), at
@@ -298,12 +296,12 @@ type Reader interface {
 	// automatic single-field indexes (no composite). The result is PROJECTED: only ID, AuthorID, Hashtags, Moderation,
 	// CreatedAt and Kind are set; every other field (text, media, counts, visibility, author snapshot) is zero. Such a
 	// post is partial, so it is NEVER stored in the posts cache or the author-recent cache and callers must not pass it
-	// to either. A projected read still bills 1 read per doc: reads len(result), minimum 1. Unfiltered like the rest of
-	// the Reader: the sweep drops !Visible(), REPOST kinds and protected authors itself.
+	// to either. Unfiltered like the rest of the Reader: the sweep drops !Visible(), REPOST kinds
+	// and protected authors itself.
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
 
 	// AuthorRecent returns authorID's author-recent entry if it is still fresh (loaded within the cache TTL).
-	// It also serves as the profile Posts-tab first-page cache. 0 reads.
+	// It also serves as the profile Posts-tab first-page cache; it never reads Firestore.
 	AuthorRecent(authorID string) (Recent, bool)
 	// StoreAuthorRecent records an author's newest root posts (newest first; at most MaxRecent are kept).
 	// truncated=true means the author may have older posts than the entry holds. loadedAt is when the data
@@ -324,13 +322,9 @@ type Recent struct {
 type Removals interface {
 	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, restricted to
 	// the authors in scope (the feed being refreshed), newest first, at most RemovalMaxIDs. An empty scope returns
-	// nothing with 0 reads. truncated=true means the answer would be incomplete for THIS feed (the cutoff is older
+	// nothing without a query. truncated=true means the answer would be incomplete for THIS feed (the cutoff is older
 	// than the log keeps, the window the instance cache lacks could not be queried for this scope, or more than
 	// RemovalMaxIDs match): the caller must make the client reset instead of trusting ids.
-	// Reads: shared cache refresh 0 on a warm hit, otherwise 1-50 (1 when the log is empty or unchanged), 100 at
-	// most when the incremental page was full, charged to a detached counter (log field removal_log_reads), not
-	// the caller's budget. Window query (cutoff older than the cache's coverage and a feed of at most 180 authors):
-	// at most RemovalWindowWorstReads (107), charged to ctx.
 	RemovedSince(ctx context.Context, cutoff time.Time, scope RemovalScope) (ids []string, truncated bool, err error)
 }
 
@@ -338,21 +332,19 @@ type Removals interface {
 type Service interface {
 	Reader
 	// Create writes one root post for uid. It returns the stored post, or, for a replayed
-	// idempotency key, the post the first call created. Worst-case Firestore cost: see the CreatePost proto
-	// comment (14 reads cold / 2 warm, 4 writes; replay 14 cold / 1 warm, 0 writes).
+	// idempotency key, the post the first call created.
 	Create(ctx context.Context, uid string, in CreateInput) (*Post, error)
 	// Delete removes uid's own post. Success for every other case (another user's post, an
-	// unknown or already-deleted id) with 0 writes: no existence oracle. Firestore: reads 1 (the post; 0 when
-	// cached) plus the interceptor's profile read; writes 1 (users.postsCount -1) + 1 delete (Exists precondition).
+	// unknown or already-deleted id), with nothing written: no existence oracle. A real delete
+	// decrements users.postsCount and deletes the post under an Exists precondition.
 	Delete(ctx context.Context, uid, idempotencyKey, postID string) error
 	// GetForViewer returns one post as seen by callerUID, or the one NOT_FOUND
 	// "post not found" answer for a missing, deleted, hidden, blocked-author or non-ACTIVE-author post.
-	// Firestore: reads post 1 + author users 1 + caller graph 1 cold (+1 author graph if the caller's blockedBy
-	// overflowed), 0 warm; writes 0.
+	// Nothing is written.
 	GetForViewer(ctx context.Context, callerUID, postID string) (*Post, error)
 	// GetThread returns a post with its parent, conversation root and a page of the conversation (plan
 	// replies-and-threads.md). Same visibility rules as GetForViewer for the focal post; an unavailable
-	// parent/root is flagged, not an error. Reads: see ThreadBudget in service_thread.go; writes 0.
+	// parent/root is flagged, not an error.
 	GetThread(ctx context.Context, callerUID string, in ThreadInput) (*Thread, error)
 }
 
@@ -394,18 +386,18 @@ type CreateInput struct {
 	ReplyAudienceEnabled bool
 	// Poll is the request's poll (CreatePostRequest.poll), nil for none; PollsEnabled is the FEATURE_POLLS decision for
 	// the caller, made by server.go (never from the request). A poll with PollsEnabled false is FEATURE_DISABLED (metadata
-	// feature=polls), 0 reads, checked after content_disclosure. The service validates it (poll.go) against PollLimits.
+	// feature=polls), checked after content_disclosure. The service validates it (poll.go) against PollLimits.
 	Poll         *PollInput
 	PollsEnabled bool
 	// CommunityID is the request's community_id, "" for none; CommunitiesEnabled is the FEATURE_COMMUNITIES decision for the
-	// caller, made by server.go (never from the request). A set CommunityID is FEATURE_DISABLED (metadata feature=communities), 0 reads,
+	// caller, made by server.go (never from the request). A set CommunityID is FEATURE_DISABLED (metadata feature=communities),
 	// checked after polls: with the flag off for the caller, and with it on while no CommunityGate is wired, so the post is never created
 	// as an ordinary one. With the flag on and a gate wired, Create validates the shape (VALIDATION community_id / reply_policy) and runs
 	// the gate (community_gate.go).
 	CommunityID        string
 	CommunitiesEnabled bool
 	// CommunitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch; server.go, never from the request): a reply into a
-	// community conversation then skips CommunityGate.CanReply. 0 reads.
+	// community conversation then skips CommunityGate.CanReply.
 	CommunitiesGloballyOff bool
 }
 
@@ -436,7 +428,7 @@ type MediaClaim interface {
 
 // MediaAttacher is the consumer-side seam to the media module; apiserver adapts media.Library.
 type MediaAttacher interface {
-	// LoadForPost reads ids inside tx (len(ids) reads, before the transaction's first write) and returns the
+	// LoadForPost reads ids inside tx (before the transaction's first write) and returns the
 	// claim, or ErrMediaNotReady.
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (MediaClaim, error)
 }
@@ -526,7 +518,7 @@ func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 	return v
 }
 
-// WithBlockedAuthors returns v plus the viewer's blocked authors (graph.Snapshot.Blocked, already in hand at the producer: 0 reads). ToViewAt reads it
+// WithBlockedAuthors returns v plus the viewer's blocked authors (graph.Snapshot.Blocked, already in hand at the producer). ToViewAt reads it
 // for PostView.viewer_poll_vote_blocked and nothing else. v itself is not changed; the map is shared and never written.
 func (v ViewerSet) WithBlockedAuthors(blocked map[string]bool) ViewerSet {
 	v.blockedAuthors = blocked
@@ -591,11 +583,11 @@ type ViewerFlags interface {
 	Viewer(ctx context.Context, uid string) ViewerSet
 }
 
-// HydrateViewer is the one place that decides whether and how a request hydrates viewer state: nothing (0 reads) when
+// HydrateViewer is the one place that decides whether and how a request hydrates viewer state: nothing when
 // neither FEATURE_ENGAGEMENT nor FEATURE_BOOKMARKS is on for uid, the full set with engagement on, and the bookmarks
-// alone (liked and reposted stripped) with only FEATURE_BOOKMARKS on. Cost: one cached userLikes read, 0 extra
+// alone (liked and reposted stripped) with only FEATURE_BOOKMARKS on.
 // Staleness bound: the userLikes instance cache TTL (60 s).
-// A set from here also carries the polls-globally-off mark, flag lookups only, 0 reads, even when it is otherwise empty.
+// A set from here also carries the polls-globally-off mark, flag lookups only, even when it is otherwise empty.
 func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid string) ViewerSet {
 	if fc == nil {
 		return ViewerSet{}
@@ -650,12 +642,12 @@ type RepostLinks interface {
 // fake of it stay unchanged.
 type Engagement interface {
 	// Viewable returns the post if the caller may see it by the GetPost rules (missing, deleted, hidden, blocked
-	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (post 1, author 1, caller graph 1
-	// cold) and sets no request-log fields.
+	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (the post, its
+	// author and the caller's graph) and sets no request-log fields.
 	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
 	// RefuseShare is the write rule, called by RepostPost on the post Viewable returned (CreatePost applies
 	// it to a quote target itself): a protected author's post can be reposted or quoted only by that author; any other
-	// caller who passed Viewable gets FAILED_PRECONDITION PROTECTED_ACCOUNT, 0 writes, 0 reads. UNAVAILABLE when the
+	// caller who passed Viewable gets FAILED_PRECONDITION PROTECTED_ACCOUNT, with no read or write. UNAVAILABLE when the
 	// protected set is unknown.
 	RefuseShare(ctx context.Context, callerUID string, p *Post) error
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
@@ -702,7 +694,7 @@ var ErrNotFound = errors.New("posts: post not found")
 var ErrInvalidID = errors.New("posts: invalid post id")
 
 // PostEvents is a post-commit hook, a no-op until notifications: "CreatePost calls
-// PostEvents.Created after a commit; replays don't". Never called inside the transaction or its budget.
+// PostEvents.Created after a commit; replays don't". Never called inside the transaction.
 type PostEvents interface {
 	Created(ctx context.Context, p *Post)
 	Deleted(ctx context.Context, postID, authorID string)
@@ -760,7 +752,7 @@ type CommunityPostRef struct {
 // ModerationResult is what Moderator.Takedown and Restore found.
 type ModerationResult struct {
 	// CommunityID is the community the post was created into (its communityId), "" for any other post, a REPOST, or a post a community
-	// moderator hid (that hide already logged it). Read from the document the call already reads: 0 extra reads.
+	// moderator hid (that hide already logged it). Read from the document the call already reads.
 	CommunityID string
 	AuthorID    string
 	// Before and After are the moderation state before and after the call.
@@ -774,17 +766,17 @@ type ModerationResult struct {
 // it does not touch the instance caches: serving instances converge within CACHE_TTL (60 s).
 type Moderator interface {
 	// Takedown sets TAKEN_DOWN on one post (ErrNotFound when it does not exist). A post already hidden by a
-	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 2 (the post and its
-	// postRemovals entry; 0 when already TAKEN_DOWN).
+	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). It writes the post and its
+	// postRemovals entry, and nothing when already TAKEN_DOWN.
 	// A REPOST is not hidden but removed: its doc is deleted and the reposts record and counters released (see
 	// ModerationResult.RepostReleased); Restore then reports ErrNotFound and the user can repost again.
 	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// Restore clears TAKEN_DOWN (ErrNotFound when missing). A SUSPENDED_AUTHOR post is left unchanged: only
-	// unsuspend-user restores those. Reads 1, writes 2 (post + RESTORED entry; 0 when not TAKEN_DOWN).
+	// unsuspend-user restores those. It writes the post and a RESTORED entry, and nothing when not TAKEN_DOWN.
 	Restore(ctx context.Context, postID string, now time.Time) (ModerationResult, error)
 	// HideAuthor sets SUSPENDED_AUTHOR on every post of uid whose moderation is empty, one page of up to 250 per
-	// call, newest first. Resumable and idempotent: re-running from the zero checkpoint is safe. Reads one per
-	// post paged (minimum 1), writes two per post changed (the update and its postRemovals entry, one atomic batch).
+	// call, newest first. Resumable and idempotent: re-running from the zero checkpoint is safe. It writes two
+	// documents per post changed (the update and its postRemovals entry, one atomic batch).
 	HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (next ModerationCheckpoint, done bool, err error)
 	// RestoreAuthor clears SUSPENDED_AUTHOR on uid's posts (TAKEN_DOWN posts are untouched), one page of up to 250
 	// per call (now is the operator's clock, used only for the log entries' expireAt), writing two documents per post (the update and a RESTORED postRemovals entry). Cleared documents

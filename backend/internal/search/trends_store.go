@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const (
@@ -63,19 +62,19 @@ type Watermark struct {
 func (w Watermark) position() posts.Position { return posts.Position{CreatedAt: w.At, ID: w.ID} }
 
 // TrendsStore is the Firestore seam of the module (the repo of the one collection it owns). Get returns (nil, nil) when
-// there is no usable document. Reads and writes are charged to the context's budget.Counter by the implementation.
+// there is no usable document.
 type TrendsStore interface {
-	// Get reads trends/current: always 1 read, a missing document included.
+	// Get reads trends/current; a missing document is not an error.
 	Get(ctx context.Context) (*TrendsDoc, error)
-	// Put replaces trends/current in 1 write (Set, no merge: the document holds no user data, so a write racing an
+	// Put replaces trends/current with one Set (no merge: the document holds no user data, so a write racing an
 	// eraser cannot resurrect anything).
 	Put(ctx context.Context, doc *TrendsDoc) error
-	// Load reads trends/current and trends/hidden in one GetAll: always 2 reads, missing documents included. The hide list
+	// Load reads trends/current and trends/hidden in one GetAll; missing documents are not an error. The hide list
 	// is returned as stored (keys). Used by GetTrends.
 	Load(ctx context.Context) (*TrendsDoc, []string, error)
-	// Hidden reads trends/hidden: always 1 read. Used by the sweep and `opsctl trends list`.
+	// Hidden reads trends/hidden. Used by the sweep and `opsctl trends list`.
 	Hidden(ctx context.Context) ([]string, error)
-	// Hide adds TrendKey(tag) to the hide list; Unhide removes it. See HideResult for the cost.
+	// Hide adds TrendKey(tag) to the hide list; Unhide removes it. See HideResult.
 	Hide(ctx context.Context, tag string) (HideResult, error)
 	Unhide(ctx context.Context, tag string) (HideResult, error)
 }
@@ -88,7 +87,7 @@ var (
 )
 
 // HideResult is what Hide or Unhide did. Key is the folded key; Changed is true when the document was written; Count is
-// the number of keys on the list afterwards. Hide and Unhide are transactions: 1 read, and 1 write only when Changed.
+// the number of keys on the list afterwards. Hide and Unhide are transactions that write only when Changed.
 type HideResult struct {
 	Key     string
 	Changed bool
@@ -106,7 +105,7 @@ func (r *trendsRepo) ref() *firestore.DocumentRef {
 
 func (r *trendsRepo) Get(ctx context.Context) (*TrendsDoc, error) {
 	snap, err := r.ref().Get(ctx)
-	budget.FromContext(ctx).AddReads(1) // a missing document is billed as one read too
+	// a missing document is billed as one read too
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
@@ -135,7 +134,6 @@ func (r *trendsRepo) Put(ctx context.Context, doc *TrendsDoc) error {
 	if _, err := r.ref().Set(ctx, &d); err != nil {
 		return fmt.Errorf("search: write trends/current: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }
 
@@ -165,7 +163,7 @@ func decodeHidden(snap *firestore.DocumentSnapshot) ([]string, error) {
 
 func (r *trendsRepo) Load(ctx context.Context) (*TrendsDoc, []string, error) {
 	snaps, err := r.fs.GetAll(ctx, []*firestore.DocumentRef{r.ref(), r.hiddenRef()})
-	budget.FromContext(ctx).AddReads(2) // a missing document is billed as one read too
+	// a missing document is billed as one read too
 	if err != nil {
 		return nil, nil, fmt.Errorf("search: read trends: %w", err)
 	}
@@ -191,7 +189,6 @@ func (r *trendsRepo) Load(ctx context.Context) (*TrendsDoc, []string, error) {
 
 func (r *trendsRepo) Hidden(ctx context.Context) ([]string, error) {
 	snap, err := r.hiddenRef().Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil, nil
@@ -213,8 +210,8 @@ func HideKey(tag string) (string, error) {
 	return key, nil
 }
 
-// Hide: a transaction with 1 read and, when the key is new, 1 write (Set with MergeAll and ArrayUnion, so the document is
-// created by the first hide and nothing else is touched). A repeat writes 0; at 100 keys it is refused with 0 writes.
+// Hide: a transaction that writes only when the key is new (Set with MergeAll and ArrayUnion, so the document is
+// created by the first hide and nothing else is touched). A repeat writes nothing; at 100 keys it is refused without writing.
 func (r *trendsRepo) Hide(ctx context.Context, tag string) (HideResult, error) {
 	key, err := HideKey(tag)
 	if err != nil {
@@ -224,7 +221,6 @@ func (r *trendsRepo) Hide(ctx context.Context, tag string) (HideResult, error) {
 	err = r.fs.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = HideResult{Key: key}
 		snap, gerr := tx.Get(r.hiddenRef())
-		budget.FromContext(ctx).AddReads(1)
 		if gerr != nil && status.Code(gerr) != codes.NotFound {
 			return gerr
 		}
@@ -255,14 +251,11 @@ func (r *trendsRepo) Hide(ctx context.Context, tag string) (HideResult, error) {
 		}
 		return HideResult{}, fmt.Errorf("search: hide trend: %w", err)
 	}
-	if res.Changed {
-		budget.FromContext(ctx).AddWrites(1)
-	}
 	return res, nil
 }
 
-// Unhide: a transaction with 1 read and, when the key is on the list, 1 write (Update with ArrayRemove). A missing
-// document or key is success with 0 writes and creates nothing.
+// Unhide: a transaction that writes only when the key is on the list (Update with ArrayRemove). A missing
+// document or key is success, writes nothing and creates nothing.
 func (r *trendsRepo) Unhide(ctx context.Context, tag string) (HideResult, error) {
 	key, err := HideKey(tag)
 	if err != nil {
@@ -272,7 +265,6 @@ func (r *trendsRepo) Unhide(ctx context.Context, tag string) (HideResult, error)
 	err = r.fs.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = HideResult{Key: key}
 		snap, gerr := tx.Get(r.hiddenRef())
-		budget.FromContext(ctx).AddReads(1)
 		if gerr != nil {
 			if status.Code(gerr) == codes.NotFound {
 				return nil
@@ -295,9 +287,6 @@ func (r *trendsRepo) Unhide(ctx context.Context, tag string) (HideResult, error)
 	})
 	if err != nil {
 		return HideResult{}, fmt.Errorf("search: unhide trend: %w", err)
-	}
-	if res.Changed {
-		budget.FromContext(ctx).AddWrites(1)
 	}
 	return res, nil
 }
