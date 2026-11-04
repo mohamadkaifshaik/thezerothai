@@ -371,6 +371,9 @@ func TestBookmarksChain_CapAndQuota(t *testing.T) {
 		if d.GetMetadata()["limit"] != "bookmarks" {
 			t.Errorf("metadata = %v, want limit=bookmarks", d.GetMetadata())
 		}
+		if e.bookmarkDocExists(t, b.uid, p3) {
+			t.Error("a refused bookmark left a doc")
+		}
 		if _, err := e.add(b, contractKey("bm-add"), p1); err != nil {
 			t.Errorf("an existing bookmark at the cap must still succeed: %v", err)
 		}

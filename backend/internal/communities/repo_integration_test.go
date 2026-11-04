@@ -463,7 +463,6 @@ func TestGet_ColdAndWarmReads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.uid, func(t *testing.T) {
 			s := cold()
-			e.dir.asked, e.gr.calls = 0, 0
 			var d Detail
 			_ = measured(t, "GetCommunity cold", func(ctx context.Context) {
 				var err error
@@ -474,10 +473,6 @@ func TestGet_ColdAndWarmReads(t *testing.T) {
 			if d.View.Role != tt.want || d.View.Community.Name != "Seeded" || len(d.Moderators) != 3 || d.Owner == nil {
 				t.Errorf("detail = %+v", d)
 			}
-			_ = int64(2) // community + member doc
-			if tt.want == RoleOwner || tt.want == RoleModerator {
-				_ = 1
-			}
 			measured(t, "GetCommunity warm", func(ctx context.Context) { // profiles and graph are charged by the fakes every time
 				if _, err := s.GetCommunity(ctx, tt.uid, cid); err != nil {
 					t.Fatal(err)
@@ -485,8 +480,7 @@ func TestGet_ColdAndWarmReads(t *testing.T) {
 			})
 		})
 	}
-	// the community created through the service was cached on the writing instance: its owner's first Get reads nothing from Firestore
-	e.dir.asked, e.gr.calls = 0, 0
+	// the community created through the service was cached on the writing instance
 	_ = measured(t, "GetCommunity after the write", func(ctx context.Context) {
 		if _, err := e.svc.GetCommunity(ctx, "owner", com.ID); err != nil {
 			t.Fatal(err)

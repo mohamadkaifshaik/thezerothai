@@ -121,12 +121,8 @@ func TestW328b_PrivacyPublicThroughTheChain(t *testing.T) {
 		t.Fatalf("delivery = %d", code)
 	}
 	line := e.w328bLastJob(t)
-	// reads: 2 pages x 1 (users) + 2 per request (+ the cache-first Directory lookup, at most 1 per requester when cold).
-	// writes: 3 per request + 1 per page. deletes: 1 per request.
-	reads, writes, deletes := line["fs_reads"].(float64), line["fs_writes"].(float64), line["fs_deletes"].(float64)
 	if line["outcome"] != "done" {
-		t.Errorf("job line = outcome %v reads %v writes %v deletes %v, want done / %d..%d / %d / %d",
-			line["outcome"], reads, writes, deletes, 2+2*n, 2+3*n, 3*n+2, n)
+		t.Errorf("job line = outcome %v, want done", line["outcome"])
 	}
 	if got := e.w328bUserField(t, p.uid, "followersCount"); got != n {
 		t.Errorf("P.followersCount = %d, want exactly %d", got, n)

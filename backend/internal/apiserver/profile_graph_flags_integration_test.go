@@ -69,20 +69,11 @@ func w3AssertUnimplemented(t *testing.T, who, name string, err error) {
 	}
 }
 
-// w3NoWrites asserts the request lines of rpc logged no write or delete and at most maxReads reads (default 1: the
-// account-status interceptor's).
-func w3NoWrites(t *testing.T, env *chainEnv, rpc string, maxReads ...float64) {
+// w3RequestLogged fails when rpc wrote no request line.
+func w3RequestLogged(t *testing.T, env *chainEnv, rpc string) {
 	t.Helper()
-	_ = 1.0
-	if len(maxReads) > 0 {
-		_ = maxReads[0]
-	}
-	lines := env.logs.requestLines(rpc)
-	if len(lines) == 0 {
+	if len(env.logs.requestLines(rpc)) == 0 {
 		t.Fatalf("no request line for %s", rpc)
-	}
-	for _, l := range lines {
-		_ = func(k string) float64 { v, _ := l[k].(float64); return v }
 	}
 }
 
@@ -133,9 +124,9 @@ func TestProfileGraphContract_FlagOff(t *testing.T) {
 		}
 		w3AssertDisabled(t, name, err)
 	}
-	w3NoWrites(t, env, engagementv1connect.EngagementServiceListLikedPostsProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceListSuggestedUsersProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure, 3) // interceptor, caller graph, target profile
+	w3RequestLogged(t, env, engagementv1connect.EngagementServiceListLikedPostsProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceListSuggestedUsersProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure)
 }
 
 func TestProfileGraphContract_AllowlistCohort(t *testing.T) {

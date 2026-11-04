@@ -84,9 +84,6 @@ func TestMediaChain_PostWithImagesAndDeleteJob(t *testing.T) {
 	if post.GetMedia()[0].GetAltText() != "a harbour" {
 		t.Errorf("alt text = %q", post.GetMedia()[0].GetAltText())
 	}
-	// The documented worst case (cold interceptor 1 + idempotency 1 + quotas 1 + n media; 4 writes + n updates).
-	lines := e.requestLinesFor("/dzeroth.posts.v1.PostService/CreatePost")
-	_ = lines[len(lines)-1]
 
 	// The post is readable with its images, and the images are attached (a second post cannot reuse them).
 	got, err := e.posts.GetPost(ctx, authed(b.token, &postsv1.GetPostRequest{PostId: post.GetPostId()}))
@@ -172,7 +169,6 @@ func TestMediaChain_Avatar(t *testing.T) {
 	if p.GetAvatarUrl() == "" || p.GetAvatarThumbUrl() == "" || p.GetAvatarUrl() == p.GetAvatarThumbUrl() {
 		t.Fatalf("profile avatar = %q / %q", p.GetAvatarUrl(), p.GetAvatarThumbUrl())
 	}
-	_ = e.requestLinesFor("/dzeroth.identity.v1.IdentityService/UpdateProfile")
 	// Removing it still works.
 	empty := ""
 	resp, err = e.identity.UpdateProfile(ctx, authed(a.token, &identityv1.UpdateProfileRequest{IdempotencyKey: "avatar-rm-key-000001", AvatarMediaId: &empty}))

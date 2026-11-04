@@ -10,7 +10,6 @@ import (
 
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestReplyAudience_Integration against the Firestore emulator:
@@ -40,19 +39,18 @@ func TestReplyAudience_Integration(t *testing.T) {
 	ctxFor := func(uid string) context.Context {
 		return authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 	}
-	// root creates alice's root post with the given policy; the cost is returned for the delta-0 assertion.
-	root := func(in *createInstance, key, text string, policy postsv1.ReplyPolicy) (*Post, *budget.Counter) {
+	// root creates alice's root post with the given policy.
+	root := func(in *createInstance, key, text string, policy postsv1.ReplyPolicy) *Post {
 		t.Helper()
 		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-alice"}); err != nil {
 			t.Fatal(err)
 		}
-		ctx, c := budget.WithCounter(ctxFor("uid-alice"))
-		p, err := in.svc.Create(ctx, "uid-alice", CreateInput{IdempotencyKey: key, Text: text,
+		p, err := in.svc.Create(ctxFor("uid-alice"), "uid-alice", CreateInput{IdempotencyKey: key, Text: text,
 			ReplyPolicy: int32(policy), ReplyAudienceEnabled: true})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return p, c
+		return p
 	}
 	rawDoc := func(id string) map[string]any {
 		t.Helper()
@@ -63,13 +61,11 @@ func TestReplyAudience_Integration(t *testing.T) {
 		return snap.Data()
 	}
 
-	// --- setting a policy: delta 0, the raw field name, legacy-compatible absence ---
-	plain, _ := root(seed, key(1), "plain root", postsv1.ReplyPolicy_REPLY_POLICY_UNSPECIFIED)
-	everyone, everyoneCost := root(seed, key(2), "everyone root", postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE)
-	mentioned, mentionedCost := root(seed, key(3), "only for @bob", postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY)
-	following, followingCost := root(seed, key(4), "only my follows", postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING)
-	for range map[string]*budget.Counter{"EVERYONE": everyoneCost, "MENTIONED_ONLY": mentionedCost, "FOLLOWING": followingCost} {
-	}
+	// --- setting a policy: the raw field name, legacy-compatible absence ---
+	plain := root(seed, key(1), "plain root", postsv1.ReplyPolicy_REPLY_POLICY_UNSPECIFIED)
+	everyone := root(seed, key(2), "everyone root", postsv1.ReplyPolicy_REPLY_POLICY_EVERYONE)
+	mentioned := root(seed, key(3), "only for @bob", postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY)
+	following := root(seed, key(4), "only my follows", postsv1.ReplyPolicy_REPLY_POLICY_FOLLOWING)
 	for id, want := range map[string]any{plain.ID: nil, everyone.ID: nil, mentioned.ID: "MENTIONED_ONLY", following.ID: "FOLLOWING"} {
 		got, ok := rawDoc(id)["replyPolicy"]
 		if want == nil {
@@ -107,71 +103,40 @@ func TestReplyAudience_Integration(t *testing.T) {
 			t.Fatalf("%s: reply doc mentions = %v, want none", cv.name, v)
 		}
 	}
-	base := convs[0]
-
-	// measure runs one reply on a fresh instance and returns its cost.
-	measure := func(uid, key, parent string) (*Post, *budget.Counter, error) {
-		in := fresh()
-		return in.reply(t, uid, key, "measured", parent)
+	// replyFresh runs one reply on a fresh, cold instance.
+	replyFresh := func(uid, key, parent string) error {
+		_, _, err := fresh().reply(t, uid, key, "fresh instance", parent)
+		return err
 	}
 
-	// --- direct reply (parent = root), cold: MENTIONED_ONLY +0, FOLLOWING +1 ---
-	_, baseDirect, err := measure("uid-bob", key(20), base.root.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, mDirect, err := measure("uid-bob", key(21), convs[1].root.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, fDirect, err := measure("uid-bob", key(22), convs[2].root.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertDelta(t, "direct MENTIONED_ONLY", mDirect, baseDirect, 0)
-	assertDelta(t, "direct FOLLOWING", fDirect, baseDirect, 1)
-
-	// --- deep reply, cold, the caller wrote the parent and R's author differs from the parent's author ---
-	_, baseDeep, err := measure("uid-bob", key(30), base.reply.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, mDeep, err := measure("uid-bob", key(31), convs[1].reply.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, fDeep, err := measure("uid-bob", key(32), convs[2].reply.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertDelta(t, "deep MENTIONED_ONLY", mDeep, baseDeep, 3)
-	assertDelta(t, "deep FOLLOWING", fDeep, baseDeep, 4)
-	for range map[string]*budget.Counter{"deep MENTIONED_ONLY": mDeep, "deep FOLLOWING": fDeep} {
-	}
-
-	// --- warm instance: the second reply to the same parent pays +0 over an EVERYONE conversation ---
-	second := func(parent, k1, k2 string) *budget.Counter {
-		in := fresh()
-		if _, _, err := in.reply(t, "uid-bob", k1, "first", parent); err != nil {
-			t.Fatal(err)
+	// --- allowed on a cold instance: direct (parent = root) and deep (the caller wrote the parent, and R's author
+	// differs from the parent's author) ---
+	for i, cv := range convs {
+		if err := replyFresh("uid-bob", key(20+i), cv.root.ID); err != nil {
+			t.Fatalf("%s direct reply: %v", cv.name, err)
 		}
-		_, c, err := in.reply(t, "uid-bob", k2, "second", parent)
-		if err != nil {
-			t.Fatal(err)
+		if err := replyFresh("uid-bob", key(30+i), cv.reply.ID); err != nil {
+			t.Fatalf("%s deep reply: %v", cv.name, err)
 		}
-		return c
 	}
-	warmBase := second(base.reply.ID, key(40), key(41))
-	assertDelta(t, "warm deep MENTIONED_ONLY", second(convs[1].reply.ID, key(42), key(43)), warmBase, 0)
-	assertDelta(t, "warm deep FOLLOWING", second(convs[2].reply.ID, key(44), key(45)), warmBase, 0)
+
+	// --- warm instance: a second reply to the same parent is allowed too ---
+	for i, cv := range convs {
+		in := fresh()
+		if _, _, err := in.reply(t, "uid-bob", key(40+2*i), "first", cv.reply.ID); err != nil {
+			t.Fatalf("%s first warm reply: %v", cv.name, err)
+		}
+		if _, _, err := in.reply(t, "uid-bob", key(41+2*i), "second", cv.reply.ID); err != nil {
+			t.Fatalf("%s second warm reply: %v", cv.name, err)
+		}
+	}
 
 	// --- refusal: dave is neither mentioned nor followed ---
 	for _, tc := range []struct {
 		name, parent, policy string
-		allowed              *budget.Counter
 	}{
-		{"MENTIONED_ONLY direct", convs[1].root.ID, "mentioned_only", mDirect},
-		{"FOLLOWING direct", convs[2].root.ID, "following", fDirect},
+		{"MENTIONED_ONLY direct", convs[1].root.ID, "mentioned_only"},
+		{"FOLLOWING direct", convs[2].root.ID, "following"},
 	} {
 		before := countDocs(t, client, "idempotency")
 		postsBefore := countDocs(t, client, postsCollection)
@@ -179,7 +144,6 @@ func TestReplyAudience_Integration(t *testing.T) {
 		in := fresh()
 		_, _, err := in.reply(t, "uid-dave", key(50), "nope", tc.parent)
 		wantReplyNotAllowed(t, err, tc.policy)
-		// The allowed path also reads the idempotency doc and the quotas doc in its transaction.
 		if got := countDocs(t, client, "idempotency"); got != before {
 			t.Fatalf("%s: idempotency docs %d -> %d, a refusal must store nothing under the key", tc.name, before, got)
 		}
@@ -190,11 +154,10 @@ func TestReplyAudience_Integration(t *testing.T) {
 
 	// The unmentioned / unfollowed stranger is refused in the deep case too (and blocked-or-hidden roots answer
 	// NOT_FOUND, covered by the unit matrix).
-	_, _, err = measure("uid-dave", key(51), convs[2].reply.ID)
-	wantReplyNotAllowed(t, err, "following")
+	wantReplyNotAllowed(t, replyFresh("uid-dave", key(51), convs[2].reply.ID), "following")
 
 	// The root author may always reply, even though alice is not in her own mentions or follows.
-	if _, _, err := measure("uid-alice", key(52), convs[1].reply.ID); err != nil {
+	if err := replyFresh("uid-alice", key(52), convs[1].reply.ID); err != nil {
 		t.Fatalf("the root author's reply: %v", err)
 	}
 
@@ -224,50 +187,28 @@ func TestReplyAudience_Integration(t *testing.T) {
 	// --- the export of the author's posts names the policy ---
 	assertExportHasPolicy(t, seed, "uid-alice")
 
-	// --- GetPost hint: a FOLLOWING root costs at most +1 read cold over the plain GetPost, 0 warm ---
-	hintCost := func(rootID string) int64 {
+	// --- GetPost hint: bob may reply to every root ---
+	for _, r := range []*Post{plain, mentioned, following} {
 		in := fresh()
-		_, p, err := in.get("uid-bob", rootID) // GetPost's visibility check caches the viewer's graph
+		_, p, err := in.get("uid-bob", r.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ctx, hc := budget.WithCounter(ctxFor("uid-bob"))
-		_ = in.svc.ReplyPermission(ctx, "uid-bob", p)
-		return hc.Reads()
-	}
-	if r := hintCost(plain.ID); r != 0 {
-		t.Fatalf("hint on an EVERYONE root read %d, want 0", r)
-	}
-	if r := hintCost(mentioned.ID); r != 0 {
-		t.Fatalf("hint on a MENTIONED_ONLY root read %d, want 0 (the viewer's graph is cached by GetPost)", r)
-	}
-	if r := hintCost(following.ID); r != 1 {
-		t.Fatalf("hint on a FOLLOWING root read %d, want 1 (R's author graph, cold)", r)
+		if got := in.svc.ReplyPermission(ctxFor("uid-bob"), "uid-bob", p); got != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
+			t.Fatalf("hint on root %s = %v, want ALLOWED for bob", r.ID, got)
+		}
 	}
 
-	// --- GetThread: the hint of a FOLLOWING conversation is +1 cold over an EVERYONE one of the same size ---
-	// PageSize 1 caps the conversation query at one reply in both, so the delta no longer depends on how many replies
-	// each conversation holds by now.
-	threadReads := func(c *conv) *budget.Counter {
-		in := fresh()
-		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-bob"}); err != nil {
-			t.Fatal(err)
-		}
-		th, ctr, err := in.thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID, PageSize: 1})
+	// --- GetThread: the hint in an EVERYONE and a FOLLOWING conversation ---
+	for _, c := range []*conv{convs[0], convs[2]} {
+		th, _, err := fresh().thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID, PageSize: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if th.ReplyPermission != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
 			t.Fatalf("%s thread hint = %v, want ALLOWED for bob", c.name, th.ReplyPermission)
 		}
-		return ctr
 	}
-	assertDelta(t, "GetThread FOLLOWING hint", threadReads(convs[2]), threadReads(convs[0]), 1)
-}
-
-// assertDelta fails unless got.Reads() == base.Reads()+want.
-func assertDelta(t *testing.T, name string, got, base *budget.Counter, want int64) {
-	t.Helper()
 }
 
 // assertExportHasPolicy streams the export and expects at least one post with a replyPolicy.

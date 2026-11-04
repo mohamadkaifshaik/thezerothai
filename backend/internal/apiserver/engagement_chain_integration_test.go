@@ -129,7 +129,6 @@ func TestEngagementChain_LikeRepostQuoteAndDeleteJob(t *testing.T) {
 	if got := r.Msg.GetEngagement(); got.GetLikeCount() != 1 || !got.GetLikedByViewer() || got.GetPostId() != pid {
 		t.Fatalf("like result = %v", got)
 	}
-	_, _ = e.lastLine(t, rpcLike)
 	r, err = eng.LikePost(ctx, authed(b.token, &engagementv1.LikePostRequest{IdempotencyKey: "eng-like-key-0000001", PostId: pid}))
 	if err != nil || r.Msg.GetEngagement().GetLikeCount() != 1 || !r.Msg.GetEngagement().GetLikedByViewer() {
 		t.Fatalf("replay = %v, %v", r, err)

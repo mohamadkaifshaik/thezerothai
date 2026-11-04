@@ -203,21 +203,19 @@ func TestW536_ConcurrentColdFills(t *testing.T) {
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
-		reads   []int64
 		results [][]string
 	)
 	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, counter := budget.WithCounter(ctxFor("me"))
-			resp, err := c.srv.GetCommunityTimeline(ctx, connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{CommunityId: testCID, PageSize: 20}))
+			resp, err := c.srv.GetCommunityTimeline(ctxFor("me"), connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{CommunityId: testCID, PageSize: 20}))
 			if err != nil {
 				t.Errorf("err = %v", err)
 				return
 			}
 			mu.Lock()
-			reads, results = append(reads, counter.Reads()), append(results, commIDs(resp.Msg))
+			results = append(results, commIDs(resp.Msg))
 			mu.Unlock()
 		}()
 	}
@@ -235,8 +233,8 @@ func TestW536_ConcurrentColdFills(t *testing.T) {
 	}
 	t.Logf("%d concurrent cold opens ran %d fill queries (there is no single-flight: each racing request that misses pays its own fill, bounded by its page)", n, len(fills))
 	before := len(fills)
-	if _, counter := c.must("", "", 20); len(c.cp.callsSnapshot()) != before {
-		t.Errorf("after the burst the entry is not a clean warm hit: reads=%d queries=%d->%d", counter.Reads(), before, len(c.cp.callsSnapshot()))
+	if c.must("", "", 20); len(c.cp.callsSnapshot()) != before {
+		t.Errorf("after the burst the entry is not a clean warm hit: queries=%d->%d", before, len(c.cp.callsSnapshot()))
 	}
 }
 

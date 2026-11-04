@@ -204,6 +204,9 @@ func TestPollVoteChain_Closed(t *testing.T) {
 	}
 	_, err = e.vote(b, "poll-vote-key-000010", closedID, 0)
 	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
+	if got := e.voteDocs(t, closedID); got != 0 {
+		t.Errorf("vote docs after a closed-poll refusal = %d, want 0", got)
+	}
 	g, err := e.posts.GetPost(context.Background(), authed(b.token, &postsv1.GetPostRequest{PostId: closedID}))
 	if err != nil || !g.Msg.GetPost().GetPost().GetPoll().GetClosed() || !g.Msg.GetPost().GetPost().GetPoll().GetResultsVisible() {
 		t.Fatalf("GetPost of a closed poll = %v, %v", g, err)

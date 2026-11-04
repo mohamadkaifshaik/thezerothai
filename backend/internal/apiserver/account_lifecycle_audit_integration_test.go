@@ -448,8 +448,9 @@ func TestAccountLifecycle_ConcurrentDeliveries(t *testing.T) {
 }
 
 // TestAccountLifecycle_ConcurrentDeleteAccount: a double-submit (a retry storm after a lost response) of
-// DeleteAccount, with different and equal idempotency keys, commits exactly one write and every caller sees the
-// same deletion_requested_at.
+// DeleteAccount, with different and equal idempotency keys, is accepted once and publishes one job message (the rest
+// are replays inside the republish window, so the storm cannot start duplicate slices), and every caller sees the same
+// deletion_requested_at.
 func TestAccountLifecycle_ConcurrentDeleteAccount(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
@@ -481,10 +482,21 @@ func TestAccountLifecycle_ConcurrentDeleteAccount(t *testing.T) {
 			t.Errorf("call %d deletion_requested_at = %v, call 0 = %v", i, times[i], times[0])
 		}
 	}
-	for _, m := range e.pull(t) {
-		if m["kind"] != "account_delete" || m["uid"] != u.uid || m["seq"] != float64(0) {
-			t.Errorf("unexpected job message %v", m)
+	msgs := e.pull(t)
+	if len(msgs) != 1 {
+		t.Fatalf("job messages = %d, want 1: %v", len(msgs), msgs)
+	}
+	if m := msgs[0]; m["kind"] != "account_delete" || m["uid"] != u.uid || m["seq"] != float64(0) {
+		t.Errorf("unexpected job message %v", m)
+	}
+	accepted := 0
+	for _, l := range e.requestLinesFor("/dzeroth.identity.v1.IdentityService/DeleteAccount") {
+		if l["outcome"] == "accepted" {
+			accepted++
 		}
+	}
+	if accepted != 1 {
+		t.Errorf("accepted DeleteAccount calls = %d of %d, want exactly 1", accepted, len(keys))
 	}
 }
 

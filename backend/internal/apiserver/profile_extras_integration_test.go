@@ -229,7 +229,6 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "profile_extras" {
 			t.Errorf("%s: reason=%v metadata=%v", name, d.GetReason(), d.GetMetadata())
 		}
-		_ = lastRequestLine(t, e, rpcUpdateProfile)
 	}
 	// The name and bio path is unchanged for them.
 	bio := "hello"
@@ -252,7 +251,6 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	if p := cleared.Msg.GetProfile(); p.GetBannerUrl() != "" || p.GetLocation() != "" || p.GetWebsite() != "" || p.GetPinnedPostId() != "" {
 		t.Errorf("response after the clear = %v", p)
 	}
-	_ = lastRequestLine(t, e, rpcUpdateProfile)
 	for _, f := range []string{"location", "website", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {
 		if v := fsDocField(t, e, "users/"+b.uid, f); v != "" && v != nil {
 			t.Errorf("stored %s = %v after the clear", f, v)
@@ -331,7 +329,6 @@ func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 	if p := cleared.Msg.GetProfile(); p.GetWebsite() != "" || p.GetPinnedPostId() != "" || p.GetLocation() != "" || p.GetBannerUrl() != "" {
 		t.Errorf("response after the clear = %v", p)
 	}
-	_ = lastRequestLine(t, e, rpcUpdateProfile)
 	for _, f := range []string{"website", "location", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {
 		if v := fsDocField(t, e, "users/"+a.uid, f); v != "" && v != nil {
 			t.Errorf("stored %s = %v after the clear", f, v)

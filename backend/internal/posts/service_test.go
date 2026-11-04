@@ -153,21 +153,23 @@ func TestGet(t *testing.T) {
 	repo := newFakeRepo(p)
 	svc, _ := newSvc(repo)
 
-	var got *Post
-	var err error
-	if r := reads(t, func(ctx context.Context) { got, err = svc.Get(ctx, p.ID) }); err != nil || got != p {
-		t.Fatalf("cold Get: got=%v err=%v reads=%d, want the post, nil, 1", got, err, r)
+	ctx := context.Background()
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil || got != p || repo.getAllCalls != 1 {
+		t.Fatalf("cold Get: got=%v err=%v getAllCalls=%d, want the post, nil, 1", got, err, repo.getAllCalls)
 	}
-	if r := reads(t, func(ctx context.Context) { got, err = svc.Get(ctx, p.ID) }); err != nil || got != p {
-		t.Fatalf("warm Get: got=%v err=%v reads=%d, want the post, nil, 0", got, err, r)
+	got, err = svc.Get(ctx, p.ID)
+	if err != nil || got != p || repo.getAllCalls != 1 {
+		t.Fatalf("warm Get: got=%v err=%v getAllCalls=%d, want the post from the cache, nil, 1", got, err, repo.getAllCalls)
 	}
 
-	// Absence is never cached: each Get of a missing id reads again.
+	// Absence is never cached, or a just-created post would stay NOT_FOUND until the entry expired: each Get of a
+	// missing id goes back to the repo.
 	for i := 0; i < 2; i++ {
-
-		r := reads(t, func(ctx context.Context) { _, err = svc.Get(ctx, "0000000000000000999") })
-		if !errors.Is(err, ErrNotFound) {
-			t.Fatalf("missing Get #%d: err=%v reads=%d, want ErrNotFound, 1", i, err, r)
+		before := repo.getAllCalls
+		_, err = svc.Get(ctx, "0000000000000000999")
+		if !errors.Is(err, ErrNotFound) || repo.getAllCalls != before+1 {
+			t.Fatalf("missing Get #%d: err=%v getAllCalls=%d, want ErrNotFound, %d", i, err, repo.getAllCalls, before+1)
 		}
 	}
 	repo.getAllErr = errors.New("boom")
@@ -209,15 +211,16 @@ func TestGetMany_TwelveOfTwentyCached(t *testing.T) {
 
 func TestGetMany_EdgeCases(t *testing.T) {
 	p1, p2 := post("0000000000000000001", "a"), post("0000000000000000002", "a")
-	svc, _ := newSvc(newFakeRepo(p1, p2))
+	dedupeRepo := newFakeRepo(p1, p2)
+	svc, _ := newSvc(dedupeRepo)
 
 	t.Run("duplicates are fetched once and missing ids are absent", func(t *testing.T) {
-		var got map[string]*Post
-		r := reads(t, func(ctx context.Context) {
-			got, _ = svc.GetMany(ctx, []string{p1.ID, p1.ID, "0000000000000000404", p2.ID})
-		})
+		got, _ := svc.GetMany(context.Background(), []string{p1.ID, p1.ID, "0000000000000000404", p2.ID})
 		if len(got) != 2 || got[p1.ID] != p1 || got[p2.ID] != p2 {
-			t.Fatalf("got=%v reads=%d, want 2 posts and 3 reads", got, r)
+			t.Fatalf("got=%v, want 2 posts", got)
+		}
+		if len(dedupeRepo.lastGetAllIDs) != 3 {
+			t.Fatalf("fetched ids = %v, want 3 with the duplicate dropped", dedupeRepo.lastGetAllIDs)
 		}
 	})
 	t.Run("no ids", func(t *testing.T) {

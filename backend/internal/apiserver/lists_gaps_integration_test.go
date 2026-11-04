@@ -131,12 +131,6 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	if got := c.tabs(t, viewer); !slices.Equal(got, want) {
 		t.Fatalf("tabs = %v, want %v", got, want)
 	}
-	// The cold GetMe of an account with no tabs is the baseline: a dangling tab must add nothing to it.
-	bare := c.user(t)
-	b0 := newLTChain(t, nil)
-	b0.tabs(t, bare)
-	_ = b0.lineBudget(t, rpcGetMe).Reads()
-
 	private := true
 	if _, err := c.lists.UpdateList(context.Background(), authed(owner.token, &listsv1.UpdateListRequest{IdempotencyKey: contractKey("w515-priv"), ListId: toPrivate, IsPrivate: &private})); err != nil {
 		t.Fatalf("UpdateList private: %v", err)
@@ -449,11 +443,6 @@ func TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads(t *testing.T) {
 	for rpc, call := range reads {
 		if err := call(); err != nil {
 			t.Errorf("%s under readonly: %v, want success", rpc, err)
-			continue
-		}
-		_ = "/dzeroth.lists.v1.ListService/" + rpc
-		if rpc == "GetListTimeline" {
-			_ = rpcGetListTimeline
 		}
 	}
 }

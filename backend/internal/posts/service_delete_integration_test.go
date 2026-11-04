@@ -128,12 +128,9 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 	}
 
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		writes  int64
-		deletes int64
-		start   = make(chan struct{})
-		errs    = make([]error, 5)
+		wg    sync.WaitGroup
+		start = make(chan struct{})
+		errs  = make([]error, 5)
 	)
 	for i := 0; i < 5; i++ {
 		in := newCreateInstance(t, client, time.Nanosecond)
@@ -141,12 +138,7 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			c, err := in.del("uid-alice", ids[0])
-			errs[i] = err
-			mu.Lock()
-			writes += c.Writes()
-			deletes += c.Deletes()
-			mu.Unlock()
+			_, errs[i] = in.del("uid-alice", ids[0])
 		}()
 	}
 	close(start)

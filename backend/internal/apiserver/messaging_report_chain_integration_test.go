@@ -533,14 +533,12 @@ func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 
 	cold := newReportChain(t, nil)
 	coldErr := errOf(cold.report(stranger, th.convID, th.m1))
-	coldReads := cold.lineBudget(t, rpcReportContent).Reads()
 
 	warm := newReportChain(t, nil)
 	if _, err := warm.report(th.b, th.convID, th.m2); err != nil { // a participant warms the conversation cache
 		t.Fatal(err)
 	}
 	warmErr := errOf(warm.report(stranger, th.convID, th.m1))
-	warmReads := warm.lineBudget(t, rpcReportContent).Reads()
 
 	unknownErr := errOf(warm.report(stranger, strings.Repeat("0", 32), strings.Repeat("0", 32)))
 	requireCode(t, coldErr, connect.CodeNotFound)
@@ -548,5 +546,4 @@ func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 	if wireBytes(t, coldErr) != wireBytes(t, warmErr) || wireBytes(t, warmErr) != wireBytes(t, unknownErr) {
 		t.Errorf("bytes differ: cold %q, warm %q, unknown conversation %q", wireBytes(t, coldErr), wireBytes(t, warmErr), wireBytes(t, unknownErr))
 	}
-	t.Logf("non-participant reads: cold %d, warm %d", coldReads, warmReads)
 }

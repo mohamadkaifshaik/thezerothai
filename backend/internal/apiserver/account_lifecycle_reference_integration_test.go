@@ -64,10 +64,6 @@ func TestAccountLifecycle_ReferenceAccount(t *testing.T) {
 	if export == nil {
 		t.Fatalf("no export `done` line: %v", e.jobLines())
 	}
-	if _, err := e.identity.GetAccountExport(ctx, authed(a.token, &identityv1.GetAccountExportRequest{ExportId: exp.Msg.GetExportId()})); err != nil {
-		// A signed URL cannot be minted against the emulators; only the cost of the poll matters here.
-		t.Logf("GetAccountExport on the emulator: %v", err)
-	}
 
 	// --- deletion ---
 	if _, err := e.identity.DeleteAccount(ctx, authed(a.token, &identityv1.DeleteAccountRequest{IdempotencyKey: "reference-delete-key-0001"})); err != nil {
@@ -87,6 +83,9 @@ func TestAccountLifecycle_ReferenceAccount(t *testing.T) {
 				pending = pending[1:]
 			}
 		}
+	}
+	if deliveries >= 50 {
+		t.Fatalf("the delete job did not finish in %d deliveries", deliveries)
 	}
 
 	// --- end state ---

@@ -190,13 +190,12 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		}
 	})
 
-	t.Run("an approved follower cannot repost or quote: PROTECTED_ACCOUNT, 0 writes; the author can", func(t *testing.T) {
+	t.Run("an approved follower cannot repost or quote: PROTECTED_ACCOUNT; the author can", func(t *testing.T) {
 		_, err := r.eng.RepostPost(ctx, authed(follower.token, &engagementv1.RepostPostRequest{IdempotencyKey: contractKey("w329a-rp"), PostId: pid}))
 		d := wireError(t, err, connect.CodeFailedPrecondition)
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
 			t.Errorf("repost reason = %v", d.GetReason())
 		}
-		// Measured 2 (2026-10-28); 3 is one read of documented headroom (was a loose 12).
 
 		_, err = r.posts.CreatePost(ctx, authed(follower.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("w329a-fq"), Text: "q", QuoteOfPostId: pid}))
 		d = wireError(t, err, connect.CodeFailedPrecondition)

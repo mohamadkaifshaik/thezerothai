@@ -336,7 +336,14 @@ func TestCommunity_RefillWithFullPageReplacesEntry(t *testing.T) {
 		t.Fatalf("refill = %+v, want one query of 20 rows (never more than the page)", got)
 	}
 	// 25 new posts exceed the page, so the rows in between are unknown: the entry now holds only the newest 20, not stale rows.
-	_, _ = c.must("", "", 20)
+	before := len(calls)
+	resp, _ = c.must("", "", 20)
+	if got := commIDs(resp); !slices.Equal(got, idsOf(fresh[:20])) {
+		t.Fatalf("warm page = %v, want the 20 newest", got)
+	}
+	if n := len(c.cp.callsSnapshot()); n != before {
+		t.Fatalf("warm page ran %d queries, want it served from the replaced entry", n-before)
+	}
 }
 
 func TestCommunity_RefreshReadsAndRemovals(t *testing.T) {

@@ -111,7 +111,6 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Fatalf("request lines = %d, want 1", len(lines))
 	}
 	coldLine := lines[0]
-	_ = float64(w320SugColdCap(t)) // 32 at the default EdgeLimit 20; TestW320_SuggestionsHardCap32 pins the literal
 	if coldLine["source"] != "fof" || logNum(coldLine, "candidates") != 10 || coldLine["suggestions_cache_hit"] != false {
 		t.Errorf("cold log fields: source=%v candidates=%v suggestions_cache_hit=%v, want fof, 10, false", coldLine["source"], coldLine["candidates"], coldLine["suggestions_cache_hit"])
 	}
