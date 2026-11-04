@@ -28,3 +28,15 @@ variable "custom_domains" {
   }))
   default = {}
 }
+
+variable "android_sha1_hashes" {
+  description = "Signing-key SHA-1 fingerprints registered on the Android app. Null leaves the field unmanaged; a list replaces what Firebase holds, so it must name every key in use."
+  type        = list(string)
+  default     = null
+}
+
+variable "android_sha256_hashes" {
+  description = "Signing-key SHA-256 fingerprints registered on the Android app. Same rules as android_sha1_hashes."
+  type        = list(string)
+  default     = null
+}
