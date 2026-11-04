@@ -6,7 +6,7 @@
 
 // Media: images only at Stage 0 (animated GIF for post media behind FEATURE_GIF). Owner module:
 // backend/internal/media.
-// Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
+// Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch usage counter: a cost meter, it never limits screening).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
 // objects are copied to the public-read media bucket (both us-central1).
 
@@ -95,7 +95,8 @@ const (
 	MediaStatus_MEDIA_STATUS_PENDING MediaStatus = 1
 	// Passed SafeSearch; public.
 	MediaStatus_MEDIA_STATUS_READY MediaStatus = 2
-	// Monthly SafeSearch quota exhausted; published and queued for report-driven review.
+	// Published without SafeSearch while a monthly cap existed. No longer produced: every image is screened now. Existing
+	// documents in this state stay published and every reader treats them like READY.
 	MediaStatus_MEDIA_STATUS_READY_UNSCREENED MediaStatus = 3
 	// Failed validation or moderation; objects deleted.
 	MediaStatus_MEDIA_STATUS_REJECTED MediaStatus = 4

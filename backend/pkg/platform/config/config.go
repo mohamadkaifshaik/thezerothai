@@ -299,12 +299,6 @@ type Config struct {
 	// MediaPublicBaseURL is MEDIA_PUBLIC_BASE_URL: the URL prefix public objects are served from (no trailing
 	// slash). Default https://storage.googleapis.com/<MediaBucket>; local dev points it at the Storage emulator.
 	MediaPublicBaseURL string
-	// VisionMonthlyCap is VISION_MONTHLY_CAP (default 10,000): the most SafeSearch units one calendar month may
-	// consume. At the cap, VisionExhaustedPolicy applies. 0 disables screening spend entirely (every
-	// upload takes the exhausted path).
-	VisionMonthlyCap int
-	// VisionExhaustedPolicy is VISION_EXHAUSTED_POLICY: what an upload becomes once the cap is hit.
-	VisionExhaustedPolicy VisionExhaustedPolicy
 	// VisionScreenThumb is VISION_SCREEN_THUMB (default true): screen the thumbnail too, so the small image shown
 	// in lists is moderated as well as the full image (2 units per image instead of 1). Set false to follow
 	// the one-unit wording literally.
@@ -748,22 +742,11 @@ func Load() (Config, error) {
 	case notifDelivery == "inline" && env != "local":
 		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY=inline is only allowed in env local (got %q)", env)
 	}
-	// Media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard, so
-	// a negative value or an unknown policy name fails startup instead of silently changing what is published.
+	// Media is off everywhere until the founder ramps it. Every image is always screened: there is no setting that
+	// caps or disables the SafeSearch spend (the old VISION_MONTHLY_CAP and VISION_EXHAUSTED_POLICY keys are ignored).
 	featureMedia, err := flags.LoadSpec("MEDIA", "media", flags.Off)
 	if err != nil {
 		return Config{}, err
-	}
-	visionCap, err := getInt("VISION_MONTHLY_CAP", 10000)
-	if err != nil {
-		return Config{}, err
-	}
-	if visionCap < 0 {
-		return Config{}, fmt.Errorf("config: VISION_MONTHLY_CAP must be >= 0 (got %d)", visionCap)
-	}
-	visionPolicy := VisionExhaustedPolicy(getenv("VISION_EXHAUSTED_POLICY", string(VisionPolicyEstablished)))
-	if !visionPolicy.valid() {
-		return Config{}, fmt.Errorf("config: invalid VISION_EXHAUSTED_POLICY %q (want unscreened_established|reject)", visionPolicy)
 	}
 	profileMediaRetire, err := ParseProfileMediaRetire(os.Getenv("PROFILE_MEDIA_RETIRE"))
 	if err != nil {
@@ -1000,8 +983,6 @@ func Load() (Config, error) {
 		MediaUploadBucket:         getenv("MEDIA_UPLOAD_BUCKET", projectID+"-media-upload"),
 		MediaBucket:               mediaBucket,
 		MediaPublicBaseURL:        strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
-		VisionMonthlyCap:          visionCap,
-		VisionExhaustedPolicy:     visionPolicy,
 		VisionScreenThumb:         visionScreenThumb,
 		ProfileMediaRetire:        profileMediaRetire,
 	}, nil

@@ -99,14 +99,14 @@ func wantRetryAfter(t *testing.T, err error, want time.Duration) {
 	}
 }
 
-// TestW640_NoValidAssessmentConsumesARetryNotAnAttempt: an outage, our own deadline, a billed-but-invalid answer and an internal error before the
-// call each leave screenAssessed at 0 and take one claim (a retry); the doc is REJECTED `attempts` only at the claims ceiling (3 + 5 = 8), and the
+// TestW640_NoValidAssessmentConsumesARetryNotAnAttempt: an outage, our own deadline and a billed-but-invalid answer
+// each leave screenAssessed at 0 and take one claim (a retry); the doc is REJECTED `attempts` only at the claims ceiling (3 + 5 = 8), and the
 // UNAVAILABLE carries retry_after.
 func TestW640_NoValidAssessmentConsumesARetryNotAnAttempt(t *testing.T) {
 	tests := []struct {
 		name         string
 		setup        func(e *env, id string)
-		wantMonthly  int64 // VISION_MONTHLY_CAP counter after the 8 claims
+		wantMonthly  int64 // month usage counter after the 8 claims
 		wantUnitsCap int64 // per-uid units cap after the 8 claims
 	}{
 		{"outage (Vision 503, refunded to both counters)", func(e *env, _ string) { e.mod.err = &googleapi.Error{Code: 503} }, 0, 0},
@@ -115,7 +115,6 @@ func TestW640_NoValidAssessmentConsumesARetryNotAnAttempt(t *testing.T) {
 		{"our 10 s deadline (W6-42 H-1: counted in the monthly cap too)", func(e *env, _ string) { e.mod.err = fmt.Errorf("media: vision annotate: %w", context.DeadlineExceeded) }, 16, 16},
 		{"billed answer with a non-terminal error", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: 7} }, 16, 16},
 		{"billed answer without an annotation", func(e *env, _ string) { e.mod.err = &VisionAnsweredError{Code: -1} }, 16, 16},
-		{"internal error (Vision counter unreadable)", func(e *env, _ string) { e.repo.visionErr = errors.New("firestore unavailable") }, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -320,10 +319,10 @@ func TestW640_UnitsAreRefundedOnlyWhenNothingWasSent(t *testing.T) {
 			t.Fatal("the refused call must not claim")
 		}
 	})
-	t.Run("a lost claim race and a Vision-counter error refund", func(t *testing.T) {
+	t.Run("a Vision 429 is known not to be billed, so its units are refunded", func(t *testing.T) {
 		e := newEnv(t, envOpts{screenThumb: true, unitsPerDay: 4})
 		tg := e.upload(t, uidA, PurposePost, "a")
-		e.repo.visionErr = errors.New("firestore unavailable")
+		e.mod.err = &googleapi.Error{Code: 429}
 		for range 5 {
 			_, err := e.finalizeErr(t, tg.MediaID)
 			wantUnavailable(t, err)

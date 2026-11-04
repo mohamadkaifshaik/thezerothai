@@ -15,22 +15,23 @@ import (
 
 // fakeRepo is an in-memory Repo. It is the unit-test stand-in for the Firestore repo.
 type fakeRepo struct {
-	mu       sync.Mutex
-	docs     map[string]*Doc
-	idem     map[string]fakeIdem
-	vision   map[string]int64
-	visionRd int // VisionUsed calls
-	resolves int
-	claims   int // ClaimScreening calls, won or lost
-	releases int // ReleaseScreening calls
-	getMany  int // GetMany calls
-	retires  int // Retire calls, won or lost
+	mu     sync.Mutex
+	docs   map[string]*Doc
+	idem   map[string]fakeIdem
+	vision map[string]int64
+	// visionAdds counts AddVisionUnits calls, failed or not.
+	visionAdds int
+	resolves   int
+	claims     int // ClaimScreening calls, won or lost
+	releases   int // ReleaseScreening calls
+	getMany    int // GetMany calls
+	retires    int // Retire calls, won or lost
 	// failures
-	createErr error
-	visionErr error // VisionUsed fails (the Vision-counter read: an internal error before any call)
-	retireErr error
-	resolveFn func(id string) error
-	claimFn   func(id string) error // ClaimScreening answers this error first (a lost claim race), counted in claims
+	createErr    error
+	addVisionErr error // AddVisionUnits fails (the usage counter write: it must never block or publish anything)
+	retireErr    error
+	resolveFn    func(id string) error
+	claimFn      func(id string) error // ClaimScreening answers this error first (a lost claim race), counted in claims
 }
 
 type fakeIdem struct {
@@ -159,22 +160,16 @@ func (r *fakeRepo) Retire(_ context.Context, id string, updateTime, retiredAt, e
 	return nil
 }
 
-func (r *fakeRepo) VisionUsed(_ context.Context, month string) (int64, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.visionRd++
-	if r.visionErr != nil {
-		return 0, r.visionErr
-	}
-	return r.vision[month], nil
-}
-
 func (r *fakeRepo) AddVisionUnits(ctx context.Context, month string, n int64) error {
 	if err := ctx.Err(); err != nil { // like Firestore: a cancelled request context fails the write
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.visionAdds++
+	if r.addVisionErr != nil {
+		return r.addVisionErr
+	}
 	r.vision[month] += n
 	return nil
 }

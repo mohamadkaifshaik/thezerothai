@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -31,6 +33,25 @@ func newIntegrationClient(t *testing.T) *firestore.Client {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client
+}
+
+// readVisionUnits reads the month's usage counter document straight from Firestore, as scripts/cost-vision.sh does: the
+// service itself never reads it, so the repo has no read method.
+func readVisionUnits(ctx context.Context, client *firestore.Client, month string) (int64, error) {
+	snap, err := client.Collection(adminCollection).Doc("vision-" + month).Get(ctx)
+	if status.Code(err) == codes.NotFound {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	var v struct {
+		Units int64 `firestore:"units"`
+	}
+	if err := snap.DataTo(&v); err != nil {
+		return 0, err
+	}
+	return v.Units, nil
 }
 
 // intEnv is the real Firestore repo and library behind the same service the unit tests drive with fakes.
@@ -50,7 +71,7 @@ func newIntEnv(t *testing.T, o envOpts) *intEnv {
 		Repo: real, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-30 * 24 * time.Hour)}, IDs: &seqIDs{n: rand.IntN(1 << 30)},
 		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
-		VisionMonthlyCap: 100, Now: func() time.Time { return testNow },
+		Now: func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -99,8 +120,8 @@ func TestIntegration_CreateUploadAndFinalize(t *testing.T) {
 		}
 	}
 
-	// The Vision counter is a real document and the cap arithmetic reads it back.
-	used, err := e.real.VisionUsed(context.Background(), monthKey(testNow))
+	// The Vision counter is a real document that meters the spend.
+	used, err := readVisionUnits(context.Background(), e.client, monthKey(testNow))
 	if err != nil || used != 2 {
 		t.Fatalf("vision units = %d, %v", used, err)
 	}
@@ -320,11 +341,11 @@ func TestIntegration_VisionCounterIsAnAtomicIncrement(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	got, err := e.real.VisionUsed(ctx, "202610")
+	got, err := readVisionUnits(ctx, e.client, "202610")
 	if err != nil || got != 16 {
 		t.Fatalf("units = %d, %v, want 16", got, err)
 	}
-	if got, err := e.real.VisionUsed(ctx, "209901"); err != nil || got != 0 {
+	if got, err := readVisionUnits(ctx, e.client, "209901"); err != nil || got != 0 {
 		t.Fatalf("a month with no counter reads 0, got %d, %v", got, err)
 	}
 }
@@ -392,7 +413,7 @@ func TestIntegration_BannerAndResolver(t *testing.T) {
 	if err != nil || res[0].Status != StatusReady {
 		t.Fatalf("finalize = %+v, %v", res, err)
 	}
-	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
+	if used, err := readVisionUnits(ctx, e.client, monthKey(testNow)); err != nil || used != BannerVisionUnits {
 		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
 	}
 
@@ -516,7 +537,7 @@ func TestIntegration_ConcurrentBannerFinalizeScreensOnce(t *testing.T) {
 	if got := len(e.mod.calls); got != BannerVisionUnits {
 		t.Errorf("SafeSearch calls = %d (%v), want exactly %d", got, e.mod.calls, BannerVisionUnits)
 	}
-	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
+	if used, err := readVisionUnits(ctx, e.client, monthKey(testNow)); err != nil || used != BannerVisionUnits {
 		t.Errorf("vision counter = %d, %v, want exactly %d", used, err, BannerVisionUnits)
 	}
 	if st.attempts.Load() < 3 {

@@ -60,7 +60,8 @@ class MediaStatus extends $pb.ProtobufEnum {
   static const MediaStatus MEDIA_STATUS_READY =
       MediaStatus._(2, _omitEnumNames ? '' : 'MEDIA_STATUS_READY');
 
-  /// Monthly SafeSearch quota exhausted; published and queued for report-driven review.
+  /// Published without SafeSearch while a monthly cap existed. No longer produced: every image is screened now. Existing
+  /// documents in this state stay published and every reader treats them like READY.
   static const MediaStatus MEDIA_STATUS_READY_UNSCREENED =
       MediaStatus._(3, _omitEnumNames ? '' : 'MEDIA_STATUS_READY_UNSCREENED');
 

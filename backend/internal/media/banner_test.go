@@ -11,7 +11,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	mediav1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -217,35 +216,6 @@ func TestFinalize_BannerOverTheStoredSizeIsRejected(t *testing.T) {
 	res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
 	if err != nil || res[0].Status != StatusRejected || res[0].RejectionReason != reasonInvalid || len(e.mod.calls) != 0 {
 		t.Fatalf("res = %+v err=%v calls=%v", res, err, e.mod.calls)
-	}
-}
-
-func TestFinalize_BannerAtTheVisionCap(t *testing.T) {
-	tests := []struct {
-		name   string
-		used   int64
-		policy config.VisionExhaustedPolicy
-		want   Status
-		calls  int
-		spent  int64
-	}{
-		{"two units left: screened", 8, config.VisionPolicyEstablished, StatusReady, 2, 10},
-		{"one unit left is not enough for a banner: established account publishes unscreened", 9, config.VisionPolicyEstablished, StatusReadyUnscreened, 0, 9},
-		{"at the cap with reject policy", 10, config.VisionPolicyReject, StatusRejected, 0, 10},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t, envOpts{cap: 10, policy: tt.policy})
-			e.repo.vision[monthKey(testNow)] = tt.used
-			tg := e.bannerUpload(t, uidA, "a")
-			res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
-			if err != nil || res[0].Status != tt.want {
-				t.Fatalf("res = %+v err=%v, want %s", res, err, tt.want)
-			}
-			if len(e.mod.calls) != tt.calls || e.repo.vision[monthKey(testNow)] != tt.spent {
-				t.Fatalf("calls=%d counter=%d, want %d / %d", len(e.mod.calls), e.repo.vision[monthKey(testNow)], tt.calls, tt.spent)
-			}
-		})
 	}
 }
 

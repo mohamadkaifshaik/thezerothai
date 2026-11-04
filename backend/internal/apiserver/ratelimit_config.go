@@ -140,7 +140,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
 
 	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Vision spend is
-	// bounded by VISION_MONTHLY_CAP.
+	// bounded by the per-uid units cap and the Vision project's request quota.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	// FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
 	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, counted before the claim.

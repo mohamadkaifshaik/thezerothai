@@ -28,7 +28,7 @@ func (e *env) sibling(t *testing.T, repo Repo) Service {
 		Repo: repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-30 * 24 * time.Hour)}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
-		VisionMonthlyCap: 100, Now: func() time.Time { return testNow },
+		Now: func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)

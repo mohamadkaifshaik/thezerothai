@@ -7,8 +7,8 @@ package media
 // TestIntegration_BannerAndResolver / _BannerErasureAndExport (real repo, happy path) leave open:
 //   - the Racy rule table on each of the two images, for a BANNER, an AVATAR and a POST, with the Vision calls made and
 //     the units recorded in the real monthly counter (banner 2, avatar 1, post 1 while VISION_SCREEN_THUMB is off);
-//   - the exhausted-cap paths on the real counter: 2 units left, 1 unit left (a banner needs 2), at the cap, with the
-//     "established" policy for an old account, a 6-day-old account and a 7-day-old one, and the "reject" policy;
+//   - the usage counter on the real document: whatever it holds, every image is still screened and published READY, and
+//     a document already READY_UNSCREENED still resolves as an avatar, banner and post image;
 //   - concurrent FinalizeUpload of one banner on ONE instance (M-3, fixed in #351): all callers get READY, one
 //     screening is paid (exactly 2 units, 2 SafeSearch calls); a claim held by another instance answers the retryable
 //     MEDIA_NOT_READY with no Vision units spent, an expired claim is taken over, and a failed screening releases
@@ -31,11 +31,10 @@ import (
 	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// w320MediaEnv is newIntEnv with the cap, the exhausted policy and the account age under the test's control.
+// w320MediaEnv is newIntEnv with the account age under the test's control.
 type w320MediaEnv struct {
 	*env
 	client *firestore.Client
@@ -43,7 +42,7 @@ type w320MediaEnv struct {
 	lib    *Library
 }
 
-func newW320MediaEnv(t *testing.T, cap int64, policy config.VisionExhaustedPolicy, accountAge time.Duration) *w320MediaEnv {
+func newW320MediaEnv(t *testing.T, accountAge time.Duration) *w320MediaEnv {
 	t.Helper()
 	client := newIntegrationClient(t)
 	real := NewFirestoreRepo(client, WriteDeps{Idempotency: idempotency.New(client)})
@@ -52,7 +51,7 @@ func newW320MediaEnv(t *testing.T, cap int64, policy config.VisionExhaustedPolic
 		Repo: real, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-accountAge)}, IDs: &seqIDs{n: rand.IntN(1 << 30)},
 		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
-		VisionMonthlyCap: cap, Policy: policy, ScreenThumb: false, Now: func() time.Time { return testNow },
+		ScreenThumb: false, Now: func() time.Time { return testNow },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +62,7 @@ func newW320MediaEnv(t *testing.T, cap int64, policy config.VisionExhaustedPolic
 
 func (e *w320MediaEnv) w320Used(t *testing.T) int64 {
 	t.Helper()
-	n, err := e.real.VisionUsed(context.Background(), monthKey(testNow))
+	n, err := readVisionUnits(context.Background(), e.client, monthKey(testNow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +133,7 @@ func TestW320Banner_RacyRuleAndUnitsOnTheRealRepo(t *testing.T) {
 	} {
 		for _, tt := range tests {
 			t.Run(fmt.Sprintf("%s: %s", p.purpose, tt.name), func(t *testing.T) {
-				e := newW320MediaEnv(t, 1000, config.VisionPolicyEstablished, 30*24*time.Hour)
+				e := newW320MediaEnv(t, 30*24*time.Hour)
 				tg := e.w320Upload(t, uidA, p.purpose, "r")
 				fullObj, thumbObj := e.w320Objects(tg.MediaID, p.purpose, uidA)
 				if tt.where == full || tt.where == both {
@@ -181,67 +180,100 @@ func TestW320Banner_RacyRuleAndUnitsOnTheRealRepo(t *testing.T) {
 	}
 }
 
-// TestW320Banner_VisionCapPathsOnTheRealCounter: the exhausted path on the real monthly counter doc. A
-// banner needs 2 units, so with 1 unit left it is already "exhausted" (the avatar next to it still fits). Under the
-// established policy an account of 7 days or more publishes UNSCREENED (the counter does not move, SafeSearch is not
-// called) and a younger one is REJECTED with the capacity reason; under the reject policy nobody publishes unscreened.
-func TestW320Banner_VisionCapPathsOnTheRealCounter(t *testing.T) {
-	const (
-		day = 24 * time.Hour
-	)
-	tests := []struct {
-		name    string
-		purpose Purpose
-		used    int64
-		policy  config.VisionExhaustedPolicy
-		age     time.Duration
-		status  Status
-		reason  string
-		calls   int
-		after   int64
-	}{
-		{"banner, 2 units left: screened", PurposeBanner, 8, config.VisionPolicyEstablished, 30 * day, StatusReady, "", 2, 10},
-		{"banner, 1 unit left, established account: unscreened", PurposeBanner, 9, config.VisionPolicyEstablished, 30 * day, StatusReadyUnscreened, "", 0, 9},
-		{"banner, 1 unit left, 6-day-old account: rejected for capacity", PurposeBanner, 9, config.VisionPolicyEstablished, 6*day + 23*time.Hour, StatusRejected, reasonCapacity, 0, 9},
-		{"banner, 1 unit left, exactly 7-day-old account: unscreened", PurposeBanner, 9, config.VisionPolicyEstablished, 7 * day, StatusReadyUnscreened, "", 0, 9},
-		{"banner, at the cap, established account: unscreened", PurposeBanner, 10, config.VisionPolicyEstablished, 30 * day, StatusReadyUnscreened, "", 0, 10},
-		{"banner, at the cap, reject policy: rejected for capacity", PurposeBanner, 10, config.VisionPolicyReject, 30 * day, StatusRejected, reasonCapacity, 0, 10},
-		{"banner, 1 unit left, reject policy: rejected for capacity", PurposeBanner, 9, config.VisionPolicyReject, 30 * day, StatusRejected, reasonCapacity, 0, 9},
-		{"avatar, 1 unit left: still screened (1 unit)", PurposeAvatar, 9, config.VisionPolicyEstablished, 30 * day, StatusReady, "", 1, 10},
-		{"post image, 1 unit left: still screened", PurposePost, 9, config.VisionPolicyEstablished, 30 * day, StatusReady, "", 1, 10},
-		{"post image, at the cap, new account: rejected for capacity", PurposePost, 10, config.VisionPolicyEstablished, day, StatusRejected, reasonCapacity, 0, 10},
+// TestW320_EveryImageIsScreenedWhateverTheCounterHolds: the usage counter is a real document that only meters spend. Whatever it
+// holds (nothing, a few units, far above the old monthly cap), a banner, avatar and post image are sent to SafeSearch, published
+// READY for an old account and a new one alike, and add exactly their own units. A failed screening publishes nothing.
+func TestW320_EveryImageIsScreenedWhateverTheCounterHolds(t *testing.T) {
+	const day = 24 * time.Hour
+	for _, start := range []int64{0, 9, 10, 1_000_000_000} {
+		for _, p := range []struct {
+			purpose Purpose
+			units   int64
+			calls   int
+		}{{PurposeBanner, BannerVisionUnits, 2}, {PurposeAvatar, 1, 1}, {PurposePost, 1, 1}} {
+			for _, age := range []time.Duration{30 * day, day} {
+				t.Run(fmt.Sprintf("%s counter=%d age=%v", p.purpose, start, age), func(t *testing.T) {
+					e := newW320MediaEnv(t, age)
+					if start > 0 {
+						if err := e.real.AddVisionUnits(context.Background(), monthKey(testNow), start); err != nil {
+							t.Fatal(err)
+						}
+					}
+					tg := e.w320Upload(t, uidA, p.purpose, "c")
+					res := e.w320Finalize(t, uidA, tg.MediaID)
+					if res.Status != StatusReady || res.Ref == nil {
+						t.Fatalf("result = %s / %q, want READY", res.Status, res.RejectionReason)
+					}
+					if len(e.mod.calls) != p.calls {
+						t.Errorf("SafeSearch calls = %d, want %d", len(e.mod.calls), p.calls)
+					}
+					if got := e.w320Used(t); got != start+p.units {
+						t.Errorf("counter = %d, want %d", got, start+p.units)
+					}
+				})
+			}
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newW320MediaEnv(t, 10, tt.policy, tt.age)
-			if tt.used > 0 {
-				if err := e.real.AddVisionUnits(context.Background(), monthKey(testNow), tt.used); err != nil {
-					t.Fatal(err)
-				}
+	t.Run("a Vision outage publishes nothing and counts nothing", func(t *testing.T) {
+		e := newW320MediaEnv(t, 30*day)
+		tg := e.w320Upload(t, uidA, PurposePost, "o")
+		e.mod.err = &googleapi.Error{Code: 429}
+		_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+		wantUnavailable(t, err)
+		docs, gerr := e.real.GetMany(context.Background(), []string{tg.MediaID})
+		if gerr != nil || docs[tg.MediaID].Status != string(StatusPending) || len(e.obj.public) != 0 {
+			t.Fatalf("doc = %+v, %v public=%v, want PENDING and nothing published", docs[tg.MediaID], gerr, e.obj.public)
+		}
+		if got := e.w320Used(t); got != 0 {
+			t.Fatalf("counter = %d, want 0 (a 429 is known not to be billed)", got)
+		}
+	})
+	t.Run("a timeout is counted as possibly billed", func(t *testing.T) {
+		e := newW320MediaEnv(t, 30*day)
+		tg := e.w320Upload(t, uidA, PurposePost, "t")
+		e.mod.err = fmt.Errorf("media: vision annotate: %w", context.DeadlineExceeded)
+		_, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
+		wantUnavailable(t, err)
+		if got := e.w320Used(t); got != 1 {
+			t.Fatalf("counter = %d, want 1", got)
+		}
+	})
+}
+
+// TestW320_ReadyUnscreenedDocsStayUsable: documents written READY_UNSCREENED while the monthly cap existed are still published for
+// every reader: the profile-image resolvers answer them and finalize replays them, with no Vision call.
+func TestW320_ReadyUnscreenedDocsStayUsable(t *testing.T) {
+	ctx := context.Background()
+	e := newW320MediaEnv(t, 30*24*time.Hour)
+	for _, p := range []Purpose{PurposeAvatar, PurposeBanner, PurposePost} {
+		tg := e.w320Upload(t, uidA, p, "u"+string(p))
+		if _, err := e.client.Collection(mediaCollection).Doc(tg.MediaID).Update(ctx, []firestore.Update{
+			{Path: "status", Value: string(StatusReadyUnscreened)},
+			{Path: "publicPath", Value: "m/" + tg.MediaID + ".jpg"},
+			{Path: "thumbPath", Value: "m/" + tg.MediaID + "_t.jpg"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		switch p {
+		case PurposeAvatar:
+			if ref, err := e.lib.ResolveAvatar(ctx, uidA, tg.MediaID); err != nil || ref.URL == "" {
+				t.Errorf("avatar: %+v, %v", ref, err)
 			}
-			tg := e.w320Upload(t, uidA, tt.purpose, "c")
-			res := e.w320Finalize(t, uidA, tg.MediaID)
-			if res.Status != tt.status || res.RejectionReason != tt.reason {
-				t.Fatalf("result = %s / %q, want %s / %q", res.Status, res.RejectionReason, tt.status, tt.reason)
+		case PurposeBanner:
+			if ref, err := e.lib.ResolveBanner(ctx, uidA, tg.MediaID); err != nil || ref.URL == "" {
+				t.Errorf("banner: %+v, %v", ref, err)
 			}
-			if len(e.mod.calls) != tt.calls {
-				t.Errorf("SafeSearch calls = %d, want %d", len(e.mod.calls), tt.calls)
+		case PurposePost:
+			if ref, err := e.lib.ResolvePostCover(ctx, uidA, tg.MediaID); err != nil || ref.URL == "" {
+				t.Errorf("post image: %+v, %v", ref, err)
 			}
-			if got := e.w320Used(t); got != tt.after {
-				t.Errorf("counter = %d, want %d", got, tt.after)
-			}
-			if tt.purpose == PurposeBanner && tt.status == StatusReadyUnscreened {
-				// An unscreened banner is a usable banner (ResolveBanner accepts READY_UNSCREENED) - the exposure I-5 names.
-				if _, err := e.lib.ResolveBanner(context.Background(), uidA, tg.MediaID); err != nil {
-					t.Errorf("an unscreened banner did not resolve: %v", err)
-				}
-			}
-			if tt.status == StatusRejected {
-				if _, err := e.lib.ResolveBanner(context.Background(), uidA, tg.MediaID); !IsNotReady(err) {
-					t.Errorf("a rejected image resolved as a banner: %v", err)
-				}
-			}
-		})
+		}
+		if r := e.w320Finalize(t, uidA, tg.MediaID); r.Status != StatusReadyUnscreened || r.Ref == nil {
+			t.Errorf("%s finalize replay = %+v, want READY_UNSCREENED with its ref", p, r)
+		}
+	}
+	if len(e.mod.calls) != 0 || e.w320Used(t) != 0 {
+		t.Errorf("replaying published documents screened %v / counted %d", e.mod.calls, e.w320Used(t))
 	}
 }
 
@@ -250,7 +282,7 @@ func TestW320Banner_VisionCapPathsOnTheRealCounter(t *testing.T) {
 // MEDIA_NOT_READY for the losers, no error), the banner is published once, and exactly one screening is paid: 2 Vision
 // units and 2 SafeSearch calls (the full image and the thumbnail), not one screening per caller.
 func TestW320Banner_ConcurrentFinalizeUnits(t *testing.T) {
-	e := newW320MediaEnv(t, 1000, config.VisionPolicyEstablished, 30*24*time.Hour)
+	e := newW320MediaEnv(t, 30*24*time.Hour)
 	tg := e.bannerUpload(t, uidA, "cc")
 	const callers = 8
 	results := make([]Result, callers)
@@ -302,7 +334,7 @@ func TestW320Banner_ConcurrentFinalizeUnits(t *testing.T) {
 // retry is not locked out for the 30 s of the claim.
 func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	ctx := context.Background()
-	e := newW320MediaEnv(t, 1000, config.VisionPolicyEstablished, 30*24*time.Hour)
+	e := newW320MediaEnv(t, 30*24*time.Hour)
 	load := func(id string) *Doc {
 		t.Helper()
 		docs, err := e.real.GetMany(ctx, []string{id})
@@ -369,7 +401,7 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 // user's banner and its objects survive.
 func TestW320Banner_PurgeCoversEveryStatus(t *testing.T) {
 	ctx := context.Background()
-	e := newW320MediaEnv(t, 1000, config.VisionPolicyEstablished, 30*24*time.Hour)
+	e := newW320MediaEnv(t, 30*24*time.Hour)
 	var mine []UploadTarget
 	for _, tag := range []string{"pending", "ready", "unscreened", "rejected"} {
 		mine = append(mine, e.bannerUpload(t, uidA, tag))

@@ -143,9 +143,7 @@ type Repo interface {
 	// Resolve moves a PENDING document to its final state, conditional on its UpdateTime (ErrConflict when
 	// another call changed it first) and clears any screening claim.
 	Resolve(ctx context.Context, id string, updateTime time.Time, r Resolution) error
-	// VisionUsed returns the units counted for month ("200601"); 0 when the counter does not exist.
-	VisionUsed(ctx context.Context, month string) (int64, error)
-	// AddVisionUnits adds n units to the month's counter.
+	// AddVisionUnits adds n units to the month's counter (a cost meter that scripts/cost-vision.sh reads; it gates nothing).
 	AddVisionUnits(ctx context.Context, month string, n int64) error
 	// Retire marks a published document retired: retiredAt and expireAt are written together by one field-level Update
 	// (never a Set), conditional on the document's UpdateTime (ErrConflict when it changed since it was read, or is gone).
@@ -346,24 +344,6 @@ func orDelete(s string) any {
 		return firestore.Delete
 	}
 	return s
-}
-
-// VisionUsed implements Repo.
-func (r *FirestoreRepo) VisionUsed(ctx context.Context, month string) (int64, error) {
-	snap, err := r.visionRef(month).Get(ctx)
-	if status.Code(err) == codes.NotFound {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("media: read vision counter: %w", err)
-	}
-	var v struct {
-		Units int64 `firestore:"units"`
-	}
-	if err := snap.DataTo(&v); err != nil {
-		return 0, fmt.Errorf("media: decode vision counter: %w", err)
-	}
-	return v.Units, nil
 }
 
 // AddVisionUnits implements Repo.

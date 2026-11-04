@@ -5,8 +5,9 @@
 //
 // The pipeline: CreateUpload reserves 1-4 media ids and signs PUT URLs for a PRIVATE upload bucket;
 // the client PUTs straight to GCS (media never passes through the API, the media rule); FinalizeUpload verifies
-// size, type, MD5 and magic bytes, screens the image with SafeSearch (bounded by VISION_MONTHLY_CAP), and only then
-// copies it into the PUBLIC bucket. Unmoderated bytes are therefore never publicly readable.
+// size, type, MD5 and magic bytes, screens every image with SafeSearch, and only then
+// copies it into the PUBLIC bucket. Unmoderated bytes are therefore never publicly readable. READY_UNSCREENED is no
+// longer produced, but documents already in that state stay published.
 package media
 
 import (
@@ -84,9 +85,6 @@ const (
 	// PendingTTL is how long a PENDING (or REJECTED) document lives before Firestore's TTL removes it; it equals
 	// the upload bucket's 2-day lifecycle rule.
 	PendingTTL = 48 * time.Hour
-	// AccountAgeForUnscreened is the age an account needs before its uploads may publish unscreened once the
-	// Vision cap is spent.
-	AccountAgeForUnscreened = 7 * 24 * time.Hour
 )
 
 // Ref is a published image (common.v1.MediaRef without the alt text, which belongs to the post).

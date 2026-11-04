@@ -4,7 +4,7 @@
 
 // Media: images only at Stage 0 (animated GIF for post media behind FEATURE_GIF). Owner module:
 // backend/internal/media.
-// Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
+// Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch usage counter: a cost meter, it never limits screening).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
 // objects are copied to the public-read media bucket (both us-central1).
 package mediav1connect
@@ -66,23 +66,22 @@ type MediaServiceClient interface {
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
-	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
-	// (default 10,000; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
-	// default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Counter exhausted =>
-	// READY_UNSCREENED for accounts older than 7 days and REJECTED for newer ones, or REJECTED for everyone when
-	// VISION_EXHAUSTED_POLICY=reject. AVATAR and BANNER use the stricter Racy rule.
-	// Naturally idempotent: items already READY/REJECTED are returned as-is.
+	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
+	// is on, the default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Nothing is
+	// published unscreened: when screening cannot be done (Vision quota or outage, timeout) the call answers the
+	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR and
+	// BANNER use the stricter Racy rule.
+	// Naturally idempotent: items already READY, READY_UNSCREENED or REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
-	// The Vision counter is cached 60 s. Per item the call writes one screening claim and one resolve, or a claim and a
+	// The month's Vision usage counter is only a cost meter; it never limits screening. Per item the call writes one screening claim and one resolve, or a claim and a
 	// release after a failed attempt. One call per image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
 	// GIF: Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
 	// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
 	// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
 	// frames over its display time into one contact sheet and screens the sheet (by bytes) and the thumbnail (by URI):
 	// 2 Vision units, as for a photo. The worse verdict wins. Refused or blocked => REJECTED ("This GIF is too large or
-	// too long" for the limits), objects deleted. At the Vision cap a GIF is REJECTED for every account, never
-	// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
+	// too long" for the limits), objects deleted. One GIF screens at a time per instance: a call that cannot start within 5 s answers
 	// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
 	// with it; the full GIF is published unchanged.
 	// Screening failures (behaviour arrives later): the screening UNAVAILABLE ("image checks
@@ -156,23 +155,22 @@ type MediaServiceHandler interface {
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
-	// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
-	// (default 10,000; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
-	// default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Counter exhausted =>
-	// READY_UNSCREENED for accounts older than 7 days and REJECTED for newer ones, or REJECTED for everyone when
-	// VISION_EXHAUSTED_POLICY=reject. AVATAR and BANNER use the stricter Racy rule.
-	// Naturally idempotent: items already READY/REJECTED are returned as-is.
+	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
+	// is on, the default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Nothing is
+	// published unscreened: when screening cannot be done (Vision quota or outage, timeout) the call answers the
+	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR and
+	// BANNER use the stricter Racy rule.
+	// Naturally idempotent: items already READY, READY_UNSCREENED or REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
-	// The Vision counter is cached 60 s. Per item the call writes one screening claim and one resolve, or a claim and a
+	// The month's Vision usage counter is only a cost meter; it never limits screening. Per item the call writes one screening claim and one resolve, or a claim and a
 	// release after a failed attempt. One call per image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
 	// GIF: Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
 	// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
 	// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
 	// frames over its display time into one contact sheet and screens the sheet (by bytes) and the thumbnail (by URI):
 	// 2 Vision units, as for a photo. The worse verdict wins. Refused or blocked => REJECTED ("This GIF is too large or
-	// too long" for the limits), objects deleted. At the Vision cap a GIF is REJECTED for every account, never
-	// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
+	// too long" for the limits), objects deleted. One GIF screens at a time per instance: a call that cannot start within 5 s answers
 	// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
 	// with it; the full GIF is published unchanged.
 	// Screening failures (behaviour arrives later): the screening UNAVAILABLE ("image checks

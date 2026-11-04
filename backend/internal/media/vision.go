@@ -139,7 +139,7 @@ const codeInvalidArgument int64 = 3
 
 // VisionAnsweredError is a Moderator error for a call that reached Vision and got an answer: a per-image error, an
 // empty response, or a response without a SafeSearch annotation. Google bills such a call, so the screen counts its
-// unit against VISION_MONTHLY_CAP (security H-3). A failure without a response is not one: whether its unit comes back is decided by
+// unit on the month's usage counter (security H-3). A failure without a response is not one: whether its unit comes back is decided by
 // unbilled (only an HTTP 429 or 5xx answer or a failure before the request was sent; a timeout, a reset or an EOF may have been billed).
 // Code is the response's google.rpc.Code, or -1 when there was none.
 type VisionAnsweredError struct{ Code int64 }

@@ -37,21 +37,6 @@ func (m AppCheckMode) valid() bool {
 	}
 }
 
-// VisionExhaustedPolicy is what happens to an upload once VISION_MONTHLY_CAP is spent.
-type VisionExhaustedPolicy string
-
-const (
-	// VisionPolicyEstablished (default): accounts older than 7 days publish as READY_UNSCREENED (queued for
-	// report-driven review); newer accounts are REJECTED until the 1st of the month.
-	VisionPolicyEstablished VisionExhaustedPolicy = "unscreened_established"
-	// VisionPolicyReject: every upload is REJECTED once the cap is spent (strictest; no unscreened bytes at all).
-	VisionPolicyReject VisionExhaustedPolicy = "reject"
-)
-
-func (p VisionExhaustedPolicy) valid() bool {
-	return p == VisionPolicyEstablished || p == VisionPolicyReject
-}
-
 // ProfileMediaRetire is PROFILE_MEDIA_RETIRE: which replaced or removed profile images the
 // retire step deletes after the grace. It is per-project retention config, not a FEATURE_ flag (no cohort, no
 // allowlist), and it defaults to off: nothing is deleted until a project's operator has applied the media bucket's
