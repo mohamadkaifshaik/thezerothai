@@ -99,6 +99,23 @@ type RateLimitConfig struct {
 	// instance (90 per minute with 3).
 	PollVotePerUserPerMinute int
 
+	// CommunityModActionsPerDay is the in-memory daily cap per actor over HideCommunityPost and SetMemberRole (bans go through
+	// it), env COMMUNITY_MOD_ACTIONS_PER_DAY, default 200, logged as limit_name "community_mod_actions_daily". RestoreCommunityPost
+	// is not capped. CommunityPostsPerCommunityPerDay is the cap on CreatePost into one community per uid and community (key
+	// uid|cid, built by the posts gate), env COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY, default 20,
+	// "community_posts_per_community_daily". Both are per instance, so the effective limit is x max-instances.
+	CommunityModActionsPerDay        int64
+	CommunityPostsPerCommunityPerDay int64
+
+	// SearchPeopleCallsPerDay is the in-memory daily cap on SearchPeople alone (one counter per uid per instance,
+	// ratelimit.DailyCap), env SEARCH_PEOPLE_CALLS_PER_DAY, default 1000, logged as limit_name "search_people_daily".
+	// SearchPosts and GetTrends are not capped. FollowListCallsPerDay is one counter shared by ListFollowers and
+	// ListFollowing only, env FOLLOW_LIST_CALLS_PER_DAY, default 1000, "follow_list_daily"; the blocked, muted and follow
+	// request lists are not capped. The older SEARCH_CALLS_PER_DAY and LIST_CALLS_PER_DAY keys are ignored, so a deployment that
+	// still sets them keeps the new defaults.
+	SearchPeopleCallsPerDay int64
+	FollowListCallsPerDay   int64
+
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph
 	// list bucket (GraphListPerMinute).

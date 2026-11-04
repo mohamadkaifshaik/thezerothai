@@ -64,6 +64,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_CRASH_REPORTING", "FEATURE_CRASH_REPORTING_ALLOWLIST", "FEATURE_CRASH_REPORTING_PERCENT",
 		"FEATURE_ANALYTICS", "FEATURE_ANALYTICS_ALLOWLIST", "FEATURE_ANALYTICS_PERCENT",
 		"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", "RATE_LIMIT_COMMUNITIES_READ_PER_MIN", "RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN",
+		"COMMUNITY_MOD_ACTIONS_PER_DAY", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", "SEARCH_PEOPLE_CALLS_PER_DAY", "FOLLOW_LIST_CALLS_PER_DAY",
 		"QUOTA_COMMUNITY_JOINS_PER_DAY", "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", "QUOTA_COMMUNITY_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY",
 		"COMMUNITIES_MAX_OWNED", "COMMUNITIES_MAX_JOINED", "COMMUNITY_MAX_MODERATORS", "COMMUNITY_MAX_RULES", "COMMUNITY_RECENT_REMOVALS_MAX", "COMMUNITY_MODLOG_MAX",
 		"CACHE_COMMUNITIES_ENTRIES", "CACHE_COMMUNITY_FEED_ENTRIES", "CACHE_COMMUNITY_MEMBERS_ENTRIES",
@@ -759,8 +760,8 @@ func TestLoad_ProfileUpdatesPerDay(t *testing.T) {
 	}
 }
 
-// TestLoad_RemovedQuotaKeysIgnored: the in-memory daily call caps on lists, handle checks, account operations, devices,
-// notification seen, suggestions, search, trends, poll votes, list and community mutations and community posts, and the daily quotas on posts, follows, uploads, exports, snapshot edits, blocks, likes,
+// TestLoad_RemovedQuotaKeysIgnored: the in-memory daily call caps on lists and search (replaced by new keys), handle checks, account operations, devices,
+// notification seen, suggestions, search, trends, poll votes and list and community mutations, and the daily quotas on posts, follows, uploads, exports, snapshot edits, blocks, likes,
 // schedules, bookmarks, privacy toggles, list creates and adds, community joins and community posts were removed. Their
 // env vars may still be set on a running service until the Terraform change lands, so a value that used to fail startup
 // (0, negative, unparseable) must now be ignored.
@@ -776,7 +777,6 @@ func TestLoad_RemovedQuotaKeysIgnored(t *testing.T) {
 		"LIST_CALLS_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY", "ACCOUNT_OPS_CALLS_PER_DAY", "NOTIFICATION_DEVICES_CALLS_PER_DAY",
 		"NOTIFICATION_SEEN_CALLS_PER_DAY", "SUGGESTIONS_CALLS_PER_DAY", "SEARCH_CALLS_PER_DAY", "TRENDS_CALLS_PER_DAY",
 		"POLL_VOTES_PER_DAY", "POLL_VOTES_PER_DAY_NEW_ACCOUNT", "LIST_MUTATIONS_PER_DAY", "COMMUNITY_MUTATIONS_PER_DAY",
-		"COMMUNITY_MOD_ACTIONS_PER_DAY", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {
 			t.Run(key+"="+val, func(t *testing.T) {

@@ -658,15 +658,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 	})
 	// The posting gate: posts declares posts.CommunityGate and never imports communities; communities implements it over
-	// its cached Reader and a fresh in-transaction member read.
-	// Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
+	// its cached Reader, a fresh in-transaction member read and the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
+	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
 	communityReporter, ok := communitiesSvc.(communities.CommunityReporter)
 	if !ok {
 		return nil, nil, errors.New("communities service does not implement CommunityReporter")
 	}
 	lateCommunities.r = communityReporter
 	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
-		communitiesSvc.(communities.Reader), communitiesRepo))
+		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
 	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs read communities through the same Reader; set before
 	// ListenAndServe because communities is built after the timeline.
 	timelineServer.SetCommunities(communitiesSvc.(communities.Reader), cfg.Communities.FeedCacheEntries)

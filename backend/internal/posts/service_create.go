@@ -35,7 +35,7 @@ import (
 // Community: a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
 // FEATURE_DISABLED feature=communities, before any read or write. Otherwise the shape is validated and a protected caller is
 // refused before any read, and the gate runs (community via the 60 s cache, member doc read fresh inside the transaction).
-// Every refusal (not a member, banned, archived) writes nothing; a replay returns before the member read, so it behaves like a plain replay
+// Every refusal (not a member, banned, archived, per-community cap) writes nothing; a replay returns before the member read, so it behaves like a plain replay
 // plus the cached community read.
 //
 // Members-only replies: a reply whose parent carries conversationCommunityId (communities not globally off) runs

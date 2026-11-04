@@ -17,13 +17,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 const commCID = "0000000000000000801"
 
 // newCommunityInstance is a createInstance with the real communities gate wired the way apiserver wires it (a separate communities
-// service, hence a separate community and member cache, per instance).
-func newCommunityInstance(t *testing.T, client *firestore.Client) (*createInstance, communities.Reader) {
+// service, hence a separate community and member cache, per instance). capPerDay is COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY.
+func newCommunityInstance(t *testing.T, client *firestore.Client, capPerDay int64) (*createInstance, communities.Reader) {
 	t.Helper()
 	in := newCreateInstance(t, client)
 	repo := communities.NewFirestoreRepo(client, idempotency.New(client))
@@ -32,7 +33,7 @@ func newCommunityInstance(t *testing.T, client *firestore.Client) (*createInstan
 		Limits: communities.Limits{MaxOwned: 2, MaxJoined: 50, MaxRules: 10, ModlogMax: 100, CacheEntries: 100, MembersCacheEntries: 100},
 	})
 	rd := svc.(communities.Reader)
-	in.svc.SetCommunityGate(communities.NewPostGate(rd, repo))
+	in.svc.SetCommunityGate(communities.NewPostGate(rd, repo, ratelimit.NewDailyCap(capPerDay)))
 	return in, rd
 }
 
@@ -86,7 +87,7 @@ func wantRefusal(t *testing.T, err error, code connect.Code, reason commonv1.Err
 // TestCommunityPost_StoresFields: the doc fields and the counters, with a plain post storing none of the community fields.
 func TestCommunityPost_StoresFields(t *testing.T) {
 	client := newTestClient(t)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 100)
 	in.signUp(t, "uid-alice", "alice")
 	seedCommunityDoc(t, client, commCID, "Go Lang", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
@@ -130,7 +131,7 @@ func TestCommunityPost_StoresFields(t *testing.T) {
 // TestCommunityPost_Refusals: every refusal writes nothing.
 func TestCommunityPost_Refusals(t *testing.T) {
 	client := newTestClient(t)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 100)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
@@ -176,7 +177,7 @@ func TestCommunityPost_Refusals(t *testing.T) {
 // by another instance wins over this instance's cached member state.
 func TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost(t *testing.T) {
 	client := newTestClient(t)
-	in, rd := newCommunityInstance(t, client)
+	in, rd := newCommunityInstance(t, client, 100)
 	in.signUp(t, "uid-alice", "alice")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
@@ -196,11 +197,11 @@ func TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost(t *testing.T) {
 	}
 }
 
-// TestCommunityPost_ReplayAndNoDailyQuota: a replay stores nothing new; a legacy quotas/{uid} showing the old daily
-// community-posts quota used up no longer blocks a post, and a community has no post cap per author.
-func TestCommunityPost_ReplayAndNoDailyQuota(t *testing.T) {
+// TestCommunityPost_CapAndNoDailyQuota: the per-community cap is RATE_LIMITED and a replay is not charged to it; a legacy
+// quotas/{uid} showing the old daily community-posts quota used up no longer blocks a post.
+func TestCommunityPost_CapAndNoDailyQuota(t *testing.T) {
 	client := newTestClient(t)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 2)
 	in.signUp(t, "uid-alice", "alice")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedMember(t, client, commCID, "uid-alice", "JOINED")
@@ -213,8 +214,14 @@ func TestCommunityPost_ReplayAndNoDailyQuota(t *testing.T) {
 	if err != nil || again.ID != first.ID || countDocs(t, client, postsCollection) != 1 {
 		t.Fatalf("replay: %v %v posts=%d, want the first post and one stored", again, err, countDocs(t, client, postsCollection))
 	}
+	if _, err := in.postIn(t, "uid-alice", key(2), commCID, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, err = in.postIn(t, "uid-alice", key(3), commCID, "")
+	wantRefusal(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", communities.LimitPostsPerCommunityDaily)
+
 	// The old daily quota: a legacy doc with 50 used no longer refuses the post.
-	in2, _ := newCommunityInstance(t, client)
+	in2, _ := newCommunityInstance(t, client, 1000)
 	if _, err := client.Doc("quotas/uid-alice").Set(context.Background(), map[string]any{"day": quota.Today(), "posts": int64(60), "communityPosts": int64(50)}); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +234,7 @@ func TestCommunityPost_ReplayAndNoDailyQuota(t *testing.T) {
 // TestCommunityPost_QuoteIntoCommunity: a quote is accepted into a community and carries the fields and the embed.
 func TestCommunityPost_QuoteIntoCommunity(t *testing.T) {
 	client := newTestClient(t)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 100)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
@@ -246,7 +253,7 @@ func TestCommunityPost_QuoteIntoCommunity(t *testing.T) {
 // bounds (since, and the settle sentinel); a plain post is never returned.
 func TestByCommunity_PagesNewestFirst(t *testing.T) {
 	client := newTestClient(t)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 1000)
 	in.signUp(t, "uid-alice", "alice")
 	seedCommunityDoc(t, client, commCID, "Go", "ACTIVE")
 	seedCommunityDoc(t, client, "0000000000000000804", "Other", "ACTIVE")
@@ -328,7 +335,7 @@ func (in *createInstance) replyIn(t *testing.T, uid, key, parent string) (*Post,
 // non-member and a banned user get FORBIDDEN not_member and nothing is stored; the rule keys on the inherited conversationCommunityId (stored on the reply) and still holds when the root is hidden (communityId deleted).
 func TestCommunityReply_MembersOnly(t *testing.T) {
 	client := newTestClient(t)
-	author, _ := newCommunityInstance(t, client)
+	author, _ := newCommunityInstance(t, client, 100)
 	for _, u := range []string{"alice", "bob", "carol", "dave"} {
 		author.signUp(t, "uid-"+u, u)
 	}
@@ -347,7 +354,7 @@ func TestCommunityReply_MembersOnly(t *testing.T) {
 	}
 
 	// Baseline: the same two replies in a plain conversation on a fresh instance.
-	plainIn, _ := newCommunityInstance(t, client)
+	plainIn, _ := newCommunityInstance(t, client, 100)
 	pr1, err := plainIn.replyIn(t, "uid-bob", key(10), plainRoot.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +365,7 @@ func TestCommunityReply_MembersOnly(t *testing.T) {
 	}
 
 	// The community conversation on another fresh instance: cold caches for the community and the member doc.
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 100)
 	r1, err := in.replyIn(t, "uid-bob", key(20), root.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -384,12 +391,12 @@ func TestCommunityReply_MembersOnly(t *testing.T) {
 		uid, name string
 		n         int
 	}{{"uid-carol", "non-member", 30}, {"uid-dave", "banned", 31}} {
-		fresh, _ := newCommunityInstance(t, client)
+		fresh, _ := newCommunityInstance(t, client, 100)
 		_, err := fresh.replyIn(t, tc.uid, key(tc.n), r2.ID)
 		wantRefusal(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", "not_member")
 	}
 	// The member still may reply under the hidden root (new instance: root read from Firestore sees communityHidden).
-	fresh, _ := newCommunityInstance(t, client)
+	fresh, _ := newCommunityInstance(t, client, 100)
 	hp, err := fresh.replyIn(t, "uid-bob", key(40), r2.ID)
 	if err != nil || hp.ConversationCommunityID != commCID {
 		t.Fatalf("member reply under a hidden root: %v %+v", err, hp)
@@ -404,7 +411,7 @@ func TestCommunityReply_MembersOnly(t *testing.T) {
 // and a repeat read of the thread still works.
 func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 	client := newTestClient(t)
-	author, _ := newCommunityInstance(t, client)
+	author, _ := newCommunityInstance(t, client, 100)
 	for _, u := range []string{"alice", "bob", "carol"} {
 		author.signUp(t, "uid-"+u, u)
 	}
@@ -426,7 +433,7 @@ func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 	}
 	thread := func(viewer, focal string) *Thread {
 		t.Helper()
-		in, _ := newCommunityInstance(t, client)
+		in, _ := newCommunityInstance(t, client, 100)
 		ctx := authn.WithClaims(context.Background(), authn.Claims{UID: viewer, SignInProvider: authn.SignInProviderGoogle})
 		th, err := in.svc.GetThread(ctx, viewer, ThreadInput{PostID: focal})
 		if err != nil {
@@ -462,7 +469,7 @@ func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {
 		t.Errorf("a hidden focal reply is not served: %+v", th.Focal)
 	}
 	// replying to the hidden reply stays allowed (R4)
-	in, _ := newCommunityInstance(t, client)
+	in, _ := newCommunityInstance(t, client, 100)
 	if _, err := in.replyIn(t, "uid-alice", key(9), bobReply.ID); err != nil {
 		t.Errorf("reply to a hidden reply: %v", err)
 	}

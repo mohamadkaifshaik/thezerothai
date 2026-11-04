@@ -163,11 +163,10 @@ func (g *pollGraph) block(uid string, others ...string) {
 // pollEnv is an env whose module has a PollRepo and a poll post (pidA, authored by "author", 3 choices, counts 5/2/0).
 type pollEnv struct {
 	*env
-	pr      *fakePollRepo
-	graph   *pollGraph
-	now     time.Time
-	closes  time.Time
-	created time.Time
+	pr     *fakePollRepo
+	graph  *pollGraph
+	now    time.Time
+	closes time.Time
 }
 
 type pollEnvOpt func(*Deps, *pollEnv)
@@ -177,7 +176,6 @@ func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 	pe := &pollEnv{env: &env{repo: &fakeRepo{}, events: &fakeEvents{}}, pr: &fakePollRepo{}, graph: &pollGraph{}}
 	pe.now = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	pe.closes = pe.now.Add(24 * time.Hour)
-	pe.created = pe.now.Add(-72 * time.Hour)
 	pe.posts = &fakePosts{docs: map[string]*posts.Post{
 		pidA:   {ID: pidA, AuthorID: "author", Kind: posts.KindPost, Poll: &posts.Poll{Options: []string{"a", "b", "c"}, DurationMin: 1440, ClosesAt: pe.closes, Counts: []int64{5, 2, 0}, Total: 7}},
 		pidB:   {ID: pidB, AuthorID: "author", Kind: posts.KindPost},
@@ -193,7 +191,7 @@ func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 		o(&d, pe)
 	}
 	if d.Directory == nil {
-		d.Directory = fakeDir{created: pe.created}
+		d.Directory = fakeDir{}
 	}
 	m, err := New(d)
 	if err != nil {

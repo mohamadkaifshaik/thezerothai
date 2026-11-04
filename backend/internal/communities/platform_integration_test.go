@@ -79,7 +79,7 @@ func TestPlatform_SuspendRestoreAndEffects(t *testing.T) {
 	if v, err := fresh.GetCommunity(ctx, "owner", platCID); err != nil || v.View.Community.Status != StatusSuspended {
 		t.Errorf("owner GetCommunity = %+v, %v", v, err)
 	}
-	gate := NewPostGate(fresh, e.repo)
+	gate := NewPostGate(fresh, e.repo, nil)
 	if _, err := gate.Admit(ctx, platCID); err == nil {
 		t.Error("CreatePost's gate admitted a post into a SUSPENDED community")
 	}

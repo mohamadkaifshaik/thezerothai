@@ -14,6 +14,7 @@ import (
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -78,9 +79,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
 	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
 	// SearchPeople (30/min) and SearchPosts (20/min) have their own per-user buckets; GetTrends uses the 60/min
-	// default.
+	// default. SearchPeople alone also has a daily cap (limit_name "search_people_daily", SEARCH_PEOPLE_CALLS_PER_DAY).
 	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
 	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
+	searchPeopleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchPeopleCallsPerDay)
+	// ListFollowers and ListFollowing share ONE daily cap (limit_name "follow_list_daily", FOLLOW_LIST_CALLS_PER_DAY); the
+	// blocked, muted and follow-request lists are only held by the graph list bucket.
+	followListDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.FollowListCallsPerDay)
 	// RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
 	// instance). ListFollowRequests shares the graph list bucket (20/min).
 	// Responses need no quota (the pending requests bound them).
@@ -119,12 +124,16 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
-	// instance). GetCommunity, ListCommunities, ListMyCommunities,
+	// instance). HideCommunityPost and SetMemberRole (bans go through it) also share one per-uid daily cap, limit_name
+	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor); RestoreCommunityPost is left uncapped so an
+	// owner can always undo hidden posts. GetCommunity, ListCommunities, ListMyCommunities,
 	// ListCommunityMembers and ListModerationLog share a read bucket (RATE_LIMIT_COMMUNITIES_READ_PER_MIN, 30/min);
 	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min).
+	// The uid|cid cap "community_posts_per_community_daily" is drawn on by the posts gate, not here.
 	rlCommunitiesWrite := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesWritePerUserPerMinute, idleBucketTTL)
 	rlCommunitiesRead := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesReadPerUserPerMinute, idleBucketTTL)
 	rlCommunityTimeline := ratelimit.NewLimiter(cfg.RateLimit.CommunityTimelinePerUserPerMinute, idleBucketTTL)
+	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
 
 	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Vision spend is
 	// bounded by VISION_MONTHLY_CAP.
@@ -215,6 +224,14 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
+
+			communitiesv1connect.CommunityServiceHideCommunityPostProcedure: {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
+			communitiesv1connect.CommunityServiceSetMemberRoleProcedure:     {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
+
+			searchv1connect.SearchServiceSearchPeopleProcedure: {Name: "search_people_daily", Cap: searchPeopleDailyCap},
+
+			graphv1connect.GraphServiceListFollowersProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
+			graphv1connect.GraphServiceListFollowingProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

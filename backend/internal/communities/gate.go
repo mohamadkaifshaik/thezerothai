@@ -8,6 +8,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
 // TxMemberReader reads a member doc inside a transaction (FirestoreRepo.MemberInTx).
@@ -20,12 +21,13 @@ type TxMemberReader interface {
 type PostGate struct {
 	communities Reader
 	members     TxMemberReader
+	cap         *ratelimit.DailyCap
 	cached      CachedMembers // the Reader itself when it can answer a member lookup alone; nil = use Reader.Role
 }
 
-// NewPostGate builds the gate.
-func NewPostGate(r Reader, m TxMemberReader) *PostGate {
-	g := &PostGate{communities: r, members: m}
+// NewPostGate builds the gate. cap is the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY); nil means no cap.
+func NewPostGate(r Reader, m TxMemberReader, cap *ratelimit.DailyCap) *PostGate {
+	g := &PostGate{communities: r, members: m, cap: cap}
 	if c, ok := r.(CachedMembers); ok {
 		g.cached = c
 	}
@@ -65,6 +67,15 @@ func (g *PostGate) CheckMember(ctx context.Context, tx *firestore.Transaction, c
 		return Forbidden(ReasonBanned)
 	}
 	return Forbidden(ReasonNotMember)
+}
+
+// AllowPost is the end of step 4: one unit of the (uid, community) cap, keyed "uid|cid", per instance and IST day. RATE_LIMITED
+// limit=community_posts_per_community_daily when spent.
+func (g *PostGate) AllowPost(ctx context.Context, uid, cid string) error {
+	if g.cap == nil || g.cap.Allow(uid+"|"+cid) {
+		return nil
+	}
+	return g.cap.ExceededError(ctx, LimitPostsPerCommunityDaily)
 }
 
 // CachedMembers is the cached member-doc lookup the reply paths use (*service implements it), staleness bound 60 s.

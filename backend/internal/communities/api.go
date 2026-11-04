@@ -12,7 +12,7 @@
 // fails the build for a collection constant without an erasure row, which is why ship in one PR; join, leave
 // and ListMyCommunities (service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
 // and member list (service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
-// (gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, CanReply, IsMember) are built.
+// (gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
 // The feed (timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator: communities never imports posts) are built.
 package communities
 

@@ -76,7 +76,7 @@ type CreateParams struct {
 	// Poll is the validated poll of a root post, nil for none. The transaction builds the stored Poll from it inside
 	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0.
 	Poll *PollDraft
-	// Community, when set, runs the gate inside the transaction (member doc fresh). Nil for
+	// Community, when set, runs the gate inside the transaction (member doc fresh, the per-community daily cap). Nil for
 	// every other post.
 	Community *CommunityPost
 }
@@ -85,6 +85,9 @@ type CreateParams struct {
 // already in CreateParams.Draft.
 type CommunityPost struct {
 	Gate CommunityGate
+	// capDrawn makes the per-community cap draw happen once per CreatePost call, not once per transaction attempt (the SDK re-runs the
+	// function on contention), so a retry does not draw twice. A refusal before the draw and a replay never reach it.
+	capDrawn bool
 }
 
 // CreateResult is the outcome of Repo.Create. Exactly one of Post (a new post, already committed) and ReplayID
@@ -233,6 +236,12 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 
 	b := store.NewFirestoreTxBatch(tx)
+	if p.Community != nil && !p.Community.capDrawn {
+		if err := p.Community.Gate.AllowPost(ctx, p.AuthorID, p.Draft.CommunityID); err != nil {
+			return CreateResult{}, err
+		}
+		p.Community.capDrawn = true
+	}
 	b.Create(r.ref(id), toDoc(&post))
 	if articleClaim != nil {
 		articleClaim.Publish(b, id)

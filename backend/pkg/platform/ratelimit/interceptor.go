@@ -152,6 +152,13 @@ func limitError(ctx context.Context, name string, retryAfter time.Duration) *api
 	).WithMeta("limit", name).WithRetryAfter(retryAfter)
 }
 
+// ExceededError is the RATE_LIMITED *apierr.Error of a daily cap that a service (not the interceptor) drew on, such as the per
+// (uid, community) post cap of the posts gate: metadata["limit"] = name, retry_after the time to the next IST midnight,
+// and the request log's limit_name set. It is the same answer the interceptor gives for a procedure cap.
+func (d *DailyCap) ExceededError(ctx context.Context, name string) *apierr.Error {
+	return limitError(ctx, name, quota.UntilNextDay(d.now()))
+}
+
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is
 // safe to log (M2): Hops and ViaHosting are a count and a bool, never an address, and are meant to be
 // attached to logger.RequestInfo so mw.Logging's one-line-per-request log can carry xff_hops/via_hosting

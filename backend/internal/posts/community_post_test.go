@@ -61,6 +61,8 @@ func (g *fakeGate) CheckMember(context.Context, *firestore.Transaction, string, 
 	return nil
 }
 
+func (g *fakeGate) AllowPost(context.Context, string, string) error { return nil }
+
 func (g *fakeGate) admitCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()

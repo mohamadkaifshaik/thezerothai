@@ -53,13 +53,13 @@ type Config struct {
 	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
 	// quota. The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
-	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets and
-	// the daily mutation cap live in RateLimit.
+	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets
+	// live in RateLimit.
 	Lists ListsConfig
-	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets
+	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets and daily caps
 	// live in RateLimit.
 	Communities CommunitiesConfig
-	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets
+	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the SearchPeople daily cap
 	// live in RateLimit.
 	Search SearchConfig
 	// Composer holds the poll and GIF limits of the composer extras. The VotePoll bucket
@@ -566,6 +566,12 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
+		// Community mod actions (Hide, SetMemberRole) per actor, CreatePost into one community per uid|cid, SearchPeople alone,
+		// and ListFollowers + ListFollowing together; all in memory per instance.
+		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},
+		{&rl.CommunityPostsPerCommunityPerDay, "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", 20},
+		{&rl.SearchPeopleCallsPerDay, "SEARCH_PEOPLE_CALLS_PER_DAY", 1000},
+		{&rl.FollowListCallsPerDay, "FOLLOW_LIST_CALLS_PER_DAY", 1000},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
