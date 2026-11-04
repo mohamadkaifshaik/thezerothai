@@ -140,13 +140,26 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 }
 
-// raceCreateExport runs n concurrent CreateExport calls, id(i) naming each call's export, and checks the outcome: one
-// stored export, exactly one caller told it created it (that flag decides the publish), every other caller got that
-// export or a contention error it can retry.
+// raceCreateExport runs n concurrent CreateExport calls, id(i) naming each call's export, then retries each one in turn
+// with its own id, as a client would. The race may end with nothing written: the emulator's locks can time out every racer,
+// which is a retryable answer and no harm done. It must never store a second export, and once retried every call must get
+// the one export.
 func raceCreateExport(t *testing.T, repo *identity.FirestoreRepo, client *firestore.Client, uid string, n int, id func(int) string) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
+	create := func(i int) (identity.ExportDoc, bool, error) {
+		return repo.CreateExport(ctx, identity.CreateExportParams{ID: id(i), UID: uid, ObjectPath: id(i) + ".json", Now: now, Retention: time.Hour, GiveUpBefore: now.Add(-time.Hour)})
+	}
+	storedExports := func() []*firestore.DocumentSnapshot {
+		t.Helper()
+		stored, err := client.Collection("exports").Where("uid", "==", uid).Limit(n + 1).Documents(ctx).GetAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored
+	}
+
 	docs := make([]identity.ExportDoc, n)
 	replays := make([]bool, n)
 	errs := make([]error, n)
@@ -155,32 +168,54 @@ func raceCreateExport(t *testing.T, repo *identity.FirestoreRepo, client *firest
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			docs[i], replays[i], errs[i] = repo.CreateExport(ctx, identity.CreateExportParams{ID: id(i), UID: uid, ObjectPath: id(i) + ".json", Now: now, Retention: time.Hour, GiveUpBefore: now.Add(-time.Hour)})
+			docs[i], replays[i], errs[i] = create(i)
 		}()
 	}
 	wg.Wait()
-	stored, err := client.Collection("exports").Where("uid", "==", uid).Limit(n + 1).Documents(ctx).GetAll()
-	if err != nil {
-		t.Fatal(err)
+
+	stored := storedExports()
+	if len(stored) > 1 {
+		t.Fatalf("exports = %d after racing requests, want at most 1 (errs %v)", len(stored), errs)
 	}
-	if len(stored) != 1 {
-		t.Fatalf("exports = %d after racing requests, want 1 (errs %v)", len(stored), errs)
-	}
-	created := 0
+	created, failed := 0, 0
 	for i := range n {
 		switch {
 		case errs[i] != nil:
-			if !store.IsContention(errs[i]) && status.Code(errs[i]) != codes.DeadlineExceeded {
+			failed++
+			// The same answers RequestAccountExport turns into a retryable UNAVAILABLE.
+			if !store.IsContention(errs[i]) && !errors.Is(errs[i], context.DeadlineExceeded) && status.Code(errs[i]) != codes.DeadlineExceeded {
 				t.Errorf("request %d err = %v, want only a retryable contention error", i, errs[i])
 			}
-		case docs[i].ID != stored[0].Ref.ID:
-			t.Errorf("request %d got %s, want the one export %s", i, docs[i].ID, stored[0].Ref.ID)
+		case len(stored) != 1 || docs[i].ID != stored[0].Ref.ID:
+			t.Errorf("request %d got %s, want the one stored export (%d stored)", i, docs[i].ID, len(stored))
 		case !replays[i]:
 			created++
 		}
 	}
-	if created != 1 {
-		t.Errorf("%d requests reported creating the export, want 1 (errs %v)", created, errs)
+
+	for i := range n {
+		doc, replay, err := create(i)
+		if err != nil {
+			t.Fatalf("retry of request %d: %v", i, err)
+		}
+		if !replay {
+			created++
+		}
+		docs[i] = doc
+	}
+	stored = storedExports()
+	if len(stored) != 1 {
+		t.Fatalf("exports = %d after retries, want 1", len(stored))
+	}
+	for i := range n {
+		if docs[i].ID != stored[0].Ref.ID {
+			t.Errorf("retry of request %d got %s, want the one export %s", i, docs[i].ID, stored[0].Ref.ID)
+		}
+	}
+	// That flag decides the publish. A racer whose commit landed after its deadline reports an error and its retry a replay,
+	// so 0 is possible only when a racer failed; the replay republish recovers that export.
+	if created > 1 || (created == 0 && failed == 0) {
+		t.Errorf("%d requests reported creating the export, want 1 (%d racers failed: %v)", created, failed, errs)
 	}
 }
 
