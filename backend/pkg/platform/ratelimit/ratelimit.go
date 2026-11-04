@@ -11,7 +11,7 @@ import (
 )
 
 // maxTrackedKeys bounds memory: idle buckets fall out of the LRU well before this many distinct
-// uids/IPs are seen inside one TTL window (skill: "LRU-bounded").
+// uids/IPs are seen inside one TTL window.
 const maxTrackedKeys = 100_000
 
 // Limiter is a keyed token bucket: each key (uid or IP) gets its own bucket, refilled at ratePerMinute

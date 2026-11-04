@@ -157,7 +157,8 @@ type MessagingServiceClient interface {
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListMessages.
 	// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),
-	// planning 9; REQUESTS the same without the count(). INBOX since refresh reads 4 worst (interceptor, query min 1, caller
+	// planning 9; REQUESTS the same without the count(), plus one peer graph read per row (cached 60 s) for a caller past the
+	// blockedBy cap. INBOX since refresh reads 4 worst (interceptor, query min 1, caller
 	// graph, requests count()), planning 3; an empty one 3. Writes 0.
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	// Messages of one conversation, newest first. Messages at or before the caller's own DeleteConversation time are
@@ -342,7 +343,8 @@ type MessagingServiceHandler interface {
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
 	// shared with ListMessages.
 	// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),
-	// planning 9; REQUESTS the same without the count(). INBOX since refresh reads 4 worst (interceptor, query min 1, caller
+	// planning 9; REQUESTS the same without the count(), plus one peer graph read per row (cached 60 s) for a caller past the
+	// blockedBy cap. INBOX since refresh reads 4 worst (interceptor, query min 1, caller
 	// graph, requests count()), planning 3; an empty one 3. Writes 0.
 	ListConversations(context.Context, *connect.Request[v1.ListConversationsRequest]) (*connect.Response[v1.ListConversationsResponse], error)
 	// Messages of one conversation, newest first. Messages at or before the caller's own DeleteConversation time are

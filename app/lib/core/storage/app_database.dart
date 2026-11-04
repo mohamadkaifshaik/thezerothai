@@ -25,7 +25,7 @@ class ProfileCacheEntries extends Table {
   IntColumn get postsCount => integer().withDefault(const Constant(0))();
 
   /// When this row was written, so callers can decide whether it is fresh
-  /// enough to render without a refresh (see the `timeline` skill).
+  /// enough to render without a refresh.
   DateTimeColumn get cachedAt => dateTime()();
 
   @override

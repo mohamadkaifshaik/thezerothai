@@ -9,7 +9,7 @@ import (
 )
 
 // recorder is a testing.TB that records Errorf calls instead of failing the real test, so Assert's failure
-// path can itself be asserted (testing-strategy: a budget regression must fail; here we prove it does).
+// path can itself be asserted (a budget regression must fail; here we prove it does).
 type recorder struct {
 	testing.TB
 	errs []string

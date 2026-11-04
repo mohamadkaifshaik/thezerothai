@@ -327,3 +327,25 @@ func TestMessagingChain_ReadAuthzIsByteIdentical(t *testing.T) {
 		t.Errorf("b's unreadCount changed %d -> %d", before, after)
 	}
 }
+
+// A caller past the blockedBy cap pays one peer graph read per REQUESTS row, cold, on top of the 2 + rows of any other
+// caller. The chain measures after the data is written, so nothing is warm.
+func TestMessagingChain_RequestsOverflowCallerBudget(t *testing.T) {
+	setup := newDMChain(t, nil)
+	x, a, b := setup.user(t), setup.user(t), setup.user(t)
+	setup.mustSend(t, a, x, "a request")
+	setup.mustSend(t, b, x, "another request")
+	setup.overflow(t, x)
+
+	e := newDMChain(t, nil)
+	r, err := e.listConvs(x, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_REQUESTS})
+	if err != nil || len(r.GetConversations()) != 2 {
+		t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
+	}
+	const rows = 2
+	got := e.lineBudget(t, rpcListConversations)
+	budgettest.Assert(t, "ListConversations REQUESTS, overflowed caller, cold", got, budgettest.Budget{Reads: 2 + 2*rows})
+	if got.Reads() != 2+2*rows {
+		t.Errorf("reads = %d, want exactly %d: one peer graph read per row", got.Reads(), 2+2*rows)
+	}
+}

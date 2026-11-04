@@ -3,6 +3,7 @@ package timeline
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
 // chunkConcurrency bounds in-flight chunk queries (decision 2).
@@ -49,6 +51,9 @@ const (
 // the two composite indexes are READY there and `opsctl backfill-has-media` has run
 // section 13): Firestore, unlike the emulator, refuses the tab queries without them.
 const ProfileTabsFlagName = "profile_tabs"
+
+// chunkWorkerOp names the per-chunk author queries in Error Reporting.
+const chunkWorkerOp = "timeline/chunk_worker"
 
 // tabUnknownLog is the fieldTab value of a call whose tab number this build does not know. A constant, never the
 // number: the field is a closed set of values so the log stays free of client-chosen data.
@@ -156,14 +161,14 @@ func (s *Server) homeSources(ctx context.Context, authors []string, tok request,
 	g.SetLimit(chunkConcurrency)
 	w := tok.window()
 	for i, c := range chunks {
-		g.Go(func() error {
+		g.Go(mw.RecoverGo(ctx, slog.Default(), chunkWorkerOp, func() error {
 			ps, err := s.deps.Posts.ByAuthors(gctx, c, w, k)
 			if err != nil {
 				return logger.RedactErr(fmt.Errorf("timeline: chunk query: %w", err), c...)
 			}
 			results[i] = ps
 			return nil
-		})
+		}))
 	}
 	if err := g.Wait(); err != nil {
 		return out, err

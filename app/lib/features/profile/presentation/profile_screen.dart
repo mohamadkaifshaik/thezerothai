@@ -350,7 +350,7 @@ common.AuthorSnapshot _messageRecipient(identity.Profile profile) =>
 
 /// A column that is centered and capped to the mobile width on wide screens,
 /// so the header never stretches edge to edge on tablet/desktop
-/// (`flutter-feature` skill: LayoutBuilder breakpoints).
+/// (LayoutBuilder breakpoints).
 class _ScrollColumn extends StatelessWidget {
   const _ScrollColumn({required this.children, required this.controller});
 

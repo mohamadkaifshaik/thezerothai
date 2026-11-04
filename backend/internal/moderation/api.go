@@ -4,7 +4,7 @@
 //
 // moderation depends on posts and identity only through the small consumer-side interfaces below
 // (posts.Service.GetForViewer and identity.Service.GetProfile satisfy them), so it re-uses their visibility and
-// block rules instead of repeating them (reuse-first).
+// block rules instead of repeating them.
 package moderation
 
 import (

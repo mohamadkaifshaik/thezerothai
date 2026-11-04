@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	// cacheCapacity bounds memory for each LRU independent of DAU (skill: "LRU-bounded").
+	// cacheCapacity bounds memory for each LRU independent of DAU.
 	cacheCapacity = 20_000
 	// unreadTTL matches the proto doc comment ("cached 30 s") for GetMe's notification count.
 	unreadTTL = 30 * time.Second

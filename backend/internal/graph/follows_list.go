@@ -81,7 +81,7 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 // drops rows for deleted or inactive users and for anyone in a block relationship with the caller in either direction
 // (the page may come back short and the client follows next_page_token), attaches the caller's
 // relationship from snap, and seals the next token to binding when the query returned a full page. ListFollowers,
-// ListFollowing and ListFollowRequests share it (reuse-first: one hydration, one drop rule, one cursor). redact names
+// ListFollowing and ListFollowRequests share it (one hydration, one drop rule, one cursor). redact names
 // extra uids to scrub from error text. Reads: <= len(edges) profiles.
 func (s *service) edgePage(ctx context.Context, callerUID string, snap Snapshot, edges []Edge, size int, binding string, other func(Edge) string, redact ...string) (Page, error) {
 	// "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a

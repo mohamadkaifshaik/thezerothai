@@ -169,7 +169,7 @@ func userIDIssue(id string) bool {
 // ValidUserID reports whether id is an acceptable uid: it delegates to ids.ValidUID (`^[A-Za-z0-9-]{1,128}$`;
 // `_` is reserved as the composite-key separator), which authn also applies to the caller uid. Exported so
 // other modules that accept a caller-supplied user id in their own requests (e.g. graph's Follow/Block
-// target) can reuse this instead of duplicating the regex (reuse-first) — graph already depends on this
+// target) can reuse this instead of duplicating the regex — graph already depends on this
 // package for identity.Directory/Counters.
 func ValidUserID(id string) bool {
 	return ids.ValidUID(id)
@@ -183,7 +183,7 @@ func reservedDocID(id string) bool {
 }
 
 // idempotencyKeyIssue mirrors the common.proto convention: 16-64 chars, [A-Za-z0-9_-]. Delegates to the
-// shared pkg/platform/idempotency validator (reuse-first: this used to be a local copy of the same regex).
+// shared pkg/platform/idempotency validator (this used to be a local copy of the same regex).
 func idempotencyKeyIssue(key string) bool {
 	return !idempotency.KeyFormatValid(key)
 }

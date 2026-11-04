@@ -154,13 +154,16 @@ func (s *service) validateMessages(uid string, req *messagingv1.ListMessagesRequ
 func (s *service) listMessages(ctx context.Context, uid string, in messagesInput) (*messagingv1.ListMessagesResponse, error) {
 	conv, hit, err := s.conversationHit(ctx, uid, in.convID)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
-	if err == nil && !conv.hasParticipant(uid) {
-		err = ErrNotFound
+	// peerOf is "" for a non-participant and for a document whose participants are not a pair: both read as an unknown id.
+	var peer string
+	if err == nil {
+		if peer = peerOf(conv.Participants, uid); peer == "" {
+			err = ErrNotFound
+		}
 	}
 	if err != nil {
 		return nil, s.messagesErr(ctx, uid, in.convID, err)
 	}
-	peer := peerOf(conv.Participants, uid)
 
 	// The thread revision. A since token issued before the conversation changed under a cached
 	// device (a takedown, an erasure) carries a lower revision: it is retired with the very answer of an expired token, so
@@ -195,31 +198,31 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(4)
 	if first {
-		g.Go(func() (err error) {
+		g.Go(s.recovered(ctx, func() (err error) {
 			entry, found, err = s.d.Repo.GetEntry(gctx, uid, in.convID, entryFolder(conv, uid))
 			return err
-		})
+		}))
 	}
-	g.Go(func() (err error) {
+	g.Go(s.recovered(ctx, func() (err error) {
 		rows, err = s.d.Repo.ListMessages(gctx, in.convID, MessageQuery{Limit: in.limit, Before: in.before, After: in.after, ClearedAt: conv.ClearedAt[uid]})
 		return err
-	})
+	}))
 	if withConv && peer != DeletedUID {
-		g.Go(func() error {
+		g.Go(s.recovered(ctx, func() error {
 			got, err := s.d.Profiles.GetProfiles(gctx, []string{peer})
 			prof, live = got[peer], err == nil && got[peer].UserID != ""
 			if err != nil {
 				return fmt.Errorf("messaging: peer profile: %w", err)
 			}
 			return nil
-		})
-		g.Go(func() (err error) {
+		}))
+		g.Go(s.recovered(ctx, func() (err error) {
 			snap, err = s.d.Social.Snapshot(gctx, uid)
 			if err != nil {
 				return fmt.Errorf("messaging: caller graph: %w", err)
 			}
 			return nil
-		})
+		}))
 	}
 	if err := g.Wait(); err != nil {
 		return nil, s.messagesErr(ctx, uid, in.convID, err, peer)

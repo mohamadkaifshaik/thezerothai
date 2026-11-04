@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// Design tokens shared by every screen. Never hard-code a `Color(0x...)` or
-/// a raw size outside this file — see the `reuse-first` skill.
+/// a raw size outside this file.
 ///
 /// The colour system follows the founder decision of 2026-10-22: match X's
 /// colouring (dark and light), no indigo seed and no gradient. Sizes are dp
@@ -74,7 +74,7 @@ abstract final class AppRadius {
   static const double pill = 999;
 }
 
-/// Responsive layout breakpoints (matches the `flutter-feature` skill).
+/// Responsive layout breakpoints.
 abstract final class AppBreakpoints {
   static const double mobile = 600;
   static const double tablet = 1200;
