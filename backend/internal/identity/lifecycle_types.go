@@ -213,6 +213,9 @@ type CreateExportParams struct {
 	ObjectPath string
 	Now        time.Time
 	Retention  time.Duration
+	// GiveUpBefore: a PENDING export created at or before this instant no longer holds the user's one export slot. The
+	// backstop only runs daily, so without it a stuck export could block new requests long after it was given up.
+	GiveUpBefore time.Time
 }
 
 // LifecycleRepo is the storage seam of the account lifecycle; repo_lifecycle_firestore.go implements it and the
@@ -229,8 +232,10 @@ type LifecycleRepo interface {
 	// reports a missing document as a failed precondition); callers re-read to tell the two apart.
 	SaveJobState(ctx context.Context, uid string, updateTime time.Time, job DeletionJob) error
 
-	// CreateExport (RequestAccountExport): creates the PENDING doc. A replay of the same id returns the existing doc and
-	// writes nothing.
+	// CreateExport (RequestAccountExport): creates the PENDING doc, unless the uid already has one newer than
+	// GiveUpBefore: exports are expensive, so a user runs one at a time. That existing doc is returned with replay=true
+	// and nothing is written, so doc.ID can differ from p.ID. A replay of the same id returns the existing doc and writes
+	// nothing. Exact under concurrent requests.
 	CreateExport(ctx context.Context, p CreateExportParams) (doc ExportDoc, replay bool, err error)
 	// GetExport reads exports/{id} fresh. ErrNotFound when absent.
 	GetExport(ctx context.Context, id string) (ExportDoc, error)

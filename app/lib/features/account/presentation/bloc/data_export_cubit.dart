@@ -223,8 +223,8 @@ class DataExportCubit extends Cubit<DataExportState> {
     final accepted = await _account.requestExport(
       promptPassword: promptPassword,
     );
-    // Save BEFORE any isClosed check: the server already spent the daily
-    // quota, so the id must survive the screen having been closed meanwhile
+    // Save BEFORE any isClosed check: the server has already started the
+    // job, so the id must survive the screen having been closed meanwhile
     // (the SessionEpoch guard still drops it after a sign-out).
     if (accepted != null &&
         accepted.status != ExportStatus.EXPORT_STATUS_FAILED) {

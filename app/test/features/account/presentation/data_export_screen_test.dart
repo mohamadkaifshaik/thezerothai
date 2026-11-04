@@ -302,6 +302,18 @@ void main() {
     expect(find.text('Request a new export'), findsOneWidget);
   });
 
+  testWidgets('the intro says one export at a time, not one per day', (
+    tester,
+  ) async {
+    await pump(tester);
+
+    expect(
+      find.textContaining('You can run one export at a time'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('per day'), findsNothing);
+  });
+
   testWidgets('QUOTA_EXCEEDED says one export per day', (tester) async {
     when(
       () =>

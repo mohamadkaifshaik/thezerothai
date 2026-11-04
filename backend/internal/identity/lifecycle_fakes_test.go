@@ -281,6 +281,12 @@ func (f *fakeLCRepo) CreateExport(_ context.Context, p CreateExportParams) (Expo
 		f.reads++ // the read after the AlreadyExists Create
 		return *e, true, nil
 	}
+	for _, e := range f.exports {
+		if e.UID == p.UID && e.Status == ExportPending && e.CreatedAt.After(p.GiveUpBefore) {
+			f.reads++ // the query for the user's PENDING export
+			return *e, true, nil
+		}
+	}
 	e := &ExportDoc{ID: p.ID, UID: p.UID, Status: ExportPending, ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention), UpdateTime: utOf(1)}
 	f.exports[p.ID] = e
 	f.writes++

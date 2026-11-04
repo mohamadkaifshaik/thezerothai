@@ -29,7 +29,9 @@ class AccountRepository {
         : null;
   }
 
-  /// Starts (or re-joins, with the same key) a data export.
+  /// Starts a data export, or returns the one already running: the same key
+  /// re-joins its export, and a new key gets the user's PENDING export if there
+  /// is one, so the returned id may come from an earlier request.
   Future<AccountExport> requestExport({required String idempotencyKey}) async {
     final response = await guardApiCall(
       () => _apiClient.identity.requestAccountExport(

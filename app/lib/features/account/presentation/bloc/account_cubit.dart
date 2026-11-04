@@ -162,7 +162,7 @@ class AccountCubit extends Cubit<AccountState> {
   }
 
   /// Returns the accepted export even when the flow was abandoned while the
-  /// RPC was in flight (the server already spent the daily quota, so the
+  /// RPC was in flight (the server has already started the job, so the
   /// caller must still be able to record the id); null on failure, cancel or
   /// a blocked double tap.
   Future<AccountExport?> requestExport({

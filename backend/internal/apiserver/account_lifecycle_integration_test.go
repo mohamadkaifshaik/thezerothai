@@ -531,9 +531,9 @@ func TestAccountLifecycle_JobEndpointNeedsAMessage(t *testing.T) {
 	}
 }
 
-// TestAccountLifecycle_ExportReplayAndNoDailyQuota: the same key is a replay; a second key the same day is a second export
-// (there is no daily export quota; account_ops_daily still bounds the calls).
-func TestAccountLifecycle_ExportReplayAndNoDailyQuota(t *testing.T) {
+// TestAccountLifecycle_ExportReplayAndOnePending: the same key is a replay; a second key while the export is PENDING gets
+// that export and starts no job; a second key after it finished is a second export (there is no daily export quota).
+func TestAccountLifecycle_ExportReplayAndOnePending(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
 	u := e.newUser(t)
@@ -546,13 +546,13 @@ func TestAccountLifecycle_ExportReplayAndNoDailyQuota(t *testing.T) {
 		t.Fatalf("replay = %v, %v", replay, err)
 	}
 	second, err := e.identity.RequestAccountExport(ctx, authed(u.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "quota-export-key-0002"}))
-	if err != nil || second.Msg.GetExportId() == first.Msg.GetExportId() {
-		t.Fatalf("second export the same day = %v, %v; want a new export", second, err)
+	if err != nil || second.Msg.GetExportId() != first.Msg.GetExportId() {
+		t.Fatalf("second key while PENDING = %v, %v; want the PENDING export", second, err)
 	}
-	// L-4: each new export published once. The replay came within 2 minutes of the request, so it did not re-publish
-	// (no replay storm).
-	if msgs := e.pull(t); len(msgs) != 2 {
-		t.Errorf("published %d messages, want 2 (one per export)", len(msgs))
+	// One job in all. The replay and the second key came within 2 minutes of the request, so neither re-published (no
+	// replay storm).
+	if msgs := e.pull(t); len(msgs) != 1 {
+		t.Errorf("published %d messages, want 1 (one export)", len(msgs))
 	}
 	// The server uses the real clock, so age the export instead of sleeping: once createdAt is 3 minutes old a replay
 	// of the still-PENDING export publishes again (it recovers a lost first publish).
@@ -564,5 +564,13 @@ func TestAccountLifecycle_ExportReplayAndNoDailyQuota(t *testing.T) {
 	}
 	if msgs := e.pull(t); len(msgs) != 1 {
 		t.Errorf("replay after 2 minutes published %d messages, want 1", len(msgs))
+	}
+	// Once the export has finished, a second key starts a new one.
+	if _, err := e.fs.Doc("exports/"+first.Msg.GetExportId()).Update(ctx, []firestore.Update{{Path: "status", Value: "READY"}}); err != nil {
+		t.Fatal(err)
+	}
+	third, err := e.identity.RequestAccountExport(ctx, authed(u.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "quota-export-key-0003"}))
+	if err != nil || third.Msg.GetExportId() == first.Msg.GetExportId() {
+		t.Fatalf("second key after READY = %v, %v; want a new export", third, err)
 	}
 }

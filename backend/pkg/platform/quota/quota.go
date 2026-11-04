@@ -3,8 +3,9 @@
 // transaction, rejects RESOURCE_EXHAUSTED if the caller is already at the limit, and appends the updated counters to the
 // same atomic batch/transaction it's already using for the entity write (no extra round trip).
 //
-// SchedulePost and CreateList also read and rewrite the doc, counting nothing (Touch): that makes two racing calls by one
-// user conflict, which keeps the scheduled window cap and the per-owner list cap exact.
+// SchedulePost, CreateList and RequestAccountExport also read and rewrite the doc, counting nothing (Touch): that makes two
+// racing calls by one user conflict, which keeps the scheduled window cap, the per-owner list cap and the one running
+// export per user exact.
 package quota
 
 import (

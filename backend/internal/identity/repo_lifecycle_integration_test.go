@@ -7,13 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 func lifecycleRepo(t *testing.T) (*identity.FirestoreRepo, *firestore.Client) {
@@ -135,8 +140,75 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 }
 
-// TestCreateExport_Integration: a first request creates the export; a replay writes nothing (the Create fails with
-// AlreadyExists); a second key the same day is a second export (no daily quota); the export doc carries the TTL field.
+// raceCreateExport runs n concurrent CreateExport calls, id(i) naming each call's export, and checks the outcome: one
+// stored export, exactly one caller told it created it (that flag decides the publish), every other caller got that
+// export or a contention error it can retry.
+func raceCreateExport(t *testing.T, repo *identity.FirestoreRepo, client *firestore.Client, uid string, n int, id func(int) string) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	docs := make([]identity.ExportDoc, n)
+	replays := make([]bool, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			docs[i], replays[i], errs[i] = repo.CreateExport(ctx, identity.CreateExportParams{ID: id(i), UID: uid, ObjectPath: id(i) + ".json", Now: now, Retention: time.Hour, GiveUpBefore: now.Add(-time.Hour)})
+		}()
+	}
+	wg.Wait()
+	stored, err := client.Collection("exports").Where("uid", "==", uid).Limit(n + 1).Documents(ctx).GetAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("exports = %d after racing requests, want 1 (errs %v)", len(stored), errs)
+	}
+	created := 0
+	for i := range n {
+		switch {
+		case errs[i] != nil:
+			if !store.IsContention(errs[i]) && status.Code(errs[i]) != codes.DeadlineExceeded {
+				t.Errorf("request %d err = %v, want only a retryable contention error", i, errs[i])
+			}
+		case docs[i].ID != stored[0].Ref.ID:
+			t.Errorf("request %d got %s, want the one export %s", i, docs[i].ID, stored[0].Ref.ID)
+		case !replays[i]:
+			created++
+		}
+	}
+	if created != 1 {
+		t.Errorf("%d requests reported creating the export, want 1 (errs %v)", created, errs)
+	}
+}
+
+// TestCreateExport_Integration_SameKeyRace: retries of one request racing each other give one export, not an Internal
+// error from the Create that lost (AlreadyExists).
+func TestCreateExport_Integration_SameKeyRace(t *testing.T) {
+	repo, client := lifecycleRepo(t)
+	raceCreateExport(t, repo, client, "racer-same-key", 5, func(int) string { return "racer-same-key-export" })
+}
+
+// TestCreateExport_Integration_OnePendingRace: requests racing with different keys start one export and all get it. It
+// runs with the lock doc already there today (Touch must still change it) and not there yet. The emulator's locking is
+// not production's optimistic mode, so this shows the outcome; what the lock adds is the reasoning in CreateExport.
+func TestCreateExport_Integration_OnePendingRace(t *testing.T) {
+	repo, client := lifecycleRepo(t)
+	ctx := context.Background()
+	if _, err := client.Collection("quotas").Doc("racer-seeded").Set(ctx, map[string]any{"day": quota.Today()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, uid := range []string{"racer-seeded", "racer-fresh"} {
+		t.Run(uid, func(t *testing.T) {
+			raceCreateExport(t, repo, client, uid, 5, func(i int) string { return fmt.Sprintf("%s-export-%d", uid, i) })
+		})
+	}
+}
+
+// TestCreateExport_Integration: a first request creates the export; a replay writes nothing; a second key while it is
+// PENDING gets that export; a second key after it finished is a second export; the export doc carries the TTL field.
 func TestCreateExport_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)
@@ -156,11 +228,17 @@ func TestCreateExport_Integration(t *testing.T) {
 
 	p2 := p
 	p2.ID = "export-id-2"
-	if _, replay, err := repo.CreateExport(context.Background(), p2); err != nil || replay {
-		t.Errorf("second export today = replay %v, err %v; want a new export", replay, err)
+	joined, replay, err := repo.CreateExport(context.Background(), p2)
+	if err != nil || !replay || joined.ID != "export-id-1" {
+		t.Errorf("second key while PENDING = %+v, replay %v, err %v; want export-id-1", joined, replay, err)
 	}
-	if _, err := client.Collection("quotas").Doc("u1").Get(context.Background()); err == nil {
-		t.Error("CreateExport wrote quotas/u1; exports no longer count a daily quota")
+	if _, err := repo.GetExport(context.Background(), "export-id-2"); !errors.Is(err, identity.ErrNotFound) {
+		t.Errorf("second key while PENDING created a doc: GetExport err = %v", err)
+	}
+	if rec, err := client.Collection("quotas").Doc("u1").Get(context.Background()); err != nil {
+		t.Errorf("quotas/u1 read: %v", err)
+	} else if reports, _ := rec.DataAt("reports"); reports != int64(0) {
+		t.Errorf("quotas/u1 reports = %v; the export lock must count nothing", reports)
 	}
 
 	// Status changes carry the precondition.
@@ -180,6 +258,18 @@ func TestCreateExport_Integration(t *testing.T) {
 	if err := repo.SetExportStatus(context.Background(), "nope", identity.ExportReady, now); !errors.Is(err, identity.ErrJobConflict) && !errors.Is(err, identity.ErrNotFound) {
 		t.Errorf("SetExportStatus(unknown) err = %v", err)
 	}
+	if _, replay, err := repo.CreateExport(context.Background(), p2); err != nil || replay {
+		t.Errorf("second key after READY = replay %v, err %v; want a new export", replay, err)
+	}
+	// A PENDING export created exactly at the give-up cut-off no longer holds the slot.
+	p3 := p
+	p3.ID, p3.GiveUpBefore = "export-id-3", now
+	if got, replay, err := repo.CreateExport(context.Background(), p3); err != nil || replay || got.ID != "export-id-3" {
+		t.Errorf("past the give-up cut-off = %+v, replay %v, err %v; want a new export", got, replay, err)
+	}
+	if err := repo.DeleteExportDocs(context.Background(), []string{"export-id-3"}); err != nil {
+		t.Fatal(err)
+	}
 	pend, err := repo.ListPendingExports(context.Background(), time.Now().Add(time.Hour), identity.BackstopCursor{}, 50)
 	if err != nil || len(pend) != 1 || pend[0].ID != "export-id-2" {
 		t.Errorf("pending after READY = %v, %v; want only the second export (export-id-2)", pend, err)
@@ -194,7 +284,8 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	seedProfile(t, repo, "u2", "Bobby")
 	now := time.Now().UTC()
 	for _, id := range []string{"e1", "e2"} {
-		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: id, UID: "u1", ObjectPath: id + ".json", Now: now, Retention: time.Hour}); err != nil {
+		// The cut-off is past now so that e1 does not hold the slot: this test needs two export docs for one user.
+		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: id, UID: "u1", ObjectPath: id + ".json", Now: now, Retention: time.Hour, GiveUpBefore: now.Add(time.Second)}); err != nil {
 			t.Fatal(err)
 		}
 	}
