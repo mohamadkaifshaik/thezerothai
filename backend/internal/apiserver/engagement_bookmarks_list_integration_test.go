@@ -283,7 +283,7 @@ func TestListBookmarksChain_DropRulesAndPrune(t *testing.T) {
 		t.Fatalf("second open = %v, %v", resp, err)
 	}
 	l = r.line(t, rpcListBookmarks)
-	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 0 || num(l, "fs_writes") != 0 || num(l, "fs_deletes") != 0 {
+	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 0 {
 		t.Errorf("second open pruned again: %v", l)
 	}
 

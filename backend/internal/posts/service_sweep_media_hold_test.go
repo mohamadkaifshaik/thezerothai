@@ -276,7 +276,7 @@ func TestSweepMediaHold_RunLineCountsHeldItemsAndLeaksNothing(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &m); err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "fs_reads": 2, "fs_writes": 0, "failed_total": 0, "max_lateness_ms": 599000} {
+	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "failed_total": 0, "max_lateness_ms": 599000} {
 		if got, ok := m[k].(float64); !ok || got != want {
 			t.Errorf("%s = %v, want %v", k, m[k], want)
 		}

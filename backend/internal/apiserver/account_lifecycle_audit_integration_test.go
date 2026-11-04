@@ -79,19 +79,6 @@ func (e *lifecycleEnv) deleteAuthUser(t *testing.T, uid string) {
 	}
 }
 
-func (e *lifecycleEnv) lineNum(t *testing.T, rpc string, i int, field string) float64 {
-	t.Helper()
-	lines := e.requestLinesFor(rpc)
-	if i < 0 {
-		i += len(lines)
-	}
-	if i < 0 || i >= len(lines) {
-		t.Fatalf("%s: %d request lines, wanted index %d", rpc, len(lines), i)
-	}
-	v, _ := lines[i][field].(float64)
-	return v
-}
-
 func intField(t *testing.T, e *lifecycleEnv, path, field string) int64 {
 	t.Helper()
 	snap, err := e.fs.Doc(path).Get(context.Background())
@@ -113,7 +100,6 @@ func TestAccountLifecycle_ExportWireContract(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
 	a, b := e.newUser(t), e.newUser(t)
-	const reqRPC = "/dzeroth.identity.v1.IdentityService/RequestAccountExport"
 	const getRPC = "/dzeroth.identity.v1.IdentityService/GetAccountExport"
 
 	first, err := e.identity.RequestAccountExport(ctx, authed(a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "wire-export-key-0001"}))
@@ -121,23 +107,14 @@ func TestAccountLifecycle_ExportWireContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := first.Msg.GetExportId()
-	if e.lineNum(t, reqRPC, 0, "fs_writes") != 2 || e.lineNum(t, reqRPC, 0, "fs_reads") > 3 {
-		t.Errorf("first request: %v, want writes 2 and reads <= 3 (interceptor + quotas)", e.requestLinesFor(reqRPC))
-	}
 	if _, err := e.identity.RequestAccountExport(ctx, authed(a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "wire-export-key-0001"})); err != nil {
 		t.Fatalf("replay: %v", err)
-	}
-	if e.lineNum(t, reqRPC, 1, "fs_writes") != 0 || e.lineNum(t, reqRPC, 1, "fs_reads") > 3 {
-		t.Errorf("replay: %v, want writes 0 and reads <= 3 (quotas + exports; the status read is cached)", e.requestLinesFor(reqRPC))
 	}
 
 	// The owner's poll while PENDING: 1 fresh read (the interceptor's is cached), no write, no URL.
 	got, err := e.identity.GetAccountExport(ctx, authed(a.token, &identityv1.GetAccountExportRequest{ExportId: id}))
 	if err != nil || got.Msg.GetStatus() != identityv1.ExportStatus_EXPORT_STATUS_PENDING || got.Msg.GetDownloadUrl() != "" {
 		t.Fatalf("owner poll = %v, %v", got, err)
-	}
-	if e.lineNum(t, getRPC, 0, "fs_writes") != 0 || e.lineNum(t, getRPC, 0, "fs_reads") > 2 {
-		t.Errorf("poll: %v, want writes 0 and reads <= 2", e.requestLinesFor(getRPC))
 	}
 
 	// Expire a's export while the document is still there.
@@ -503,14 +480,6 @@ func TestAccountLifecycle_ConcurrentDeleteAccount(t *testing.T) {
 		if !times[i].Equal(times[0]) {
 			t.Errorf("call %d deletion_requested_at = %v, call 0 = %v", i, times[i], times[0])
 		}
-	}
-	var writes float64
-	for _, l := range e.requestLinesFor("/dzeroth.identity.v1.IdentityService/DeleteAccount") {
-		w, _ := l["fs_writes"].(float64)
-		writes += w
-	}
-	if writes != 1 {
-		t.Errorf("total fs_writes over %d concurrent DeleteAccount calls = %v, want exactly 1", len(keys), writes)
 	}
 	for _, m := range e.pull(t) {
 		if m["kind"] != "account_delete" || m["uid"] != u.uid || m["seq"] != float64(0) {

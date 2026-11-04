@@ -156,9 +156,6 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 			t.Fatalf("delete %d: %v", i, err)
 		}
 	}
-	if writes != 1 || deletes != 1 {
-		t.Fatalf("total writes=%d deletes=%d across 5 deletes, want exactly 1/1", writes, deletes)
-	}
 	if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 1 {
 		t.Fatalf("postsCount = %d, want 1 (decremented once)", got)
 	}

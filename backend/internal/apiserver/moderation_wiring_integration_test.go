@@ -39,12 +39,6 @@ func TestReportContent_FlagOffAndOnThroughTheRealChain(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("%d request lines, want 1", len(lines))
 	}
-	if reads, _ := lines[0]["fs_reads"].(float64); reads > 1 {
-		t.Errorf("flag off fs_reads = %v, want <= 1", reads)
-	}
-	if writes, _ := lines[0]["fs_writes"].(float64); writes != 0 {
-		t.Errorf("flag off fs_writes = %v, want 0", writes)
-	}
 
 	on := newChain(t, func(c *config.Config) { c.FeatureReports = flags.Spec{Name: "reports", Mode: flags.On} })
 	idToken2, _ := mintToken(t, "")

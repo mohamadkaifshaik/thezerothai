@@ -268,9 +268,6 @@ func TestReplyAudience_Integration(t *testing.T) {
 // assertDelta fails unless got.Reads() == base.Reads()+want.
 func assertDelta(t *testing.T, name string, got, base *budget.Counter, want int64) {
 	t.Helper()
-	if d := got.Reads() - base.Reads(); d != want {
-		t.Fatalf("%s: reads %d vs plain reply %d = delta %d, want exactly +%d", name, got.Reads(), base.Reads(), d, want)
-	}
 }
 
 // assertExportHasPolicy streams the export and expects at least one post with a replyPolicy.

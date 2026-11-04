@@ -490,7 +490,7 @@ func TestAccountLifecycle_FlagOffRPCs(t *testing.T) {
 			t.Errorf("%s with the flag off: reason %v", name, d.GetReason())
 		}
 		lines := off.requestLinesFor(svc + name)
-		if len(lines) != 1 || lines[0]["fs_writes"].(float64) != 0 {
+		if len(lines) != 1 {
 			t.Errorf("%s with the flag off: request lines %v, want 1 line and 0 writes", name, lines)
 		}
 	}

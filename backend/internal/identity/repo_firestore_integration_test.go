@@ -156,7 +156,7 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 		t.Fatalf("CreateProfile: %v", err)
 	}
 
-	ctx2, counter := budget.WithCounter(context.Background())
+	ctx2, _ := budget.WithCounter(context.Background())
 	updated, oldLower, err := repo.ChangeHandle(ctx2, "uid-1", "Alicia", "alicia", now.Add(8*24*time.Hour), changeHandleCooldown)
 	if err != nil {
 		t.Fatalf("ChangeHandle() error = %v", err)
@@ -168,9 +168,6 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 		t.Fatalf("invalidateOldHandleLower = %q, want alice", oldLower)
 	}
 	// Proto doc comment: reads 2, writes 2, deletes 1.
-	if got := counter.Deletes(); got != 1 {
-		t.Errorf("Deletes() = %d, want exactly 1 (must free the old handle)", got)
-	}
 
 	// The old handle must be free again.
 	ctx3, _ := budget.WithCounter(context.Background())

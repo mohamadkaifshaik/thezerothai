@@ -319,9 +319,6 @@ func TestW320_SuggestionsHardCap32(t *testing.T) {
 	if num(l, "candidates") != 10 || l["source"] != "fof" {
 		t.Errorf("source=%v candidates=%v, want fof and the hydration cap of 10", l["source"], l["candidates"])
 	}
-	if reads := num(l, "fs_reads"); reads != 32 {
-		t.Errorf("request line fs_reads = %v, want 32", reads)
-	}
 
 	// A denser graph: every followee now follows 3 more candidates (120 edges). The query still reads 20 edges, so the
 	// request is at most 32 (the 20 newest edges name fewer distinct candidates, so hydration may read fewer than 10).

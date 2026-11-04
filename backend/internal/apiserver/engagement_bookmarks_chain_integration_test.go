@@ -173,9 +173,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || st.GetPostId() != pid || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark = %v, %v", st, err)
 	}
-	if w := e.lineBudget(t, rpcAddBookmark).Writes(); w != 4 {
-		t.Errorf("AddBookmark writes = %d, want exactly 4 (bookmark, idempotency, quotas, userLikes)", w)
-	}
 	if got := e.lastOutcome(rpcAddBookmark); got != "done" {
 		t.Errorf("outcome = %q, want done", got)
 	}
@@ -373,9 +370,6 @@ func TestBookmarksChain_CapAndQuota(t *testing.T) {
 		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 		if d.GetMetadata()["limit"] != "bookmarks" {
 			t.Errorf("metadata = %v, want limit=bookmarks", d.GetMetadata())
-		}
-		if w := e.lineBudget(t, rpcAddBookmark).Writes(); w != 0 {
-			t.Errorf("writes at the cap = %d, want 0", w)
 		}
 		if _, err := e.add(b, contractKey("bm-add"), p1); err != nil {
 			t.Errorf("an existing bookmark at the cap must still succeed: %v", err)

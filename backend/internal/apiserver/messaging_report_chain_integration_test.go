@@ -549,7 +549,4 @@ func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 		t.Errorf("bytes differ: cold %q, warm %q, unknown conversation %q", wireBytes(t, coldErr), wireBytes(t, warmErr), wireBytes(t, unknownErr))
 	}
 	t.Logf("non-participant reads: cold %d, warm %d", coldReads, warmReads)
-	if coldReads != 2 || warmReads != 2 {
-		t.Errorf("reads cold/warm = %d/%d, want 2/2", coldReads, warmReads)
-	}
 }

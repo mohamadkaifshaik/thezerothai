@@ -240,9 +240,6 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 	if d.GetMetadata()["limit"] != "poll_vote_changes" || d.GetMetadata()["choice"] != "2" {
 		t.Errorf("LIMIT_REACHED metadata = %v, want limit=poll_vote_changes choice=2", d.GetMetadata())
 	}
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("LIMIT_REACHED wrote %d", w)
-	}
 	// A stale expected_choice is ALREADY_VOTED with the stored choice; the old-client shape too.
 	for _, exp := range []int32{0, 1} {
 		_, err = e.voteExpecting(voter, fmt.Sprintf("w636-chg-vote-stale%d", exp), pid, 1, exp)

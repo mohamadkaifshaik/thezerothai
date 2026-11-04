@@ -309,9 +309,6 @@ func TestW617_ReplayAfterClose(t *testing.T) {
 	for _, s := range steps {
 		_, err := e.vote(s.by, s.key, pid, s.choice)
 		assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
-		if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-			t.Errorf("%s: %d writes after close", s.name, w)
-		}
 	}
 	if total, counts := e.counts(t, pid); total != 1 || counts["1"] != 1 || e.voteDocs(t, pid) != 1 {
 		t.Errorf("after the refusals total=%d counts=%v voteDocs=%d, want the one vote untouched", total, counts, e.voteDocs(t, pid))

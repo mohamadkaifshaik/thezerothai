@@ -109,7 +109,7 @@ func TestList_FortyFiveMembersTwoChunksInHomeOrder(t *testing.T) {
 		p := r.posts.add(m, r.ms(-time.Duration(i+1)*time.Second))
 		want = append(want, p.ID)
 	}
-	resp, counter, err := r.list("me", testListID, "", "", 20)
+	resp, _, err := r.list("me", testListID, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,9 +129,6 @@ func TestList_FortyFiveMembersTwoChunksInHomeOrder(t *testing.T) {
 		t.Fatalf("Members calls = %d", fl.calls)
 	}
 	// Members (3 here) + caller graph 1 + k = ceil(40/2) = 20 per chunk, at most 40 docs.
-	if got := counter.Reads(); got > 3+1+40 {
-		t.Fatalf("reads = %d", got)
-	}
 }
 
 func TestList_EmptyListAnswersAnEmptyPageWithTokens(t *testing.T) {

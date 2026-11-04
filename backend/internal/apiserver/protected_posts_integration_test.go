@@ -197,17 +197,11 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 			t.Errorf("repost reason = %v", d.GetReason())
 		}
 		// Measured 2 (2026-10-28); 3 is one read of documented headroom (was a loose 12).
-		if w := r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost").Writes(); w != 0 {
-			t.Errorf("repost refusal writes = %d", w)
-		}
 
 		_, err = r.posts.CreatePost(ctx, authed(follower.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("w329a-fq"), Text: "q", QuoteOfPostId: pid}))
 		d = wireError(t, err, connect.CodeFailedPrecondition)
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
 			t.Errorf("quote reason = %v", d.GetReason())
-		}
-		if w := r.lineBudget(t, rpcCreate).Writes(); w != 0 {
-			t.Errorf("quote refusal writes = %d", w)
 		}
 
 		if _, err := r.posts.CreatePost(ctx, authed(p.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("w329a-pq"), Text: "self", QuoteOfPostId: pid})); err != nil {

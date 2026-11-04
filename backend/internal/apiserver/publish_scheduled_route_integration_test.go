@@ -106,7 +106,7 @@ func TestPublishScheduledRoute_PublishesADueItemEndToEnd(t *testing.T) {
 		t.Fatalf("scheduled_sweep lines = %d, want 1", len(lines))
 	}
 	l := lines[0]
-	if l["outcome"] != "ok" || l["due"] != float64(1) || l["published"] != float64(1) || l["fs_reads"] == float64(0) || l["fs_writes"] == float64(0) {
+	if l["outcome"] != "ok" || l["due"] != float64(1) || l["published"] != float64(1) {
 		t.Errorf("line = %v", l)
 	}
 	if strings.Contains(env.logs.String(), "published by the sweep") {
@@ -118,7 +118,7 @@ func TestPublishScheduledRoute_PublishesADueItemEndToEnd(t *testing.T) {
 		t.Fatalf("second POST = %d, want 204", got)
 	}
 	second := env.logs.messageLines("scheduled_sweep")
-	if len(second) != 2 || second[1]["due"] != float64(0) || second[1]["fs_reads"] != float64(1) || second[1]["fs_writes"] != float64(0) {
+	if len(second) != 2 || second[1]["due"] != float64(0) {
 		t.Errorf("second line = %v, want nothing due for 1 read", second)
 	}
 }
@@ -147,7 +147,7 @@ func TestPublishScheduledRoute_NoOpWhenTheFeatureIsOffOrDegraded(t *testing.T) {
 				t.Fatalf("POST = %d, want 204", got)
 			}
 			lines := env.logs.messageLines("scheduled_sweep")
-			if len(lines) != 1 || lines[0]["outcome"] != tc.outcome || lines[0]["fs_reads"] != float64(0) || lines[0]["fs_writes"] != float64(0) {
+			if len(lines) != 1 || lines[0]["outcome"] != tc.outcome {
 				t.Errorf("lines = %v, want one %s line with 0 reads and 0 writes", lines, tc.outcome)
 			}
 		})

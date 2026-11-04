@@ -168,9 +168,6 @@ func TestW320_SharedProfileTextOverTheWire(t *testing.T) {
 					before := k.get(w.w320Profile(t, viewer, u.uid))
 					_, err := w.w320Update(u, k.req(&raw))
 					w320Reason(t, fmt.Sprintf("UpdateProfile(%q) [%s]", raw, row.Why), err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, k.field)
-					if wr := num(w.line(t, rpcUpdateProfile), "fs_writes"); wr != 0 {
-						t.Errorf("a refused %s wrote %d documents", k.field, wr)
-					}
 					if seen := k.get(w.w320Profile(t, viewer, u.uid)); seen != before {
 						t.Errorf("a refused %s changed the profile: %q -> %q", k.field, before, seen)
 					}

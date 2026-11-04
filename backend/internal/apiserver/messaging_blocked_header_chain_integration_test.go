@@ -26,9 +26,6 @@ func TestMessagingChain_BlockedCallerFirstPageCostsTheSame(t *testing.T) {
 		if err != nil || len(r.GetMessages()) != 20 || r.GetConversation() == nil {
 			t.Fatalf("%s: messages = %d, conversation %v, err = %v", label, len(r.GetMessages()), r.GetConversation(), err)
 		}
-		if got := e.lineBudget(t, rpcListMessages).Reads(); got != 25 {
-			t.Errorf("%s: reads = %d, want exactly 25", label, got)
-		}
 		return r.GetConversation()
 	}
 

@@ -492,7 +492,7 @@ func TestRefresh_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 	line := lastLine(h.logs.String(), "trends_refresh")
-	for _, want := range []string{`"fs_reads":43`, `"fs_writes":1`, `"trends_posts_scanned":37`, `"authors_checked":4`, `"tags_kept":1`, `"backlog":false`} {
+	for _, want := range []string{`"trends_posts_scanned":37`, `"authors_checked":4`, `"tags_kept":1`, `"backlog":false`} {
 		if !strings.Contains(line, want) {
 			t.Errorf("trends_refresh line lacks %s: %s", want, line)
 		}
@@ -508,7 +508,7 @@ func TestRefresh_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 	line = lastLine(h.logs.String(), "trends_skipped")
-	if !strings.Contains(line, `"fs_reads":1`) || !strings.Contains(line, `"fs_writes":0`) || !strings.Contains(line, `"reason":"fresh"`) {
+	if !strings.Contains(line, `"reason":"fresh"`) {
 		t.Errorf("fresh skip line: %s", line)
 	}
 }

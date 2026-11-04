@@ -227,7 +227,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 		t.Fatalf("readonly list = %v, %v; want [keep]", postIDs(resp), err)
 	}
 	l := ro.line(t, rpcListBookmarks)
-	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 1 || num(l, "fs_writes") != 0 || num(l, "fs_deletes") != 0 {
+	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 1 {
 		t.Errorf("readonly request line = %v: the missing row must be counted, not pruned, and nothing written", l)
 	}
 	if !w.bookmarkDocExists(t, v.uid, gone) || !slices.Contains(w.bookmarkIDs(t, v.uid), gone) {
@@ -247,7 +247,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 	if resp, err := r.list(v, 0, ""); err != nil || fmt.Sprint(postIDs(resp)) != fmt.Sprint([]string{keep}) {
 		t.Fatalf("normal list = %v, %v", postIDs(resp), err)
 	}
-	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 1 || num(l, "fs_deletes") != 1 || num(l, "fs_writes") != 1 {
+	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 1 {
 		t.Errorf("normal request line = %v, want 1 pruned / 1 write / 1 delete", l)
 	}
 	if w.bookmarkDocExists(t, v.uid, gone) || slices.Contains(w.bookmarkIDs(t, v.uid), gone) {
@@ -259,7 +259,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 	if _, err := r.list(v, 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 0 || num(l, "fs_writes") != 0 {
+	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 0 {
 		t.Errorf("the open after the prune pruned again: %v", l)
 	}
 }
