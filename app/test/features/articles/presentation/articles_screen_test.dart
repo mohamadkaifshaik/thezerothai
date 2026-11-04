@@ -107,6 +107,70 @@ class _Repository implements ArticlesRepository {
 }
 
 void main() {
+  for (final pushed in [false, true]) {
+    testWidgets('library Back leaves articles (pushed: $pushed)', (
+      tester,
+    ) async {
+      final router = GoRouter(
+        initialLocation: pushed ? '/profile' : '/compose/articles',
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (_, _) => const Scaffold(body: Text('Home')),
+          ),
+          GoRoute(
+            path: '/profile',
+            builder: (_, _) => const Scaffold(body: Text('Profile')),
+          ),
+          GoRoute(
+            path: '/compose/articles',
+            builder: (_, _) => const ArticlesScreen(),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        RepositoryProvider<ArticlesRepository>.value(
+          value: _Repository(),
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      if (pushed) router.push('/compose/articles');
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.path,
+        pushed ? '/profile' : '/home',
+      );
+    });
+  }
+
+  testWidgets('wide library has a writing pane and collapses on phones', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      RepositoryProvider<ArticlesRepository>.value(
+        value: _Repository(),
+        child: const MaterialApp(home: ArticlesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Drafts'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Write'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('This is where you write')).dx,
+      greaterThan(350),
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.pumpAndSettle();
+    expect(find.text('Drafts'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Write'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('editor saves before publication and opens the reader', (
     tester,
   ) async {

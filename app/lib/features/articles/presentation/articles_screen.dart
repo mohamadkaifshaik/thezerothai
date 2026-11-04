@@ -281,6 +281,23 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     if (await _save() && mounted) context.go(location);
   }
 
+  Future<void> _back() async {
+    final needsSave = _dirty;
+    if (!await _save() || !mounted) return;
+    // Let PopScope receive the saved state before attempting a stack pop.
+    if (needsSave) await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    if (widget.preview || (widget.focus && !widget.reader)) {
+      context.go('/compose/articles/edit/${widget.articleId}');
+    } else if (widget.articleId != null && !widget.reader) {
+      context.go('/compose/articles');
+    } else if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go('/home');
+    }
+  }
+
   Future<void> _publish() async {
     if (!await _save() || !mounted) return;
     if (_draft.publishErrors.isNotEmpty) {
@@ -434,12 +451,12 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     return PopScope(
       canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, _) async {
-        if (!didPop && await _save() && context.mounted) context.pop();
+        if (!didPop) await _back();
       },
       child: Scaffold(
         appBar: AppBar(
           leading: BackButton(
-            onPressed: () => unawaited(_navigate('/compose/articles')),
+            onPressed: _saving || _busy ? null : () => unawaited(_back()),
           ),
           title: Text(
             widget.reader
@@ -535,6 +552,17 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   }
 
   Widget _withLibrary(BoxConstraints constraints, Widget body) {
+    if (widget.articleId == null &&
+        constraints.maxWidth >= AppBreakpoints.tablet &&
+        !_loading) {
+      return Row(
+        children: [
+          SizedBox(width: AppSize.sideColumn, child: body),
+          const VerticalDivider(width: 1),
+          Expanded(child: _writingWelcome()),
+        ],
+      );
+    }
     final showLibrary =
         widget.articleId != null &&
         !widget.reader &&
@@ -566,6 +594,37 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     child: TextButton(
       onPressed: _load,
       child: const Text('Article unavailable. Retry'),
+    ),
+  );
+  Widget _writingWelcome() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This is where you write',
+              style: Theme.of(context).textTheme.headlineLarge
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Continue a draft or create a new Article',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            FilledButton(
+              onPressed: _busy ? null : _create,
+              child: const Text('Write'),
+            ),
+          ],
+        ),
+      ),
     ),
   );
   Widget _library() => Column(
