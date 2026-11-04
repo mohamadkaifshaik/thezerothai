@@ -1062,20 +1062,6 @@ void main() {
       expect(rig.suggestionCalls, 1);
     });
 
-    test('the short in-flight hold is not a 24 h ban', () async {
-      rig.onSuggestions = () async => throw serverError(
-        connect.Code.resourceExhausted,
-        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': RateLimitedException.inflightLimitName},
-      );
-
-      expect(await rig.repository.suggestionsFor('me'), isEmpty);
-      // Not stored: after the failure backoff it asks again.
-      rig.onSuggestions = null;
-      rig.clock = kSuggestionsFailureBackoff + const Duration(seconds: 1);
-      expect(_ids(await rig.repository.suggestionsFor('me')).length, 5);
-    });
-
     test(
       'a network failure: empty, no retry inside the backoff, one after',
       () async {

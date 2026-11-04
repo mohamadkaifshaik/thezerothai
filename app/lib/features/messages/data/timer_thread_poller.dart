@@ -18,7 +18,7 @@ const Duration kThreadIdleStop = Duration(minutes: 5);
 ///   [pushRegistered] / [pushCoverage] (Android with push that reaches this
 ///   thread; the caller decides, the poller does not detect the platform). Warm: every 45 s. Idle for 5 min: stops.
 /// - Hidden: no timers, no pulls. Visible again: one immediate pull.
-/// - While the shared [RateLimitHold] is set nothing is pulled; the next
+/// - While the [RateLimitHold] is set nothing is pulled; the next
 ///   attempt waits for the hold to clear.
 /// - One pull at a time. A push or resume during a pull is coalesced into a
 ///   single follow-up pull; a timer tick during a pull is dropped.

@@ -262,7 +262,7 @@ void main() {
       serverError(
         connect.Code.resourceExhausted,
         common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': 'read_budget_daily'},
+        metadata: {'limit': 'search_daily'},
       ),
     );
     await expectLater(repo.refresh(), throwsA(isA<RateLimitedException>()));

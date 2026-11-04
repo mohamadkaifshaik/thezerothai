@@ -223,19 +223,7 @@ func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]
 				// sees the generic "internal error" message either way.
 				return nil, apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "internal error").WithCause(err)
 			}
-			if exists {
-				// Whatever the status (a SUSPENDED or DELETING user has a profile too), a
-				// found profile lets the rate limiter clear a stale profile-less mark. Never set on error.
-				if info := logger.RequestInfoFromContext(ctx); info != nil {
-					info.ProfileFound = true
-				}
-			}
 			if !exists {
-				// Tell the rate limiter (which wraps this interceptor) that a verified
-				// caller has no profile, so it charges the call to the IP key.
-				if info := logger.RequestInfoFromContext(ctx); info != nil {
-					info.ProfileRequired = true
-				}
 				return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first"))
 			}
 			switch status {

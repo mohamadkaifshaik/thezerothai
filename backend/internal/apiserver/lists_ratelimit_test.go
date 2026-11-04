@@ -28,7 +28,7 @@ var listMutationProcedures = []string{
 	timelinev1connect.TimelineServiceSetHomeTabsProcedure,
 }
 
-// listReadProcedures share the RATE_LIMIT_LISTS_READ_PER_MIN bucket and have no daily cap (the read budget covers them).
+// listReadProcedures share the RATE_LIMIT_LISTS_READ_PER_MIN bucket and have no daily cap.
 var listReadProcedures = []string{
 	listsv1connect.ListServiceGetListProcedure,
 	listsv1connect.ListServiceListUserListsProcedure,
@@ -57,7 +57,7 @@ func listsRateLimitViolations(rl ratelimit.Config) []string {
 	}
 	for _, p := range listReadProcedures {
 		if _, ok := rl.DailyCaps[p]; ok {
-			out = append(out, "list read "+p+" must not be on a daily cap (the read budget covers it)")
+			out = append(out, "list read "+p+" must not be on a daily cap")
 		}
 		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != rl.PerProcedure[listReadProcedures[0]] {
 			out = append(out, "list read "+p+" does not share the lists read bucket")
@@ -130,7 +130,6 @@ func TestListMutationDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.ListsWritePerUserPerMinute = 100000
 	cfg.RateLimit.ListsReadPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.ListMutationsPerDay = dailyCap
 	rl := RateLimitConfig(cfg)
 

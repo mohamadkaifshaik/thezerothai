@@ -124,13 +124,12 @@ type TimelineServiceClient interface {
 	//
 	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
 	// 0 reads while that flag is off). The shared log refresh (0 on a warm hit, 1 to 50 once per instance per
-	// CACHE_TTL, 100 worst) runs on a detached counter and is NOT charged to the caller's read budget (request log
+	// CACHE_TTL, 100 worst) runs on a detached counter (request log
 	// field removal_log_reads). Only a token older than the instance's log cache reads for the caller: at most 107
 	// (one bounded window query on postRemovals, only for feeds of up to 180 accounts), so a refresh stays bounded
 	// by 2 + C + 2 * page_size = 269 at 5,000 following, page 50. Other modes read nothing from the log. Suspending
 	// an account with 50 or more posts makes only the feeds that show it reset once (see removed_ids in the token
 	// contract).
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
 	// (all of the user's posts incl. replies; identical to Posts until replies ship).
@@ -191,7 +190,6 @@ type TimelineServiceClient interface {
 	// most 107 (the window query; lists have <= 180 members, so it always applies): 218 worst, under the
 	// per-call hold of 269. The shared removal-log refresh is detached, as for Home. Planning: refresh 4 + new posts,
 	// cold open or older page 30; an empty since refresh by the owner, cold, 3 + C. Writes 0.
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetListTimeline(context.Context, *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error)
 	// A community's feed: the root posts and quotes created into the community, newest first. Replies and
 	// reposts are never in it. Query `posts where communityId == C ORDER BY __name__ DESC` with id-bound windows (id
@@ -233,7 +231,6 @@ type TimelineServiceClient interface {
 	// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
 	// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
 	// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetCommunityTimeline(context.Context, *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error)
 	// Replace the caller's pinned Home tabs (after the fixed Following tab) with tabs, in that order (founder decision F5).
 	// Read back through IdentityService.GetMe home_tabs.
@@ -374,13 +371,12 @@ type TimelineServiceHandler interface {
 	//
 	// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
 	// 0 reads while that flag is off). The shared log refresh (0 on a warm hit, 1 to 50 once per instance per
-	// CACHE_TTL, 100 worst) runs on a detached counter and is NOT charged to the caller's read budget (request log
+	// CACHE_TTL, 100 worst) runs on a detached counter (request log
 	// field removal_log_reads). Only a token older than the instance's log cache reads for the caller: at most 107
 	// (one bounded window query on postRemovals, only for feeds of up to 180 accounts), so a refresh stays bounded
 	// by 2 + C + 2 * page_size = 269 at 5,000 following, page 50. Other modes read nothing from the log. Suspending
 	// an account with 50 or more posts makes only the feeds that show it reset once (see removed_ids in the token
 	// contract).
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetHomeTimeline(context.Context, *connect.Request[v1.GetHomeTimelineRequest]) (*connect.Response[v1.GetHomeTimelineResponse], error)
 	// A user's posts, newest first. include_replies=false is the "Posts" tab (root posts), true is "Replies"
 	// (all of the user's posts incl. replies; identical to Posts until replies ship).
@@ -441,7 +437,6 @@ type TimelineServiceHandler interface {
 	// most 107 (the window query; lists have <= 180 members, so it always applies): 218 worst, under the
 	// per-call hold of 269. The shared removal-log refresh is detached, as for Home. Planning: refresh 4 + new posts,
 	// cold open or older page 30; an empty since refresh by the owner, cold, 3 + C. Writes 0.
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetListTimeline(context.Context, *connect.Request[v1.GetListTimelineRequest]) (*connect.Response[v1.GetListTimelineResponse], error)
 	// A community's feed: the root posts and quotes created into the community, newest first. Replies and
 	// reposts are never in it. Query `posts where communityId == C ORDER BY __name__ DESC` with id-bound windows (id
@@ -483,7 +478,6 @@ type TimelineServiceHandler interface {
 	// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
 	// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
 	// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
-	// Every call is charged to the per-uid daily Firestore read budget.
 	GetCommunityTimeline(context.Context, *connect.Request[v1.GetCommunityTimelineRequest]) (*connect.Response[v1.GetCommunityTimelineResponse], error)
 	// Replace the caller's pinned Home tabs (after the fixed Following tab) with tabs, in that order (founder decision F5).
 	// Read back through IdentityService.GetMe home_tabs.

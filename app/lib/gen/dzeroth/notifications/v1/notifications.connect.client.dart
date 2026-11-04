@@ -17,7 +17,7 @@ extension type NotificationServiceClient (connect.Transport _transport) {
   /// Firestore: reads = rows scanned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph
   /// snapshot (cached 60 s, 0 on a hit, +1 cold, skipped on an empty page); the seen_at profile is cached by the
   /// account-status interceptor. Refresh with 0 new items 1 (+1 graph); planning 21 cold / 5 refresh; writes 0.
-  /// Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
+  /// Rate limit: default per-minute bucket.
   Future<dzerothnotificationsv1notifications.ListNotificationsResponse> listNotifications(
     dzerothnotificationsv1notifications.ListNotificationsRequest input, {
     connect.Headers? headers,

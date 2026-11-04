@@ -40,7 +40,7 @@
 //   deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
 // - FAILED_PRECONDITION + ERROR_REASON_LIMIT_REACHED, metadata["limit"] (limit_name) = "request_unanswered" (3 messages
 //   until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
-// - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets, the "messages_daily" cap and the per-uid daily read budget); honour retry_after.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the "messages_daily" cap); honour retry_after.
 // - DEGRADED_MODE=readonly refuses the four mutations through the existing interceptor; the two lists still answer.
 //
 // Token contract for both lists (the notifications codec; all tokens opaque):
@@ -60,7 +60,7 @@
 //   way (a removed message, an erased peer); replace the cached row by id, the order does not change.
 //
 // Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget (2,000 reads/uid/day per instance).
+// interceptor.
 //
 
 package messagingv1

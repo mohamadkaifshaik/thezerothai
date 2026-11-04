@@ -24,8 +24,7 @@ class SearchUnavailableException implements Exception {
   String toString() => 'Search is not available.';
 }
 
-/// RATE_LIMITED (a per-minute bucket, the shared `search_daily` cap or the
-/// per-uid read budget). Show a friendly message; offer retry after
+/// RATE_LIMITED (a per-minute bucket or the `search_daily` cap). Show a friendly message; offer retry after
 /// [retryAfter] when known. [isDaily] limits reset at IST midnight.
 class SearchRateLimitedException implements Exception {
   const SearchRateLimitedException({this.retryAfter, this.isDaily = false});

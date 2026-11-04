@@ -7,7 +7,7 @@ void main() {
     test('a transient rate limit says to try again shortly', () {
       expect(
         relationshipErrorMessage(
-          const RateLimitedException('x', limitName: 'read_budget_inflight'),
+          const RateLimitedException('x', retryAfter: Duration(seconds: 1)),
         ),
         contains('Give it a moment'),
       );
@@ -17,7 +17,7 @@ void main() {
       final msg = relationshipErrorMessage(
         const RateLimitedException(
           'x',
-          limitName: 'read_budget_daily',
+          limitName: 'search_daily',
           retryAfter: Duration(hours: 3),
         ),
       );

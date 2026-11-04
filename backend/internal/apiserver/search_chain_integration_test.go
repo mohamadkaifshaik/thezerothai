@@ -3,7 +3,7 @@
 package apiserver
 
 // Search and trends over the real Build chain on the emulators. The package tests in internal/search run
-// the service below the interceptors (the account-status read, the rate limiters, the daily cap, the read budget, the
+// the service below the interceptors (the account-status read, the rate limiters, the daily cap, the
 // degraded-mode gate and the OIDC wall are all absent there), so the figures asserted here are the WHOLE-request figures
 // of the proto doc comments, measured on the request log's fs_reads / fs_writes of a second Build over the same emulator
 // project (cold caches), and the wire bytes are what a client receives.

@@ -136,14 +136,6 @@ type RequestInfo struct {
 	// or the rejection came from elsewhere (a Firestore quota). Every graph
 	// RPC logs limit_name so `abuse-spike.md` can query rejections by limiter.
 	LimitName string
-	// ProfileRequired is set by authn.AccountStatusInterceptor when the verified caller has no profile
-	//Ratelimit.Interceptor reads it after next to charge the IP key. Written and read on
-	// the request goroutine only (the interceptor chain is synchronous).
-	ProfileRequired bool
-	// ProfileFound is set by authn.AccountStatusInterceptor when the status lookup finds a profile (any status;
-	// never on a lookup error). ratelimit.Interceptor uses it to clear a stale profile-less mark.
-	ProfileFound bool
-
 	// mu guards fields: handlers may fan out under errgroup, and Logging reads after next() returns.
 	mu     sync.Mutex
 	fields []slog.Attr

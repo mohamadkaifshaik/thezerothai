@@ -176,7 +176,7 @@ abstract final class GraphService {
   /// Staleness: the edge is cached 60 s per (caller, target) on the instance; this instance evicts the pair when the
   /// target follows or unfollows the caller and on a Block either way; other instances converge within 60 s.
   /// Flag: FEATURE_GRAPH, like every GraphService RPC. Rate limit: RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
-  /// 60/min/uid per instance (at most 180/min with 3 instances). Charged to the per-uid daily read budget.
+  /// 60/min/uid per instance (at most 180/min with 3 instances).
   /// Firestore: reads 3 cold (interceptor, caller graph, edge doc; +1 if the caller's blockedBy overflowed;
   /// the target's status comes from the identity directory, cache-first and usually warm from the
   /// header's GetProfile) / 0 warm, planning 1; writes 0. user_id: [A-Za-z0-9-]{1,128}.
@@ -199,7 +199,7 @@ abstract final class GraphService {
   /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "follow_suggestions", 0 reads.
   /// Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
   /// SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
-  /// metadata["limit"] = "suggestions_daily". Charged to the per-uid daily read budget.
+  /// metadata["limit"] = "suggestions_daily".
   /// Firestore: hard cap 32 reads cold (interceptor 1, caller graph 1, follows edges <= 20, user hydration <= 10),
   /// 12 on the curated path (1 + 1 + 10); warm (per-viewer instance cache, 1 h) 1, the interceptor; planning 25.
   /// Writes 0.

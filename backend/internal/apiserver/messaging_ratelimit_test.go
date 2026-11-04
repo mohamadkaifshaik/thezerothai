@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -18,7 +17,7 @@ import (
 )
 
 // TestMessagingRateLimitWiring: SendMessage has its own bucket and the shared messages_daily cap;
-// ListConversations and ListMessages share one read bucket and have no daily cap (reads: the read budget covers them);
+// ListConversations and ListMessages share one read bucket and have no daily cap (reads);
 // the guard enumeration sees both reads and the budget covers every messaging RPC.
 func TestMessagingRateLimitWiring(t *testing.T) {
 	rl := RateLimitConfig(defaultRateLimitCfg())
@@ -41,26 +40,10 @@ func TestMessagingRateLimitWiring(t *testing.T) {
 	}
 	for _, p := range []string{lc, lm} {
 		if _, ok := rl.DailyCaps[p]; ok {
-			t.Errorf("%s must not have a daily call cap (a read: the read budget covers it)", p)
+			t.Errorf("%s must not have a daily call cap (a read)", p)
 		}
 	}
 
-	procs := noSideEffectsProcedures(t)
-	for _, p := range []string{lc, lm} {
-		if !slices.Contains(procs, p) {
-			t.Errorf("guard enumeration does not see %s", p)
-		}
-	}
-	for _, p := range []string{
-		send, lc, lm,
-		messagingv1connect.MessagingServiceMarkConversationReadProcedure,
-		messagingv1connect.MessagingServiceAcceptMessageRequestProcedure,
-		messagingv1connect.MessagingServiceDeleteConversationProcedure,
-	} {
-		if !rl.ReadBudgetCovers(p) {
-			t.Errorf("%s is not covered by the daily read budget", p)
-		}
-	}
 }
 
 // TestMessagingReadBucketLimitsPolls: the 31st ListMessages call of one user inside a minute is refused by the
@@ -87,7 +70,6 @@ func messagingCapInvoker(t *testing.T, cfg config.Config, procs ...string) func(
 	t.Helper()
 	cfg.RateLimit.PerUserPerMinute = 1_000_000
 	cfg.RateLimit.PerIPPerMinute = 1_000_000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	rl := RateLimitConfig(cfg)
 	uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {

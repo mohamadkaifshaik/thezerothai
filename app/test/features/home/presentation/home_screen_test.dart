@@ -288,7 +288,7 @@ void main() {
       (_) async => throw const RateLimitedException(
         'limited',
         retryAfter: Duration(hours: 3),
-        limitName: 'read_budget_daily',
+        limitName: 'search_daily',
       ),
     );
 
@@ -301,7 +301,7 @@ void main() {
       const RateLimitedException(
         'limited',
         retryAfter: Duration(hours: 3),
-        limitName: 'read_budget_daily',
+        limitName: 'search_daily',
       ),
     );
     await tester.pump(const Duration(seconds: 125));
@@ -337,7 +337,7 @@ void main() {
       (_) async => throw const RateLimitedException(
         'limited',
         retryAfter: Duration(hours: 3),
-        limitName: 'read_budget_daily',
+        limitName: 'search_daily',
       ),
     );
 

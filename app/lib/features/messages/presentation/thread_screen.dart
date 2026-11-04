@@ -72,7 +72,7 @@ const kDeleteRequestDetail =
 const double kThreadAtBottomSlack = 24;
 
 /// Builds the poller of a conversation. [pull] is the cubit's poll; the
-/// default is a [TimerThreadPoller] on the repository's shared read hold.
+/// default is a [TimerThreadPoller] on the repository's read hold.
 typedef ThreadPollerBuilder = ThreadPoller Function(
   Future<PollResult> Function() pull,
   MessagingRepository repository,

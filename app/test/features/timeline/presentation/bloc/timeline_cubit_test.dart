@@ -245,7 +245,7 @@ void main() {
         const daily = RateLimitedException(
           'limited',
           retryAfter: Duration(hours: 2),
-          limitName: 'read_budget_daily',
+          limitName: 'search_daily',
         );
         when(() => timeline.refresh(feed)).thenAnswer((_) async => throw daily);
 
@@ -261,7 +261,7 @@ void main() {
           const RateLimitedException(
             'limited',
             retryAfter: Duration(hours: 2),
-            limitName: 'read_budget_daily',
+            limitName: 'search_daily',
           ),
         );
         clearInteractions(timeline);

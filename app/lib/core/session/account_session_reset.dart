@@ -31,7 +31,7 @@
 ///   `MediaUploader` reservations (keyed by a per-composition intent id, never
 ///   reused by another account); `IdentityRepository`, `PostsRepository`,
 ///   `ConnectSearchRepository`, `ModerationRepository`, `MediaRepository`
-///   (hold only capability flags such as "the server refused X" and the shared
+///   (hold only capability flags such as "the server refused X" and the
 ///   read hold, no account data); `AccountCubit` and every screen-scoped cubit
 ///   (built per mount: a sign-out or switch makes `OnboardingBloc` emit its
 ///   initial state, the router redirects away from every signed-in screen, and

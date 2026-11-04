@@ -342,9 +342,6 @@ class SuggestionsRepository {
     switch (mapped) {
       case FeatureDisabledException():
         _unavailable = true;
-      case RateLimitedException(isInflightHold: true):
-        // Transient, and already retried once by the API client.
-        _retryNotBefore = _now().add(kSuggestionsFailureBackoff);
       case RateLimitedException() ||
           QuotaExceededException() ||
           LimitReachedException():

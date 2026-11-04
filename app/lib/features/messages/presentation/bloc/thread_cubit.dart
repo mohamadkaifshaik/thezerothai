@@ -139,7 +139,7 @@ const Object _keep = Object();
 ///   by itself) and refreshes once.
 /// - [pull] is what the poller calls (`pull: cubit.pull`): the repository's
 ///   `since` poll, then the cache re-read. A RATE_LIMITED answer is rethrown
-///   so the poller records the shared hold and stops pulling.
+///   so the poller records the hold and stops pulling.
 /// - Reader at the bottom: new messages join [ThreadState.messages] at once.
 ///   Scrolled up ([setAtBottom] false): they are held back and counted in
 ///   [ThreadState.pendingNew] until [showNew], so nothing jumps.

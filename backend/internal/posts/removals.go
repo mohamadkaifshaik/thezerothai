@@ -67,8 +67,7 @@ const (
 	RemovalMaxIDs = MaxLimit
 
 	// RemovalWorstReads is the most Firestore reads one RemovedSince call can charge: a full incremental page (50)
-	// followed by the reload of the newest 50. config.RemovalLogMaxReads is the copy the read budget uses; a test
-	// pins them equal.
+	// followed by the reload of the newest 50.
 	RemovalWorstReads = 2 * RemovalMaxIDs
 
 	// RemovalWindowMaxChunks bounds the targeted window query of one RemovedSince call: authors are queried 30 at a
@@ -78,8 +77,7 @@ const (
 	// RemovalWindowWorstReads is the most reads the window query of one call can charge to the viewer: at most
 	// RemovalMaxIDs+1 new documents in total across the chunks (each chunk's Limit is what is left), up to
 	// RemovalMaxIDs more for cached entries at the coverage boundary that the window returns again, plus the
-	// minimum of one read for each empty chunk. config.RemovalWindowMaxReads is the copy the budget docs use; a test pins
-	// them equal. It only runs for feeds of at most 180 authors, so the home worst case stays 269.
+	// minimum of one read for each empty chunk. It only runs for feeds of at most 180 authors.
 	RemovalWindowWorstReads = 2*RemovalMaxIDs + 1 + RemovalWindowMaxChunks
 
 	// RemovalLag is how far before a since token's issue time the log is consulted (timeline passes
@@ -224,7 +222,7 @@ func (l *RemovalLog) viewLocked(ctx context.Context, cutoff time.Time, scope Rem
 	now := l.now()
 	if !l.loaded || now.Sub(l.fetchedAt) >= l.ttl {
 		// The refresh belongs to the instance, not to the user whose request happened to trigger it: its reads go to
-		// their own counter (not the request's, so not the user's daily read budget) and are logged separately.
+		// their own counter (not the request's) and are logged separately.
 		rctx, counter := budget.WithCounter(ctx)
 		qctx, cancel := context.WithTimeout(rctx, l.queryTimeout)
 		err := l.refreshLocked(qctx, now)

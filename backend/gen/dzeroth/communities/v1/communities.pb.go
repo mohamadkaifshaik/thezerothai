@@ -130,12 +130,10 @@
 //     Join, Leave), "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per actor: Hide, Restore,
 //     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
 //     community, CreatePost);
-//   - the per-uid daily read budget.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 //
 // Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor. Every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
-// call can exceed config.ReadBudgetMaxCallReads (269); the worst here is 103.
+// interceptor. The worst here is 103.
 
 package communitiesv1
 

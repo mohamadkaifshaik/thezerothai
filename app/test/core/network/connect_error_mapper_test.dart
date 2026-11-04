@@ -193,15 +193,14 @@ void main() {
         'fallback',
         common.ErrorDetail(
           reason: common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-          metadata: {'limit': 'read_budget_inflight'}.entries,
+          metadata: {'limit': 'search_minute'}.entries,
           retryAfter: pb_duration.Duration(seconds: Int64(1)),
         ),
       );
 
       final result = mapConnectError(error) as RateLimitedException;
 
-      expect(result.limitName, 'read_budget_inflight');
-      expect(result.isInflightHold, isTrue);
+      expect(result.limitName, 'search_minute');
       expect(result.isDaily, isFalse);
       expect(result.retryAfter, const Duration(seconds: 1));
     });
@@ -219,7 +218,6 @@ void main() {
       final result = mapConnectError(error) as RateLimitedException;
 
       expect(result.isDaily, isTrue);
-      expect(result.isInflightHold, isFalse);
     });
 
     test('maps ERROR_REASON_EMAIL_NOT_VERIFIED', () {

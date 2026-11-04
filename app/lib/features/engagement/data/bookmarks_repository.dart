@@ -190,8 +190,7 @@ class BookmarksRepository {
   ///   before this returns, so every row shows as bookmarked at once.
   /// - Returns null, and records nothing, when the session ended while the
   ///   request ran (sign-out): the page belongs to the previous user.
-  /// - Charged to the per-uid read budget, so a held RATE_LIMITED answer is
-  ///   thrown without sending (like the other read screens).
+  /// - A held RATE_LIMITED answer is thrown without sending.
   Future<pb.ListBookmarksResponse?> listBookmarks({
     String pageToken = '',
     int pageSize = 20,
@@ -333,6 +332,7 @@ class BookmarksRepository {
 
   void _wipe({bool notify = true}) {
     _seenEpoch = _epoch.value;
+    _hold.clear();
     _generation++;
     _recs.clear();
     if (notify) _emit(const BookmarksChanged());

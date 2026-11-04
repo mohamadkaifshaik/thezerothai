@@ -354,7 +354,7 @@ void main() {
     });
   });
 
-  group('RATE_LIMITED hold shared across reads (ADR-0010 D5)', () {
+  group('RATE_LIMITED hold injected into several reads', () {
     const getThread = '/dzeroth.posts.v1.PostService/GetThread';
     const getHome = '/dzeroth.timeline.v1.TimelineService/GetHomeTimeline';
     var clock = Duration.zero;
@@ -365,7 +365,7 @@ void main() {
     Object daily() => serverError(
       connect.Code.resourceExhausted,
       common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-      metadata: {'limit': 'read_budget_daily'},
+      metadata: {'limit': 'search_daily'},
     );
 
     setUp(() {
@@ -468,25 +468,6 @@ void main() {
         expect(hold.check()?.retryAfter, const Duration(minutes: 5));
       },
     );
-
-    test('a read_budget_inflight answer leaves the hold empty', () async {
-      answer = (_) => serverError(
-        connect.Code.resourceExhausted,
-        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': 'read_budget_inflight'},
-      );
-      await expectLater(
-        posts.getThread(postId(1)),
-        throwsA(isA<RateLimitedException>()),
-      );
-      expect(hold.check(), isNull);
-      expect(timeline.rateLimitedFor(), isNull);
-
-      // Nothing is held back: the next read is sent.
-      answer = (_) => pb.GetThreadResponse(focal: postView(1));
-      await posts.getThread(postId(1));
-      expect(transport.calledProcedures, [getThread, getThread]);
-    });
 
     test('clearSession releases the hold for every repository', () async {
       answer = (_) => daily();

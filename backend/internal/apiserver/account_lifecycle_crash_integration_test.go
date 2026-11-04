@@ -621,7 +621,6 @@ func relaxLimits(c *config.Config) {
 	c.RateLimit.GraphFollowPerMinute = 1_000_000
 	c.RateLimit.GraphBlockPerMinute = 1_000_000
 	c.RateLimit.GraphMutationsPerDay = 1_000_000
-	c.RateLimit.ReadBudgetPerUIDPerDay = 100_000_000
 	c.Quota.PostsPerDay, c.Quota.NewAccountPostsPerDay = 1_000_000, 1_000_000
 	c.Quota.FollowsPerDay, c.Quota.NewAccountFollowsPerDay = 1_000_000, 1_000_000
 	c.Quota.BlocksPerDay, c.Quota.NewAccountBlocksPerDay = 1_000_000, 1_000_000

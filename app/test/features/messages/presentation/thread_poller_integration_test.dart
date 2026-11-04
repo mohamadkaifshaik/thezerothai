@@ -164,7 +164,7 @@ void main() {
     });
   });
 
-  test('RATE_LIMITED pauses polling through the shared hold', () {
+  test('RATE_LIMITED pauses polling through the hold', () {
     fakeAsync((async) {
       final (cubit, _, hold) = build(async);
       cubit.load();
