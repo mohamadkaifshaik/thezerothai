@@ -30,10 +30,11 @@ func homeFeed(caller string) feed {
 type userTab string
 
 const (
-	tabPosts   userTab = "posts"
-	tabReplies userTab = "replies"
-	tabMedia   userTab = "media"
-	tabReposts userTab = "reposts"
+	tabPosts    userTab = "posts"
+	tabReplies  userTab = "replies"
+	tabMedia    userTab = "media"
+	tabReposts  userTab = "reposts"
+	tabArticles userTab = "articles"
 )
 
 // effectiveTab resolves the request's tab and include_replies (ADR-0024 D5). UNSPECIFIED, the default and every
@@ -55,6 +56,8 @@ func effectiveTab(tab timelinev1.UserTimelineTab, includeReplies bool) (t userTa
 		return tabMedia, true
 	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_REPOSTS:
 		return tabReposts, true
+	case timelinev1.UserTimelineTab_USER_TIMELINE_TAB_ARTICLES:
+		return tabArticles, true
 	}
 	return "", false
 }

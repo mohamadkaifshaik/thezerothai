@@ -32,6 +32,7 @@ const UserTimelineTab$json = {
     {'1': 'USER_TIMELINE_TAB_REPLIES', '2': 2},
     {'1': 'USER_TIMELINE_TAB_MEDIA', '2': 3},
     {'1': 'USER_TIMELINE_TAB_REPOSTS', '2': 4},
+    {'1': 'USER_TIMELINE_TAB_ARTICLES', '2': 5},
   ],
 };
 
@@ -40,7 +41,7 @@ final $typed_data.Uint8List userTimelineTabDescriptor = $convert.base64Decode(
     'Cg9Vc2VyVGltZWxpbmVUYWISIQodVVNFUl9USU1FTElORV9UQUJfVU5TUEVDSUZJRUQQABIbCh'
     'dVU0VSX1RJTUVMSU5FX1RBQl9QT1NUUxABEh0KGVVTRVJfVElNRUxJTkVfVEFCX1JFUExJRVMQ'
     'AhIbChdVU0VSX1RJTUVMSU5FX1RBQl9NRURJQRADEh0KGVVTRVJfVElNRUxJTkVfVEFCX1JFUE'
-    '9TVFMQBA==');
+    '9TVFMQBBIeChpVU0VSX1RJTUVMSU5FX1RBQl9BUlRJQ0xFUxAF');
 
 @$core.Deprecated('Use getHomeTimelineRequestDescriptor instead')
 const GetHomeTimelineRequest$json = {
@@ -335,6 +336,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.google.protobuf.Timestamp': $4.Timestamp$json,
   '.dzeroth.posts.v1.Poll': $0.Poll$json,
   '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
+  '.dzeroth.posts.v1.ArticlePreview': $0.ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
   '.dzeroth.posts.v1.CommunityRef': $0.CommunityRef$json,
   '.dzeroth.timeline.v1.GetUserTimelineRequest': GetUserTimelineRequest$json,

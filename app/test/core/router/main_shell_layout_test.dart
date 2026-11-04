@@ -783,7 +783,14 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
         expect(labels, ['Home', 'Lists', 'Profile']);
 
@@ -822,7 +829,14 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
         expect(labels, ['Home', 'Communities', 'Profile']);
 
@@ -870,9 +884,16 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
-        expect(labels, ['Home', 'History', 'Profile']);
+        expect(labels, ['Home', 'History', 'Profile', 'More']);
 
         await tester.tap(find.byIcon(Icons.bookmark_border));
         await tester.pumpAndSettle();

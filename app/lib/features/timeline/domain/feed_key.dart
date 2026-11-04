@@ -15,7 +15,10 @@ enum UserFeedTab {
   reposts,
 
   /// The user's posts that carry their own images (needs `profile_tabs`).
-  media;
+  media,
+
+  /// Published root article posts, selected by the server (needs `posts`).
+  articles;
 
   /// Whether the server answers this tab only while `profile_tabs` is on for
   /// the caller (FEATURE_DISABLED `feature=profile_tabs` otherwise).

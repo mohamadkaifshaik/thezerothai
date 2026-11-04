@@ -170,6 +170,7 @@ class W3ProfileRig {
     'replies' => FeedKey.user(uid, includeReplies: true),
     'reposts' => FeedKey.user(uid, tab: UserFeedTab.reposts),
     'media' => FeedKey.user(uid, tab: UserFeedTab.media),
+    'articles' => FeedKey.user(uid, tab: UserFeedTab.articles),
     _ => FeedKey.user(uid),
   };
 
@@ -217,6 +218,7 @@ class W3ProfileRig {
       'replies': [for (var i = 100 + rowsPerTab; i >= 101; i--) i],
       'reposts': [for (var i = 200 + rowsPerTab; i >= 201; i--) i],
       'media': [for (var i = 300 + rowsPerTab; i >= 301; i--) i],
+      'articles': [for (var i = 400 + rowsPerTab; i >= 401; i--) i],
     };
     for (final entry in byTab.entries) {
       final snapshot = w3Snapshot(entry.value, uid);
@@ -309,6 +311,16 @@ class W3ProfileRig {
   /// The bottom edge of the app bar: where the pinned tab bar parks.
   double appBarBottom(WidgetTester tester) =>
       tester.getBottomLeft(find.byType(AppBar)).dy;
+
+  /// Reveal a content-sized profile tab through its horizontal scroller.
+  Future<void> revealTab(WidgetTester tester, String label) async {
+    final target = find.descendant(
+      of: find.byType(AppTabBar),
+      matching: find.text(label),
+    );
+    await tester.ensureVisible(target);
+    await tester.pumpAndSettle();
+  }
 
   /// Scrolls the header away until the tab bar is built and pinned under the
   /// app bar. At large text the header is taller than the screen and the tab

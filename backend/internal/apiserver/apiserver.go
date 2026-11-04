@@ -20,6 +20,8 @@ import (
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/articles"
 
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
@@ -463,6 +465,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
 		return nil, nil, fmt.Errorf("engagement lifecycle registry: %w", err)
 	}
+	if err := registerArticleLifecycle(lifecycle, fsClient); err != nil {
+		return nil, nil, fmt.Errorf("articles lifecycle registry: %w", err)
+	}
 	// moderation (ADR-0016): ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
@@ -607,6 +612,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return postsv1connect.NewPostServiceHandler(postsServer, o...)
+	})
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
+			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
+			return ref.URL, err
+		}), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {

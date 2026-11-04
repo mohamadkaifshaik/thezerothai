@@ -263,6 +263,8 @@ enum UserTimelineTab {
   USER_TIMELINE_TAB_MEDIA = 3;
   // The author's REPOST items (kind == REPOST). Needs FEATURE_PROFILE_TABS.
   USER_TIMELINE_TAB_REPOSTS = 4;
+  // Original published articles only. Uses the posts capability.
+  USER_TIMELINE_TAB_ARTICLES = 5;
 }
 
 message GetUserTimelineRequest {

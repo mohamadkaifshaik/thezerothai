@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+import '../router/app_router.dart';
+import '../feature_flags/feature_flags.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
 
 import '../../features/shells/domain/shell_entries.dart';
 import '../../shared/widgets/primitives/app_menu_item_row.dart';
@@ -19,7 +24,8 @@ abstract final class AppMoreMenu {
     required List<ShellEntry> entries,
     void Function(BuildContext context, ShellEntry entry)? onSelected,
   }) async {
-    if (entries.isEmpty) return;
+    final articles = isFeatureEnabled(anchor, kFeaturePosts);
+    if (entries.isEmpty && !articles) return;
     final box = anchor.findRenderObject() as RenderBox?;
     final overlay = Overlay.of(anchor).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null || !box.hasSize) return;
@@ -30,11 +36,19 @@ abstract final class AppMoreMenu {
       Rect.fromLTWH(rect.right, rect.top, 0, rect.height),
       Offset.zero & overlay.size,
     );
-    final chosen = await showMenu<ShellEntry>(
+    final chosen = await showMenu<Object>(
       context: anchor,
       position: position,
       semanticLabel: semanticLabel,
       items: [
+        if (articles)
+          const PopupMenuItem<Object>(
+            value: 'articles',
+            child: AppMenuItemRow(
+              icon: Icons.article_outlined,
+              label: 'Articles',
+            ),
+          ),
         for (final entry in entries)
           PopupMenuItem<ShellEntry>(
             value: entry,
@@ -43,6 +57,10 @@ abstract final class AppMoreMenu {
       ],
     );
     if (chosen == null || !anchor.mounted) return;
-    (onSelected ?? openShellEntry)(anchor, chosen);
+    if (chosen == 'articles') {
+      anchor.go(AppRouter.articlesPath);
+    } else if (chosen is ShellEntry) {
+      (onSelected ?? openShellEntry)(anchor, chosen);
+    }
   }
 }

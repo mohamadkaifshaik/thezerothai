@@ -132,6 +132,12 @@ func (f *fakePosts) ByAuthorMedia(ctx context.Context, author string, w posts.Wi
 	return f.query(ctx, "ByAuthorMedia", []string{author}, w, limit, func(p *posts.Post) bool { return p.HasMedia }), nil
 }
 
+func (f *fakePosts) ByAuthorArticles(ctx context.Context, author string, w posts.Window, limit int) ([]*posts.Post, error) {
+	return f.query(ctx, "ByAuthorArticles", []string{author}, w, limit, func(p *posts.Post) bool {
+		return p.Kind == posts.KindPost && !p.IsReply && p.Article != nil && p.Article.ArticleID != ""
+	}), nil
+}
+
 // ByAuthorKind is Q-B: the author's posts of one kind. Like the real query it refuses an empty kind before any read.
 func (f *fakePosts) ByAuthorKind(ctx context.Context, author string, kind posts.Kind, w posts.Window, limit int) ([]*posts.Post, error) {
 	if kind == "" {

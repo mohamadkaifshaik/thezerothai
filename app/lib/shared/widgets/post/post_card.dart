@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+import 'article_preview_card.dart';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -417,7 +420,10 @@ class PostCard extends StatelessWidget {
 
     final content = <Widget>[
       // An image-only post has empty text: no empty line above the images.
-      if (text.isNotEmpty)
+      if (text.isNotEmpty &&
+          !(isRepost
+              ? embedded!.hasArticle() && text == embedded.article.title
+              : _post.hasArticle() && text == _post.article.title))
         PostRichText(
           maxLines: fullContent ? null : kPostTextClampLines,
           text: text,
@@ -433,7 +439,15 @@ class PostCard extends StatelessWidget {
           hashtagSearch: _searchOn(context),
           onHashtagTap: onHashtagTap ?? (tag) => _openHashtag(context, tag),
         ),
-      if (media.isNotEmpty) ...[
+      if (isRepost ? embedded!.hasArticle() : _post.hasArticle())
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: ArticlePreviewCard(
+            article: isRepost ? embedded!.article : _post.article,
+          ),
+        ),
+      if (media.isNotEmpty &&
+          !(isRepost ? embedded!.hasArticle() : _post.hasArticle())) ...[
         const SizedBox(height: AppSpacing.sm),
         PostMedia(
           media: media,

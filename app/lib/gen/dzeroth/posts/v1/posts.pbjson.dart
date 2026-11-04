@@ -275,6 +275,14 @@ const EmbeddedPost$json = {
       '6': '.dzeroth.posts.v1.Poll',
       '10': 'poll'
     },
+    {
+      '1': 'article',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.ArticlePreview',
+      '10': 'article'
+    },
   ],
 };
 
@@ -288,7 +296,8 @@ final $typed_data.Uint8List embeddedPostDescriptor = $convert.base64Decode(
     'JzaGlwGAcgASgIUg9wYWlkUGFydG5lcnNoaXASIAoMbWFkZV93aXRoX2FpGAggASgIUgptYWRl'
     'V2l0aEFpEkAKDHJlcGx5X3BvbGljeRgJIAEoDjIdLmR6ZXJvdGgucG9zdHMudjEuUmVwbHlQb2'
     'xpY3lSC3JlcGx5UG9saWN5EioKBHBvbGwYCiABKAsyFi5kemVyb3RoLnBvc3RzLnYxLlBvbGxS'
-    'BHBvbGw=');
+    'BHBvbGwSOgoHYXJ0aWNsZRgLIAEoCzIgLmR6ZXJvdGgucG9zdHMudjEuQXJ0aWNsZVByZXZpZX'
+    'dSB2FydGljbGU=');
 
 @$core.Deprecated('Use postDescriptor instead')
 const Post$json = {
@@ -386,6 +395,14 @@ const Post$json = {
       '6': '.dzeroth.posts.v1.CommunityRef',
       '10': 'community'
     },
+    {
+      '1': 'article',
+      '3': 23,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.ArticlePreview',
+      '10': 'article'
+    },
   ],
 };
 
@@ -408,7 +425,25 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     'aWN5UgtyZXBseVBvbGljeRIpChBwYWlkX3BhcnRuZXJzaGlwGBMgASgIUg9wYWlkUGFydG5lcn'
     'NoaXASIAoMbWFkZV93aXRoX2FpGBQgASgIUgptYWRlV2l0aEFpEioKBHBvbGwYFSABKAsyFi5k'
     'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGwSPAoJY29tbXVuaXR5GBYgASgLMh4uZHplcm90aC'
-    '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eQ==');
+    '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eRI6CgdhcnRpY2xlGBcgASgLMiAuZHpl'
+    'cm90aC5wb3N0cy52MS5BcnRpY2xlUHJldmlld1IHYXJ0aWNsZQ==');
+
+@$core.Deprecated('Use articlePreviewDescriptor instead')
+const ArticlePreview$json = {
+  '1': 'ArticlePreview',
+  '2': [
+    {'1': 'article_id', '3': 1, '4': 1, '5': 9, '10': 'articleId'},
+    {'1': 'title', '3': 2, '4': 1, '5': 9, '10': 'title'},
+    {'1': 'excerpt', '3': 3, '4': 1, '5': 9, '10': 'excerpt'},
+    {'1': 'cover_url', '3': 4, '4': 1, '5': 9, '10': 'coverUrl'},
+  ],
+};
+
+/// Descriptor for `ArticlePreview`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List articlePreviewDescriptor = $convert.base64Decode(
+    'Cg5BcnRpY2xlUHJldmlldxIdCgphcnRpY2xlX2lkGAEgASgJUglhcnRpY2xlSWQSFAoFdGl0bG'
+    'UYAiABKAlSBXRpdGxlEhgKB2V4Y2VycHQYAyABKAlSB2V4Y2VycHQSGwoJY292ZXJfdXJsGAQg'
+    'ASgJUghjb3ZlclVybA==');
 
 @$core.Deprecated('Use communityRefDescriptor instead')
 const CommunityRef$json = {
@@ -952,6 +987,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.google.protobuf.Timestamp': $0.Timestamp$json,
   '.dzeroth.posts.v1.Poll': Poll$json,
   '.dzeroth.posts.v1.PollChoice': PollChoice$json,
+  '.dzeroth.posts.v1.ArticlePreview': ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': Mention$json,
   '.dzeroth.posts.v1.CommunityRef': CommunityRef$json,
   '.dzeroth.posts.v1.DeletePostRequest': DeletePostRequest$json,

@@ -236,7 +236,7 @@ class MainShell extends StatelessWidget {
       lists: newShell && isFeatureEnabled(context, kFeatureLists),
       communities: newShell && isFeatureEnabled(context, kFeatureCommunities),
       settings: !newShell,
-      onMore: shellEntries.isEmpty
+      onMore: shellEntries.isEmpty && !isFeatureEnabled(context, kFeaturePosts)
           ? null
           : (anchor) => AppMoreMenu.show(anchor, entries: shellEntries),
     );

@@ -81,6 +81,9 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 	// repo, a cache constructor or a Firestore-backed type (L1: importing the package alone is not enough).
 	allowedSel := map[string]map[string]bool{
 		"posts": {
+			// Article profile feed uses the optional read seam and preview value;
+			// moderation value is used by canonical visibility fixtures.
+			"ArticleReader": true, "ArticlePreview": true, "ModerationTakenDown": true,
 			"Reader": true, "Removals": true, "RemovalLag": true, "RemovalScope": true, "Window": true, "Position": true, "Post": true, "Recent": true, "Mention": true,
 			"AuthorSnapshot": true, "Embedded": true, "Kind": true, "Visibility": true, "ErrNotFound": true, "ErrInvalidID": true,
 			"FlagChecker": true, "GuardFeature": true, "FlagName": true, "ToProto": true,

@@ -55,6 +55,10 @@ void main() {
       'user:u1:reposts',
     );
     expect(FeedKey.user('u1', tab: UserFeedTab.media).value, 'user:u1:media');
+    expect(
+      FeedKey.user('u1', tab: UserFeedTab.articles).value,
+      'user:u1:articles',
+    );
   });
 
   test('the four tabs of one user, and the same tab of two users, are all '
@@ -118,4 +122,3 @@ void main() {
     );
   });
 }
-

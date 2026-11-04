@@ -5,6 +5,9 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../features/articles/data/rpc_articles_repository.dart';
+
 import 'package:http/http.dart' as http;
 
 import '../core/network/api_client.dart';
@@ -212,6 +215,12 @@ Future<void> bootstrap() async {
     gate: postsGate,
     rateLimitHold: rateLimitHold,
   );
+  final articlesRepository = RpcArticlesRepository(
+    apiClient: apiClient,
+    store: timelineStore,
+    gate: postsGate,
+    currentUid: () => authRepository.currentUser?.uid,
+  );
   // media: gated by `GetMe.enabled_features` containing `media`; the PUT
   // to the signed URL uses its own bare HTTP client (no auth headers).
   final mediaRepository = MediaRepository(
@@ -383,6 +392,7 @@ Future<void> bootstrap() async {
       authRepository: authRepository,
       database: database,
       postsRepository: postsRepository,
+      articlesRepository: articlesRepository,
       timelineRepository: timelineRepository,
       postsGate: postsGate,
       mediaRepository: mediaRepository,

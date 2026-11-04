@@ -5,6 +5,23 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "authorId", "order": "ASCENDING" },
+        { "fieldPath": "hasArticle", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "articles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "authorId", "order": "ASCENDING" },
+        { "fieldPath": "published", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "authorId", "order": "ASCENDING" },
         { "fieldPath": "isReply", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
@@ -125,6 +142,10 @@
     }
   ],
   "fieldOverrides": [
+    { "collectionGroup": "articles", "fieldPath": "body", "indexes": [] },
+    { "collectionGroup": "articles", "fieldPath": "title", "indexes": [] },
+    { "collectionGroup": "articles", "fieldPath": "caption", "indexes": [] },
+    { "collectionGroup": "articles", "fieldPath": "pendingKey", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "text", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "author", "indexes": [] },
     { "collectionGroup": "posts", "fieldPath": "media", "indexes": [] },

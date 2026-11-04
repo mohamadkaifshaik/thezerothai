@@ -541,6 +541,12 @@ func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok r
 // reads one row per post returned (1 when empty). None filters visibility, blocks or mutes: the timeline does.
 func (s *Server) tabQuery(ctx context.Context, target string, tab userTab, w posts.Window, limit int) ([]*posts.Post, error) {
 	switch tab {
+	case tabArticles:
+		reader, ok := s.deps.Posts.(posts.ArticleReader)
+		if !ok {
+			return nil, fmt.Errorf("timeline: article reader unavailable")
+		}
+		return reader.ByAuthorArticles(ctx, target, w, limit)
 	case tabMedia:
 		return s.deps.Posts.ByAuthorMedia(ctx, target, w, limit)
 	case tabReposts:

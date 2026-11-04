@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
+import '../../features/articles/presentation/articles_screen.dart';
 
 import '../../features/account/domain/account_feature_flag.dart';
 import '../../features/account/presentation/data_export_screen.dart';
@@ -107,6 +108,11 @@ class AppRouter {
   static const onboardingPath = '/onboarding';
   static const homePath = '/home';
   static const composePath = '/compose';
+  static const articlesPath = '/compose/articles';
+  static String articlePath(String id) =>
+      '/articles/${Uri.encodeComponent(id)}';
+  static String articleEditPath(String id) =>
+      '$articlesPath/edit/${Uri.encodeComponent(id)}';
   static const settingsPath = '/settings';
   // The Notifications tab, behind the `notifications` flag.
   static const notificationsPath = '/notifications';
@@ -241,6 +247,34 @@ class AppRouter {
     ]),
     redirect: _redirect,
     routes: [
+      for (final suffix in [
+        '',
+        '/edit/:id',
+        '/edit/:id/preview',
+        '/edit/:id/focus',
+        '/edit/:id/preview/focus',
+      ])
+        GoRoute(
+          path: '$articlesPath$suffix',
+          builder: (context, state) => AuthGate(
+            child: ArticlesScreen(
+              articleId: state.pathParameters['id'],
+              preview: suffix.contains('/preview'),
+              focus: suffix.endsWith('/focus'),
+            ),
+          ),
+        ),
+      for (final suffix in ['', '/focus'])
+        GoRoute(
+          path: '/articles/:id$suffix',
+          builder: (context, state) => AuthGate(
+            child: ArticlesScreen(
+              articleId: state.pathParameters['id'],
+              reader: true,
+              focus: suffix.isNotEmpty,
+            ),
+          ),
+        ),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
       GoRoute(
         path: signInPath,
@@ -626,6 +660,7 @@ class AppRouter {
   bool _landed = false;
 
   static final _deepLinkPatterns = [
+    RegExp(r'^/articles/[A-Za-z0-9_-]{16,64}(?:/focus)?$'),
     RegExp(r'^/post/\d{19}$'),
     RegExp(r'^/post/\d{19}/photo/[1-4]$'),
     RegExp(r'^/compose/reply/\d{19}$'),
@@ -904,7 +939,12 @@ class AppRouter {
   /// allowlist still reaches what they saved. A flag that is off for everyone
   /// shows the list's own "not available" state.
   String? _bookmarksFlagRedirect(String loc) {
-    if (loc != bookmarksPath) return null;
+    if (loc != bookmarksPath &&
+        !loc.startsWith('$articlesPath/') &&
+        loc != articlesPath &&
+        !loc.startsWith('/articles/')) {
+      return null;
+    }
     return _onboardingBloc.state.enabledFeatures.contains(kFeaturePosts)
         ? null
         : homePath;

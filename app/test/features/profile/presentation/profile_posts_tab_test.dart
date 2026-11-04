@@ -215,19 +215,24 @@ void main() {
     expect(find.text('my pending post'), findsOneWidget);
   });
 
-  testWidgets('the tabs are equal-width, labelled as one group', (
+  testWidgets('profile tabs form one content-sized scrolling group', (
     tester,
   ) async {
     arrange(profileUserId: 'viewer-uid', features: {'posts', 'replies'});
     stubFeed(ownFeed, snapshotOf([1], authorId: 'viewer-uid'));
     await open(tester);
 
-    final posts = tester.getRect(find.text('Posts').first);
-    final replies = tester.getRect(find.text('Replies'));
-    final bar = tester.getRect(find.byType(AppTabBar));
-    // Label centres at 1/4 and 3/4 of the bar.
-    expect(posts.center.dx, closeTo(bar.left + bar.width / 4, 1));
-    expect(replies.center.dx, closeTo(bar.left + bar.width * 3 / 4, 1));
+    final bar = tester.widget<AppTabBar>(find.byType(AppTabBar));
+    expect(bar.tabs.map((tab) => tab.label), ['Posts', 'Replies', 'Articles']);
+    expect(bar.equalWidth, isFalse);
+    expect(bar.semanticLabel, 'Profile timelines');
+    expect(
+      find.descendant(
+        of: find.byType(AppTabBar),
+        matching: find.byType(SingleChildScrollView),
+      ),
+      findsOneWidget,
+    );
   });
 
   for (final entry in {'dark': appDarkTheme, 'light': appLightTheme}.entries) {

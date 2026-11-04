@@ -400,6 +400,7 @@ class _ProfileTabSpec {
     this.ownPosts = false,
     this.showsPinned = false,
     this.requiresProfileTabs = false,
+    this.fillViewport = false,
   });
 
   /// Stable id: keys the tab's cubit, its scroll offset and its widgets.
@@ -427,10 +428,14 @@ class _ProfileTabSpec {
   /// can be short or empty while a next page exists, so its feed follows the
   /// token (`TimelineFeedView.fillViewport`).
   final bool requiresProfileTabs;
+
+  /// Filtered timelines can return a short or empty page with more results.
+  final bool fillViewport;
 }
 
 /// The tabs for the enabled sub-features, in display order: Posts,
-/// Replies (the `replies` sub-feature), Reposts and Media (`profile_tabs`).
+/// Replies (the `replies` sub-feature), Reposts and Media (`profile_tabs`),
+/// then Articles (the base `posts` capability).
 List<_ProfileTabSpec> _profileTabSpecs({
   required bool showReplies,
   required bool showProfileTabs,
@@ -463,6 +468,7 @@ List<_ProfileTabSpec> _profileTabSpecs({
           ? 'Posts you repost will be listed here.'
           : 'Posts they repost will be listed here.',
       requiresProfileTabs: true,
+      fillViewport: true,
     ),
     _ProfileTabSpec(
       id: 'media',
@@ -475,8 +481,21 @@ List<_ProfileTabSpec> _profileTabSpecs({
           ? 'Posts with your images will be listed here.'
           : 'Posts with their images will be listed here.',
       requiresProfileTabs: true,
+      fillViewport: true,
     ),
   ],
+  _ProfileTabSpec(
+    id: 'articles',
+    label: 'Articles',
+    fillViewport: true,
+    feedFor: (userId) => FeedKey.user(userId, tab: UserFeedTab.articles),
+    emptyTitle: ({required own, required handle}) => own
+        ? "You haven't published any articles yet"
+        : "@$handle hasn't published any articles yet",
+    emptySubtitle: ({required own, required handle}) => own
+        ? 'Articles you publish will be listed here.'
+        : 'Articles they publish will be listed here.',
+  ),
 ];
 
 /// Header + the Posts and Replies tabs (Replies only with the `replies`
@@ -646,7 +665,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final spec = specs[tab];
     final canCompose = canComposeAt(context, AppRouter.homePath);
     final tabBar = AppTabBar(
-      equalWidth: true,
+      equalWidth: false,
       semanticLabel: 'Profile timelines',
       selectedIndex: tab,
       onChanged: (index) => setState(() => _tabId = specs[index].id),
@@ -734,7 +753,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
 
                 Widget feed({required bool pinCovered}) => TimelineFeedView(
                   nested: true,
-                  fillViewport: spec.requiresProfileTabs,
+                  fillViewport: spec.fillViewport,
                   scrollViewKey: scrollKey,
                   newPostsPillTop: AppSpacing.sm,
                   viewerUserId: viewerUserId,

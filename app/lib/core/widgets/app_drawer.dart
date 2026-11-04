@@ -91,6 +91,13 @@ class AppDrawer extends StatelessWidget {
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),
             // Needs `lists` (the drawer only exists with `ui_shell`).
+            if (isFeatureEnabled(context, kFeaturePosts))
+              _DrawerRow(
+                icon: Icons.article_outlined,
+                label: 'Articles',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.articlesPath)),
+              ),
             if (isFeatureEnabled(context, kFeatureLists))
               _DrawerRow(
                 key: const ValueKey('drawer-lists'),

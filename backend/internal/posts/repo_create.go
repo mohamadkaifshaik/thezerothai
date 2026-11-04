@@ -57,10 +57,11 @@ type IDGenerator interface{ Generate() string }
 // CreateParams is everything the transaction needs. Draft carries every post field except the id,
 // conversationId and createdAt, which the transaction sets from the id drawn in each attempt.
 type CreateParams struct {
-	AuthorID    string
-	IdemKey     string // idempotency.Key(uid, "CreatePost", key)
-	RequestHash string
-	QuotaLimit  int64
+	ArticlePublication ArticlePublication
+	AuthorID           string
+	IdemKey            string // idempotency.Key(uid, "CreatePost", key)
+	RequestHash        string
+	QuotaLimit         int64
 	// MediaIDs are the images to attach (validated, deduplicated, <= 4) and MediaAlts their alt texts (empty or
 	// parallel). With MediaIDs the transaction adds len(MediaIDs) reads and as many media-doc updates.
 	MediaIDs  []string
@@ -177,6 +178,13 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("posts: quota lookup: %w", err)
 	}
+	var articleClaim ArticlePublicationClaim
+	if p.ArticlePublication != nil {
+		articleClaim, err = p.ArticlePublication.LoadForPublish(ctx, tx)
+		if err != nil {
+			return CreateResult{}, err
+		}
+	}
 
 	// ADR-0031 D5 step 3: the caller's member doc, read fresh after the replay check (a replay never reads it) and before anything is
 	// staged. The gate maps a missing doc to not_member itself, so a QUOTE into a community cannot be mistaken for a vanished parent.
@@ -228,6 +236,10 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	if claim != nil {
 		post.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)
 		post.HasMedia = HasMediaFor(post.Kind, len(post.Media)) // the cached copy matches the doc toDoc writes
+		if post.Article != nil && len(post.Media) > 0 {
+			post.Article = cloneArticle(post.Article)
+			post.Article.CoverURL = post.Media[0].URL
+		}
 	}
 
 	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
@@ -246,6 +258,9 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, err
 	}
 	b.Create(r.ref(id), toDoc(&post))
+	if articleClaim != nil {
+		articleClaim.Publish(b, id)
+	}
 	if claim != nil {
 		claim.Attach(b, id)
 	}
