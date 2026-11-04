@@ -66,12 +66,12 @@ func TestIPBudgetKey(t *testing.T) {
 	}
 }
 
-// TestInterceptor_DailyCapRejectionCarriesLimitMetadata: check_handle_daily-style caps also report
+// TestInterceptor_DailyCapRejectionCarriesLimitMetadata: graph_mutation_daily-style caps also report
 // metadata["limit"] and an IST-midnight retry_after: the 101st call in a day is rejected.
 func TestInterceptor_DailyCapRejectionCarriesLimitMetadata(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, istZone)
 	c := ratelimit.NewDailyCap(100).WithClock(func() time.Time { return now })
-	cfg := ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: {Name: "check_handle_daily", Cap: c}}}
+	cfg := ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: {Name: "graph_mutation_daily", Cap: c}}}
 	srv := newServer(t, "uid-a", cfg)
 	for i := 0; i < 100; i++ {
 		if err := call(t, srv, ""); err != nil {
@@ -79,8 +79,8 @@ func TestInterceptor_DailyCapRejectionCarriesLimitMetadata(t *testing.T) {
 		}
 	}
 	d := rateLimitDetail(t, call(t, srv, ""))
-	if d.GetMetadata()["limit"] != "check_handle_daily" {
-		t.Errorf("limit = %q, want check_handle_daily", d.GetMetadata()["limit"])
+	if d.GetMetadata()["limit"] != "graph_mutation_daily" {
+		t.Errorf("limit = %q, want graph_mutation_daily", d.GetMetadata()["limit"])
 	}
 	if got := d.GetRetryAfter().AsDuration(); got != 12*time.Hour {
 		t.Errorf("retry_after = %v, want 12h", got)

@@ -63,7 +63,7 @@ func buildMatrixWorld(t *testing.T, ops []matrixOp) *rig {
 			t.Fatalf("setup %s %s->%s: %v", op.kind, op.actor, op.target, err)
 		}
 	}
-	return newRig(t, w, 0)
+	return newRig(t, w)
 }
 
 // matrixExpect is the oracle for one scenario, as seen by A.
@@ -371,7 +371,7 @@ func TestNotFound_Integration_ByteIdentical(t *testing.T) {
 	}
 	// The direct status write bypasses the instance cache, exactly like an admin action on another instance.
 	w.identity.(identity.Directory).Forget("uid-susp", "uid-del")
-	r := newRig(t, w, 0)
+	r := newRig(t, w)
 	a := r.as(uidA)
 
 	type probe struct {
@@ -506,7 +506,7 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, uidA, "usera")
 	mustCreateProfile(t, w.identity, uidB, "userb")
-	r := newRig(t, w, 0)
+	r := newRig(t, w)
 	a := r.as(uidA)
 	ctx := context.Background()
 

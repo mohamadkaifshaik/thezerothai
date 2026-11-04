@@ -26,8 +26,8 @@ func TestLoad_ComposerDefaults(t *testing.T) {
 	if cfg.RateLimit.MediaFinalizePerMinute != 10 {
 		t.Errorf("MediaFinalizePerMinute = %d, want 10", cfg.RateLimit.MediaFinalizePerMinute)
 	}
-	if rl := cfg.RateLimit; rl.PollVotePerUserPerMinute != 30 || rl.PollVotesPerDay != 300 || rl.PollVotesPerDayNewAccount != 50 {
-		t.Errorf("poll limits = %d/%d/%d, want 30/300/50", rl.PollVotePerUserPerMinute, rl.PollVotesPerDay, rl.PollVotesPerDayNewAccount)
+	if rl := cfg.RateLimit; rl.PollVotePerUserPerMinute != 30 {
+		t.Errorf("poll vote bucket = %d, want 30", rl.PollVotePerUserPerMinute)
 	}
 	for _, f := range []struct {
 		spec flags.Spec
@@ -116,7 +116,7 @@ func TestLoad_ComposerOverrides(t *testing.T) {
 	for k, v := range map[string]string{
 		"POLL_MAX_CHOICES": "3", "POLL_CHOICE_MAX_CODEPOINTS": "30", "POLL_MIN_DURATION": "10m", "POLL_MAX_DURATION": "48h",
 		"POLL_VOTE_TTL_AFTER_CLOSE": "48h", "POLL_VIEWER_VOTES_KEPT": "200", "RATE_LIMIT_POLL_VOTE_PER_MIN": "7",
-		"POLL_VOTES_PER_DAY": "100", "POLL_VOTES_PER_DAY_NEW_ACCOUNT": "100", "GIF_MAX_FRAMES": "100", "GIF_MAX_EDGE": "640",
+		"GIF_MAX_FRAMES": "100", "GIF_MAX_EDGE": "640",
 		"GIF_MAX_FRAME_AREA_SUM": "1000000", "MEDIA_MAX_SCREEN_ATTEMPTS": "5", "MEDIA_MAX_SCREEN_RETRIES": "0", "MEDIA_VISION_UNITS_PER_DAY": "100", "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT": "20", "RATE_LIMIT_MEDIA_FINALIZE_PER_MIN": "4", "POLL_VOTE_CHANGES_MAX": "0",
 	} {
 		t.Setenv(k, v)
@@ -135,8 +135,8 @@ func TestLoad_ComposerOverrides(t *testing.T) {
 	if cfg.RateLimit.MediaFinalizePerMinute != 4 {
 		t.Errorf("MediaFinalizePerMinute = %d, want 4", cfg.RateLimit.MediaFinalizePerMinute)
 	}
-	if rl := cfg.RateLimit; rl.PollVotePerUserPerMinute != 7 || rl.PollVotesPerDay != 100 || rl.PollVotesPerDayNewAccount != 100 {
-		t.Errorf("poll limits = %d/%d/%d", rl.PollVotePerUserPerMinute, rl.PollVotesPerDay, rl.PollVotesPerDayNewAccount)
+	if rl := cfg.RateLimit; rl.PollVotePerUserPerMinute != 7 {
+		t.Errorf("poll vote bucket = %d, want 7", rl.PollVotePerUserPerMinute)
 	}
 }
 
@@ -150,7 +150,6 @@ func TestLoad_ComposerBounds(t *testing.T) {
 		{"POLL_VOTE_TTL_AFTER_CLOSE", "1h"}, {"POLL_VOTE_TTL_AFTER_CLOSE", "2200h"},
 		{"POLL_VIEWER_VOTES_KEPT", "0"}, {"POLL_VIEWER_VOTES_KEPT", "1001"},
 		{"RATE_LIMIT_POLL_VOTE_PER_MIN", "0"}, {"RATE_LIMIT_POLL_VOTE_PER_MIN", "-1"},
-		{"POLL_VOTES_PER_DAY", "0"}, {"POLL_VOTES_PER_DAY", "-1"}, {"POLL_VOTES_PER_DAY_NEW_ACCOUNT", "0"},
 		{"GIF_MAX_FRAMES", "0"}, {"GIF_MAX_FRAMES", "1001"}, {"GIF_MAX_EDGE", "0"}, {"GIF_MAX_EDGE", "4097"},
 		{"GIF_MAX_FRAME_AREA_SUM", "0"}, {"GIF_MAX_FRAME_AREA_SUM", "200000001"},
 		{"MEDIA_MAX_SCREEN_ATTEMPTS", "0"}, {"MEDIA_MAX_SCREEN_ATTEMPTS", "11"},
@@ -173,13 +172,6 @@ func TestLoad_ComposerBounds(t *testing.T) {
 		t.Setenv("POLL_MAX_DURATION", "24h")
 		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "POLL_MIN_DURATION") {
 			t.Errorf("Load() error = %v, want one naming POLL_MIN_DURATION", err)
-		}
-	})
-	t.Run("new-account cap above the general cap", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("POLL_VOTES_PER_DAY", "40")
-		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "POLL_VOTES_PER_DAY_NEW_ACCOUNT") {
-			t.Errorf("Load() error = %v, want one naming POLL_VOTES_PER_DAY_NEW_ACCOUNT", err)
 		}
 	})
 }

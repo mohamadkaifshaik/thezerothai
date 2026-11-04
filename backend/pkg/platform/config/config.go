@@ -56,14 +56,14 @@ type Config struct {
 	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets and
 	// the daily mutation cap live in RateLimit.
 	Lists ListsConfig
-	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets and the
-	// three daily caps live in RateLimit.
+	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets
+	// live in RateLimit.
 	Communities CommunitiesConfig
-	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the
-	// shared daily cap live in RateLimit.
+	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets
+	// live in RateLimit.
 	Search SearchConfig
-	// Composer holds the poll and GIF limits of the composer extras. The VotePoll bucket and the poll_votes_daily
-	// cap live in RateLimit.
+	// Composer holds the poll and GIF limits of the composer extras. The VotePoll bucket
+	// lives in RateLimit.
 	Composer ComposerConfig
 	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts.
 	Privacy PrivacyConfig
@@ -530,11 +530,6 @@ func Load() (Config, error) {
 	if rl.GraphListPerMinute, err = getInt("RATE_LIMIT_GRAPH_LIST_PER_MIN", 20); err != nil {
 		return Config{}, err
 	}
-	graphListCallsPerDay, err := getInt("LIST_CALLS_PER_DAY", 100)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.GraphListCallsPerDay = int64(graphListCallsPerDay)
 	graphMutationsPerDay, err := getInt("GRAPH_MUTATIONS_PER_DAY", 500)
 	if err != nil {
 		return Config{}, err
@@ -571,13 +566,6 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
-		// ONE daily cap over the six list mutations (limit_name "list_mutation_daily"); see RateLimitConfig.ListMutationsPerDay.
-		{&rl.ListMutationsPerDay, "LIST_MUTATIONS_PER_DAY", 500},
-		// In-memory daily caps (per uid per instance, x3): Create/Update/Join/Leave share community_mutation_daily; Hide/Restore/
-		// SetMemberRole share community_mod_actions_daily; CreatePost into a community draws on community_posts_per_community_daily per uid|cid.
-		{&rl.CommunityMutationsPerDay, "COMMUNITY_MUTATIONS_PER_DAY", 200},
-		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},
-		{&rl.CommunityPostsPerCommunityPerDay, "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", 20},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -588,59 +576,6 @@ func Load() (Config, error) {
 		}
 		*f.dst = int64(v)
 	}
-	// ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
-	// RateLimitConfig.SuggestionsCallsPerDay for the default's math. A cap of 0 would lock every user out of the RPC.
-	suggestionsCallsPerDay, err := getInt("SUGGESTIONS_CALLS_PER_DAY", 50)
-	if err != nil {
-		return Config{}, err
-	}
-	if suggestionsCallsPerDay <= 0 {
-		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
-	}
-	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
-	// The VotePoll daily cap (limit_name "poll_votes_daily"), POLL_VOTES_PER_DAY, and the lower value
-	// for accounts inside the new-account window, POLL_VOTES_PER_DAY_NEW_ACCOUNT; see RateLimitConfig.PollVotesPerDay. Both
-	// must be > 0 and the new-account value must not exceed the general one.
-	for _, f := range []struct {
-		dst *int64
-		key string
-		def int
-	}{
-		{&rl.PollVotesPerDay, "POLL_VOTES_PER_DAY", 300},
-		{&rl.PollVotesPerDayNewAccount, "POLL_VOTES_PER_DAY_NEW_ACCOUNT", 50},
-	} {
-		v, err := getInt(f.key, f.def)
-		if err != nil {
-			return Config{}, err
-		}
-		if v <= 0 {
-			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
-		}
-		*f.dst = int64(v)
-	}
-	if rl.PollVotesPerDayNewAccount > rl.PollVotesPerDay {
-		return Config{}, fmt.Errorf("config: POLL_VOTES_PER_DAY_NEW_ACCOUNT (%d) must not exceed POLL_VOTES_PER_DAY (%d)", rl.PollVotesPerDayNewAccount, rl.PollVotesPerDay)
-	}
-	// ONE daily call cap shared by SearchPeople and SearchPosts (limit_name "search_daily"); see
-	// RateLimitConfig.SearchCallsPerDay for the default's math. A cap of 0 would lock every user out of search.
-	searchCallsPerDay, err := getInt("SEARCH_CALLS_PER_DAY", 300)
-	if err != nil {
-		return Config{}, err
-	}
-	if searchCallsPerDay <= 0 {
-		return Config{}, fmt.Errorf("config: SEARCH_CALLS_PER_DAY must be > 0 (got %d)", searchCallsPerDay)
-	}
-	rl.SearchCallsPerDay = int64(searchCallsPerDay)
-	// Part 4 (review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
-	// RateLimitConfig.TrendsCallsPerDay for the default's math. A cap of 0 would lock every user out of trends.
-	trendsCallsPerDay, err := getInt("TRENDS_CALLS_PER_DAY", 400)
-	if err != nil {
-		return Config{}, err
-	}
-	if trendsCallsPerDay <= 0 {
-		return Config{}, fmt.Errorf("config: TRENDS_CALLS_PER_DAY must be > 0 (got %d)", trendsCallsPerDay)
-	}
-	rl.TrendsCallsPerDay = int64(trendsCallsPerDay)
 	// L-4: UpdateProfile daily call cap (limit_name "profile_update_daily"); see RateLimitConfig.ProfileUpdatesPerDay
 	// for the default's math. A cap of 0 would lock every user out of the RPC.
 	profileUpdatesPerDay, err := getInt("PROFILE_UPDATES_PER_DAY", 100)
@@ -651,26 +586,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: PROFILE_UPDATES_PER_DAY must be > 0 (got %d)", profileUpdatesPerDay)
 	}
 	rl.ProfileUpdatesPerDay = int64(profileUpdatesPerDay)
-	checkHandleCalls, err := getInt("CHECK_HANDLE_CALLS_PER_DAY", 100)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.CheckHandleCallsPerDay = int64(checkHandleCalls)
-	accountOpsCalls, err := getInt("ACCOUNT_OPS_CALLS_PER_DAY", 20)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.AccountOpsCallsPerDay = int64(accountOpsCalls)
-	notifDeviceCalls, err := getInt("NOTIFICATION_DEVICES_CALLS_PER_DAY", 10)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.NotificationDevicesCallsPerDay = int64(notifDeviceCalls)
-	notifSeenCalls, err := getInt("NOTIFICATION_SEEN_CALLS_PER_DAY", 200)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.NotificationSeenCallsPerDay = int64(notifSeenCalls)
 	notifRecipients, err := getInt("NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY", 200)
 	if err != nil {
 		return Config{}, err
@@ -689,11 +604,6 @@ func Load() (Config, error) {
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
 	// a startup error, not a way to "disable" a cap.
 	for name, v := range map[string]int{
-		"CHECK_HANDLE_CALLS_PER_DAY":         checkHandleCalls,
-		"ACCOUNT_OPS_CALLS_PER_DAY":          accountOpsCalls,
-		"NOTIFICATION_DEVICES_CALLS_PER_DAY": notifDeviceCalls,
-		"NOTIFICATION_SEEN_CALLS_PER_DAY":    notifSeenCalls,
-
 		"NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY":     notifRecipients,
 		"NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY": notifRecipientsNew,
 		"NOTIFICATION_PUSHES_PER_RECIPIENT_PER_HOUR":    notifPushes,

@@ -54,9 +54,6 @@ type Deps struct {
 	Directory identity.Directory
 	Events    Events
 
-	// NewAccountWindow decides the new-account tier of the poll-vote cap.
-	NewAccountWindow time.Duration
-
 	// BookmarkRepo is the storage of AddBookmark and RemoveBookmark; nil answers them with an internal error.
 	// BookmarksMaxPerUser is the per-user cap (1,000), from config.Quota.
 	BookmarkRepo        BookmarkRepo
@@ -76,15 +73,12 @@ type Deps struct {
 	// CacheTTL and CacheEntries size the userLikes cache (config.CacheTTL; 0 entries = default).
 	// VotePoll: PollRepo is its storage (FirestoreRepo), PollVoteTTLAfterClose the vote doc TTL beyond closesAt
 	// (POLL_VOTE_TTL_AFTER_CLOSE), PollViewerVotesKept the lazy trim size of userLikes.pollVotes (POLL_VIEWER_VOTES_KEPT, 0 = never
-	// trim). PollVoteCap is the interceptor's poll_votes_daily counter and NewAccountPollVotesPerDay the lower limit it is compared
-	// with for an account inside NewAccountWindow (POLL_VOTES_PER_DAY_NEW_ACCOUNT, 0 or a nil cap = not enforced here).
+	// trim).
 	PollRepo              PollRepo
 	PollVoteTTLAfterClose time.Duration
 	PollViewerVotesKept   int
 	// PollVoteChangesMax is POLL_VOTE_CHANGES_MAX: the most vote changes one voter may make in one poll. 0 = votes final.
-	PollVoteChangesMax        int
-	PollVoteCap               DailySpent
-	NewAccountPollVotesPerDay int64
+	PollVoteChangesMax int
 
 	CacheTTL     time.Duration
 	CacheEntries int
@@ -305,10 +299,6 @@ func (s *service) profile(ctx context.Context, uid string) (identity.Profile, er
 		return identity.Profile{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 	}
 	return p, nil
-}
-
-func (s *service) isNew(p identity.Profile) bool {
-	return !p.CreatedAt.IsZero() && s.now().Sub(p.CreatedAt) < s.d.NewAccountWindow
 }
 
 func noteRejected(ctx context.Context, err error) {

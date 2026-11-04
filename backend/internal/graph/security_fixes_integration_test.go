@@ -29,7 +29,7 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 	for _, u := range [][2]string{{"uid-mca", "mcalice"}, {"uid-mcb", "mcbob"}, {"uid-mcc", "mccarol"}} {
 		mustCreateProfile(t, w.identity, u[0], u[1])
 	}
-	r := newRigWithMutationCap(t, w, 0, mutCap)
+	r := newRigWithMutationCap(t, w, mutCap)
 	ctx := context.Background()
 	a := r.as("uid-mca")
 	key := func(n int) string { return t16bKey(900 + n) }
@@ -134,7 +134,7 @@ func assertBadIDsAreValidation(t *testing.T, bad string, includeHandleProbe bool
 	t.Helper()
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-rsv", "rsvuser")
-	r := newRig(t, w, 0)
+	r := newRig(t, w)
 	c := r.as("uid-rsv")
 	ctx := context.Background()
 
@@ -214,7 +214,7 @@ func TestSecurity_Integration_PageTokensOpaqueAndBound(t *testing.T) {
 	seedBlock(t, w.client, hidden, viewer)                  // hidden blocked the viewer: its row is filtered
 	seedBlock(t, w.client, viewer, vis1)                    // own blocked list has an entry to page
 	seedBlock(t, w.client, viewer, vis2)
-	r := newRig(t, w, 0)
+	r := newRig(t, w)
 	ctx := context.Background()
 	v := r.as(viewer)
 

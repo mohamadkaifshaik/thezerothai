@@ -21,7 +21,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -36,7 +35,6 @@ const (
 	outcomeAuthor      = "author"
 	fieldContention    = "contention"
 	fieldPostHash      = "post_hash"
-	pollVotesDayName   = "poll_votes_daily"
 )
 
 // pollMetaChoice is the metadata key ALREADY_VOTED and LIMIT_REACHED carry: the caller's own stored 0-based choice.
@@ -90,18 +88,6 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	choice := int(choiceIndex)
 	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "voting"); err != nil {
 		return PollVote{}, err
-	}
-	// The new-account daily cap (POLL_VOTES_PER_DAY_NEW_ACCOUNT): the ratelimit interceptor counted this call in the shared
-	// poll_votes_daily counter but cannot tell account age, so the service compares that same counter with the lower limit.
-	// Before any post read, so a refusal is cheap. The profile is cache-first (the account-status interceptor just read it).
-	if s.d.PollVoteCap != nil && s.d.NewAccountPollVotesPerDay > 0 {
-		prof, perr := s.profile(ctx, uid)
-		if perr != nil {
-			return PollVote{}, perr
-		}
-		if s.isNew(prof) && s.d.PollVoteCap.Spent(uid) > s.d.NewAccountPollVotesPerDay {
-			return PollVote{}, s.newAccountVoteCapErr(ctx)
-		}
 	}
 	// Step 4: the target as Like resolves it (a REPOST id acts on its original); every refusal is the one NOT_FOUND.
 	target, err := s.resolveViewable(ctx, uid, postID)
@@ -292,16 +278,6 @@ func (s *service) trimPollVotes(ctx context.Context, uid string) {
 		return
 	}
 	s.cache.updatePollVotes(uid, func(v []string) []string { return withoutIDs(v, drop) })
-}
-
-// newAccountVoteCapErr is the interceptor's own rejection shape (RESOURCE_EXHAUSTED, RATE_LIMITED, metadata limit, retry_after
-// to IST midnight), so a client cannot tell which of the two caps refused.
-func (s *service) newAccountVoteCapErr(ctx context.Context) error {
-	if info := logger.RequestInfoFromContext(ctx); info != nil {
-		info.LimitName = pollVotesDayName
-	}
-	return apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "too many requests, please slow down").
-		WithMeta("limit", pollVotesDayName).WithRetryAfter(quota.UntilNextDay(s.now()))
 }
 
 // mapVoteErr turns a PollRepo error into the handler's answer. Exhausted contention (Aborted after the store's bounded retry) or

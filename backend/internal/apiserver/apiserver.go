@@ -344,17 +344,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		audienceSvc = bo.audienceSource(postsSvc)
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
-	// One rate-limit config for the interceptor and for VotePoll's new-account cap: the service reads the interceptor's own poll_votes_daily
-	// counter, so the two can never disagree about how many votes a caller has made.
 	rlCfg := RateLimitConfig(cfg)
-	var pollVoteCap engagement.DailySpent // stays a nil interface when the entry is missing (a typed nil would panic)
-	if c := rlCfg.DailyCaps[engagementv1connect.EngagementServiceVotePollProcedure].Cap; c != nil {
-		pollVoteCap = c
-	}
 	engagementMod, err := engagement.New(engagement.Deps{
 		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
-		Events:           engagementNotifier{slot: notifSlot},
-		NewAccountWindow: cfg.Quota.NewAccountWindow, CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
+		Events:   engagementNotifier{slot: notifSlot},
+		CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
 		// Bookmarks: the repo is the engagement repo, the cap is config, not a literal.
 		BookmarkRepo: engagementRepo, BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
 		// ListBookmarks: the graph snapshot filters blocked and muted authors, the flags decide viewer-state
@@ -362,9 +356,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		// Both lists decide protected authors' rows through the one posts.Audience.
 		Audience: engAudience,
-		// VotePoll: the vote batch, the vote doc TTL, the lazy userLikes trim and the new-account cap are config.
+		// VotePoll: the vote batch, the vote doc TTL and the lazy userLikes trim are config.
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
-		PollVoteCap: pollVoteCap, NewAccountPollVotesPerDay: cfg.RateLimit.PollVotesPerDayNewAccount,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("engagement: %w", err)
@@ -665,15 +658,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 	})
 	// The posting gate: posts declares posts.CommunityGate and never imports communities; communities implements it over
-	// its cached Reader, a fresh in-transaction member read and the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
-	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
+	// its cached Reader and a fresh in-transaction member read.
+	// Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
 	communityReporter, ok := communitiesSvc.(communities.CommunityReporter)
 	if !ok {
 		return nil, nil, errors.New("communities service does not implement CommunityReporter")
 	}
 	lateCommunities.r = communityReporter
 	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
-		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
+		communitiesSvc.(communities.Reader), communitiesRepo))
 	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs read communities through the same Reader; set before
 	// ListenAndServe because communities is built after the timeline.
 	timelineServer.SetCommunities(communitiesSvc.(communities.Reader), cfg.Communities.FeedCacheEntries)

@@ -16,8 +16,7 @@ func deployedEnv(t *testing.T, env string) {
 	t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
 }
 
-// TestLoad_Notifications: the flag is off in every environment by default, the topic and the
-// per-uid device cap have defaults, and inline delivery never leaves ENV=local.
+// TestLoad_Notifications: the flag is off in every environment by default, the topic has a default, and inline delivery never leaves ENV=local.
 func TestLoad_Notifications(t *testing.T) {
 	for _, env := range []string{"local", "dev", "prod"} {
 		t.Run("defaults "+env, func(t *testing.T) {
@@ -33,8 +32,8 @@ func TestLoad_Notifications(t *testing.T) {
 			if cfg.FeatureNotifications.Mode != flags.Off || cfg.FeatureNotifications.Name != "notifications" {
 				t.Errorf("flag = %+v, want notifications off", cfg.FeatureNotifications)
 			}
-			if cfg.NotificationsTopic != "notifications-fanout" || cfg.RateLimit.NotificationDevicesCallsPerDay != 10 {
-				t.Errorf("topic %q cap %d", cfg.NotificationsTopic, cfg.RateLimit.NotificationDevicesCallsPerDay)
+			if cfg.NotificationsTopic != "notifications-fanout" {
+				t.Errorf("topic %q", cfg.NotificationsTopic)
 			}
 			want := "pubsub"
 			if env == "local" {
@@ -66,24 +65,6 @@ func TestLoad_Notifications(t *testing.T) {
 		cfg, err := Load()
 		if err != nil || cfg.NotificationsDelivery != "pubsub" {
 			t.Fatalf("cfg = %q, err = %v", cfg.NotificationsDelivery, err)
-		}
-	})
-	t.Run("the device cap must be positive", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("NOTIFICATION_DEVICES_CALLS_PER_DAY", "0")
-		if _, err := Load(); err == nil {
-			t.Fatal("a zero cap must be a startup error")
-		}
-	})
-	t.Run("the seen cap defaults to 200 and must be positive", func(t *testing.T) {
-		clearEnv(t)
-		cfg, err := Load()
-		if err != nil || cfg.RateLimit.NotificationSeenCallsPerDay != 200 {
-			t.Fatalf("cap = %d, err = %v", cfg.RateLimit.NotificationSeenCallsPerDay, err)
-		}
-		t.Setenv("NOTIFICATION_SEEN_CALLS_PER_DAY", "0")
-		if _, err := Load(); err == nil {
-			t.Fatal("a zero cap must be a startup error")
 		}
 	})
 	t.Run("the hardening caps default and must be positive", func(t *testing.T) {

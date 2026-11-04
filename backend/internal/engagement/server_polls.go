@@ -57,7 +57,7 @@ func (s *Server) guardPoll(ctx context.Context) (string, error) {
 //   - a replay, ALREADY_VOTED (a stale or absent expected_choice) and LIMIT_REACHED (the change cap): nothing is written;
 //   - TARGET_BLOCKED (the voter blocks the author), closed, author, no poll, choice range: nothing is written, and the
 //     block check adds no read;
-//   - a flag, shape, rate-bucket or cap refusal does no Firestore access. The new-account daily cap is applied in the service.
+//   - a flag, shape or rate-bucket refusal does no Firestore access.
 func (s *Server) VotePoll(ctx context.Context, req *connect.Request[engagementv1.VotePollRequest]) (*connect.Response[engagementv1.VotePollResponse], error) {
 	uid, err := s.guardPoll(ctx)
 	if err != nil {

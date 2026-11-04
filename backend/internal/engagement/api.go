@@ -325,12 +325,6 @@ type PollVote struct {
 	Hint   RowHint
 }
 
-// DailySpent reads a per-uid daily counter; *ratelimit.DailyCap satisfies it. VotePoll compares the interceptor's
-// poll_votes_daily counter with the lower new-account limit (the interceptor cannot tell account age).
-type DailySpent interface {
-	Spent(key string) int64
-}
-
 // VoteOutcome says what PollRepo.Vote did.
 type VoteOutcome int
 

@@ -21,7 +21,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -185,9 +184,9 @@ func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 		pidRep: {ID: pidRep, AuthorID: "other", Kind: posts.KindRepost, RepostOfID: pidA, Embedded: &posts.Embedded{PostID: pidA}},
 	}, hidden: map[string]bool{}}
 	d := Deps{
-		Repo: pe.repo, Posts: pe.posts, Reader: pe.posts, Events: pe.events, NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute,
+		Repo: pe.repo, Posts: pe.posts, Reader: pe.posts, Events: pe.events, CacheTTL: time.Minute,
 		AllowAnonymous: true, PollRepo: pe.pr, PollVoteTTLAfterClose: 30 * 24 * time.Hour, PollViewerVotesKept: 10, PollVoteChangesMax: 5,
-		NewAccountPollVotesPerDay: 50, Now: func() time.Time { return pe.now },
+		Now:   func() time.Time { return pe.now },
 		Graph: pe.graph,
 	}
 	for _, o := range opts {
@@ -420,50 +419,6 @@ func TestVotePoll_Contention(t *testing.T) {
 			}
 		}
 	})
-}
-
-// POLL_VOTES_PER_DAY_NEW_ACCOUNT (50) is applied here, against the interceptor's own poll_votes_daily counter (which already counted
-// this call).
-func TestVotePoll_NewAccountDailyCap(t *testing.T) {
-	tests := []struct {
-		name    string
-		created time.Duration // account age
-		spent   int64         // the interceptor's count, including this call
-		cap     bool
-		refused bool
-	}{
-		{"new account at its 50th", time.Hour, 50, true, false},
-		{"new account at its 51st", time.Hour, 51, true, true},
-		{"established account at 51 (general cap is the interceptor's)", 48 * time.Hour, 51, true, false},
-		{"established account at 300", 48 * time.Hour, 300, true, false},
-		{"no cap wired: not enforced", time.Hour, 500, false, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dc := ratelimit.NewDailyCap(1000)
-			dc.AllowN("viewer", tt.spent)
-			e := newPollEnv(t, func(d *Deps, pe *pollEnv) {
-				pe.created = pe.now.Add(-tt.created)
-				if tt.cap {
-					d.PollVoteCap = dc
-				}
-			})
-			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
-			if !tt.refused {
-				if err != nil {
-					t.Fatalf("err = %v, want a vote", err)
-				}
-				return
-			}
-			ae := requireCode(t, err, connect.CodeResourceExhausted)
-			if ae.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED || ae.Metadata["limit"] != "poll_votes_daily" || ae.RetryAfter <= 0 {
-				t.Fatalf("rejection = %+v, want the interceptor's RATE_LIMITED poll_votes_daily with a retry_after", ae)
-			}
-			if e.posts.viewCalls != 0 || e.pr.writes != 0 {
-				t.Errorf("a cap refusal read posts (%d) or wrote (%d)", e.posts.viewCalls, e.pr.writes)
-			}
-		})
-	}
 }
 
 // The lazy trim (D3, A3): a cached list over kept + slack loses its oldest entries in one field-level write; under it, nothing.

@@ -65,16 +65,3 @@ func TestErrors_Shape(t *testing.T) {
 		})
 	}
 }
-
-// TestLimits_Names pins the three RATE_LIMITED limit names communities.proto documents.
-func TestLimits_Names(t *testing.T) {
-	for name, want := range map[string]string{
-		LimitMutationDaily:          "community_mutation_daily",
-		LimitModActionsDaily:        "community_mod_actions_daily",
-		LimitPostsPerCommunityDaily: "community_posts_per_community_daily",
-	} {
-		if name != want {
-			t.Errorf("limit name %q, want %q", name, want)
-		}
-	}
-}

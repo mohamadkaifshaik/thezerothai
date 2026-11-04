@@ -21,7 +21,7 @@ import (
 // posts never imports communities. Every method returns an already-shaped *apierr.Error for a refusal, which Create passes through.
 //
 // Create runs it in this order: the protected-caller check (Create itself), Admit (before the transaction), then inside
-// CreatePost's transaction CheckMember and AllowPost.
+// CreatePost's transaction CheckMember.
 type CommunityGate interface {
 	// Admit checks the community's status from the 60 s instance cache (staleness bound 60 s, so a suspension
 	// or archive on another instance reaches this path within a minute) and returns the community's name for the label snapshot. A
@@ -32,9 +32,6 @@ type CommunityGate interface {
 	// once). JOINED returns nil; BANNED is FORBIDDEN banned; no doc is FORBIDDEN not_member. A missing doc is never an error of
 	// the transaction (CreatePost would read a NotFound as a vanished parent).
 	CheckMember(ctx context.Context, tx *firestore.Transaction, cid, uid string) error
-	// AllowPost draws one unit of the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY, per instance, IST
-	// day): RATE_LIMITED limit=community_posts_per_community_daily when spent. Memory only.
-	AllowPost(ctx context.Context, uid, cid string) error
 
 	// CanReply is the members-only reply rule, run by Create for a reply whose parent carries a
 	// conversationCommunityId. It checks the community status from the 60 s cache (SUSPENDED or missing is the one NOT_FOUND, ARCHIVED is

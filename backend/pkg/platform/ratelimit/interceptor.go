@@ -35,7 +35,7 @@ type Config struct {
 	// on top of the per-minute limiters above, keyed by
 	// fully-qualified Connect procedure. Checked after PerProcedure/Default so a burst is still rejected by
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
-	// per-request line can be queried by limiter (e.g. "graph_list_daily").
+	// per-request line can be queried by limiter (e.g. "graph_mutation_daily").
 	DailyCaps map[string]NamedDailyCap
 }
 
@@ -150,13 +150,6 @@ func limitError(ctx context.Context, name string, retryAfter time.Duration) *api
 		commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED,
 		"too many requests, please slow down",
 	).WithMeta("limit", name).WithRetryAfter(retryAfter)
-}
-
-// ExceededError is the RATE_LIMITED *apierr.Error of a daily cap that a service (not the interceptor) drew on, such as the per
-// (uid, community) post cap of the posts gate: metadata["limit"] = name, retry_after the time to the next IST midnight,
-// and the request log's limit_name set. It is the same answer the interceptor gives for a procedure cap.
-func (d *DailyCap) ExceededError(ctx context.Context, name string) *apierr.Error {
-	return limitError(ctx, name, quota.UntilNextDay(d.now()))
 }
 
 // ClientIPResult is what ResolveClientIP found, split into the trusted client IP plus metadata that is

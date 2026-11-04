@@ -17,9 +17,6 @@ func TestLoad_ListsDefaults(t *testing.T) {
 	if rl := cfg.RateLimit; rl.ListsWritePerUserPerMinute != 30 || rl.ListsReadPerUserPerMinute != 30 || rl.ListTimelinePerUserPerMinute != 12 {
 		t.Errorf("list buckets = %d/%d/%d, want 30/30/12", rl.ListsWritePerUserPerMinute, rl.ListsReadPerUserPerMinute, rl.ListTimelinePerUserPerMinute)
 	}
-	if cfg.RateLimit.ListMutationsPerDay != 500 {
-		t.Errorf("ListMutationsPerDay = %d, want 500", cfg.RateLimit.ListMutationsPerDay)
-	}
 	if l := cfg.Lists; l.MaxPerUser != 20 || l.MaxMembers != 150 || l.HomeTabsMaxPinned != 5 || l.CacheEntries != 2000 {
 		t.Errorf("lists config = %+v, want 20/150/5/2000", l)
 	}
@@ -35,8 +32,8 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 		clearEnv(t)
 		for k, v := range map[string]string{
 			"RATE_LIMIT_LISTS_WRITE_PER_MIN": "7", "RATE_LIMIT_LISTS_READ_PER_MIN": "8", "RATE_LIMIT_LIST_TIMELINE_PER_MIN": "9",
-			"LIST_MUTATIONS_PER_DAY": "11", "LISTS_MAX_PER_USER": "3",
-			"LIST_MAX_MEMBERS": "12", "HOME_TABS_MAX_PINNED": "2", "CACHE_LISTS_ENTRIES": "10",
+			"LISTS_MAX_PER_USER": "3",
+			"LIST_MAX_MEMBERS":   "12", "HOME_TABS_MAX_PINNED": "2", "CACHE_LISTS_ENTRIES": "10",
 			"FEATURE_LISTS": "allowlist", "FEATURE_LISTS_ALLOWLIST": "uid-a,uid-b",
 		} {
 			t.Setenv(k, v)
@@ -45,8 +42,8 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
-		if rl := cfg.RateLimit; rl.ListsWritePerUserPerMinute != 7 || rl.ListsReadPerUserPerMinute != 8 || rl.ListTimelinePerUserPerMinute != 9 || rl.ListMutationsPerDay != 11 {
-			t.Errorf("rate limit override = %d/%d/%d/%d", rl.ListsWritePerUserPerMinute, rl.ListsReadPerUserPerMinute, rl.ListTimelinePerUserPerMinute, rl.ListMutationsPerDay)
+		if rl := cfg.RateLimit; rl.ListsWritePerUserPerMinute != 7 || rl.ListsReadPerUserPerMinute != 8 || rl.ListTimelinePerUserPerMinute != 9 {
+			t.Errorf("rate limit override = %d/%d/%d", rl.ListsWritePerUserPerMinute, rl.ListsReadPerUserPerMinute, rl.ListTimelinePerUserPerMinute)
 		}
 		if l := cfg.Lists; l.MaxPerUser != 3 || l.MaxMembers != 12 || l.HomeTabsMaxPinned != 2 || l.CacheEntries != 10 {
 			t.Errorf("lists override = %+v", l)
@@ -61,7 +58,7 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 	})
 
 	for _, key := range []string{
-		"RATE_LIMIT_LISTS_WRITE_PER_MIN", "RATE_LIMIT_LISTS_READ_PER_MIN", "RATE_LIMIT_LIST_TIMELINE_PER_MIN", "LIST_MUTATIONS_PER_DAY",
+		"RATE_LIMIT_LISTS_WRITE_PER_MIN", "RATE_LIMIT_LISTS_READ_PER_MIN", "RATE_LIMIT_LIST_TIMELINE_PER_MIN",
 		"LISTS_MAX_PER_USER", "LIST_MAX_MEMBERS", "HOME_TABS_MAX_PINNED", "CACHE_LISTS_ENTRIES",
 	} {
 		for _, val := range []string{"0", "-1", "many"} {

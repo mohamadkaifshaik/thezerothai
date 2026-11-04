@@ -1,7 +1,7 @@
 //go:build integration
 
 // lists_t16b_integration_test.go: pagination completeness and stability at page sizes 20
-// and 50 for every list RPC, tampered/truncated/cross-user cursors, and the daily list cap. Everything is
+// and 50 for every list RPC and tampered/truncated/cross-user cursors. Everything is
 // seeded through real Follow/Block/Mute calls and asserted over the real Connect handlers.
 package graph_test
 
@@ -148,7 +148,7 @@ func buildPaginationWorld(t *testing.T) *paginationWorld {
 		_, err = w.graph.Mute(ctx, uidY, key(), fUID(i))
 		must("Y mute", err)
 	}
-	pw := &paginationWorld{r: newRig(t, w, 0), allUIDs: []string{uidH, uidH2, uidV, uidX, uidY}}
+	pw := &paginationWorld{r: newRig(t, w), allUIDs: []string{uidH, uidH2, uidV, uidX, uidY}}
 	for i := 0; i < 120; i++ {
 		pw.allUIDs = append(pw.allUIDs, fUID(i))
 	}
@@ -526,66 +526,4 @@ func firstToken(t *testing.T, p pager) string {
 		t.Fatal("expected a next_page_token on page 1")
 	}
 	return res.next
-}
-
-// TestLists_Integration_DailyCap: the 101st list call in a day is RATE_LIMITED before any Firestore read; the
-// cap is shared by the four list RPCs, per uid, and never touches GetRelationships or mutations.
-func TestLists_Integration_DailyCap(t *testing.T) {
-	w := newWired(t)
-	for _, u := range []string{uidV, uidH, uidX} {
-		mustCreateProfile(t, w.identity, u, "cap"+strings.TrimPrefix(u, "uid-"))
-	}
-	r := newRig(t, w, 100)
-	v := r.as(uidV)
-	other := r.as(uidX)
-	ctx := context.Background()
-
-	calls := []func() error{
-		func() error {
-			_, err := v.graph.ListFollowers(ctx, connect.NewRequest(&graphv1.ListFollowersRequest{UserId: uidH}))
-			return err
-		},
-		func() error {
-			_, err := v.graph.ListFollowing(ctx, connect.NewRequest(&graphv1.ListFollowingRequest{UserId: uidH}))
-			return err
-		},
-		func() error {
-			_, err := v.graph.ListBlockedUsers(ctx, connect.NewRequest(&graphv1.ListBlockedUsersRequest{}))
-			return err
-		},
-		func() error {
-			_, err := v.graph.ListMutedUsers(ctx, connect.NewRequest(&graphv1.ListMutedUsersRequest{}))
-			return err
-		},
-	}
-	for i := 0; i < 100; i++ {
-		if err := calls[i%len(calls)](); err != nil {
-			t.Fatalf("call %d of 100 rejected: %v", i+1, err)
-		}
-	}
-	for i, call := range calls {
-		err := call()
-		if err == nil {
-			t.Fatalf("list RPC #%d: call 101+ accepted", i)
-		}
-		info := decodeErr(t, err)
-		if info.Code != connect.CodeResourceExhausted || info.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
-			t.Errorf("list RPC #%d: error = %v/%v, want ResourceExhausted/RATE_LIMITED", i, info.Code, info.Reason)
-		}
-	}
-
-	// Not capped: GetRelationships and mutations by the same uid; other uids have their own daily count.
-	if _, err := v.graph.GetRelationships(ctx, connect.NewRequest(&graphv1.GetRelationshipsRequest{UserIds: []string{uidH}})); err != nil {
-		t.Errorf("GetRelationships after cap: %v", err)
-	}
-	if _, err := v.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: t16bKey(1), UserId: uidH})); err != nil {
-		t.Errorf("Follow after cap: %v", err)
-	}
-	if err := func() error {
-		_, err := other.graph.ListFollowers(ctx, connect.NewRequest(&graphv1.ListFollowersRequest{UserId: uidH}))
-		return err
-	}(); err != nil {
-		t.Errorf("another uid's first list call rejected: %v", err)
-	}
-	assertGraphInvariants(t, w.client)
 }

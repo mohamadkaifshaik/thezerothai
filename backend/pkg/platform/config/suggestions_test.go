@@ -40,9 +40,6 @@ func TestLoad_ProfileGraphDefaults(t *testing.T) {
 	if rl.SuggestionsPerUserPerMinute != 10 || rl.LikesListPerUserPerMinute != 10 || rl.ProfileRelationshipPerUserPerMinute != 60 {
 		t.Errorf("rate limits = %d/%d/%d, want 10/10/60", rl.SuggestionsPerUserPerMinute, rl.LikesListPerUserPerMinute, rl.ProfileRelationshipPerUserPerMinute)
 	}
-	if rl.SuggestionsCallsPerDay != 50 {
-		t.Errorf("SuggestionsCallsPerDay = %d, want 50", rl.SuggestionsCallsPerDay)
-	}
 	s := cfg.Suggestions
 	if s.SampleFollowees != 30 || s.EdgeLimit != 20 || s.HydrateMax != 10 || s.MaxResults != 5 || s.CacheTTL != time.Hour || len(s.UserIDs) != 0 {
 		t.Errorf("Suggestions = %+v, want 30/20/10/5/1h and no curated uids (ADR-0024 Amendment 2 B1(b): edge limit 20, cold cap 32)", s)
@@ -60,7 +57,6 @@ func TestLoad_ProfileGraphOverrides(t *testing.T) {
 	t.Setenv("RATE_LIMIT_SUGGESTIONS_PER_MIN", "3")
 	t.Setenv("RATE_LIMIT_LIKES_LIST_PER_MIN", "4")
 	t.Setenv("RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", "5")
-	t.Setenv("SUGGESTIONS_CALLS_PER_DAY", "6")
 	t.Setenv("SUGGESTIONS_SAMPLE_FOLLOWEES", "7")
 	t.Setenv("SUGGESTIONS_EDGE_LIMIT", "8")
 	t.Setenv("SUGGESTIONS_HYDRATE_MAX", "9")
@@ -72,8 +68,8 @@ func TestLoad_ProfileGraphOverrides(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	rl := cfg.RateLimit
-	if rl.SuggestionsPerUserPerMinute != 3 || rl.LikesListPerUserPerMinute != 4 || rl.ProfileRelationshipPerUserPerMinute != 5 || rl.SuggestionsCallsPerDay != 6 {
-		t.Errorf("rate limit overrides = %d/%d/%d/%d", rl.SuggestionsPerUserPerMinute, rl.LikesListPerUserPerMinute, rl.ProfileRelationshipPerUserPerMinute, rl.SuggestionsCallsPerDay)
+	if rl.SuggestionsPerUserPerMinute != 3 || rl.LikesListPerUserPerMinute != 4 || rl.ProfileRelationshipPerUserPerMinute != 5 {
+		t.Errorf("rate limit overrides = %d/%d/%d", rl.SuggestionsPerUserPerMinute, rl.LikesListPerUserPerMinute, rl.ProfileRelationshipPerUserPerMinute)
 	}
 	s := cfg.Suggestions
 	if s.SampleFollowees != 7 || s.EdgeLimit != 8 || s.HydrateMax != 9 || s.MaxResults != 2 || s.CacheTTL != 15*time.Minute {
@@ -107,8 +103,6 @@ func TestLoad_ProfileGraphValidation(t *testing.T) {
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", "-1", "RATE_LIMIT_LIKES_LIST_PER_MIN"},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", "0", "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN"},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", "many", "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN"},
-		{"SUGGESTIONS_CALLS_PER_DAY", "0", "SUGGESTIONS_CALLS_PER_DAY"},
-		{"SUGGESTIONS_CALLS_PER_DAY", "-5", "SUGGESTIONS_CALLS_PER_DAY"},
 		{"SUGGESTIONS_SAMPLE_FOLLOWEES", "31", "SUGGESTIONS_SAMPLE_FOLLOWEES"},
 		{"SUGGESTIONS_SAMPLE_FOLLOWEES", "0", "SUGGESTIONS_SAMPLE_FOLLOWEES"},
 		{"SUGGESTIONS_EDGE_LIMIT", "31", "SUGGESTIONS_EDGE_LIMIT"},

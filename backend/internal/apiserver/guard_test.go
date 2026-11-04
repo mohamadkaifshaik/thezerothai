@@ -18,20 +18,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// accountOps are the three account operations that share the account_ops_daily call cap.
-var accountOps = []string{
-	identityv1connect.IdentityServiceDeleteAccountProcedure,
-	identityv1connect.IdentityServiceRequestAccountExportProcedure,
-	identityv1connect.IdentityServiceGetAccountExportProcedure,
-}
-
 // defaultRateLimitCfg is the config the guard inspects: the defaults.
 func defaultRateLimitCfg() config.Config {
 	cfg := config.Config{}
-	cfg.RateLimit.CheckHandleCallsPerDay = 100
-	cfg.RateLimit.AccountOpsCallsPerDay = 20
-	cfg.RateLimit.NotificationDevicesCallsPerDay = 10
-	cfg.RateLimit.NotificationSeenCallsPerDay = 200
 	// Per-minute buckets (the config.Load defaults).
 	cfg.RateLimit.TimelinePerUserPerMinute = 6
 	cfg.RateLimit.UserTimelinePerMinute = 30
@@ -45,20 +34,14 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.SuggestionsPerUserPerMinute = 10
 	cfg.RateLimit.LikesListPerUserPerMinute = 10
 	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
-	cfg.RateLimit.SuggestionsCallsPerDay = 50
 	// Poll vote limits (the config.Load defaults).
 	cfg.RateLimit.PollVotePerUserPerMinute = 30
-	cfg.RateLimit.PollVotesPerDay = 300
-	cfg.RateLimit.PollVotesPerDayNewAccount = 50
 	// Search and trends limits (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
-	cfg.RateLimit.SearchCallsPerDay = 300
-	cfg.RateLimit.TrendsCallsPerDay = 400
 	// Follow request limits (the config.Load default).
 	cfg.RateLimit.FollowRequestsRespondPerUserPerMinute = 60
-	cfg.RateLimit.GraphListPerMinute = 20 // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
-	cfg.RateLimit.GraphListCallsPerDay = 100
+	cfg.RateLimit.GraphListPerMinute = 20    // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
 	cfg.RateLimit.ProfileUpdatesPerDay = 100 // L-4
 	// Messaging limits (the config.Load defaults).
 	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
@@ -67,138 +50,6 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.MessagesMarkReadPerDay = 500 // (the config.Load defaults)
 	cfg.RateLimit.MessagesMutationsPerDay = 500
 	return cfg
-}
-
-// accountOpsViolations asserts every account operation has a DailyCaps entry named account_ops_daily: without it
-// GetAccountExport alone could be polled without a daily bound.
-func accountOpsViolations(rl ratelimit.Config) []string {
-	var out []string
-	for _, p := range accountOps {
-		named, ok := rl.DailyCaps[p]
-		if !ok || named.Cap == nil || named.Name != "account_ops_daily" {
-			out = append(out, "account operation "+p+" has no account_ops_daily DailyCaps entry")
-		}
-	}
-	return out
-}
-
-// TestAccountOpsGuard: the wired config caps every account operation, and the guard can fail.
-func TestAccountOpsGuard(t *testing.T) {
-	for _, v := range accountOpsViolations(RateLimitConfig(defaultRateLimitCfg())) {
-		t.Error(v)
-	}
-	rl := RateLimitConfig(defaultRateLimitCfg())
-	delete(rl.DailyCaps, identityv1connect.IdentityServiceGetAccountExportProcedure)
-	if got := strings.Join(accountOpsViolations(rl), "\n"); !strings.Contains(got, identityv1connect.IdentityServiceGetAccountExportProcedure) {
-		t.Fatalf("violations %q do not name the uncapped GetAccountExport", got)
-	}
-}
-
-// TestAccountOps_21stCallIsRateLimited: through the wired config, the shared account_ops_daily cap stops the
-// 21st call of the IST day across the three account operations.
-func TestAccountOps_21stCallIsRateLimited(t *testing.T) {
-	cfg := defaultRateLimitCfg()
-	cfg.RateLimit.PerUserPerMinute = 100000
-	cfg.RateLimit.PerIPPerMinute = 100000
-	rl := RateLimitConfig(cfg)
-	procs := accountOps
-	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-ops", SignInProvider: authn.SignInProviderGoogle}), req)
-		}
-	})
-	opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl))
-	mux := http.NewServeMux()
-	for _, p := range procs {
-		mux.Handle(p, connect.NewUnaryHandler(p,
-			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
-				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
-			}, opts))
-	}
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	invoke := func(proc string) error {
-		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
-		_, err := c.CallUnary(context.Background(), connect.NewRequest(&commonv1.ErrorDetail{}))
-		return err
-	}
-	for i := 0; i < 20; i++ {
-		if err := invoke(procs[i%3]); err != nil {
-			t.Fatalf("account op %d must pass: %v", i+1, err)
-		}
-	}
-	err := invoke(procs[0])
-	var ce *connect.Error
-	if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
-		t.Fatalf("21st account op: err = %v, want ResourceExhausted", err)
-	}
-}
-
-// TestCheckHandleAvailability_101stCallIsRateLimited (acceptance): through the config Build actually
-// wires (RateLimitConfig), a profile-less uid's 101st CheckHandleAvailability call in one IST day is
-// RATE_LIMITED with limit_name check_handle_daily; the first 100 succeed; another uid is unaffected.
-func TestCheckHandleAvailability_101stCallIsRateLimited(t *testing.T) {
-	cfg := defaultRateLimitCfg()
-	cfg.RateLimit.PerUserPerMinute = 100000
-	cfg.RateLimit.CheckHandlePerUserPerMinute = 100000 // isolate the daily cap from the per-minute bucket
-	cfg.RateLimit.PerIPPerMinute = 100000
-	proc := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
-	rl := RateLimitConfig(cfg)
-
-	const uidHeader = "X-Test-UID"
-	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			return next(authn.WithClaims(ctx, authn.Claims{UID: req.Header().Get(uidHeader), SignInProvider: authn.SignInProviderGoogle}), req)
-		}
-	})
-	handled := 0
-	h := connect.NewUnaryHandler(proc,
-		func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
-			handled++
-			return connect.NewResponse(&commonv1.ErrorDetail{}), nil
-		}, connect.WithInterceptors(setUID, ratelimit.Interceptor(rl)))
-	mux := http.NewServeMux()
-	mux.Handle(proc, h)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	call := func(uid string) error {
-		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
-		req := connect.NewRequest(&commonv1.ErrorDetail{})
-		req.Header().Set(uidHeader, uid)
-		_, err := c.CallUnary(context.Background(), req)
-		return err
-	}
-	for i := 1; i <= 100; i++ {
-		if err := call("uid-noprofile"); err != nil {
-			t.Fatalf("call %d: %v", i, err)
-		}
-	}
-	err := call("uid-noprofile")
-	var ce *connect.Error
-	if !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
-		t.Fatalf("101st call: err = %v, want ResourceExhausted", err)
-	}
-	limit := ""
-	for _, d := range ce.Details() {
-		if v, verr := d.Value(); verr == nil {
-			if ed, ok := v.(*commonv1.ErrorDetail); ok {
-				limit = ed.GetMetadata()["limit"]
-				if ed.GetReason() != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
-					t.Errorf("reason = %v, want RATE_LIMITED", ed.GetReason())
-				}
-			}
-		}
-	}
-	if limit != "check_handle_daily" {
-		t.Errorf("limit = %q, want check_handle_daily", limit)
-	}
-	if handled != 100 {
-		t.Errorf("handler ran %d times, want 100 (the rejected call must not reach it)", handled)
-	}
-	if err := call("uid-other"); err != nil {
-		t.Errorf("another uid must be unaffected: %v", err)
-	}
 }
 
 // bookmarkMutationProcedures are the two bookmark RPCs that write an idempotency doc even when they change nothing
@@ -360,7 +211,7 @@ func TestProfileUpdateDailyCap_Guard(t *testing.T) {
 		}, "UpdateProfile has no profile_update_daily"},
 		{"update is renamed", func(c *ratelimit.Config) {
 			n := c.DailyCaps[update]
-			n.Name = "account_ops_daily"
+			n.Name = "graph_mutation_daily"
 			c.DailyCaps[update] = n
 		}, "UpdateProfile has no profile_update_daily"},
 		{"change handle joins the counter", func(c *ratelimit.Config) {

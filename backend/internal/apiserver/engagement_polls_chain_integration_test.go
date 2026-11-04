@@ -35,7 +35,6 @@ const rpcVotePoll = "/dzeroth.engagement.v1.EngagementService/VotePoll"
 func pollsOn(c *config.Config) {
 	relaxLimits(c)
 	c.RateLimit.PollVotePerUserPerMinute = 1_000_000
-	c.RateLimit.PollVotesPerDay, c.RateLimit.PollVotesPerDayNewAccount = 1_000_000, 1_000_000
 	c.FeatureEngagement = flags.Spec{Name: "engagement", Mode: flags.On}
 	c.FeaturePolls = flags.Spec{Name: "polls", Mode: flags.On}
 }
@@ -302,42 +301,6 @@ func TestPollVoteChain_Concurrency(t *testing.T) {
 	}
 	if got, _ := ul.DataAt("pollVotes"); len(got.([]any)) != 1 {
 		t.Errorf("userLikes.pollVotes = %v, want one entry", got)
-	}
-}
-
-// POLL_VOTES_PER_DAY_NEW_ACCOUNT is enforced in the service: a new account's 3rd call (cap 2) is RATE_LIMITED; an established one is not.
-func TestPollVoteChain_NewAccountCap(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		mut     func(*config.Config)
-		refused bool
-	}{
-		{"new account", func(c *config.Config) { c.RateLimit.PollVotesPerDayNewAccount = 2 }, true},
-		{"established account", func(c *config.Config) {
-			c.RateLimit.PollVotesPerDayNewAccount = 2
-			c.Quota.NewAccountWindow = time.Nanosecond
-		}, false},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newPollChain(t, tt.mut)
-			a, b := e.user(t), e.user(t)
-			pid := e.poll(t, a)
-			var err error
-			for i := 0; i < 3; i++ {
-				_, err = e.vote(b, "poll-cap-key-0000001", pid, 0)
-			}
-			if !tt.refused {
-				if err != nil {
-					t.Fatalf("3rd call: %v", err)
-				}
-				return
-			}
-			d := wireError(t, err, connect.CodeResourceExhausted)
-			assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED)
-			if d.GetMetadata()["limit"] != "poll_votes_daily" {
-				t.Errorf("metadata = %v", d.GetMetadata())
-			}
-		})
 	}
 }
 
