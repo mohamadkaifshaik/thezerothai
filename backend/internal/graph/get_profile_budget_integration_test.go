@@ -27,7 +27,7 @@ func coldIdentity(t *testing.T, w wired) identity.Service {
 }
 
 // TestT17_GetProfile_BlockEnforcement_Budget closes the gap found during the test sweep: the plan
-// budget for IdentityService.GetProfile with the block check wired ("3 reads worst / 0-1 typical", ADR-0008
+// budget for IdentityService.GetProfile with the block check wired ("3 reads worst / 0-1 typical"
 // D9) had no measured assertion (identity's own budget tests run without a BlockChecker). Measures a cold
 // instance, the warm path, and the blocked (NOT_FOUND) path.
 func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {

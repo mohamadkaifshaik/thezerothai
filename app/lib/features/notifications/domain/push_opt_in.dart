@@ -6,7 +6,7 @@ abstract final class PushOptIn {
   static const notNowWindow = Duration(days: 30);
 
   /// Where the card may be offered: Android only for now. Web has no push
-  /// (ADR-0017 D11), and iOS stays off until the Apple launch: when it ships,
+  ///And iOS stays off until the Apple launch: when it ships,
   /// add `TargetPlatform.iOS` here (the one place to flip). This gates the
   /// card only; `FirebasePushMessaging.supported` is unchanged, so a device
   /// that already granted push keeps registering.

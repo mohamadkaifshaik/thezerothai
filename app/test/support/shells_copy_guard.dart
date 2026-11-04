@@ -2,7 +2,7 @@ import 'package:dzeroth/features/shells/domain/premium_plans.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The W8 copy guard (ADR-0026 D3): what the shell pages,
+/// The W8 copy guard: what the shell pages,
 /// the More menu and the Premium pop-up may never say. One implementation,
 /// used by the Premium dialog test and the cross-page guard
 /// (`shells_copy_guard_test.dart`), so a copy change is checked everywhere.

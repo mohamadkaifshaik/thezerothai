@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The flag-mode matrix of the four ADR-0024 D9 flags over the real Build chain (Firestore and Auth emulators):
+// The flag-mode matrix of the four profile and graph flags over the real Build chain (Firestore and Auth emulators):
 // every mode (off, allowlist with a member and a non-member, an empty allowlist, percent 0, percent 50 on both sides of
 // the bucket, percent 50 plus an allowlisted uid, percent 100, on) against every gated RPC of each flag, with a refusal
 // asserted as FAILED_PRECONDITION + FEATURE_DISABLED with the right feature= metadata at EXACTLY 0 reads, 0 writes and 0
@@ -365,7 +365,7 @@ func TestW320_CompanionFlagPrecedence(t *testing.T) {
 	})
 }
 
-// TestW320_M1KillSwitchWebsiteAndClears: M-1 (ADR-0024 Amendment 1 A1 and A2, #354) through the production chain.
+// TestW320_M1KillSwitchWebsiteAndClears: M-1 (#354) through the production chain.
 //
 //	A1: while profile_extras is globally off (mode off ONLY) the website and the pin are blanked in every Profile identity
 //	    returns, the owner's own view included, at no extra read; the location stays; a rollout (an allowlist, even an empty

@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: dzeroth/common/v1/common.proto
 
-// Shared messages used by every dzeroth API. See ADR-0002 (contracts) and ADR-0003 (data model).
+// Shared messages used by every dzeroth API.
 //
 // Conventions for every service in this repo:
 // - IDs are strings. Post and media IDs are 64-bit Snowflake values rendered as 19-digit zero-padded
@@ -42,7 +42,7 @@ const (
 	HomeTabKind_HOME_TAB_KIND_UNSPECIFIED HomeTabKind = 0
 	// A list (dzeroth.lists.v1, FEATURE_LISTS). The tab reads TimelineService.GetListTimeline.
 	HomeTabKind_HOME_TAB_KIND_LIST HomeTabKind = 1
-	// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
+	// A community (dzeroth.communities.v1, FEATURE_COMMUNITIES). The tab reads
 	// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
 	// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
 	// caller and keeps them in storage. Until GetCommunityTimeline ships, SetHomeTabs answers VALIDATION
@@ -98,10 +98,10 @@ const (
 	// INVALID_ARGUMENT: input failed validation; metadata["field"] names the field.
 	ErrorReason_ERROR_REASON_VALIDATION ErrorReason = 1
 	// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
-	// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget, ADR-0010 D5;
+	// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget;
 	// "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount, RequestAccountExport and
 	// GetAccountExport) and a retry_after that runs to the next IST midnight.
-	// metadata["limit"] = "read_budget_inflight" is TRANSIENT (ADR-0010 D5 A1): the budget is not spent, another call
+	// metadata["limit"] = "read_budget_inflight" is TRANSIENT: the budget is not spent, another call
 	// of the same user is in flight near the cap. retry_after is 1 s; retry ONCE, silently, and show an error only
 	// if the retry also fails.
 	ErrorReason_ERROR_REASON_RATE_LIMITED ErrorReason = 2
@@ -118,7 +118,7 @@ const (
 	// ALREADY_EXISTS: handle is taken.
 	ErrorReason_ERROR_REASON_HANDLE_TAKEN ErrorReason = 8
 	// FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts). Also VotePoll when the caller has
-	// already changed this vote POLL_VOTE_CHANGES_MAX times (ADR-0029 Amendment 1 A2): metadata["limit"] =
+	// already changed this vote POLL_VOTE_CHANGES_MAX times: metadata["limit"] =
 	// "poll_vote_changes" and metadata["choice"] = the stored choice as a 0-based index.
 	ErrorReason_ERROR_REASON_LIMIT_REACHED ErrorReason = 9
 	// FAILED_PRECONDITION: referenced media is not READY or not owned by the caller.
@@ -127,50 +127,50 @@ const (
 	ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED ErrorReason = 11
 	// PERMISSION_DENIED: the account is suspended or pending deletion.
 	ErrorReason_ERROR_REASON_ACCOUNT_RESTRICTED ErrorReason = 12
-	// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
-	// Also EngagementService.VotePoll when the caller blocks the poll's author (ADR-0029 Amendment 1 A1): refused for a
+	// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked.
+	// Also EngagementService.VotePoll when the caller blocks the poll's author: refused for a
 	// cast, a change and a replay; the vote already cast is kept and counted.
 	ErrorReason_ERROR_REASON_TARGET_BLOCKED ErrorReason = 13
 	// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
-	// feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
-	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
-	// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
+	// feature and refresh GetMe.enabled_features; do not retry.
+	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one.
+	// When absent, the whole feature behind the called service is off.
 	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
 	// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
 	// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
 	// same idempotency_key; do not loop.
 	ErrorReason_ERROR_REASON_REAUTH_REQUIRED ErrorReason = 15
-	// PERMISSION_DENIED: the conversation's reply policy does not include the caller (ADR-0021 D2). metadata["policy"]
+	// PERMISSION_DENIED: the conversation's reply policy does not include the caller. metadata["policy"]
 	// names the conversation's policy. Only returned once the conversation root is visible to the caller;
 	// an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
 	// the policy label.
 	ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED ErrorReason = 16
-	// FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
+	// FAILED_PRECONDITION: the account's posts are protected. Returned for ListFollowers or ListFollowing of
 	// a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
 	ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT ErrorReason = 17
-	// FAILED_PRECONDITION: this account cannot be messaged (ADR-0027 D4). One reason with identical bytes for a block in
+	// FAILED_PRECONDITION: this account cannot be messaged. One reason with identical bytes for a block in
 	// either direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose
 	// peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
 	// message this account".
 	ErrorReason_ERROR_REASON_CANNOT_MESSAGE ErrorReason = 18
-	// FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+	// FAILED_PRECONDITION: the poll has closed (server time is the authority). Refresh the post (GetPost)
 	// and show its final results; do not retry.
 	ErrorReason_ERROR_REASON_POLL_CLOSED ErrorReason = 19
 	// FAILED_PRECONDITION: the caller already voted in this poll with another choice and the request did not name that vote
-	// in expected_choice (ADR-0029 D6, F4; Amendment 1 A2.2). Since Amendment 1 a vote is changeable until the poll closes,
+	// in expected_choice. A vote is changeable until the poll closes,
 	// so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
 	// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
 	// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
 	ErrorReason_ERROR_REASON_ALREADY_VOTED ErrorReason = 20
-	// PERMISSION_DENIED: the caller's role does not allow this action (ADR-0031 D4; communities.v1 header). Never sent for
+	// PERMISSION_DENIED: the caller's role does not allow this action (communities.v1 header). Never sent for
 	// an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",
 	// "not_moderator", "not_owner" or "not_creator". Do not retry; show a fixed message per reason ("not_member" on a
 	// reply: "Only members can reply"). A client built before this value sees UNSPECIFIED and falls back to the
 	// PERMISSION_DENIED code mapping, a generic "restricted" message. The only path an older client can reach is a reply
 	// in a community conversation (CreatePost), since that gate runs whenever communities is not globally off.
 	ErrorReason_ERROR_REASON_FORBIDDEN ErrorReason = 21
-	// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (ADR-0031 D4; communities.v1
-	// header). metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
+	// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (communities.v1 header).
+	// metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
 	// or "community_archived" (an ARCHIVED community is read-only). Do not retry. A client built before this value sees
 	// UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
 	// ARCHIVED community's conversation (CreatePost).
@@ -259,8 +259,8 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
-//   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
 //   (snapshotted when the row was written);
 // - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
 //   cache, up to 60 s stale).
@@ -272,11 +272,11 @@ type AuthorSnapshot struct {
 	// Public avatar thumbnail URL (96 px). Empty when the user has no avatar.
 	AvatarUrl string `protobuf:"bytes,4,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	Verified  bool   `protobuf:"varint,5,opt,name=verified,proto3" json:"verified,omitempty"`
-	// True when the account protects its posts (ADR-0025; the implementation note). A display hint for the lock
+	// True when the account protects its posts. A display hint for the lock
 	// badge, never an access decision.
 	// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
-	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`
-	// (ADR-0028 D2), copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+	// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`,
+	// copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
 	// ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
 	// `notifications.v1.Notification.actor`.
 	// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
@@ -358,7 +358,7 @@ func (x *AuthorSnapshot) GetIsPrivate() bool {
 	return false
 }
 
-// A moderated, publicly readable image (ADR-0005). URLs are immutable and cacheable forever.
+// A moderated, publicly readable image. URLs are immutable and cacheable forever.
 type MediaRef struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	MediaId string                 `protobuf:"bytes,1,opt,name=media_id,json=mediaId,proto3" json:"media_id,omitempty"`
@@ -371,7 +371,7 @@ type MediaRef struct {
 	// BlurHash placeholder computed on device, <= 64 chars.
 	Blurhash string `protobuf:"bytes,6,opt,name=blurhash,proto3" json:"blurhash,omitempty"`
 	AltText  string `protobuf:"bytes,7,opt,name=alt_text,json=altText,proto3" json:"alt_text,omitempty"`
-	// The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+	// The full object's content type: "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
 	// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
 	// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
 	// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
@@ -468,7 +468,7 @@ func (x *MediaRef) GetContentType() string {
 	return ""
 }
 
-// One pinned Home tab (ADR-0030 D6, founder decision F5). Home always starts with the fixed "Following" tab, which is
+// One pinned Home tab (founder decision F5). Home always starts with the fixed "Following" tab, which is
 // never stored or sent; these are the up to HOME_TABS_MAX_PINNED (5) tabs after it, in the user's order. Stored on
 // users/{uid}.homeTabs, written only by TimelineService.SetHomeTabs, returned by IdentityService.GetMe home_tabs.
 // It lives in common so identity does not import timeline (or, through it, posts).
@@ -478,9 +478,9 @@ type HomeTab struct {
 	// The list id (LIST) or community id (COMMUNITY): a 19-digit Snowflake.
 	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
-	// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
-	// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
-	// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab (ADR-0031 D6):
+	// the caller's own UpdateList; "" for another user's list (no copy of another user's text is kept on users/{uid}).
+	// The client labels a tab from the header of the last GetList or GetListTimeline response it holds
+	// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab:
 	// the client labels it from the last GetCommunityTimeline or GetCommunity header it holds, and calls GetCommunity
 	// once for a tab it has no label for.
 	Title         string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`

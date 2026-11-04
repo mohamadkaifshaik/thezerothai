@@ -7,8 +7,7 @@ import '../../../core/storage/app_database.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 
-/// Messages kept per conversation (ADR-0027 D14: "the last 200 messages per
-/// conversation in drift per uid").
+/// Messages kept per conversation ("the last 200 messages per conversation in drift per uid").
 const kMessagesPerConversation = 200;
 
 /// The cached conversations of one folder, newest activity first.
@@ -74,8 +73,7 @@ String conversationSortKey(pb.Conversation c) {
 }
 
 /// The conversation a thread cold open stores: the ListMessages header
-/// [fresh] merged into the cached row [cached] instead of overwriting it
-/// (ADR-0027 D14).
+/// [fresh] merged into the cached row [cached] instead of overwriting it.
 ///
 /// ListMessages carries identity, peer, state, folder and `can_reply`; it does
 /// not carry the caller's `last_message` or `updated_at`, which
@@ -83,7 +81,7 @@ String conversationSortKey(pb.Conversation c) {
 /// cached entry is kept for what it omits. The sort key follows `updated_at`,
 /// so keeping it keeps the row where the Inbox put it.
 ///
-/// `unread_count` and `silent` depend on the page kind (ADR-0027). The
+/// `unread_count` and `silent` depend on the page kind. The
 /// FIRST page ([firstPage] true) carries the caller's entry, so both are taken
 /// as they are, including 0 and false: a 0 means the thread was read on
 /// another device. A `since` or older page leaves them unset, and a proto3

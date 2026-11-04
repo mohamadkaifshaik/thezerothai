@@ -27,7 +27,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-line fields of a send (ADR-0027 D11). Never the text, a snippet, a peer uid or a conversation id in clear.
+// Request-line fields of a send. Never the text, a snippet, a peer uid or a conversation id in clear.
 const (
 	fieldKind         = "kind"
 	fieldConvHash     = "conversation_hash"
@@ -49,7 +49,7 @@ const (
 	refusedGone             = "gone"
 )
 
-// Send implements Service.Send: ADR-0027 D4 steps 1 to 7.
+// Send implements Service.Send.
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient (CANNOT_MESSAGE, the same bytes as a block).
 // Validation (key, target, text) and the self check cost 0 reads. The per-minute bucket and the MESSAGES_SENDS_PER_DAY
@@ -162,8 +162,8 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		return nil, rerr
 	}
 
-	// Steps 3 and 4: every refusal is the one CANNOT_MESSAGE. The caller's own Blocked set is read here; the recipient's
-	// is read inside the transaction (it has no overflow case, ADR-0027 Context), ahead of every cap.
+	// Next, the recipient checks: every refusal is the one CANNOT_MESSAGE. The caller's own Blocked set is read here; the recipient's
+	// is read inside the transaction (it has no overflow case), ahead of every cap.
 	peer, active := profiles[in.peer]
 	switch {
 	case mine.Blocked[in.peer]:
@@ -402,7 +402,7 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 // check-then-set is not atomic; the 60 s TTL bounds what a lost race can show (D14).
 func (s *service) putConv(id string, c ConvDoc) {
 	// With equal updatedAt (a coarse clock, an erasure racing a late reader) the higher revision wins; the revision only breaks
-	// ties, so a newer document with a lower revision still replaces (ADR-0027 note 2026-10-29).
+	// ties, so a newer document with a lower revision still replaces.
 	if old, ok := s.convs.Get(id); ok && (old.UpdatedAt.After(c.UpdatedAt) || (old.UpdatedAt.Equal(c.UpdatedAt) && old.Rev > c.Rev)) {
 		return
 	}

@@ -6,7 +6,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// The Schedule dialog (ADR-0021 D4): layout, validation, the images
+/// The Schedule dialog: layout, validation, the images
 /// note, and how it is left. The clock and the pickers are injected.
 void main() {
   final year = DateTime.now().year;

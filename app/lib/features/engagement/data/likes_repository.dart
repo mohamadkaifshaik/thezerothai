@@ -39,7 +39,7 @@ class LikesPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The caller's own likes, most recent first (`ListLikedPosts`, ADR-0024 D6):
+/// The caller's own likes, most recent first (`ListLikedPosts`):
 /// the one caller of that RPC.
 ///
 /// - **Session memory only.** Nothing is stored on the device: the list is

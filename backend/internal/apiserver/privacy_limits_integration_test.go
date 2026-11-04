@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The corners of the ADR-0025 D8 toggle limits that TestPrivacyToggle_Chain and TestPrivacyToggle_Cap do not reach,
+// The corners of the toggle limits that TestPrivacyToggle_Chain and TestPrivacyToggle_Cap do not reach,
 // over the real Build chain. Those two cover protect/unprotect at 4 / 3 reads, the equal-true no-op, the 5th toggle and the
 // capped protect. Here:
 //   - the order of the checks: an is_private equal to the stored value is a no-op (0 writes, not charged) even when the

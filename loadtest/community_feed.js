@@ -1,4 +1,4 @@
-// community_feed: W5 Part B emulator load smoke (ADR-0031 "Cost impact").
+// community_feed: W5 Part B emulator load smoke.
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it mints about 450 users and raises every community, post and read-budget cap.
 //

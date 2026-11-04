@@ -12,7 +12,7 @@ import '../../../../support/posts_fixtures.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// ADR-0021 D2 / L-1: the audience the composer sends and the echo check.
+/// The audience the composer sends and the echo check.
 void main() {
   late _MockPostsRepository repo;
   late PendingPostsCubit pending;

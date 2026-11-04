@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ListsDefaults pins every ADR-0030 D10 default and the flag (off, wire name lists).
+// TestLoad_ListsDefaults pins every default and the flag (off, wire name lists).
 func TestLoad_ListsDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
@@ -111,7 +111,7 @@ func TestLoad_ListsOverridesAndValidation(t *testing.T) {
 	}
 }
 
-// TestLoad_ListsFlagModes: off, allowlist, percent and on (ADR-0008 D6) as the registry decides them for a caller.
+// TestLoad_ListsFlagModes: off, allowlist, percent and on as the registry decides them for a caller.
 func TestLoad_ListsFlagModes(t *testing.T) {
 	tests := []struct {
 		name      string

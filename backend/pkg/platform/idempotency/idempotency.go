@@ -1,10 +1,10 @@
-// Package idempotency implements the "idempotency doc" mechanism from ADR-0003 for mutations whose
+// Package idempotency implements the "idempotency doc" mechanism for mutations whose
 // entity id must be a Snowflake value (CreatePost, CreateUpload, ...): a doc at
 // idempotency/{sha256(uid|rpc|key)} is created in the *same atomic batch/transaction* as the entity, so
 // a replay (client retry) either finds nothing (first attempt) or finds the recorded result.
 //
 // Mutations with a natural-key doc id (users/{uid}, follows/{a}_{b}, likes/{postId}_{uid}, ...) don't
-// need this: a Create() AlreadyExists on the entity itself is idempotency for free (ADR-0003 mechanism 1).
+// need this: a Create() AlreadyExists on the entity itself is idempotency for free (mechanism 1).
 package idempotency
 
 import (
@@ -25,7 +25,7 @@ import (
 
 const collection = "idempotency"
 
-// TTL is how long a replay window stays open (ADR-0003: 24h, Firestore TTL field expireAt).
+// TTL is how long a replay window stays open (24h, Firestore TTL field expireAt).
 const TTL = 24 * time.Hour
 
 // ErrNotFound is returned by Get when no record exists yet for the key (first attempt: proceed).
@@ -51,8 +51,7 @@ func New(client *firestore.Client) *Store {
 
 // KeyFormatValid reports whether key matches the common.proto idempotency_key convention (16-64 chars of
 // [A-Za-z0-9_-]). Every mutating RPC validates this, whether or not it also stores a Record via Get/Put
-// above — natural-key mutations (follows/likes/users) only need the format check (ADR-0008: "idempotency_key
-// is validated for format and not stored. No idempotency docs").
+// above — natural-key mutations (follows/likes/users) only need the format check ("idempotency_key is validated for format and not stored. No idempotency docs").
 func KeyFormatValid(key string) bool {
 	if len(key) < 16 || len(key) > 64 {
 		return false
@@ -68,7 +67,7 @@ func KeyFormatValid(key string) bool {
 	return true
 }
 
-// Key derives the deterministic doc id sha256(uid|rpc|key) (ADR-0003).
+// Key derives the deterministic doc id sha256(uid|rpc|key).
 func Key(uid, rpc, idempotencyKey string) string {
 	sum := sha256.Sum256([]byte(uid + "|" + rpc + "|" + idempotencyKey))
 	return hex.EncodeToString(sum[:])

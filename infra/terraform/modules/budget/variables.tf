@@ -44,7 +44,7 @@ variable "labels" {
   default = {}
 }
 
-// ---- ADR-0022 (credit-funded runway). Every default below reproduces today's budget exactly. ----
+// ---- Credit-funded runway. Every default below reproduces today's budget exactly. ----
 
 variable "display_name" {
   description = "Budget display name (the API allows at most 60 characters). null (default) keeps \"Stage 0 budget (<env>) <amount> <currency>/mo\"."

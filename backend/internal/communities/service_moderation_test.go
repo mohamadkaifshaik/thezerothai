@@ -493,7 +493,7 @@ func TestRestoreCommunityPost_OnPostRestoredOnlyAfterACommittedRestore(t *testin
 	}
 }
 
-// ADR-0031 D14a: a RESTORE entry of the platform marker has no person: an unset actor with actor_deleted false, and the marker is never
+// A RESTORE entry of the platform marker has no person: an unset actor with actor_deleted false, and the marker is never
 // looked up in the directory.
 func TestListModerationLog_PlatformMarkerIsNoPerson(t *testing.T) {
 	f, _ := modFixture()

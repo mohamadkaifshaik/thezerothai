@@ -1,4 +1,4 @@
-// Package notifications is the module (ADR-0017): in-app notifications under users/{uid}/notifications, FCM
+// Package notifications is the module: in-app notifications under users/{uid}/notifications, FCM
 // device registration under users/{uid}/devices (+ the deviceTokens reverse index), the Pub/Sub fan-out handler
 // that turns events from other modules into rows and pushes, and the module's Eraser and exporter.
 //
@@ -16,16 +16,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// FlagName is the wire name RPCs, producers and the handler check (ADR-0017 D7: FEATURE_NOTIFICATIONS).
+// FlagName is the wire name RPCs, producers and the handler check (FEATURE_NOTIFICATIONS).
 const FlagName = "notifications"
 
-// Limits (ADR-0017).
+// Limits.
 const (
 	// MaxDevicesPerUser is the cap on users/{uid}/devices; a further registration evicts the least recently updated.
 	MaxDevicesPerUser = 5
 	// MaxRecipientsPerEvent is the most recipients one event carries (one post carries at most 10 mentions).
 	MaxRecipientsPerEvent = 10
-	// TTL is how long a notification lives (the Firestore TTL policy on expireAt, ADR-0003).
+	// TTL is how long a notification lives (the Firestore TTL policy on expireAt).
 	TTL = 90 * 24 * time.Hour
 	// DefaultPageSize and MaxPageSize are the query-limit rule.
 	DefaultPageSize = 20
@@ -33,9 +33,9 @@ const (
 	// SettleWindow is how far since_token trails the newest returned row, so a row committed by another instance a
 	// moment later is still returned by the next refresh (the client dedupes by id).
 	SettleWindow = 5 * time.Second
-	// RefreshTokenTTL is how long a persisted since/gap token is accepted (same as the timelines, ADR-0010 D14).
+	// RefreshTokenTTL is how long a persisted since/gap token is accepted (same as the timelines).
 	RefreshTokenTTL = 30 * 24 * time.Hour
-	// MaxActorIDs bounds Notification.ActorIDs on a collapsed like row (the last N distinct actors, ADR-0017 D4):
+	// MaxActorIDs bounds Notification.ActorIDs on a collapsed like row (the last N distinct actors):
 	// a viral post must not grow one document toward Firestore's 1 MiB or its 1 write/s sustained limit.
 	MaxActorIDs = 50
 	// MaxFCMTokenBytes bounds a registration token (real ones are ~160-200 bytes).
@@ -53,10 +53,10 @@ const (
 	TypeRepost  Type = "repost"
 	TypeQuote   Type = "quote"
 	// TypeFollowRequest goes to a protected account when someone asks to follow it; TypeFollowAccepted goes to the
-	// requester when the request is approved (ADR-0025 D10). Neither carries a post or needs the protected set.
+	// requester when the request is approved. Neither carries a post or needs the protected set.
 	TypeFollowRequest  Type = "follow_request"
 	TypeFollowAccepted Type = "follow_accepted"
-	// TypeMessage is the push-only direct-message type (ADR-0027 D9, ADR-0017 note 2026-10-28): one generic FCM push
+	// TypeMessage is the push-only direct-message type: one generic FCM push
 	// to the recipient, no users/{uid}/notifications row, no badge move, never listed. It names a conversation, not a post.
 	TypeMessage Type = "message"
 )
@@ -84,7 +84,7 @@ func (t Type) needsPost() bool {
 func (t Type) pushOnly() bool { return t == TypeMessage }
 
 // postBearing reports whether a row of type t exposes a post of the actor to the recipient, so an actor the recipient
-// may not see must not produce it (ADR-0025 D10). Like is excluded by design (the actor liked the recipient's own
+// may not see must not produce it. Like is excluded by design (the actor liked the recipient's own
 // post); follow, follow_request and follow_accepted name no post.
 func (t Type) postBearing() bool {
 	switch t {
@@ -94,7 +94,7 @@ func (t Type) postBearing() bool {
 	return false
 }
 
-// Platform is a device platform. Web push is out of scope (ADR-0017 D11).
+// Platform is a device platform. Web push is out of scope.
 type Platform string
 
 const (
@@ -111,11 +111,11 @@ type Event struct {
 	PostID string
 	// ConversationID is the 32-hex direct-message conversation (TypeMessage only; additive, wire v stays 1).
 	ConversationID string
-	// At is when the action committed (informational: createdAt is the handler's commit time, ADR-0017 D3).
+	// At is when the action committed (informational: createdAt is the handler's commit time).
 	At time.Time
 }
 
-// Emitter is the one seam other slices call after their commit (ADR-0017 D2). Emit is best effort: it never fails
+// Emitter is the one seam other slices call after their commit. Emit is best effort: it never fails
 // the caller's operation, and it must not be called inside a transaction or its read budget. A returned error is
 // informational (already logged); callers ignore it.
 type Emitter interface {
@@ -153,7 +153,7 @@ type Device struct {
 	UpdatedAt time.Time
 }
 
-// Push is the FCM payload: no post text, no handle (ADR-0017 D6).
+// Push is the FCM payload: no post text, no handle.
 type Push struct {
 	Type           Type
 	NotificationID string
@@ -164,7 +164,7 @@ type Push struct {
 }
 
 // ErrTokenUnregistered is returned by PushSender.Send when FCM says the token is no longer valid: the device is
-// pruned (ADR-0017 D6).
+// pruned.
 var ErrTokenUnregistered = errors.New("notifications: fcm token unregistered")
 
 // PushSender sends one push to one FCM token.
@@ -212,7 +212,7 @@ type Checkpoint struct {
 	Deleted int
 }
 
-// Eraser is the delete-cascade building block (ADR-0017 D10); PurgeUser is resumable.
+// Eraser is the delete-cascade building block; PurgeUser is resumable.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
 }
@@ -223,7 +223,7 @@ type ActorSweeper interface {
 	SweepActorRows(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
 }
 
-// AudienceChecker is the consumer-side audience seam (ADR-0025 AQ5): may viewer see author's posts, given whether
+// AudienceChecker is the consumer-side audience seam: may viewer see author's posts, given whether
 // viewer follows author (read from the viewer's graph snapshot, which the fan-out already holds, so a check costs 0
 // reads). apiserver adapts it from posts.Audience.CanSee, so the one rule stays in one place and this package never
 // reads the protected set itself. A non-nil error means the set is unavailable (the loader failed closed): the

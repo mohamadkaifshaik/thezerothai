@@ -2,7 +2,7 @@
 
 package messaging
 
-// Races around a moderator takedown (ADR-0027 D12), forced at the exact point the race would happen with the
+// Races around a moderator takedown, forced at the exact point the race would happen with the
 // repo's test hooks: a Send that commits between two runs of the takedown transaction, and a takedown that commits while the
 // account eraser's tombstone page holds its query result.
 //

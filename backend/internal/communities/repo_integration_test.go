@@ -25,7 +25,7 @@ import (
 )
 
 // The budgets below are the service's own reads on top of the account-status interceptor's one profile read (the interceptor is not
-// part of this harness): ADR-0031 "Cost impact" lists Create 3 / Update 4 / Get 15 including it.
+// part of this harness): the per-RPC budgets are Create 3 / Update 4 / Get 15 including it.
 
 type env struct {
 	client *firestore.Client

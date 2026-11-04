@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-log fields ADR-0008 "Required log fields" asks of every graph RPC. They ride on the mw.Logging
+// Request-log fields every graph RPC must carry. They ride on the mw.Logging
 // line through logger.RequestInfo (the same mechanism as uid_hash/limit_name), so there is no extra log line
 // and no new middleware. fs_reads/fs_writes/fs_deletes/limit_name are already emitted by mw.Logging.
 // Values are enums, counts and bools only - never uids or graph array contents (security review L4).
@@ -27,17 +27,17 @@ const (
 	fieldConfirmedMissing = "confirmed_missing"
 	fieldLazyGone         = "lazy_removed"
 	fieldTxnAttempt       = "txn_attempts"
-	// ADR-0025: how a Follow ended (edge, requested or replay), whether an Unfollow withdrew a request (request or
+	// How a Follow ended (edge, requested or replay), whether an Unfollow withdrew a request (request or
 	// none), the pending requests a Block deleted, and the hash of the Follow target (the D6 contention signal).
 	fieldFollowOutcome = "follow_outcome"
 	fieldWithdraw      = "withdraw"
 	fieldRequestsGone  = "requests_removed"
 	fieldTargetHash    = "target_uid_hash"
-	// ADR-0025: how a RespondToFollowRequest ended (accept, decline, replay, requester_inactive, drift or
+	// How a RespondToFollowRequest ended (accept, decline, replay, requester_inactive, drift or
 	// requester_cap) and how many rows a follower, following or request page dropped after hydration. Enum and count only.
 	fieldRespond     = "respond"
 	fieldRowsDropped = "rows_dropped"
-	// ListSuggestedUsers (ADR-0024 D8): which source built the rows (fof, curated or none), how many candidate uids went
+	// ListSuggestedUsers: which source built the rows (fof, curated or none), how many candidate uids went
 	// to hydration, and whether the rows came from the per-viewer cache. Counts and enums only, never uids.
 	fieldSuggestSource     = "source"
 	fieldSuggestCandidates = "candidates"
@@ -60,7 +60,7 @@ func setOutcome(ctx context.Context, o MutationOutcome) {
 	logger.SetRequestField(ctx, fieldOutcome, string(o))
 }
 
-// setChanged maps the boolean state-change answer of Unfollow/Unblock/Unmute onto the ADR enum.
+// setChanged maps the boolean state-change answer of Unfollow/Unblock/Unmute onto the metric enum.
 func setChanged(ctx context.Context, changed bool) {
 	if changed {
 		setOutcome(ctx, OutcomeCreated)
@@ -69,7 +69,7 @@ func setChanged(ctx context.Context, changed bool) {
 	setOutcome(ctx, OutcomeNoop)
 }
 
-// noteRejected classifies err into the ADR's rejected:<reason> vocabulary.
+// noteRejected classifies err into the rejected:<reason> vocabulary.
 func noteRejected(ctx context.Context, err error) {
 	reason := rejectReason(err)
 	logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reason)

@@ -60,7 +60,7 @@ List<File> _dartFiles(String dir) =>
 
 String _name(File f) => f.path.replaceAll(r'\', '/').split('lib/').last;
 
-/// F7 and ADR-0026 D4: the Premium pop-up opens only when the user taps
+/// F7: the Premium pop-up opens only when the user taps
 /// the Premium entry. Structural tests on `lib/` plus widget tests that the
 /// moments an automatic pop-up would use never open it.
 void main() {

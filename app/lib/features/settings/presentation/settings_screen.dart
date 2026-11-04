@@ -37,8 +37,8 @@ import 'widgets/unsent_posts_row.dart';
 /// Phase 0 settings: account info + sign out. Notification, privacy and
 /// data-export settings (RequestAccountExport, DeleteAccount) land with the
 /// account-settings feature. "Blocked accounts"/"Muted accounts" (graph
-/// plan) only appear when the graph feature flag is on (ADR-0008 D6) —
-/// "Protect your posts" (ADR-0025) shows with `private_accounts` on,
+/// plan) only appear when the graph feature flag is on —
+/// "Protect your posts" shows with `private_accounts` on,
 /// and for an already protected account whatever the flag (the undo rule).
 ///
 /// The rows are grouped into sections; a section whose rows are all gated
@@ -156,7 +156,7 @@ class SettingsList extends StatelessWidget {
       (cubit) => cubit?.state ?? 0,
     );
     // The ROUTE needs only `posts` (a user dropped from the allowlist
-    // may still list and cancel, ADR-0021 L-A option b), but this ENTRY shows
+    // may still list and cancel), but this ENTRY shows
     // only with both flags for now: the client cannot tell "globally off" from
     // "not in the allowlist" (both just leave `scheduled_posts` out of
     // `enabled_features`). Whether every posts user gets the row is a product

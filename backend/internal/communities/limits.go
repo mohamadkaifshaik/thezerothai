@@ -1,6 +1,6 @@
 package communities
 
-// Names of the in-memory daily caps (RATE_LIMITED metadata["limit"], communities.proto; ADR-0031 D11). Limits are per instance, so
+// Names of the in-memory daily caps (RATE_LIMITED metadata["limit"], communities.proto). Limits are per instance, so
 // the effective limit is x max-instances (3).
 const (
 	// LimitMutationDaily (COMMUNITY_MUTATIONS_PER_DAY, 200) is shared by CreateCommunity, UpdateCommunity, JoinCommunity and

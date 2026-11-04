@@ -307,7 +307,7 @@ func TestAccept_Validation(t *testing.T) {
 }
 
 // A malformed idempotency_key is VALIDATION idempotency_key with 0 reads and nothing stored, for both RPCs, whatever the
-// conversation: the key is not used, but its format is checked (ADR-0021's rule for an unused key). The key is checked
+// conversation: the key is not used, but its format is checked (the rule for an unused key). The key is checked
 // before the conversation id.
 func TestAcceptDelete_MalformedKey(t *testing.T) {
 	long := strings.Repeat("k", 65)
@@ -341,7 +341,7 @@ func TestAcceptDelete_MalformedKey(t *testing.T) {
 	}
 }
 
-// Flag modes (ADR-0027 D6): Accept needs the flag on for the caller; Delete only needs it not globally off. The peer's flag
+// Flag modes: Accept needs the flag on for the caller; Delete only needs it not globally off. The peer's flag
 // is a second check for Accept (CANNOT_MESSAGE), never for Delete.
 func TestAcceptDelete_FlagModes(t *testing.T) {
 	tests := []struct {
@@ -598,7 +598,7 @@ func TestAcceptDelete_Errors(t *testing.T) {
 	})
 }
 
-// DeleteConversation stores the digest of its key next to clearedAt (ADR-0027 2026-10-29 note). Given B deletes with K and the
+// DeleteConversation stores the digest of its key next to clearedAt. Given B deletes with K and the
 // response is lost, then A's new message recreates B's entry and B retries with K: a replay, nothing written, B's entry intact.
 // A delete with a new key K2 is a real delete.
 func TestDelete_KeyReplayAfterANewerMessage(t *testing.T) {

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/composer_attachment_rules.dart';
 
-/// The "Add a GIF" action in the composer's bottom bar (ADR-0029). The
+/// The "Add a GIF" action in the composer's bottom bar. The
 /// caller decides whether it exists ([ComposerAttachmentRules.showGif]) and
 /// why it is off ([block]); the tooltip then gives the reason. [onPressed]
 /// null (no handler wired yet, or the post is sending) also disables it.
@@ -31,7 +31,7 @@ class ComposerGifButton extends StatelessWidget {
   }
 }
 
-/// The "Add poll" action in the composer's bottom bar (ADR-0029); see
+/// The "Add poll" action in the composer's bottom bar; see
 /// [ComposerGifButton] for the contract. [selected] shows the poll builder is
 /// open: the icon is filled and accent-coloured.
 class ComposerPollButton extends StatelessWidget {

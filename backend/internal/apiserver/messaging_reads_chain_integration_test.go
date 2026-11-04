@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0027: the read side of messaging, the caps and the block/overflow matrix over the real Build chain on the
+// The read side of messaging, the caps and the block/overflow matrix over the real Build chain on the
 // emulators. The package-level tests in internal/messaging run the service behind fake graph and directory seams and
 // without the interceptors, so they cannot see the interceptor's read, the graph snapshot reads or the rate limiters.
 // This file measures ListConversations, ListMessages and MarkConversationRead with budgettest on the logged fs_reads /

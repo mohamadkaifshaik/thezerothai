@@ -4,7 +4,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../domain/thread_poller.dart';
 
-/// Poll cadence of ADR-0027 D7.
+/// Poll cadence of an open thread.
 const Duration kThreadHotInterval = Duration(seconds: 15);
 const Duration kThreadHotIntervalWithPush = Duration(seconds: 30);
 const Duration kThreadWarmInterval = Duration(seconds: 45);

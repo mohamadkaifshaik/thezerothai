@@ -8,7 +8,7 @@ import (
 )
 
 // SearchConfig holds the SEARCH_*-adjacent values of search and trends that are neither a rate limit nor a daily cap
-// (ADR-0028 D9). The per-minute buckets and the shared daily cap live in RateLimitConfig (SearchPeoplePerUserPerMinute,
+// The per-minute buckets and the shared daily cap live in RateLimitConfig (SearchPeoplePerUserPerMinute,
 // SearchPostsPerUserPerMinute, SearchCallsPerDay). Every number is > 0: a 0 would disable a cache or lock the feature out,
 // so startup fails instead.
 type SearchConfig struct {
@@ -23,17 +23,17 @@ type SearchConfig struct {
 	// TrendsMaxPostsPerRun caps the posts one refresh run scans (TRENDS_MAX_POSTS_PER_RUN, default 2,000).
 	TrendsMaxPostsPerRun int
 	// TrendsMinInterval is the shortest time between two refreshes: a run within it of the last list is skipped as
-	// "fresh" (TRENDS_MIN_INTERVAL, default 12h; 50m with the hourly option, ADR-0028 D6). Must be > 0.
+	// "fresh" (TRENDS_MIN_INTERVAL, default 12h; 50m with the hourly option). Must be > 0.
 	TrendsMinInterval time.Duration
 	// TrendsMinAccountAge is the age an author account needs before its posts count towards a trend (TRENDS_MIN_ACCOUNT_AGE,
-	// default 72h; ADR-0028 note 2026-10-31). Must be > 0.
+	// default 72h). Must be > 0.
 	TrendsMinAccountAge time.Duration
 	// TrendsMaxAuthorChecks caps the distinct authors one refresh run reads profiles for (TRENDS_MAX_AUTHOR_CHECKS, default 500).
 	// Authors beyond it are not counted that run.
 	TrendsMaxAuthorChecks int
 	// TrendsDenylist holds tag bodies that never trend (TRENDS_DENYLIST, comma-separated, default empty). Entries are
 	// trimmed, lower-cased and stripped of one leading '#'; empty entries are dropped. Further normalisation is the
-	// refresher's (ADR-0028 D6).
+	// refresher's.
 	TrendsDenylist []string
 }
 

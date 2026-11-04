@@ -1,15 +1,15 @@
-// repo_create.go is the CreatePost transaction (ADR-0010 D13, D18; ADR-0003 mechanism 2 for idempotency).
+// repo_create.go is the CreatePost transaction (mechanism 2 for idempotency).
 //
 // One transaction, bounded by createTxTimeout (5 s):
 //
 //	reads : idempotency/{hash} (1), then, only on a first attempt, quotas/{uid} (1)
-//	        a community post (ADR-0031 D5): + communityMembers/{uid} (1, fresh, after the replay check; the community doc is read before the
+//	        a community post: + communityMembers/{uid} (1, fresh, after the replay check; the community doc is read before the
 //	        transaction through the 60 s cache); posts and communityPosts share the one quota Set, so +0 writes
 //	        media/* (only with images: + len(media_ids) GetAll reads)
 //	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
 //	        (+ one media/{id}.postId update per image, <= 4)
 //
-// A poll (ADR-0029) is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration): +0 reads,
+// A poll is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration): +0 reads,
 // +0 writes.
 //
 // A replay reads only the idempotency doc and writes nothing. The post id (and so createdAt, the Snowflake's
@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	// createTxTimeout is the CreatePost transaction deadline (ADR-0010 D13). TIMELINE_SETTLE_WINDOW is validated
+	// createTxTimeout is the CreatePost transaction deadline. TIMELINE_SETTLE_WINDOW is validated
 	// to be at least 3x this.
 	createTxTimeout = 5 * time.Second
 	// createRPC scopes the idempotency key (idempotency.Key(uid, rpc, key)).
@@ -74,10 +74,10 @@ type CreateParams struct {
 	// QuoteID is the post being quoted: its quoteCount is incremented the same way (ErrParentGone when it is
 	// gone). A request carries a ParentID or a QuoteID, never both.
 	QuoteID string
-	// Poll is the validated poll of a root post (ADR-0029 D1), nil for none. The transaction builds the stored Poll from it inside
+	// Poll is the validated poll of a root post, nil for none. The transaction builds the stored Poll from it inside
 	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0. +0 reads, +0 writes.
 	Poll *PollDraft
-	// Community, when set, runs the ADR-0031 D5 gate inside the transaction (member doc fresh, communityPosts reserved in the same quota
+	// Community, when set, runs the gate inside the transaction (member doc fresh, communityPosts reserved in the same quota
 	// Set, the per-community daily cap): +1 read, +0 writes. Nil for every other post.
 	Community *CommunityPost
 }
@@ -108,7 +108,7 @@ type WriteDeps struct {
 	IDs         IDGenerator
 	// Media loads and claims a post's images inside the CreatePost transaction. Nil rejects media ids.
 	Media MediaAttacher
-	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction (ADR-0021). Only
+	// Profiles reads the author's users/{uid} inside the scheduled-post publish transaction. Only
 	// PublishScheduled needs it; CreatePost reads the cached directory profile instead.
 	Profiles identity.TxProfiles
 }
@@ -178,7 +178,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, fmt.Errorf("posts: quota lookup: %w", err)
 	}
 
-	// ADR-0031 D5 step 3: the caller's member doc, read fresh after the replay check (a replay never reads it) and before anything is
+	// Step 3: the caller's member doc, read fresh after the replay check (a replay never reads it) and before anything is
 	// staged. The gate maps a missing doc to not_member itself, so a QUOTE into a community cannot be mistaken for a vanished parent.
 	if p.Community != nil {
 		if err := p.Community.Gate.CheckMember(ctx, tx, p.Draft.CommunityID, p.AuthorID); err != nil {
@@ -196,7 +196,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		if err != nil {
 			return CreateResult{}, err
 		}
-		if claim.HasGIF() { // ADR-0029 D10: the second gate, then the only-image rule; nothing is staged yet
+		if claim.HasGIF() { // The second gate, then the only-image rule; nothing is staged yet
 			if !p.GifEnabled {
 				return CreateResult{}, ErrGifDisabled
 			}

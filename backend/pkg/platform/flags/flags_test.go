@@ -139,7 +139,7 @@ func TestRegistry_Percent_Distribution(t *testing.T) {
 	}
 }
 
-// TestRegistry_Percent_IndependentCohorts (ADR-0008 D6 "changed vs plan"): two flags at the same percent
+// TestRegistry_Percent_IndependentCohorts ("changed vs plan"): two flags at the same percent
 // must not always agree for the same uid — salting with the flag name gives each an independent cohort.
 func TestRegistry_Percent_IndependentCohorts(t *testing.T) {
 	specA := Spec{Name: "flag_a", Mode: Percent, Percent: 50}

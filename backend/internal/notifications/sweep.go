@@ -1,4 +1,4 @@
-// sweep.go is the opsctl seam over purge step 2 (security audit N-4, ADR-0016 amendment 2026-10-18 (b)): suspend-user
+// sweep.go is the opsctl seam over purge step 2 (security audit N-4): suspend-user
 // removes the notification rows other users hold about the suspended actor, so spam likes and follows leave their
 // lists. It reuses purgeActorRows unchanged (same query, same preconditions, same retry); it adds no behaviour.
 package notifications

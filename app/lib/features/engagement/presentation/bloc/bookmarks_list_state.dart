@@ -52,7 +52,7 @@ class BookmarkListFailure {
 }
 
 /// The caller's bookmarks as the Bookmarks screen sees them
-/// (ADR-0023 D2): live posts, newest bookmark first, paged by an opaque token.
+///Live posts, newest bookmark first, paged by an opaque token.
 /// Session memory only. Plain immutable class (no codegen), like
 /// `BookmarksState`.
 @immutable

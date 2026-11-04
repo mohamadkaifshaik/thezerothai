@@ -2,12 +2,12 @@ package config
 
 import "fmt"
 
-// MaxListMembersCeiling is the hard ceiling of LIST_MAX_MEMBERS (cost review L-1). Above 500 the ADR-0030 trigger
+// MaxListMembersCeiling is the hard ceiling of LIST_MAX_MEMBERS (cost review L-1). Above 500 the trigger
 // for a members-collection change is already broken (the memberIds array is the whole list document, read on every list
-// read), and above about 4,890 a list timeline would pass the 269-read hold. Raising it needs an ADR.
+// read), and above about 4,890 a list timeline would pass the 269-read hold. Raising it needs a design decision.
 const MaxListMembersCeiling = 500
 
-// ListsConfig holds the list values that are neither a rate limit nor a daily quota (ADR-0030 D10). The list buckets and the
+// ListsConfig holds the list values that are neither a rate limit nor a daily quota. The list buckets and the
 // daily mutation cap are RateLimitConfig fields; the create and add quotas are QuotaConfig fields. Every value is > 0: a 0
 // would lock every user out of the feature or disable a cap, so startup fails instead.
 type ListsConfig struct {
@@ -15,7 +15,7 @@ type ListsConfig struct {
 	// CreateList transaction.
 	MaxPerUser int
 	// MaxMembers is the most members one list holds (LIST_MAX_MEMBERS, default 150), checked exactly against the list doc in
-	// the AddListMember transaction (ADR-0030 F2).
+	// the AddListMember transaction.
 	MaxMembers int
 	// HomeTabsMaxPinned is the most pinned Home tabs (HOME_TABS_MAX_PINNED, default 5), checked exactly by SetHomeTabs (F5).
 	HomeTabsMaxPinned int

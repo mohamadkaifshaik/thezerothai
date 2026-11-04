@@ -21,7 +21,7 @@ const (
 
 // dropBlocking returns members without the entries of blockedBy (the owner's blockedBy: accounts that block the owner, F4) and
 // without skip, in the stored order, as a fresh non-nil slice (an empty array is written as an array, never null, because the
-// eraser's array-contains query needs it, ADR-0030 D2). The caller\u2019s slice is not changed.
+// eraser's array-contains query needs it). The caller\u2019s slice is not changed.
 func dropBlocking(members []string, blockedBy map[string]bool, skip string) []string {
 	out := make([]string, 0, len(members))
 	for _, m := range members {
@@ -42,7 +42,7 @@ func (r *FirestoreRepo) writeMembers(b store.Batch, id string, d *listDoc, membe
 	b.Update(r.ref(id), []firestore.Update{{Path: "memberIds", Value: members}, {Path: "updatedAt", Value: d.UpdatedAt}})
 }
 
-// AddMember implements Repo: one transaction (ADR-0030 D4, D7). Reads, fresh and in this order: idempotency/{hash} (a replay
+// AddMember implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a replay
 // returns here after a 2nd read of the list for its current header, / L-3), the list (2; a foreign or missing list is ErrNotFound before anything about the target is said),
 // then the service's Refusal, then quotas/{uid} (3) only when a member is really added. Already a member: the idempotency
 // document only (1 write), no quota. The cap is checked on the list after the lazy drop of members who block the owner (F4), so

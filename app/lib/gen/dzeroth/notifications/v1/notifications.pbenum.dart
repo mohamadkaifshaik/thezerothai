@@ -44,20 +44,20 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType NOTIFICATION_TYPE_QUOTE =
       NotificationType._(6, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_QUOTE');
 
-  /// actor asked to follow you, a protected account (ADR-0025 D10). post_id is empty; tapping opens the follow requests
+  /// actor asked to follow you, a protected account. post_id is empty; tapping opens the follow requests
   /// screen. One row per requester for 90 days: a withdrawn or declined request keeps its row, and asking again adds
   /// no row and no push. The requests screen (ListFollowRequests) is the truth.
   static const NotificationType NOTIFICATION_TYPE_FOLLOW_REQUEST =
       NotificationType._(
           7, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_FOLLOW_REQUEST');
 
-  /// actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
+  /// actor accepted your follow request. post_id is empty; tapping opens the actor's profile. A decline
   /// sends nothing.
   static const NotificationType NOTIFICATION_TYPE_FOLLOW_ACCEPTED =
       NotificationType._(
           8, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_FOLLOW_ACCEPTED');
 
-  /// PUSH DATA ONLY (ADR-0027 D9): a direct message arrived. It writes no row in users/{uid}/notifications, does not
+  /// PUSH DATA ONLY: a direct message arrived. It writes no row in users/{uid}/notifications, does not
   /// move unread_notification_count, and is NEVER returned by ListNotifications. It appears only as the FCM data field
   /// type = "message", next to conversationId (no sender, no text, no uid); the push text is generic ("New message").
   /// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side

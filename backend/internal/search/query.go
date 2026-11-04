@@ -11,13 +11,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// Query kinds for the request line (ADR-0028 D10: the raw query is never logged, only its kind and length).
+// Query kinds for the request line (the raw query is never logged, only its kind and length).
 const (
 	queryKindHashtag     = "hashtag"
 	queryKindUnsupported = "unsupported"
 )
 
-// query is a search string after ADR-0028 D1 steps 1 to 3: normalised, with at most one leading sigil split off.
+// query is a normalised search string, with at most one leading sigil split off.
 // It is valid (non-empty body, at most 50 code points, no control or bidi character); what the body means is decided
 // by the RPC (hashtag for SearchPosts, handle prefix for SearchPeople).
 type query struct {
@@ -27,7 +27,7 @@ type query struct {
 
 // parseQuery applies D1 steps 1 to 3 in order and returns a VALIDATION error on field "query" (0 reads) when the
 // query is empty after the sigil, longer than 50 code points after it (the sigil does not count), holds invalid
-// UTF-8, a control character (\p{Cc}) or a bidi formatting control (ADR-0010 D9) anywhere. Pure.
+// UTF-8, a control character (\p{Cc}) or a bidi formatting control anywhere. Pure.
 func parseQuery(raw string) (query, error) {
 	if !utf8.ValidString(raw) {
 		return query{}, apierr.Validation("query", "query must be valid UTF-8")
@@ -56,7 +56,7 @@ func parseQuery(raw string) (query, error) {
 }
 
 // hashtag reports the tag a SearchPosts query searches (D1 step 5): not an '@' query, and the body is exactly one
-// ADR-0010 D8 hashtag, decided by the same extractor posts store tags with. A one-code-point body is a tag. ok is false
+// Hashtag, decided by the same extractor posts store tags with. A one-code-point body is a tag. ok is false
 // for the "unsupported query" answer (several words, "#123" with no letter, "#go!", a handle).
 func (q query) hashtag() (tag string, ok bool) {
 	if q.sigil == '@' {

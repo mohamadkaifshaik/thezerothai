@@ -1,5 +1,5 @@
 /// Name of the Lists flag (`FEATURE_LISTS`) as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0030 D1; a missing name means off).
+/// `GetMeResponse.enabled_features` (a missing name means off).
 /// It is also the `metadata["feature"]` of the FEATURE_DISABLED answer of
 /// every lists RPC and of SetHomeTabs for a LIST tab. With it off there is no
 /// Lists row, no list route and no list tab on Home; the server stays
@@ -31,6 +31,6 @@ const kMaxPinnedHomeTabs = 5;
 /// only uses it to disable Create with the reason before a wasted call.
 const kMaxListsPerUser = 20;
 
-/// Field limits of a List (the proto `max_len` rules, ADR-0030 D2).
+/// Field limits of a List (the proto `max_len` rules).
 const kListNameMaxLength = 25;
 const kListDescriptionMaxLength = 100;

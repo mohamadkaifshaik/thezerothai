@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ReportsDefaults locks the ADR-0016 numbers: FEATURE_REPORTS off, 5 reports/min, 20/day (5 for new
+// TestLoad_ReportsDefaults locks the numbers: FEATURE_REPORTS off, 5 reports/min, 20/day (5 for new
 // accounts), and that the env vars override them.
 func TestLoad_ReportsDefaults(t *testing.T) {
 	clearEnv(t)

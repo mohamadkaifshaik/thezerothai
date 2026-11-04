@@ -8,7 +8,7 @@ import (
 // googleEgressCIDRs lists IPv4 netblocks Google operates for its own edge/service infrastructure (Google
 // Front End, Firebase Hosting egress, Googlebot/fetchers, Search, Gmail, etc.) — used by isGoogleEgressIP
 // to recognize when the rightmost X-Forwarded-For entry is one of *our own* Google-run proxies rather than
-// the real client (M2, ADR-0006 §3 amendment; see ResolveClientIP's doc comment for the full reasoning).
+// the real client (M2; see ResolveClientIP's doc comment for the full reasoning).
 //
 // Deliberately NOT the full published Google netblock list. Google Cloud (GCE / Cloud Run / GKE) hands out
 // external IPs from a documented subset of that list to any paying customer — including an attacker who

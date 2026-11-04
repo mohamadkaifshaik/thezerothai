@@ -20,13 +20,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// chunkConcurrency bounds in-flight chunk queries (ADR-0004 decision 2).
+// chunkConcurrency bounds in-flight chunk queries (decision 2).
 const chunkConcurrency = 4
 
-// userFirstPageMax is the largest page the Posts-tab author-recent entry serves (ADR-0010 D15).
+// userFirstPageMax is the largest page the Posts-tab author-recent entry serves.
 const userFirstPageMax = posts.MaxRecent
 
-// log fields (ADR-0010 D20). Counts, enums and booleans only: never ids, handles, text or tokens.
+// log fields. Counts, enums and booleans only: never ids, handles, text or tokens.
 const (
 	fieldOp        = "timeline_op"
 	fieldMode      = "timeline_mode"
@@ -38,12 +38,12 @@ const (
 	fieldGap       = "gap"
 	fieldClamped   = "since_clamped"
 	fieldPageSize  = "page_size"
-	fieldTab       = "tab" // the effective profile tab (posts|replies|media|reposts), or tabUnknownLog (ADR-0024 D5)
+	fieldTab       = "tab" // the effective profile tab (posts|replies|media|reposts), or tabUnknownLog
 	opHome         = "home"
 	opUser         = "user"
 )
 
-// ProfileTabsFlagName is the wire name of FEATURE_PROFILE_TABS (ADR-0024 D9). GetUserTimeline with tab MEDIA or REPOSTS
+// ProfileTabsFlagName is the wire name of FEATURE_PROFILE_TABS. GetUserTimeline with tab MEDIA or REPOSTS
 // needs it on for the caller; Posts and Replies stay ungated. The name is repeated here, not imported from another
 // module, because timeline may name only the posts, graph and identity seams. The flag must stay off in a project until
 // the two composite indexes are READY there and `opsctl backfill-has-media` has run
@@ -54,7 +54,7 @@ const ProfileTabsFlagName = "profile_tabs"
 // number: the field is a closed set of values so the log stays free of client-chosen data.
 const tabUnknownLog = "unknown"
 
-// home implements GetHomeTimeline (ADR-0004, ADR-0010 D13-D15). Reads: caller graph (cached 60 s) + one query
+// home implements GetHomeTimeline. Reads: caller graph (cached 60 s) + one query
 // per 30 uncovered authors, each at most k = ceil(2p/C') docs; worst 2 + C + 2p with the interceptor read.
 func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTimelineRequest) (*timelinev1.GetHomeTimelineResponse, error) {
 	start := s.now()
@@ -89,7 +89,7 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	}
 	// Defence in depth: authors were removed before querying, but a stale cached entry or a replayed own write
 	// must never surface a blocked or muted author's post. The caller's own posts are always kept.
-	// ADR-0025 D4: a REPOST of a protected author the caller does not follow is dropped, a QUOTE of one is stripped
+	// A REPOST of a protected author the caller does not follow is dropped, a QUOTE of one is stripped
 	// (audienceFilter), per viewer and after the author-recent entries, so a shared cache never leaks.
 	af := s.newAudienceFilter(ctx, uid, snap)
 	keep := func(p *posts.Post) bool {
@@ -209,7 +209,7 @@ func allowedAuthor(snap graph.Snapshot, a string) bool {
 	return !snap.Blocked[a] && !snap.Muted[a] && !snap.BlockedBy[a]
 }
 
-// covers reports whether a fresh entry answers the window without a query (ADR-0010 D15): it is complete
+// covers reports whether a fresh entry answers the window without a query: it is complete
 // (not truncated), or it holds an item at or below the window's lower bound, so everything above it is known.
 func covers(rec posts.Recent, after *posts.Position) bool {
 	if !rec.Truncated {
@@ -253,7 +253,7 @@ type issued struct {
 	clamped          bool
 }
 
-// tokens fills the three response tokens (ADR-0010 D13/D14). Cold and refresh calls return a settle-watermark
+// tokens fills the three response tokens. Cold and refresh calls return a settle-watermark
 // since_token; a refresh that could not reach its old since returns gap_page_token (Lower = the old since);
 // scroll and gap pages return next_page_token (a gap page keeps its Lower) and no since_token.
 func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.Time, start time.Time) (it issued) {
@@ -278,9 +278,9 @@ func (s *Server) tokens(f feed, md mode, tok request, page Page, entries []time.
 	return it
 }
 
-// toViews renders a page with the viewer's state (following: the viewer's followed authors, for the wire-visibility hint; blocked: the viewer's blocked authors, set only by GetUserTimeline for viewer_poll_vote_blocked, ADR-0029 A1.5, nil elsewhere because lists drop such rows): one cached userLikes read per request when FEATURE_ENGAGEMENT or
+// toViews renders a page with the viewer's state (following: the viewer's followed authors, for the wire-visibility hint; blocked: the viewer's blocked authors, set only by GetUserTimeline for viewer_poll_vote_blocked, nil elsewhere because lists drop such rows): one cached userLikes read per request when FEATURE_ENGAGEMENT or
 // FEATURE_BOOKMARKS is on for uid (0 when the page is empty; posts.HydrateViewer), else every flag false. Without
-// engagement only the bookmarks are hydrated, so no like or repost flag leaks (ADR-0023 D5).
+// engagement only the bookmarks are hydrated, so no like or repost flag leaks.
 func (s *Server) toViews(ctx context.Context, uid string, following, blocked map[string]bool, ps []*posts.Post, embed map[string]postsv1.EmbedViewerState) []*postsv1.PostView {
 	var vs posts.ViewerSet
 	if len(ps) > 0 {
@@ -299,7 +299,7 @@ func (s *Server) toViews(ctx context.Context, uid string, following, blocked map
 	return out
 }
 
-// filterEmbeds applies embedAllowed (ADR-0018 D13) and the ADR-0025 D4 audience rules to a profile page: a REPOST of a
+// filterEmbeds applies embedAllowed and the audience rules to a profile page: a REPOST of a
 // protected author's post the caller may not see is dropped, a QUOTE of one is kept with a PROTECTED embed state. The
 // caller's graph snapshot is the one checkVisible just read (cached), so the filter costs 0 reads. A page with no
 // REPOST or QUOTE skips it. A caller viewing their own profile skips embedAllowed (their own copies are kept, D13) but
@@ -339,7 +339,7 @@ func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*
 	return out, af.embed, nil
 }
 
-// embedAllowed is the ADR-0018 D13 feed filter: a REPOST or QUOTE is dropped when the author of the post it
+// embedAllowed is the feed filter: a REPOST or QUOTE is dropped when the author of the post it
 // copies is blocked or muted by the viewer, or blocks the viewer, so no content of such a user leaks through a
 // copy. The viewer's own copies and tombstones (no embedded author) are kept. When the viewer's blockedBy set
 // overflowed it cannot prove an embedded author does not block them, so a foreign copy fails closed (the same
@@ -355,7 +355,7 @@ func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
 	return allowedAuthor(snap, a)
 }
 
-// user implements GetUserTimeline (ADR-0010 D6, D11, D13-D16; ADR-0024 D5). Reads: target users + caller graph (+ target
+// user implements GetUserTimeline (D13-D16). Reads: target users + caller graph (+ target
 // graph when the caller's blockedBy overflowed) + one query of Limit(page_size); 0 for a Posts-tab first page
 // or an empty refresh served by a fresh author-recent entry. The Media and Reposts tabs always run that one query
 // (no author-recent entry) and need FEATURE_PROFILE_TABS: they are refused before any read when it is off.
@@ -385,7 +385,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 		return nil, err
 	}
 	if protected {
-		// ADR-0025 D4: decided before the author-recent cache or any page is read, whatever the tab or token. No posts,
+		// Decided before the author-recent cache or any page is read, whatever the tab or token. No posts,
 		// no tokens, no removed_ids: the client shows the protected view and replaces its cached feed for this author.
 		logger.SetRequestField(ctx, fieldAuthorProtected, true)
 		return &timelinev1.GetUserTimelineResponse{AuthorProtected: true}, nil
@@ -420,7 +420,7 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	return out, nil
 }
 
-// resolveTab turns the request's tab and include_replies into the effective tab (ADR-0024 D5), logs it, and applies the
+// resolveTab turns the request's tab and include_replies into the effective tab, logs it, and applies the
 // tab's flag. It runs before any Firestore access and reads nothing:
 //   - a tab number this build does not know is VALIDATION field=tab (the tab is part of the token binding, so a guess
 //     could hand a client a feed that its tokens then reject);
@@ -450,7 +450,7 @@ func (s *Server) resolveTab(ctx context.Context, caller string, req *timelinev1.
 
 // checkVisible answers NOT_FOUND, byte-identical to GetProfile's missing-user error, for a missing,
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
-// After those rules it applies ADR-0025 D4: protected is true when the target is a protected account and the caller is
+// After those rules it applies: protected is true when the target is a protected account and the caller is
 // neither that account nor a follower of it, so every tab answers author_protected. The decision uses the caller's
 // graph snapshot checkVisible already read (it also returns the caller's following set for the wire-visibility hint, L-4) (3 cold reads: interceptor, target users, caller graph) and the detached
 // protected-set loader, and runs before any page or author-recent entry is touched. A set error is UNAVAILABLE.
@@ -497,7 +497,7 @@ type userResult struct {
 
 // userPage returns one page of target's posts: from the author-recent entry when it answers the window (Posts
 // tab only), else one Limit(page_size) query (never page_size+1, D16: a full page always gets a next token). The
-// Replies, Media and Reposts tabs always query; Media and Reposts have no instance cache (ADR-0024 D5).
+// Replies, Media and Reposts tabs always query; Media and Reposts have no instance cache.
 func (s *Server) userPage(ctx context.Context, target string, tab userTab, tok request, limit int, start time.Time) (userResult, error) {
 	var res userResult
 	if tab == tabPosts {
@@ -550,7 +550,7 @@ func (s *Server) tabQuery(ctx context.Context, target string, tab userTab, w pos
 	}
 }
 
-// moderationVisible keeps the posts a moderator has not hidden (ADR-0016 D3: takedown and suspension are a moderation field on
-// the doc, so this filter costs no read). It deliberately does not read the stored `visibility` (always PUBLIC, ADR-0025
-// D2): who may see an author is decided per viewer by posts.Audience (audienceFilter, checkVisible), never by the doc.
+// moderationVisible keeps the posts a moderator has not hidden (takedown and suspension are a moderation field on the doc, so this filter costs no read).
+// It deliberately does not read the stored `visibility` (always PUBLIC):
+// who may see an author is decided per viewer by posts.Audience (audienceFilter, checkVisible), never by the doc.
 func moderationVisible(p *posts.Post) bool { return p.Visible() }

@@ -6,16 +6,16 @@ import "errors"
 // boundary (service.go) — the same convention identity/repo_firestore.go uses (ErrNotFound, ErrHandleTaken).
 var (
 	// ErrNotFoundOrBlocked covers every case that must be byte-identical to "user does not exist"
-	// (ADR-0008 D9): the target is missing/not ACTIVE, or the target blocked the caller.
+	//The target is missing/not ACTIVE, or the target blocked the caller.
 	ErrNotFoundOrBlocked = errors.New("graph: not found or blocked")
-	// ErrCallerBlocksTarget: the caller blocks the target (ADR-0008 D9: TARGET_BLOCKED, no auto-unblock).
+	// ErrCallerBlocksTarget: the caller blocks the target (TARGET_BLOCKED, no auto-unblock).
 	ErrCallerBlocksTarget = errors.New("graph: caller blocks target")
 	// ErrContention: a non-transactional write kept losing lock races with concurrent transactions and its
 	// bounded retries are exhausted (Unfollow, D1). Mapped to a retryable UNAVAILABLE, never INTERNAL.
 	ErrContention = errors.New("graph: write contention")
 )
 
-// LimitReachedError names which cap was hit (ADR-0008: following 5,000 / blocked 2,000 / muted 2,000), for
+// LimitReachedError names which cap was hit (following 5,000 / blocked 2,000 / muted 2,000), for
 // the FAILED_PRECONDITION + ERROR_REASON_LIMIT_REACHED response's metadata["limit"].
 type LimitReachedError struct {
 	Limit string

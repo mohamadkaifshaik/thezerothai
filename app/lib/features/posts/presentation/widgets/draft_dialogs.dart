@@ -9,7 +9,7 @@ enum SavePostChoice { save, discard }
 const kDraftsPhotosNote = "Photos aren't saved in drafts.";
 const kDraftsGifNote = "A GIF isn't saved in drafts.";
 
-/// "Save post?" (ADR-0029): shown when the composer is left with
+/// "Save post?": shown when the composer is left with
 /// unsent content. Resolves to [SavePostChoice.save] or
 /// [SavePostChoice.discard], or null for "Keep editing" and a dismissed
 /// dialog (the composer stays open). [mediaNote] is the extra line about

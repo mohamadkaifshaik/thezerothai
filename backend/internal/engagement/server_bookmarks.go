@@ -1,4 +1,4 @@
-// server_bookmarks.go holds the Connect handlers of bookmarks (ADR-0023): AddBookmark, RemoveBookmark and
+// server_bookmarks.go holds the Connect handlers of bookmarks: AddBookmark, RemoveBookmark and
 // ListBookmarks. The flag gate runs first on every RPC; Add and Remove then call the Bookmarks service.
 // ListBookmarks then calls Bookmarks.ListBookmarks and renders each row with posts.ToView.
 package engagement
@@ -24,12 +24,12 @@ const (
 	// callerEnabled needs the flag on for this caller (AddBookmark, which creates new state).
 	callerEnabled bookmarkCaller = iota
 	// notGloballyOff only needs the flag not switched off for everyone (ListBookmarks, RemoveBookmark), so a user
-	// dropped from the allowlist or percent bucket can still see and remove what they saved (ADR-0023 D5).
+	// dropped from the allowlist or percent bucket can still see and remove what they saved.
 	notGloballyOff
 )
 
 // guardBookmarks is the flag gate of the three RPCs, run before any Firestore access: FEATURE_POSTS first (the posts
-// guard), then FEATURE_BOOKMARKS. FEATURE_ENGAGEMENT is deliberately not required (ADR-0023 D5). A checker without
+// guard), then FEATURE_BOOKMARKS. FEATURE_ENGAGEMENT is deliberately not required. A checker without
 // GloballyOff (posts.GloballyOffChecker) gets the per-caller answer for all three. Disabled is FAILED_PRECONDITION +
 // FEATURE_DISABLED with metadata feature=bookmarks and 0 reads. It returns the caller's uid.
 func (s *Server) guardBookmarks(ctx context.Context, who bookmarkCaller) (string, error) {
@@ -129,7 +129,7 @@ func (s *Server) ListBookmarks(ctx context.Context, req *connect.Request[engagem
 	out := &engagementv1.ListBookmarksResponse{NextPageToken: page.NextPageToken, Bookmarks: make([]*engagementv1.Bookmark, 0, len(page.Rows))}
 	for _, r := range page.Rows {
 		v := posts.ToView(r.Post, page.Viewer, uid)
-		r.Hint.Apply(v)                                           // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author (ADR-0025 D2, D4)
+		r.Hint.Apply(v)                                           // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
 		v.BookmarkedByViewer = v.BookmarkedByViewer || v.Withheld // a placeholder row is a bookmark by definition (a REPOST row's flag describes the original)
 		out.Bookmarks = append(out.Bookmarks, &engagementv1.Bookmark{Post: v, BookmarkedAt: timestamppb.New(r.BookmarkedAt)})
 	}

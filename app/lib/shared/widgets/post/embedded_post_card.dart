@@ -21,12 +21,12 @@ enum EmbedPlaceholder {
   muted,
 
   /// The quoted author protects their posts and the viewer is not an approved
-  /// follower (`EMBED_VIEWER_STATE_PROTECTED`, ADR-0025 D5): only the author
+  /// follower (`EMBED_VIEWER_STATE_PROTECTED`): only the author
   /// is shown.
   protected,
 }
 
-/// The quoted post inside a QUOTE (ADR-0018 D12): a bordered, compact copy
+/// The quoted post inside a QUOTE: a bordered, compact copy
 /// of the frozen [pb.EmbeddedPost] snapshot - author, relative time, text
 /// (at most [maxTextLines]) and its thumbnails. One level only: it never
 /// shows an embed of its own. Tapping it calls [onTap] (opens the quoted

@@ -1,4 +1,4 @@
-// profile_w3_part_a: W3 Part A emulator smoke (ADR-0024 "Cost impact").
+// profile_w3_part_a: W3 Part A emulator smoke.
 // One file, three MODEs, each seeding its own data in setup():
 //
 //   MODE=tabs          GetUserTimeline tab MEDIA and REPOSTS (profile_tabs), GetProfileRelationship. VIEWERS viewers (default 40) of

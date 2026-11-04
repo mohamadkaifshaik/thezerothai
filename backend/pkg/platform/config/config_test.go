@@ -162,7 +162,7 @@ func TestLoad_AccountLifecycle(t *testing.T) {
 	}
 }
 
-// TestLoad_AccountExportSettings (ADR-0011 D-B): the defaults and the bounds on the signed-URL lifetime and the
+// TestLoad_AccountExportSettings: the defaults and the bounds on the signed-URL lifetime and the
 // export retention, which a typo must not turn into a bearer URL valid for days.
 func TestLoad_AccountExportSettings(t *testing.T) {
 	tests := []struct {
@@ -487,7 +487,7 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 }
 
-// TestLoad_CacheTTLGuard (ADR-0009): CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
+// TestLoad_CacheTTLGuard: CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
 func TestLoad_CacheTTLGuard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -527,7 +527,7 @@ func TestLoad_CacheTTLGuard(t *testing.T) {
 	}
 }
 
-// TestLoad_FeatureGraphDefaults (ADR-0008 D6 rollout plan): off in prod, on in dev and local by default.
+// TestLoad_FeatureGraphDefaults (rollout plan): off in prod, on in dev and local by default.
 func TestLoad_FeatureGraphDefaults(t *testing.T) {
 	tests := []struct {
 		name string
@@ -586,7 +586,7 @@ func TestLoad_FeatureGraphOverride(t *testing.T) {
 	}
 }
 
-// TestLoad_GraphQuotaAndRateLimitDefaults locks in the ADR-0008 D7 numbers.
+// TestLoad_GraphQuotaAndRateLimitDefaults locks in the numbers.
 func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
@@ -661,7 +661,7 @@ func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
 	}
 }
 
-// TestLoad_AuthEmulator (ADR-0010 D5 A10): AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
+// TestLoad_AuthEmulator: AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
 // variable in dev and prod, where the Admin SDK would accept unsigned emulator tokens.
 func TestLoad_AuthEmulator(t *testing.T) {
 	tests := []struct {

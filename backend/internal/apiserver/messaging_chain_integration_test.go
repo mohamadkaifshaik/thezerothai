@@ -2,7 +2,7 @@
 
 package apiserver
 
-// SendMessage (ADR-0027) over the real Build chain on the emulators: the account-status,
+// SendMessage over the real Build chain on the emulators: the account-status,
 // rate-limit and degraded-mode interceptors, the flag rules, the documents a send writes, every refusal's bytes, the caps,
 // replay, and the budget table of the RPC doc comment (accepted 5 reads / 3 writes, request 4 writes, new conversation 7
 // reads / 5 writes), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line. Chains

@@ -1,4 +1,4 @@
-// Package snowflake generates 64-bit, time-ordered IDs for posts/media (ADR-0003, rule 1): 41 bits of
+// Package snowflake generates 64-bit, time-ordered IDs for posts/media: 41 bits of
 // milliseconds since 2026-01-01T00:00:00Z, 10 bits of node id (random per process start), 12 bits of
 // per-millisecond sequence. Rendered as a 19-digit zero-padded decimal string so lexicographic order
 // equals time order in Firestore doc IDs and cursors.
@@ -24,7 +24,7 @@ const (
 	timeShift = seqBits + nodeBits
 )
 
-// Epoch is the custom epoch fixed by ADR-0003. Never change it after any ID has been generated in a
+// Epoch is the custom epoch fixed once. Never change it after any ID has been generated in a
 // live environment — doing so breaks time ordering and can produce collisions.
 var Epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -41,7 +41,7 @@ type Node struct {
 
 // NewNode builds a Node with a random 10-bit node id (collisions across the small number of Cloud Run
 // instances are astronomically unlikely, and a Firestore Create() AlreadyExists is the backstop —
-// ADR-0003: "regenerate and retry once").
+// "regenerate and retry once").
 func NewNode() (*Node, error) {
 	var b [2]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -100,7 +100,7 @@ func MinID(t time.Time) string {
 	return fmt.Sprintf("%019d", ms<<timeShift)
 }
 
-// Time returns the millisecond timestamp encoded in a Generate()d id. posts use it as createdAt (ADR-0010 D18),
+// Time returns the millisecond timestamp encoded in a Generate()d id. posts use it as createdAt,
 // so (createdAt, id) order equals id order. It errors for anything that is not a non-negative decimal id.
 func Time(id string) (time.Time, error) {
 	v, err := strconv.ParseInt(id, 10, 64)

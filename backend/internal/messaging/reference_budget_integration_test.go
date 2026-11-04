@@ -2,7 +2,7 @@
 
 package messaging
 
-// ADR-0027 D8, "Budget": the reference account of the plan, 20 conversations with 300 messages of its own (and
+// The reference account of the plan, 20 conversations with 300 messages of its own (and
 // 300 received), through the eraser step and the export section on the emulator. The single-conversation budgets in
 // lifecycle_integration_test.go show the per-conversation shape; this one shows the totals the cost model uses.
 

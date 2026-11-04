@@ -129,7 +129,7 @@ func TestCreateUpload_BannerSignsBannerCapsAndStoresPurposeAndSizes(t *testing.T
 }
 
 func TestFinalize_BannerHappyPathChargesTwoVisionUnits(t *testing.T) {
-	// screenThumb is false: a banner screens the thumbnail regardless of VISION_SCREEN_THUMB (ADR-0024 D1).
+	// screenThumb is false: a banner screens the thumbnail regardless of VISION_SCREEN_THUMB.
 	e := newEnv(t, envOpts{})
 	tg := e.bannerUpload(t, uidA, "a")
 	res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID, Blurhash: "LEHV6n"}})
@@ -379,7 +379,7 @@ func TestFinalizePurpose(t *testing.T) {
 	}
 }
 
-// Right to delete and to access (rule 10, ADR-0024 D11): the media eraser and export are purpose-agnostic, so a
+// Right to delete and to access (rule 10): the media eraser and export are purpose-agnostic, so a
 // BANNER (published, with objects) is erased with the account and listed in the export. Replaced banners are
 // never deleted before that (Option 5A), so two BANNER docs of one user both go.
 func TestPurgeAndExport_CoverBannerDocuments(t *testing.T) {

@@ -1,6 +1,6 @@
 // Package objstore is the thin Cloud Storage seam for buckets that the API itself writes and reads: write an
-// object, delete one, and sign a short-lived V4 GET URL (the account-export bucket, ADR-0011 D-B); and, for the
-// media pipeline (ADR-0005), sign a V4 PUT URL, read object attributes and the first bytes of an object, and
+// object, delete one, and sign a short-lived V4 GET URL (the account-export bucket); and, for the
+// media pipeline, sign a V4 PUT URL, read object attributes and the first bytes of an object, and
 // copy an object to another bucket. Media bytes never pass through the API (the media rule): clients upload with
 // signed PUT URLs and the API only reads attributes and a 512-byte head. The storage client is built lazily on first use, so no I/O happens before ListenAndServe, and
 // STORAGE_EMULATOR_HOST is honored by the client itself.
@@ -314,7 +314,7 @@ func (s *Store) SignedGetURL(ctx context.Context, object, filename string, ttl t
 
 // SetCustomTime sets the object's customTime metadata to t (1 Class A operation, a metadata patch). It is the only
 // place in the application that writes customTime: the media bucket's lifecycle rule deletes an object once
-// daysSinceCustomTime reaches 1, so setting it is how the profile-image retire step (ADR-0024 Amendment 1 A4) schedules
+// daysSinceCustomTime reaches 1, so setting it is how the profile-image retire step schedules
 // an object's deletion (TestCustomTimeIsSetOnlyByTheRetireStep pins that). A missing object is success: the lifecycle
 // rule or the account eraser already removed it, and a redelivered retire message must converge. Cloud Storage never
 // lets customTime move backwards, so repeating the same value is the redelivery case and is accepted.

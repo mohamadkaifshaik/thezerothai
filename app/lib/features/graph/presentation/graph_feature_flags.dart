@@ -4,8 +4,8 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../domain/graph_feature_flag.dart';
 
 /// Whether the graph feature flag is enabled for the signed-in caller
-/// (ADR-0008 D6: server-driven, via `GetMe.enabled_features`; a missing name
-/// means off). This is the single gating check every graph UI element
+/// (server-driven, via `GetMe.enabled_features`; a missing name means off).
+/// This is the single gating check every graph UI element
 /// (follow buttons, the block/mute menu, followers/following lists, the
 /// Settings "Blocked accounts"/"Muted accounts" entries) and the router must
 /// use — never infer it from anything else. Delegates to the shared
@@ -19,8 +19,8 @@ bool graphEnabledSnapshot(BuildContext context) =>
     featureEnabledSnapshot(context, kFeatureGraph);
 
 /// Whether the "Who to follow" card may be shown: `follow_suggestions` and
-/// `graph` are both on for the caller (ADR-0024 D9: the RPC is gated by
-/// `graph` first). Reactive, like [isGraphEnabled].
+/// `graph` are both on for the caller (the RPC is gated by `graph` first).
+/// Reactive, like [isGraphEnabled].
 bool isFollowSuggestionsEnabled(BuildContext context) =>
     isFeatureEnabled(context, kFeatureGraph) &&
     isFeatureEnabled(context, kFeatureFollowSuggestions);

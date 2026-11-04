@@ -1,4 +1,4 @@
-// profile_extras_wiring.go binds the ADR-0024 profile extras: the pinned-post check identity consumes from posts
+// profile_extras_wiring.go binds the profile extras: the pinned-post check identity consumes from posts
 // and the identity step of the post_delete job. The banner resolver lives next to the avatar one in media_wiring.go.
 package apiserver
 

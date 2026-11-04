@@ -33,8 +33,8 @@ bool telemetryRowVisible(
   return (supported ?? TelemetryPlatforms.current) && enabled && hasCubit;
 }
 
-/// The "Help us fix and improve" card at the top of Home (ADR-0032 F1
-/// option A): two switches, both off, "Save" and "Not now", one sentence each
+/// The "Help us fix and improve" card at the top of Home (option A):
+/// two switches, both off, "Save" and "Not now", one sentence each
 /// on what is sent, and the Privacy Policy link. Not a sliver: wrap it in a
 /// `SliverToBoxAdapter`.
 ///

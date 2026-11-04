@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// GetThread through posts.Audience (ADR-0025 D4). Thread of newThreadEnv: root rRoot by uZed; replies rReply1
+// GetThread through posts.Audience. Thread of newThreadEnv: root rRoot by uZed; replies rReply1
 // (uCarol), rReply2 (blocked), rReply3 (muted), rReply4 (the caller), rReply5/6 (uDave).
 
 func TestGetThread_ProtectedFocalIsTheDeletedFocalAnswer(t *testing.T) {

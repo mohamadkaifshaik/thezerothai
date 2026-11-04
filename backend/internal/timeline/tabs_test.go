@@ -1,6 +1,6 @@
 package timeline
 
-// GetUserTimeline tabs (ADR-0024 D5): the effective tab, the Media and Reposts queries, the flag gate,
+// GetUserTimeline tabs: the effective tab, the Media and Reposts queries, the flag gate,
 // the tab-bound tokens, the drop rules and the budget, over the fakes. The documented figures (24 reads at page 20,
 // 54 at page 50 cold) include the account-status interceptor and the caller's userLikes read; the fake rig has the
 // second (a charging viewer) but not the first, so it asserts 23 and 53. The apiserver integration test
@@ -117,7 +117,7 @@ func (r *rig) seedTabFixture(target string) tabFixture {
 }
 
 // TestEffectiveTab: UNSPECIFIED defers to include_replies, any known tab wins and ignores it, an unknown number is
-// refused (ADR-0024 D5). The binding value of each tab is fixed: posts and replies are the pre-W3 values.
+// refused. The binding value of each tab is fixed: posts and replies are the pre-W3 values.
 func TestEffectiveTab(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -357,7 +357,7 @@ func pctUIDs(t *testing.T, name string) (in, out string) {
 	return in, out
 }
 
-// TestTabs_FlagMatrix (ADR-0024 D9): MEDIA and REPOSTS need profile_tabs on for the caller, else FAILED_PRECONDITION +
+// TestTabs_FlagMatrix: MEDIA and REPOSTS need profile_tabs on for the caller, else FAILED_PRECONDITION +
 // FEATURE_DISABLED with metadata feature=profile_tabs and 0 reads and no query; Posts, Replies and UNSPECIFIED are
 // ungated in every mode. The gate does not depend on FEATURE_ENGAGEMENT or on the target's existence.
 func TestTabs_FlagMatrix(t *testing.T) {
@@ -523,7 +523,7 @@ var tabTokenSources = []tabToken{
 	{"reposts+replies", pbReposts, true, tabReposts},
 }
 
-// TestTabs_TokensAreBoundToTheEffectiveTab (ADR-0024 D5, D14): a since_token or page_token opens exactly on the
+// TestTabs_TokensAreBoundToTheEffectiveTab: a since_token or page_token opens exactly on the
 // calls whose EFFECTIVE tab is the one that issued it (so every pre-W3 token stays valid: UNSPECIFIED + false is the
 // Posts tab and UNSPECIFIED + true the Replies tab), and is VALIDATION on that field with 0 reads on any other tab.
 func TestTabs_TokensAreBoundToTheEffectiveTab(t *testing.T) {
@@ -762,7 +762,7 @@ func TestTabs_VisibilityMatrix(t *testing.T) {
 }
 
 // TestTabs_DropRules: a REPOST (Reposts tab) or QUOTE with its own image (Media tab) whose embedded author the caller
-// blocks or mutes, or who blocks the caller, is dropped (ADR-0010 D6); the control row stays; the viewer's own copies
+// blocks or mutes, or who blocks the caller, is dropped; the control row stays; the viewer's own copies
 // stay on their own profile without a graph read; a tombstone copy (no embedded author) is kept.
 func TestTabs_DropRules(t *testing.T) {
 	t.Parallel()
@@ -837,7 +837,7 @@ func TestTabs_DropRules(t *testing.T) {
 }
 
 // TestTabs_HiddenRowsAreDropped: a post a moderator hid (takedown or suspended author) never
-// appear on the Media or Reposts tab, whatever the query returned. The stored visibility is never consulted (ADR-0025 D2).
+// appear on the Media or Reposts tab, whatever the query returned. The stored visibility is never consulted.
 func TestTabs_HiddenRowsAreDropped(t *testing.T) {
 	t.Parallel()
 	for _, tab := range []timelinev1.UserTimelineTab{pbMedia, pbReposts} {

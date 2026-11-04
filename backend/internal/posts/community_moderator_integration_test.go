@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// TestCommunityModerator_SetCommunityListing pins the A12 field changes and the found / changed answers (ADR-0031 D5): 1 read, 0 or 1 write.
+// TestCommunityModerator_SetCommunityListing pins the A12 field changes and the found / changed answers: 1 read, 0 or 1 write.
 func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	client := newTestClient(t)
 	ctx := context.Background()
@@ -150,7 +150,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 	}
 }
 
-// ADR-0031 Amendment 1 D4a: a reply qualifies through conversationCommunityId; it has no communityId, so hidden is communityHidden alone
+// A reply qualifies through conversationCommunityId; it has no communityId, so hidden is communityHidden alone
 // (plus communityHiddenAt, server time); reply is reported; a REPOST, a foreign conversation and a moderated reply are not found.
 func TestCommunityModerator_SetCommunityListing_Replies(t *testing.T) {
 	client := newTestClient(t)

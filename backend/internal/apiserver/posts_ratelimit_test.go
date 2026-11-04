@@ -20,7 +20,7 @@ import (
 )
 
 // TestPostsBuckets_AreWiredAtTheADR0010Rates: through the config Build wires, the Nth call of a minute is
-// allowed and the N+1th is RATE_LIMITED, per procedure, with the ADR-0010 Handoff numbers (home 6, user timeline
+// allowed and the N+1th is RATE_LIMITED, per procedure, with the agreed numbers (home 6, user timeline
 // 30, create 10, delete 20, GetPost 60 = the default bucket). Each bucket is independent: exhausting one
 // procedure does not affect another.
 func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
@@ -104,7 +104,7 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 	}
 }
 
-// TestScheduledBuckets_ShareTheCreatePostBucket (ADR-0021 D4): SchedulePost and CancelScheduledPost draw on the SAME
+// TestScheduledBuckets_ShareTheCreatePostBucket: SchedulePost and CancelScheduledPost draw on the SAME
 // 10/min bucket as CreatePost, so a user's creates, schedules and cancels together cannot exceed it, while
 // ListScheduledPosts is a read on the 60/min default bucket and is not starved by an exhausted create bucket.
 func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
@@ -176,7 +176,7 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 	}
 }
 
-// TestBookmarkBuckets_AddAndRemoveShareOne (ADR-0023 D4): AddBookmark and RemoveBookmark draw on the SAME per-user
+// TestBookmarkBuckets_AddAndRemoveShareOne: AddBookmark and RemoveBookmark draw on the SAME per-user
 // bucket (RATE_LIMIT_BOOKMARKS_PER_MIN), ListBookmarks has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN), and none of
 // them is on the read-budget exemption or charge-only lists.
 func TestBookmarkBuckets_AddAndRemoveShareOne(t *testing.T) {

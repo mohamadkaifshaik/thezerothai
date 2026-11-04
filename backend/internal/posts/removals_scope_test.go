@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The RID-2 regression set (ADR-0016 amendment 2026-10-18 (b)): the removal log answers per feed.
+// The RID-2 regression set (amendment 2026-10-18 (b)): the removal log answers per feed.
 
 // TestRemovalLog_SuspensionOfAnUnlistedAuthorIsInvisible: a 120-post burst by an author the feed does not show makes
 // no id appear and no reset, on a warm instance and on a cold one whose cache only holds the newest 50.

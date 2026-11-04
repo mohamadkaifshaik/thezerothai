@@ -1,6 +1,6 @@
 //go:build integration
 
-// follow_requests_respond_integration_test.go exercises against the Firestore emulator (ADR-0025 D7, D9, D5):
+// follow_requests_respond_integration_test.go exercises against the Firestore emulator:
 // ListFollowRequests paging and hydration, RespondToFollowRequest accept, decline, replay, inactive requester and the
 // 5,000 cap, each with a budget assertion, the accept-vs-withdraw and accept-vs-block races, the pending-request count,
 // and PROTECTED_ACCOUNT on the follower and following lists. The full chain through apiserver.Build is
@@ -294,7 +294,7 @@ func TestListFollowRequests_Integration_DropsInactive(t *testing.T) {
 	}
 }
 
-// The races of ADR-0025 D9: an accept against a withdraw, and an accept against a Block, end in a consistent state
+// The races of: an accept against a withdraw, and an accept against a Block, end in a consistent state
 // whichever wins: no request left, I-R and I-X hold (the end-of-test sweep checks the edge, counter and array invariants).
 func TestRespond_Integration_Races(t *testing.T) {
 	for round := 0; round < 4; round++ {
@@ -348,7 +348,7 @@ func TestRespond_Integration_Races(t *testing.T) {
 	}
 }
 
-// PROTECTED_ACCOUNT (ADR-0025 D5): the followers and following of a protected account are for the account and its
+// PROTECTED_ACCOUNT: the followers and following of a protected account are for the account and its
 // followers; a stranger and a mere requester are refused after 2 reads here (3 in the chain, with the interceptor) and no
 // page read; an accepted requester then sees the page.
 func TestListFollowLists_Integration_ProtectedAccount(t *testing.T) {

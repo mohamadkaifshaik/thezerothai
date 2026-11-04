@@ -8,7 +8,7 @@ import '../../../auth/presentation/request_sign_out.dart';
 /// Full-screen state for the signed-in account being suspended (or pending
 /// deletion): every RPC but DeleteAccount answers ACCOUNT_RESTRICTED, so the
 /// app has nothing to show. Offers sign-out only; it never says why or by
-/// whom (ADR-0016: no oracle), and other people's suspended or hidden content
+/// whom (no oracle), and other people's suspended or hidden content
 /// keeps the ordinary "not available" wording elsewhere.
 class AccountRestrictedView extends StatelessWidget {
   const AccountRestrictedView({super.key});

@@ -11,7 +11,7 @@ import '../../support/shells_copy_guard.dart';
 import '../../support/shells_harness.dart';
 import '../../support/theme_harness.dart';
 
-/// The Premium pop-up body (ADR-0026 D3): two static plan cards from
+/// The Premium pop-up body: two static plan cards from
 /// `kPremiumPlans`, "Coming soon", nothing to act on.
 void main() {
   Future<void> openDialog(

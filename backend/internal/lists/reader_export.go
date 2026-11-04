@@ -9,7 +9,7 @@ import (
 // the list_id check and the header converter. Each is the same code GetList runs, exported rather than copied, so the three
 // RPCs cannot drift apart.
 
-// NotFoundError is the one NOT_FOUND of D3 (ADR-0030): byte-identical for a missing, private, hidden, blocking or inactive-owner
+// NotFoundError is the one NOT_FOUND of D3: byte-identical for a missing, private, hidden, blocking or inactive-owner
 // list. GetListTimeline returns it when Reader answers ErrNotFound, so the two RPCs match byte for byte.
 func NotFoundError() *apierr.Error { return notFound() }
 

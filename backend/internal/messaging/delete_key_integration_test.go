@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// DeleteConversation stores the digest of its idempotency_key as clearedKey.{caller} in the same update as clearedAt (ADR-0027
-// 2026-10-29 note): +0 reads, +0 writes. Given B deletes with K and the response is lost, then A sends a new message, which
+// DeleteConversation stores the digest of its idempotency_key as clearedKey.{caller} in the same update as clearedAt:
+// +0 reads, +0 writes. Given B deletes with K and the response is lost, then A sends a new message, which
 // recreates B's entry, then B retries with K: a replay, nothing written, B's entry intact and A's new message visible in
 // B's thread. Given B deletes again with a new key K2, then it is a real delete.
 func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {

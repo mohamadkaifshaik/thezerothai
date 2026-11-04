@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// The Vision attempt cap and the per-uid Vision-units cap (ADR-0029 Amendment 1 A5; revises, security H-3).
+// The Vision attempt cap and the per-uid Vision-units cap (revises, security H-3).
 //
 // Counters on the media doc, at +0 writes (A5.4):
 //   - screenAttempts counts CLAIMS. ClaimScreening increments it before any Vision call, so a lost release write or a dead instance cannot

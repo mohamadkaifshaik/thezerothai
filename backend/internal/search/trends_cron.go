@@ -10,10 +10,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// RefreshRunDeadline is the deadline of the standalone route (ADR-0028 D7).
+// RefreshRunDeadline is the deadline of the standalone route.
 const RefreshRunDeadline = 25 * time.Second
 
-// NewRefreshHandler is the `/internal/cron/trends-refresh` route (ADR-0028 D7): POST only, a 25 s deadline, panic
+// NewRefreshHandler is the `/internal/cron/trends-refresh` route: POST only, a 25 s deadline, panic
 // recovery, and 204 unless Refresh returns an error (the document read, the first page or the protected set failed;
 // nothing was written), which is 500. The refresher owns the budget counter and writes the trends_refresh line and the
 // Error Reporting entry. Mount it behind the OIDC verifier. It serves dev (a direct OIDC call; dev has no Scheduler

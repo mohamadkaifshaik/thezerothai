@@ -100,7 +100,7 @@ func TestClientIP_HopsConfigurable(t *testing.T) {
 
 // TestResolveClientIP_DirectPath: mobile calling Cloud Run directly — GFE appends exactly one entry, the
 // real client IP, at the rightmost position. It is not a recognized Google address, so it is trusted as-is
-// (M2, ADR-0006 §3 amendment).
+// (M2).
 func TestResolveClientIP_DirectPath(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Forwarded-For", "203.0.113.7")

@@ -136,7 +136,7 @@ func TestPutConv_NeverGoesBackwards(t *testing.T) {
 	}
 }
 
-// The revision only breaks ties (ADR-0027 note 2026-10-29): a late put of a pre-takedown copy (older updatedAt) is refused;
+// The revision only breaks ties: a late put of a pre-takedown copy (older updatedAt) is refused;
 // with an equal updatedAt the lower revision is refused and the higher kept; a newer updatedAt replaces even with a lower
 // revision.
 func TestPutConv_RevBreaksTiesOnly(t *testing.T) {

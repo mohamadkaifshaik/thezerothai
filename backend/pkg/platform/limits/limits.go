@@ -1,4 +1,4 @@
-// Package limits centralizes the page-size clamp every list RPC must apply (ADR-0003 rule 5:
+// Package limits centralizes the page-size clamp every list RPC must apply (
 // "page_size (0 => 20, max 50, larger values are clamped)") and the request-body size cap every Connect
 // handler applies (2026-09-27 security audit, informational finding).
 package limits

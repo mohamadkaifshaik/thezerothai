@@ -5,7 +5,7 @@ import '../../communities/presentation/communities_error_messages.dart';
 
 /// Friendly text for a failed ReportContent (shown inline in the report
 /// sheet; never the raw server message). NOT_FOUND has ONE wording for a
-/// missing, hidden, blocked or suspended target (ADR-0016: no oracle), and
+/// missing, hidden, blocked or suspended target (no oracle), and
 /// reporting yourself is a validation error with its own text.
 ///
 /// [notFoundMessage] lets a target name itself in the one NOT_FOUND text (the

@@ -1,4 +1,4 @@
-// purge.go is the right-to-delete and right-to-access path of the communities collections (ADR-0031 D9). Deleting
+// purge.go is the right-to-delete and right-to-access path of the communities collections. Deleting
 // users/{uid} removes none of communities/{cid}, its communityMembers or communityMemberships/{uid}, so the `communities`
 // account-deletion step (Eraser, registered BeforeIdentity after `poll_votes`) takes the user out of every community that names them,
 // and the `communities` export section writes what the user is entitled to see. Neither is flag-gated: documents outlive the flag.
@@ -116,7 +116,7 @@ func scrub(log []LogEntry, uid string) ([]LogEntry, int) {
 	return out, n
 }
 
-// PurgeCommunity takes uid out of community cid in ONE transaction (ADR-0031 D9). Reads, fresh: the community, uid's member doc, and,
+// PurgeCommunity takes uid out of community cid in ONE transaction. Reads, fresh: the community, uid's member doc, and,
 // when uid owns the community and has moderators, one memberships doc per candidate successor tried (at most 10; the account check is
 // identity.Directory, cache-first). It then
 //
@@ -249,7 +249,7 @@ type Checkpoint struct {
 	Archived    int    `json:"archived,omitempty"`
 }
 
-// Eraser is the `communities` account-deletion step (ADR-0031 D9): BeforeIdentity, resumable, idempotent, never flag-gated.
+// Eraser is the `communities` account-deletion step: BeforeIdentity, resumable, idempotent, never flag-gated.
 type Eraser struct {
 	repo      PagePurger
 	dir       identity.Directory
@@ -467,7 +467,7 @@ type (
 	}
 )
 
-// Export is the `communities` section (ADR-0031 D9). No other user's uid appears in it: no moderator ids, no log targets.
+// Export is the `communities` section. No other user's uid appears in it: no moderator ids, no log targets.
 type Export struct {
 	Joined            []ExportedJoined `json:"joined"`
 	Owned             []ExportedOwned  `json:"owned"`

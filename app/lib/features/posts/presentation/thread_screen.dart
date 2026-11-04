@@ -258,7 +258,7 @@ class _ThreadBodyState extends State<_ThreadBody> {
     final canReply = context.select(
       (ThreadCubit c) => !c.state.repliesDisabled,
     );
-    // Advisory (ADR-0021 I-4): only an explicit NOT_ALLOWED disables it.
+    // Advisory: only an explicit NOT_ALLOWED disables it.
     final replyBlocked = context.select((ThreadCubit c) {
       final focal = c.state.focal;
       return focal != null && replyKnownNotAllowed(focal);

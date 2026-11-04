@@ -2,7 +2,7 @@
 
 package apiserver
 
-// GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5) over the real Build chain on the emulators: the rows
+// GetUserTimeline tabs MEDIA and REPOSTS over the real Build chain on the emulators: the rows
 // and their order, the documented cold budget (24 reads at page 20, 54 at page 50: account-status interceptor 1, target
 // users 1, caller graph 1, one Limit(page) query, the caller's userLikes 1), the 20-read warm figure (no instance cache
 // for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules, asserted with

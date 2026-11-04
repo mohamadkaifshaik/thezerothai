@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// ForbiddenReason is the metadata["reason"] of PERMISSION_DENIED + ERROR_REASON_FORBIDDEN (ADR-0031 D4, N1; communities.proto).
+// ForbiddenReason is the metadata["reason"] of PERMISSION_DENIED + ERROR_REASON_FORBIDDEN (communities.proto).
 // Clients show one fixed message per reason. FORBIDDEN is never an account suspension (that is ACCOUNT_RESTRICTED).
 type ForbiddenReason string
 
@@ -26,7 +26,7 @@ const (
 	ReasonNotCreator ForbiddenReason = "not_creator"
 )
 
-// StateReason is the metadata["reason"] of FAILED_PRECONDITION + ERROR_REASON_COMMUNITY_STATE (ADR-0031 D4, N6).
+// StateReason is the metadata["reason"] of FAILED_PRECONDITION + ERROR_REASON_COMMUNITY_STATE.
 type StateReason string
 
 const (

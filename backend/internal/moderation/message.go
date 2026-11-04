@@ -1,6 +1,6 @@
-// message.go is moderation's side of "report a message" (ADR-0027 D12): the target type, the one parser of
+// message.go is moderation's side of "report a message": the target type, the one parser of
 // the `<convId>:<msgId>` target id, and the consumer-side seam through which moderation reaches a message. moderation
-// never reads conversations/* or messages itself (ADR-0027 D11): messaging implements MessageLookup and the composition
+// never reads conversations/* or messages itself: messaging implements MessageLookup and the composition
 // root adapts it.
 package moderation
 
@@ -20,7 +20,7 @@ import (
 const TargetMessage TargetType = "MESSAGE"
 
 // MessagingFlagName is the wire name of FEATURE_MESSAGING (messaging.FlagName; moderation does not import messaging).
-// A report of a message needs it not globally off (ADR-0027 D6, F6): a user dropped from the allowlist can still report.
+// A report of a message needs it not globally off: a user dropped from the allowlist can still report.
 const MessagingFlagName = "messaging"
 
 // messageTargetPattern is the one shape of a MESSAGE target_id: the conversation id and the message id, 32 lower-case hex
@@ -47,7 +47,7 @@ type ReportedMessage struct {
 	SenderUID string
 	// SenderHandle is the sender's handle, or "" when the sender is no longer ACTIVE (the thread still shows the message).
 	SenderHandle string
-	// Text is the message text: private content, kept as evidence only (ADR-0016 note 2026-10-28).
+	// Text is the message text: private content, kept as evidence only.
 	Text string
 	// CreatedAt is the time the message was sent.
 	CreatedAt time.Time
@@ -64,7 +64,7 @@ var (
 	ErrOwnMessage = errors.New("moderation: own message")
 )
 
-// MessageLookup is the consumer-side seam to messaging (ADR-0027 D12, D15). ReportableMessage answers whether callerUID
+// MessageLookup is the consumer-side seam to messaging. ReportableMessage answers whether callerUID
 // is a participant of the conversation and the message is the peer's and VISIBLE, and returns its evidence. It returns
 // ErrMessageNotFound (one cause, one answer) or ErrOwnMessage, or an infrastructure error. It checks no flag: the caller's
 // flag rules (reports on, messaging not globally off) are the handler's. Firestore, worst case: conversation 1 (instance
@@ -73,7 +73,7 @@ type MessageLookup interface {
 	ReportableMessage(ctx context.Context, callerUID, convID, msgID string) (ReportedMessage, error)
 }
 
-// messageNotFound is the one NOT_FOUND of a message report (ADR-0027 D11: byte-identical for every cause).
+// messageNotFound is the one NOT_FOUND of a message report (byte-identical for every cause).
 func messageNotFound() *apierr.Error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "message not found")
 }

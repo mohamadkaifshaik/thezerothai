@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Frame-sampled GIF screening (ADR-0029 D11, F11 a). Cloud Vision looks at the first frame of an animated
+// Frame-sampled GIF screening (F11 a). Cloud Vision looks at the first frame of an animated
 // GIF only, so FinalizeUpload builds a contact sheet of up to four sampled frames (t = 0, T/3, 2T/3 and always the last frame) and sends it by bytes.
 //
 // The code here is pure (bytes in, JPEG out, no I/O, no globals) so it can move to a separate job unchanged. It has
@@ -22,7 +22,7 @@ import (
 // the live memory is the file, two canvases and one frame, whatever the frame count. See gifscreen.go for the
 // semaphore, the deadlines and the worst-case memory.
 
-// Sheet geometry: Google recommends 640 x 480 for SAFE_SEARCH_DETECTION (ADR-0029 F11 point 3).
+// Sheet geometry: Google recommends 640 x 480 for SAFE_SEARCH_DETECTION (point 3).
 const (
 	gifTileW     = 640
 	gifTileH     = 480

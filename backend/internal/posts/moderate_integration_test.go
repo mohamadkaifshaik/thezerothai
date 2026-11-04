@@ -30,7 +30,7 @@ func storedModeration(t *testing.T, repo *FirestoreRepo, id string) Moderation {
 	return Moderation(d.Moderation)
 }
 
-// TestModerator_TakedownRestoreBudgets covers ADR-0016 D3/D4 for one post: 1 read + 1 write, no-ops are 0 writes,
+// TestModerator_TakedownRestoreBudgets covers one post: 1 read + 1 write, no-ops are 0 writes,
 // a suspension-hidden post is upgraded to TAKEN_DOWN and is not restored by restore-post's SUSPENDED rule.
 func TestModerator_TakedownRestoreBudgets(t *testing.T) {
 	client := newTestClient(t)
@@ -180,7 +180,7 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 	}
 }
 
-// TestModerator_HideAuthorSince: the settle pass (ADR-0016 D4) pages only posts with createdAt >= Since, so a post
+// TestModerator_HideAuthorSince: the settle pass pages only posts with createdAt >= Since, so a post
 // created after the first pass read its page is hidden at the cost of the recent window, not the whole history.
 func TestModerator_HideAuthorSince(t *testing.T) {
 	client := newTestClient(t)
@@ -274,7 +274,7 @@ func storedRemoval(t *testing.T, repo *FirestoreRepo, id string) (RemovalState, 
 	return RemovalState(d.State), d.CreatedAt, true
 }
 
-// TestModerator_RemovalLogFollowsEveryHideAndRestore (ADR-0016 D10): every hide and every un-hide writes the post's
+// TestModerator_RemovalLogFollowsEveryHideAndRestore: every hide and every un-hide writes the post's
 // postRemovals entry in the same transaction or batch as the moderation field; no-ops write nothing; a re-run of
 // suspend-user's hide writes nothing new; a restore overwrites with RESTORED and a later createdAt (a warm
 // instance's incremental query would never see a delete).

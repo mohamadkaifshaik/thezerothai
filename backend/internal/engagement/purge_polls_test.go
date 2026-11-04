@@ -127,7 +127,7 @@ func TestPollVoteExporter_ExportUser(t *testing.T) {
 	}
 }
 
-// The export row gains changedAt only for a vote that was changed (ADR-0029 Amendment 1 A2.6); the current choice is exported, never an earlier one.
+// The export row gains changedAt only for a vote that was changed; the current choice is exported, never an earlier one.
 func TestPollVoteExporter_ChangedAt(t *testing.T) {
 	at := time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC)
 	two := 2

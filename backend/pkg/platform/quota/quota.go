@@ -1,4 +1,4 @@
-// Package quota implements the per-user daily quotas at quotas/{uid} (ADR-0003, ADR-0006 §4). The
+// Package quota implements the per-user daily quotas at quotas/{uid}. The
 // mutating RPC reads the doc inside its own transaction (1 read), rejects RESOURCE_EXHAUSTED if the
 // caller is already at the limit, and appends the updated counters to the same atomic batch/transaction
 // it's already using for the entity write (1 write, no extra round trip).
@@ -31,43 +31,43 @@ const (
 	Follows Kind = "follows"
 	Uploads Kind = "uploads"
 	Exports Kind = "exports"
-	// Blocks counts both Block and Mute calls (ADR-0008 D7): they share one daily counter. Unblock/Unmute
+	// Blocks counts both Block and Mute calls: they share one daily counter. Unblock/Unmute
 	// are never quota-gated.
 	Blocks Kind = "blocks"
-	// Reports counts ReportContent calls that wrote a report (ADR-0016). A repeat report is a no-op and is not
+	// Reports counts ReportContent calls that wrote a report. A repeat report is a no-op and is not
 	// charged.
 	Reports Kind = "reports"
-	// Likes counts LikePost calls that wrote a like (ADR-0018 D3). A replay is not charged; Unlike never is.
+	// Likes counts LikePost calls that wrote a like. A replay is not charged; Unlike never is.
 	Likes Kind = "likes"
 	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
-	// avatar), / ADR-0003: 5 per day.
+	// avatar), /: 5 per day.
 	SnapshotEdits Kind = "snapshotEdits"
-	// Schedules counts SchedulePost calls that wrote a scheduled doc (ADR-0021 D4, review L-4). A replay is not
+	// Schedules counts SchedulePost calls that wrote a scheduled doc (review L-4). A replay is not
 	// charged; CancelScheduledPost and ListScheduledPosts never are. The posts quota is charged at publish, not here.
 	Schedules Kind = "schedules"
-	// Bookmarks counts AddBookmark calls that wrote a bookmark (ADR-0023 D4). A replay and an already bookmarked post
+	// Bookmarks counts AddBookmark calls that wrote a bookmark. A replay and an already bookmarked post
 	// are not charged; RemoveBookmark and ListBookmarks never are.
 	Bookmarks Kind = "bookmarks"
-	// PrivacyToggles counts UpdateProfile is_private changes in both directions (ADR-0025 D8). An is_private equal to the
+	// PrivacyToggles counts UpdateProfile is_private changes in both directions. An is_private equal to the
 	// stored value is not charged. A follow request counts under Follows, not here.
 	PrivacyToggles Kind = "privacyToggles"
-	// DMNew counts new direct-message conversations the caller opened (ADR-0027 D13): charged in the SendMessage
+	// DMNew counts new direct-message conversations the caller opened: charged in the SendMessage
 	// transaction that creates the conversation. Messages in an existing conversation are not charged here.
 	DMNew Kind = "dmNew"
-	// ListCreates counts CreateList calls that wrote a list (ADR-0030 D10). A replay is not charged; UpdateList, DeleteList and
+	// ListCreates counts CreateList calls that wrote a list. A replay is not charged; UpdateList, DeleteList and
 	// SetHomeTabs never are.
 	ListCreates Kind = "listCreates"
-	// ListAdds counts AddListMember calls that added a member (ADR-0030 D10). A replay and an already-present member are not
+	// ListAdds counts AddListMember calls that added a member. A replay and an already-present member are not
 	// charged; RemoveListMember never is.
 	ListAdds Kind = "listAdds"
-	// CommunityJoins counts JoinCommunity calls that added a membership (ADR-0031 D11). A replay and an already-joined community are not
+	// CommunityJoins counts JoinCommunity calls that added a membership. A replay and an already-joined community are not
 	// charged; LeaveCommunity never is.
 	CommunityJoins Kind = "communityJoins"
-	// CommunityPosts counts CreatePost calls into a community (ADR-0031 D11), on top of the posts quota; a replay is not charged.
+	// CommunityPosts counts CreatePost calls into a community, on top of the posts quota; a replay is not charged.
 	CommunityPosts Kind = "communityPosts"
 )
 
-// istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at (ADR-0003).
+// istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at.
 var ist = time.FixedZone("IST", 5*3600+30*60)
 
 // Today returns the current quota day key ("YYYY-MM-DD") in IST.
@@ -93,36 +93,36 @@ type Record struct {
 	Follows int64  `firestore:"follows"`
 	Uploads int64  `firestore:"uploads"`
 	Exports int64  `firestore:"exports"`
-	// Blocks counts Block + Mute calls (ADR-0008 D7).
+	// Blocks counts Block + Mute calls.
 	Blocks int64 `firestore:"blocks"`
-	// Reports counts ReportContent writes (ADR-0016). Absent in older docs, so it decodes as 0.
+	// Reports counts ReportContent writes. Absent in older docs, so it decodes as 0.
 	Reports int64 `firestore:"reports"`
-	// Likes counts LikePost writes (ADR-0018). Absent in older docs, so it decodes as 0.
+	// Likes counts LikePost writes. Absent in older docs, so it decodes as 0.
 	Likes int64 `firestore:"likes"`
 	// SnapshotEdits counts snapshot-affecting profile edits.
 	SnapshotEdits int64 `firestore:"snapshotEdits"`
-	// Schedules counts SchedulePost writes (ADR-0021 D4). Absent in older docs, so it decodes as 0. CheckAndReserveN
+	// Schedules counts SchedulePost writes. Absent in older docs, so it decodes as 0. CheckAndReserveN
 	// Sets the whole record, so a revision built without this field zeroes it on that user's next quota'd call
-	// (ADR-0021 review I-3): a persistent counter must never live here.
+	// (review I-3): a persistent counter must never live here.
 	Schedules int64 `firestore:"schedules"`
-	// Bookmarks counts AddBookmark writes (ADR-0023 D4). Absent in older docs, so it decodes as 0. Like Schedules it lives
-	// in the Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	// Bookmarks counts AddBookmark writes. Absent in older docs, so it decodes as 0. Like Schedules it lives
+	// in the Record so the whole-record Set of CheckAndReserveN never zeroes it.
 	Bookmarks int64 `firestore:"bookmarks"`
-	// PrivacyToggles counts is_private changes (ADR-0025 D8). Absent in older docs, so it decodes as 0. It lives in the
-	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	// PrivacyToggles counts is_private changes. Absent in older docs, so it decodes as 0. It lives in the
+	// Record so the whole-record Set of CheckAndReserveN never zeroes it.
 	PrivacyToggles int64 `firestore:"privacyToggles"`
-	// DMNew counts new conversations opened (ADR-0027 D13). Absent in older docs, so it decodes as 0. It lives in the
-	// Record so the whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	// DMNew counts new conversations opened. Absent in older docs, so it decodes as 0. It lives in the
+	// Record so the whole-record Set of CheckAndReserveN never zeroes it.
 	DMNew int64 `firestore:"dmNew"`
-	// ListCreates counts CreateList writes (ADR-0030 D10). Absent in older docs, so it decodes as 0. It lives in the Record so the
-	// whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	// ListCreates counts CreateList writes. Absent in older docs, so it decodes as 0. It lives in the Record so the
+	// whole-record Set of CheckAndReserveN never zeroes it.
 	ListCreates int64 `firestore:"listCreates"`
-	// ListAdds counts AddListMember writes (ADR-0030 D10); same rule as ListCreates.
+	// ListAdds counts AddListMember writes; same rule as ListCreates.
 	ListAdds int64 `firestore:"listAdds"`
-	// CommunityJoins counts JoinCommunity writes (ADR-0031 D11). Absent in older docs, so it decodes as 0. It lives in the Record so the
-	// whole-record Set of CheckAndReserveN never zeroes it (ADR-0021 I-3).
+	// CommunityJoins counts JoinCommunity writes. Absent in older docs, so it decodes as 0. It lives in the Record so the
+	// whole-record Set of CheckAndReserveN never zeroes it.
 	CommunityJoins int64 `firestore:"communityJoins"`
-	// CommunityPosts counts CreatePost calls into a community (ADR-0031 D11); same rule as CommunityJoins.
+	// CommunityPosts counts CreatePost calls into a community; same rule as CommunityJoins.
 	CommunityPosts int64 `firestore:"communityPosts"`
 }
 
@@ -258,7 +258,7 @@ func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kin
 
 // CheckAndReserveBoth reserves one unit of each of two kinds in ONE whole-record Set (CheckAndReserve called twice with the same rec
 // would write the second copy without the first increment, losing a unit). CreatePost into a community uses it for posts and
-// communityPosts (ADR-0031 D11), so the extra quota costs +0 writes. first is checked first: when both are over, first's error wins.
+// communityPosts, so the extra quota costs +0 writes. first is checked first: when both are over, first's error wins.
 func CheckAndReserveBoth(b store.Batch, ref *firestore.DocumentRef, rec Record, first Kind, firstLimit int64, second Kind, secondLimit int64) error {
 	if rec.valueFor(first)+1 > firstLimit {
 		return ExceededError(first, time.Now())
@@ -274,7 +274,7 @@ func CheckAndReserveBoth(b store.Batch, ref *firestore.DocumentRef, rec Record, 
 
 // ExceededError is the RESOURCE_EXHAUSTED / QUOTA_EXCEEDED error for kind at instant now, retry-after the next IST
 // midnight. CheckAndReserveN returns it; a module that remembers "this uid is out of quota until midnight" in its
-// instance cache (moderation, ADR-0016) builds the identical error from it without a Firestore read.
+// instance cache (moderation) builds the identical error from it without a Firestore read.
 func ExceededError(kind Kind, now time.Time) *apierr.Error {
 	return apierr.New(
 		connect.CodeResourceExhausted,
@@ -283,8 +283,8 @@ func ExceededError(kind Kind, now time.Time) *apierr.Error {
 	).WithMeta("quota", metaName(kind)).WithRetryAfter(UntilNextDay(now))
 }
 
-// metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where the ADR names
-// a snake_case wire value (ADR-0025 D8: privacy_toggles; ADR-0030 D10 and lists.proto: list_creates, list_adds; ADR-0031 D11 and communities.proto: community_joins, community_posts). Existing kinds keep
+// metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where
+// a snake_case wire value is fixed (privacy_toggles; lists.proto: list_creates, list_adds; communities.proto: community_joins, community_posts). Existing kinds keep
 // their field name.
 func metaName(kind Kind) string {
 	switch kind {

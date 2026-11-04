@@ -28,7 +28,7 @@ func registry(mode flags.Mode, percent int) *flags.Registry {
 	})
 }
 
-// rpcs lists the six service methods with the flag class each belongs to (ADR-0027 D6). With the flag open, an empty
+// rpcs lists the six service methods with the flag class each belongs to. With the flag open, an empty
 // request reaches the RPC's own validation: an open gate is "an answer that is not FEATURE_DISABLED".
 var rpcs = []struct {
 	name      string

@@ -38,7 +38,7 @@ type createInstance struct {
 	identity identity.Service
 	cache    *Cache
 	// cold leaves the author's profile uncached for the next create. By default create() first warms it outside
-	// the measured call: a successful CreatePost evicts the author's profile (Directory.Forget, ADR-0008 B2), so
+	// the measured call: a successful CreatePost evicts the author's profile (Directory.Forget), so
 	// the NEXT request on that instance pays the interceptor's read; the budget assertions model the warm
 	// steady state the documented "2 warm" refers to.
 	cold bool
@@ -150,7 +150,7 @@ func fieldInt(t *testing.T, client *firestore.Client, path, field string) int64 
 
 func key(i int) string { return fmt.Sprintf("key-%012d", i) }
 
-// TestCreate_Integration_ShapeCountersAndBudget: the ADR-0003 post shape, users.postsCount +1, quotas.posts +1 and
+// TestCreate_Integration_ShapeCountersAndBudget: the post shape, users.postsCount +1, quotas.posts +1 and
 // exactly one idempotency doc with expireAt 24 h out; the call stays within the documented budget.
 func TestCreate_Integration_ShapeCountersAndBudget(t *testing.T) {
 	client := newTestClient(t)
@@ -412,7 +412,7 @@ func TestCreate_Integration_ElevenMentions(t *testing.T) {
 }
 
 // TestCreate_Integration_RetriedAttemptDrawsAFreshID: when the first transaction attempt aborts, the committed
-// post's id and createdAt come from the retrying attempt (ADR-0010 D13/D18).
+// post's id and createdAt come from the retrying attempt.
 func TestCreate_Integration_RetriedAttemptDrawsAFreshID(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
@@ -543,7 +543,7 @@ func TestCreate_Integration_QuotaRollsOverAtISTMidnight(t *testing.T) {
 	}
 }
 
-// TestCreate_Integration_MentionsD6Matrix (audit #14, ADR-0010 D6 CreatePost column): whatever the author's relationship
+// TestCreate_Integration_MentionsD6Matrix (audit #14): whatever the author's relationship
 // to the mentioned user, the mention is stored unchanged (M2: no block/privacy oracle) and the author graph is never
 // read: one handle read + idempotency + quotas = 3 reads.
 func TestCreate_Integration_MentionsD6Matrix(t *testing.T) {
@@ -596,7 +596,7 @@ func TestCreate_Integration_MentionsD6Matrix(t *testing.T) {
 	}
 }
 
-// TestCreate_Integration_StoredMentionsAndHashtagsTable (audit #19, D17): the ADR-0010 D7/D8 example rows end to end,
+// TestCreate_Integration_StoredMentionsAndHashtagsTable (audit #19, D17): the example rows end to end,
 // reading the stored postDoc (not the parser output), plus the stored text.
 func TestCreate_Integration_StoredMentionsAndHashtagsTable(t *testing.T) {
 	var eleven, elevenTags []string

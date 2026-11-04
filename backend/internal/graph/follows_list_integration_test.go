@@ -1,7 +1,7 @@
 //go:build integration
 
 // follows_list_integration_test.go exercises ListFollowers/ListFollowing against the Firestore emulator
-// (ADR-0008 acceptance criteria and budgets).
+// (acceptance criteria and budgets).
 package graph_test
 
 import (

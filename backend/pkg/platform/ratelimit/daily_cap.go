@@ -12,14 +12,14 @@ import (
 const maxTrackedDailyKeys = 100_000
 
 // DailyCap is an in-memory, per-instance, per-key counter that resets at the IST calendar-day boundary
-// (quota.TodayAt) rather than continuously refilling like Limiter's token bucket (ADR-0008 D7/: "an
-// extension of the existing limiter... don't write a second limiter" — this reuses the same cache.LRU
+// (quota.TodayAt) rather than continuously refilling like Limiter's token bucket (an
+// extension of the existing limiter, not a second limiter: it reuses the same cache.LRU
 // building block Limiter itself is built on, just with day-boundary semantics a token bucket cannot
 // express). It counts calls (Allow) or arbitrary units such as Firestore reads (Reserve + Charge, the
-// ADR-0010 D5 read budget) against the same per-key counter. Approximate by design: the bound is per instance
+// Read budget) against the same per-key counter. Approximate by design: the bound is per instance
 // LIFETIME, not per day. The counter lives in memory, so it resets whenever a Cloud Run instance scales to zero
 // and a new one starts, and a key can touch several lifetimes in one IST day (3 on a steady day, up to 6 on a
-// rollout day, many more if an attacker idle-cycles instances; ADR-0010 D5 "Residual risk" R1/R2). In one
+// rollout day, many more if an attacker idle-cycles instances). In one
 // lifetime a unit budget never passes limit - 1 + M (A1), e.g. 2,268 for the uid read budget of 2,000. The
 // same accepted trade-off as every other in-memory limiter here (no Redis at Stage 0).
 type DailyCap struct {
@@ -55,7 +55,7 @@ func NewDailyCap(limit int64) *DailyCap {
 }
 
 // WithMaxCallReads sets one call's worst-case units so Reserve can keep a single call in flight near the
-// cap (ADR-0010 D5, M1) and returns d.
+// cap and returns d.
 func (d *DailyCap) WithMaxCallReads(n int64) *DailyCap {
 	d.maxCallReads = n
 	return d
@@ -112,12 +112,12 @@ func (d *DailyCap) AllowN(key string, n int64) bool {
 	return true
 }
 
-// Reserve admits one call for key and reports the units spent today, for the ADR-0010 D5 unit budget
+// Reserve admits one call for key and reports the units spent today, for the unit budget
 // (Firestore reads): the check runs before the call and the actual cost is charged after by Release.
 //
 // It rejects (ok=false) when spent >= limit (the cap is reached: the caller retries at IST midnight) and,
-// once WithMaxCallReads (M) is set, also when inflight > 0 and spent + (inflight+1) * M > limit (ADR-0010 D5
-// A1: every in-flight call is assumed to spend M, so the invariant spent + inflight * M <= limit - 1 + M
+// once WithMaxCallReads (M) is set, also when inflight > 0 and spent + (inflight+1) * M > limit (every in-flight call
+// is assumed to spend M, so the invariant spent + inflight * M <= limit - 1 + M
 // holds at any concurrency and the counter never passes limit - 1 + M; the caller retries in about a
 // second, see IsTransient). An admitted call must be settled with exactly one Release.
 func (d *DailyCap) Reserve(key string) (ok bool, spent int64) {

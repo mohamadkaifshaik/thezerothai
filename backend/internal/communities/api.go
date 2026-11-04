@@ -1,7 +1,7 @@
-// Package communities is the Communities module (ADR-0031): public places where people who need not follow each other post about
+// Package communities is the Communities module: public places where people who need not follow each other post about
 // one interest, under rules that the community's own owner and moderators enforce inside the community view only. It owns the
 // communities/{cid} collection, its communityMembers subcollection and communityMemberships/{uid}, and
-// dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in model.go and this file (ADR-0031 D1):
+// dzeroth.communities.v1.CommunityService. Other modules reach it through the interfaces in model.go and this file:
 // communities.Reader for reads (Get, Role, Memberships); posts never imports this module (posts.CommunityGate and
 // posts.CommunityModerator are seams declared in posts).
 //
@@ -13,7 +13,7 @@
 // and ListMyCommunities (service_membership.go, repo_membership.go, the member-doc cache and Reader). The directory
 // and member list (service_directory.go, repo_directory.go, server_directory.go, the Directory seam) and the posting gate
 // (gate.go, repo_gate.go, PostGate implements posts.CommunityGate: Admit, CheckMember, AllowPost, CanReply, IsMember) are built.
-// The feed (timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator, ADR-0031 N9: communities never imports posts) are built.
+// The feed (timeline.Server.GetCommunityTimeline, in the timeline module, reading through Reader) and moderation (service_moderation.go, repo_moderation.go, server_moderation.go, consumer-side PostModerator: communities never imports posts) are built.
 package communities
 
 import (
@@ -25,7 +25,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// FlagName is the wire name of FEATURE_COMMUNITIES (ADR-0031 D10), the `feature` metadata of FEATURE_DISABLED and the string in
+// FlagName is the wire name of FEATURE_COMMUNITIES, the `feature` metadata of FEATURE_DISABLED and the string in
 // GetMe.enabled_features. timeline.GetCommunityTimeline and posts.CreatePost (community_id) gate on the same name.
 const FlagName = "communities"
 
@@ -37,7 +37,7 @@ type FlagChecker interface {
 }
 
 // Guard is the flag gate every CommunityService method (and timeline's GetCommunityTimeline) runs before any Firestore access
-// (ADR-0031 D10: one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with
+// (one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with
 // metadata feature=communities and 0 reads. A nil checker is off for everyone.
 func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, FlagName)
@@ -52,7 +52,7 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	return err
 }
 
-// Reader is the read seam other modules and the handlers use (ADR-0031 D1): everything cached on this instance for at most 60 s (D12), so
+// Reader is the read seam other modules and the handlers use: everything cached on this instance for at most 60 s (D12), so
 // a write elsewhere reaches a caller within that bound and this instance's own writes refresh the entries at once. timeline,
 // posts' CommunityGate (its member lookups use the cached MemberState) and moderation reach communities through it; *service implements it, next to Service.
 type Reader interface {

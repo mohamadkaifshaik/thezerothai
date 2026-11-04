@@ -20,7 +20,7 @@ import (
 
 func skey(n int) string { return fmt.Sprintf("send-key-%08d", n) }
 
-// ADR-0027 "Cost impact" per RPC, minus the account-status interceptor's read, which the Connect chain adds (the
+// "Cost impact" per RPC, minus the account-status interceptor's read, which the Connect chain adds (the
 // apiserver chain tests assert the full 5 / 7). Here only the repo's own reads count: the directory and graph are fakes.
 
 // Mutual follows: the message lands in B's dmInbox with unreadCount 1 and one `message` event leaves; 3 writes.

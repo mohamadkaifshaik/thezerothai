@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:http/http.dart' as http;
 
-/// Whether the API is reachable (ADR-0022: the founder removes the public
+/// Whether the API is reachable (the founder removes the public
 /// invoker to pause, and Google's front end then answers HTTP 403).
 enum ServicePauseStatus { running, paused, checking }
 

@@ -17,16 +17,16 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
   /// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
   /// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
-  /// at once on every instance; ADR-0027 note),
+  /// at once on every instance),
   /// the recipient is not ACTIVE or has messaging off, the conversation is gone (the peer deleted the account).
   /// Routing: a new conversation is ACCEPTED when the two follow each other, else REQUEST (the recipient's entry goes
   /// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
   /// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
   /// recipient muted the caller => delivered silently (no unread increment, no push).
-  /// Idempotency (ADR-0027 D2, the ADR-0021 bend of rules 1 and 4): the message id is derived from (caller,
+  /// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
   /// idempotency_key) and Created in the send transaction, so a retry returns the stored message with 0 writes; the
   /// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
-  /// Caps (ADR-0027 D13): RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
+  /// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
   /// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
   /// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
   /// exact (quotas/{uid}.dmNew, in the transaction) => LIMIT_REACHED "dm_new_daily"; MESSAGES_REQUEST_MAX_UNANSWERED 3,
@@ -34,7 +34,7 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// Push: after the commit one `message` event through notifications.Emitter (one Pub/Sub publish, 0 Firestore on
   /// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
   /// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
-  /// Firestore (ADR-0027 Cost impact): accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
+  /// Firestore: accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
   /// users via the directory, conversation and recipient graph in the transaction), planning 3.5; writes 3 (message,
   /// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ the recipient's users doc in the transaction, quotas),
   /// writes 5 (message, conversation, 2 entries, quotas.dmNew). Replay +1 read (the stored message), 0 writes.
@@ -96,7 +96,7 @@ extension type MessagingServiceClient (connect.Transport _transport) {
   /// gone), and can_reply is false.
   /// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
   /// gap_page_token (bounded below by the old since_token).
-  /// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
+  /// Client polling: only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
   /// quiet, stopped after 5 min idle or when hidden; a push for the conversation triggers an immediate pull; a
   /// RATE_LIMITED answer pauses polling.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),

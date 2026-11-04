@@ -1,5 +1,5 @@
 // follow_requests.go is the service layer of ListFollowRequests, RespondToFollowRequest and the pending-request count
-// (ADR-0025 D7, AQ3), plus the PROTECTED_ACCOUNT rule of the follower and following lists (D5). The D12
+// Plus the PROTECTED_ACCOUNT rule of the follower and following lists (D5). The D12
 // gate (follow_requests_gate.go) comes first in both RPCs; accept and decline are undo-class and never need
 // FEATURE_PRIVATE_ACCOUNTS from a protected caller. The accept transaction is repo_requests.go.
 package graph
@@ -23,7 +23,7 @@ import (
 // requestsBinding seals a ListFollowRequests token to the caller and the list (24 h TTL, the cursor package default).
 func requestsBinding(callerUID string) string { return callerUID + "|follow-requests" }
 
-// ListFollowRequests (ADR-0025 D7): the caller's incoming requests, newest first, page 20 by default and 50 at most.
+// ListFollowRequests: the caller's incoming requests, newest first, page 20 by default and 50 at most.
 // Rows are hydrated through identity.Directory; requesters who are not ACTIVE, whom the caller blocks or who block the
 // caller are dropped (a short page keeps its token), and each row carries the caller's relationship to the requester
 // from the snapshot already held. The cursor is graph's list cursor, bound to `caller|follow-requests`; a foreign,
@@ -53,7 +53,7 @@ func (s *service) ListFollowRequests(ctx context.Context, callerUID string, page
 	return s.edgePage(ctx, callerUID, snap, edges, size, requestsBinding(callerUID), func(e Edge) string { return e.FollowerID })
 }
 
-// RespondToFollowRequest (ADR-0025 D7): accept or decline the pending request from requesterUID. Validation order: gate,
+// RespondToFollowRequest: accept or decline the pending request from requesterUID. Validation order: gate,
 // idempotency key format (validated, not stored: the request doc is the state), requester id, self. Then one transaction
 // (Repo.RespondToRequest). After an accept: the requester's snapshot, the edge answer and the directory counters are
 // dropped on this instance, and FollowRequestAccepted is reported (never Followed; a decline reports nothing). The
@@ -119,7 +119,7 @@ func (s *service) RespondToFollowRequest(ctx context.Context, callerUID, idempot
 	return relationshipFor(snap, requesterUID), nil
 }
 
-// PendingFollowRequests implements identity.FollowRequestCounter (ADR-0025 AQ3): the number of requests addressed to uid,
+// PendingFollowRequests implements identity.FollowRequestCounter: the number of requests addressed to uid,
 // capped at 1,000. Not flag-gated: GetMe asks only for a protected caller, and identity caches the answer 30 s.
 // Firestore: 1 read, 0 writes.
 func (s *service) PendingFollowRequests(ctx context.Context, uid string) (int64, error) {
@@ -130,7 +130,7 @@ func (s *service) PendingFollowRequests(ctx context.Context, uid string) (int64,
 	return n, nil
 }
 
-// refuseProtectedList is the ADR-0025 D5 rule for ListFollowers and ListFollowing: the lists of a protected account are
+// refuseProtectedList is the rule for ListFollowers and ListFollowing: the lists of a protected account are
 // visible to that account and to the viewers who follow it; anyone else gets FAILED_PRECONDITION PROTECTED_ACCOUNT before
 // any page read. It runs on the caller's snapshot already held and asks the protected set only for a viewer who is
 // neither the target nor a follower (0 reads: the set is a detached instance cache). The answer comes from the set

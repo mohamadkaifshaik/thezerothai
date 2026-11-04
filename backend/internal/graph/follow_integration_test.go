@@ -79,8 +79,8 @@ func TestFollow_Integration_Replay(t *testing.T) {
 }
 
 // A double-click or a client retry is 2-3 identical Follow calls on one pair of docs. Racing them on the emulator can
-// legitimately make a call answer with the retryable UNAVAILABLE (ADR-0008 D1: retries exhausted after losing lock
-// races; nothing was written), so that is an accepted outcome, as in TestT16a_Race_ConcurrentDuplicateBlocksAndMutes.
+// legitimately make a call answer with the retryable UNAVAILABLE (retries exhausted after losing lock races; nothing was written),
+// so that is an accepted outcome, as in TestT16a_Race_ConcurrentDuplicateBlocksAndMutes.
 // What must hold is the invariant: at least one call commits, every other answer is success or UNAVAILABLE, and the
 // edge exists exactly once (FollowingCount == 1). A phase where every call was UNAVAILABLE proves nothing about
 // concurrency, so it is retried once on a fresh pair; a second such phase fails the test (issue #284).
@@ -132,7 +132,7 @@ func TestFollow_Integration_BlockedByTarget_NotFound(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
-	// b blocked a: a's own blockedBy contains b (ADR-0008 D2).
+	// b blocked a: a's own blockedBy contains b.
 	seedBlock(t, w.client, "uid-b", "uid-a")
 
 	_, err := w.graph.Follow(context.Background(), "uid-a", "fedcba9876543210", "uid-b")
@@ -161,7 +161,7 @@ func TestFollow_Integration_CallerBlocksTarget_TargetBlocked(t *testing.T) {
 	}
 }
 
-// TestIsBlockedBy_Integration_OverflowFallback (ADR-0008 D2): a caller with BlockedByOverflow=true still
+// TestIsBlockedBy_Integration_OverflowFallback: a caller with BlockedByOverflow=true still
 // gets NOT_FOUND on Follow when the target's own .blocked array (not the caller's incomplete blockedBy)
 // contains the caller — the fail-closed path, +1 read.
 func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {

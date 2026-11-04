@@ -1,6 +1,6 @@
-// Package apiserver is the dzeroth monolith's composition root (ADR-0002): it wires every registered
+// Package apiserver is the dzeroth monolith's composition root: it wires every registered
 // module's Connect handler, /health (+ /healthz alias) and /internal/* onto one *http.ServeMux with the full interceptor
-// chain (ADR-0006 §2). cmd/api/main.go calls Build at startup; backend/e2e also calls it directly to boot
+// chain. cmd/api/main.go calls Build at startup; backend/e2e also calls it directly to boot
 // the exact same handler inside an httptest.Server against the Firebase Emulator Suite.
 //
 // This package exists only because Go cannot import a `package main` from another package ("is a
@@ -70,8 +70,8 @@ import (
 // just these two bare entries.
 var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 
-// Build wires every module's Connect handler plus /health and /internal/* into one handler (ADR-0002: one
-// process, one mux, one cold start). The caller owns closing the returned *firestore.Client (e.g. defer).
+// Build wires every module's Connect handler plus /health and /internal/* into one handler (one process, one mux, one cold start).
+// The caller owns closing the returned *firestore.Client (e.g. defer).
 //
 // The return type is http.Handler, not *http.ServeMux: Firebase Hosting forwards `/api/**` to Cloud Run
 // unchanged (firebase.json), so every route below is also mounted under an `/api` prefix (B1) by wrapping
@@ -81,15 +81,15 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 // support / httptest.NewServer), so nothing downstream needs ServeMux itself.
 //
 // Full per-request pipeline, outermost to innermost (document any change here in the PR body — it's the
-// ADR-0006 §2 order plus the plain-net/http layers M1/hardening added in front of it):
+// order plus the plain-net/http layers M1/hardening added in front of it):
 //
 //	CORS -> PreAuthIPMiddleware (M1: coarse per-IP flood backstop, pre-auth) -> MaxBytesHandler (hardening)
 //	  -> [mux dispatch: /health | /internal/* | a module's Connect handler, each connect.WithReadMaxBytes'd]
 //	    -> logging -> recover -> App Check -> ID token -> rate limit (fine-grained, per-uid/IP, post-auth)
 //	       -> degraded mode -> account status -> errorMapping -> handler
 //
-// M1 of the v0.1.0 security audit — distinct from ADR-0006 §2's own "Phase 0 review M1"
-// amendment, coincidentally the same finding ID and date): the ADR-0006 §2 rate-limit interceptor still
+// M1 of the v0.1.0 security audit — distinct from the earlier "Phase 0 review M1"
+// amendment, coincidentally the same finding ID and date): the rate-limit interceptor still
 // sits *after* App Check/ID token verification, so on its own it can't stop an unauthenticated flood from
 // paying JWT-verify CPU. PreAuthIPMiddleware is a second, independent Limiter (never the same
 // bucket/instance as the one ratelimit.Interceptor uses below) that rejects by IP before any of that
@@ -122,21 +122,21 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("app check verifier: %w", err)
 	}
 
-	// --- feature flags (ADR-0008 D6) ---
+	// --- feature flags ---
 	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureCrashReporting, cfg.FeatureAnalytics, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
-	// ADR-0025: the private-accounts limits, so an operator can see what the revision enforces. Numbers only.
+	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "toggles_per_day", cfg.Quota.PrivacyTogglesPerDay, "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
 		"protected_set_max_stale", cfg.Privacy.ProtectedSetMaxStale.String(), "respond_per_min", cfg.RateLimit.FollowRequestsRespondPerUserPerMinute)
-	// ADR-0031 D10, D11: the community limits, so an operator can see what the revision enforces. Numbers only: the creators are a count,
+	// The community limits, so an operator can see what the revision enforces. Numbers only: the creators are a count,
 	// never the uids.
 	log.Info("community_limits", "creators", len(cfg.Communities.Creators), "max_owned", cfg.Communities.MaxOwned, "max_joined", cfg.Communities.MaxJoined,
 		"max_moderators", cfg.Communities.MaxModerators, "joins_per_day", cfg.Quota.CommunityJoinsPerDay, "posts_per_day", cfg.Quota.CommunityPostsPerDay)
 
 	// --- modules ---
 	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
-	// CreateProfile's transaction, unchanged since the Phase 0 bootstrap) and the full GraphService
-	// (ADR-0008). graph depends on identity.Directory/Counters directly; identity depends on graph only
+	// CreateProfile's transaction, unchanged since the Phase 0 bootstrap) and the full GraphService.
+	// Graph depends on identity.Directory/Counters directly; identity depends on graph only
 	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) — no
 	// import cycle. graph.Service needs identity.Directory (implemented by identitySvc) and identitySvc
 	// needs graph.Service as its BlockChecker: SetDirectory breaks that construction-order cycle (see
@@ -144,19 +144,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	graphRepo := graph.NewFirestoreRepo(fsClient)
 	identityRepo := identity.NewFirestoreRepo(fsClient, graphRepo)
 	// identityRepo implements identity.Counters (AddFollowersCount/AddFollowingCount); the increments must
-	// land in the same transaction/batch as the edge change (ADR-0008 D3), hence a repo-level setter rather
+	// land in the same transaction/batch as the edge change, hence a repo-level setter rather
 	// than service.go opening its own separate write.
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
 	graphRepo.SetTxProfiles(identityRepo)
-	// ADR-0025: the one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). It is built
+	// The one protected-set loader of this instance (lazy, singleflight, 60 s, detached reads). It is built
 	// before graph so ListFollowers and ListFollowing decide PROTECTED_ACCOUNT through it; posts, timeline and
 	// notifications take it below, and identity's toggle feeds it the committing instance's own change.
 	protectedAuthors := identity.NewProtectedSetLoader(identityRepo, cfg.CacheTTL, cfg.Privacy.ProtectedSetMaxStale, nil, log)
 	identityCache := identity.NewCache(cfg.CacheTTL)
 	graphCache := graph.NewCache(cfg.CacheTTL)
 
-	// ADR-0017 D2: graph reports created follow edges through this slot; Build binds the notifications emitter
+	// Graph reports created follow edges through this slot; Build binds the notifications emitter
 	// into it below, once identity (the fan-out's Directory) exists.
 	notifSlot := &emitterSlot{}
 	graphSvc := graph.New(graph.Deps{
@@ -172,7 +172,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		BlocksPerDay:            int64(cfg.Quota.BlocksPerDay),
 		NewAccountBlocksPerDay:  int64(cfg.Quota.NewAccountBlocksPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
-		// ADR-0024 D8, D10: the ListSuggestedUsers limits and the curated SUGGESTED_USER_IDS list (reads them).
+		// The ListSuggestedUsers limits and the curated SUGGESTED_USER_IDS list (reads them).
 		Suggestions: graph.SuggestionLimits{
 			SampleFollowees: cfg.Suggestions.SampleFollowees, EdgeLimit: cfg.Suggestions.EdgeLimit,
 			HydrateMax: cfg.Suggestions.HydrateMax, MaxResults: cfg.Suggestions.MaxResults,
@@ -190,7 +190,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("firebase auth admin client: %w", err)
 	}
 	// The shared jobs publisher is also the profile-snapshot-refresh trigger (lazy: no I/O until first use).
-	// --- media (ADR-0005): built before identity and posts, which consume its library (avatar resolution, post
+	// --- media: built before identity and posts, which consume its library (avatar resolution, post
 	// attachment) and job publisher. The jobs publisher is lazy (no I/O before ListenAndServe) and is also the
 	// account lifecycle's. The identity directory media needs is bound after identity is built.
 	postsRepo := posts.NewFirestoreRepo(fsClient)
@@ -207,23 +207,23 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	// ADR-0024: the pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
+	// The pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
-	// ADR-0027 D10: messaging counts the unread conversations (identity never imports messaging); its repo is built here
+	// Messaging counts the unread conversations (identity never imports messaging); its repo is built here
 	// because identity needs the counter at construction and the messaging service needs identity.Directory.
 	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
-		identity.WithProtectedAuthors(protectedAuthors, log), identity.WithFollowRequestCounter(graphSvc, log), // ADR-0025: the pin rule (AQ6) and the GetMe badge (AQ3)
+		identity.WithProtectedAuthors(protectedAuthors, log), identity.WithFollowRequestCounter(graphSvc, log), // The pin rule and the GetMe badge
 		identity.WithSignupAuth(authAdminClient, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
-		// ADR-0024 Amendment 1 A4: a replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
+		// A replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
-		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // ADR-0027 D10: GetMe.unread_conversation_count
+		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
 		identity.WithExtrasFlags(featureFlags),
 		// An unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
@@ -241,7 +241,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 	lateDirectory.d = identitySvc.(identity.Directory)
 
-	// --- notifications (ADR-0017): rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
+	// --- notifications: rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
 	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
@@ -269,7 +269,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
-		// ADR-0027 D9: the push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
+		// The push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
 		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
 	})
 	switch cfg.NotificationsDelivery {
@@ -287,9 +287,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags)
 
-	// posts and timeline (ADR-0010): both services are registered behind FEATURE_POSTS. Their RPC bodies land later;
+	// posts and timeline: both services are registered behind FEATURE_POSTS. Their RPC bodies land later;
 	// until then every RPC is Unimplemented once the flag is on. timeline gets only the
-	// posts.Reader and graph.Reader seams (ADR-0004 handoff: it never queries `posts` or `graph` itself).
+	// posts.Reader and graph.Reader seams (it never queries `posts` or `graph` itself).
 	postsCache := posts.NewCache(cfg.CacheTTL, cfg.CachePostsEntries, cfg.CacheAuthorRecentEntries)
 	postsRepo.SetWriters(posts.WriteDeps{
 		Idempotency: idempotency.New(fsClient),
@@ -297,7 +297,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Counters:    identityRepo,
 		IDs:         snowflakeNode,
 		Media:       postsMediaAttacher{lib: mediaMod.library},
-		// The publish sweep reads the author's users/{uid} inside its transaction (ADR-0021 L-7): never cached.
+		// The publish sweep reads the author's users/{uid} inside its transaction: never cached.
 		Profiles: identityRepo,
 	})
 	postsSvc := posts.New(posts.Deps{
@@ -308,16 +308,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
 		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow:      cfg.Quota.NewAccountWindow,
-		// ADR-0031 D11: quotas.communityPosts, reserved in CreatePost's quota write on top of posts.
+		// quotas.communityPosts, reserved in CreatePost's quota write on top of posts.
 		CommunityPostsPerDay:           int64(cfg.Quota.CommunityPostsPerDay),
 		NewAccountCommunityPostsPerDay: int64(cfg.Quota.NewAccountCommunityPostsPerDay),
 		CursorKey:                      cfg.CursorHMACKey,
-		// Poll creation limits (ADR-0029; config.Composer). The zero value would reject every poll.
+		// Poll creation limits (config.Composer). The zero value would reject every poll.
 		Poll: posts.PollLimits{
 			MaxChoices: cfg.Composer.PollMaxChoices, ChoiceMaxCodepoints: cfg.Composer.PollChoiceMaxCodepoints,
 			MinDuration: cfg.Composer.PollMinDuration, MaxDuration: cfg.Composer.PollMaxDuration,
 		},
-		// Scheduled posts (ADR-0021 D4): the repository and the limits come from config; the RPCs stay behind
+		// Scheduled posts: the repository and the limits come from config; the RPCs stay behind
 		// FEATURE_SCHEDULED_POSTS (server.go), so wiring them costs nothing while the flag is off.
 		Scheduled: postsRepo,
 		Schedule: posts.ScheduleLimits{
@@ -325,7 +325,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			MinLead: cfg.Scheduled.MinLead, Horizon: cfg.Scheduled.Horizon, TerminalTTL: cfg.Scheduled.TerminalTTL,
 			SchedulesPerDay: int64(cfg.Quota.SchedulesPerDay), NewAccountSchedulesPerDay: int64(cfg.Quota.NewAccountSchedulesPerDay),
 		},
-		// The publish sweep (ADR-0021) behind /internal/cron/publish-scheduled. Flags is the registry's kill-switch
+		// The publish sweep behind /internal/cron/publish-scheduled. Flags is the registry's kill-switch
 		// view (GloballyOff), so an allowlist or percent rollout still publishes every due item.
 		Sweep: posts.SweepDeps{
 			Repo: postsRepo, Flags: featureFlags, ReadOnly: cfg.Degraded == config.DegradedReadonly, Log: log,
@@ -339,16 +339,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			},
 		},
 	}, posts.WithAllowAnonymous(cfg.AuthEmulator), posts.WithProtectedAuthors(protectedAuthors))
-	// ADR-0024 D3: identity's UpdateProfile asks posts whether a post is the caller's own visible pin candidate. Bound here, once,
+	// Identity's UpdateProfile asks posts whether a post is the caller's own visible pin candidate. Bound here, once,
 	// before ListenAndServe (posts needs identity.Directory, so identity was built first).
 	pinChecker.c = posts.NewPinChecker(postsSvc)
 
-	// engagement (ADR-0018): likes and reposts behind FEATURE_ENGAGEMENT. posts and engagement need each
+	// engagement: likes and reposts behind FEATURE_ENGAGEMENT. posts and engagement need each
 	// other (engagement drives posts' counters and clean-up, DeletePost releases through engagement's reposts
 	// links), so the links are bound here, once, synchronously, before ListenAndServe.
 	engagementRepo := engagement.NewFirestoreRepo(fsClient, engagement.WriteDeps{
 		Quotas: quota.New(fsClient), Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
-		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs (ADR-0023 D4)
+		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs
 	})
 	audienceSvc := postsSvc
 	if bo.audienceSource != nil {
@@ -356,7 +356,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
 	// One rate-limit config for the interceptor and for VotePoll's new-account cap: the service reads the interceptor's own poll_votes_daily
-	// counter (ADR-0029 D6), so the two can never disagree about how many votes a caller has made.
+	// counter, so the two can never disagree about how many votes a caller has made.
 	rlCfg := RateLimitConfig(cfg)
 	var pollVoteCap engagement.DailySpent // stays a nil interface when the entry is missing (a typed nil would panic)
 	if c := rlCfg.DailyCaps[engagementv1connect.EngagementServiceVotePollProcedure].Cap; c != nil {
@@ -368,15 +368,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		LikesPerDay: int64(cfg.Quota.LikesPerDay), NewAccountLikesPerDay: int64(cfg.Quota.NewAccountLikesPerDay),
 		PostsPerDay: int64(cfg.Quota.PostsPerDay), NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
 		NewAccountWindow: cfg.Quota.NewAccountWindow, CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
-		// Bookmarks (ADR-0023 D4): the repo is the engagement repo, the quota and the cap are config, not literals.
+		// Bookmarks: the repo is the engagement repo, the quota and the cap are config, not literals.
 		BookmarkRepo: engagementRepo, BookmarksPerDay: int64(cfg.Quota.BookmarksPerDay),
 		NewAccountBookmarksPerDay: int64(cfg.Quota.NewAccountBookmarksPerDay), BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
-		// ListBookmarks (ADR-0023 D2, D6): the graph snapshot filters blocked and muted authors, the flags decide viewer-state
+		// ListBookmarks: the graph snapshot filters blocked and muted authors, the flags decide viewer-state
 		// hydration, the cursor key seals the page tokens, and readonly mode skips the lazy prune.
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
-		// Both lists decide protected authors' rows through the one posts.Audience (ADR-0025 D4).
+		// Both lists decide protected authors' rows through the one posts.Audience.
 		Audience: engAudience,
-		// VotePoll (ADR-0029 D6): the vote batch, the vote doc TTL, the lazy userLikes trim and the new-account cap are config.
+		// VotePoll: the vote batch, the vote doc TTL, the lazy userLikes trim and the new-account cap are config.
 		PollRepo: engagementRepo, PollVoteTTLAfterClose: cfg.Composer.PollVoteTTLAfterClose, PollViewerVotesKept: cfg.Composer.PollViewerVotesKept, PollVoteChangesMax: cfg.Composer.PollVoteChangesMax,
 		PollVoteCap: pollVoteCap, NewAccountPollVotesPerDay: cfg.RateLimit.PollVotesPerDayNewAccount,
 	})
@@ -394,7 +394,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if cfg.FeatureRemovedIDs.Mode != flags.Off {
 		removals = posts.NewRemovalLog(postsRepo, cfg.CacheTTL, nil)
 	}
-	// Lists (ADR-0030): the repo, the service and the one identity adapter over users/{uid}.homeTabs are built before the timeline
+	// Lists: the repo, the service and the one identity adapter over users/{uid}.homeTabs are built before the timeline
 	// because the timeline's SetHomeTabs reads lists through lists.Reader (the service) and writes tabs through the adapter
 	// (timeline.HomeTabsStore); the same adapter is lists.Pins, so DeleteList unpins and UpdateList retitles. Routes are mounted below.
 	listsRepo := lists.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
@@ -411,7 +411,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 	})
 	listsReader := listsSvc.(lists.Reader)
-	// Communities (ADR-0031): the repo is built here because the account-lifecycle registration below needs it (the eraser step
+	// Communities: the repo is built here because the account-lifecycle registration below needs it (the eraser step
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
@@ -419,10 +419,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
-	}, timeline.WithProtectedAuthors(protectedAuthors), // ADR-0025 D4
-		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned})) // ADR-0030 D6
+	}, timeline.WithProtectedAuthors(protectedAuthors),
+		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned}))
 
-	// ADR-0028 D3: SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
+	// SearchPosts decides every row through a snapshot-based posts.Audience over the same loader (the
 	// block test is the held graph snapshot, 0 reads), exactly as the timelines do.
 	searchAudience := posts.NewSnapshotAudience(protectedAuthors)
 
@@ -441,7 +441,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, err
 	}
 
-	// --- account lifecycle (ADR-0011): DeleteAccount / RequestAccountExport / GetAccountExport and the job
+	// --- account lifecycle: DeleteAccount / RequestAccountExport / GetAccountExport and the job
 	// handlers. The Firebase Auth admin client (built above) is handed only to identity (IAM control C2); the
 	// publisher and the exports bucket client are lazy, so nothing here does I/O before ListenAndServe.
 	exportStore, err := objstore.New(cfg.ExportBucket)
@@ -463,50 +463,50 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
 		return nil, nil, fmt.Errorf("engagement lifecycle registry: %w", err)
 	}
-	// moderation (ADR-0016): ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
+	// moderation: ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	if err := registerModerationLifecycle(lifecycle, moderationRepo); err != nil {
 		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
 	}
-	// scheduled posts (ADR-0021 D4): the erase step and export section are registered whether or not
+	// scheduled posts: the erase step and export section are registered whether or not
 	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
 	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
 		return nil, nil, fmt.Errorf("scheduled lifecycle registry: %w", err)
 	}
-	// bookmarks (ADR-0023 D6, D8): the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
+	// bookmarks: the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
 	// on; the step runs after scheduled, before identity.
 	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
 		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
 	}
-	// follow_requests (ADR-0025 D11): the erase step and export section are registered whether or not
+	// follow_requests: the erase step and export section are registered whether or not
 	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
 	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
 		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
 	}
-	// messaging (ADR-0027 D8): the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
+	// messaging: the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
 	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
 	if err := registerMessagingLifecycle(lifecycle, messagingRepo, identitySvc.(identity.Directory), graphSvc, log); err != nil {
 		return nil, nil, fmt.Errorf("messaging lifecycle registry: %w", err)
 	}
-	// lists (ADR-0030 D8): the erase step and export section are registered whether or not FEATURE_LISTS is on; the step runs
+	// lists: the erase step and export section are registered whether or not FEATURE_LISTS is on; the step runs
 	// after messaging, before identity. The repo is also the write path's storage (wired with the routes).
 	if err := registerListsLifecycle(lifecycle, listsRepo, identitySvc.(identity.Directory), graphSvc); err != nil {
 		return nil, nil, fmt.Errorf("lists lifecycle registry: %w", err)
 	}
-	// poll_votes (ADR-0029 D8): the erase step and export section are registered whether or not FEATURE_POLLS is on; the step runs after
+	// poll_votes: the erase step and export section are registered whether or not FEATURE_POLLS is on; the step runs after
 	// messaging and lists, before identity (appended, never inserted: step names are persisted).
 	if err := registerPollVoteLifecycle(lifecycle, engagementRepo, cfg.Composer.PollVoteTTLAfterClose); err != nil {
 		return nil, nil, fmt.Errorf("poll_votes lifecycle registry: %w", err)
 	}
-	// communities (ADR-0031 D9): the erase step and export section are registered whether or not FEATURE_COMMUNITIES is on; the
+	// communities: the erase step and export section are registered whether or not FEATURE_COMMUNITIES is on; the
 	// step runs after poll_votes, before identity (appended, never inserted: step names are persisted).
 	if err := registerCommunitiesLifecycle(lifecycle, communitiesRepo, identitySvc.(identity.Directory)); err != nil {
 		return nil, nil, fmt.Errorf("communities lifecycle registry: %w", err)
 	}
-	// ADR-0027 D12: a MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
+	// A MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
-	// ADR-0031 D14: a COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
+	// A COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
 	lateCommunities := &lateCommunityLookup{}
 	// Plan: a LIST report reaches the list only through lists.ListReporter (the lists service, built above).
 	listReporter, ok := listsSvc.(lists.ListReporter)
@@ -521,7 +521,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		AllowAnonymous:          cfg.AuthEmulator,
 	})
 	moderationServer := moderation.NewServer(moderationSvc, featureFlags)
-	// post_delete (media, engagement; ADR-0018 D10): one message, one composite handler.
+	// post_delete (media, engagement): one message, one composite handler.
 	postDeleteJob := postDeleteChain{
 		media: mediaMod.jobs,
 		eng:   engagement.NewJobs(engagementRepo, postsRepo, postGone{postsRepo}, jobsPublisher),
@@ -530,13 +530,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
 	}
-	// profile_media_retired (ADR-0024 Amendment 1 A4): the media step that schedules a replaced or removed avatar or
+	// profile_media_retired: the media step that schedules a replaced or removed avatar or
 	// banner for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
 	// action, so a message published by a revision that had it on is never left in a retry loop.
 	if err := lifecycle.RegisterJobHandler(media.JobKindProfileMediaRetired, mediaMod.jobs.RetireHandler()); err != nil {
 		return nil, nil, fmt.Errorf("profile_media_retired job handler: %w", err)
 	}
-	// privacy_public (ADR-0025 D8): graph accepts the pending follow requests of an account that went public.
+	// privacy_public: graph accepts the pending follow requests of an account that went public.
 	// Never gated: a message published before a flag change is still honoured.
 	if err := lifecycle.RegisterJobHandler(graph.JobKindPrivacyPublic, graphSvc.PrivacyPublicJob(graphRepo, log)); err != nil {
 		return nil, nil, fmt.Errorf("privacy_public job handler: %w", err)
@@ -548,7 +548,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// search and admin are not implemented yet; their Connect servers are not registered.
 
-	// --- interceptors (ADR-0006 §2 order) ---
+	// --- interceptors ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc, peek: identityCache.GetProfile, ages: actorAges}
 	profileExempt := profileExemptProcedures()
 
@@ -568,7 +568,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		mw.Recover(log),
 		authn.AppCheckInterceptor(appCheckVerifier, authn.Mode(cfg.AppCheck)),
 		authn.IDTokenInterceptor(idVerifier),
-		// ADR-0010 D5 A2/A10: 0-read verified-identity gate (sign-in provider allowlist). Callers outside it never
+		// 0-read verified-identity gate (sign-in provider allowlist). Callers outside it never
 		// reach the rate limiter, so a minted uid creates no limiter key and no Firestore read. Anonymous passes
 		// only against the Auth emulator.
 		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
@@ -624,7 +624,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	} else if err := logger.SetConversationKey(cfg.CursorHMACKey); err != nil {
 		return nil, nil, fmt.Errorf("apiserver: conversation hash key: %w", err)
 	}
-	// Messaging (ADR-0027): SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
+	// Messaging: SendMessage behind FEATURE_MESSAGING, per caller and per recipient; ListConversations
 	// is not globally off; the other three RPCs check the flag and answer Unimplemented until it ships. Badge evicts identity's cached
 	// unread_conversation_count; the push event is adapted to notifications.Emitter (a no-op until it ships adds the type).
 	messagingSvc := messaging.New(featureFlags, messaging.Deps{
@@ -650,8 +650,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})
 
-	// Lists (ADR-0030): all seven routes are mounted so the interceptor chain covers them.
-	// Lists (ADR-0030): the write path (CreateList, UpdateList, DeleteList; AddListMember, RemoveListMember) and the reads (GetList, ListUserLists, ListListMembers) behind
+	// Lists: all seven routes are mounted so the interceptor chain covers them.
+	// Lists: the write path (CreateList, UpdateList, DeleteList; AddListMember, RemoveListMember) and the reads (GetList, ListUserLists, ListListMembers) behind
 	// FEATURE_LISTS. listsSvc (built above, before the timeline) also implements lists.Reader. Pins is the identity home-tabs adapter: a
 	// DeleteList removes the owner's own pin; another user's pin of it dangles and the client shows it unavailable (GetMe adds no read).
 	listsServer := lists.NewServer(featureFlags, listsSvc)
@@ -659,7 +659,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
 
-	// Communities (ADR-0031): all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
+	// Communities: all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
 	// feature=communities, 0 reads) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity,
 	// LeaveCommunity and ListMyCommunities run the service; replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
 	communitiesSvc := communities.New(communities.Deps{
@@ -674,7 +674,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},
 	})
-	// The posting gate (ADR-0031 D5): posts declares posts.CommunityGate and never imports communities; communities implements it over
+	// The posting gate: posts declares posts.CommunityGate and never imports communities; communities implements it over
 	// its cached Reader, a fresh in-transaction member read and the per (uid, community) daily cap (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY,
 	// per instance). Set before ListenAndServe, like SetRepostLinks; without it a set community_id stays FEATURE_DISABLED.
 	communityReporter, ok := communitiesSvc.(communities.CommunityReporter)
@@ -684,7 +684,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	lateCommunities.r = communityReporter
 	postsSvc.(interface{ SetCommunityGate(posts.CommunityGate) }).SetCommunityGate(communities.NewPostGate(
 		communitiesSvc.(communities.Reader), communitiesRepo, ratelimit.NewDailyCap(cfg.RateLimit.CommunityPostsPerCommunityPerDay)))
-	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs (ADR-0031 D6) read communities through the same Reader; set before
+	// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs read communities through the same Reader; set before
 	// ListenAndServe because communities is built after the timeline.
 	timelineServer.SetCommunities(communitiesSvc.(communities.Reader), cfg.Communities.FeedCacheEntries)
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
@@ -692,11 +692,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
 	})
 
-	// Search and trends (ADR-0028, W4): FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
+	// Search and trends: FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,
 	// each FEATURE_DISABLED with 0 Firestore reads. SearchPeople reads identity.Directory.SearchHandles through a
 	// shared prefix cache and filters with the caller's graph snapshot. SearchPosts reads
 	// posts.Reader.ByHashtag and decides every row through a snapshot-based posts.Audience over the one protected-set
-	// loader (ADR-0025). GetTrends reads trends/current through a 10 min instance copy; the refresher is the
+	// loader. GetTrends reads trends/current through a 10 min instance copy; the refresher is the
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
 	searchServer := search.NewServer(search.New(featureFlags,
@@ -706,7 +706,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),
-		// The denylist also applies at serve time (ADR-0028 note 2026-10-31), so a deploy takes effect within the 10 min copy.
+		// The denylist also applies at serve time, so a deploy takes effect within the 10 min copy.
 		search.WithTrendsDenylist(cfg.Search.TrendsDenylist)))
 	trendsRefresher := search.NewRefresher(trendsStore, postsSvc, protectedAuthors, identitySvc.(identity.Directory), featureFlags, search.RefresherConfig{
 		MinAuthors: cfg.Search.TrendsMinAuthors, MaxPosts: cfg.Search.TrendsMaxPostsPerRun, MinInterval: cfg.Search.TrendsMinInterval,
@@ -728,21 +728,21 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 
 	routes.internal("/internal/", pubsubpush.PlaceholderHandler())
-	// ADR-0011: the shared jobs topic's push endpoint and the daily-maintenance backstop. Never behind the
+	// The shared jobs topic's push endpoint and the daily-maintenance backstop. Never behind the
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
-	// ADR-0028 D7 (F1 = B): the same route also runs the trends refresh after the backstop, but its status is the
+	// The same route also runs the trends refresh after the backstop, but its status is the
 	// backstop's alone. The poll vote sweep runs first. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
 	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
-	// ADR-0021 D1: the scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
+	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline, its own
 	// budget counter and panic recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
 	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204 with 0 reads.
 	routes.internal("/internal/cron/publish-scheduled", posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID))
-	// ADR-0017 D3: the notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
+	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
 	routes.internal("/internal/pubsub/notifications-fanout", notifFanout.Handler())
@@ -776,7 +776,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 }
 
 // accountStatusAdapter adapts identity.Service to authn.AccountStatusProvider without either package
-// importing the other's concrete types (ADR-0002: modules/platform depend on interfaces only).
+// importing the other's concrete types (modules/platform depend on interfaces only).
 type accountStatusAdapter struct {
 	svc identity.Service
 	// peek and ages (both optional) record the caller's createdAt after the status lookup has cached the profile:

@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_FeaturePostsDefaults (ADR-0010 D1): off in prod, on in dev and local; the wire name is "posts".
+// TestLoad_FeaturePostsDefaults: off in prod, on in dev and local; the wire name is "posts".
 func TestLoad_FeaturePostsDefaults(t *testing.T) {
 	tests := []struct {
 		name string
@@ -96,7 +96,7 @@ func TestLoad_FeaturePostsOverridesAndFailFast(t *testing.T) {
 	}
 }
 
-// TestLoad_PostsRateLimitDefaultsAndValidation locks the ADR-0010 Handoff numbers and rejects <= 0 (rule 11).
+// TestLoad_PostsRateLimitDefaultsAndValidation locks the agreed numbers and rejects <= 0 (rule 11).
 func TestLoad_PostsRateLimitDefaultsAndValidation(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

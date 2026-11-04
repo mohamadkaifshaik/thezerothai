@@ -3,7 +3,7 @@ import 'dart:async';
 import '../storage/app_database.dart';
 import 'telemetry_inputs.dart';
 
-/// The two kinds of telemetry a person can consent to (ADR-0032), one switch
+/// The two kinds of telemetry a person can consent to, one switch
 /// each. A third kind adds a value here and a key, not a new mechanism.
 enum TelemetryKind {
   crash('crash'),
@@ -29,8 +29,8 @@ enum ConsentChoice {
   };
 }
 
-/// Where consent is remembered, per account and per kind (ADR-0032 F1, A:
-/// opt-in for both), and the [TelemetryConsentSource] the controller reads.
+/// Where consent is remembered, per account and per kind (A: opt-in for both),
+/// and the [TelemetryConsentSource] the controller reads.
 ///
 /// A copy of `DatabasePushOptInStore`: `AppSettingEntries` keys
 /// `telemetry_consent:crash:<uid>` and `telemetry_consent:usage:<uid>` with the

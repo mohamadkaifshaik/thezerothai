@@ -82,7 +82,7 @@ func gatedEnv(g *fakeGate) *createEnv {
 	return e
 }
 
-// TestCreate_CommunityShape: the 0-read refusals of a set community_id (ADR-0031 D5), with the flag on and a gate wired. None of them
+// TestCreate_CommunityShape: the 0-read refusals of a set community_id, with the flag on and a gate wired. None of them
 // reaches the gate, the repo or Firestore.
 func TestCreate_CommunityShape(t *testing.T) {
 	t.Parallel()
@@ -254,7 +254,7 @@ func TestApplyReply_InheritsConversationCommunity(t *testing.T) {
 	}
 }
 
-// TestCommunityBoundsOf: Window to id bounds (ADR-0031 D3), including the settle sentinel: After{W, zeroID} is the inclusive EndAt of
+// TestCommunityBoundsOf: Window to id bounds, including the settle sentinel: After{W, zeroID} is the inclusive EndAt of
 // the smallest Snowflake of millisecond W, so a post created in W itself is never hidden.
 func TestCommunityBoundsOf(t *testing.T) {
 	t.Parallel()

@@ -394,7 +394,7 @@ func TestIsBlockedBy_False(t *testing.T) {
 	}
 }
 
-// TestIsBlockedBy_OverflowFallback (ADR-0008 D2): when the viewer's blockedBy may be incomplete, also check
+// TestIsBlockedBy_OverflowFallback: when the viewer's blockedBy may be incomplete, also check
 // the target's own .blocked array — the fail-closed path.
 func TestIsBlockedBy_OverflowFallback(t *testing.T) {
 	repo := newFakeRepo()
@@ -429,7 +429,7 @@ func TestIsBlockedBy_OverflowButNotActuallyBlocked(t *testing.T) {
 	}
 }
 
-// TestFlagGuard_DisabledRejectsEveryRPC (ADR-0008): every GraphService RPC returns FEATURE_DISABLED
+// TestFlagGuard_DisabledRejectsEveryRPC: every GraphService RPC returns FEATURE_DISABLED
 // with 0 reads when the flag is off for the caller.
 func TestFlagGuard_DisabledRejectsEveryRPC(t *testing.T) {
 	repo := newFakeRepo()
@@ -517,7 +517,7 @@ func (f *fakeRepo) FollowEdgeExists(_ context.Context, followerUID, followeeUID 
 	return f.followEdges[edgeKey{followerUID, followeeUID}], nil
 }
 
-// TestIsFollowing (ADR-0025 AQ2): answered from the viewer's own snapshot, one read cold and none after.
+// TestIsFollowing: answered from the viewer's own snapshot, one read cold and none after.
 func TestIsFollowing(t *testing.T) {
 	repo := newFakeRepo()
 	repo.snapshots["uid-a"] = Snapshot{Following: map[string]bool{"uid-b": true}}

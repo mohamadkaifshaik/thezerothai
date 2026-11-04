@@ -1,9 +1,9 @@
-// purge.go implements Eraser, PurgePlan and Exporter on FirestoreRepo (ADR-0010 D19 Q-E): the
+// purge.go implements Eraser, PurgePlan and Exporter on FirestoreRepo: the
 // right-to-delete and right-to-access paths for `posts`.
 //
 // Q-E:  posts where authorId == uid ORDER BY createdAt DESC, __name__ DESC LIMIT 500. Descending, so it uses the
 // existing (authorId ASC, createdAt DESC) index (no firestore.indexes.json change). The Limit(500) is an ops path
-// (ADR-0003 purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
+// (purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
 package posts
 
 import (
@@ -46,7 +46,7 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 
 // PurgeUser implements Eraser. One call deletes one page (the newest <= 500 remaining posts) in one atomic
 // batch. Deleted docs drop out of the next page, so the purge is self-resuming after a crash and the checkpoint
-// only carries the running count. There are no counter updates: the user doc is deleted anyway (runbook).
+// only carries the running count. There are no counter updates: the user doc is deleted anyway.
 // Reads: one per post returned (1 for an empty page); deletes: one per post.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase >= 2 {
@@ -83,7 +83,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 	return next, false, nil
 }
 
-// purgeCopies is phase 1 of PurgeUser (ADR-0018 D14): the deleted user's text also lives inside other users'
+// purgeCopies is phase 1 of PurgeUser: the deleted user's text also lives inside other users'
 // REPOST docs (removed, with their reposts docs and the reposter's postsCount) and QUOTE docs (embed replaced by
 // a tombstone). One page of at most CleanupPage per call (Q-C, single equality, no index change). Reads one per
 // doc (minimum 1); writes <= 3 per doc.
@@ -132,7 +132,7 @@ func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoi
 	// A full page that made no progress would repeat forever; stop and let the residue sweep name it.
 	stuck := len(docs) > 0 && removed+tombstoned == 0
 	if stuck {
-		// Error severity: this reaches Error Reporting; the residue sweep and the runbook name the way out.
+		// Error severity: this reaches Error Reporting; the residue sweep names the way out.
 		slog.ErrorContext(ctx, "posts_purge_copies_stuck", "uid_hash", logger.HashUID(uid), "docs", len(docs))
 	}
 	// A short page was the last one: continue with the user's postRemovals entries (phase 2) unless stuck.
@@ -187,7 +187,7 @@ func (r *FirestoreRepo) PlanPurge(ctx context.Context, uid string) (PurgePlan, e
 	return PurgePlan{Posts: n}, nil
 }
 
-// exportedPost is one post in the manual export (ADR-0003 "Deletes & privacy"): id, text, createdAt, hashtags and
+// exportedPost is one post in the manual export ("Deletes & privacy"): id, text, createdAt, hashtags and
 // mentions as handles only (never the mentioned users' uids).
 type exportedPost struct {
 	ID        string    `json:"id"`
@@ -202,12 +202,12 @@ type exportedPost struct {
 	Kind       string `json:"kind,omitempty"`
 	RepostOfID string `json:"repostOfPostId,omitempty"`
 	QuoteOfID  string `json:"quoteOfPostId,omitempty"`
-	// The author's own disclosure labels (ADR-0021 D3); omitted when false so older exports are byte-identical.
+	// The author's own disclosure labels; omitted when false so older exports are byte-identical.
 	PaidPartnership bool `json:"paidPartnership,omitempty"`
 	MadeWithAI      bool `json:"madeWithAi,omitempty"`
-	// The effective reply policy of the conversation (ADR-0021 D2; a reply exports the policy it inherited); omitted when EVERYONE. Holds no user id.
+	// The effective reply policy of the conversation (a reply exports the policy it inherited); omitted when EVERYONE. Holds no user id.
 	ReplyPolicy string `json:"replyPolicy,omitempty"`
-	// The author's own poll (ADR-0029 D8): choices, closesAt, per-choice counts and the total; omitted for a post without a poll,
+	// The author's own poll: choices, closesAt, per-choice counts and the total; omitted for a post without a poll,
 	// so plain posts export byte for byte as before. Counts are anonymous totals.
 	Poll *exportedPoll `json:"poll,omitempty"`
 }

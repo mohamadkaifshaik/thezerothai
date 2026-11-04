@@ -6,11 +6,11 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 )
 
-// MaxCommunityCreators is the most uids COMMUNITY_CREATORS may hold (ADR-0031 D10, F1): creation is a launch-time allowlist of the
+// MaxCommunityCreators is the most uids COMMUNITY_CREATORS may hold: creation is a launch-time allowlist of the
 // founders, not a rollout, so a longer list is a mistake and fails startup.
 const MaxCommunityCreators = 10
 
-// CommunitiesConfig holds the community values that are neither a rate limit nor a daily quota (ADR-0031 D10, D11, D12). The
+// CommunitiesConfig holds the community values that are neither a rate limit nor a daily quota. The
 // community buckets and the three daily caps are RateLimitConfig fields; the join and community-post quotas are QuotaConfig
 // fields. Every count is > 0: a 0 would lock every user out of the feature or disable a cap, so startup fails instead.
 type CommunitiesConfig struct {
@@ -33,7 +33,7 @@ type CommunitiesConfig struct {
 	ModlogMax         int
 	// CacheEntries is the per-instance community-doc cache (CACHE_COMMUNITIES_ENTRIES, default 200; 60 s TTL), FeedCacheEntries the
 	// shared community feed entries (CACHE_COMMUNITY_FEED_ENTRIES, default 100; newest 30 each, 60 s) and MembersCacheEntries the
-	// member-doc cache (CACHE_COMMUNITY_MEMBERS_ENTRIES, default 5,000; 60 s on read paths, posting reads it fresh). ADR-0031 D12.
+	// member-doc cache (CACHE_COMMUNITY_MEMBERS_ENTRIES, default 5,000; 60 s on read paths, posting reads it fresh).
 	CacheEntries        int
 	FeedCacheEntries    int
 	MembersCacheEntries int

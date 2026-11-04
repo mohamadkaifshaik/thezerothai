@@ -24,7 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// The gaps of the GIF backend tests that left (ADR-0029 F11, D11, D12). Fixtures and fakes are the
+// The gaps of the GIF backend tests that left. Fixtures and fakes are the
 // ones (encodeTestGIF, rawGIF, redIsExplicit, gateObjects, the env).
 
 // timedGIF is a 32 x 32 GIF with one full-screen frame per index and its own delay in centiseconds.
@@ -176,7 +176,7 @@ func TestW618_BombsFinalizeAllocatesLittle(t *testing.T) {
 }
 
 // TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget: a GIF just inside every limit finalizes READY and allocates a
-// bounded amount, the runbook's "about 26 MiB live at the limits". TotalAlloc is an upper bound of the live size; the
+// bounded amount. TotalAlloc is an upper bound of the live size; the
 // bound is generous (the race detector inflates allocations in CI, never above 2x) and the test also fails if the
 // fixture stops being at the limit.
 func TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget(t *testing.T) {
@@ -528,7 +528,7 @@ func TestW618_CreateUploadFlagOffIsRefusedBeforeAnyRead(t *testing.T) {
 	}
 }
 
-// TestW618_FinalizeIgnoresTheGifFlag: a GIF uploaded before the flag was lowered still finalizes (runbook: FinalizeUpload
+// TestW618_FinalizeIgnoresTheGifFlag: a GIF uploaded before the flag was lowered still finalizes (FinalizeUpload
 // ignores FEATURE_GIF; only the post gate refuses it).
 func TestW618_FinalizeIgnoresTheGifFlag(t *testing.T) {
 	e := newEnv(t, envOpts{})

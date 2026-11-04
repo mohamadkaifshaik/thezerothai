@@ -21,7 +21,7 @@ import (
 const carol = "uid-carol"
 
 // chargedSocial charges the caller's graph read the way a cold graph.Reader does (1 read), so the budgets below are the
-// per-RPC table of ADR-0027 and not only the repo's own reads.
+// per-RPC budgets and not only the repo's own reads.
 type chargedSocial struct{ inner Social }
 
 func (c chargedSocial) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
@@ -75,7 +75,7 @@ func (e *itEnv) listProfileCalls() int {
 	return e.profs.calls
 }
 
-// Given 25 conversations, pages of 20 + 5, newest activity first. Budget (ADR-0027 table): first INBOX page 23 reads
+// Given 25 conversations, pages of 20 + 5, newest activity first. Budget (table): first INBOX page 23 reads
 // (interceptor, query 20, caller graph, requests count()), a later page 22 at most, 0 writes.
 func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
 	e := newIT(t, nil)

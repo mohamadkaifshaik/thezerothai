@@ -12,7 +12,7 @@ import (
 )
 
 // ListByMemberCount implements Repo: `communities ORDER BY memberCount DESC, __name__ DESC LIMIT n` on the automatic single-field
-// index (ADR-0031 D3, shape (ii), proven on dev). Charged 1 read per document, 1 for an empty result. Status is not filtered here
+// index (shape (ii), proven on dev). Charged 1 read per document, 1 for an empty result. Status is not filtered here
 // (the equality plus the order would need a composite index): the caller drops non-ACTIVE rows in memory.
 func (r *FirestoreRepo) ListByMemberCount(ctx context.Context, limit int) ([]Community, error) {
 	if r == nil || r.client == nil {
@@ -36,7 +36,7 @@ func (r *FirestoreRepo) ListByMemberCount(ctx context.Context, limit int) ([]Com
 }
 
 // ListMembers implements Repo: one page of communities/{cid}/communityMembers ordered by joinedAt (JOINED) or bannedAt (BANNED), newest
-// first, `__name__ DESC` as the tie-break (ADR-0031 D3, shape (ii)). The presence of the ordered field is the filter, so no equality
+// first, `__name__ DESC` as the tie-break (shape (ii)). The presence of the ordered field is the filter, so no equality
 // and no composite index. Charged 1 read per document, 1 for an empty page.
 func (r *FirestoreRepo) ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow, error) {
 	if r == nil || r.client == nil {

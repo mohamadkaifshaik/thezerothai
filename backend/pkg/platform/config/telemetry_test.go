@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// telemetryFlag names one of the two client-only telemetry flags (ADR-0032 D11) and how to read it from a Config.
+// telemetryFlag names one of the two client-only telemetry flags and how to read it from a Config.
 type telemetryFlag struct {
 	env, wire string
 	spec      func(Config) flags.Spec

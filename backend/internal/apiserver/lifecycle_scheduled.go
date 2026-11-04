@@ -1,4 +1,4 @@
-// lifecycle_scheduled.go joins scheduled posts (ADR-0021 D4) to the account-lifecycle registry: the `scheduled`
+// lifecycle_scheduled.go joins scheduled posts to the account-lifecycle registry: the `scheduled`
 // Eraser step (users/{uid}/scheduled is a subcollection, which deleting users/{uid} does not remove) and the
 // `scheduled` export section (every document, with the draft wherever one is still held). Kept apart from
 // registerLifecycleModules, like lifecycle_moderation.go, because the step runs after the existing ones.
@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// scheduledEraserStep is the scheduled step (step "scheduled"): ADR-0021 registers it BeforeIdentity after the
+// scheduledEraserStep is the scheduled step (step "scheduled"): it is registered BeforeIdentity after the
 // existing steps, as engagement and reports are.
 func scheduledEraserStep(e *posts.ScheduledEraser) identity.StepEraser {
 	return eraserStep[posts.ScheduledCheckpoint]{name: "scheduled", purge: e.PurgeUser}

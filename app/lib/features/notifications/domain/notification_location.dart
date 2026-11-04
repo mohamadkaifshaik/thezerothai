@@ -5,13 +5,13 @@ import '../../messages/domain/conversation_id.dart';
 /// `NOTIFICATION_TYPE_FOLLOW` both mean it).
 const kNotificationTypeFollow = 'follow';
 
-/// Wire values of the two protected-account types (ADR-0025 D10; the enums
-/// `NOTIFICATION_TYPE_FOLLOW_REQUEST` and `..._FOLLOW_ACCEPTED`). Neither names
+/// Wire values of the two protected-account types (the enums `NOTIFICATION_TYPE_FOLLOW_REQUEST` and `..._FOLLOW_ACCEPTED`).
+/// Neither names
 /// a post.
 const kNotificationTypeFollowRequest = 'follow_request';
 const kNotificationTypeFollowAccepted = 'follow_accepted';
 
-/// Wire value of a direct-message push (ADR-0027 D9). It is push-only: there is
+/// Wire value of a direct-message push. It is push-only: there is
 /// no notification row, and its FCM data carries `conversationId` only.
 const kNotificationTypeMessage = 'message';
 

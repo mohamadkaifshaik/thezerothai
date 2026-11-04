@@ -18,7 +18,7 @@ import (
 const rpcDeadline = 8 * time.Second
 
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
-// rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS, ADR-0030 D9) before anything
+// rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS) before anything
 // else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
 // gate every RPC calls the Service (list writes, member writes, reads); a Server built without one answers
 // Unimplemented.
@@ -115,7 +115,7 @@ func toListInfo(v View) *listsv1.ListInfo {
 	}
 }
 
-// GetList is gated by FEATURE_LISTS; a list the caller may not see is the one NOT_FOUND (ADR-0030 D3).
+// GetList is gated by FEATURE_LISTS; a list the caller may not see is the one NOT_FOUND.
 func (s *Server) GetList(ctx context.Context, req *connect.Request[listsv1.GetListRequest]) (*connect.Response[listsv1.GetListResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "GetList")
 	if err != nil {

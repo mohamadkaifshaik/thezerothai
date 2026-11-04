@@ -3,14 +3,14 @@ import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission, ReplyPolicy;
 
 /// Name of the reply-audience flag as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0021 D2, `FEATURE_REPLY_AUDIENCE`),
+/// `GetMeResponse.enabled_features` (`FEATURE_REPLY_AUDIENCE`),
 /// and the `metadata["feature"]` of its FEATURE_DISABLED answer. A missing
 /// name means off. It gates only SETTING a policy on create; showing stored
 /// policies and the disabled reply button is not gated. Never hardcode
 /// `'reply_audience'` anywhere else.
 const kFeatureReplyAudience = 'reply_audience';
 
-/// Who may reply to a new post: the three launch options (ADR-0021 D2). The
+/// Who may reply to a new post: the three launch options. The
 /// reserved wire values 4 and 5 are not here, so they can never be offered.
 enum ReplyAudience {
   everyone,
@@ -42,7 +42,7 @@ enum ReplyAudience {
 }
 
 /// Whether two reply policies mean the same thing: UNSPECIFIED is EVERYONE
-/// (ADR-0021 L-1 echo check).
+/// (echo check).
 bool replyPoliciesMatch(ReplyPolicy a, ReplyPolicy b) =>
     _normalised(a) == _normalised(b);
 
@@ -53,8 +53,7 @@ ReplyPolicy _normalised(ReplyPolicy p) =>
 
 /// Whether the viewer is told they cannot reply to [view]. Only an explicit
 /// NOT_ALLOWED counts: UNSPECIFIED (an older server) and UNKNOWN stay
-/// allowed. Advisory only: the server's REPLY_NOT_ALLOWED still decides
-/// (ADR-0021 I-4).
+/// allowed. Advisory only: the server's REPLY_NOT_ALLOWED still decides.
 bool replyKnownNotAllowed(pb.PostView view) =>
     view.viewerReplyPermission == ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED;
 
@@ -62,7 +61,7 @@ bool replyKnownNotAllowed(pb.PostView view) =>
 const kReplyNotAllowedHint = "You can't reply to this post";
 
 /// The hint on a disabled Reply button of [view]: for a post labelled with a
-/// community it says who may reply (ADR-0031 F8, members only), otherwise the
+/// community it says who may reply (members only), otherwise the
 /// why-less [kReplyNotAllowedHint].
 String replyNotAllowedHint(pb.PostView view) {
   final name = view.post.hasCommunity() ? view.post.community.name : '';
@@ -74,6 +73,6 @@ String communityRepliesHint(String communityName) =>
     'Only members of $communityName can reply';
 
 /// The notice after a create whose echoed policy differs from the one sent
-/// (ADR-0021 L-1: an old revision dropped the field during a canary).
+/// (an old revision dropped the field during a canary).
 const kReplyPolicyNotAppliedMessage =
     'Your reply setting could not be applied. Everyone can reply to this post.';

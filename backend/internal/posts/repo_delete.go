@@ -1,4 +1,4 @@
-// repo_delete.go is the DeletePost batch (ADR-0010 D4): the post doc is deleted with an Exists precondition and
+// repo_delete.go is the DeletePost batch: the post doc is deleted with an Exists precondition and
 // users.postsCount decremented in the same atomic batch, so concurrent deletes of one post decrement exactly once.
 package posts
 

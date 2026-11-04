@@ -229,7 +229,7 @@ func (pw *paginationWorld) mutedPager(viewer string) pager {
 	}
 }
 
-// Documented worst cases (ADR-0008 cost table, D-"List paging"): edge lists 2 + size + size (102 at 50, 42 at
+// Documented worst cases (cost table, D-"List paging"): edge lists 2 + size + size (102 at 50, 42 at
 // 20); own lists 1 + size (51 at 50).
 func edgeListBudget(size int) int64 { return int64(2 + 2*size) }
 func ownListBudget(size int) int64  { return int64(1 + size) }
@@ -290,7 +290,7 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 	})
 
 	// Exact multiple: hub2 follows exactly 50 users; page 1 (size 50) is full and carries a token, page 2 is
-	// empty with no token (ADR-0008 "List paging": one empty final call).
+	// empty with no token ("List paging": one empty final call).
 	t.Run("exact multiple of page size ends with one empty page", func(t *testing.T) {
 		p := pw.followingPager(uidY, uidH2)
 		res1, err := p("", 50)

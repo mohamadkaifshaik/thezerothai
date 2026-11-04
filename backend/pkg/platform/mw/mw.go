@@ -1,6 +1,6 @@
 // Package mw holds the cross-cutting Connect interceptors that are not specific to one platform
-// concern: panic recovery, request logging, and the final error-to-Connect-code mapping (ADR-0002,
-// ADR-0006 §2). Wire order in apiserver.Build must match ADR-0006 §2 (as amended,
+// concern: panic recovery, request logging, and the final error-to-Connect-code mapping.
+// Wire order in apiserver.Build must match the order below (as amended,
 // M1: rate limit moved before account status so a profile-less caller cannot bypass the limiter and burn
 // unauthenticated Firestore reads; degraded mode moved with it since it is also a free, in-memory check;
 // N5: logging moved outermost, ahead of recover, so a panicking request still gets its one log line):

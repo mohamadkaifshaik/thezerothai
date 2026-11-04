@@ -4,7 +4,7 @@ package apiserver
 
 // The poll tests the developers' chain file (engagement_polls_chain_integration_test.go) does not hold. Every test name starts
 // with TestW617_ so one -run regex selects the lot. They run over the real Build chain (Firestore and Auth emulators):
-//   - the redaction bytes (hidden counts are the same bytes whatever the real split, ADR-0029 D4);
+//   - the redaction bytes (hidden counts are the same bytes whatever the real split);
 //   - one NOT_FOUND for every way a poll is out of reach (raw HTTP bytes, not proto String());
 //   - a replay after closesAt (D6 step 5 precedes the batch);
 //   - the new-account cap as the as-built note states it (per instance, in memory, replays and refusals count);
@@ -244,7 +244,7 @@ func TestW617_NotFoundBytesIdentical(t *testing.T) {
 		t.Errorf("a refused vote changed the total to %d", total)
 	}
 
-	// The other direction (ADR-0029 Amendment 1 A1): the voter who blocked the author still SEES the post (GetPost shares Viewable; only
+	// The other direction: the voter who blocked the author still SEES the post (GetPost shares Viewable; only
 	// an author who blocks the caller hides it), but cannot vote: FAILED_PRECONDITION TARGET_BLOCKED, 0 writes, and the poll view says so.
 	g, err := e.posts.GetPost(ctx, authed(blocksA.token, &postsv1.GetPostRequest{PostId: pid}))
 	if err != nil || g.Msg.GetPost().GetPost().GetPostId() != pid {
@@ -324,7 +324,7 @@ func TestW617_ReplayAfterClose(t *testing.T) {
 	}
 }
 
-// POLL_VOTES_PER_DAY_NEW_ACCOUNT, as the as-built note (ADR-0029 N2) states it.
+// The POLL_VOTES_PER_DAY_NEW_ACCOUNT cap.
 func TestW617_NewAccountCap(t *testing.T) {
 	const capN = 3
 	newCapped := func(t *testing.T) *pollChain {

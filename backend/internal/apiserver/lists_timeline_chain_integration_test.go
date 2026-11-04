@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0030 D5: GetListTimeline over the real Build chain on the emulators. The package tests in internal/timeline run
+// GetListTimeline over the real Build chain on the emulators. The package tests in internal/timeline run
 // the service below the interceptors, so the figures asserted here are the WHOLE-request figures of the proto doc comment
 // (interceptor read included), read from the request line's fs_reads / fs_writes / fs_deletes of a FRESH Build over the same
 // emulator project (cold caches) with budgettest, and the NOT_FOUND bytes are what a client receives.
@@ -33,7 +33,7 @@ import (
 
 const rpcGetListTimeline = "/dzeroth.timeline.v1.TimelineService/GetListTimeline"
 
-// listsOn turns FEATURE_LISTS, graph and engagement on (the ADR's 6 fixed reads include userLikes) with the abuse limits
+// listsOn turns FEATURE_LISTS, graph and engagement on (the 6 fixed reads include userLikes) with the abuse limits
 // relaxed. removed_ids is on so a refresh reads the removal log like production.
 func listsOn(c *config.Config) {
 	relaxLimits(c)
@@ -128,7 +128,7 @@ func idsOf(r *timelinev1.GetListTimelineResponse) []string {
 	return out
 }
 
-// TestListTimelineChain_Budgets asserts the ADR-0030 D5 table over the whole chain: a non-owner and the owner of a
+// TestListTimelineChain_Budgets asserts the read budgets over the whole chain: a non-owner and the owner of a
 // 150-member list at page 20 and 50 (cold, a fresh Build each), the owner's empty since refresh (3 + C), and a warm repeat.
 func TestListTimelineChain_Budgets(t *testing.T) {
 	setup := newLTChain(t, nil)
@@ -393,8 +393,8 @@ func TestListTimelineChain_PerViewerAndTakedown(t *testing.T) {
 }
 
 // TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers: with removed_ids on, a refresh whose since_token predates the
-// instance's removal-log cache is answered by the ADR-0016 window query for all 150 authors (ADR-0030 D5: a list never has
-// more than 180), not rejected as truncated, and stays inside the documented 218.
+// instance's removal-log cache is answered by the window query for all 150 authors (a list never has more than 180),
+// not rejected as truncated, and stays inside the documented 218.
 func TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers(t *testing.T) {
 	withLog := func(cfg *config.Config) { cfg.FeatureRemovedIDs = flags.Spec{Name: "removed_ids", Mode: flags.On} }
 	setup := newLTChain(t, withLog)
@@ -410,7 +410,7 @@ func TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 55 removals by other authors, newer than the token: a cold cache loads only the newest 50, so its coverage starts after the
-	// token and the refresh must be answered by the per-feed window query (ADR-0016 amendment (b)), the 107-read worst case.
+	// token and the refresh must be answered by the per-feed window query, the 107-read worst case.
 	for i := 0; i < 55; i++ {
 		id := fmt.Sprintf("%019d", rand.Int64N(9_000_000_000_000_000_000)+1)
 		now := time.Now().UTC()

@@ -380,7 +380,7 @@ func (in *createInstance) replyIn(t *testing.T, uid, key, parent string) (*Post,
 	return p, c, err
 }
 
-// TestCommunityReply_MembersOnlyAndBudget (ADR-0031 D5 F8): a member's reply, to the root and to a reply, costs +2 reads cold and +0
+// TestCommunityReply_MembersOnlyAndBudget: a member's reply, to the root and to a reply, costs +2 reads cold and +0
 // warm over the same reply in a plain conversation, +0 writes; a non-member and a banned user get FORBIDDEN not_member with 0 writes; the rule
 // keys on the inherited conversationCommunityId (stored on the reply) and still holds when the root is hidden (communityId deleted).
 func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
@@ -467,7 +467,7 @@ func TestCommunityReply_MembersOnlyAndBudget(t *testing.T) {
 	}
 }
 
-// TestCommunityReply_HiddenReplyInGetThread (ADR-0031 Amendment 1 D4a, R4): a reply a moderator hid through the real seam leaves GetThread for
+// TestCommunityReply_HiddenReplyInGetThread: a reply a moderator hid through the real seam leaves GetThread for
 // every viewer but its author, as the focal post's parent it is an unavailable parent, the focal reply is still served, replying to it stays allowed,
 // and the thread costs the same reads as before the hide (+0), cold and warm.
 func TestCommunityReply_HiddenReplyInGetThread(t *testing.T) {

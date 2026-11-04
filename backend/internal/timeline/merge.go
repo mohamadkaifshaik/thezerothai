@@ -11,7 +11,7 @@ import (
 type Source struct {
 	Posts []*posts.Post
 	// Filled is true when the source may hold more posts below its last item: a chunk query that returned
-	// exactly its limit k, or a truncated cache entry (ADR-0010 D15).
+	// exactly its limit k, or a truncated cache entry.
 	Filled bool
 }
 
@@ -33,7 +33,7 @@ type Page struct {
 }
 
 // Compare orders positions in the descending post order: negative when a is newer than b (sorts first),
-// positive when a is older, 0 when equal. Post ids are fixed-width decimal Snowflakes (ADR-0010 D18), so the
+// positive when a is older, 0 when equal. Post ids are fixed-width decimal Snowflakes, so the
 // string comparison is the numeric one.
 func Compare(a, b posts.Position) int {
 	switch {
@@ -54,7 +54,7 @@ func PositionOf(p *posts.Post) posts.Position {
 	return posts.Position{CreatedAt: p.CreatedAt, ID: p.ID}
 }
 
-// Merge implements ADR-0004 decision 3, the exact-prefix merge. It merges all sources by (createdAt, postId)
+// Merge is the exact-prefix merge. It merges all sources by (createdAt, postId)
 // descending, drops duplicates, and keeps only items at or after B, the newest "last item" of any Filled
 // source (those sources may hold more below their last item, so nothing below B is known to be complete). The
 // prefix is then filtered by keep (nil keeps everything) and cut to limit. B's source contributes its whole

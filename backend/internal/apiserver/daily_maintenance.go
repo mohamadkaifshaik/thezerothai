@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// Cut-offs of the daily-maintenance request (ADR-0028 D7, A5). The job has no attempt_deadline_seconds, so Cloud
+// Cut-offs of the daily-maintenance request. The job has no attempt_deadline_seconds, so Cloud
 // Scheduler's attempt deadline is the module default 30 s, equal to Cloud Run's 30 s request timeout; 28 s leaves 2 s of
 // margin. The backstop runs under its own 25 s deadline, so it leaves at least 3 s.
 const (
@@ -27,7 +27,7 @@ type trendsStep interface {
 	Refresh(ctx context.Context) error
 }
 
-// dailyMaintenanceHandler is the `/internal/cron/daily-maintenance` route (ADR-0028 D7, F1 = B): it calls the account
+// dailyMaintenanceHandler is the `/internal/cron/daily-maintenance` route (F1 = B): it calls the account
 // lifecycle backstop handler unchanged through a status-capturing writer, then runs the trends step, then writes the
 // BACKSTOP'S captured status only (204, or 500 so Scheduler retries the backstop). A trends failure, panic or skip is
 // logged and reported to Error Reporting, never turned into a status; a retry after a good run is cheap because the step

@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// (ADR-0030 D6) on the emulator: the SetHomeTabs transaction's exact reads and writes (the account-status interceptor's
+// on the emulator: the SetHomeTabs transaction's exact reads and writes (the account-status interceptor's
 // own read is not part of this harness), the field-level write, Unpin and Retitle for lists.Pins, and the proof that a
 // whole-document rewrite of users/{uid} (UpdateProfile, ChangeHandle, the privacy toggle) keeps homeTabs.
 

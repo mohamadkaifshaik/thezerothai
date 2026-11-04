@@ -7,7 +7,7 @@ import (
 )
 
 // TestPostDoc_RoundTrip: the domain Post and its stored shape convert losslessly, for a root post and a reply,
-// and the stored shape matches ADR-0003 field names the indexes and queries rely on.
+// and the stored shape matches the field names the indexes and queries rely on.
 func TestPostDoc_RoundTrip(t *testing.T) {
 	root := &Post{
 		ID: "0000000000000000005", AuthorID: "a",

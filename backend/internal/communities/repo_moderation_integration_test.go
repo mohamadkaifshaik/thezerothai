@@ -19,7 +19,7 @@ import (
 )
 
 // The budgets are the service's own reads and writes (the account-status interceptor's one read and the cached target profile excluded):
-// ADR-0031 lists Hide / Restore 5 / 4 reads and 3 writes (+1 for the actor's first entry), SetMemberRole 7 / 6 reads and at most 5 writes,
+// the budgets are Hide / Restore 5 / 4 reads and 3 writes (+1 for the actor's first entry), SetMemberRole 7 / 6 reads and at most 5 writes,
 // with the interceptor (1) and the target profile (1, cache-first) included.
 
 const (
@@ -519,7 +519,7 @@ func archivedUpdate(s Status) []firestore.Update {
 	return []firestore.Update{{Path: "status", Value: string(s)}}
 }
 
-// measuredExact is measured with the budget pinned as an equality: the documented figures (RPC doc comments, runbook section 7) are the
+// measuredExact is measured with the budget pinned as an equality: the documented figures (RPC doc comments) are the
 // measured ones, so a saving or a regression both show up here.
 func measuredExact(t *testing.T, name string, b budgettest.Budget, fn func(ctx context.Context)) {
 	t.Helper()

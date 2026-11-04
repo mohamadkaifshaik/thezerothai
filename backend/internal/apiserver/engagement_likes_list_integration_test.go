@@ -2,11 +2,11 @@
 
 package apiserver
 
-// ListLikedPosts (ADR-0024 D6) over the real Build chain on the emulators: paging (25 likes give 20 + a
+// ListLikedPosts over the real Build chain on the emulators: paging (25 likes give 20 + a
 // token, then 5 + ""), the clamp, the caller-bound token, the drop rules with no pruning, a like removed or repeated
 // between two pages, and the budget table of the RPC doc comment (23 reads at page 20, 53 at page 50, 2 for an empty
 // array), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line. The plan ticket
-// named 24 / 54 as the ceiling; ADR-0024 D6 corrected the count to 23 / 53 and the test holds both.
+// named 24 / 54 as the ceiling; the count was later corrected to 23 / 53 and the test holds both.
 //
 // As for bookmarks, the data is written through one chain (the "writer") and read through a second, freshly booted chain
 // (the "reader") on the same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold,
@@ -239,7 +239,7 @@ func TestListLikedPostsChain_ForeignAndTamperedTokens(t *testing.T) {
 	}
 }
 
-// A like removed or repeated between two pages neither skips nor repeats a row (ADR-0024 D6 resume order). The reader
+// A like removed or repeated between two pages neither skips nor repeats a row (resume order). The reader
 // makes the changes itself, so its userLikes cache sees them, like a real client's next scroll on the same instance.
 func TestListLikedPostsChain_ChangesBetweenPages(t *testing.T) {
 	tests := []struct {

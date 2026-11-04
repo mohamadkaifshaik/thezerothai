@@ -61,7 +61,7 @@ const (
 	reasonPolicy   = "This image can't be used because it may break the community rules."
 	reasonCapacity = "Image uploads are temporarily limited. Please try again later."
 	reasonAttempts = "We couldn't check this image. Remove it and choose another."
-	// reasonGifLarge is the pre-scan refusal and the decode deadline (ADR-0029 D11).
+	// reasonGifLarge is the pre-scan refusal and the decode deadline.
 	reasonGifLarge = "This GIF is too large or too long."
 )
 
@@ -82,18 +82,18 @@ type Deps struct {
 	MediaPerDay           int64
 	NewAccountMediaPerDay int64
 	NewAccountWindow      time.Duration
-	// VisionMonthlyCap, Policy and ScreenThumb are ADR-0005's runaway-bill guard and its fallback.
+	// VisionMonthlyCap, Policy and ScreenThumb are the runaway-bill guard and its fallback.
 	VisionMonthlyCap int64
 	Policy           config.VisionExhaustedPolicy
 	ScreenThumb      bool
-	// GifMaxEdge is GIF_MAX_EDGE (ADR-0029 D11): the largest declared GIF width or height at CreateUpload. 0 means 1,280.
+	// GifMaxEdge is GIF_MAX_EDGE: the largest declared GIF width or height at CreateUpload. 0 means 1,280.
 	// GifMaxFrames and GifMaxFrameAreaSum are GIF_MAX_FRAMES and GIF_MAX_FRAME_AREA_SUM, the pre-scan limits of
 	// FinalizeUpload's frame-sampled screen (D11). 0 means 300 and 50,000,000 pixels.
 	GifMaxEdge         int
 	GifMaxFrames       int
 	GifMaxFrameAreaSum int64
 	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS: screening claims per media document before it is REJECTED. 0 means 3.
-	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (revised later, ADR-0029 Amendment 1 A5.4): attempts that produced a valid assessment
+	// MediaMaxScreenAttempts is MEDIA_MAX_SCREEN_ATTEMPTS (revised later): attempts that produced a valid assessment
 	// (screenAssessed) before the document is REJECTED. 0 means 3.
 	MediaMaxScreenAttempts int
 	// MediaMaxScreenRetries is MEDIA_MAX_SCREEN_RETRIES: claimed attempts with no valid assessment. nil means 5; a pointer because 0 is a valid setting.
@@ -192,7 +192,7 @@ const nameSuffixLen = 16
 
 // newNameSuffix returns 128 bits from crypto/rand as 32 lowercase hex characters. The public bucket is public-read,
 // so a name that can be derived from the media id would let anyone who learns an id fetch an image whose post they
-// may not see (ADR-0025 note M-2); the suffix makes new names unguessable. The alphabet has no "_" and no "-",
+// may not see; the suffix makes new names unguessable. The alphabet has no "_" and no "-",
 // so the suffix can never be confused with the id separator or the thumbnail marker.
 func newNameSuffix() (string, error) {
 	var b [nameSuffixLen]byte
@@ -234,7 +234,7 @@ func idemKeyIssue(key string) error {
 	return nil
 }
 
-// capsFor returns the signed-URL and verification byte caps of a purpose (ADR-0005; ADR-0024 D1 for BANNER).
+// capsFor returns the signed-URL and verification byte caps of a purpose (for BANNER).
 func capsFor(p Purpose) (full, thumb int64) {
 	if p == PurposeBanner {
 		return BannerMaxFullBytes, BannerMaxThumbBytes
@@ -248,7 +248,7 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 	switch it.ContentType {
 	case ContentTypeWebP, ContentTypeJPEG:
 	case ContentTypeGIF:
-		if p != PurposePost { // ADR-0029 D10: AVATAR and BANNER refuse
+		if p != PurposePost { // AVATAR and BANNER refuse
 			return apierr.Validation(field("content_type"), "a GIF can only be used in a post")
 		}
 	default:
@@ -277,7 +277,7 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 	return nil
 }
 
-// validateThumbType checks thumb_content_type (ADR-0029 D10): for a GIF it is required and must be a still (JPEG or
+// validateThumbType checks thumb_content_type: for a GIF it is required and must be a still (JPEG or
 // WebP); for JPEG and WebP it must be empty or equal to content_type, so an older client is unchanged.
 func validateThumbType(field string, it UploadItem) error {
 	t := it.ThumbContentType
@@ -293,7 +293,7 @@ func validateThumbType(field string, it UploadItem) error {
 	return nil
 }
 
-// gifMaxEdge is GIF_MAX_EDGE (ADR-0029 D11), 1,280 when unset.
+// gifMaxEdge is GIF_MAX_EDGE, 1,280 when unset.
 func (s *service) gifMaxEdge() int {
 	if s.GifMaxEdge > 0 {
 		return s.GifMaxEdge
@@ -309,7 +309,7 @@ func byteSize(n int64) string {
 	return fmt.Sprintf("%d KiB", n>>10)
 }
 
-// validateBannerShape checks the declared banner size (ADR-0024 D1): width <= 1500, height <= 500 and 3:1 within 2%
+// validateBannerShape checks the declared banner size: width <= 1500, height <= 500 and 3:1 within 2%
 // (294*h <= 100*w <= 306*h, integer arithmetic, bounds inclusive). The server checks the declaration, not pixels.
 func validateBannerShape(field string, w, h int) error {
 	if w > BannerMaxWidth || h > BannerMaxHeight || 100*w < 294*h || 100*w > 306*h {
@@ -331,7 +331,7 @@ func requestHash(purpose Purpose, items []UploadItem) string {
 	return idempotency.HashRequest(sb.String())
 }
 
-// CreateUpload implements Service (ADR-0005; see the CreateUpload proto comment for the budget).
+// CreateUpload implements Service (see the CreateUpload proto comment for the budget).
 func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadInput) (_ []UploadTarget, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create_upload")
 	defer func() {
@@ -357,7 +357,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	case in.Purpose == PurposeBanner && n != 1:
 		return nil, apierr.Validation("items", "a banner is exactly one image")
 	}
-	if hasGIF(in.Items) && n != 1 { // ADR-0029 D10: one GIF per upload, never mixed with other items
+	if hasGIF(in.Items) && n != 1 { // One GIF per upload, never mixed with other items
 		return nil, apierr.Validation("items", "a GIF is uploaded on its own")
 	}
 	for i, it := range in.Items {

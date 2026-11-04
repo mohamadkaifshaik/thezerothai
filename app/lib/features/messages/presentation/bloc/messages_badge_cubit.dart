@@ -4,14 +4,14 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 
 /// How many of [rows] the badge counts: INBOX conversations with unread
-/// messages, muted or not. This is what `GetMe` counts (ADR-0027 D10: every
-/// `dmInbox` entry with `unreadCount > 0`); requests never count.
+/// messages, muted or not. This is what `GetMe` counts (every `dmInbox` entry with `unreadCount > 0`);
+/// requests never count.
 int unreadConversationsIn(Iterable<pb.Conversation> rows) => rows
     .where((c) => c.unreadCount > 0 && c.folder != Folder.FOLDER_REQUESTS)
     .length;
 
 /// App-wide count of conversations with unread messages, behind the Messages
-/// navigation badge (ADR-0027 D10). Its own cubit: a message push never
+/// navigation badge. Its own cubit: a message push never
 /// touches `UnreadBadgeCubit`, which counts notification rows.
 ///
 /// - Seeded from `GetMe.unread_conversation_count` (0 extra reads; capped at

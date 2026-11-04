@@ -27,7 +27,7 @@ enum ThreadStatus {
   error,
 
   /// Malformed id, or NOT_FOUND (not a participant, unknown, deleted): one
-  /// message for all of them, so none can be told apart (ADR-0027 D11).
+  /// message for all of them, so none can be told apart.
   unavailable,
 }
 
@@ -133,7 +133,7 @@ class ThreadState {
 const Object _keep = Object();
 
 /// Drives one conversation over [MessagingRepository] and a [ThreadPoller]
-/// (ADR-0027 D7, D14). Those two are its only dependencies.
+///Those two are its only dependencies.
 ///
 /// - [load] renders the cache at once, starts the poller (which does not pull
 ///   by itself) and refreshes once.
@@ -357,7 +357,7 @@ class ThreadCubit extends Cubit<ThreadState> {
       _unread = snapshot.firstPageHeader
           ? conversation.unreadCount.toInt()
           : math.max(_unread, conversation.unreadCount.toInt());
-      // A request never counts toward the badge (ADR-0027 D10).
+      // A request never counts toward the badge.
       if (conversation.unreadCount.toInt() > 0 &&
           conversation.folder != Folder.FOLDER_REQUESTS &&
           !_reportedUnread) {
@@ -369,7 +369,7 @@ class ThreadCubit extends Cubit<ThreadState> {
 
     // A peer message that arrives in a request the caller sent can
     // only be the recipient's reply, and that reply accepts the request
-    // (ADR-0027 D4 step 5). So the request is answered: ACCEPTED here and in
+    //So the request is answered: ACCEPTED here and in
     // the cached row. A cold open never counts (arrivedFromPeer is 0 then).
     var shownConversation = conversation;
     if (arrivedFromPeer > 0) {
@@ -523,7 +523,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
   }
 
-  /// A send was refused with CANNOT_MESSAGE (ADR-0027 D4): the thread
+  /// A send was refused with CANNOT_MESSAGE: the thread
   /// is read-only from now on (one answer for every cause, so none shows).
   void markCannotMessage() {
     if (isClosed || state.cannotMessage) return;

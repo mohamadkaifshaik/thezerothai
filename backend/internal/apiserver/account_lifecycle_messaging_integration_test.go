@@ -29,8 +29,8 @@ var dmSeedBase = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 // dmMsg is one seeded message: sender uid and text, one second apart.
 type dmMsg struct{ sender, text string }
 
-// seedConversation writes conversations/{id}, its messages and both participants' entries directly (the stored shapes of
-// ADR-0027 D1). requestTo != "" makes it an unaccepted REQUEST whose recipient's entry is in dmRequests. goneUID, when
+// seedConversation writes conversations/{id}, its messages and both participants' entries directly (the stored shapes).
+// requestTo != "" makes it an unaccepted REQUEST whose recipient's entry is in dmRequests. goneUID, when
 // set, is the participant that already deleted the account (its entries are absent, as its own eraser left them).
 func (e *lifecycleEnv) seedConversation(t *testing.T, a, b, state, requestTo, goneUID string, msgs ...dmMsg) string {
 	t.Helper()
@@ -186,7 +186,7 @@ func (e *lifecycleEnv) dmDigest(t *testing.T, w dmWorld) string {
 }
 
 // requireDMErased checks what the step must have done for A, independent of any other run. The global residue sweep
-// runs too, with no allowlist entry: the surviving peers' copies hold no uid of A (ADR-0027 D11).
+// runs too, with no allowlist entry: the surviving peers' copies hold no uid of A.
 func (e *lifecycleEnv) requireDMErased(t *testing.T, w dmWorld) {
 	t.Helper()
 	ctx := context.Background()
@@ -336,13 +336,13 @@ func TestAccountLifecycle_MessagingBothDeleted(t *testing.T) {
 			t.Errorf("%s's inbox entry survived", uid[:6])
 		}
 	}
-	// Neither uid appears anywhere: A's conversation with the live C was scrubbed by A's own erasure (ADR-0027 D11).
+	// Neither uid appears anywhere: A's conversation with the live C was scrubbed by A's own erasure.
 	e.requireNoResidue(t, w.a.uid)
 	e.requireNoResidue(t, w.b.uid)
 }
 
-// seedClearedMarks gives the accepted conversation the marks of two earlier DeleteConversation calls (ADR-0027 2026-10-29
-// note): clearedAt and clearedKey for A and for B. Both are maps keyed by uid, so the residue sweep (which reads values)
+// seedClearedMarks gives the accepted conversation the marks of two earlier DeleteConversation calls:
+// clearedAt and clearedKey for A and for B. Both are maps keyed by uid, so the residue sweep (which reads values)
 // cannot see a leftover key of A's; requireClearedMarksErased reads the keys.
 func (e *lifecycleEnv) seedClearedMarks(t *testing.T, w dmWorld) {
 	t.Helper()

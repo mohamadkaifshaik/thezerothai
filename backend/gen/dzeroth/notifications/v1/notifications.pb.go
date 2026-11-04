@@ -4,12 +4,12 @@
 // 	protoc        (unknown)
 // source: dzeroth/notifications/v1/notifications.proto
 
-// In-app notifications and push-device registration (ADR-0017, Phase 1).
+// In-app notifications and push-device registration (Phase 1).
 // Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
 // and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
 // (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.
 //
-// Token contract for ListNotifications (same shape as the timelines, ADR-0010 D14; all tokens opaque):
+// Token contract for ListNotifications (same shape as the timelines; all tokens opaque):
 // - First open, no local cache: send neither token.
 // - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
 //   than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a
@@ -59,14 +59,14 @@ const (
 	NotificationType_NOTIFICATION_TYPE_REPOST NotificationType = 5
 	// actor quoted your post; post_id is the quote post.
 	NotificationType_NOTIFICATION_TYPE_QUOTE NotificationType = 6
-	// actor asked to follow you, a protected account (ADR-0025 D10). post_id is empty; tapping opens the follow requests
+	// actor asked to follow you, a protected account. post_id is empty; tapping opens the follow requests
 	// screen. One row per requester for 90 days: a withdrawn or declined request keeps its row, and asking again adds
 	// no row and no push. The requests screen (ListFollowRequests) is the truth.
 	NotificationType_NOTIFICATION_TYPE_FOLLOW_REQUEST NotificationType = 7
-	// actor accepted your follow request (ADR-0025 D10). post_id is empty; tapping opens the actor's profile. A decline
+	// actor accepted your follow request. post_id is empty; tapping opens the actor's profile. A decline
 	// sends nothing.
 	NotificationType_NOTIFICATION_TYPE_FOLLOW_ACCEPTED NotificationType = 8
-	// PUSH DATA ONLY (ADR-0027 D9): a direct message arrived. It writes no row in users/{uid}/notifications, does not
+	// PUSH DATA ONLY: a direct message arrived. It writes no row in users/{uid}/notifications, does not
 	// move unread_notification_count, and is NEVER returned by ListNotifications. It appears only as the FCM data field
 	// type = "message", next to conversationId (no sender, no text, no uid); the push text is generic ("New message").
 	// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side

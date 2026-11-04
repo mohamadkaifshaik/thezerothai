@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// ADR-0024 Amendment 1 A4 rests on one invariant: the media bucket's lifecycle rule deletes an object once
+// Rests on one invariant: the media bucket's lifecycle rule deletes an object once
 // daysSinceCustomTime >= 1, so the only thing that may ever set customTime on a public object is the retire step. If
 // anything else set it (a copy, an upload, a future feature), that object would be deleted a day later with its
 // media document still alive. These tests pin both halves: the code that sets it, and the Terraform rule that acts on it.

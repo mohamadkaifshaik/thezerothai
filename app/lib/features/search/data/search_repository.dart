@@ -13,7 +13,7 @@ export '../../../gen/dzeroth/search/v1/search.pb.dart' show Trend;
 export '../../../gen/dzeroth/search/v1/search.pbenum.dart' show SearchTab;
 
 /// Search is off for this caller or for everyone (FAILED_PRECONDITION +
-/// FEATURE_DISABLED, ADR-0028 D8). Hide the entry points; never retry.
+/// FEATURE_DISABLED). Hide the entry points; never retry.
 class SearchUnavailableException implements Exception {
   const SearchUnavailableException([this.feature]);
 
@@ -102,7 +102,7 @@ class TrendsResult {
   final DateTime? computedAt;
 }
 
-/// The only caller of SearchService (ADR-0028). Read-only: no idempotency
+/// The only caller of SearchService. Read-only: no idempotency
 /// keys, no retries beyond the transport's.
 abstract class SearchRepository {
   /// Handle-prefix people (`limit` 0 => 10 server side; no pagination).

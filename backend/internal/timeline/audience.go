@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Log fields for protected accounts (ADR-0025 D4). A boolean and a count: never ids.
+// Log fields for protected accounts. A boolean and a count: never ids.
 const (
 	fieldAuthorProtected = "author_protected"
 	fieldAudienceDropped = "audience_dropped"
@@ -19,13 +19,13 @@ const (
 // Option configures NewServer.
 type Option func(*Server)
 
-// WithProtectedAuthors wires the one protected-set loader (ADR-0025 D3, built once in apiserver) into the timeline's
+// WithProtectedAuthors wires the one protected-set loader (built once in apiserver) into the timeline's
 // posts.Audience. Without it nobody is protected, which is the earlier behaviour.
 func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 	return func(s *Server) { s.aud = posts.NewSnapshotAudience(p) }
 }
 
-// audienceFilter applies posts.Audience.Decide to the rows of one response (ADR-0025 D4): a REPOST whose original is
+// audienceFilter applies posts.Audience.Decide to the rows of one response: a REPOST whose original is
 // by a protected author the viewer may not see is dropped, a QUOTE of one is kept with embed_viewer_state PROTECTED
 // (posts.ApplyEmbedState strips the copy). Decisions run after the author-recent entry or the page query, per viewer,
 // so a cache filled before the viewer was checked never leaks. Reads: +0 (the caller's graph snapshot is already
@@ -51,7 +51,7 @@ func (f *audienceFilter) keep(p *posts.Post) bool {
 		return false
 	}
 	// SurfaceDirect (SurfaceOwnProfile on the caller's own profile, which keeps their own REPOST of a protected post as a
-	// PROTECTED row so it can be undone): a caller who blocks or mutes the profile's owner still sees the posts (ADR-0010 D6); the Home
+	// PROTECTED row so it can be undone): a caller who blocks or mutes the profile's owner still sees the posts; the Home
 	// authors and the embedded authors were already filtered by allowedAuthor and embedAllowed.
 	d, err := f.aud.Decide(f.ctx, f.viewer, f.snap, p, f.surface)
 	if err != nil {

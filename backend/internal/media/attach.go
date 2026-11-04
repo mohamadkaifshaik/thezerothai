@@ -97,14 +97,14 @@ func (l *Library) ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, 
 	return l.resolveOwned(ctx, uid, mediaID, PurposeAvatar)
 }
 
-// ResolveBanner implements Reader (ADR-0024 D1).
+// ResolveBanner implements Reader.
 func (l *Library) ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error) {
 	return l.resolveOwned(ctx, uid, mediaID, PurposeBanner)
 }
 
 // resolveOwned is the one lookup behind the profile-image resolvers: 1 read, ErrNotReady unless the document
 // exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
-// (ADR-0024 Amendment 1 A4: a retired image's objects are scheduled for deletion, so it can never be set again).
+// (a retired image's objects are scheduled for deletion, so it can never be set again).
 func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {
 	if !mediaIDPattern.MatchString(mediaID) {
 		return Ref{}, ErrNotReady

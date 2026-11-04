@@ -1,6 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-/// The server caps the unread count at 100 (ADR-0017); show "99+" from there.
+/// The server caps the unread count at 100; show "99+" from there.
 const kUnreadBadgeCap = 99;
 
 /// Text of the badge for [count] ("3", "99+"); empty for none.

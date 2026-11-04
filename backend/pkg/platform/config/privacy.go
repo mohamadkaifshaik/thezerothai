@@ -5,14 +5,14 @@ import (
 	"time"
 )
 
-// MaxProtectedAuthors is the hard ceiling of PROTECTED_AUTHORS_MAX (ADR-0025 D2: about 30 B per uid, so 20,000 uids
-// is about 600 KB of the 1 MiB document limit). Raising it needs an ADR (the sharded set is the Stage 2 rung).
+// MaxProtectedAuthors is the hard ceiling of PROTECTED_AUTHORS_MAX (about 30 B per uid, so 20,000 uids is about 600 KB of the 1 MiB document limit).
+// Raising it needs a design decision (the sharded set is the Stage 2 rung).
 const MaxProtectedAuthors = 20000
 
-// MaxProtectedSetStale is the longest PROTECTED_SET_MAX_STALE may be set to. The default is 10 minutes (ADR-0025 D3).
+// MaxProtectedSetStale is the longest PROTECTED_SET_MAX_STALE may be set to. The default is 10 minutes.
 const MaxProtectedSetStale = time.Hour
 
-// PrivacyConfig holds the private-accounts limits that are not per-minute buckets or per-day quotas (ADR-0025 D2, D3).
+// PrivacyConfig holds the private-accounts limits that are not per-minute buckets or per-day quotas.
 // The daily toggle quota lives in QuotaConfig (QUOTA_PRIVACY_TOGGLES_PER_DAY) and the Respond bucket in
 // RateLimitConfig (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN).
 type PrivacyConfig struct {

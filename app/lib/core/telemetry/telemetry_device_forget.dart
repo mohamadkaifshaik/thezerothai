@@ -3,8 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'telemetry_consent_store.dart';
 import 'telemetry_controller.dart';
 
-/// What the in-app Delete account flow calls once the account is gone
-/// (ADR-0032 F11): the uid's consent keys, the crash reports not yet
+/// What the in-app Delete account flow calls once the account is gone.
+/// The uid's consent keys, the crash reports not yet
 /// sent and the analytics ID all go from this device. Never throws; a failing
 /// step never keeps the others from running. 0 RPCs.
 class TelemetryDeviceForget {

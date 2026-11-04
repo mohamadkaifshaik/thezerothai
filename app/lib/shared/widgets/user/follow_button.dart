@@ -20,10 +20,10 @@ import 'cancel_follow_request_dialog.dart';
 ///   blocks the target — Follow is never offered while blocking (calling it
 ///   would just fail with `TARGET_BLOCKED`).
 /// - [followedBy] turns "Follow" into "Follow back" (the profile header).
-/// - A `FOLLOW_STATE_REQUESTED` row (a protected account, ADR-0025 D6) renders
+/// - A `FOLLOW_STATE_REQUESTED` row (a protected account) renders
 ///   an outlined "Requested". Tapping it asks "Cancel your follow request?" and
 ///   then sends one Unfollow, which withdraws the request. Withdrawing is never
-///   gated on `private_accounts` (the undo rule, ADR-0025 D12).
+///   gated on `private_accounts` (the undo rule).
 /// - Updates optimistically (via the cubit) and shows a friendly snackbar,
 ///   never the raw server message, if the server rejects the action.
 /// - [onGone] (optional): the server answered NOT_FOUND, so the account is

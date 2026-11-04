@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_BookmarksDefaults pins every ADR-0023 D4/D5 default: the quotas, the cap, the two rate limits and the flag.
+// TestLoad_BookmarksDefaults pins every default: the quotas, the cap, the two rate limits and the flag.
 func TestLoad_BookmarksDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

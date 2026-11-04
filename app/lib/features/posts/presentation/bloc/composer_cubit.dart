@@ -41,7 +41,7 @@ enum DraftLoadResult {
 }
 
 /// Why a draft send was stopped before, or after, the RPC without an error
-/// message of its own (ADR-0029 Amendment 1 A4). The screen asks the
+/// message of its own. The screen asks the
 /// user what to do; nothing is sent until they choose.
 enum SendConflict {
   /// The server knows the key with another body: an earlier version of this
@@ -126,17 +126,17 @@ class ComposerState {
   /// words it for photos.
   final bool uploadFailed;
 
-  /// Who may reply to this post once it is created (ADR-0021 D2). Everyone
+  /// Who may reply to this post once it is created. Everyone
   /// unless the user chose otherwise; only chosen when
   /// [ComposerCubit.canChooseReplyAudience].
   final ReplyAudience replyAudience;
 
   /// Set with [ComposerStatus.posted] when the post the server echoed does
-  /// not carry the audience that was sent (ADR-0021 L-1): the screen tells
+  /// not carry the audience that was sent: the screen tells
   /// the user once and nothing else changes.
   final bool replyPolicyNotApplied;
 
-  /// The time the post is to be sent (ADR-0021 D4): a UTC instant at
+  /// The time the post is to be sent: a UTC instant at
   /// minute precision, or null for "post now". Set only while
   /// [ComposerCubit.canSchedule]; the primary button then reads "Schedule".
   final DateTime? scheduledAt;
@@ -147,7 +147,7 @@ class ComposerState {
   /// [ComposerCubit.scheduledNoticeShown].
   final pb.ScheduledPost? scheduledNotice;
 
-  /// The poll being built (ADR-0029), as typed: choice rows may be
+  /// The poll being built, as typed: choice rows may be
   /// empty while editing. Null: no poll. It is mapped to the generated
   /// `PollDraft` only by the repository; drafts keep the same model.
   final DraftPoll? poll;
@@ -157,7 +157,7 @@ class ComposerState {
   final bool pollDurationClamped;
 
   /// Set with [ComposerStatus.posted] when a poll was sent but the post the
-  /// server echoed has none (ADR-0029 L-1): the screen warns once and offers
+  /// server echoed has none: the screen warns once and offers
   /// to delete the post.
   final bool pollNotAdded;
 
@@ -178,7 +178,7 @@ class ComposerState {
   final AudienceNotice? audienceNotice;
 
   /// Set with [ComposerStatus.posted] when a community post came back with no
-  /// `community` (an older server dropped the field, ADR-0031 L-1): the screen
+  /// `community` (an older server dropped the field): the screen
   /// warns once and offers to delete the post.
   final bool communityNotApplied;
 
@@ -599,12 +599,12 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// The post being replied to; empty for a top-level post.
   final String replyToPostId;
 
-  /// The post being quoted (ADR-0018, `CreatePost.quote_of_post_id`); empty
+  /// The post being quoted (`CreatePost.quote_of_post_id`); empty
   /// for a plain post or a reply. A quote is a top-level post with the same
   /// 280 limit, text or photos, and an embed of the original.
   final String quoteOfPostId;
 
-  /// `reply_audience` is on for this viewer (ADR-0021 D2). Only then, and
+  /// `reply_audience` is on for this viewer. Only then, and
   /// only for a root post or a quote (never a reply), may the user pick who
   /// can reply; otherwise the request always carries UNSPECIFIED.
   final bool replyAudienceEnabled;
@@ -624,12 +624,12 @@ class ComposerCubit extends Cubit<ComposerState> {
       replyAudienceEnabled &&
       replyToPostId.isEmpty &&
       // A community conversation is members only and takes no policy of its
-      // own (ADR-0031 F8): the control goes while a community is chosen.
+      // own: the control goes while a community is chosen.
       !state.audience.isCommunity &&
       _repository.subFeatureEnabled(kFeatureReplyAudience);
 
   /// `posts` and `scheduled_posts` are both on for this viewer
-  /// (ADR-0021 D4). Only then, and only for a new root post, may the user
+  ///Only then, and only for a new root post, may the user
   /// schedule it.
   final bool scheduleEnabled;
 
@@ -643,7 +643,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       quoteOfPostId.isEmpty &&
       _repository.subFeatureEnabled(kFeatureScheduledPosts);
 
-  /// The raw flags the composer's toolbar rules read (ADR-0029 D12): `polls`
+  /// The raw flags the composer's toolbar rules read: `polls`
   /// and `engagement` for the poll, `gif` and `media` for the GIF button. The
   /// gate's session-long FEATURE_DISABLED memory is added by [rules].
   final bool pollsFlag;
@@ -934,8 +934,8 @@ class ComposerCubit extends Cubit<ComposerState> {
   void scheduleChanged(DateTime? publishAt) {
     if (state.isSubmitting) return;
     if (publishAt != null && !canSchedule) return;
-    // A poll cannot be scheduled (SchedulePost has no poll field, ADR-0029
-    // F5): the same rules object that disables the button refuses it here.
+    // A poll cannot be scheduled (SchedulePost has no poll field):
+    // the same rules object that disables the button refuses it here.
     if (publishAt != null && rules.schedule != ComposerBlock.none) return;
     final next = publishAt == null
         ? null
@@ -1061,7 +1061,7 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// Matches the community a draft or the community page asked for with the
   /// loaded choices: found, it is chosen; not found, the post goes to
-  /// everyone and the user is told once (ADR-0029 F8). Waits until the
+  /// everyone and the user is told once. Waits until the
   /// choices have loaded.
   void _resolvePendingCommunity() {
     final id = _pendingCommunityId;
@@ -1178,7 +1178,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     var body = mediaIds.isEmpty
         ? text
         : '$text\u0001${mediaIds.join(',')}\u0001${altTexts.join('\u0002')}';
-    // The poll is part of the request (ADR-0029 D2). Keyed on the NORMALISED
+    // The poll is part of the request. Keyed on the NORMALISED
     // labels and the length, like the server's hash: an edit that changes
     // only spacing is the same request and reuses its key; any real change
     // gets its own.
@@ -1308,7 +1308,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       // The post exists: its draft row is done (also when the screen closed).
       unawaited(discardDraft());
       if (!isClosed) {
-        // Echo check (ADR-0021 L-1): an older revision may have dropped the
+        // Echo check: an older revision may have dropped the
         // field, leaving the post open to everyone. Warn; never fail.
         // A community post takes no policy of its own: nothing to compare.
         final notApplied =
@@ -1319,10 +1319,10 @@ class ComposerCubit extends Cubit<ComposerState> {
             status: ComposerStatus.posted,
             created: created,
             replyPolicyNotApplied: notApplied,
-            // Echo check (ADR-0029 L-1): an older revision drops the field
+            // Echo check: an older revision drops the field
             // and posts the question alone.
             pollNotAdded: poll != null && !created.post.hasPoll(),
-            // Echo check (ADR-0031 L-1): an older revision drops the field
+            // Echo check: an older revision drops the field
             // and posts to everyone.
             communityNotApplied:
                 communityId.isNotEmpty && !created.post.hasCommunity(),
@@ -1442,7 +1442,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       // Only a FRESH key whose first use was refused proves nothing was
       // created. A reused key may have landed on an earlier try, and
       // MEDIA_NOT_READY is ambiguous (the media may already be attached to a
-      // post that landed), as are quota answers (ADR-0021 review m1).
+      // post that landed), as are quota answers (review m1).
       final proves =
           error is ValidationException ||
           error is FeatureDisabledException ||

@@ -17,8 +17,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// searchDailyProcedures are the two search RPCs that share the one search_daily cap (ADR-0028 D9). GetTrends is a cached
-// single-document read on the 60/min default bucket with its own trends_daily cap (ADR-0028 note 2026-10-31 part 4).
+// searchDailyProcedures are the two search RPCs that share the one search_daily cap. GetTrends is a cached
+// single-document read on the 60/min default bucket with its own trends_daily cap (part 4).
 var searchDailyProcedures = []string{
 	searchv1connect.SearchServiceSearchPeopleProcedure,
 	searchv1connect.SearchServiceSearchPostsProcedure,
@@ -26,7 +26,7 @@ var searchDailyProcedures = []string{
 
 // searchViolations asserts the wiring: SearchPeople and SearchPosts each have a DailyCaps entry named search_daily
 // holding the SAME DailyCap, GetTrends has its OWN non-nil trends_daily entry (review L-4) whose Cap is not that one, and all three procedures are covered by the daily read budget
-// (ADR-0010 D5; they are NO_SIDE_EFFECTS, so the generic guard also sees them).
+// (they are NO_SIDE_EFFECTS, so the generic guard also sees them).
 func searchViolations(rl ratelimit.Config) []string {
 	var out []string
 	var first *ratelimit.DailyCap

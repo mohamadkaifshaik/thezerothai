@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Suggestion sources, the request-log field "source" (ADR-0024 D8).
+// Suggestion sources, the request-log field "source".
 const (
 	// SuggestionSourceFriendsOfFriends: at least minSuggestions usable friends of friends, no curated row added.
 	SuggestionSourceFriendsOfFriends = "fof"
@@ -25,14 +25,14 @@ const (
 
 // maxCandidatesPerFollowee is how many candidates one sampled followee may contribute to a window (L-5): its
 // newest three usable edges. Without it one very active account that many people follow (a follow-back bait account
-// that follows thirty promotion accounts in a minute) fills the whole EdgeLimit-edge window (20 by default, ADR-0024
+// that follows thirty promotion accounts in a minute) fills the whole EdgeLimit-edge window (20 by default
 // Amendment 2) and picks every row for all of its followers. A constant, not config: it is part of the ranking, like
 // minSuggestions. It does not free the window (a flooder's edges are still the newest EdgeLimit the one query
 // returns): it bounds the damage to three candidates, which
 // shows in the log as source=fof with candidates <= 3.
 const maxCandidatesPerFollowee = 3
 
-// minSuggestions is the "fewer than 3" of ADR-0024 D8: the viewer needs at least this many followees to seed the
+// minSuggestions is the "fewer than 3" of: the viewer needs at least this many followees to seed the
 // friends-of-friends query, and at least this many usable friends of friends to skip the curated list.
 const minSuggestions = 3
 
@@ -46,7 +46,7 @@ type Suggestion struct {
 	Candidates []string
 }
 
-// Suggester is the candidate source behind ListSuggestedUsers (ADR-0024 D8). The default is friends of friends with
+// Suggester is the candidate source behind ListSuggestedUsers. The default is friends of friends with
 // the curated fallback (option a, c); option (b) or a precomputed list implements this interface and is passed as
 // Deps.Suggester, and the RPC, its cache and its read cap do not change. Suggest receives the viewer's cached
 // Snapshot (0 reads); the RPC's hard cap (32 reads cold at the default EdgeLimit 20; 42 at 30) assumes it makes at
@@ -69,7 +69,7 @@ type followerEdgeLister interface {
 	ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error)
 }
 
-// friendsOfFriends is the default Suggester: ADR-0024 D8 steps 2 to 4 and the curated fallback.
+// friendsOfFriends is the default Suggester: friends of friends with the curated fallback.
 type friendsOfFriends struct {
 	edges  followerEdgeLister
 	limits SuggestionLimits // normalized
@@ -199,7 +199,7 @@ func tieBreak(viewer, candidate, day string) uint64 {
 	return h.Sum64()
 }
 
-// suggestable is ADR-0024 D8 step 4, at 0 reads from the viewer's snapshot: never the viewer, anyone the viewer
+// suggestable is the final filter, at 0 reads from the viewer's snapshot: never the viewer, anyone the viewer
 // follows or has requested, blocks or mutes, or is blocked by. blockedBy is never serialized to a client; here it only
 // removes a row (a user who blocked the viewer must not appear, while GetProfile says NOT_FOUND for them).
 func suggestable(viewer string, snap Snapshot, uid string) bool {

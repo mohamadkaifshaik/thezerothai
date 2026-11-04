@@ -2,7 +2,7 @@ package config
 
 import "testing"
 
-// TestLoad_PostsCacheSizes (ADR-0010 D15): defaults 20,000 / 1,000, overridable, and <= 0 fails fast (rule 11).
+// TestLoad_PostsCacheSizes: defaults 20,000 / 1,000, overridable, and <= 0 fails fast (rule 11).
 func TestLoad_PostsCacheSizes(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

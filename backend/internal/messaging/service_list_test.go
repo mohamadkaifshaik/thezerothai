@@ -521,7 +521,7 @@ func containsAny(s string, subs ...string) bool {
 	return false
 }
 
-// TestListConversations_TokenConstantsMatchNotifications pins the reused codec parameters (ADR-0027 D7): the same 5 s
+// TestListConversations_TokenConstantsMatchNotifications pins the reused codec parameters: the same 5 s
 // settle window and 30-day lifetime as the notifications list, so a change there is a decision here too.
 func TestListConversations_TokenConstantsMatchNotifications(t *testing.T) {
 	if SettleWindow != notifications.SettleWindow || RefreshTokenTTL != notifications.RefreshTokenTTL ||

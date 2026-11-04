@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 /// Typed domain errors the UI branches on. Callers must never pattern-match
-/// on a raw error message string (see ADR-0006 / `dzeroth.common.v1.ErrorReason`).
+/// on a raw error message string (see `dzeroth.common.v1.ErrorReason`).
 ///
 /// These mirror `ErrorReason` in `proto/dzeroth/common/v1/common.proto`, plus
 /// a couple of transport-level cases (`network`, `unauthenticated`, `unknown`)
@@ -23,18 +23,18 @@ final class ValidationException extends AppException {
   final String? field;
 }
 
-/// Short-window token bucket exceeded (ADR-0006 §3). Do not auto-retry before
+/// Short-window token bucket exceeded. Do not auto-retry before
 /// [retryAfter] elapses.
 ///
 /// [limitName] is the server's `metadata["limit"]` / `["limit_name"]`
-/// (ADR-0010 D5 A7), e.g. `read_budget_inflight` (transient, ~1 s),
+///E.g. `read_budget_inflight` (transient, ~1 s),
 /// `read_budget_daily`, `check_handle_daily`, `account_ops_daily`.
 final class RateLimitedException extends AppException {
   const RateLimitedException(super.message, {this.retryAfter, this.limitName});
   final Duration? retryAfter;
   final String? limitName;
 
-  /// The per-uid in-flight read hold (ADR-0010 D5 A1): a concurrent call of the
+  /// The per-uid in-flight read hold: a concurrent call of the
   /// same account was still being charged. Rejected before the handler ran
   /// (0 reads), so retrying after [retryAfter] is always safe.
   bool get isInflightHold => limitName == inflightLimitName;
@@ -109,7 +109,7 @@ final class LimitReachedException extends AppException {
   final Duration? retryAfter;
 
   /// The caller's stored 0-based poll choice from `metadata["choice"]`
-  /// (`LIMIT_REACHED` with `limit=poll_vote_changes`, ADR-0029 Amendment 1);
+  /// (`LIMIT_REACHED` with `limit=poll_vote_changes`);
   /// null otherwise.
   final int? choiceIndex;
 }
@@ -124,7 +124,7 @@ final class MediaNotReadyException extends AppException {
 
 /// Image checks are temporarily unavailable (FinalizeUpload's screening step failed with no valid assessment: an outage, a timeout).
 /// Nothing was published and the upload is kept: the same FinalizeUpload for the same media id can be repeated after [retryAfter]
-/// with no re-upload (ADR-0029 Amendment 1 A5.6). Never counts against the image's attempts on the server.
+/// with no re-upload. Never counts against the image's attempts on the server.
 final class ScreeningUnavailableException extends AppException {
   const ScreeningUnavailableException(super.message, {this.retryAfter});
 
@@ -143,16 +143,16 @@ final class AccountRestrictedException extends AppException {
 }
 
 /// The caller blocks the target (e.g. `Follow`). Unblock first; never
-/// auto-unblocked (ADR-0008 D9).
+/// auto-unblocked.
 final class TargetBlockedException extends AppException {
   const TargetBlockedException(super.message);
 }
 
 /// The feature is not enabled for this caller (server feature flag, or not
 /// built yet, e.g. follow requests). Hide the feature and refresh
-/// `GetMe.enabled_features`; never retry (ADR-0008 D6).
+/// `GetMe.enabled_features`; never retry.
 ///
-/// [feature] is the server's `metadata["feature"]` (ADR-0010 D2): when set it
+/// [feature] is the server's `metadata["feature"]`: when set it
 /// names the sub-feature (`replies`, `quotes`, `media`) and the client hides
 /// only that; when null the whole service is off.
 final class FeatureDisabledException extends AppException {
@@ -167,7 +167,7 @@ final class ReauthRequiredException extends AppException {
   const ReauthRequiredException(super.message);
 }
 
-/// The reply audience policy (ADR-0021) does not let the caller reply.
+/// The reply audience policy does not let the caller reply.
 ///
 /// The text is deliberately generic and fixed: it never says why (a block, a
 /// follow rule, ...), so the UI cannot reveal who blocks whom. [policy] is the
@@ -182,8 +182,8 @@ final class ReplyNotAllowedException extends AppException {
   final String? policy;
 }
 
-/// The target account protects its posts (ADR-0025 D14, FAILED_PRECONDITION +
-/// PROTECTED_ACCOUNT): a Repost or Quote of its post was refused. The text is
+/// The target account protects its posts (FAILED_PRECONDITION + PROTECTED_ACCOUNT):
+/// a Repost or Quote of its post was refused. The text is
 /// fixed and generic; never show the server's.
 final class ProtectedAccountException extends AppException {
   const ProtectedAccountException() : super(userMessage);
@@ -193,8 +193,8 @@ final class ProtectedAccountException extends AppException {
       "You can't repost or quote posts from a protected account.";
 }
 
-/// The recipient cannot be messaged (ADR-0027 D4, FAILED_PRECONDITION +
-/// CANNOT_MESSAGE): blocked either way, not active, outside the messaging
+/// The recipient cannot be messaged (FAILED_PRECONDITION + CANNOT_MESSAGE):
+/// blocked either way, not active, outside the messaging
 /// rollout, or deleted. The text is fixed and generic; never show the server's.
 final class CannotMessageException extends AppException {
   const CannotMessageException() : super(userMessage);
@@ -203,8 +203,8 @@ final class CannotMessageException extends AppException {
   static const userMessage = "You can't message this account.";
 }
 
-/// The poll has closed (ADR-0029 D6 step 5, FAILED_PRECONDITION +
-/// POLL_CLOSED). The caller refreshes the post and shows the final results.
+/// The poll has closed (FAILED_PRECONDITION + POLL_CLOSED).
+/// The caller refreshes the post and shows the final results.
 final class PollClosedException extends AppException {
   const PollClosedException() : super(userMessage);
 
@@ -212,9 +212,8 @@ final class PollClosedException extends AppException {
   static const userMessage = 'This poll has ended.';
 }
 
-/// The vote the caller sent does not match the one the server holds (ADR-0029
-/// D6 step 7 and Amendment 1 A2.2, FAILED_PRECONDITION + ALREADY_VOTED): a first
-/// vote that was already cast, a change sent with a stale `expected_choice`, or
+/// The vote the caller sent does not match the one the server holds
+/// (FAILED_PRECONDITION + ALREADY_VOTED): a first vote that was already cast, a change sent with a stale `expected_choice`, or
 /// a change sent to a server that predates changes. The server's choice is the
 /// caller's own, never anyone else's.
 final class AlreadyVotedException extends AppException {
@@ -252,9 +251,8 @@ final class UploadInterruptedException extends AppException {
 }
 
 /// The API is paused: Google's front end refused the call with HTTP 403 and no
-/// Connect error body (the public invoker was removed, ADR-0022 / the
-/// credit-sunset runbook). Never a permission problem of the caller. The app
-/// shows the "service paused" screen until a re-check succeeds.
+/// Connect error body (the public invoker was removed). Never a
+/// permission problem of the caller. The app shows the "service paused" screen until a re-check succeeds.
 final class ServicePausedException extends AppException {
   const ServicePausedException([super.message = userMessage]);
 
@@ -268,7 +266,7 @@ final class UnknownApiException extends AppException {
 }
 
 /// Why a role-gated community action was refused (PERMISSION_DENIED +
-/// FORBIDDEN, ADR-0031 D4; the server's `metadata["reason"]`).
+/// FORBIDDEN; the server's `metadata["reason"]`).
 enum CommunityForbiddenReason {
   /// A BANNED user joins or posts.
   banned('banned', "You're banned from this community."),
@@ -311,7 +309,7 @@ enum CommunityForbiddenReason {
 }
 
 /// A community action the caller's role does not allow (PERMISSION_DENIED +
-/// `ERROR_REASON_FORBIDDEN`, ADR-0031 N1). Never an account suspension (that
+/// `ERROR_REASON_FORBIDDEN`). Never an account suspension (that
 /// is [AccountRestrictedException]). Do not retry; the text is fixed per
 /// [reason].
 final class CommunityForbiddenException extends AppException {
@@ -320,7 +318,7 @@ final class CommunityForbiddenException extends AppException {
 }
 
 /// Why a community write conflicts with the community's state or a held role
-/// (FAILED_PRECONDITION + COMMUNITY_STATE, ADR-0031 D4; `metadata["reason"]`).
+/// (FAILED_PRECONDITION + COMMUNITY_STATE; `metadata["reason"]`).
 enum CommunityStateReason {
   /// The owner leaves (the owner cannot leave).
   owner('owner', "The owner can't leave their community."),
@@ -357,7 +355,7 @@ enum CommunityStateReason {
 }
 
 /// A write that conflicts with the community's state or a role held in it
-/// (FAILED_PRECONDITION + `ERROR_REASON_COMMUNITY_STATE`, ADR-0031 N1). Never
+/// (FAILED_PRECONDITION + `ERROR_REASON_COMMUNITY_STATE`). Never
 /// a missing profile ([ProfileRequiredException]). Do not retry.
 final class CommunityStateException extends AppException {
   CommunityStateException(this.reason) : super(reason.userMessage);

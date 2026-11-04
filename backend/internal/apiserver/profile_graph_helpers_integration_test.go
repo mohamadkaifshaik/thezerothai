@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Shared helpers of the matrix (ADR-0024). Every
+// Shared helpers of the matrix. Every
 // package-level name here carries the w320 / W320 prefix so a symbol added by a parallel fix branch can never
 // collide with it. The chain, the clients, the budget-from-log helper, rawRPC, tabCall, listLiked, like, unlike and the
 // rest are reused from the earlier files of this package.
@@ -214,8 +214,8 @@ func (e *w320Chain) w320Profile(t *testing.T, viewer bmUser, uid string) *identi
 func w320Str(s string) *string { return &s }
 
 // -----------------------------------------------------------------------------------------------------------------
-// M-1 (merged: #349 the ADR amendment, #354 the code). Both values were "pre-fix" (true) until #354 landed on main;
-// flipped them to false, the behaviour ADR-0024 Amendment 1 A1 and A2 describe and the tests below assert. They are
+// M-1 (merged: #349 the design amendment, #354 the code). Both values were "pre-fix" (true) until #354 landed on main;
+// flipped them to false, the behaviour the amended design describes and the tests below assert. They are
 // kept as named switches only so the two places that read them say what they check; they can be deleted with their
 // conditionals. TestW320_M1KillSwitchWebsiteAndClears asserts the same rules directly.
 // -----------------------------------------------------------------------------------------------------------------

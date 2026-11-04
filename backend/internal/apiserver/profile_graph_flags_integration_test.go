@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of the ADR-0024 D9 flag gates over the real Build chain on the emulators: GetMe.enabled_features
+// Wire contract of the flag gates over the real Build chain on the emulators: GetMe.enabled_features
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
@@ -89,7 +89,7 @@ func w3NoWrites(t *testing.T, env *chainEnv, rpc string, maxReads ...float64) {
 	}
 }
 
-// w3StartupFlags returns the flags map of the startup `feature_flags` log line (ADR-0008 D6; observability).
+// w3StartupFlags returns the flags map of the startup `feature_flags` log line (observability).
 func w3StartupFlags(t *testing.T, env *chainEnv) map[string]any {
 	t.Helper()
 	env.logs.mu.Lock()

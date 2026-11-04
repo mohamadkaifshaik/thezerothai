@@ -1,4 +1,4 @@
-// follow_requests_gate.go is the ADR-0025 D12 gate of ListFollowRequests and RespondToFollowRequest. The two
+// follow_requests_gate.go is the gate of ListFollowRequests and RespondToFollowRequest. The two
 // RPCs are built in follow_requests.go; this file holds the gate they share.
 package graph
 
@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// PrivateAccountsFlagName is the wire name of FEATURE_PRIVATE_ACCOUNTS (ADR-0025 D12).
+// PrivateAccountsFlagName is the wire name of FEATURE_PRIVATE_ACCOUNTS.
 const PrivateAccountsFlagName = "private_accounts"
 
 // globallyOffChecker is the optional second seam of FlagChecker (*flags.Registry implements it): the kill switch, a

@@ -26,7 +26,7 @@ import (
 // An entry between 60 s and 5 min old, and a removal the capped array has since dropped (the STALENESS BOUND of communityEntryMaxAge):
 // the shared entry still holds the hidden post, recentRemovals no longer lists it, so a cold open shows it until the entry expires. The
 // LRU's hard expiry runs on the real clock, so ForgetCommunityFeed stands for it (it is the same Delete the expiry performs). A since
-// token older than the dropped removal is rejected, so the client cold-opens and lands on this bound (designed, ADR-0031 A3). Only a
+// token older than the dropped removal is rejected, so the client cold-opens and lands on this bound (designed). Only a
 // post that outlives the expiry would be a defect.
 func TestW536_DroppedRemovalShowsOnlyUntilTheEntryExpires(t *testing.T) {
 	t.Parallel()

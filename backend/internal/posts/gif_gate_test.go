@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 )
 
-// ADR-0029 D10: the second FEATURE_GIF gate and the GIF-only rules of CreatePost and SchedulePost. The decision
+// The second FEATURE_GIF gate and the GIF-only rules of CreatePost and SchedulePost. The decision
 // itself is made inside the transaction from the media claim (repo level, emulator test gif_integration_test.go); these
 // tests pin how the service maps the repo's sentinels and what the handler passes down.
 

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestHasMediaFor pins the one definition of posts.hasMedia (ADR-0024 D4): the post's own stored images, never for a
+// TestHasMediaFor pins the one definition of posts.hasMedia: the post's own stored images, never for a
 // REPOST. The backfill calls the same function.
 func TestHasMediaFor(t *testing.T) {
 	t.Parallel()

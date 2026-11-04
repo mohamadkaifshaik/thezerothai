@@ -2,7 +2,7 @@
 
 package apiserver
 
-// profile-snapshot-refresh over the real Build chain (ADR-0003 "Author snapshot refresh"): a rename or a
+// profile-snapshot-refresh over the real Build chain ("Author snapshot refresh"): a rename or a
 // display-name edit publishes one job on the shared jobs topic, delivering it rewrites `author` on the author's
 // newest 100 posts, a replay writes nothing, and the daily snapshot-edit quota rejects the sixth edit.
 
@@ -101,7 +101,7 @@ func TestProfileSnapshot_RenameRewritesNewest100Posts(t *testing.T) {
 		t.Fatalf("delivery = %d", code)
 	}
 
-	// The newest 100 carry the new handle at version 1; the 5 oldest keep the old snapshot (ADR-0003).
+	// The newest 100 carry the new handle at version 1; the 5 oldest keep the old snapshot.
 	for i, id := range ids {
 		h, _, v := postAuthor(t, e, id)
 		wantNew := i >= total-100

@@ -33,7 +33,7 @@ func reasonOf(t *testing.T, err error) commonv1.ErrorReason {
 	return commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED
 }
 
-// TestClaims_IdentityGate is the ADR-0010 D5 A10 allowlist table: fail closed on everything not listed.
+// TestClaims_IdentityGate is the allowlist table: fail closed on everything not listed.
 func TestClaims_IdentityGate(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -73,7 +73,7 @@ func (p *countingProvider) AccountStatus(context.Context, string) (bool, authn.A
 	return false, authn.AccountStatusUnknown, nil
 }
 
-// TestVerifiedIdentityInterceptor (ADR-0010 D5 A2/A10): a caller outside the provider allowlist is rejected
+// TestVerifiedIdentityInterceptor: a caller outside the provider allowlist is rejected
 // from the token claims alone, before the account-status lookup (0 reads) and before any later interceptor, with
 // EMAIL_NOT_VERIFIED on the gated (profile-exempt) procedures and PROFILE_REQUIRED on every other one, and the
 // right `gate` log value.

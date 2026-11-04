@@ -34,7 +34,7 @@ class ConversationsResult {
 }
 
 /// Talks to `MessagingService` and keeps the inbox, requests and the newest
-/// 200 messages per conversation in drift (ADR-0027 D5, D7, D14). It is the
+/// 200 messages per conversation in drift. It is the
 /// only caller of the messaging RPCs.
 ///
 /// - `cached*` render from disk with no network call.
@@ -47,7 +47,7 @@ class ConversationsResult {
 ///   other four RPCs through [MessagingFeatureGate.runRead] (not globally
 ///   off), so a user dropped from the allowlist can still read and clean up.
 /// - ListConversations and ListMessages share the read [RateLimitHold]
-///   (ADR-0010 D5: one daily read budget per uid); a RATE_LIMITED answer is
+///   (one daily read budget per uid); a RATE_LIMITED answer is
 ///   recorded there, which also holds [TimerThreadPoller]. Mutations never
 ///   use it.
 /// - Messages carry no sender uid, only `from_self` (D5). Nothing here logs
@@ -118,8 +118,8 @@ class MessagingRepository {
   /// Whether the cache holds any conversation. Local only.
   Future<bool> hasCachedConversations() => _store.hasConversations();
 
-  /// The one session-start probe of a caller outside the rollout
-  /// (ADR-0027 F6(a)): [MessagingFeatureGate.probe] with the cache check and
+  /// The one session-start probe of a caller outside the rollout:
+  /// [MessagingFeatureGate.probe] with the cache check and
   /// one INBOX refresh. Sends nothing when messaging is enabled or the cache
   /// is empty. Never throws.
   Future<void> probeAccess() => _gate.probe(
@@ -558,7 +558,7 @@ class MessagingRepository {
 
   /// The peer's first reply reached a request the caller sent. Only
   /// the recipient's reply can add a peer message, and it accepts the request
-  /// (ADR-0027 D4 step 5), so the cached row becomes an ACCEPTED inbox row now
+  ///So the cached row becomes an ACCEPTED inbox row now
   /// instead of at the next Inbox refresh. Local only, no RPC. A conversation
   /// that is not a cached sent request (REQUEST in INBOX) is left alone, and
   /// the request count is not touched (it counts received requests).

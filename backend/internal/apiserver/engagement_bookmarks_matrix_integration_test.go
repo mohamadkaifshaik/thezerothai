@@ -2,7 +2,7 @@
 
 package apiserver
 
-// tester pass over the bookmark RPCs (ADR-0023) on the real Build chain and the emulators.
+// tester pass over the bookmark RPCs on the real Build chain and the emulators.
 // It adds what engagement_bookmarks_*_integration_test.go does not already cover: the flag modes with real data
 // (including a user dropped from the allowlist), the late retry of a NO-OP key in both directions, the same post added
 // ten times concurrently under different keys, the cap boundary at the default 1,000, the 24 h new-account quota window,
@@ -76,7 +76,7 @@ func requireFeatureDisabled(t *testing.T, what string, err error) {
 // then runs List, Add (a new post), Remove and List again for an "in" user and an "out" user:
 //   - off: all three RPCs FEATURE_DISABLED, enabled_features does not list bookmarks;
 //   - allowlist / percent: Add only for the cohort, but List and Remove keep working for a user outside it (dropped
-//     from the allowlist, bucket too high): what they saved stays visible and removable (ADR-0023 D5);
+//     from the allowlist, bucket too high): what they saved stays visible and removable;
 //   - percent: the bucket is deterministic (the test recomputes it) and an allowlisted uid is in whatever its bucket;
 //   - on: everything.
 func TestBookmarksW213_FlagModesWithRealData(t *testing.T) {
@@ -195,7 +195,7 @@ func TestBookmarksW213_FlagModesWithRealData(t *testing.T) {
 	}
 }
 
-// A late retry of a NO-OP key must neither undo nor redo a newer toggle (the ADR-0023 note: no-op paths store the
+// A late retry of a NO-OP key must neither undo nor redo a newer toggle (the note: no-op paths store the
 // idempotency doc, 1 write). The existing lifecycle test replays a key that really removed something; these use keys
 // that changed nothing.
 func TestBookmarksW213_LateRetryOfNoOpKeys(t *testing.T) {
@@ -330,8 +330,8 @@ func TestBookmarksW213_SamePostDifferentKeysConcurrently(t *testing.T) {
 
 // The cap at the default BOOKMARKS_MAX_PER_USER (1,000), through the chain: with 999 saved the 1,000th add succeeds, the
 // 1,001st is LIMIT_REACHED limit=bookmarks with 0 writes, an existing bookmark still answers success, and one Remove
-// makes room again. The 999 are seeded straight into userLikes.bookmarks (the array length is the exact cap check,
-// ADR-0023 D4) so the test does not need 999 requests.
+// makes room again. The 999 are seeded straight into userLikes.bookmarks (the array length is the exact cap check)
+// so the test does not need 999 requests.
 func TestBookmarksW213_CapBoundaryAtTheDefault(t *testing.T) {
 	ctx := context.Background()
 	w := newBMChain(t, nil)
@@ -769,7 +769,7 @@ func TestBookmarksW213_ColdChainBudgets(t *testing.T) {
 
 // With FEATURE_ENGAGEMENT off and FEATURE_BOOKMARKS on, viewer state shows bookmarked_by_viewer and never the like /
 // repost flags, on GetPost, GetThread (focal and replies), the Home timeline and a profile timeline: the userLikes doc
-// holds a like and a repost of the same post, which must not reach the wire (ADR-0023 D3/D5).
+// holds a like and a repost of the same post, which must not reach the wire.
 func TestBookmarksW213_EngagementOffShowsOnlyBookmarkedState(t *testing.T) {
 	ctx := context.Background()
 	withReplies := func(c *config.Config) { bookmarksOn(c); c.FeatureReplies = flags.Spec{Name: "replies", Mode: flags.On} }

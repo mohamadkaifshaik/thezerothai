@@ -13,7 +13,7 @@ import (
 )
 
 // seedSharedInstantRemovals commits n log entries in ONE batch, so they all carry the same server createdAt (the
-// shape of a suspension page, ADR-0016 D10).
+// shape of a suspension page).
 func seedSharedInstantRemovals(t *testing.T, repo *FirestoreRepo, n int) {
 	t.Helper()
 	seedSharedInstantRemovalsBy(t, repo, "spammer", n)

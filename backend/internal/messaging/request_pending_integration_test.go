@@ -14,7 +14,7 @@ import (
 )
 
 // integration tests: the requester's pending request reads REQUEST in their own Inbox through the requestPending flag
-// on the requester's dmInbox entry (ADR-0027 note). alice is the requester, bob the recipient.
+// on the requester's dmInbox entry. alice is the requester, bob the recipient.
 
 func (e *itEnv) rowState(svc *service, uid string, req *messagingv1.ListConversationsRequest, convID string) (messagingv1.ConversationState, messagingv1.Folder, bool) {
 	e.t.Helper()

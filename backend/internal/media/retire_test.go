@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// ADR-0024 Amendment 1 A4: the profile_media_retired job over fakes. The Firestore side (the LastUpdateTime
+// The profile_media_retired job over fakes. The Firestore side (the LastUpdateTime
 // precondition, the field-level Update, 2 reads and 1 write) is in retire_integration_test.go.
 
 const (

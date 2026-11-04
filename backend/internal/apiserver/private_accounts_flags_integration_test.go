@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of the ADR-0025 D12 flag gate over the real Build chain on the emulators:
+// Wire contract of the flag gate over the real Build chain on the emulators:
 // FEATURE_PRIVATE_ACCOUNTS (private_accounts) is listed in startup feature_flags and in GetMe.enabled_features only for
 // the allowlisted caller; UpdateProfile(is_private=true) is FEATURE_DISABLED feature=private_accounts with 0 reads past the
 // interceptor and 0 writes for everyone else; is_private=false is accepted whatever the flag; ListFollowRequests and

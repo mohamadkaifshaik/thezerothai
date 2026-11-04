@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// ADR-0031 Amendment 1 D4a: Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
+// Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
 // communityId: hidden = communityHidden + communityHiddenAt, no recentRemovals entry, a modlog entry as for a root.
 
 const (

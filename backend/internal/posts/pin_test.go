@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The method identity's consumer-side PinChecker needs (ADR-0024 D3, identity/api.go): *PinChecker must satisfy it
+// The method identity's consumer-side PinChecker needs (identity/api.go): *PinChecker must satisfy it
 // without an adapter, so apiserver can pass it straight to identity.WithPinChecker.
 var _ interface {
 	CanPin(ctx context.Context, uid, postID string) (bool, error)

@@ -1,9 +1,9 @@
-// repo_bookmarks.go is the Firestore implementation of BookmarkRepo (ADR-0023 D2, D3, D4). Collections owned here:
+// repo_bookmarks.go is the Firestore implementation of BookmarkRepo. Collections owned here:
 // users/{uid}/bookmarks/{postId} = {createdAt} (a thin doc: no copy of the post, its text, media or author) and the
 // `bookmarks` array of userLikes/{uid}, the complete set of the caller's bookmarked ids (viewer state at 0 extra reads).
 //
 // Every userLikes write is field-level: a Set with MergeAll and ArrayUnion/ArrayRemove, never a whole-document write.
-// A whole-document Set would silently empty the set (the ADR-0021 I-3 class of bug), and it is why the quota record
+// A whole-document Set would silently empty the set (a known class of bug), and it is why the quota record
 // carries its Bookmarks field.
 package engagement
 
@@ -110,7 +110,7 @@ func resultMap(st BookmarkState) map[string]string {
 	return map[string]string{"postId": st.PostID, "bookmarked": fmt.Sprint(st.Bookmarked)}
 }
 
-// Add implements BookmarkRepo: one transaction (ADR-0023 D4, rule 4). Reads, fresh and in this order: idempotency/{hash}
+// Add implements BookmarkRepo: one transaction. Reads, fresh and in this order: idempotency/{hash}
 // (a replay returns here: 1 read), quotas/{uid}, userLikes/{uid} (3 reads; the array length is the cap check, so the
 // cap is exact). Writes 4: Create the bookmark, Create the idempotency doc, the quota record, ArrayUnion on
 // userLikes.bookmarks. A bookmark already in the set, or whose doc already exists (AlreadyExists at commit, which is
@@ -253,7 +253,7 @@ func (r *FirestoreRepo) ListPage(ctx context.Context, uid string, after *posts.P
 	return r.pageBookmarks(ctx, "list", uid, after, min(max(limit, 1), MaxListPage))
 }
 
-// Prune implements BookmarkRepo (ADR-0023 D2, the ListBlockedUsers precedent): one batch holding a blind Delete of
+// Prune implements BookmarkRepo (the ListBlockedUsers precedent): one batch holding a blind Delete of
 // each bookmark doc and one field-level update of userLikes.bookmarks (Set with MergeAll + ArrayRemove, so the
 // liked and reposted sets are untouched and a missing doc is created holding only the empty set, as RemoveBookmark
 // does). 0 reads; 1 write and len(ids) deletes. Blind on purpose: an Exists precondition would fail the whole batch

@@ -1,6 +1,6 @@
-// graph_lists: ListFollowers pages + GetRelationships (ADR-0008).
+// graph_lists: ListFollowers pages + GetRelationships.
 //
-// Budget under test (ADR-0008 A2 table): ListFollowers page 20 = ~30 planning reads (102 cold / 50 warm at page
+// Budget under test: ListFollowers page 20 = ~30 planning reads (102 cold / 50 warm at page
 // 50); GetRelationships = 1 cold / 0 warm / 0.5 planning. Acceptance: ListFollowers 20 rps for 2 min, p95 < 400 ms,
 // mean fs_reads per call <= 30, 0 ERROR log lines. GetRelationships runs alongside at GR_RATE (default 5 rps) so
 // its reads land in the same log; it has its own p95 threshold (same 400 ms Stage 0 target) but is not the

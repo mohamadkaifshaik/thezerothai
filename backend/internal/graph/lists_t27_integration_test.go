@@ -1,6 +1,6 @@
 //go:build integration
 
-// lists_t27_integration_test.go (ADR-0008 D10 refinement): ListMutedUsers/ListBlockedUsers remove uids
+// lists_t27_integration_test.go (refinement): ListMutedUsers/ListBlockedUsers remove uids
 // whose users/{uid} doc is gone from the caller's OWN array, never touch SUSPENDED/DELETING entries, are
 // idempotent, and stay inside the documented budget (reads 1 + page_size, writes <= 1).
 package graph_test

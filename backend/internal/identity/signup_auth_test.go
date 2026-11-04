@@ -1,6 +1,6 @@
 package identity
 
-// ADR-0011 amendment M2 (2026-10-08): CreateProfile refuses a verified ID token whose Firebase Auth user was
+// Amendment M2 (2026-10-08): CreateProfile refuses a verified ID token whose Firebase Auth user was
 // deleted or disabled. The token verifier in production does not check revocation or deletion, so the tests drive
 // CreateProfile directly with a uid and no token machinery, exactly as the server does after VerifyIDToken.
 

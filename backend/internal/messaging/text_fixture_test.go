@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// The shared post-text grammar fixture (ADR-0010 D21 G1) is the one grammar of message text too (ADR-0027 D3, F8): the
+// The shared post-text grammar fixture is the one grammar of message text too: the
 // same rows that pin posts and the Dart parser pin SendMessage's validation.
 var fixturePath = filepath.Join("..", "..", "..", "testdata", "post_text_grammar.json")
 

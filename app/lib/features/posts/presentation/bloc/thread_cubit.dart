@@ -96,7 +96,7 @@ class ThreadState {
 
   /// The community the conversation belongs to: the root post's label (the
   /// focal post itself when it is the root). Null when there is none or the
-  /// root is unavailable (a hidden root has no label, ADR-0031 R3).
+  /// root is unavailable (a hidden root has no label).
   pb.CommunityRef? get rootCommunity {
     final f = focal;
     if (f == null) return null;

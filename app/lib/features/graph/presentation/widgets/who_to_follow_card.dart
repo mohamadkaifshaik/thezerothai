@@ -15,7 +15,7 @@ import 'user_list_row.dart';
 /// How many rows the card shows before "Show more".
 const kWhoToFollowCollapsedRows = 3;
 
-/// The "Who to follow" card (ADR-0024 D8): an [AppSurface] with a
+/// The "Who to follow" card: an [AppSurface] with a
 /// [title], up to [kWhoToFollowCollapsedRows] [UserListRow]s (each with a
 /// follow button and a local "x"), and "Show more" opening the full 5. Used
 /// twice with one list behind it: titled "Who to follow" in Home's
@@ -93,7 +93,7 @@ class _LoaderState extends State<_Loader> with WidgetsBindingObserver {
   /// A card that stays mounted for days (a desktop tab, a resumed phone) asks
   /// again on resume. Free while the entry is fresh (memory only, 0 RPCs); past
   /// its lifetime it is one call, shared by every surface in flight, and the
-  /// stale rows go (ADR-0024 Amendment 2: up to 48 h). No timer, no polling.
+  /// stale rows go (up to 48 h). No timer, no polling.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed || !mounted) return;

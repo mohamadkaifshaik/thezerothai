@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0025 D12: UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
+// UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
 // feature=private_accounts before any read otherwise; is_private=false is never gated. Until builds the toggle, a
 // caller who passes the gate still gets the old VALIDATION refusal and nothing is written.
 

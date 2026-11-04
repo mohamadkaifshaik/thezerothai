@@ -1,4 +1,4 @@
-// repo_firestore.go is the Firestore side of media (ADR-0003 `media/{mediaId}`, `admin/vision-{yyyymm}`).
+// repo_firestore.go is the Firestore side of media (`media/{mediaId}`, `admin/vision-{yyyymm}`).
 //
 // CreateUploads is one transaction:
 //
@@ -26,7 +26,7 @@ import (
 
 const (
 	mediaCollection = "media"
-	// adminCollection holds the SafeSearch counter, admin/vision-{yyyymm} (ADR-0003).
+	// adminCollection holds the SafeSearch counter, admin/vision-{yyyymm}.
 	adminCollection = "admin"
 	createTxTimeout = 5 * time.Second
 	createRPC       = "CreateUpload"
@@ -47,7 +47,7 @@ type Doc struct {
 	Purpose     string `firestore:"purpose"`
 	Status      string `firestore:"status"`
 	ContentType string `firestore:"contentType"`
-	// ThumbContentType is the thumbnail's type (ADR-0029 D10); absent = ContentType (every document before W6, and every
+	// ThumbContentType is the thumbnail's type; absent = ContentType (every document before W6, and every
 	// JPEG or WebP upload without thumb_content_type). Read it through ThumbType.
 	ThumbContentType string `firestore:"thumbContentType,omitempty"`
 	Bytes            int64  `firestore:"bytes"`
@@ -61,7 +61,7 @@ type Doc struct {
 	ThumbUploadPath  string `firestore:"thumbUploadPath"`
 	PublicPath       string `firestore:"publicPath,omitempty"`
 	ThumbPath        string `firestore:"thumbPath,omitempty"`
-	// NameSuffix is the random part of the public object names (ADR-0025 note M-2): 32 lowercase hex characters
+	// NameSuffix is the random part of the public object names : 32 lowercase hex characters
 	// chosen at CreateUpload and written with the document. Empty on documents created earlier, whose objects keep
 	// the old "m/{id}.{ext}" names (founder B1). Finalize, the converge path, the retire step, the eraser and post_delete
 	// all derive every name from the document, so the suffix is never sent in a message or logged.
@@ -77,10 +77,10 @@ type Doc struct {
 	// ScreenAttempts counts the screening claims this document has taken (security H-3): ClaimScreening increments it in
 	// the claim write itself. At MediaMaxScreenAttempts the next FinalizeUpload REJECTS the document without a Vision call.
 	ScreenAttempts int64 `firestore:"screenAttempts,omitempty"`
-	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document (ADR-0029
-	// Amendment 1 A5.4). ReleaseScreening increments it in the release write it already makes (+0 writes). Retries = ScreenAttempts - ScreenAssessed.
+	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document.
+	// ReleaseScreening increments it in the release write it already makes (+0 writes). Retries = ScreenAttempts - ScreenAssessed.
 	ScreenAssessed int64 `firestore:"screenAssessed,omitempty"`
-	// RetiredAt is set by the profile_media_retired step (ADR-0024 Amendment 1 A4) once the document's replaced or removed
+	// RetiredAt is set by the profile_media_retired step once the document's replaced or removed
 	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
 	// them a day later). The resolvers refuse a retired document, so a retired image can never be set again. ExpireAt is
 	// set with it (RetiredAt + RetiredDocTTL): until then the document keeps the image inside the account eraser and the
@@ -346,7 +346,7 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, updateTime time.
 	return err
 }
 
-// Retire implements Repo (ADR-0024 Amendment 1 A4): retiredAt and expireAt in one field-level Update.
+// Retire implements Repo: retiredAt and expireAt in one field-level Update.
 func (r *FirestoreRepo) Retire(ctx context.Context, id string, updateTime, retiredAt, expireAt time.Time) error {
 	_, err := r.updateAt(ctx, id, []firestore.Update{
 		{Path: "retiredAt", Value: retiredAt},

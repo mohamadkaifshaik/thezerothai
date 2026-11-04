@@ -1,4 +1,4 @@
-// service_engagement.go is posts' side of engagement (ADR-0018): the quote path of CreatePost, the release of
+// service_engagement.go is posts' side of engagement: the quote path of CreatePost, the release of
 // a deleted REPOST/QUOTE's counters, and the Engagement seam the engagement module consumes.
 package posts
 
@@ -44,7 +44,7 @@ func (s *service) PollVoteChanged(postID string, from, to int) *Post {
 func (s *service) RepostCreated(p *Post) {
 	s.cache.SetPost(p)
 	s.cache.PrependOwn(p)
-	s.directory.Forget(p.AuthorID) // users.postsCount changed by a blind increment (ADR-0008 B2)
+	s.directory.Forget(p.AuthorID) // users.postsCount changed by a blind increment
 }
 
 // RepostRemoved implements Engagement.
@@ -53,7 +53,7 @@ func (s *service) RepostRemoved(authorID, repostID string) {
 	s.directory.Forget(authorID)
 }
 
-// viewableResolved is the one REPOST resolver (ADR-0018 D4 for quotes, D17 for replies and GetThread): it returns
+// viewableResolved is the one REPOST resolver (for quotes, D17 for replies and GetThread): it returns
 // the post by the viewable rules and, when that post is a REPOST, its original by the same rules. The REPOST's own
 // counters are never touched. A REPOST without an original id is treated as gone. Errors are those of viewable
 // (ErrNotFound for every refusal). Reads: target 1 + its author 1 + caller graph 1 cold, +2 for a REPOST (the
@@ -91,7 +91,7 @@ func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error
 	if err != nil {
 		return nil, err
 	}
-	// ADR-0025 D5: an approved caller may not quote a protected author's post (PROTECTED_ACCOUNT, 0 writes); 0 reads.
+	// An approved caller may not quote a protected author's post (PROTECTED_ACCOUNT, 0 writes); 0 reads.
 	if err := s.aud.RefuseShare(ctx, uid, q); err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func applyQuote(p *CreateParams, q *Post) {
 	p.Draft.Embedded = snapshotOf(q)
 }
 
-// snapshotOf is the one-level frozen copy of q a quote or repost embeds (ADR-0018 D12).
+// snapshotOf is the one-level frozen copy of q a quote or repost embeds.
 func snapshotOf(q *Post) *Embedded {
 	media := make([]MediaRef, len(q.Media))
 	copy(media, q.Media)
@@ -152,7 +152,7 @@ func (s *service) releaseEngagement(ctx context.Context, p *Post) {
 	}
 }
 
-// RefuseShare implements Engagement (ADR-0025 D5).
+// RefuseShare implements Engagement.
 func (s *service) RefuseShare(ctx context.Context, callerUID string, p *Post) error {
 	return s.aud.RefuseShare(ctx, callerUID, p)
 }

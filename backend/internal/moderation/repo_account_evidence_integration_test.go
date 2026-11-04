@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// ADR-0024 Amendment 1 A3(b) against the Firestore emulator: an ACCOUNT report keeps the profile the reporter saw as
+// Against the Firestore emulator: an ACCOUNT report keeps the profile the reporter saw as
 // evidence, at no extra read and the same two writes, and PROFILE_CLEARED is a storable resolution.
 
 func accountEvidence(website string) *Evidence {

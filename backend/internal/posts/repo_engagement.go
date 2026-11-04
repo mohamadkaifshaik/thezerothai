@@ -1,4 +1,4 @@
-// repo_engagement.go holds the storage paths engagement (ADR-0018) drives through posts' seams. posts owns
+// repo_engagement.go holds the storage paths engagement drives through posts' seams. posts owns
 // posts/*, so every write to a post doc made on behalf of a like, a repost, a quote or its clean-up lives here:
 //
 //	batch staging (EngagementWriter): likeCount / repostCount increments, the REPOST create, the REPOST delete
@@ -25,7 +25,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// CleanupPage is the page size of the clean-up queries (an ops path, ADR-0003 purge rule; one page is at most
+// CleanupPage is the page size of the clean-up queries (an ops path, under the purge rule; one page is at most
 // 3 writes per document, so a batch stays under Firestore's 500).
 const CleanupPage = 100
 
@@ -40,9 +40,9 @@ type EngagementWriter interface {
 	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
 	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
 	// with NotFound (0 writes). The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
-	// strings (ADR-0029 D1). The one counter helper of polls: sharding replaces its body, not its callers.
+	// strings. The one counter helper of polls: sharding replaces its body, not its callers.
 	StagePollVote(b store.Batch, postID string, choice int)
-	// StagePollChange appends the blind counter move of one vote change (ADR-0029 Amendment 1 A2.3): Increment(poll.counts.<from>, -1) and
+	// StagePollChange appends the blind counter move of one vote change: Increment(poll.counts.<from>, -1) and
 	// Increment(poll.counts.<to>, +1) on posts/{id} in ONE Update (one write); poll.total is not touched. Same Exists precondition and field-path
 	// rule as StagePollVote. With StagePollVote, the only poll counter writers: sharding replaces both bodies, not their callers.
 	StagePollChange(b store.Batch, postID string, from, to int)
@@ -67,7 +67,7 @@ type Cleanup interface {
 }
 
 // CopiedLister finds the posts of one author that other accounts have copied (reposted or quoted), so a suspension
-// can clean the copies up (issue #151, ADR-0018). *FirestoreRepo implements it.
+// can clean the copies up (issue #151). *FirestoreRepo implements it.
 type CopiedLister interface {
 	// ListCopied pages uid's posts newest first (up to hidePage = 250 per call) and returns the ids of those whose
 	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. Reads one per post
@@ -251,7 +251,7 @@ func (r *FirestoreRepo) removeOneRepostWith(ctx context.Context, row repostRow, 
 	return false, nil
 }
 
-// tombstoneUpdates is the Update that turns a QUOTE's embed into the tombstone (ADR-0018 D12).
+// tombstoneUpdates is the Update that turns a QUOTE's embed into the tombstone.
 func tombstoneUpdates(originalID string) []firestore.Update {
 	return []firestore.Update{
 		{Path: "embedded", Value: map[string]any{"postId": originalID, "unavailable": true}},

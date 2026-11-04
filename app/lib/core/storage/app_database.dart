@@ -32,8 +32,8 @@ class ProfileCacheEntries extends Table {
   Set<Column> get primaryKey => {userId};
 }
 
-/// Local cache of the signed-in user's own `following` set (ADR-0008 /
-/// graph), so `FollowButton` and follow lists can render
+/// Local cache of the signed-in user's own `following` set,
+/// so `FollowButton` and follow lists can render
 /// "Following" instantly on a warm start, before `GetRelationships` or a
 /// list RPC ever runs (the client is our cheapest cache — the cost-first
 /// directive). Only ever holds the *current* signed-in user's own follows;
@@ -53,7 +53,7 @@ class FollowingCacheEntries extends Table {
 /// One row of a cached timeline feed (posts-and-timeline): either a
 /// post (serialized `PostView`) or a "gap" marker row that holds the
 /// `gap_page_token` needed to fill the hole between newer and older cached
-/// posts (ADR-0004 / ADR-0010 D13-D14).
+/// posts.
 ///
 /// Rows sort by [sortKey] descending (newest first). For a post it is the
 /// zero-padded 19-digit Snowflake `post_id` (text, never `int`: a 19-digit id
@@ -87,7 +87,7 @@ class TimelineItemEntries extends Table {
 
 /// Per-feed refresh state: the `since_token` of the last response and the
 /// `next_page_token` below the oldest cached item. Tokens live 30 days
-/// server-side (ADR-0010 D14), so they persist across days.
+/// server-side, so they persist across days.
 @DataClassName('CachedTimelineState')
 class TimelineStateEntries extends Table {
   TextColumn get feedKey => text()();
@@ -121,8 +121,8 @@ class AccountExportEntries extends Table {
   Set<Column> get primaryKey => {exportId};
 }
 
-/// One row of the signed-in user's cached notification list
-/// (ADR-0017): a notification (serialized `Notification`) or a "gap" marker
+/// One row of the signed-in user's cached notification list.
+/// A notification (serialized `Notification`) or a "gap" marker
 /// holding the `gap_page_token` of a refresh gap. Rows sort by [sortKey]
 /// descending: the zero-padded `created_at` microseconds, `|`, the id (a
 /// collapsed like is rewritten in place with a newer `created_at`, so the id
@@ -169,14 +169,14 @@ class NotificationStateEntries extends Table {
   Set<Column> get primaryKey => {stateKey};
 }
 
-/// One conversation of the signed-in user's cached inbox or requests list
-/// (ADR-0027 D14): the serialized `Conversation` of the caller's entry.
+/// One conversation of the signed-in user's cached inbox or requests list.
+/// The serialized `Conversation` of the caller's entry.
 /// Rows sort by [sortKey] descending (zero-padded `updated_at` microseconds,
 /// `|`, the id), per [folder] (`Folder.value`: 1 inbox, 2 requests). Wiped on
 /// sign-out ([AppDatabase.clearAll]).
 @DataClassName('CachedConversation')
 class ConversationEntries extends Table {
-  /// 32-character lower-case hex id (opaque, ADR-0027 D2).
+  /// 32-character lower-case hex id (opaque).
   TextColumn get conversationId => text()();
   IntColumn get folder => integer()();
   TextColumn get sortKey => text()();
@@ -188,7 +188,7 @@ class ConversationEntries extends Table {
   Set<Column> get primaryKey => {conversationId};
 }
 
-/// One cached message (ADR-0027 D14): the newest 200 per conversation.
+/// One cached message: the newest 200 per conversation.
 /// Rows sort by [sortKey] descending (zero-padded `created_at` microseconds,
 /// `|`, the id). The payload is a serialized `Message`: it carries `from_self`
 /// and no sender uid (D5). Wiped on sign-out ([AppDatabase.clearAll]).
@@ -212,7 +212,7 @@ class MessageEntries extends Table {
 /// Refresh state of one cached messaging list: the `since_token` of the last
 /// response and the `next_page_token` below the oldest cached row. [stateKey]
 /// is `inbox`, `requests` or `thread:{conversationId}`. Tokens live 30 days
-/// server-side (ADR-0027 D7). Wiped on sign-out ([AppDatabase.clearAll]).
+/// server-side. Wiped on sign-out ([AppDatabase.clearAll]).
 @DataClassName('CachedMessagingState')
 class MessagingStateEntries extends Table {
   TextColumn get stateKey => text()();
@@ -257,7 +257,7 @@ class AppSettingEntries extends Table {
   Set<Column> get primaryKey => {settingKey};
 }
 
-/// One unsent post kept on the device (ADR-0029 F7/F8): text, poll,
+/// One unsent post kept on the device: text, poll,
 /// reply audience and disclosure labels; never photos or GIFs. Unlike every
 /// other account table this one is **not** wiped by [AppDatabase.clearAll]:
 /// the owner may sign out and back in and expects the draft (F7). Every read
@@ -294,7 +294,7 @@ class ComposerDraftEntries extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
-  /// The send in flight or lost (ADR-0029 Amendment 1 A4): the
+  /// The send in flight or lost: the
   /// idempotency key claimed for the last send of this draft, null when no
   /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
   /// by `clearSend`; never touches [updatedAt]. Not personal data and

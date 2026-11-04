@@ -17,16 +17,16 @@ import (
 )
 
 const (
-	// trendsCollection and trendsDocID name the one document search owns (ADR-0028 D6): tags and counts only, no uid.
+	// trendsCollection and trendsDocID name the one document search owns: tags and counts only, no uid.
 	trendsCollection = "trends"
 	trendsDocID      = "current"
 	// trendsSchemaVersion is the shape written today. A document with a higher version (a newer revision wrote it, then
 	// this one was rolled back to) is read as "no list": the next refresh regenerates it.
 	trendsSchemaVersion = 1
-	// maxTrendItems keeps the document far below 100 KB (ADR-0028 D6: the top 100 tags).
+	// maxTrendItems keeps the document far below 100 KB (the top 100 tags).
 	maxTrendItems = 100
-	// hiddenDocID is trends/hidden, the operator hide list (ADR-0028 note 2026-10-31 part 1): written only by opsctl, never by
-	// the sweep, so a hide cannot race the whole-document Set of trends/current and runbook 4.2's delete cannot wipe it.
+	// hiddenDocID is trends/hidden, the operator hide list (part 1): written only by opsctl, never by
+	// the sweep, so a hide cannot race the whole-document Set of trends/current and an operator's delete of trends/current (to force a fresh window) cannot wipe it.
 	hiddenDocID = "hidden"
 	// maxHiddenTags caps the list; a raise needs a trends.tags index exemption (gate files).
 	maxHiddenTags = 100
@@ -40,7 +40,7 @@ type TrendItem struct {
 	Authors int64  `firestore:"authors"`
 }
 
-// TrendsDoc is trends/current (ADR-0028 D6). Items are in rank order. The window is [WindowStart, Watermark.CreatedAt]:
+// TrendsDoc is trends/current. Items are in rank order. The window is [WindowStart, Watermark.CreatedAt]:
 // the posts created since the previous run.
 type TrendsDoc struct {
 	SchemaVersion int         `firestore:"schemaVersion"`

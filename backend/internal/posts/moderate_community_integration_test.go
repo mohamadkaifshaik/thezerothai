@@ -23,7 +23,7 @@ func setCommunity(t *testing.T, repo *FirestoreRepo, id, cid string) {
 	}
 }
 
-// ADR-0031 D14: Takedown reports the post's communityId from the document it already reads (1 read, 2 writes as before), also
+// Takedown reports the post's communityId from the document it already reads (1 read, 2 writes as before), also
 // on a repeat that changes nothing, and "" for a post without one.
 func TestModerator_TakedownReportsTheCommunity(t *testing.T) {
 	client := newTestClient(t)

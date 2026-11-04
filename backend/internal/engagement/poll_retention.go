@@ -1,5 +1,5 @@
-// poll_retention.go is the retention of the per-account copy of a poll vote, userLikes/{uid}.pollVotes (ADR-0029 D3, D8; security
-// L-2). The vote document pollVotes/{postId}_{uid} expires by TTL at closesAt + POLL_VOTE_TTL_AFTER_CLOSE; the copy
+// poll_retention.go is the retention of the per-account copy of a poll vote, userLikes/{uid}.pollVotes (security L-2).
+// The vote document pollVotes/{postId}_{uid} expires by TTL at closesAt + POLL_VOTE_TTL_AFTER_CLOSE; the copy
 // goes on the same schedule:
 //
 //   - Each entry is "<postId>:<choice>:<closesAtUnix>". closesAt is immutable per post, so the entry string can always be rebuilt
@@ -41,7 +41,7 @@ const (
 	PollSweepLimit = 50
 )
 
-// pollEntry is the userLikes.pollVotes entry of a vote: "<postId>:<index>:<closesAtUnix>" (ADR-0029 D3). A zero closesAt
+// pollEntry is the userLikes.pollVotes entry of a vote: "<postId>:<index>:<closesAtUnix>". A zero closesAt
 // gives the two-part form.
 func pollEntry(postID string, choice int, closesAt time.Time) string {
 	e := postID + ":" + strconv.Itoa(choice)

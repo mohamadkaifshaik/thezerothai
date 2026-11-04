@@ -402,7 +402,7 @@ func TestReport_AccountTarget(t *testing.T) {
 	if r.TargetOwnerID != author || r.TargetType != TargetAccount {
 		t.Errorf("report = %+v", r)
 	}
-	// ADR-0024 Amendment 1 A3(b): the profile the reporter saw is kept as evidence, from the profile the call already
+	// The profile the reporter saw is kept as evidence, from the profile the call already
 	// loaded (the profile read count below stays 1), and nothing else of it (no thumbnails, no uid).
 	want := &Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "bio text", Location: "Pune",
 		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", BannerURL: "https://m/m/2.webp"}

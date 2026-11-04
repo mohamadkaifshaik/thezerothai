@@ -21,7 +21,7 @@ type profileClearer interface {
 	ClearProfileFields(ctx context.Context, uid string, fields []identity.ProfileField, now time.Time, dryRun bool) (identity.ClearResult, error)
 }
 
-// profileRetirer is media.Jobs' profile_media_retired step, run in process (ADR-0024 Amendment 1 A4): the same code the Pub/Sub
+// profileRetirer is media.Jobs' profile_media_retired step, run in process: the same code the Pub/Sub
 // handler runs, without Pub/Sub. It returns the step's outcome ("retired", "disabled", "unparseable", ...).
 type profileRetirer interface {
 	Retire(ctx context.Context, m media.RetireMessage) (string, error)
@@ -44,7 +44,7 @@ func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 	return fields, nil
 }
 
-// clearProfileFields is `opsctl clear-profile-fields` (ADR-0024 Amendment 1 A3): the narrow lever between doing nothing
+// clearProfileFields is `opsctl clear-profile-fields`: the narrow lever between doing nothing
 // and suspend-user for a malicious profile link, location, bio or image. It clears the named fields of users/{uid} with
 // one field-level update (never a Set), skips fields that are already empty (so a rerun writes 0), and bumps no
 // snapshotVersion. --dry-run prints the stored values and the plan and writes nothing. --report R (checked first: R must

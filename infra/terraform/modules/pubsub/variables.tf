@@ -37,7 +37,7 @@ variable "topics" {
     "notifications-fanout" = {
       push_path = "/internal/pubsub/notifications-fanout"
     }
-    # ADR-0011 D-A: shared jobs topic (account delete/export self-chaining; snapshot refresh reuses it). The
+    # Shared jobs topic (account delete/export self-chaining; snapshot refresh reuses it). The
     # handler nacks with 429 to gate itself, so redelivery waits >= 60 s and 10 attempts leave room for real errors.
     "jobs" = {
       push_path             = "/internal/pubsub/jobs"

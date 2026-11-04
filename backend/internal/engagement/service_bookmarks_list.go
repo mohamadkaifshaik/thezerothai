@@ -1,6 +1,6 @@
-// service_bookmarks_list.go is the business logic of ListBookmarks (ADR-0023 D2, D6). A page is the
+// service_bookmarks_list.go is the business logic of ListBookmarks. A page is the
 // caller's own bookmark docs (a thin {createdAt} row each), the live posts they name in ONE cache-first GetMany, the
-// ADR-0010 D6 Home-column drop rules (list_common.go, shared with ListLikedPosts), the viewer state of what is left, and
+// Home-feed drop rules (list_common.go, shared with ListLikedPosts), the viewer state of what is left, and
 // the lazy prune of rows whose post is gone. Nothing of other users' content is stored here, and nothing is cached for
 // the list itself.
 package engagement
@@ -29,7 +29,7 @@ func (m *Module) ListBookmarks(ctx context.Context, uid string, pageSize int32, 
 }
 
 // bookmarksBinding ties a ListBookmarks page token to its list and caller: a token issued to one user, or for another
-// kind of list, opens nothing else (ADR-0023 D2).
+// kind of list, opens nothing else.
 func bookmarksBinding(uid string) string { return listBinding("bookmarks", uid) }
 
 // decodeBookmarkToken opens token for uid, bound to bookmarks|<uid> with the cursor package's 24 h TTL. An empty token
@@ -110,7 +110,7 @@ func (s *service) noteList(ctx context.Context, t dropTally, returned, pruned in
 	logger.SetRequestField(ctx, fieldRowsPruned, pruned)
 }
 
-// prune is the lazy clean-up of ADR-0023 D2: the bookmark docs of posts that no longer exist (confirmed missing by
+// prune is the lazy clean-up of: the bookmark docs of posts that no longer exist (confirmed missing by
 // GetMany; hidden and blocked rows stay) are deleted with their userLikes.bookmarks entries in one best-effort batch
 // (1 write + 1 delete per row, 0 reads), so each row is paid for once. It is skipped under DEGRADED_MODE=readonly (the
 // list is NO_SIDE_EFFECTS and must stay write-free) and a failure is a WARN with counts only: the page is still

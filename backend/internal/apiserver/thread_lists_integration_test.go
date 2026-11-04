@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D4) through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on, the real
+// Protected accounts in threads and lists through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on, the real
 // protected-set loader and the real UpdateProfile(is_private) toggle. Every reader below is a cold instance, so the
 // budgets are cold and the interceptor read is included:
 //   - GetThread: a protected focal is byte-identical to a deleted focal; a protected parent or root is a tombstone

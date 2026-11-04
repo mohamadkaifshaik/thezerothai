@@ -25,7 +25,7 @@ func newLikesState(recent, reposts, bookmarks, pollVotes []string) *likesState {
 	}
 }
 
-// userCache is the per-instance userLikes cache (ADR-0018 D7, plus the bookmarks set of ADR-0023 D3): 60 s TTL like every other cache, updated in place
+// userCache is the per-instance userLikes cache (plus the bookmarks set): 60 s TTL like every other cache, updated in place
 // by this instance's own writes. Absence means "unknown": an own write never creates an entry (it would hide the
 // user's other likes), the next read loads the document.
 type userCache struct {

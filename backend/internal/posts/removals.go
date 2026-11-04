@@ -1,4 +1,4 @@
-// removals.go is the read side of the moderation removal log (ADR-0016 D10): a bounded, instance-cached
+// removals.go is the read side of the moderation removal log: a bounded, instance-cached
 // view of postRemovals/{postId} that tells a refreshing timeline client which posts a moderator hid after the
 // client's since token was issued, so the client can drop those cards. The write side is in moderate.go (the
 // same transaction or batch as the moderation field, so a crash can never hide a post without logging it).
@@ -13,7 +13,7 @@
 // and a client whose token is older than the oldest loaded entry is told to reset (truncated) rather than being
 // served a partial list.
 //
-// Scope (ADR-0016 amendment 2026-10-18 (b)): every entry carries the post's authorId and RemovedSince answers for
+// Scope (amendment 2026-10-18 (b)): every entry carries the post's authorId and RemovedSince answers for
 // ONE feed: the authors that feed shows (the viewer's home authors, or the one profile author). An entry for any
 // other author is neither listed nor does it make the answer incomplete, so a suspension resets only the
 // followers of the suspended account. The shared cache above is the complete view down to coverFrom. A cutoff
@@ -25,7 +25,7 @@
 // Charging: the shared refresh is the instance's, not the triggering user's, so it runs under its own detached
 // read counter (logged as removal_log_reads); the window query is the viewer's and is charged to the request.
 //
-// Failure (ADR-0016 D10 implementation notes): the log query runs under its own removalQueryTimeout, a request
+// Failure (implementation notes): the log query runs under its own removalQueryTimeout, a request
 // waiting for another request's refresh gives up on its own context, and a refresh that fails on an instance that
 // already holds data serves that stale data (logged at ERROR) instead of failing the timeline refresh.
 package posts
@@ -105,7 +105,7 @@ const (
 // Entries written before it have none: the cache treats them as visible to every feed, but the window query can
 // not find them, so a window that starts before this instant is rejected instead of queried. It is only correct if no
 // moderation action runs with an opsctl built before this change after this date: rebuild opsctl before any takedown or
-// suspension (ADR-0016 amendment 2026-10-18 (b)). Moving it later is always safe (windows reaching before it reset the
+// suspension (amendment 2026-10-18 (b)). Moving it later is always safe (windows reaching before it reset the
 // feed instead of being queried). Rule: bump this to the release-tag date when tagging; delete the constant (and the
 // check) 32 days after the release.
 var defaultRemovalAuthorScopedFrom = time.Date(2026, time.October, 25, 0, 0, 0, 0, time.UTC)
@@ -118,8 +118,8 @@ type RemovalScope struct {
 	Authors []string
 }
 
-// RemovalEntry is one log row. AuthorID is a pseudonymous uid link (ADR-0011 Q10: erased with the account by the
-// posts step); it is empty only for entries written before the scoped log shipped.
+// RemovalEntry is one log row. AuthorID is a pseudonymous uid link (erased with the account by the posts step);
+// it is empty only for entries written before the scoped log shipped.
 type RemovalEntry struct {
 	PostID   string
 	AuthorID string

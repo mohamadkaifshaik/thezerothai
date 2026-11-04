@@ -44,7 +44,7 @@ type t26Result struct {
 // pass reports the verdict: no not-allowed account may own a users doc.
 func (r t26Result) pass() bool { return r.NotAllowedWithUsersDoc == 0 }
 
-// allowedAccount applies the ADR-0010 D5 A10 allowlist to an Auth user's provider list by reusing the single
+// allowedAccount applies the allowlist to an Auth user's provider list by reusing the single
 // shared predicate authn.Claims.IdentityGate (anonymous is not allowed outside the emulator): any google.com or
 // apple.com provider, or a password provider with a verified email.
 func allowedAccount(u authUser) bool {

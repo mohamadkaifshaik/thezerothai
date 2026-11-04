@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The ADR-0025 D12 flag matrix for FEATURE_PRIVATE_ACCOUNTS (private_accounts) in the ten rollout states of
+// The flag matrix for FEATURE_PRIVATE_ACCOUNTS (private_accounts) in the ten rollout states of
 // TestW320_FlagModeMatrix (off, allowlist with the in user, with the out user, empty, percent 0, percent 0 plus the out
 // user, percent 50, percent 50 plus the out user, percent 100, on), over the real Build chain.
 //

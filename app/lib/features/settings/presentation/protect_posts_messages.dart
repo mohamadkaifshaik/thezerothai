@@ -9,7 +9,7 @@ const kProtectPostsTitle = 'Protect your posts';
 const kProtectPostsSubtitle =
     'Only people you approve can see your posts. Current followers stay.';
 
-/// The confirm dialog for turning protection ON (ADR-0025; founder answer B1
+/// The confirm dialog for turning protection ON (founder answer B1
 /// 2026-10-28: images already shared may still open from their link).
 const kProtectConfirmTitle = 'Protect your posts?';
 const kProtectConfirmPoints = <String>[

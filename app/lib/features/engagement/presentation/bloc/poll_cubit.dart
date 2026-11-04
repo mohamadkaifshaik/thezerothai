@@ -9,7 +9,7 @@ import '../../domain/poll_display.dart';
 import 'poll_state.dart';
 
 /// The session-wide poll overlay: the optimistic vote with rollback, the
-/// fresh counts after a vote or a re-read, and the refusals (ADR-0029).
+/// fresh counts after a vote or a re-read, and the refusals.
 ///
 /// - Keyed by the *original* post id (the target of a REPOST row). Every card
 ///   of the same poll (Home, profile, detail, thread) reads the same entry.
@@ -23,7 +23,7 @@ import 'poll_state.dart';
 /// - ALREADY_VOTED re-reads the post once and shows the server's choice;
 ///   POLL_CLOSED re-reads it once and shows the final results.
 ///   FEATURE_DISABLED (or an UNIMPLEMENTED skeleton) hides the vote buttons.
-/// - A *change* (ADR-0029 Amendment 1 A2.8, [vote] with `from`) is optimistic too
+/// - A *change* ([vote] with `from`) is optimistic too
 ///   (counts move -1/+1 in the card) and sends `expected_choice` = `from + 1`
 ///   with a FRESH key per tap. The A-B-A guard (A2.2/A2.8) holds because taps
 ///   are serialised: [vote] refuses while a tap of that post is pending, so any

@@ -20,11 +20,11 @@ import (
 
 var _ Moderation = (*service)(nil)
 
-// Request-line names of the moderation calls (ADR-0031 D13). fieldModAction is an enum: hide, restore, ban, unban, make_moderator,
+// Request-line names of the moderation calls. fieldModAction is an enum: hide, restore, ban, unban, make_moderator,
 // remove_moderator or log. Never an id.
 const (
 	fieldModAction  = "mod_action"
-	fieldModTarget  = "mod_target" // "post" (a root) or "reply" (ADR-0031 Amendment 1 D4a): a label, never an id
+	fieldModTarget  = "mod_target" // "post" (a root) or "reply": a label, never an id
 	logBindingLabel = "community_modlog"
 	userNotFound    = "user not found"
 	postNotFound    = "post not found"
@@ -107,7 +107,7 @@ func errUserNotFound() *apierr.Error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, userNotFound)
 }
 
-// SetMemberRole implements Moderation (ADR-0031 D4). The 0-read checks come first (key, ids, action), then the target's profile through
+// SetMemberRole implements Moderation. The 0-read checks come first (key, ids, action), then the target's profile through
 // the directory (cache-first, up to 60 s stale; missing or not ACTIVE is NOT_FOUND "user not found", whatever the blocks), then one
 // repository transaction. A write fills the caches from the written data: the community, the target's member state, and drops both
 // users' memberships entries.

@@ -35,7 +35,7 @@ class ListMembersPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The only caller of `ListService` (ADR-0030).
+/// The only caller of `ListService`.
 ///
 /// - **Flag.** Every RPC needs `lists` in `GetMe.enabled_features`
 ///   ([ServiceFeatureGate]): with it off no request is sent and a

@@ -33,8 +33,8 @@ typedef PollLengthPicker = Future<int?> Function(
   int initialMinutes,
 );
 
-/// The inline poll builder of the composer (ADR-0029, `composer.md`
-/// section 2): Choice 1 and 2, up to two optional choices with a remove
+/// The inline poll builder of the composer (`composer.md` section 2):
+/// Choice 1 and 2, up to two optional choices with a remove
 /// button, "Add a choice", the poll length and a red "Remove poll".
 ///
 /// Presentational: it renders the [poll] the cubit holds and reports edits

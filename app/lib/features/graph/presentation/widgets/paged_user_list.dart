@@ -33,8 +33,8 @@ class PagedUserList extends StatefulWidget {
   final UserListCubit cubit;
   final String emptyMessage;
 
-  /// What a `PROTECTED_ACCOUNT` answer says (ADR-0025 D4: a protected
-  /// account's lists are for approved followers). Null = list screens that
+  /// What a `PROTECTED_ACCOUNT` answer says (a protected account's lists are for approved followers).
+  /// Null = list screens that
   /// cannot meet it show the ordinary error.
   final String? protectedMessage;
 

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Unit tests for Reader.ByHashtag and Reader.CreatedAfter (ADR-0028 D6, D11) against the fake repo.
+// Unit tests for Reader.ByHashtag and Reader.CreatedAfter against the fake repo.
 
 func TestByHashtag(t *testing.T) {
 	t.Parallel()

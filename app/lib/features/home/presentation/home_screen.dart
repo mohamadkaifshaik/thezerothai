@@ -27,13 +27,13 @@ import '../../timeline/presentation/timeline_feed_view.dart';
 import 'widgets/home_composer_entry.dart';
 import 'widgets/home_tabs_view.dart';
 
-/// The Home timeline (ADR-0004 section 7): the cached feed renders at
+/// The Home timeline (section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
 /// resume and a 60 s foreground auto-refresh bring new posts behind an
 /// "N new posts" pill. With the posts flag off the Phase 0 placeholder stays.
 ///
 /// With `lists` and `ui_shell` both on, the tab bar also carries the user's
-/// pinned Lists (ADR-0030 D6): Following first and fixed, then the
+/// pinned Lists: Following first and fixed, then the
 /// pinned tabs, then "+" for Manage pinned. With either off Home is the one
 /// Following feed and makes no Lists call.
 class HomeScreen extends StatelessWidget {

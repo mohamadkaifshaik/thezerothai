@@ -104,7 +104,7 @@ func TestFollow_RequestedCapIsLimitReached(t *testing.T) {
 	assertAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 }
 
-// Withdraw (ADR-0025 D7): the second batch runs only when the edge batch found nothing, and undo is never gated beyond
+// Withdraw: the second batch runs only when the edge batch found nothing, and undo is never gated beyond
 // the module flag.
 func TestUnfollow_Withdraw(t *testing.T) {
 	tests := []struct {

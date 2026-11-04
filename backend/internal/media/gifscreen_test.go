@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// ADR-0029 D11, F11: frame-sampled GIF screening. Fixtures are built in the test (image/gif encoder, hand-made
+// Frame-sampled GIF screening. Fixtures are built in the test (image/gif encoder, hand-made
 // bomb headers) instead of checked-in files, so the frames' colours and delays are visible next to the assertion.
 
 // Palette indices of the test GIFs.

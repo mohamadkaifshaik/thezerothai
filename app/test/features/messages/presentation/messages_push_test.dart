@@ -37,8 +37,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 /// How the open conversation and the open inbox react to a foreground
 /// direct-message push, what the Messages badge does meanwhile, and the
-/// thread's hot poll interval (30 s with push registered on Android, ADR-0027
-/// D7).
+/// thread's hot poll interval (30 s with push registered on Android).
 void main() {
   late _MockMessagingRepository repo;
   late _MockGraphRepository graphRepo;

@@ -344,8 +344,8 @@ func TestPurge_Integration_CrashResume(t *testing.T) {
 			t.Fatal("purge did not finish")
 		}
 	}
-	// 3 post batches (500, 500, 203) + 1 copy-phase call (ADR-0018 D14: an empty embeddedAuthorId page) + 1
-	// postRemovals call (phase 2, ADR-0016 amendment 2026-10-18 (b): an empty authorId page).
+	// 3 post batches (500, 500, 203) + 1 copy-phase call (an empty embeddedAuthorId page) + 1
+	// postRemovals call (phase 2: an empty authorId page).
 	if cp.Deleted != 1203 || calls != 5 {
 		t.Fatalf("deleted=%d calls=%d, want 1203 in 5 calls", cp.Deleted, calls)
 	}

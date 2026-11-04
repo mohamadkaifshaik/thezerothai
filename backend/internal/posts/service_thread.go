@@ -1,7 +1,7 @@
 // service_thread.go is the replies slice: the reply path of
 // CreatePost (parent resolution), the parent's replyCount release on delete, and GetThread.
 //
-// Pull model (ADR-0004): a reply is an ordinary posts doc with isReply = true. It is never written to, nor
+// Pull model: a reply is an ordinary posts doc with isReply = true. It is never written to, nor
 // fanned out to, any timeline: the Home and Posts-tab queries filter isReply == false, and the Replies tab is
 // the author query without that filter.
 package posts
@@ -57,16 +57,16 @@ type Thread struct {
 	RootUnavailable   bool
 	Replies           []*Post
 	NextPageToken     string
-	// ReplyPermission is the viewer hint shared by every row of the thread (ADR-0021 D2).
+	// ReplyPermission is the viewer hint shared by every row of the thread.
 	ReplyPermission postsv1.ReplyPermission
 	// BlockedAuthors is the caller's outgoing block set from the snapshot the service already loaded (0 reads), for viewer_poll_vote_blocked on the
-	// focal post (ADR-0029 Amendment 1 A1.5). Read-only.
+	// focal post. Read-only.
 	BlockedAuthors map[string]bool
 }
 
 // replyParent validates a reply target for CreatePost: the id shape, then the GetPost visibility rules
 // (viewable). Every refusal is the one NOT_FOUND "post not found" answer, so the response reveals neither a
-// deleted parent nor a block. A REPOST parent resolves to the original (ADR-0018 D17, shared resolver): the reply's
+// deleted parent nor a block. A REPOST parent resolves to the original (shared resolver): the reply's
 // parent, conversationId and replyToHandle come from the original, which gets the replyCount; the REPOST's
 // counters stay 0. Reads: parent 1 + its author 1 + caller graph 1 cold, 0 warm; +2 cold for a REPOST (the
 // original and its author).
@@ -108,12 +108,12 @@ func threadBinding(caller, focal string) string { return "thread|" + caller + "|
 // Firestore, worst case with the interceptor's caller read: 1 + focal 1 + focal author 1 + caller graph 1 (+1
 // author graph on blockedBy overflow) + parent and root 2 + their authors <= 2 + one conversation query of
 // Limit(page) <= 30 => 38 cold (+2 when the focal id is a REPOST: its original and that author => 40); warm: the query only (1 .. 30). Writes 0.
-// The viewer_reply_permission hint (ADR-0021 D2) adds <= +1 cold (R's author graph, FOLLOWING conversations only;
+// The viewer_reply_permission hint adds <= +1 cold (R's author graph, FOLLOWING conversations only;
 // +0 warm, +0 for EVERYONE / MENTIONED_ONLY / the root author): 39 cold, 41 for a REPOST focal. A QUOTE or REPOST parent or root is
 // checked against the caller's blockedBy set already in the snapshot: 0 extra reads (overflow fails closed).
-// A community conversation (ADR-0031 A7) adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
+// A community conversation adds the viewer's member doc to the hint: +1 cold (EVERYONE policy, so never together with the FOLLOWING
 // read), +0 warm: 40 cold, 42 for a REPOST focal. The handler applies it (communityReplyHint); GetThread itself does not know the flag.
-// A reply a community moderator hid (communityHidden, ADR-0031 Amendment 1 D4a) is dropped from the page for every viewer but its author and
+// A reply a community moderator hid (communityHidden) is dropped from the page for every viewer but its author and
 // leaves the parent slot as ParentUnavailable: +0 reads (every row is already read), cause audience_dropped_community_hidden, whatever the flag state (R5).
 func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInput) (_ *Thread, err error) {
 	logger.SetRequestField(ctx, fieldOp, "thread")
@@ -179,9 +179,9 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		if skip[p.ID] {
 			continue
 		}
-		// ADR-0016: hidden replies are dropped; then the block and mute sets the timelines use; then the one
-		// visibility predicate (ADR-0025 D4: a reply by a protected author the caller may not see is dropped, never the
-		// stored visibility). A reply carries no embed, so the author is the whole decision. The set is read at most
+		// Hidden replies are dropped; then the block and mute sets the timelines use; then the one
+		// visibility predicate (a reply by a protected author the caller may not see is dropped, never the stored visibility).
+		// A reply carries no embed, so the author is the whole decision. The set is read at most
 		// once per instance per CACHE_TTL by its loader (0 reads for the caller).
 		switch {
 		case p.Hidden():
@@ -215,7 +215,7 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	return out, nil
 }
 
-// audienceTally counts the thread rows GetThread dropped, by cause (ADR-0025 observability): counts only.
+// audienceTally counts the thread rows GetThread dropped, by cause (observability): counts only.
 type audienceTally struct{ protected, blocked, muted, hidden, communityHidden int }
 
 func (t audienceTally) total() int {
@@ -244,7 +244,7 @@ func (t audienceTally) note(ctx context.Context) {
 // contextAllowed is the context-post predicate (parent, root) with the audience applied: contextUsable (the pure
 // block, hidden and ACTIVE rules, fail closed on overflow, so Decide below never spends a block read) and then
 // Audience.Decide on the direct surface, which refuses a post by a protected author the caller may not see and a
-// REPOST of one (ADR-0025 D4). A QUOTE of one stays usable and renders stripped (the hint adds PROTECTED). A set
+// REPOST of one. A QUOTE of one stays usable and renders stripped (the hint adds PROTECTED). A set
 // error is UNAVAILABLE and is returned, never read as usable.
 func (s *service) contextAllowed(ctx context.Context, p *Post, authorActive bool, caller string, snap graph.Snapshot) (bool, error) {
 	if !contextUsable(p, authorActive, caller, snap) {
@@ -297,7 +297,7 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	if out.Parent, err2 = usable(focal.ReplyToID); err2 != nil {
 		return s.audienceErr(err2, caller)
 	}
-	if communityHiddenFor(out.Parent, caller) { // ADR-0031 Amendment 1 R4: a reply a moderator hid is an unavailable parent
+	if communityHiddenFor(out.Parent, caller) { // A reply a moderator hid is an unavailable parent
 		out.Parent = nil
 	}
 	out.ParentUnavailable = out.Parent == nil
@@ -315,13 +315,13 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	return nil
 }
 
-// contextUsable is the one "context post is usable" predicate (ADR-0021 D2, security review M-1), shared by
+// contextUsable is the one "context post is usable" predicate (security review M-1), shared by
 // GetThread's parent/root rows and by reply enforcement, so both give the same answer and neither can become a
-// block oracle. It reads nothing. p is usable when it is not hidden by a moderator (ADR-0016; never the stored visibility, ADR-0025 D2), its
+// block oracle. It reads nothing. p is usable when it is not hidden by a moderator (never the stored visibility), its
 // author has an ACTIVE profile (authorActive: GetProfiles omits SUSPENDED, DELETING and missing authors), and,
 // unless the caller is its author, no block either way (snap.BlockedBy / snap.Blocked), the caller's blockedBy
 // set has not overflowed (fail closed rather than spend an author-graph read per row) and, for a QUOTE or
-// REPOST, the embedded author does not block the caller (ADR-0018 D13). The caller's own posts are exempt, same
+// REPOST, the embedded author does not block the caller. The caller's own posts are exempt, same
 // as a direct post, and then snap is not consulted.
 func contextUsable(p *Post, authorActive bool, caller string, snap graph.Snapshot) bool {
 	if p == nil || p.Hidden() || !authorActive {
@@ -339,7 +339,7 @@ func contextUsable(p *Post, authorActive bool, caller string, snap graph.Snapsho
 	return true
 }
 
-// enforceReplyPolicy refuses a reply the conversation's reply policy does not allow (ADR-0021 D2). It runs in
+// enforceReplyPolicy refuses a reply the conversation's reply policy does not allow. It runs in
 // Create right after replyParent, so a parent the caller cannot see has already answered NOT_FOUND. It is NOT
 // flag-gated: switching FEATURE_REPLY_AUDIENCE off must never reopen a restricted conversation. An EVERYONE /
 // absent policy returns at once: +0 reads, the root is never loaded.
@@ -418,14 +418,14 @@ func (s *service) enforceReplyPolicy(ctx context.Context, uid string, parent *Po
 	return replyNotAllowed(policy)
 }
 
-// replyNotAllowed is the REPLY_NOT_ALLOWED refusal (PERMISSION_DENIED, ADR-0021 D2) with metadata["policy"] set to
+// replyNotAllowed is the REPLY_NOT_ALLOWED refusal (PERMISSION_DENIED) with metadata["policy"] set to
 // the lower-snake-case policy name ("following", "mentioned_only").
 func replyNotAllowed(policy ReplyPolicy) error {
 	return apierr.New(connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED,
 		"you can't reply to this conversation").WithMeta("policy", strings.ToLower(string(policy)))
 }
 
-// rootReplyPermission is the viewer hint for a conversation whose root R is loaded (ADR-0021 D2 "Viewer hint"):
+// rootReplyPermission is the viewer hint for a conversation whose root R is loaded ("Viewer hint"):
 // the decision CreatePost would make, but UNKNOWN whenever R is not usable for the viewer (contextUsable), so a
 // hint never tells a blocked viewer anything. EVERYONE and R's author are ALLOWED without a read; MENTIONED_ONLY
 // reads R.Mentions; FOLLOWING is one cached graph snapshot of R's author (1 read cold, an error is UNKNOWN).
@@ -435,7 +435,7 @@ func (s *service) rootReplyPermission(ctx context.Context, viewer string, root *
 	case !root.ReplyPolicy.Restricted(), root.AuthorID == viewer:
 		return postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED
 	}
-	// An unusable root, or an unknown protected set, is UNKNOWN: a hint never tells a viewer anything (M-1, ADR-0025).
+	// An unusable root, or an unknown protected set, is UNKNOWN: a hint never tells a viewer anything (M-1).
 	if ok, err := s.contextAllowed(ctx, root, true, viewer, snap); err != nil || !ok {
 		return postsv1.ReplyPermission_REPLY_PERMISSION_UNKNOWN
 	}
@@ -518,8 +518,8 @@ func applyReply(p *CreateParams, parent *Post) {
 	p.Draft.ReplyToID, p.Draft.ReplyToHandle = parent.ID, parent.Author.Handle
 	p.Draft.ReplyToAuthorID = parent.AuthorID // transient, for PostEvents.Created only (never persisted)
 	p.Draft.ConversationID = conv
-	p.Draft.ReplyPolicy = parent.ReplyPolicy // inherited, 0 reads; never a user id (ADR-0021 D2)
-	// ADR-0031 D5: the conversation's community is inherited like the policy (+0 reads: the parent is read). Only the key is copied here; the
+	p.Draft.ReplyPolicy = parent.ReplyPolicy // inherited, 0 reads; never a user id
+	// The conversation's community is inherited like the policy (+0 reads: the parent is read). Only the key is copied here; the
 	// members-only gate on the reply path comes later. A hidden root keeps it (a hide never changes conversationCommunityId).
 	p.Draft.ConversationCommunityID = parent.ConversationCommunityID
 }
@@ -528,7 +528,7 @@ func applyReply(p *CreateParams, parent *Post) {
 // QUOTE p embeds. It reads the viewer's own lists only (never BlockedBy: an author who blocks the viewer is not
 // reported, GetPost answers NOT_FOUND for that). 0 reads for a post without a live embed; otherwise the viewer's graph
 // snapshot, which GetPost and GetThread have just cached (<= +1 read cold). On a graph error it is UNSPECIFIED and the
-// client falls back to its local relationship cache. With a protected-set loader wired it is PROTECTED (checked first) when the viewer may not see the original's author (ADR-0025 D4), and fails closed to PROTECTED when the follow state or the set is unknown.
+// client falls back to its local relationship cache. With a protected-set loader wired it is PROTECTED (checked first) when the viewer may not see the original's author, and fails closed to PROTECTED when the follow state or the set is unknown.
 func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) postsv1.EmbedViewerState {
 	a := p.EmbeddedAuthor()
 	if a == "" || a == viewer || (p.AuthorID == viewer && !s.aud.Enabled()) {
@@ -536,7 +536,7 @@ func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) 
 	}
 	snap, err := s.graph.Snapshot(ctx, viewer)
 	if err != nil {
-		if s.aud.Enabled() { // an unknown follow state must not show a possibly protected copy (ADR-0025 D3)
+		if s.aud.Enabled() { // an unknown follow state must not show a possibly protected copy
 			return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED
 		}
 		return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
@@ -544,7 +544,7 @@ func (s *service) EmbedViewerState(ctx context.Context, viewer string, p *Post) 
 	return s.aud.EmbedState(ctx, viewer, snap, p)
 }
 
-// PollBlockedAuthors implements PollBlockHinter (ADR-0029 Amendment 1 A1.5): the viewer's blocked set when p carries a live poll by another author,
+// PollBlockedAuthors implements PollBlockHinter: the viewer's blocked set when p carries a live poll by another author,
 // else nil. The snapshot is the one GetPost has just cached for a non-author viewer (<= 60 s old): 0 reads on the hit, never a read for the
 // viewer's own post or a post without an open poll. A graph error is nil (the field stays false; VotePoll is the authority).
 func (s *service) PollBlockedAuthors(ctx context.Context, viewer string, p *Post) map[string]bool {
@@ -559,7 +559,7 @@ func (s *service) PollBlockedAuthors(ctx context.Context, viewer string, p *Post
 }
 
 // ProtectedAuthor implements VisibilityHinter: whether p's author is in the protected set (the computed wire
-// visibility, ADR-0025 D2). 0 reads for the caller (the loader is detached). The viewer's own posts need no graph
+// visibility). 0 reads for the caller (the loader is detached). The viewer's own posts need no graph
 // read; for another author the viewer's snapshot is the one GetPost or GetThread just cached (0 reads on the hit, never
 // a new read for an anonymous viewer), and a followed author is then answered from the loader's cached copy
 // (L-4). An unknown follow state is treated as not following: the set is asked through Current.
@@ -584,7 +584,7 @@ func embedStateFor(snap graph.Snapshot, embeddedAuthor string) postsv1.EmbedView
 	return postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
 }
 
-// communityHiddenFor is the reply drop of ADR-0031 Amendment 1 D4a: p is a reply a community moderator hid (communityHidden on a REPLY;
+// communityHiddenFor is the reply drop of: p is a reply a community moderator hid (communityHidden on a REPLY;
 // a root carries the flag too but keeps its thread, and a hide never touches Hidden() or Visible()) and the viewer is not its author. 0 reads: the
 // flag arrived with the document. It sits in GetThread's conversation loop and threadContext's parent check only, never in contextUsable, so
 // reply enforcement is unchanged and replying to a hidden reply stays allowed. It does not read the communities flag: the kill switch must

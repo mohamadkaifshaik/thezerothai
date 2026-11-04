@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../primitives/app_empty_view.dart';
 
-/// What a stranger sees in place of a protected account's posts (ADR-0025 D4,
-/// X's own wording): a lock, "These posts are protected" and how to get access.
+/// What a stranger sees in place of a protected account's posts (X's own wording):
+/// a lock, "These posts are protected" and how to get access.
 /// The same view stands in for every tab, so the tab bar is not shown with it.
 /// Also used by the Followers / Following lists, whose members are protected too
 /// ([title] / [message] differ there).

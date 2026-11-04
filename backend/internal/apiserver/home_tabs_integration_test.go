@@ -21,7 +21,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// (ADR-0030 D6) through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
+// Home tabs through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
 // and DeleteList's unpin, and the flag modes. Request-line budgets include the account-status interceptor's read.
 
 func tabsListsOn(c *config.Config) {
@@ -93,7 +93,7 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 	if want := []string{theirsPublic + ":", mine + ":Mine"}; !slices.Equal(tabPairs(got.GetTabs()), want) {
 		t.Fatalf("response tabs = %v, want %v (own list titled, foreign list not)", tabPairs(got.GetTabs()), want)
 	}
-	// ADR-0030 table: <= 19 reads, 2 writes (users field-level, idempotency).
+	// Table: <= 19 reads, 2 writes (users field-level, idempotency).
 	budgettest.Assert(t, "SetHomeTabs, 2 tabs", h.lineBudget(t, rpc), budgettest.Budget{Reads: 19, Writes: 2})
 
 	// The same order under a new key writes only the idempotency record; a replay writes nothing.

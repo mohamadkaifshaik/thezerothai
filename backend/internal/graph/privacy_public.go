@@ -1,7 +1,7 @@
-// privacy_public.go is the `privacy_public` job (ADR-0025 D8, AQ1): when an account switches from protected to
+// privacy_public.go is the `privacy_public` job: when an account switches from protected to
 // public, every pending follow request addressed to it is accepted. identity only says "this account went public"
 // (identity.PrivacyListener, implemented by PrivacyListener below, which publishes to the shared `jobs` topic); graph owns
-// the requests, so graph owns the job (the ADR-0024 A4 media retire split). The accept itself is the code
+// the requests, so graph owns the job (the media retire split). The accept itself is the code
 // (classifyAccept, queueAccept) run by FirestoreRepo.AcceptPendingPage for a page of requests; this file pages, keeps the
 // caches honest and reports.
 package graph
@@ -29,7 +29,7 @@ const (
 	// Firestore's 500 per transaction.
 	privacyPublicPage = 100
 	// privacyPublicMaxPages bounds one delivery (5,000 requests; the handler budget is 27 s). More pending than that nacks
-	// the message: the accepted ones have dropped out, so the redelivery continues. Reaching it is a runbook entry.
+	// the message: the accepted ones have dropped out, so the redelivery continues.
 	privacyPublicMaxPages = 50
 	// privacyPublicEmitFanout bounds the concurrent post-commit notification emits of one page.
 	privacyPublicEmitFanout = 8

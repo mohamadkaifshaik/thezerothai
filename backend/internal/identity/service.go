@@ -29,7 +29,7 @@ type service struct {
 	blockChecker         BlockChecker
 	features             FeatureFlags
 	avatars              AvatarResolver
-	// banners, pins and extras are the ADR-0024 profile-extras seams. All nil by default: no resolver means a
+	// banners, pins and extras are the profile-extras seams. All nil by default: no resolver means a
 	// non-empty banner_media_id is MEDIA_NOT_READY, no checker means a non-empty pinned_post_id is VALIDATION, and no
 	// flags means profile_extras is off for every caller and globally off.
 	banners BannerResolver
@@ -40,19 +40,19 @@ type service struct {
 	signup *authAdmin
 	// snap is the profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
 	snap *profileSnapshots
-	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go, ADR-0024
-	// Amendment 1 A4); nil = never, the pre-A4 behaviour.
+	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go
+	// A4); nil = never, the pre-A4 behaviour.
 	retire *mediaRetire
-	// privacy is the is_private toggle (privacy.go, ADR-0025 D8); nil = the behaviour (protect refused as coming soon).
+	// privacy is the is_private toggle (privacy.go); nil = the behaviour (protect refused as coming soon).
 	privacy *privacyDeps
 	// listener is told after a committed unprotect (WithPrivacyListener); nil publishes nothing.
 	listener *privacyListener
-	// protected is the ADR-0025 D3 set loader GetProfile asks (AQ6) before it returns the pin of a protected account to a
+	// protected is the set loader GetProfile asks (AQ6) before it returns the pin of a protected account to a
 	// viewer who is neither the account nor a follower; nil = the pin is not filtered (tests, behaviour).
 	protected ProtectedAuthors
-	// requests counts a protected caller's pending follow requests for GetMe (ADR-0025 AQ3); nil = always 0.
+	// requests counts a protected caller's pending follow requests for GetMe; nil = always 0.
 	requests FollowRequestCounter
-	// badge counts a messaging caller's unread conversations for GetMe (ADR-0027 D10); nil = always 0.
+	// badge counts a messaging caller's unread conversations for GetMe; nil = always 0.
 	badge    MessageBadge
 	badgeLog *slog.Logger
 	// pinLog and reqLog receive the WARN lines; nil means slog.Default.
@@ -60,27 +60,27 @@ type service struct {
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
-// (ADR-0008): a variadic option keeps every existing New(repo, cache, cooldown) call site compiling
+// A variadic option keeps every existing New(repo, cache, cooldown) call site compiling
 // unchanged rather than forcing a positional-argument churn across every test file.
 type Option func(*service)
 
-// WithBlockChecker wires the graph module's block check into GetProfile (ADR-0008 D9). Nil (the default)
+// WithBlockChecker wires the graph module's block check into GetProfile. Nil (the default)
 // disables the check, matching the Phase 0 bootstrap's behavior.
 func WithBlockChecker(bc BlockChecker) Option {
 	return func(s *service) { s.blockChecker = bc }
 }
 
-// WithProtectedAuthors wires the protected set into GetProfile's pin rule (ADR-0025 D4, AQ6). Nil keeps the pin unfiltered. log receives the WARN pin_omitted line; nil means slog.Default.
+// WithProtectedAuthors wires the protected set into GetProfile's pin rule. Nil keeps the pin unfiltered. log receives the WARN pin_omitted line; nil means slog.Default.
 func WithProtectedAuthors(p ProtectedAuthors, log *slog.Logger) Option {
 	return func(s *service) { s.protected, s.pinLog = p, log }
 }
 
-// WithFollowRequestCounter wires GetMe's pending_follow_request_count (ADR-0025 D7, AQ3). Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default.
+// WithFollowRequestCounter wires GetMe's pending_follow_request_count. Nil leaves it 0. log receives the WARN for a failed count; nil means slog.Default.
 func WithFollowRequestCounter(c FollowRequestCounter, log *slog.Logger) Option {
 	return func(s *service) { s.requests, s.reqLog = c, log }
 }
 
-// WithMessageBadge wires GetMe's unread_conversation_count (ADR-0027 D10). Nil leaves it 0. log receives the WARN for
+// WithMessageBadge wires GetMe's unread_conversation_count. Nil leaves it 0. log receives the WARN for
 // a failed count; nil means slog.Default().
 func WithMessageBadge(b MessageBadge, log *slog.Logger) Option {
 	return func(s *service) { s.badge, s.badgeLog = b, log }
@@ -91,28 +91,28 @@ func WithAvatarResolver(r AvatarResolver) Option {
 	return func(s *service) { s.avatars = r }
 }
 
-// WithBannerResolver wires UpdateProfile.banner_media_id (ADR-0024 D1). Nil keeps non-empty values rejected as not ready.
+// WithBannerResolver wires UpdateProfile.banner_media_id. Nil keeps non-empty values rejected as not ready.
 func WithBannerResolver(r BannerResolver) Option {
 	return func(s *service) { s.banners = r }
 }
 
-// WithPinChecker wires UpdateProfile.pinned_post_id (ADR-0024 D3). Nil keeps non-empty values rejected with VALIDATION.
+// WithPinChecker wires UpdateProfile.pinned_post_id. Nil keeps non-empty values rejected with VALIDATION.
 func WithPinChecker(c PinChecker) Option {
 	return func(s *service) { s.pins = c }
 }
 
-// WithExtrasFlags wires the profile_extras flag (ADR-0024 D9): the per-caller gate on setting the new fields and the
+// WithExtrasFlags wires the profile_extras flag: the per-caller gate on setting the new fields and the
 // global-off check that omits the pin from responses. Nil means off for everyone.
 func WithExtrasFlags(f ExtrasFlags) Option {
 	return func(s *service) { s.extras = f }
 }
 
-// WithFeatureFlags wires GetMe.enabled_features (ADR-0008 D6). Nil (the default) reports no flags.
+// WithFeatureFlags wires GetMe.enabled_features. Nil (the default) reports no flags.
 func WithFeatureFlags(ff FeatureFlags) Option {
 	return func(s *service) { s.features = ff }
 }
 
-// WithSignupAuth wires the M2 check (ADR-0011 amendment 2026-10-08): before a first profile is created the caller's
+// WithSignupAuth wires the M2 check : before a first profile is created the caller's
 // own Firebase Auth user must exist and be enabled, because an ID token can outlive its deleted or disabled user.
 // auth is the same narrow client the account lifecycle holds (C2); log receives the C3 audit line.
 func WithSignupAuth(auth AuthClient, log *slog.Logger) Option {
@@ -138,14 +138,14 @@ func New(repo Repo, c *Cache, handleChangeCooldown time.Duration, opts ...Option
 }
 
 // ProfileNotFoundError is the one NOT_FOUND "profile not found" answer for a missing user, exposed so other
-// modules (posts' GetUserTimeline) return the same bytes as GetProfile instead of copying the string (ADR-0010).
+// modules (posts' GetUserTimeline) return the same bytes as GetProfile instead of copying the string.
 func ProfileNotFoundError() error { return notFoundErr() }
 
 func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "profile not found")
 }
 
-// getProfileCached is the read-through cache every RPC uses: 0 reads on a cache hit (ADR-0003: 60s TTL),
+// getProfileCached is the read-through cache every RPC uses: 0 reads on a cache hit (60s TTL),
 // 0 reads on a negative-cache hit (M1: ~10s "no profile yet" cache) — the latter matters because this is
 // exactly what authn.AccountStatusInterceptor calls (via AccountStatus below) for every request from a
 // caller who never completes sign-up, so without it such a caller could burn one Firestore read per
@@ -169,8 +169,8 @@ func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, er
 	return p, nil
 }
 
-// CreateProfile: worst case Firestore reads 2, writes 3 (ADR-0003; see repo_firestore.go). Idempotent by uid: a
-// replay (profile already exists) is a pure read, no writes and no Auth call. Auth (M2, ADR-0011 amendment): exactly
+// CreateProfile: worst case Firestore reads 2, writes 3 (see repo_firestore.go). Idempotent by uid: a
+// replay (profile already exists) is a pure read, no writes and no Auth call. Auth (M2): exactly
 // one users.get of the token's own uid, only when users/{uid} does not exist, before any create; a deleted or
 // disabled Auth user is PERMISSION_DENIED, an Auth outage UNAVAILABLE (fail closed), nothing written either way.
 // 0 extra Firestore ops.
@@ -209,7 +209,7 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 }
 
 // CheckHandleAvailability: 1 read, 0 writes (cache hit on the handle map or the 10 s negative handle cache
-// (ADR-0010 D5): 0 reads). A stale "available" is only a hint; CreateProfile/ChangeHandle stay transactional.
+// 0 reads). A stale "available" is only a hint; CreateProfile/ChangeHandle stay transactional.
 func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (bool, string, error) {
 	if reason := handleFormatIssue(handle); reason != "" {
 		return false, reason, nil
@@ -233,12 +233,12 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 	}
 }
 
-// GetMe: reads 2 worst case (profile + unread count, both cache misses), 1 typical (ADR-0003/proto).
-// enabled_features (ADR-0008 D6) comes from the FeatureFlags provider, 0 extra reads.
-// pending_follow_request_count (ADR-0025 D7, AQ3) is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
+// GetMe: reads 2 worst case (profile + unread count, both cache misses), 1 typical.
+// enabled_features comes from the FeatureFlags provider, 0 extra reads.
+// pending_follow_request_count is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
 // for a caller whose isPrivate is true and whose 30 s cached count is gone; 0 reads for every other caller (a public
 // caller never reaches the counter) and on a hit. A failed count is WARN pending_count_failed with the badge at 0.
-// unread_conversation_count (ADR-0027 D10) is +1 read (a count on users/{uid}/dmInbox, Limit 100) on a cache miss
+// unread_conversation_count is +1 read (a count on users/{uid}/dmInbox, Limit 100) on a cache miss
 // for a caller with messaging on; 0 reads for every other caller and on a hit (30 s). A failed count is WARN
 // unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
@@ -288,7 +288,7 @@ func (s *service) unreadConversations(ctx context.Context, uid string, enabled [
 	return n
 }
 
-// MessageBadgeCache implements messaging.BadgeCache (ADR-0027 D10) on identity's side: Forget evicts only the cached
+// MessageBadgeCache implements messaging.BadgeCache on identity's side: Forget evicts only the cached
 // unread_conversation_count of these users on this instance, leaving the profile and the notification count cached.
 // apiserver passes it as messaging.Deps.Badge.
 type MessageBadgeCache struct{ c *Cache }
@@ -325,9 +325,9 @@ func (s *service) pendingRequests(ctx context.Context, p Profile) int64 {
 }
 
 // GetProfile: reads up to 2 (handle resolve + profile; both cacheable), +1 more when BlockChecker is wired
-// and misses its own cache (ADR-0008 D9/D2: proto worst case 3, +1 on a viewer's blockedByOverflow). If the
-// target blocked the caller, returns the byte-identical NOT_FOUND used for a missing profile (ADR-0006 §6:
-// "no existence leak") — the caller can still view a target they themselves blocked, so they can unblock.
+// and misses its own cache (proto worst case 3, +1 on a viewer's blockedByOverflow). If the
+// target blocked the caller, returns the byte-identical NOT_FOUND used for a missing profile ("no existence leak")
+// — the caller can still view a target they themselves blocked, so they can unblock.
 func (s *service) GetProfile(ctx context.Context, callerUID string, target ProfileTarget) (Profile, error) {
 	uid := target.UserID
 	if uid == "" {
@@ -347,7 +347,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		if cached, ok := s.cache.GetHandleUID(lower); ok {
 			uid = cached
 		} else if s.cache.GetHandleFree(lower) {
-			return Profile{}, notFoundErr() // negative handle cache (ADR-0010 D5): 0 reads
+			return Profile{}, notFoundErr() // negative handle cache: 0 reads
 		} else {
 			resolved, err := s.repo.ResolveHandle(ctx, lower)
 			if err != nil {
@@ -364,7 +364,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	if err != nil {
 		return Profile{}, err
 	}
-	// M3 (security review, ADR-0008 D9): a SUSPENDED or DELETING profile is invisible to everyone but its
+	// M3 (security review): a SUSPENDED or DELETING profile is invisible to everyone but its
 	// owner, with the byte-identical NOT_FOUND a missing user gets, by id and by handle alike. 0 extra reads.
 	// This is also what keeps "handle taken + NOT_FOUND" ambiguous between blocked-by, suspended and deleting.
 	if profile.Status != AccountStatusActive && callerUID != uid {
@@ -386,8 +386,8 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 	return out, nil
 }
 
-// present is the response view of a profile, the one place the profile_extras kill switch is applied (ADR-0024 D3 and
-// Amendment 1 A1): while the flag is globally off (Registry.GloballyOff: mode off; an allowlist or a percent, even an
+// present is the response view of a profile, the one place the profile_extras kill switch is applied:
+// while the flag is globally off (Registry.GloballyOff: mode off; an allowlist or a percent, even an
 // empty one or 0, is a rollout, not the switch; no flags wired counts as off) it omits pinned_post_id (so clients stop
 // the GetPost call) and website (the one field that sends a viewer somewhere else, the phishing surface). It covers
 // every Profile identity returns, the owner's own view included, with 0 reads. Everything else is returned as stored;
@@ -423,15 +423,15 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 }
 
 // setsExtra reports whether an optional profile-extras field sets a value: present and not exactly "". The exact empty
-// string is a clear (ADR-0024 Amendment 1 A2) and is never gated; anything else, whitespace-only included, is a set.
+// string is a clear and is never gated; anything else, whitespace-only included, is a set.
 func setsExtra(p *string) bool { return p != nil && *p != "" }
 
 // UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}; 0 writes when the request changes nothing,
 // L-4: UpdatedAt moves only on a real change and the repo then skips the write), plus the account-status
 // interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
-// reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc,
-// ADR-0024 D1), +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm, D3). Worst case with the
-// ADR-0024 fields (banner and pin) is 3 reads / 1 write in this method (4 with the interceptor cold); a request that
+// reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc),
+// +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm). Worst case with the
+// Fields (banner and pin) is 3 reads / 1 write in this method (4 with the interceptor cold); a request that
 // also sets an avatar adds a fourth (5 with the interceptor). A media id that is not a READY, caller-owned AVATAR or
 // BANNER is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
 // field=pinned_post_id (one answer for every cause, so the call is no existence oracle).
@@ -444,7 +444,7 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
 //
-// ADR-0025 D8: an is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
+// An is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
 // protect 3 reads (users, quotas, the privacy/protectedAuthors doc for the cap) and 3 writes (isPrivate, the set doc with
 // ArrayUnion, quotas.privacyToggles), 4 reads with the interceptor cold; unprotect 2 reads and 3 writes (ArrayRemove, no cap
 // check), 3 with the interceptor cold. An is_private equal to the stored value is the plain update's 1 read and 0 writes and
@@ -455,7 +455,7 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // call). The cached profile is written from the committed data (SetProfile), so no Directory.Forget is needed. A toggle bumps
 // no snapshotVersion and enqueues no snapshot job. is_private=true is gated by private_accounts; is_private=false never is.
 //
-// A4 (ADR-0024 Amendment 1): a commit that replaced or removed the avatar or the banner hands the old image to the media
+// A4: a commit that replaced or removed the avatar or the banner hands the old image to the media
 // module's retire step (WithMediaRetirer, after the commit, best effort): 0 extra Firestore reads, since the old URLs are
 // in the document the transaction read, and at most 2 Pub/Sub publishes (one per image, each under a 2 s deadline). The
 // step deletes the old objects after a grace of at least 24 h, only while PROFILE_MEDIA_RETIRE allows it; a failed hand-over
@@ -465,7 +465,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
-	// ADR-0025 D12: is_private=true needs private_accounts on for the caller, checked first so a caller outside the
+	// Is_private=true needs private_accounts on for the caller, checked first so a caller outside the
 	// cohort learns nothing about the other fields and costs nothing (0 reads, 0 writes). A request that sets is_private=true
 	// together with other fields is refused whole (the M-1 mixed rule). is_private=false is never gated (the undo rule).
 	if params.IsPrivate != nil && *params.IsPrivate {
@@ -479,7 +479,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	if params.Bio != nil && bioIssue(*params.Bio) {
 		return Profile{}, apierr.Validation("bio", "bio must be at most 160 characters")
 	}
-	// ADR-0024 D9 and Amendment 1 A2: the flag gate comes before the field validation and before any read, so a
+	// The flag gate comes before the field validation and before any read, so a
 	// caller outside the cohort learns nothing about the fields and costs nothing. Only a SET is gated: the exact
 	// string "" is a clear and always passes. The test is on the raw value, before normalisation, so "   " (which
 	// would normalise to a clear) is still a set here.
@@ -555,7 +555,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
-	// ADR-0003: a display-name edit rewrites the author snapshot on the user's posts, limited to
+	// A display-name edit rewrites the author snapshot on the user's posts, limited to
 	// SnapshotEditsPerDay a day. The comparison uses the cached profile (0 reads: the interceptor warmed it); a
 	// stale cache can only over-count an edit. Reserved before the write: 1 read, 1 write on quotas/{uid}.
 	// Only while FEATURE_PROFILE_SNAPSHOT is on for the caller.
@@ -609,7 +609,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			p.AvatarURL = ""
 			p.AvatarThumbURL = ""
 		}
-		// ADR-0024: the extras are plain field writes. None of them touches snapshotVersion (not in AuthorSnapshot).
+		// The extras are plain field writes. None of them touches snapshotVersion (not in AuthorSnapshot).
 		if banner != nil {
 			note("banner", banner.URL != p.BannerURL || banner.ThumbURL != p.BannerThumbURL)
 			p.BannerURL, p.BannerThumbURL = banner.URL, banner.ThumbURL
@@ -647,7 +647,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		toggle  PrivacyUpdate
 	)
 	if s.privacy != nil && params.IsPrivate != nil {
-		// ADR-0025 D8: an is_private request runs the toggle transaction. Equal to the stored value it costs the plain
+		// An is_private request runs the toggle transaction. Equal to the stored value it costs the plain
 		// update's 1 read and charges no quota.
 		toggle, err = s.privacy.repo.UpdateProfileWithPrivacy(ctx, uid, mutate, s.privacy.limits)
 		profile = toggle.Profile
@@ -681,7 +681,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	return s.present(profile), nil
 }
 
-// ChangeHandle: reads 2, writes 2, deletes 1 worst case (ADR-0003/proto). M4 fix: the no-op, case-only
+// ChangeHandle: reads 2, writes 2, deletes 1 worst case. M4 fix: the no-op, case-only
 // rename, cooldown and handle-uniqueness checks all run inside FirestoreRepo.ChangeHandle's own
 // transaction, against the doc read fresh there — never against this instance's cache, which could be
 // stale relative to a change committed on another Cloud Run instance. That also means this service method
@@ -730,14 +730,14 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	return s.present(profile), nil
 }
 
-// GetProfiles implements Directory: cache-first, then one GetAll for misses (ADR-0008). Ids with no
+// GetProfiles implements Directory: cache-first, then one GetAll for misses. Ids with no
 // ACTIVE profile (missing, or a status other than ACTIVE) are simply absent from the result.
 func (s *service) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
 	found, _, err := s.LookupProfiles(ctx, uids)
 	return found, err
 }
 
-// LookupProfiles implements Directory (ADR-0008): GetProfiles plus the uids CONFIRMED to have no
+// LookupProfiles implements Directory: GetProfiles plus the uids CONFIRMED to have no
 // users/{uid} document by the GetAll issued in this call. Same cost as GetProfiles (cache-first, one GetAll
 // for misses, 0 extra reads). Non-ACTIVE users are in neither result. A uid known missing only from the
 // short negative cache is also in neither: a clean-up must rest on a fresh read, so a re-created profile
@@ -780,11 +780,11 @@ func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string
 	return out, missing, nil
 }
 
-// ResolveHandles implements Directory (ADR-0010 D7): cache-first (handle->uid hits, then the negative handle
+// ResolveHandles implements Directory: cache-first (handle->uid hits, then the negative handle
 // cache), then one GetAll for the remaining handles. Malformed and reserved handles are skipped without a read
 // (they can never own a handle doc); more than MaxResolveHandles distinct candidates is a caller bug.
-// A positive cache entry older than notFoundTTL (10 s), or contradicted by a cached profile, is a miss (ADR-0010
-// D21 G5). Residual, accepted: a rename plus a reclaim within 10 s observed on another instance.
+// A positive cache entry older than notFoundTTL (10 s), or contradicted by a cached profile, is a miss.
+// Residual, accepted: a rename plus a reclaim within 10 s observed on another instance.
 // Firestore: reads = uncached handles <= 10, writes 0.
 func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error) {
 	out := make(map[string]string, len(lowers))
@@ -867,7 +867,7 @@ func (s *service) AccountStatus(ctx context.Context, uid string) (bool, AccountS
 	return true, p.Status, nil
 }
 
-// PrivateAccountsFlag is the wire name of FEATURE_PRIVATE_ACCOUNTS (ADR-0025 D12): it gates setting is_private=true
+// PrivateAccountsFlag is the wire name of FEATURE_PRIVATE_ACCOUNTS: it gates setting is_private=true
 // through UpdateProfile (and, in later tickets, nothing that enforces an existing protection). is_private=false is
 // accepted from any caller whatever the flag (the undo rule).
 const PrivateAccountsFlag = "private_accounts"
@@ -886,7 +886,7 @@ func (s *service) privateAccountsDisabled(ctx context.Context, uid string) error
 	return nil
 }
 
-// pinForViewer is the ADR-0025 D4 pin rule for GetProfile: the pin of a protected account is shown to the account
+// pinForViewer is the pin rule for GetProfile: the pin of a protected account is shown to the account
 // itself (the caller never gets here), to its followers and to nobody else; every other header field is public. Order, so
 // that the common cases cost nothing (AQ6): a follower keeps the pin on the viewer's cached snapshot alone, without the set;
 // anyone else needs the set (a detached instance cache, 0 reads charged to the caller), and a set that cannot be loaded

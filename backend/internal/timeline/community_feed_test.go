@@ -1,6 +1,6 @@
 package timeline
 
-// GetCommunityTimeline (ADR-0031 D6). The fakes charge reads the way the real seams do. Unit budgets do not count the
+// GetCommunityTimeline. The fakes charge reads the way the real seams do. Unit budgets do not count the
 // account-status interceptor's caller read, so a cold open is page + 4 here (community, member doc, posts, graph, userLikes) and
 // page + 5 on the wire (25 at page 20, 55 at page 50); the apiserver chain test asserts the wire numbers.
 

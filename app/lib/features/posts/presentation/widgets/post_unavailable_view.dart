@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// The final NOT_FOUND state: nothing to retry, and the same words for
-/// missing, deleted and hidden (ADR-0010 D6). Shared by the post and thread
+/// missing, deleted and hidden. Shared by the post and thread
 /// screens.
 class PostUnavailableView extends StatelessWidget {
   const PostUnavailableView({super.key, required this.onHome});

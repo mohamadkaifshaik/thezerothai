@@ -1213,7 +1213,7 @@ void main() {
     });
   });
 
-  // `author_protected` (ADR-0025 D4) replaces every cached tab of the
+  // `author_protected` replaces every cached tab of the
   // author with the protected view.
   group('author_protected', () {
     final protectedFeeds = [

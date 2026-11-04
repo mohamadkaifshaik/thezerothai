@@ -26,7 +26,7 @@ class PostDetailState {
 }
 
 /// Loads one post for `/post/:id`. NOT_FOUND (missing, deleted, or
-/// hidden by a block of the author, ADR-0010 D6) is a final state, not an
+/// hidden by a block of the author) is a final state, not an
 /// error: the repository already pruned the caches and nothing retries.
 class PostDetailCubit extends Cubit<PostDetailState> {
   PostDetailCubit({
@@ -62,8 +62,8 @@ class PostDetailCubit extends Cubit<PostDetailState> {
     }
   }
 
-  /// Deletes this post. Success (even for an already-deleted post, ADR-0010
-  /// D4) always means gone: the repository pruned every feed and the screen
+  /// Deletes this post. Success (even for an already-deleted post)
+  /// always means gone: the repository pruned every feed and the screen
   /// leaves. Failures are rethrown for the card's snackbar; the same key is
   /// reused by a retry.
   Future<void> deletePost() async {

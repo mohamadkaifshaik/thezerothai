@@ -192,7 +192,7 @@ func TestListLikedPosts_InvalidTokens(t *testing.T) {
 	}
 }
 
-// likesResume is the ADR-0024 D6 rule, table-driven over the changes that can happen to the array between two pages.
+// likesResume is the rule, table-driven over the changes that can happen to the array between two pages.
 // The base list is liked 1..10 (10 newest); page 1 of size 3 scanned 10, 9, 8, so Next = 7, Last = 8, NextIndex = 3.
 func TestLikesResume(t *testing.T) {
 	anchor := likesAnchor{Next: pid(7), Last: pid(8), NextIndex: 3}
@@ -277,7 +277,7 @@ func TestListLikedPosts_ResumeAfterChanges(t *testing.T) {
 	}
 }
 
-// The ADR-0023 D2 / ADR-0010 D6 drop rules apply to a liked post exactly as to a bookmark: the same shared code.
+// The drop rules apply to a liked post exactly as to a bookmark: the same shared code.
 func TestListLikedPosts_DropRules(t *testing.T) {
 	quote := func(author, embedded string) *posts.Post {
 		return &posts.Post{AuthorID: author, Kind: posts.KindQuote, EmbeddedAuthorID: embedded}

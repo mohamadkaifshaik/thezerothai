@@ -12,12 +12,12 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
   /// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
   /// accounts younger than 24 h).
-  /// Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
+  /// Not available while the sub-feature's flag is off for the caller: a non-empty reply_to_post_id
   /// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
   /// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
   /// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
   /// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
-  /// Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+  /// Reply policy: settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
   /// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
   /// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
   /// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
@@ -28,9 +28,9 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
   /// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
   /// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
-  /// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+  /// Disclosure: paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
   /// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
-  /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
+  /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch.
   /// Quotes (plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   /// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   /// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -38,7 +38,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// frozen at write time, and increments the quoted post's quote_count in the same transaction. Reads +3 cold /
   /// +0 warm for the visibility check and writes +1 (quoteCount) over a root post: 17 cold / 2 warm reads, 5 writes.
   /// Deleting the quoted post replaces the embed with an unavailable tombstone (async job).
-  /// Protected authors (ADR-0025 D5): quoting a protected account's post is refused for everyone but that account:
+  /// Protected authors: quoting a protected account's post is refused for everyone but that account:
   /// a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
   /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
   /// follower is allowed and is public: it shows its own text, never the parent's.
@@ -48,7 +48,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
   /// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
   /// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
-  /// Reply audience (ADR-0021 D2): a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
+  /// Reply audience: a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
   /// the parent visibility check. Extra reads over a plain reply: EVERYONE +0; restricted, parent is the root: MENTIONED_ONLY +0,
   /// FOLLOWING +1 cold (root author's graph); restricted, deeper reply: MENTIONED_ONLY +3 / FOLLOWING +4 cold (root post, root
   /// author's profile, caller graph if the caller wrote the parent, + root author's graph for FOLLOWING); +0 warm (60 s caches).
@@ -60,21 +60,21 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
   /// parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
   /// image refs (url, thumb_url, size, blurhash, alt) are copied into the post; lists render thumb_url only.
-  /// Text (ADR-0010 D9): CRLF/CR -> LF, TAB -> space, NFC, trim; empty, control characters other than LF, or bidi
+  /// Text: CRLF/CR -> LF, TAB -> space, NFC, trim; empty, control characters other than LF, or bidi
   /// formatting controls (U+202A-U+202E, U+2066-U+2069) => VALIDATION field "text"; <= 280 code points, <= 10
   /// lines. Links are kept as typed and count toward the length (no server rewriting or previews).
-  /// Mentions (ADR-0010 D7): "@" + handle (3-15 of [A-Za-z0-9_], not preceded by a letter/number/_@#/.:&$+-,
+  /// Mentions: "@" + handle (3-15 of [A-Za-z0-9_], not preceded by a letter/number/_@#/.:&$+-,
   /// never truncated); first 10 distinct, stored lower-cased as {user_id, handle}. Unknown handles stay plain
   /// text; mentions never depend on the block graph (a user who blocked the author is kept, so the response
-  /// cannot reveal the block, ADR-0010 D7 M2); mentioning a user the author blocks is allowed.
-  /// Hashtags (ADR-0010 D8): "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
+  /// cannot reveal the block); mentioning a user the author blocks is allowed.
+  /// Hashtags: "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
   /// lower-cased, first 10 distinct stored; the text is unchanged.
   /// One transaction: idempotency doc + quotas read fresh; Create idempotency doc + Create post +
   /// users.postsCount + quotas (+ parent replyCount / quoted quoteCount once those ship). The post id (and
-  /// created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline (ADR-0010 D13).
+  /// created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline.
   /// Replay: idempotency doc exists => return the stored post (+1 read if not cached); a different body =>
   /// INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, 0 writes.
-  /// Firestore for a root post without images (ADR-0010): reads 14 cold / 2 warm, planning 2.5 (caller users via
+  /// Firestore for a root post without images: reads 14 cold / 2 warm, planning 2.5 (caller users via
   /// the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
   /// candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
   /// TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
@@ -82,7 +82,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
   /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
-  /// Polls (ADR-0029 D1, D2; FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
+  /// Polls (FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
   /// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
   /// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
   /// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
@@ -92,11 +92,11 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
   /// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
   /// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
-  /// GIF media (ADR-0029 D10; FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
+  /// GIF media (FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
   /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
   /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
   /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
-  /// Communities (ADR-0031 D5; FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
+  /// Communities (FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
   /// - community_id posts a root post or a quote into that community. A set community_id while communities is off for
   ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", 0 reads beyond the
   ///   interceptor, checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
@@ -112,7 +112,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   ///   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
   ///   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
   ///   "community_posts_per_community_daily". Every refusal writes 0.
-  /// - Blocks with the community's owner or moderators never refuse a post (ADR-0031 D7). The post is an ordinary public
+  /// - Blocks with the community's owner or moderators never refuse a post. The post is an ordinary public
   ///   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
   /// - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
   ///   community in the same write: +0 writes. The request hash covers community_id only when it is set, so a request
@@ -121,9 +121,9 @@ extension type PostServiceClient (connect.Transport _transport) {
   ///   planning +1.5; writes +0.
   /// - Clients send community_id only when GetMe.enabled_features lists "communities", and check that the returned post
   ///   carries `community` (an older server drops the field): if not, warn and offer delete.
-  /// Replies in a community conversation (ADR-0031 D5, F8): members only. Every reply inherits its parent's conversation
+  /// Replies in a community conversation: members only. Every reply inherits its parent's conversation
   /// community (+0 reads: the parent is already read). While communities is not globally off, and after the existing
-  /// reply rules (a block either way => NOT_FOUND, ADR-0021 policies): a SUSPENDED community => NOT_FOUND "community not
+  /// reply rules (a block either way => NOT_FOUND): a SUSPENDED community => NOT_FOUND "community not
   /// found"; an ARCHIVED one => COMMUNITY_STATE "community_archived"; a caller who is not a JOINED member (banned
   /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", 0 writes. The member doc is cached
   /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. Extra reads +2 cold (community, member
@@ -148,7 +148,7 @@ extension type PostServiceClient (connect.Transport _transport) {
 
   /// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
   /// another user's post, an unknown id and an already-deleted post all return success with 0 writes,
-  /// byte-identical, so the call reveals neither existence nor blocks (ADR-0010 D4). Replay => success.
+  /// byte-identical, so the call reveals neither existence nor blocks. Replay => success.
   /// Sync: one batch Delete(post, Exists) + users.postsCount -1; a failed Exists precondition (a concurrent
   /// delete won) => success, 0 writes, so the counter is decremented exactly once. Instance caches are evicted
   /// locally; others converge in <= 60 s.
@@ -181,20 +181,20 @@ extension type PostServiceClient (connect.Transport _transport) {
 
   /// A single post. NOT_FOUND ("post not found", byte-identical in every case) if the post is missing or
   /// deleted, hidden by visibility, the author blocks the caller, or the author is SUSPENDED, DELETING or gone.
-  /// A caller who blocks or mutes the author still gets the post; the client shows a banner (ADR-0010 D6).
-  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+  /// A caller who blocks or mutes the author still gets the post; the client shows a banner.
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller;
   /// with either on they come from userLikes/{caller} (cache-first, 60 s): liked / reposted only with engagement, bookmarked_by_viewer with either. A REPOST or QUOTE whose embedded author
   /// blocks the caller is NOT_FOUND like a post by that author.
-  /// Protected authors (ADR-0025 D4): a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
+  /// Protected authors: a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
   /// neither that account nor a follower of it, and so is a REPOST of such a post; a QUOTE of one is returned with
   /// embed_viewer_state = PROTECTED and its embed stripped of text and media. Post.visibility is FOLLOWERS while the
   /// author is protected. Decided from the instance-cached protected-author set: 0 extra reads.
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
-  /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
+  /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed.
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
-  /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+  /// viewer_reply_permission: for a root post in a FOLLOWING conversation (viewer not the author) +1
   /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0). In a community
-  /// conversation (ADR-0031 D5) it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
+  /// conversation it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
   /// member doc, cached 60 s), +0 warm.
   Future<dzerothpostsv1posts.GetPostResponse> getPost(
     dzerothpostsv1posts.GetPostRequest input, {
@@ -221,10 +221,10 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
   /// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
   /// read, so a page may be short; follow next_page_token while it is non-empty.
-  /// Protected authors (ADR-0025 D4), for a caller who is neither the author nor a follower of it: a focal post by a
+  /// Protected authors, for a caller who is neither the author nor a follower of it: a focal post by a
   /// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
   /// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
-  /// Community moderation (ADR-0031 Amendment 1, F15): a reply that a community's owner or a moderator hid
+  /// Community moderation: a reply that a community's owner or a moderator hid
   /// (CommunityService.HideCommunityPost) is dropped from the page for every caller but its author (the page may be
   /// short), and as the parent it is unset with parent_unavailable = true; as the focal post it is returned as GetPost
   /// returns it, and the replies under it stay. A hidden root is unaffected. This holds whatever the state of
@@ -234,8 +234,8 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
   /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   /// (one conversation query, minimum 1); writes 0.
-  /// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
-  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation (ADR-0031 D5)
+  /// viewer_reply_permission: UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation
   /// ALLOWED for a JOINED member and NOT_ALLOWED otherwise, +1 cold read (the caller's member doc), +0 warm.
   Future<dzerothpostsv1posts.GetThreadResponse> getThread(
     dzerothpostsv1posts.GetThreadRequest input, {
@@ -254,16 +254,16 @@ extension type PostServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+  /// Scheduled posts. All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
   /// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
   /// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
   /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
   /// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
-  /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
-  /// here: VALIDATION field "media_ids" (ADR-0029 D10).
-  /// Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
+  /// Polls and scheduled posts are not combined: this request has no poll field. GIF media are refused
+  /// here: VALIDATION field "media_ids".
+  /// Community posts are not scheduled: community_id is not accepted, so this request has no community_id
   /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode.
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is

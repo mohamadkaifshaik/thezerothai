@@ -1,5 +1,5 @@
 // Billing budget in the billing account's currency. Stage 0 as configured runs about INR 434/month at 300 DAU
-// (ADR-0022; the directive forbids a fixed fee, not a per-use bill). Alerts at 25/50/90/100% actual spend + 100%
+// (the directive forbids a fixed fee, not a per-use bill). Alerts at 25/50/90/100% actual spend + 100%
 // forecast, emailed to founders AND published to a Pub/Sub topic so a future
 // automation (e.g. a tiny Cloud Function flipping DEGRADED_MODE) can react.
 //
@@ -8,7 +8,7 @@
 // on var.billing_account. That's a one-time manual grant by a Billing
 // Account Admin — Terraform cannot bootstrap its own billing-account access.
 
-// ADR-0022: a second or third budget in the same project must reuse the existing topic (the name is fixed, so a
+// A second or third budget in the same project must reuse the existing topic (the name is fixed, so a
 // second `create` would fail with 409). var.pubsub_topic_id = null (default) keeps today's behaviour: create it.
 moved {
   from = google_pubsub_topic.billing_alerts
@@ -81,7 +81,7 @@ resource "google_billing_budget" "this" {
     }
   }
 
-  # Skipped for a custom period: whether the API supports FORECASTED_SPEND there is UNVERIFIED (ADR-0022 D3).
+  # Skipped for a custom period: whether the API supports FORECASTED_SPEND there is UNVERIFIED.
   dynamic "threshold_rules" {
     for_each = var.custom_period == null ? [1] : []
     content {

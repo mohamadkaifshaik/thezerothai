@@ -1,4 +1,4 @@
-// engagement_bookmarks_list: ListBookmarks paging smoke (ADR-0023).
+// engagement_bookmarks_list: ListBookmarks paging smoke.
 //
 // Budget under test (engagement.proto ListBookmarks, ADR-0023 "Cost impact"): a COLD first page is 43 reads at page
 // 20 and 103 at page 50 (interceptor 1 + query page + GetMany page + caller graph 1 + userLikes 1); with the posts in
@@ -18,7 +18,7 @@
 //
 // MODE=budget
 //   One viewer with 100 bookmarks pages at 50 over and over (sequentially) until the server answers RATE_LIMITED
-//   limit=read_budget_daily (ADR-0010 D5; default READ_BUDGET_PER_UID_PER_DAY 2000), to show ListBookmarks is charged
+//   limit=read_budget_daily (default READ_BUDGET_PER_UID_PER_DAY 2000), to show ListBookmarks is charged
 //   to the per-uid daily read budget. Each call is logged by the API with `read_budget_spent`.
 //
 // API requirements (a local `go run ./cmd/api` against the emulators, nothing else):

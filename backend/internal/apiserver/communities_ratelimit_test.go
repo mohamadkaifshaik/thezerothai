@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// communityMutationProcedures share the community_mutation_daily cap (ADR-0031 D11); communityModProcedures share
+// communityMutationProcedures share the community_mutation_daily cap; communityModProcedures share
 // community_mod_actions_daily; all seven share the one write bucket.
 var (
 	communityMutationProcedures = []string{
@@ -42,7 +42,7 @@ var (
 	}
 )
 
-// communitiesRateLimitViolations asserts the wiring (ADR-0031 D11): the seven mutations share one limiter; the four member
+// communitiesRateLimitViolations asserts the wiring: the seven mutations share one limiter; the four member
 // mutations share one named DailyCap and the three moderator actions another, and the two caps are different counters; the five
 // reads share a second limiter with no daily cap; GetCommunityTimeline has its own limiter and no daily cap; the three limiters are
 // three different objects; and every CommunityService procedure is covered.

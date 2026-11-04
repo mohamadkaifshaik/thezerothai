@@ -28,7 +28,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
-/// `/drafts` (ADR-0029): the Unsent posts tab over the device's drafts,
+/// `/drafts`: the Unsent posts tab over the device's drafts,
 /// the Scheduled tab around the list, Edit mode with bulk delete, the
 /// empty state, opening a draft, and layout across widths, themes and text
 /// scales.

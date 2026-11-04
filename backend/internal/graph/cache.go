@@ -6,12 +6,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 )
 
-// cacheCapacity mirrors identity.Cache's rationale (LRU-bounded memory independent of DAU). ADR-0008 D8
-// notes graph docs are ~3KB typical but can reach ~566KB for an account near every cap; sre-performance
-// watches instance memory (D8) rather than this package pre-emptively byte-weighting the cache.
+// cacheCapacity mirrors identity.Cache's rationale (LRU-bounded memory independent of DAU).
+// Graph docs are ~3KB typical but can reach ~566KB for an account near every cap; sre-performance
+// watches instance memory rather than this package pre-emptively byte-weighting the cache.
 const cacheCapacity = 5_000
 
-// edgeCapacity bounds the follow-edge answers (ADR-0024 D7): 5,000 pairs of two short strings and a bool,
+// edgeCapacity bounds the follow-edge answers: 5,000 pairs of two short strings and a bool,
 // about 200 B each, about 1 MiB.
 const edgeCapacity = 5_000
 
@@ -20,9 +20,9 @@ const edgeCapacity = 5_000
 // follows whom): getting it backwards asks about the opposite edge.
 type edgeKey struct{ follower, followee string }
 
-// Cache is graph's instance cache: graph/{uid} Snapshots, 60s TTL (ADR-0008 D8), updated in place on this
+// Cache is graph's instance cache: graph/{uid} Snapshots, 60s TTL, updated in place on this
 // instance's own commits (project rule: "update the instance cache from written data instead of re-reading").
-// It also holds the "does this follow edge exist" answers behind GetProfileRelationship (ADR-0024 D7).
+// It also holds the "does this follow edge exist" answers behind GetProfileRelationship.
 type Cache struct {
 	snapshots *cache.LRU[string, Snapshot]
 	// edges holds whether follows/{follower}_{followee} exists, true and false alike, so a non-follower's

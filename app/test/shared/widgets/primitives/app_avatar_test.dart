@@ -42,7 +42,7 @@ void main() {
     expect(images[1].width, 400);
   });
 
-  // ADR-0024 Amendment 1 A4: a removed or replaced avatar's object is deleted
+  // A removed or replaced avatar's object is deleted
   // from the bucket 24-48 h later, and older posts and notifications keep its
   // URL, so a 404 is an expected answer. It must read as "no avatar".
   group('load error', () {

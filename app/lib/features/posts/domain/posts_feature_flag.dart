@@ -2,28 +2,28 @@ import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/app_exception.dart';
 
 /// Name of the posts feature flag as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0010 D1). A missing name means off.
+/// `GetMeResponse.enabled_features`. A missing name means off.
 /// It gates PostService, TimelineService and all posts UI; never hardcode
 /// `'posts'` anywhere else.
 const kFeaturePosts = 'posts';
 
 /// Name of the scheduled-posts flag as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0021 D4, `FEATURE_SCHEDULED_POSTS`),
+/// `GetMeResponse.enabled_features` (`FEATURE_SCHEDULED_POSTS`),
 /// and the `metadata["feature"]` of its FEATURE_DISABLED answer. The schedule
 /// UI (Settings row, composer button) exists only when both this and
 /// [kFeaturePosts] are listed; the Scheduled posts list route needs only
-/// [kFeaturePosts] (ADR-0021 L-A option b). A FEATURE_DISABLED answer for it
+/// [kFeaturePosts]. A FEATURE_DISABLED answer for it
 /// hides the UI for the session (the [PostsFeatureGate] remembers it like a
 /// sub-feature). Never hardcode `'scheduled_posts'` anywhere else.
 const kFeatureScheduledPosts = 'scheduled_posts';
 
 /// Sub-feature names the server puts in `metadata["feature"]` of a
-/// FEATURE_DISABLED CreatePost (ADR-0010 D2), checked in this order.
+/// FEATURE_DISABLED CreatePost, checked in this order.
 const kPostsSubFeatureReplies = 'replies';
 const kPostsSubFeatureQuotes = 'quotes';
 const kPostsSubFeatureMedia = 'media';
 
-/// Client-side view of the posts flag and its sub-features (ADR-0010 D1/D2),
+/// Client-side view of the posts flag and its sub-features,
 /// shared by [PostsRepository] and [TimelineRepository] so both obey it.
 ///
 /// A [ServiceFeatureGate] (coarse flag, refresh throttle, unexpected-error

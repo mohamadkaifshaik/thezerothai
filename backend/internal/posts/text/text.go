@@ -1,4 +1,4 @@
-// Package text is the pure post-text parser (ADR-0010 D7, D8, D9): normalisation, validation, and extraction of
+// Package text is the pure post-text parser: normalisation, validation, and extraction of
 // @mention and #hashtag candidates. It does no I/O. Resolving mention candidates to users, dropping blocked
 // ones and storing the result belong to the posts service.
 package text
@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/handle"
 )
 
-// Limits (ADR-0010 D7-D9). The proto and the client use the same numbers.
+// Limits. The proto and the client use the same numbers.
 const (
 	MaxRunes    = 280 // code points of the NFC text
 	MaxLines    = 10  // at most MaxLines-1 newlines
@@ -58,7 +58,7 @@ func ParseOptional(raw string) (Parsed, error) {
 	return Parse(raw)
 }
 
-// Normalize applies ADR-0010 D9 (with D21 G2 and G4) in order: UTF-8 check; CRLF, CR, U+2028 and U+2029 to LF
+// Normalize applies the normalisation rules in order: UTF-8 check; CRLF, CR, U+2028 and U+2029 to LF
 // and tab to one space; NFC; trim of whitespace and the invisible set; non-empty (visible content); control and
 // bidi-control rejection; at most 280 code points; at most 10 lines.
 func Normalize(raw string) (string, error) {
@@ -260,7 +260,7 @@ func overlaps(spans []span, start, end int) bool {
 	return false
 }
 
-// isURLTerminator is the ADR-0010 D7 "URL spans" terminator set: < > " and the ECMAScript \s set. It is spelled
+// isURLTerminator is the "URL spans" terminator set: < > " and the ECMAScript \s set. It is spelled
 // out because unicode.IsSpace adds U+0085 and lacks U+FEFF.
 func isURLTerminator(r rune) bool {
 	switch r {
@@ -270,7 +270,7 @@ func isURLTerminator(r rune) bool {
 	return r >= 0x2000 && r <= 0x200A
 }
 
-// urlSpans returns the syntactic URL spans of rs per ADR-0010 D7 (D21 G1): case-insensitive http(s)://, then a
+// urlSpans returns the syntactic URL spans of rs: case-insensitive http(s)://, then a
 // maximal run of non-terminators; a non-overlapping left-to-right scan that resumes at a candidate's end whether
 // it was accepted or not; a candidate preceded by \p{L}\p{M}\p{N} is rejected; trailing punctuation and
 // unbalanced closing brackets are trimmed. The span is syntactic, never a "safe link" judgement.
@@ -354,14 +354,14 @@ func countRune(rs []rune, r rune) int {
 	return n
 }
 
-// MaxHashtagLen is the most code points a hashtag body may have (ADR-0010 D8).
+// MaxHashtagLen is the most code points a hashtag body may have.
 const MaxHashtagLen = maxHashtagLen
 
-// IsBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069 (ADR-0010 D9). It is
-// the one definition other packages may use (search query grammar, ADR-0028 D1); LRM/RLM and ZWJ/ZWNJ are not controls.
+// IsBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069. It is
+// the one definition other packages may use (search query grammar); LRM/RLM and ZWJ/ZWNJ are not controls.
 func IsBidiControl(r rune) bool { return isBidiControl(r) }
 
-// NormalizeLabel applies the ADR-0010 D9 single-line subset to one short label (a poll choice, ADR-0029 D1): UTF-8
+// NormalizeLabel applies the single-line subset to one short label (a poll choice): UTF-8
 // check, tab to one space, NFC, trim of whitespace and the invisible set, visible content required, and no control
 // character (a newline included) or bidi control. The length limit is the caller's (it counts code points of the
 // result). It returns a plain error, not an *apierr.Error, because the field name belongs to the caller; mentions and
@@ -387,7 +387,7 @@ type errLabel string
 
 func (e errLabel) Error() string { return string(e) }
 
-// IsFoldIgnorable reports a code point that draws nothing and must not make two short labels (poll choices, ADR-0029 D1,
+// IsFoldIgnorable reports a code point that draws nothing and must not make two short labels (poll choices,
 // security L-6) look different: the soft hyphen, combining grapheme joiner, Arabic letter mark, Hangul fillers, Khmer
 // inherent vowels, Mongolian free variation selectors and vowel separator, the zero-width and directional marks
 // U+200B-U+200F, the invisible operators U+2060-U+206F, U+3164, the variation selectors, U+FEFF, U+FFA0 and the musical

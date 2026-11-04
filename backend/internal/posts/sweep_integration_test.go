@@ -22,9 +22,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota (ADR-0021 "Sweep"). The
+// Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota ("Sweep"). The
 // clock is real: items are seeded relative to time.Now(), so nothing sleeps. Budgets are the RUN's: the due query plus the
-// publish transactions, matching the "Sweep run" and "Publish one item" rows of the ADR cost table.
+// publish transactions, matching the "Sweep run" and "Publish one item" rows of the cost table.
 
 // sweepMedia is a MediaAttacher over media/{id} docs with the real validity rules (owned, READY or READY_UNSCREENED,
 // not yet attached to a post) and a real Attach (media/{id}.postId). It counts its loads, so a test can prove the media
@@ -346,7 +346,7 @@ func (e *sweepIT) sweep() (SweepResult, *budget.Counter) {
 	return res, c
 }
 
-// assertCost fails when the run's cost is not exactly reads and writes (the ADR table rows are exact for a given path).
+// assertCost fails when the run's cost is not exactly reads and writes (the cost table rows are exact for a given path).
 func assertCost(t *testing.T, name string, c *budget.Counter, reads, writes int64) {
 	t.Helper()
 	if c.Reads() != reads || c.Writes() != writes {
@@ -417,7 +417,7 @@ func TestSweepIT_PublishHappyPath(t *testing.T) {
 		t.Errorf("postsCount %d quota posts %d, want 1 and 1", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
 	}
 
-	// The same post-commit hooks as CreatePost: PostEvents.Created (mention notifications, ADR-0017) with the resolved
+	// The same post-commit hooks as CreatePost: PostEvents.Created (mention notifications) with the resolved
 	// mentions, and the author's cached profile dropped.
 	e.events.mu.Lock()
 	defer e.events.mu.Unlock()
@@ -438,7 +438,7 @@ func (e *sweepIT) mediaDoc(n int) map[string]any {
 	return snap.Data()
 }
 
-// TestSweepIT_PublishBudget pins the ADR cost table: "Publish one item" typical 3 reads (planning 4), worst 17, and 4 writes
+// TestSweepIT_PublishBudget pins the cost table: "Publish one item" typical 3 reads (planning 4), worst 17, and 4 writes
 // (+ one per image); the run adds the due query's reads.
 func TestSweepIT_PublishBudget(t *testing.T) {
 	t.Run("typical: no images, no mentions", func(t *testing.T) {
@@ -635,7 +635,7 @@ func TestSweepIT_FiveDueItemsOfOneAuthor(t *testing.T) {
 }
 
 // TestSweepIT_RetriedAttemptDrawsAFreshIDAndCollisionRedraws: the post id (and createdAt) is drawn inside every
-// attempt, exactly as in CreatePost (ADR-0010 D13/D18): an Aborted attempt and an id collision both redraw.
+// attempt, exactly as in CreatePost: an Aborted attempt and an id collision both redraw.
 func TestSweepIT_RetriedAttemptDrawsAFreshIDAndCollisionRedraws(t *testing.T) {
 	for _, tc := range []struct {
 		name string

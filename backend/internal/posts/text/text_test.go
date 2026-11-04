@@ -29,7 +29,7 @@ const (
 // zwjFamily is 5 code points: man ZWJ woman ZWJ girl.
 const zwjFamily = man + zwj + woman + zwj + girl
 
-// TestMentions is the ADR-0010 D7 example table, verbatim, plus the grammar edges the prose states.
+// TestMentions is the example table, verbatim, plus the grammar edges the prose states.
 func TestMentions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -80,7 +80,7 @@ func TestMentions_CapAtTen(t *testing.T) {
 	}
 }
 
-// TestHashtags is the ADR-0010 D8 example table, verbatim, plus the grammar edges.
+// TestHashtags is the example table, verbatim, plus the grammar edges.
 func TestHashtags(t *testing.T) {
 	tests := []struct {
 		name string

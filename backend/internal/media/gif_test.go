@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// ADR-0029 D10: image/gif for post media. The sampled-frame screening comes later; these tests cover the content-type
+// Image/gif for post media. The sampled-frame screening comes later; these tests cover the content-type
 // table, the thumbnail's own type, magic bytes, the flag, the cap rule and the cleanup names.
 
 // gifBytes is a valid one-frame GIF whose bytes depend on tag (the screen parses it since then).
@@ -344,7 +344,7 @@ func TestGIF_FinalizeRejections(t *testing.T) {
 	}
 }
 
-// TestGIF_AtTheVisionCapIsRejectedForEveryAccount: ADR-0029 F11 point 4. A photo of the same account stays READY_UNSCREENED.
+// TestGIF_AtTheVisionCapIsRejectedForEveryAccount: a photo of the same account stays READY_UNSCREENED.
 func TestGIF_AtTheVisionCapIsRejectedForEveryAccount(t *testing.T) {
 	for _, policy := range []config.VisionExhaustedPolicy{config.VisionPolicyEstablished, config.VisionPolicyReject} {
 		for _, age := range []string{"established", "new"} {

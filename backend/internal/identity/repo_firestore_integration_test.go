@@ -56,7 +56,7 @@ func TestCreateProfile_Integration_BudgetAndReplay(t *testing.T) {
 	if profile.Handle != "Alice" || profile.HandleLower != "alice" {
 		t.Fatalf("unexpected profile: %+v", profile)
 	}
-	// ADR-0003 / proto doc comment: worst case reads 2, writes 3.
+	// Proto doc comment: worst case reads 2, writes 3.
 	budgettest.Assert(t, "CreateProfile (first call)", counter, budgettest.Budget{Reads: 2, Writes: 3})
 
 	// Verify the graph doc was created (identity.GraphInitializer seam).
@@ -170,7 +170,7 @@ func TestChangeHandle_Integration_BudgetAndFreesOldHandle(t *testing.T) {
 	if oldLower != "alice" {
 		t.Fatalf("invalidateOldHandleLower = %q, want alice", oldLower)
 	}
-	// ADR-0003 / proto doc comment: reads 2, writes 2, deletes 1.
+	// Proto doc comment: reads 2, writes 2, deletes 1.
 	budgettest.Assert(t, "ChangeHandle", counter, budgettest.Budget{Reads: 2, Writes: 2, Deletes: 1})
 	if got := counter.Deletes(); got != 1 {
 		t.Errorf("Deletes() = %d, want exactly 1 (must free the old handle)", got)
@@ -427,7 +427,7 @@ func TestUnreadNotificationCount_Integration_Budget(t *testing.T) {
 	budgettest.Assert(t, "UnreadNotificationCount (2 matches)", counter3, budgettest.Budget{Reads: 1})
 }
 
-// TestCreateProfile_Integration_AuthorizeSeam (ADR-0011 amendment M2): authorize runs once on the not-found path, its
+// TestCreateProfile_Integration_AuthorizeSeam : authorize runs once on the not-found path, its
 // error aborts the transaction with nothing written, it adds no Firestore ops, and it never runs on a replay.
 func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 	client := newTestClient(t)

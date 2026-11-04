@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	// communitiesCollection, membersSubcollection and membershipsCollection are the collections this module owns (ADR-0031 D1, D2).
+	// communitiesCollection, membersSubcollection and membershipsCollection are the collections this module owns.
 	// Only communities.FirestoreRepo touches them. Each has a row (apiserver/lifecycle_collections_guard_test.go), the
 	// `communities` eraser step and the `communities` export section. The subcollection is named communityMembers, not
 	// members: the name scan and the residue sweep key on the collection id (D2).
@@ -57,7 +57,7 @@ type removalDoc struct {
 	At     time.Time `firestore:"at"`
 }
 
-// communityDoc is communities/{cid} (ADR-0031 D2). Every array is written as an array, never null. removalsTruncatedAt is absent
+// communityDoc is communities/{cid}. Every array is written as an array, never null. removalsTruncatedAt is absent
 // until a cap first drops an entry.
 type communityDoc struct {
 	Name                string       `firestore:"name"`
@@ -195,7 +195,7 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 	return attempts, err
 }
 
-// noteAttempts records the attempt count on the request line (ADR-0031 D13 `community_txn_attempts`, and the shared txn_attempts).
+// noteAttempts records the attempt count on the request line (`community_txn_attempts`, and the shared txn_attempts).
 func noteAttempts(ctx context.Context, attempts int) {
 	logger.SetRequestField(ctx, fieldCommunityTxn, attempts)
 	store.NoteTxnAttempts(ctx, eventCommunityContended, attempts)
@@ -276,7 +276,7 @@ func (r *FirestoreRepo) membershipsInTx(ctx context.Context, tx *firestore.Trans
 	return d.memberships(), true, nil
 }
 
-// Create implements Repo: one transaction (ADR-0031 D2, D8, rule 4). Reads, fresh and in this order: idempotency/{hash} (a replay
+// Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a replay
 // returns after reading the community: 2 reads), communityMemberships/{uid} (the owned and joined caps are exact). Writes 4: Create the
 // community (ACTIVE, PUBLIC, memberCount 1), Create the owner's member doc (JOINED), the memberships doc (owned and joined += id) and
 // Create the idempotency document. At either cap nothing is written. No quota (the owned cap is lifetime).

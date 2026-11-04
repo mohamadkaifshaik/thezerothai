@@ -147,7 +147,7 @@ func TestSend_FlagMatrix(t *testing.T) {
 }
 
 // Every refusal has identical bytes on the wire: a block either way, a deleted or suspended recipient, a recipient with
-// the flag off, and a conversation whose peer deleted the account (ADR-0027 D4: no oracle).
+// the flag off, and a conversation whose peer deleted the account (no oracle).
 func TestSend_RefusalsAreByteIdentical(t *testing.T) {
 	convID := ConversationID(alice, bob)
 	tests := []struct {

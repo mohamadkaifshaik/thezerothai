@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
-// conversationOf maps the requestPending flag (ADR-0027 note) to REQUEST in the INBOX; nothing else changes.
+// conversationOf maps the requestPending flag to REQUEST in the INBOX; nothing else changes.
 func TestConversationOf_RequestPending(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -212,7 +212,7 @@ func TestListFollowers_EmptyAndFlagOff(t *testing.T) {
 	}
 }
 
-// ADR-0008 "List paging": a full page always carries a token; the exact-multiple total costs one empty call.
+// "List paging": a full page always carries a token; the exact-multiple total costs one empty call.
 func TestListFollowers_ExactMultipleEndsWithEmptyPage(t *testing.T) {
 	repo, dir := followersFixture(4)
 	svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k")})

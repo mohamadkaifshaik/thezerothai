@@ -60,7 +60,7 @@ resource "google_firebase_hosting_custom_domain" "this" {
   wait_dns_verification = false
 }
 
-// App Check: web is deferred at Stage 0 (ADR-0006 amendment 2026-09-27). reCAPTCHA Classic can't be created
+// App Check: web is deferred at Stage 0. reCAPTCHA Classic can't be created
 // any more, and reCAPTCHA Enterprise (Fraud Defense) is a flat $8/month past 10k assessments. When revisited:
 // google_recaptcha_enterprise_key + google_firebase_app_check_recaptcha_enterprise_config (1-day token_ttl).
 // Android (Play Integrity) / iOS (App Attest) are registered in the App Check console once store builds exist.

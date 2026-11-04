@@ -32,7 +32,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 
-/// `/search` (ADR-0028): the four tabs over a scripted
+/// `/search`: the four tabs over a scripted
 /// [FakeSearchRepository]; no transport, no router beyond the one the screen
 /// pops with.
 void main() {
@@ -490,7 +490,7 @@ void main() {
     testWidgets(
       'an unsupported word: People still works, posts show the hint',
       (tester) async {
-        // "123" is a handle prefix but not a hashtag body (ADR-0010 D8).
+        // "123" is a handle prefix but not a hashtag body.
         search.peopleResult = SearchPeopleResult(users: [person(1)]);
         await open(tester, query: '123', tab: SearchResultsTab.people);
         expect(search.calls, ['people:123']);

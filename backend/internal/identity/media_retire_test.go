@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0024 Amendment 1 A4: UpdateProfile hands a replaced or removed avatar or banner to the media retire step after
+// UpdateProfile hands a replaced or removed avatar or banner to the media retire step after
 // the commit, with 0 extra reads. The Firestore numbers (still 1 read, 1 write) are in media_retire_integration_test.go;
 // the step itself (the switch, the object names, the refusals) is the media module's.
 

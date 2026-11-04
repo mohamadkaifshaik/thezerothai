@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The ADR-0023 D2 drop matrix of ListBookmarks end to end, one state change at a time, each read through a COLD
+// The drop matrix of ListBookmarks end to end, one state change at a time, each read through a COLD
 // chain (a new Build over the same emulator project, so the 60 s post / graph / userLikes caches cannot hide a change):
 // deleted (pruned once), takedown then restore, suspended author then reinstated, DELETING author (kept), blocks in both
 // directions, unblock, mute, unmute, and a QUOTE whose embedded author is blocked, blocks the caller or is muted.

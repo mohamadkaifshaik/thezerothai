@@ -121,7 +121,7 @@ func TestW515_SetHomeTabsIsGatedByTheListsFlag(t *testing.T) {
 	}
 }
 
-// ADR-0030 D6: a tab already stored is kept without a re-read, so a pin that became unreadable can still be reordered or
+// A tab already stored is kept without a re-read, so a pin that became unreadable can still be reordered or
 // removed; it is returned by GetMe at +0 reads; the list answers the one NOT_FOUND; a fresh pin of it is VALIDATION `tabs`.
 func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	c := newLTChain(t, nil)
@@ -243,7 +243,7 @@ func TestW515_PinnedListThatBecameHidden(t *testing.T) {
 	w320Reason(t, "pin a hidden list", err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "tabs")
 }
 
-// The worst SetHomeTabs shape of the ADR table: 5 lists of 5 distinct owners on a cold instance (19 reads: interceptor,
+// The worst SetHomeTabs shape of the budget table: 5 lists of 5 distinct owners on a cold instance (19 reads: interceptor,
 // idempotency, users, 5 lists, caller graph, 5 owner profiles and 5 owner graphs), 2 writes.
 func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	setup := newLTChain(t, nil)
@@ -474,7 +474,7 @@ func TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads(t *testing.T) {
 	}
 }
 
-// Token binding through the chain (ADR-0030 D5): a UserTimeline token and another viewer's list token are VALIDATION at the
+// Token binding through the chain: a UserTimeline token and another viewer's list token are VALIDATION at the
 // interceptor's read only; the request never reaches the list or the posts.
 func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
 	c := newLTChain(t, nil)
@@ -511,7 +511,7 @@ func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
 	}
 }
 
-// ADR-0030 D3 names "the owner blocks the caller" but not the reverse. This pins what the code does for a caller who blocks the
+// The list access rule names "the owner blocks the caller" but not the reverse. This pins what the code does for a caller who blocks the
 // list's owner (GetList and GetListTimeline must agree) and is reported to the architect as a question, not a defect.
 func TestW515_CallerWhoBlocksTheOwnerSeesTheList(t *testing.T) {
 	c := newLTChain(t, nil)

@@ -282,7 +282,7 @@ func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *te
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// SUSPENDED in the middle of a pagination (acceptance 2, ADR-0031 N3).
+// SUSPENDED in the middle of a pagination (acceptance 2).
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_SuspendedMidPagination(t *testing.T) {
@@ -329,7 +329,7 @@ func TestW536_SuspendedMidPagination(t *testing.T) {
 	check("cold open, outsider", outsider, cid, "", "")
 
 	b := newW536(t, nil)
-	// GetCommunity is the one RPC that still shows it, to its owner alone, with status SUSPENDED (ADR-0031 N3); everyone else gets NOT_FOUND.
+	// GetCommunity is the one RPC that still shows it, to its owner alone, with status SUSPENDED; everyone else gets NOT_FOUND.
 	got, err := b.cm.GetCommunity(ctx, authed(owner.token, &communitiesv1.GetCommunityRequest{CommunityId: cid}))
 	if err != nil || got.Msg.GetCommunity().GetStatus() != communitiesv1.CommunityStatus_COMMUNITY_STATUS_SUSPENDED {
 		t.Fatalf("owner's GetCommunity: %v %v, want the community with status SUSPENDED", got, err)
@@ -372,7 +372,7 @@ func countPostsInCommunity(t *testing.T, fs *firestore.Client, cid string) int {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// The COMMUNITY report (acceptance 1, ADR-0031 D14).
+// The COMMUNITY report (acceptance 1).
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_CommunityReportThroughTheChain(t *testing.T) {
@@ -654,7 +654,7 @@ func TestW536_F14ReplyHintOnTheWire(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// recentRemovals overflow and the token reset on the wire (ADR-0031 A3).
+// recentRemovals overflow and the token reset on the wire.
 // ---------------------------------------------------------------------------------------------------------------------------------
 
 func TestW536_RemovalsOverflowResetsTheSinceToken(t *testing.T) {

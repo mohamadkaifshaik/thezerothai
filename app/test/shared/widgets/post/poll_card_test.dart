@@ -120,7 +120,7 @@ void main() {
         find.bySemanticsLabel('Blue, 33 percent, your vote'),
         findsOneWidget,
       );
-      // A vote is no longer final (ADR-0029 Amendment 1): the card offers Change vote.
+      // A vote is no longer final: the card offers Change vote.
       expect(find.text('Change vote'), findsOneWidget);
       expect(find.bySemanticsLabel('Change your vote'), findsOneWidget);
     });

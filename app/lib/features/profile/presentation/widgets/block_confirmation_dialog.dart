@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Confirms a block before it happens (ADR-0008 D9: irreversible follow-edge
+/// Confirms a block before it happens (irreversible follow-edge
 /// removal, and the target won't be able to follow back or see the profile
 /// until unblocked). Returns `true` only if the user tapped "Block".
 Future<bool> showBlockConfirmationDialog(BuildContext context) async {

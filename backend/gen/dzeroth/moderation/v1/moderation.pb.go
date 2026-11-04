@@ -6,8 +6,8 @@
 
 // Moderation: user reports (App Store 1.2 / Play UGC requirement). Owner module: backend/internal/moderation.
 // Collections owned: reports/{reportId}. Moderator actions (list, resolve, takedown, suspend) are NOT RPCs at
-// Stage 0: they are `opsctl` commands run by the founder (ADR-0016, no admin console), so this service has one RPC.
-// A community's own moderators (ADR-0031) act only in that community's view, through dzeroth.communities.v1, and never
+// Stage 0: they are `opsctl` commands run by the founder (no admin console), so this service has one RPC.
+// A community's own moderators act only in that community's view, through dzeroth.communities.v1, and never
 // see reports.
 // Every ModerationService RPC is behind the FEATURE_REPORTS server flag (wire name `reports`): when it is off for the
 // caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads.
@@ -36,19 +36,19 @@ const (
 	ReportTargetType_REPORT_TARGET_TYPE_UNSPECIFIED ReportTargetType = 0
 	ReportTargetType_REPORT_TARGET_TYPE_POST        ReportTargetType = 1
 	ReportTargetType_REPORT_TARGET_TYPE_ACCOUNT     ReportTargetType = 2
-	// A direct message (ADR-0027 D12). target_id = "<convId>:<msgId>": the conversation id and the message id, 32
+	// A direct message. target_id = "<convId>:<msgId>": the conversation id and the message id, 32
 	// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
 	// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
 	// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
 	ReportTargetType_REPORT_TARGET_TYPE_MESSAGE ReportTargetType = 3
-	// A list (ADR-0030). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+	// A list. target_id = the list id (19 digits). Only a list the caller may see can be
 	// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
 	// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
 	// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
 	// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
 	// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
 	ReportTargetType_REPORT_TARGET_TYPE_LIST ReportTargetType = 4
-	// A community (ADR-0031 D14). target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
+	// A community. target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
 	// SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
 	// community (the caller is its owner) => VALIDATION "target_id". A block with the owner does not refuse it (the
 	// community is public). The evidence is the owner's handle (empty for an ownerless ARCHIVED community), the

@@ -1,7 +1,7 @@
-// repo_firestore.go is the Firestore implementation of Repo (ADR-0003: graph/{uid}, follows/{a}_{b};
-// ADR-0008 D2: blockedBy/blockedByOverflow). InitGraph is the one seam identity depends on
+// repo_firestore.go is the Firestore implementation of Repo (graph/{uid}, follows/{a}_{b}; BlockedBy/blockedByOverflow).
+// InitGraph is the one seam identity depends on
 // (identity.GraphInitializer) to create the empty graph/{uid} doc inside CreateProfile's transaction; the
-// rest of this file backs the full GraphService (ADR-0008).
+// rest of this file backs the full GraphService.
 package graph
 
 import (
@@ -32,7 +32,7 @@ const (
 	followsCollection = "follows"
 )
 
-// Caps from ADR-0008 D2 (document-size budget: following 5,000 + blocked 2,000 + muted 2,000 + requested
+// Caps (document-size budget: following 5,000 + blocked 2,000 + muted 2,000 + requested
 // 500 + blockedBy 10,000 ~= 566 KB, safely under Firestore's 1 MiB doc limit).
 const (
 	maxFollowing = 5_000
@@ -41,8 +41,8 @@ const (
 	maxBlockedBy = 10_000
 )
 
-// doc is the graph/{uid} shape (ADR-0003, ADR-0008 D2). Arrays are exempt from indexing.
-// blockedByOverflow stays indexed (a tiny bool; it lets moderation query overflowed accounts, ADR-0008 D5).
+// doc is the graph/{uid} shape. Arrays are exempt from indexing.
+// blockedByOverflow stays indexed (a tiny bool; it lets moderation query overflowed accounts).
 type doc struct {
 	Following         []string  `firestore:"following"`
 	Blocked           []string  `firestore:"blocked"`
@@ -111,7 +111,7 @@ func containsStr(vals []string, target string) bool {
 	return false
 }
 
-// followDoc is the follows/{followerId}_{followeeId} shape (ADR-0003), used only for list pages.
+// followDoc is the follows/{followerId}_{followeeId} shape, used only for list pages.
 type followDoc struct {
 	FollowerID string    `firestore:"followerId"`
 	FolloweeID string    `firestore:"followeeId"`
@@ -124,7 +124,7 @@ type FirestoreRepo struct {
 	quota    *quota.Store
 	counters identity.Counters
 	profiles ProfileReader
-	// txProfiles reads the Follow target's users doc inside the Follow transaction (ADR-0025 D6).
+	// txProfiles reads the Follow target's users doc inside the Follow transaction.
 	txProfiles identity.TxProfiles
 	hooks      followHooks
 
@@ -141,7 +141,7 @@ func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 }
 
 // SetCounters wires identity.Counters (users/{uid} followers/following count increments). The counter
-// writes must land in the exact same transaction/batch as the edge change (ADR-0008 D3), which is why this
+// writes must land in the exact same transaction/batch as the edge change, which is why this
 // lives on the repo rather than being called by service.go with its own separate batch.
 func (r *FirestoreRepo) SetCounters(c identity.Counters) {
 	r.counters = c
@@ -152,7 +152,7 @@ func (r *FirestoreRepo) SetCounters(c identity.Counters) {
 	}
 }
 
-// SetTxProfiles wires the transaction-scoped target read Follow needs (ADR-0025 D6). apiserver and opsctl call it
+// SetTxProfiles wires the transaction-scoped target read Follow needs. apiserver and opsctl call it
 // explicitly; SetCounters also picks it up when its argument implements it.
 func (r *FirestoreRepo) SetTxProfiles(p identity.TxProfiles) { r.txProfiles = p }
 
@@ -169,7 +169,7 @@ func (r *FirestoreRepo) graphRef(uid string) *firestore.DocumentRef {
 }
 
 // edgeID is the ONLY place a follows doc id is built: `{followerId}_{followeeId}`. It refuses a uid containing
-// the `_` separator, which would make `a_b_c` ambiguous between a_b -> c and a -> b_c (ADR-0008 A3). Uid
+// the `_` separator, which would make `a_b_c` ambiguous between a_b -> c and a -> b_c. Uid
 // validation (authn caller check, ids.ValidUID on targets) rejects `_` long before this, so an error here
 // means a validation bug and surfaces as INTERNAL.
 func edgeID(followerUID, followeeUID string) (string, error) {
@@ -201,7 +201,7 @@ func (r *FirestoreRepo) InitGraph(b store.Batch, uid string, now time.Time) {
 }
 
 // getGraph reads graph/{uid} outside a transaction (used by GetSnapshot on a cache miss, and by Reader
-// callers who accept the 60s staleness budget, ADR-0008 D8). A missing doc decodes as an empty Snapshot,
+// callers who accept the 60s staleness budget). A missing doc decodes as an empty Snapshot,
 // not an error — defensive: every ACTIVE profile has one from CreateProfile, but a missing doc must never
 // crash a request.
 func (r *FirestoreRepo) getGraph(ctx context.Context, uid string) (doc, error) {
@@ -220,8 +220,8 @@ func (r *FirestoreRepo) getGraph(ctx context.Context, uid string) (doc, error) {
 	return d, nil
 }
 
-// getGraphTx is getGraph's transactional counterpart (ADR-0008 D8: "mutations read fresh inside their
-// transaction"). It also returns the doc's Firestore CreateTime (zero if the doc doesn't exist): since
+// getGraphTx is getGraph's transactional counterpart ("mutations read fresh inside their transaction").
+// It also returns the doc's Firestore CreateTime (zero if the doc doesn't exist): since
 // InitGraph creates graph/{uid} atomically with users/{uid} in CreateProfile's own transaction, this is a
 // free (already-fetched) proxy for account age — Block and Mute use it to pick the new-account quota tier
 // without needing a separate identity.Directory read (unlike Follow, whose documented budget already
@@ -244,7 +244,7 @@ func (r *FirestoreRepo) getGraphTx(ctx context.Context, tx *firestore.Transactio
 
 // getGraphTxExists is getGraphTx plus an explicit existence flag, used where "the graph doc doesn't exist"
 // itself means "unknown user" (Block/Mute, which — unlike Follow — don't otherwise consult
-// identity.Directory, so this is their only existence signal; ADR-0008 D9's "unknown user => NOT_FOUND" for
+// identity.Directory, so this is their only existence signal; the "unknown user => NOT_FOUND" for
 // Block costs 0 extra reads this way).
 func (r *FirestoreRepo) getGraphTxExists(ctx context.Context, tx *firestore.Transaction, uid string) (doc, bool, error) {
 	snap, err := tx.Get(r.graphRef(uid))
@@ -293,7 +293,7 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 
 var _ TxReader = (*FirestoreRepo)(nil)
 
-// SnapshotInTx implements TxReader (ADR-0027 note): graph/{uid} read through tx, 1 read, no cache involved. A
+// SnapshotInTx implements TxReader : graph/{uid} read through tx, 1 read, no cache involved. A
 // missing document is an empty Snapshot. Errors carry no uid (a Firestore error text would name the document path).
 func (r *FirestoreRepo) SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error) {
 	snap, err := tx.Get(r.graphRef(uid))
@@ -311,7 +311,7 @@ func (r *FirestoreRepo) SnapshotInTx(ctx context.Context, tx *firestore.Transact
 	return d.toSnapshot(), nil
 }
 
-// maxRequested is the cap of graph/{uid}.requested, the caller's outgoing pending follow requests (ADR-0025 D2, D6).
+// maxRequested is the cap of graph/{uid}.requested, the caller's outgoing pending follow requests.
 const maxRequested = 500
 
 // followHooks are the test seams of Follow's transaction. Production leaves them nil.
@@ -321,13 +321,13 @@ type followHooks struct {
 	afterTargetRead func(ctx context.Context, attempt int)
 }
 
-// Follow runs the whole Follow transaction (ADR-0008/D2/D9, ADR-0025 D6). The target's users doc is read INSIDE the
+// Follow runs the whole Follow transaction. The target's users doc is read INSIDE the
 // transaction (identity.TxProfiles.ProfileInTx, never the 60 s cache) so a protect that commits while a Follow is in
 // flight conflicts with it and the retry sees isPrivate: no Follow can slip past a just-committed protect. Precedence:
 // target missing or not ACTIVE / blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> already
 // following (replay, before any request logic: I-X) -> protected target: request replay -> requested cap -> quota ->
 // request; public target: following-cap -> quota -> edge. A public target that is still in the caller's `requested`
-// (the privacy_public job has not run yet; ADR-0025 AQ4) takes the edge path and also deletes the request.
+// (the privacy_public job has not run yet) takes the edge path and also deletes the request.
 //
 // Reads: target users 1 + caller graph 1 + quotas 1 (3 warm, the interceptor's caller read makes it 4 cold), +1 target
 // graph only for an overflowed caller. Writes: the edge 5 (follows doc, caller graph, 2 counters, quota) or a request 3
@@ -443,7 +443,7 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			{Path: "updatedAt", Value: now},
 		}
 		if inRequested {
-			// ADR-0025 AQ4: the target went public and its request is still pending. Plain Delete (no Exists), so a
+			// The target went public and its request is still pending. Plain Delete (no Exists), so a
 			// drifted entry cannot fail the Follow; the entry leaves `requested` in the write already made. I-R, I-X.
 			callerUpdates = append(callerUpdates, firestore.Update{Path: "requested", Value: firestore.ArrayRemove(targetUID)})
 			b.Delete(requestRef)
@@ -470,12 +470,12 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 	return rel, outcome, nil
 }
 
-// Unfollow is a blind batch (ADR-0008/D3): delete the follows doc with an Exists precondition, so a
+// Unfollow is a blind batch: delete the follows doc with an Exists precondition, so a
 // replay (already unfollowed, or never followed) fails the whole batch atomically and costs 0 writes — the
 // precondition also makes this safe to race against Block, which deletes the same edge with the same
-// precondition (ADR-0008 D3 invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
+// precondition (invariant #1: "follows/{a}_{b} exists <=> b in graph/{a}.following").
 //
-// ADR-0009 invariant: for an ACTIVE caller, the edge exists <=> the target is in the caller's following
+// Invariant: for an ACTIVE caller, the edge exists <=> the target is in the caller's following
 // <=> both users docs exist. So a failed precondition means there is nothing to undo, and Unfollow returns
 // (false, nil) without revealing why (never followed, already unfollowed, or target gone).
 func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
@@ -507,17 +507,17 @@ func (r *FirestoreRepo) Unfollow(ctx context.Context, callerUID, targetUID strin
 		return false, fmt.Errorf("graph: unfollow: %w", err)
 	}
 	// !Committed with nil error: a failed Exists precondition is a no-op that performs (and bills) no writes.
-	// ADR-0009: for an ACTIVE caller, edge <=> following entry <=> both users docs exist, so this is a
+	// For an ACTIVE caller, edge <=> following entry <=> both users docs exist, so this is a
 	// correct no-op; (false, nil) deliberately does not reveal which case it was.
 	return res.Committed, nil
 }
 
-// WithdrawRequest is the second blind batch of Unfollow (ADR-0025 D7): the edge batch failed its precondition, so the
+// WithdrawRequest is the second blind batch of Unfollow: the edge batch failed its precondition, so the
 // caller either had no edge or had a pending request. It deletes followRequests/{caller}_{target} with an Exists
 // precondition and removes the target from graph/{caller}.requested in the same batch (I-R). A failed precondition is
 // (false, nil): nothing to withdraw, 0 writes. 0 reads, 1 write, 1 delete; the same bounded contention retry as Unfollow.
 //
-// ADR-0009's reasoning carries over: with I-R, the request doc exists exactly when the target is in `requested`, so a
+// the reasoning carries over: with I-R, the request doc exists exactly when the target is in `requested`, so a
 // missing doc means there is nothing to remove from the array either. Undo is never gated (no private_accounts check).
 func (r *FirestoreRepo) WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (bool, error) {
 	reqRef, err := r.requestRef(callerUID, targetUID)
@@ -544,10 +544,10 @@ func (r *FirestoreRepo) WithdrawRequest(ctx context.Context, callerUID, targetUI
 	return res.Committed, nil
 }
 
-// runTx is client.RunTransaction plus the ADR-0008 D3 contention signal: it counts how many times the
+// runTx is client.RunTransaction plus the contention signal: it counts how many times the
 // callback ran (the SDK retries Aborted transactions internally) and records txn_attempts on the request
-// log line. More than txnWarnAttempts attempts also emits one WARN, the measurement that decides the
-// sharded-counter ADR. A callback re-run costs reads again (counted); its queued writes are counted only for the attempt that commits.
+// log line. More than txnWarnAttempts attempts also emits one WARN, the measurement that decides whether
+// to shard the counter. A callback re-run costs reads again (counted); its queued writes are counted only for the attempt that commits.
 func (r *FirestoreRepo) runTx(ctx context.Context, fn func(context.Context, *firestore.Transaction) error) error {
 	attempts, err := store.RunTransaction(ctx, r.client, fn)
 	noteTxnAttempts(ctx, attempts)

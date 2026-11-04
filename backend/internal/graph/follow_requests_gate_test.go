@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0025 D12: ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
+// ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
 // private_accounts not globally off or the caller protected now; past the gate they run; this test pins the gate only.
 
 func TestFollowRequestsGate_FlagModes(t *testing.T) {

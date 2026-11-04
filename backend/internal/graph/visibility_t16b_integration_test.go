@@ -1,6 +1,6 @@
 //go:build integration
 
-// visibility_t16b_integration_test.go is the ADR-0008 D9 block-visibility matrix, run over real
+// visibility_t16b_integration_test.go is the block-visibility matrix, run over real
 // Connect handlers, plus the "NOT_FOUND is byte-identical", "blockedBy never serialized" and L9 checks.
 package graph_test
 
@@ -68,7 +68,7 @@ func buildMatrixWorld(t *testing.T, ops []matrixOp) *rig {
 	return newRig(t, w, 0)
 }
 
-// matrixExpect is the ADR-0008 D9 oracle for one scenario, as seen by A.
+// matrixExpect is the oracle for one scenario, as seen by A.
 type matrixExpect struct {
 	getProfile string // GetProfile(B) by id and by handle
 	lists      string // ListFollowers(B) / ListFollowing(B)
@@ -145,7 +145,7 @@ func sortedUIDs(items []*graphv1.UserListItem) []string {
 	return out
 }
 
-// TestVisibilityMatrix_Integration runs every ADR-0008 D9 cell that applies to GetProfile (id and handle),
+// TestVisibilityMatrix_Integration runs every cell that applies to GetProfile (id and handle),
 // CheckHandleAvailability, GetRelationships, ListFollowers, ListFollowing, the caller's own lists and Follow.
 func TestVisibilityMatrix_Integration(t *testing.T) {
 	for _, sc := range matrixScenarios {
@@ -276,7 +276,7 @@ func orEmpty(s []string) []string {
 }
 
 // TestVisibilityMatrix_Integration_MutationCells covers the mutating D9 cells (Unfollow, Block, Unblock, Mute,
-// Unmute) as seen from A, each in a fresh world, with 0-write assertions where the ADR says 0 writes.
+// Unmute) as seen from A, each in a fresh world, with 0-write assertions where the design says 0 writes.
 func TestVisibilityMatrix_Integration_MutationCells(t *testing.T) {
 	type cell struct {
 		name    string
@@ -492,7 +492,7 @@ func TestBlockedBy_Integration_NeverSerialized(t *testing.T) {
 		}
 	}
 
-	// The manual export must not carry it either (ADR-0008 D12).
+	// The manual export must not carry it either.
 	exp, err := r.w.graph.repo.ExportUser(ctx, uidA)
 	if err != nil {
 		t.Fatal(err)
@@ -510,7 +510,7 @@ func TestBlockedBy_Integration_NeverSerialized(t *testing.T) {
 	assertGraphInvariants(t, r.w.client)
 }
 
-// TestUpdateProfile_Integration_PrivateRejected closes L9 (ADR-0008 D1): is_private=true is rejected with 0
+// TestUpdateProfile_Integration_PrivateRejected closes L9: is_private=true is rejected with 0
 // writes (FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
 // answer Unimplemented past the gate with 0 reads; Follow on
 // a legacy private target is FEATURE_DISABLED while lists treat it as public.
@@ -529,7 +529,7 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	yes := true
 	_, err = a.id.UpdateProfile(ctx, connect.NewRequest(&identityv1.UpdateProfileRequest{IdempotencyKey: t16bKey(1), IsPrivate: &yes}))
 	info := decodeErr(t, err)
-	// ADR-0025 D12: no private_accounts flag wired in this fixture, so is_private=true is FEATURE_DISABLED
+	// No private_accounts flag wired in this fixture, so is_private=true is FEATURE_DISABLED
 	// feature=private_accounts before any read; the old "coming soon" VALIDATION is only reachable past the flag.
 	if info.Code != connect.CodeFailedPrecondition || info.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
 		info.Meta["feature"] != "private_accounts" {
@@ -564,7 +564,7 @@ func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 		t.Errorf("RespondToFollowRequest (no request) = %v, want a replay", err)
 	}
 
-	// A stored isPrivate=true target: ADR-0025 D6 turns the Follow into a request (it used to be FEATURE_DISABLED).
+	// A stored isPrivate=true target: the Follow becomes a request (it used to be FEATURE_DISABLED).
 	if _, err := w.client.Doc("users/"+uidB).Update(ctx, []firestore.Update{{Path: "isPrivate", Value: true}}); err != nil {
 		t.Fatal(err)
 	}

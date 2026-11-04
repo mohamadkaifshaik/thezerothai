@@ -1,4 +1,4 @@
-// Package flags implements the Phase 1 server feature-flag pattern (ADR-0008 D6): every flag is an env
+// Package flags implements the Phase 1 server feature-flag pattern: every flag is an env
 // var on the `api` Cloud Run service, 0 Firestore reads, mirrored to clients through
 // IdentityService.GetMeResponse.enabled_features. The server is always authoritative — a guarded RPC
 // checks the flag in its own service layer (never a shared interceptor, since only that module knows
@@ -12,7 +12,7 @@
 //   - FEATURE_<NAME>_PERCENT = 0-100. Bucket = fnv32a(name + ":" + uid) % 100, salted with the flag's own
 //     name so two different flags never share the same cohort of uids.
 //
-// Retirement (ADR-0008 D6): once a flag reaches "on" and its env vars are removed, Registry.EnabledFeatures
+// Retirement: once a flag reaches "on" and its env vars are removed, Registry.EnabledFeatures
 // must keep reporting the name as enabled (via a Retired flag entry, see NewRetired) until the minimum
 // supported client version no longer reads it. Never reuse a retired name for a different feature.
 package flags
@@ -48,7 +48,7 @@ func (m Mode) valid() bool {
 // Spec is one flag's fully-resolved configuration, loaded once at startup.
 type Spec struct {
 	// Name is the wire (client-facing) name, lower_snake_case, e.g. "graph". This is also the salt for the
-	// percent-mode bucket hash, so two flags never share a cohort (ADR-0008 D6, "changed vs plan").
+	// percent-mode bucket hash, so two flags never share a cohort ("changed vs plan").
 	Name string
 	Mode Mode
 	// Allowlist applies in both Allowlist and Percent modes.
@@ -57,12 +57,12 @@ type Spec struct {
 	Percent int
 	// retired marks a flag that has reached 100% rollout and had its env vars removed, but must keep
 	// reporting "enabled" for every caller until old clients stop reading GetMe.enabled_features for it
-	// (ADR-0008 D6 retirement rule). Set via NewRetired, never by parsing env.
+	// (retirement rule). Set via NewRetired, never by parsing env.
 	retired bool
 }
 
-// NewRetired builds a Spec for a flag that always reports enabled, regardless of env vars (ADR-0008 D6
-// retirement rule). Use this in place of LoadSpec once a flag has been fully rolled out and its env vars
+// NewRetired builds a Spec for a flag that always reports enabled, regardless of env vars (retirement rule).
+// Use this in place of LoadSpec once a flag has been fully rolled out and its env vars
 // have been removed from Terraform.
 func NewRetired(wireName string) Spec {
 	return Spec{Name: wireName, Mode: On, retired: true}
@@ -91,7 +91,7 @@ func (s Spec) enabledFor(uid string) bool {
 	}
 }
 
-// bucket is fnv32a(name + ":" + uid) % 100 (ADR-0008 D6): deterministic per uid, independent per flag name.
+// bucket is fnv32a(name + ":" + uid) % 100: deterministic per uid, independent per flag name.
 func bucket(name, uid string) int {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(name + ":" + uid))
@@ -172,7 +172,7 @@ func (r *Registry) GloballyOff(name string) bool {
 }
 
 // EnabledFeatures returns the sorted list of flag names enabled for uid, for GetMeResponse.enabled_features
-// (ADR-0008 D6). Implements identity.FeatureFlags.
+// Implements identity.FeatureFlags.
 func (r *Registry) EnabledFeatures(uid string) []string {
 	if r == nil {
 		return nil

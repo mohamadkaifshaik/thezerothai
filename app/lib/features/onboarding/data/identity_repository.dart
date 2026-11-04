@@ -12,8 +12,7 @@ import '../../profile/domain/profile_edit_feature_flag.dart';
 /// degrade patterns.
 const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
 
-/// Builds an `UpdateProfile` request where **field presence is the signal**
-/// (ADR-0024 D1-D3): a null argument leaves the field out (unchanged), a
+/// Builds an `UpdateProfile` request where **field presence is the signal**: a null argument leaves the field out (unchanged), a
 /// non-null one sets it, and `""` is a real value that clears
 /// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
 /// `UpdateProfile` caller goes through this one place, so the pin menu
@@ -62,7 +61,7 @@ class IdentityRepository {
   /// The server answered FEATURE_DISABLED (or UNIMPLEMENTED) to turning
   /// protection ON less than [kPrivateAccountsRefusalBackoff] ago: the Settings
   /// switch stays hidden for a protect-off account until then. Turning
-  /// it OFF is never refused (ADR-0025, the undo rule), so it never sets this.
+  /// it OFF is never refused (the undo rule), so it never sets this.
   bool get privateAccountsRefused {
     final at = _privateAccountsRefusedAt;
     return at != null &&
@@ -74,7 +73,7 @@ class IdentityRepository {
   /// The server answered FEATURE_DISABLED `profile_extras` to a pin change
   /// (the flag turned off since `GetMe` listed it): the pin menu rows stay
   /// hidden for the rest of the session, until a fresh [getMe] says what the
-  /// flag set is now (the server stays authoritative, ADR-0008 D6).
+  /// flag set is now (the server stays authoritative).
   bool get profileExtrasRefused => _profileExtrasRefused;
 
   /// The cached copy of the caller's own profile, if any. Renders instantly
@@ -112,7 +111,7 @@ class IdentityRepository {
   /// Public profile by id or handle (case-insensitive on the server).
   /// Throws [NotFoundException] (via [guardApiCall]) if the target is
   /// missing, not active, or blocked the caller — byte-identical either way
-  /// (ADR-0008 D9): never let the UI hint at which one it was.
+  ///Never let the UI hint at which one it was.
   Future<identity.Profile> getProfile({String? userId, String? handle}) {
     assert(
       (userId == null) != (handle == null),
@@ -166,7 +165,7 @@ class IdentityRepository {
   /// [setProtected].
   ///
   /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
-  /// `profile_extras` fields (ADR-0024): the server refuses a **set** of any
+  /// `profile_extras` fields: the server refuses a **set** of any
   /// of them (a non-empty value, whitespace-only included), and a clear next
   /// to a set, with FEATURE_DISABLED unless `profile_extras` is on for the
   /// caller, so callers gate sets on that flag (the Edit profile cubit, the

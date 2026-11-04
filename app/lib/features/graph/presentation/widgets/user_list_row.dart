@@ -19,7 +19,7 @@ import '../bloc/relationship_state.dart';
 ///
 /// The [FollowButton] (when [trailing] is not supplied) is seeded directly
 /// from `item.relationship` — the server fills it from the caller's own
-/// graph at 0 extra reads (ADR-0008 D4) — so a page of rows never triggers a
+/// graph at 0 extra reads — so a page of rows never triggers a
 /// `GetRelationships` call.
 class UserListRow extends StatelessWidget {
   const UserListRow({

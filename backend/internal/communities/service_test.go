@@ -569,7 +569,7 @@ func TestGetCommunity_RoleHoldersAndRelationships(t *testing.T) {
 }
 
 func TestGetCommunity_ColdReadsFitTheBudget(t *testing.T) {
-	// ADR-0031: 15 cold including the interceptor's 1 = community 1 + caller member doc 1 + caller graph 1 + owner and 10 moderators 11
+	// 15 cold including the interceptor's 1 = community 1 + caller member doc 1 + caller graph 1 + owner and 10 moderators 11
 	f := newFixture(ownerUID)
 	mods := make([]string, 10)
 	for i := range mods {

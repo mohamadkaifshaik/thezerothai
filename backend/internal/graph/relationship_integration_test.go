@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// ADR-0024 D7 / on the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
+// On the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
 // the eviction of the cached follow edge by the writes that change it. Edges are seeded with seedFollow or created by
 // the real RPCs, never seedEdge, so the end-of-test invariant sweep holds.
 
@@ -166,8 +166,8 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	}
 }
 
-// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also reads the target's own graph (+1,
-// ADR-0008 D2): a target that blocked it is NOT_FOUND, a target that did not is answered with the edge read.
+// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also reads the target's own graph (+1):
+// a target that blocked it is NOT_FOUND, a target that did not is answered with the edge read.
 func TestW311_GetProfileRelationship_Overflow(t *testing.T) {
 	w := newWired(t)
 	a, b, blocker := "uid-w311oa", "uid-w311ob", "uid-w311oblk"

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// / ADR-0031 D9: the `communities` erase step through the production jobs handler and the crash-resume harness
+// / The `communities` erase step through the production jobs handler and the crash-resume harness
 // (account_lifecycle_crash_integration_test.go), with one community per invocation so the instance is killed between communities.
 // The deleted account owns a community with one moderator (the moderator must become its owner), is a member of a second community
 // and banned from a third, and the unrelated fourth community must stay as it was. The redelivery chain must reach the same end state as a

@@ -74,7 +74,7 @@ func TestGetSnapshot_Integration_MissingDocIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestSnapshot_Integration_ServiceCachesWithin60s (ADR-0008 D8/): two Reader.Snapshot calls within the
+// TestSnapshot_Integration_ServiceCachesWithin60s: two Reader.Snapshot calls within the
 // cache TTL cost exactly 1 Firestore read.
 func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 	client := newTestClient(t)

@@ -15,10 +15,10 @@ import '../../../support/theme_harness.dart';
 import '../../../support/profile_rig.dart';
 
 /// A protected account's profile for a viewer who is not approved
-/// (ADR-0025 D4): the lock beside the name, "These posts are protected" in
+///The lock beside the name, "These posts are protected" in
 /// place of every tab, and Follow -> Requested -> withdraw. The flag
 /// `private_accounts` is not in any flag set here: rendering and withdrawing
-/// are never gated on it (ADR-0025 D12, the undo rule), and these tests are
+/// are never gated on it (the undo rule), and these tests are
 /// the proof.
 void main() {
   late W3ProfileRig rig;

@@ -23,14 +23,14 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_ACCOUNT =
       ReportTargetType._(2, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_ACCOUNT');
 
-  /// A direct message (ADR-0027 D12). target_id = "<convId>:<msgId>": the conversation id and the message id, 32
+  /// A direct message. target_id = "<convId>:<msgId>": the conversation id and the message id, 32
   /// lower-case hex each, joined by ":". Only a participant may report, and only the peer's message (own => VALIDATION
   /// "target_id"). The evidence is that one message's text, the sender's handle and its time; nothing else from the
   /// conversation. Needs FEATURE_MESSAGING not globally off; the existing reports quota applies.
   static const ReportTargetType REPORT_TARGET_TYPE_MESSAGE =
       ReportTargetType._(3, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_MESSAGE');
 
-  /// A list (ADR-0030). target_id = the list id (19 digits). Only a list the caller may see (ADR-0030 D3) can be
+  /// A list. target_id = the list id (19 digits). Only a list the caller may see can be
   /// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
   /// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
   /// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
@@ -39,7 +39,7 @@ class ReportTargetType extends $pb.ProtobufEnum {
   static const ReportTargetType REPORT_TARGET_TYPE_LIST =
       ReportTargetType._(4, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_LIST');
 
-  /// A community (ADR-0031 D14). target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
+  /// A community. target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
   /// SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
   /// community (the caller is its owner) => VALIDATION "target_id". A block with the owner does not refuse it (the
   /// community is public). The evidence is the owner's handle (empty for an ownerless ARCHIVED community), the

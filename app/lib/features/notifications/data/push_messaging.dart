@@ -17,8 +17,8 @@ enum PushPermission {
   denied,
 }
 
-/// The data fields of an FCM message (ADR-0017 D6: `type`, `notificationId`,
-/// `postId`, `actorId`; never post text). A direct-message push (ADR-0027 D9)
+/// The data fields of an FCM message (`type`, `notificationId`, `postId`, `actorId`; never post text).
+/// A direct-message push
 /// carries `type=message` and `conversationId` only.
 @immutable
 class PushMessage {
@@ -60,8 +60,8 @@ class PushMessage {
 }
 
 /// The push platform surface, behind an interface so tests (and the web
-/// build) never touch platform channels. Web push is out of scope (ADR-0017
-/// D11): [supported] is false there and nothing else is called.
+/// build) never touch platform channels. Web push is out of scope:
+/// [supported] is false there and nothing else is called.
 abstract class PushMessaging {
   /// iOS and Android only.
   bool get supported;

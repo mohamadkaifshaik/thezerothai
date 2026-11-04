@@ -18,7 +18,7 @@ import (
 )
 
 // ErrProtectedSetFull is returned by the protect transaction when privacy/protectedAuthors already holds
-// PROTECTED_AUTHORS_MAX uids (ADR-0025 D2). The service maps it to LIMIT_REACHED limit=private_accounts.
+// PROTECTED_AUTHORS_MAX uids. The service maps it to LIMIT_REACHED limit=private_accounts.
 var ErrProtectedSetFull = errors.New("identity: protected set is full")
 
 // PrivacyToggle says what a UpdateProfileWithPrivacy transaction did to is_private.
@@ -45,7 +45,7 @@ type PrivacyLimits struct {
 type PrivacyUpdate struct {
 	Profile Profile
 	Toggle  PrivacyToggle
-	// Attempts is the number of transaction attempts (the privacy_toggle_attempts hot-doc signal, ADR-0025 D3).
+	// Attempts is the number of transaction attempts (the privacy_toggle_attempts hot-doc signal).
 	Attempts int
 	// SetUIDs is the protected set as read inside the committing attempt, plus this uid; set only when Toggle is
 	// PrivacyOn (the doc is read fresh only when protecting). The service installs it in the loader.
@@ -178,7 +178,7 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 	return out, nil
 }
 
-// RemoveFromProtectedSet is the identity eraser step's clean-up (ADR-0025 D11): one field-level Update with
+// RemoveFromProtectedSet is the identity eraser step's clean-up: one field-level Update with
 // ArrayRemove(uid) on privacy/protectedAuthors, 0 reads, at most 1 write. Idempotent. NotFound (no set doc yet) is
 // success and never creates the doc. Unconditional on users.isPrivate so a drifted entry cannot outlive the account.
 func (r *FirestoreRepo) RemoveFromProtectedSet(ctx context.Context, uid string) error {

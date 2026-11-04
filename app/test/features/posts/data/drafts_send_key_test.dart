@@ -10,7 +10,7 @@ final kBase = DateTime.fromMillisecondsSinceEpoch(
   isUtc: true,
 );
 
-/// The send key on the draft row (ADR-0029 Amendment 1 A4).
+/// The send key on the draft row.
 Matcher sameMoment(DateTime t) =>
     predicate<DateTime>((d) => d.isAtSameMomentAs(t), "is $t");
 

@@ -47,7 +47,7 @@ import '../../../shared/widgets/post/protected_posts_view.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
-/// tab (ADR-0008 D13: the posts plan owns the body below the header).
+/// tab (the posts plan owns the body below the header).
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key, this.handle, this.userId})
     : assert(
@@ -482,11 +482,11 @@ List<_ProfileTabSpec> _profileTabSpecs({
 /// Header + the Posts and Replies tabs (Replies only with the `replies`
 /// sub-feature on: the same `GetUserTimeline` with `include_replies`, cursor
 /// paged like Posts), then Reposts and Media (only with `profile_tabs` on:
-/// the same call with its `tab`, ADR-0024 D5). Each tab is its own cached
+/// the same call with its `tab`). Each tab is its own cached
 /// feed (`FeedKey.user(uid, tab: ...)`) with its own cursor and tokens, so a
 /// token never travels to another tab. When the
 /// viewer blocks the author the feed is not even requested: a banner offers
-/// "Show posts" (ADR-0010 D6, computed from the local relationship).
+/// "Show posts" (computed from the local relationship).
 ///
 /// If the server still answers a Reposts or Media call with FEATURE_DISABLED
 /// `profile_tabs` (the flag turned off since `GetMe`), the screen drops those
@@ -690,14 +690,14 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       viewerUserId: viewerUserId,
     );
     // A protected account's posts: the server's `author_protected` answer
-    // replaces the tabs, the pin and the cached feeds with one view (ADR-0025
-    // D4). Nothing below is built then, so a stale pinned id costs no GetPost.
+    // replaces the tabs, the pin and the cached feeds with one view.
+    // Nothing below is built then, so a stale pinned id costs no GetPost.
     Widget tabbed() {
       final profileCubit = context.read<ProfileCubit>();
       final ownPosts = state.isOwnProfile && spec.ownPosts;
       final pinned = _pinnedFor(context, profile);
       // Pin / Unpin on the own profile. Unpin (a clear) is offered whatever the
-      // flags are (ADR-0024 Amendment 1 A2); Pin (a set) needs `profile_extras`
+      // flags are; Pin (a set) needs `profile_extras`
       // on for the viewer. The Pinned row itself renders whatever the flags are.
       final isOwn = state.isOwnProfile;
       final pinEnabled =
@@ -830,7 +830,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   /// refusal by the server (this cubit's request, or an earlier one this
   /// session: `IdentityRepository.profileExtrasRefused`, read only when
   /// [canPin]) decide whether "Pin to your profile" is offered; "Unpin from
-  /// profile" never depends on them (ADR-0024 Amendment 1 A2). The wrapper is
+  /// profile" never depends on them. The wrapper is
   /// always there, so the feed view keeps its state when the flag changes
   /// while the screen is open.
   Widget _withPinControl(

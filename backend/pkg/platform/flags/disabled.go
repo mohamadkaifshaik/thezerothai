@@ -23,9 +23,9 @@ func Guard(ctx context.Context, enabled func(uid, name string) bool, uid, name s
 }
 
 // DisabledError is the one answer every flag-guarded service gives when its flag is off for the caller
-// (ADR-0008 D6, ADR-0010 D1): FAILED_PRECONDITION + FEATURE_DISABLED, "this feature is not available yet".
+// FAILED_PRECONDITION + FEATURE_DISABLED, "this feature is not available yet".
 // Clients hide the feature and refresh GetMe.enabled_features. A sub-feature rejection adds
-// metadata["feature"] on top of this (ADR-0010 D2); an absent name means the whole service.
+// metadata["feature"] on top of this; an absent name means the whole service.
 func DisabledError() *apierr.Error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "this feature is not available yet")
 }

@@ -31,7 +31,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// The reply-audience control of `/compose` (ADR-0021 D2): the link,
+/// The reply-audience control of `/compose`: the link,
 /// the "Who can reply?" sheet, what is sent and the L-1 echo notice.
 void main() {
   late _MockPostsRepository repo;

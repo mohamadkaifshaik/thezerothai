@@ -1,12 +1,12 @@
-// Package engagement is the module (ADR-0018): likes and reposts (quotes are CreatePost in posts). It owns
+// Package engagement is the module: likes and reposts (quotes are CreatePost in posts). It owns
 // likes/{postId}_{uid}, reposts/{postId}_{uid} and userLikes/{uid}. It never touches posts/* directly: counters,
 // the REPOST post doc and the clean-up of dependants go through posts' EngagementWriter / Cleanup / Engagement
-// seams (ADR-0002), and users.postsCount through identity.Counters.
+// seams, and users.postsCount through identity.Counters.
 //
 // Operations are state-setting and keyed by (post, caller), so a replay or ten concurrent calls converge on one
-// effect (ADR-0018 D3): the idempotency_key is validated for format and needs no stored record.
+// effect: the idempotency_key is validated for format and needs no stored record.
 //
-// Bookmarks (ADR-0023) also live here: users/{uid}/bookmarks/{postId} and userLikes.bookmarks, behind the Bookmarks and
+// Bookmarks also live here: users/{uid}/bookmarks/{postId} and userLikes.bookmarks, behind the Bookmarks and
 // BookmarkRepo seams. Unlike likes they store an idempotency doc (rule 4), and they emit no event.
 package engagement
 
@@ -19,15 +19,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 )
 
-// FlagName is the wire name RPCs check (FEATURE_ENGAGEMENT <-> "engagement", ADR-0018 D8). It is the same string
+// FlagName is the wire name RPCs check (FEATURE_ENGAGEMENT <-> "engagement"). It is the same string
 // posts.EngagementFlagName gates the quote path and viewer flags with.
 const FlagName = posts.EngagementFlagName
 
-// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS (ADR-0023 D5). AddBookmark needs it on for the caller;
+// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS. AddBookmark needs it on for the caller;
 // ListBookmarks and RemoveBookmark only need it not globally off. It is independent of FlagName (engagement).
 const BookmarksFlagName = posts.BookmarksFlagName
 
-// Limits (ADR-0018 D7, D8).
+// Limits.
 const (
 	// MaxRecentLikes and MaxRecentReposts bound userLikes.recent / recentReposts (newest last).
 	MaxRecentLikes   = 1000
@@ -39,7 +39,7 @@ const (
 	trimChunk = 100
 )
 
-// Result is what every RPC returns: the post's engagement as this instance now knows it (ADR-0018 D4).
+// Result is what every RPC returns: the post's engagement as this instance now knows it.
 type Result struct {
 	// PostID is the post the action applied to: the original when the request named a REPOST.
 	PostID                 string
@@ -71,9 +71,9 @@ type Service interface {
 type UserLikes struct {
 	Recent        []string
 	RecentReposts []string
-	// Bookmarks is the complete set of the user's bookmarked post ids (ADR-0023 D3), at most the per-user cap.
+	// Bookmarks is the complete set of the user's bookmarked post ids, at most the per-user cap.
 	Bookmarks []string
-	// PollVotes are the entries "<postId>:<index>:<closesAtUnix>" (two-part in older entries) of the polls the user voted in, newest last (ADR-0029 D3). Written only by VotePoll.
+	// PollVotes are the entries "<postId>:<index>:<closesAtUnix>" (two-part in older entries) of the polls the user voted in, newest last. Written only by VotePoll.
 	PollVotes []string
 }
 
@@ -125,7 +125,7 @@ type UndoResult struct {
 	RepostPostID string
 }
 
-// Events is the post-commit notification seam (ADR-0018 D9). apiserver adapts it to notifications.Emitter. It is
+// Events is the post-commit notification seam. apiserver adapts it to notifications.Emitter. It is
 // called after the commit, never inside it, and only for effects that were written (replays do not call it).
 type Events interface {
 	// Liked reports that actor liked post (post.AuthorID is the recipient).
@@ -151,7 +151,7 @@ type Checkpoint struct {
 	Deleted int
 }
 
-// Eraser is the delete-cascade building block (ADR-0018 D7); PurgeUser is resumable.
+// Eraser is the delete-cascade building block; PurgeUser is resumable.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, cp Checkpoint) (next Checkpoint, done bool, err error)
 }
@@ -169,7 +169,7 @@ var (
 	ErrIdempotencyKeyReused = errors.New("engagement: idempotency key reused with a different request")
 )
 
-// BookmarkState is the caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+// BookmarkState is the caller's bookmark state of one post after AddBookmark or RemoveBookmark.
 type BookmarkState struct {
 	// PostID is the post the action applied to: the original when AddBookmark named a REPOST.
 	PostID string
@@ -177,7 +177,7 @@ type BookmarkState struct {
 	Bookmarked bool
 }
 
-// Bookmarks is the bookmark seam of the module (ADR-0023 D1): the Connect handler depends on it, a later split into
+// Bookmarks is the bookmark seam of the module: the Connect handler depends on it, a later split into
 // its own service changes no caller. It reads posts only through posts.Engagement.Viewable, emits no event and
 // notifies nobody; a bookmark is private to the caller.
 type Bookmarks interface {
@@ -189,7 +189,7 @@ type Bookmarks interface {
 	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. Reads 1 (idempotency);
 	// writes 2 (idempotency doc, userLikes) + 1 delete; a missing bookmark writes 1 (the idempotency doc); a replay writes 0.
 	RemoveBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
-	// ListBookmarks returns one page of uid's bookmarks, newest first, as live posts (ADR-0023 D2, D6). pageSize 0 is
+	// ListBookmarks returns one page of uid's bookmarks, newest first, as live posts. pageSize 0 is
 	// 20, clamped to 50; pageToken is empty for the first page. A foreign, expired or tampered token is VALIDATION
 	// page_token with 0 reads. Reads cold: the bookmark query 1 + len(page) (an empty list: 1), GetMany <= len(page)
 	// (0 for cached posts), the caller's graph snapshot 1 and userLikes 1, each only when a row is left to render
@@ -202,12 +202,12 @@ type Bookmarks interface {
 type BookmarkRow struct {
 	Post         *posts.Post
 	BookmarkedAt time.Time
-	// Hint is the embed state and protected-author mark the handler applies (ADR-0025 D4).
+	// Hint is the embed state and protected-author mark the handler applies.
 	Hint RowHint
 }
 
 // BookmarkPage is one page of ListBookmarks. Rows may be shorter than the page size: rows whose post is missing,
-// hidden or by a blocked or muted author are dropped after the read (ADR-0023 D6), so the client keeps following
+// hidden or by a blocked or muted author are dropped after the read, so the client keeps following
 // NextPageToken until it is empty.
 type BookmarkPage struct {
 	// Rows are newest bookmarked first.
@@ -258,7 +258,7 @@ type BookmarkResult struct {
 
 // BookmarkRepo is the storage seam of the bookmark service; repo_bookmarks.go implements it, tests use a fake.
 type BookmarkRepo interface {
-	// Add runs the AddBookmark transaction (ADR-0023 D4). It returns ErrBookmarkLimit at the cap, a
+	// Add runs the AddBookmark transaction. It returns ErrBookmarkLimit at the cap, a
 	// quota.ExceededError at the daily quota and ErrIdempotencyKeyReused for a key used with another post_id.
 	Add(ctx context.Context, p AddBookmarkParams) (BookmarkResult, error)
 	// Remove runs the RemoveBookmark transaction. It returns ErrIdempotencyKeyReused like Add.
@@ -276,12 +276,12 @@ type BookmarkRepo interface {
 // MaxListPage is the largest ListBookmarks page (the query-limit rule).
 const MaxListPage = limits.MaxPageSize
 
-// LikesList is the likes-list seam of the module (ADR-0024 D6): the Connect handler depends on it, a later
+// LikesList is the likes-list seam of the module: the Connect handler depends on it, a later
 // split into its own service (or a `likes (uid, createdAt)` index or SQL table at Stage 2/3) changes no caller. It is
 // owner-only (there is no user id in the request), reads posts only through posts.Reader.GetMany, writes nothing and
 // notifies nobody.
 type LikesList interface {
-	// ListLikedPosts returns one page of uid's own likes, most recently liked first, as live posts (ADR-0024 D6).
+	// ListLikedPosts returns one page of uid's own likes, most recently liked first, as live posts.
 	// pageSize 0 is 20, clamped to 1..50; pageToken is empty for the first page. A foreign, expired or tampered token
 	// is VALIDATION page_token with 0 reads. The ids come from userLikes.recent (the last MaxRecentLikes likes) through
 	// the 60 s instance cache. Reads cold: userLikes 1, GetMany <= len(page) (0 for cached posts), the caller's graph
@@ -292,7 +292,7 @@ type LikesList interface {
 }
 
 // LikesPage is one page of ListLikedPosts. Posts may be shorter than the page size: rows whose post is missing, hidden
-// or by a blocked or muted author are dropped after the read (ADR-0024 D6), so the client keeps following
+// or by a blocked or muted author are dropped after the read, so the client keeps following
 // NextPageToken until it is empty.
 type LikesPage struct {
 	// Posts are the live posts, most recently liked first.
@@ -305,17 +305,17 @@ type LikesPage struct {
 	NextPageToken string
 }
 
-// Polls is the poll-voting seam of the module (ADR-0029 D6): the Connect handler depends on it (NewServer detects it on the
+// Polls is the poll-voting seam of the module: the Connect handler depends on it (NewServer detects it on the
 // Service, as LikesList), a later split into its own service changes no caller. It reads posts only through
 // posts.Engagement.Viewable and posts.EngagementWriter.StagePollVote.
 type Polls interface {
-	// VotePoll records uid's one vote in the poll of postID (a REPOST id: its original), or changes it until the poll closes (ADR-0029 Amendment 1
-	// A2). expectedChoice is VotePollRequest.expected_choice: 0 = "I hold no vote", 1..4 = the choice the caller believes it holds, as index + 1;
+	// VotePoll records uid's one vote in the poll of postID (a REPOST id: its original), or changes it until the poll closes.
+	// expectedChoice is VotePollRequest.expected_choice: 0 = "I hold no vote", 1..4 = the choice the caller believes it holds, as index + 1;
 	// a different choice is a change only when it names the stored vote (the A2.2 table), else ALREADY_VOTED. The voter blocking the author is
 	// TARGET_BLOCKED (A1), after the closed and range checks. A change reads the vote doc first (+1, 9 worst, 4 typical) and writes 4 in one batch
 	// (vote doc, post counters, userLikes x2); a replay, ALREADY_VOTED, LIMIT_REACHED and every refusal write 0. First-vote numbers below. Reads cold: the visibility check
 	// 3 (post, author users, caller graph; +2 for a REPOST id, +1 on blockedBy overflow; 0 warm) + userLikes 1 for the response's
-	// viewer flags = 4, 5 with the interceptor's own read (the ADR-0029 "8" counts the REPOST and overflow worst case); a replay
+	// viewer flags = 4, 5 with the interceptor's own read (the "8" counts the REPOST and overflow worst case); a replay
 	// or ALREADY_VOTED reads the vote doc too (+1). Writes 3 in one batch (vote doc, the post's poll.counts.<i> and poll.total in
 	// one Update, userLikes.pollVotes) + 1 TTL delete later; a replay, ALREADY_VOTED and every refusal write 0.
 	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex, expectedChoice int32) (PollVote, error)
@@ -392,7 +392,7 @@ type PollRepo interface {
 	Vote(ctx context.Context, p VoteParams) (VoteOutcome, error)
 	// GetVote reads pollVotes/{postId}_{uid} (1 read). found is false for a missing document.
 	GetVote(ctx context.Context, uid, postID string) (state VoteState, found bool, err error)
-	// ChangeVote commits one vote change as a blind batch (0 reads, 4 writes), ADR-0029 Amendment 1 A2.3: the vote doc is updated under a
+	// ChangeVote commits one vote change as a blind batch (0 reads, 4 writes): the vote doc is updated under a
 	// LastUpdateTime precondition equal to p.Version, the post counters move by StagePollChange, and userLikes.pollVotes loses the entry of From
 	// and gains the entry of To (two writes to one document in one commit). A failed precondition is ChangeStale; exhausted contention is an
 	// error wrapping store.ErrContended.

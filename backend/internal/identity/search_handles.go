@@ -12,15 +12,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// Handle-prefix reader limits (ADR-0028 D11: limit clamped 1..20).
+// Handle-prefix reader limits (limit clamped 1..20).
 const (
 	MinSearchHandlesLimit = 1
 	MaxSearchHandlesLimit = 20
 )
 
 // prefixSucc returns the exclusive upper bound of the range of strings that start with p: p with its last
-// character replaced by the next code point (ADR-0028 D1 rule 6; the handle class is ASCII, so `_` -> "`",
-// `z` -> "{", `9` -> ":" and it never overflows). ok is false for an empty prefix or a last rune that has no
+// character replaced by the next code point (the handle class is ASCII, so `_` -> "`", `z` -> "{", `9` -> ":" and it never overflows).
+// ok is false for an empty prefix or a last rune that has no
 // successor (utf8.MaxRune or an invalid byte), which the caller treats as "no match", never as an open range.
 func prefixSucc(p string) (string, bool) {
 	r, size := utf8.DecodeLastRuneInString(p)

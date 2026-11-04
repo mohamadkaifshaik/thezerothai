@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Report a message (ADR-0027 D12) over the real Build chain on the emulators: ReportContent with a MESSAGE target
+// Report a message over the real Build chain on the emulators: ReportContent with a MESSAGE target
 // through the account-status, rate-limit and degraded-mode interceptors, the flag matrix (reports on for the caller, messaging
 // only not globally off), the participant matrix with byte-identical NOT_FOUND, the evidence and the report log line (no
 // text), the budget of the RPC doc comment (6 reads cold, 3 warm, 3 writes) asserted with budgettest on the logged fs_reads /
@@ -309,7 +309,7 @@ func TestMessageReport_FlagMatrix(t *testing.T) {
 	}
 }
 
-// A conversation with a blocked peer stays open so the user can still report it (ADR-0027 D4 "On read").
+// A conversation with a blocked peer stays open so the user can still report it ("On read").
 func TestMessageReport_BlockedPeerIsStillReportable(t *testing.T) {
 	e := newReportChain(t, nil)
 	th := e.reportThread(t)
@@ -410,7 +410,7 @@ func TestMessageReport_TakedownAndReporterErasure(t *testing.T) {
 		t.Errorf("evidence after the takedown = %v", ev)
 	}
 
-	// The reporter's erasure (ADR-0016 D5, unchanged): reporterId cleared, the evidence kept for the moderator.
+	// The reporter's erasure (unchanged): reporterId cleared, the evidence kept for the moderator.
 	mrepo := moderation.NewFirestoreRepo(e.fs, quota.New(e.fs))
 	if _, done, err := mrepo.PurgeReporter(context.Background(), th.a.uid, moderation.Checkpoint{}); err != nil || !done {
 		t.Fatalf("PurgeReporter: done=%v err=%v", done, err)
@@ -420,7 +420,7 @@ func TestMessageReport_TakedownAndReporterErasure(t *testing.T) {
 	if doc["reporterId"] != "" || ev["text"] != "secret text three from b" || doc["targetOwnerId"] != th.b.uid {
 		t.Errorf("after the reporter's erasure: %v", doc)
 	}
-	// Resolving it keeps the retention of every other target (ADR-0016 D5): expireAt = resolved + 90 days, and the evidence is
+	// Resolving it keeps the retention of every other target: expireAt = resolved + 90 days, and the evidence is
 	// what the TTL deletes then.
 	resolvedAt := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
 	rr, err := mrepo.Resolve(context.Background(), res.GetReportId(), moderation.ResolutionTakedown, "removed", resolvedAt)
@@ -465,7 +465,7 @@ func TestMessageReport_RequestRecipientCanReport(t *testing.T) {
 }
 
 // Delete-for-me (clearedAt set for the caller, their entry removed) does not take the message out of reach of a report: the
-// founder confirmed it stays reportable (ADR-0027 D12). The delete goes through the real DeleteConversation RPC.
+// founder confirmed it stays reportable. The delete goes through the real DeleteConversation RPC.
 func TestMessageReport_StaysReportableAfterDeleteForMe(t *testing.T) {
 	e := newReportChain(t, nil)
 	th := e.reportThread(t)

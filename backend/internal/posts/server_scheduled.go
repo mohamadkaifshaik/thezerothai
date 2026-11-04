@@ -1,4 +1,4 @@
-// server_scheduled.go holds the Connect handlers of scheduled posts (ADR-0021 D4): thin, like the rest of server.go.
+// server_scheduled.go holds the Connect handlers of scheduled posts: thin, like the rest of server.go.
 // Each checks FEATURE_POSTS (GuardFeature) and then FEATURE_SCHEDULED_POSTS before any Firestore access: per caller for
 // SchedulePost, not globally off for List and Cancel. The rules are the Scheduler's (service_scheduled.go).
 package posts

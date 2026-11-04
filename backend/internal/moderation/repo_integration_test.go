@@ -141,7 +141,7 @@ func TestRepo_RepostEvidenceOriginalPostID(t *testing.T) {
 	}
 }
 
-// A reporter who files the same target again after a moderator RESOLVED it reopens the report (ADR-0016 D2): status
+// A reporter who files the same target again after a moderator RESOLVED it reopens the report: status
 // OPEN, new reason/note/evidence, original createdAt, no resolution fields and no expireAt (so the TTL cannot delete it under the
 // moderator), quota charged, and it is back in the OPEN list. 2 reads, 2 writes like a first report.
 func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
@@ -388,7 +388,7 @@ func TestReportContent_EndToEndBudgetsAndHiddenTargets(t *testing.T) {
 	if err != nil || res.AlreadyReported {
 		t.Fatalf("report: res=%+v err=%v", res, err)
 	}
-	// ADR-0016 cost line: reporter users 1, post 1, author 1, caller graph 1, report doc 1, quotas 1 (cold) = 6; writes 2.
+	// Cost line: reporter users 1, post 1, author 1, caller graph 1, report doc 1, quotas 1 (cold) = 6; writes 2.
 	budgettest.Assert(t, "ReportContent cold", c, budgettest.Budget{Reads: 6, Writes: 2})
 
 	ctx, c = budget.WithCounter(claims)

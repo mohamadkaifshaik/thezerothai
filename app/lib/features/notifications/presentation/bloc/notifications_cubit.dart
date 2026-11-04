@@ -9,7 +9,7 @@ import '../../data/notifications_repository.dart';
 import '../../data/notifications_store.dart';
 import 'unread_badge_cubit.dart';
 
-/// Automatic refreshes happen at most this often (ADR-0004 section 7).
+/// Automatic refreshes happen at most this often (section 7).
 const kNotificationsRefreshInterval = Duration(seconds: 60);
 
 enum NotificationsStatus {
@@ -95,7 +95,7 @@ class NotificationsState {
 
 const Object _keep = Object();
 
-/// Drives the notifications list over [NotificationsRepository] (ADR-0017).
+/// Drives the notifications list over [NotificationsRepository].
 ///
 /// - [load] renders the cache at once, then refreshes unless the list was
 ///   refreshed less than [kNotificationsRefreshInterval] ago.

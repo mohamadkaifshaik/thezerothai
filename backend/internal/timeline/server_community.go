@@ -19,7 +19,7 @@ type communityFlags struct{ posts.FlagChecker }
 
 func (communityFlags) GloballyOff(string) bool { return false }
 
-// GetCommunityTimeline returns a community's feed (ADR-0031 D6): root posts and quotes listed in the community, newest first, from the
+// GetCommunityTimeline returns a community's feed: root posts and quotes listed in the community, newest first, from the
 // shared per-community entry (newest 30, 60 s, shared by every viewer) and posts.Reader.ByCommunity, filtered per viewer after the cache
 // (service_community.go). Tokens are bound to the caller and the community; a Home, user or list token is VALIDATION with 0 reads.
 //

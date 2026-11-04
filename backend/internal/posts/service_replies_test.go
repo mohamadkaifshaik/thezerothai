@@ -197,7 +197,7 @@ func TestCreateReply_IdempotencyKeyBindsTheParent(t *testing.T) {
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-// --- ADR-0018 D17: replies to a REPOST resolve to the original --------------------------------------------
+// ---: replies to a REPOST resolve to the original --------------------------------------------
 
 const rRepost = "0000000000000000110" // by carol, a REPOST (its original is set per test)
 
@@ -591,7 +591,7 @@ func TestServer_GetThreadAndReplyMapping(t *testing.T) {
 }
 
 // A QUOTE or REPOST used as the parent or root context row copies another user's content: when that author
-// blocks the caller (or the blockedBy set overflowed) the row is a tombstone, with no extra read (ADR-0018 D13).
+// blocks the caller (or the blockedBy set overflowed) the row is a tombstone, with no extra read.
 func TestGetThread_ContextCopyOfABlockingAuthorIsATombstone(t *testing.T) {
 	const uEmb = "uid-embedded"
 	copyOf := func(p *Post, kind Kind, author string) {

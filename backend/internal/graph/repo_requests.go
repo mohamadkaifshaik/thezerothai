@@ -1,6 +1,6 @@
-// repo_requests.go is the Firestore side of RespondToFollowRequest and the request count (ADR-0025 D7). The accept
+// repo_requests.go is the Firestore side of RespondToFollowRequest and the request count. The accept
 // is written once, as small pure pieces (classifyAccept, queueAccept, queueDecline) that take already-read inputs and only
-// queue writes on a store.Batch, so the privacy_public job (ADR-0025 AQ1) can run them for a page of requests in
+// queue writes on a store.Batch, so the privacy_public job can run them for a page of requests in
 // its own transaction after reading the whole page first (Firestore wants every read before the first write).
 package graph
 
@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// RespondOutcome is how RespondToFollowRequest ended; it is the `respond` request-log field (ADR-0025 D7).
+// RespondOutcome is how RespondToFollowRequest ended; it is the `respond` request-log field.
 type RespondOutcome string
 
 const (
@@ -129,7 +129,7 @@ type RespondArgs struct {
 	Now             time.Time
 }
 
-// RespondToRequest implements Repo (ADR-0025 D7). One transaction: the request is read fresh (absent = replay, 0 writes),
+// RespondToRequest implements Repo. One transaction: the request is read fresh (absent = replay, 0 writes),
 // then the requester's graph fresh; an accept then classifies (classifyAccept) and queues queueAccept plus
 // followersCount +1 on the target, a decline queues queueDecline. Reads 2 (+ the Directory lookup the caller supplies,
 // cache-first). Writes: accept 4 + 1 delete, decline 1 + 1 delete, inactive or drift 1 + 1 delete, cap or replay 0.
@@ -204,7 +204,7 @@ func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (Re
 const pendingRequestsCap = 1000
 
 // CountRequests implements Repo: count() on followRequests where followeeId == uid, capped at pendingRequestsCap. Reads
-// ceil(n/1000), minimum 1, so 1 (ADR-0025 AQ3).
+// ceil(n/1000), minimum 1, so 1.
 func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, error) {
 	q := r.client.Collection(followRequestsCollection).Where("followeeId", "==", uid).Limit(pendingRequestsCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)

@@ -21,7 +21,7 @@ const kPostThumbEdge = 400;
 const kAvatarFullEdge = 400;
 const kAvatarThumbEdge = 96;
 
-/// The banner (ADR-0024 D1): a center-cropped 3:1 band, full 1500 x 500 and
+/// The banner: a center-cropped 3:1 band, full 1500 x 500 and
 /// thumb 600 x 200, under the banner's own, tighter caps (1 MiB / 128 KiB).
 /// The server checks the declared size: width <= 1500, height <= 500 and 3:1
 /// within 2%; this processor produces exactly 3:1.
@@ -159,7 +159,7 @@ String _blurhashOf(img.Image thumb) {
   return BlurHash.encode(hashSource, numCompX: 4, numCompY: 3).hash;
 }
 
-/// The server's GIF limits (ADR-0029 D10/F10): checked here so a GIF the
+/// The server's GIF limits: checked here so a GIF the
 /// server would refuse is never uploaded (and never spends a Vision unit).
 const kMaxGifBytes = kMaxFullBytes;
 const kMaxGifEdge = 1280;
@@ -218,7 +218,7 @@ void checkGifBytes(Uint8List bytes) {
 const _kGifLoopIds = {'NETSCAPE2.0', 'ANIMEXTS1.0'};
 
 /// Removes everything from a GIF that renders nothing, **without re-encoding**
-/// (ADR-0029 F10, security L-4): comment (0xFE) and plain-text (0x01)
+/// (security L-4): comment (0xFE) and plain-text (0x01)
 /// extensions, every application extension (0xFF) except `NETSCAPE2.0` and
 /// `ANIMEXTS1.0` (XMP, ICC, ...), any extension label other than the graphic
 /// control (0xF9), and every byte after the first trailer (0x3B). Frames,

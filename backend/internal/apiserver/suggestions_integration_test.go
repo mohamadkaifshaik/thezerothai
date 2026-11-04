@@ -2,12 +2,12 @@
 
 package apiserver
 
-// GraphService.ListSuggestedUsers (ADR-0024 D8) over the real Build chain on the emulators, with the graph built by
+// GraphService.ListSuggestedUsers over the real Build chain on the emulators, with the graph built by
 // real Follow / Block / Mute calls (the chain test seeds edges directly). Covered here: the exclusion matrix (self,
 // already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING, a user that does not exist), blockedBy
 // overflow suggesting nothing, the curated fallback (also with blocked, blocking, followed, muted, DELETING, ghost and
 // the viewer's own uid on the list), friends of friends first and the curated rows after them, the exact 32-read hard cap
-// at the config default (ADR-0024 Amendment 2 B1(b): EdgeLimit 20) and the exact 42-read cap with EdgeLimit pinned to 30,
+// at the config default (EdgeLimit 20) and the exact 42-read cap with EdgeLimit pinned to 30,
 // each with 30 followees (also on a dense graph), the L-5 per-followee cap of 3 and the known-inactive followee skip, and
 // the L-1 re-filter: a user who blocks the viewer on ANOTHER instance leaves the viewer's warm rows once the
 // snapshot expires (2 reads), and a warm hit inside the snapshot's TTL is free.
@@ -40,15 +40,15 @@ func w320SugChain(c *config.Config) {
 }
 
 // w320SugEdge30 is w320SugChain with SUGGESTIONS_EDGE_LIMIT pinned to 30, the pre-Amendment 2 default and the top of the
-// supported 20 to 30 range (ADR-0024 Amendment 2 B1 walk-back): the cold cap is then 42.
+// supported 20 to 30 range (walk-back): the cold cap is then 42.
 func w320SugEdge30(c *config.Config) {
 	w320SugChain(c)
 	c.Suggestions.EdgeLimit = 30
 }
 
 // w320SugColdCap is the cold friends-of-friends hard cap of the config the chains are built from (config.Load, as cfgCap
-// does for the bookmarks cap): interceptor 1 + caller graph 1 + EdgeLimit + HydrateMax, 32 at the defaults (ADR-0024
-// Amendment 2 B1(b)). It is for ceilings that are incidental to a case; the default itself is pinned by the literal 32 of
+// does for the bookmarks cap): interceptor 1 + caller graph 1 + EdgeLimit + HydrateMax, 32 at the defaults.
+// It is for ceilings that are incidental to a case; the default itself is pinned by the literal 32 of
 // TestW320_SuggestionsHardCap32, so a default that moved back to 30 fails there.
 func w320SugColdCap(t *testing.T) int64 {
 	t.Helper()
@@ -326,8 +326,8 @@ func TestW320_SuggestionsHardCap42(t *testing.T) {
 	}
 }
 
-// TestW320_SuggestionsHardCap32: the same 30-followee world at the CONFIG DEFAULT (ADR-0024 Amendment 2 B1(b):
-// SUGGESTIONS_EDGE_LIMIT 20, no mutate). The newest 20 edges come from followees 10..29 and hold all 12 distinct
+// TestW320_SuggestionsHardCap32: the same 30-followee world at the CONFIG DEFAULT
+// (SUGGESTIONS_EDGE_LIMIT 20, no mutate). The newest 20 edges come from followees 10..29 and hold all 12 distinct
 // candidates, the per-followee cap of 3 takes nothing away, and hydration stops at the cap of 10, so the whole request is
 // interceptor 1 + graph 1 + 20 + 10 = 32, exactly. The literals are on purpose: a default that moved back to 30 would
 // read 42 here and fail. A denser graph (120 edges) reads the same 20 edges and hydrates at most 10: at most 32.
@@ -477,7 +477,7 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 // TestW320_SuggestionsBlockerOnAnotherInstance: L-1 (fixed in #350). The viewer's rows are cached for an hour on
 // instance A. A candidate then blocks the viewer through instance B. A's own graph snapshot expires after CACHE_TTL (1 s
 // here, 60 s in production) and EVERY warm hit is re-filtered against the snapshot: the next call loads it (1 read, plus
-// the interceptor's own profile read that expired with the same TTL: 2 in all, the ADR-0024 "2 when the 60 s snapshot
+// the interceptor's own profile read that expired with the same TTL: 2 in all, the "2 when the 60 s snapshot
 // expired" figure) and the blocker is gone from the rows. Inside the 60 s window the re-filter is free (0 reads).
 func TestW320_SuggestionsBlockerOnAnotherInstance(t *testing.T) {
 	a := newW320Chain(t, func(c *config.Config) { w320SugChain(c); c.CacheTTL = time.Second })

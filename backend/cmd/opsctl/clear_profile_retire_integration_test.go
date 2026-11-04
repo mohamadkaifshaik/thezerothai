@@ -21,7 +21,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// ADR-0024 Amendment 1 A4 through `opsctl clear-profile-fields` on the emulators: the same retire step the Pub/Sub
+// Through `opsctl clear-profile-fields` on the emulators: the same retire step the Pub/Sub
 // handler runs, called in process after the clear committed, over the real identity, media and moderation repos.
 
 type tagLog struct {

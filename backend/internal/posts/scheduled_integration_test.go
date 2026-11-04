@@ -932,7 +932,7 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	}
 }
 
-// TestScheduled_Integration_GIFRefused: a draft naming a GIF is ErrGifNotSchedulable (ADR-0029 F10) after the same
+// TestScheduled_Integration_GIFRefused: a draft naming a GIF is ErrGifNotSchedulable after the same
 // <= 4 media reads and with nothing written; the daily schedule count is not charged.
 func TestScheduled_Integration_GIFRefused(t *testing.T) {
 	e := newSchedEnv(t)

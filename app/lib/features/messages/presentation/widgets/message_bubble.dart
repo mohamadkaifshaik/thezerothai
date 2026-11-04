@@ -12,7 +12,7 @@ import '../../../../shared/widgets/primitives/browser_context_menu_guard.dart';
 import '../../../posts/domain/post_text_parser.dart';
 import 'conversation_row.dart';
 
-/// The words of a tombstone bubble (ADR-0027 D5), shared with the inbox row.
+/// The words of a tombstone bubble, shared with the inbox row.
 const kMessageDeletedText = kConversationDeletedSnippet;
 const kMessageRemovedText = kConversationRemovedSnippet;
 

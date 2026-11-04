@@ -171,7 +171,7 @@ func flip(tok string) string {
 	return string(b)
 }
 
-// ADR-0010 D14 on user feeds: since, page and gap tokens open only for the caller, target and tab that sealed
+// On user feeds: since, page and gap tokens open only for the caller, target and tab that sealed
 // them (posts<->replies in both directions, caller A<->B), and a tampered page or gap token is VALIDATION.
 func TestCodec_UserTokenBinding(t *testing.T) {
 	t.Parallel()
@@ -246,7 +246,7 @@ func TestCodec_UserTokenBinding(t *testing.T) {
 	})
 }
 
-// ADR-0024 D5/D14 at the codec: the four effective tabs are four separate token families. A since, page or gap token
+// At the codec: the four effective tabs are four separate token families. A since, page or gap token
 // opens only on the tab (and caller and target) that sealed it, with no cross-tab pair accepted.
 func TestCodec_UserTabTokenMatrix(t *testing.T) {
 	t.Parallel()
@@ -275,7 +275,7 @@ func TestCodec_UserTabTokenMatrix(t *testing.T) {
 	}
 }
 
-// Every token issued before the tab field existed stays valid (ADR-0024 D5): the binding strings of the Posts and
+// Every token issued before the tab field existed stays valid: the binding strings of the Posts and
 // Replies tabs are frozen, and the new tabs' strings differ from them.
 func TestUserFeed_BindingStringsAreFrozen(t *testing.T) {
 	t.Parallel()

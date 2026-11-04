@@ -24,8 +24,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// TestRestrictedAllowedProcedures_IsExactlyDeleteAccount is the guard of ADR-0011 Q2/Q3: the interceptor exemption
-// for SUSPENDED and DELETING callers is one procedure, DeleteAccount. Adding a second needs an ADR (security-auditor).
+// TestRestrictedAllowedProcedures_IsExactlyDeleteAccount is the guard: the interceptor exemption
+// for SUSPENDED and DELETING callers is one procedure, DeleteAccount. Adding a second needs a recorded design decision (security-auditor).
 func TestRestrictedAllowedProcedures_IsExactlyDeleteAccount(t *testing.T) {
 	got := RestrictedAllowedProcedures()
 	if want := []string{identityv1connect.IdentityServiceDeleteAccountProcedure}; !slices.Equal(got, want) {
@@ -194,8 +194,7 @@ func TestRegisterLifecycleModules(t *testing.T) {
 // TestRegisterLifecycle_FullOrder pins the deletion order and the export sections exactly as Build registers them
 // (registerLifecycleModules, then engagement, reports, scheduled, bookmarks, follow_requests, messaging and poll_votes). The step names are persisted in
 // users/{uid}.deletionJob.step and the section names are keys of the export file, so a reorder or rename strands
-// in-flight deletions or breaks exports already handed out (ADR-0011 Q1, ADR-0021: `scheduled` runs after the
-// existing steps and before identity).
+// in-flight deletions or breaks exports already handed out (`scheduled` runs after the existing steps and before identity).
 func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	l, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},

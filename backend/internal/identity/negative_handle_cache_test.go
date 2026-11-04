@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// ADR-0010 D5 /: a missing handle is negatively cached (notFoundTTL) for GetProfile-by-handle and
+// A missing handle is negatively cached (notFoundTTL) for GetProfile-by-handle and
 // CheckHandleAvailability, so a scraper probing free handles costs one read per handle per 10 s.
 func TestNegativeHandleCache(t *testing.T) {
 	ctx := context.Background()

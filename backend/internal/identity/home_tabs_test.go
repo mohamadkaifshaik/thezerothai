@@ -82,7 +82,7 @@ func TestToProtoHomeTabs(t *testing.T) {
 }
 
 // The export's profile section carries the owner's stored tabs (all kinds, flag-independent: it is the owner's data), omitted
-// when there are none (ADR-0030 D8).
+// when there are none.
 func TestProfileSection_HomeTabs(t *testing.T) {
 	t.Parallel()
 	raw, err := json.Marshal(profileSection(tabsProfile(HomeTab{Kind: HomeTabKindList, ID: "0000000000000000101", Title: "Mine"}, HomeTab{Kind: HomeTabKindList, ID: "0000000000000000102"})))

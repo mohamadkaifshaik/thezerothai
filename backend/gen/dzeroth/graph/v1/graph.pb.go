@@ -6,12 +6,12 @@
 
 // Social graph: follows, follow requests (private accounts), blocks, mutes. Owner module: backend/internal/graph.
 // Collections owned: graph/{uid} (the caller's whole social context in ONE doc), follows/{followerId}_{followeeId},
-// followRequests/{followerId}_{followeeId}. See ADR-0003.
+// followRequests/{followerId}_{followeeId}.
 // Counters followers_count/following_count live on users/{uid} (identity) and are incremented in the same
-// Firestore batch through the identity module's interface (unit of work, ADR-0002).
+// Firestore batch through the identity module's interface (unit of work).
 // Idempotency: follows/followRequests use deterministic doc ids (natural key), so Create() + AlreadyExists = replay.
 //
-// Private accounts and follow requests (ADR-0025, which reverses ADR-0008 D1): a Follow of a protected account creates
+// Private accounts and follow requests (which reverses the earlier deferral of private accounts): a Follow of a protected account creates
 // followRequests/{caller}_{target} and adds the target to the caller's graph.requested[] (the caller's outgoing
 // requests, so FOLLOW_STATE_REQUESTED costs 0 reads everywhere); the account accepts or declines with
 // RespondToFollowRequest. followRequests/{a}_{b} exists exactly when b is in graph/{a}.requested, and never together
@@ -20,7 +20,7 @@
 // Every GraphService RPC is behind the FEATURE_GRAPH server flag: when it is off for the caller the RPC returns
 // FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads (clients learn the flag from
 // IdentityService.GetMe enabled_features).
-// Block semantics (ADR-0008 D9): if the target blocked the caller, target-facing RPCs behave exactly as for a missing
+// Block semantics: if the target blocked the caller, target-facing RPCs behave exactly as for a missing
 // user (NOT_FOUND); GetRelationships and every other response never reveal who blocked the caller.
 
 package graphv1
@@ -48,7 +48,7 @@ const (
 	FollowState_FOLLOW_STATE_UNSPECIFIED FollowState = 0
 	FollowState_FOLLOW_STATE_NONE        FollowState = 1
 	FollowState_FOLLOW_STATE_FOLLOWING   FollowState = 2
-	// A follow request to a protected account is pending (ADR-0025): the target is in the caller's requested[].
+	// A follow request to a protected account is pending: the target is in the caller's requested[].
 	// Unfollow withdraws it.
 	FollowState_FOLLOW_STATE_REQUESTED FollowState = 3
 )
@@ -230,7 +230,7 @@ func (x *UserListItem) GetRelationship() *Relationship {
 type FollowRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	// [A-Za-z0-9-]{1,128}. `_` is reserved (the follows doc-id separator, ADR-0008 A3); anything else => VALIDATION.
+	// [A-Za-z0-9-]{1,128}. `_` is reserved (the follows doc-id separator); anything else => VALIDATION.
 	// The same charset applies to every user_id / user_ids field in this service.
 	UserId        string `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	unknownFields protoimpl.UnknownFields

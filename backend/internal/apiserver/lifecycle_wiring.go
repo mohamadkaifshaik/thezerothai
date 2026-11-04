@@ -1,5 +1,5 @@
 // lifecycle_wiring.go adapts graph and posts to identity's consumer-side StepEraser / ExportSection interfaces
-// (ADR-0011 D-C, the BlockChecker pattern): identity cannot import graph (import cycle) or posts, so the checkpoint
+// (the BlockChecker pattern): identity cannot import graph (import cycle) or posts, so the checkpoint
 // encoding lives here. A step's checkpoint is the JSON of its module's own Checkpoint struct.
 package apiserver
 
@@ -42,7 +42,7 @@ func (s eraserStep[C]) Run(ctx context.Context, uid string, raw []byte) ([]byte,
 	return out, done, nil
 }
 
-// postsEraserStep is the posts step (step "posts"): it runs first, before graph (ADR-0011 Q1, ADR-0010).
+// postsEraserStep is the posts step (step "posts"): it runs first, before graph.
 func postsEraserStep(e posts.Eraser) identity.StepEraser {
 	return eraserStep[posts.Checkpoint]{name: "posts", purge: e.PurgeUser}
 }
@@ -57,7 +57,7 @@ func mediaEraserStep(p *media.Purger) identity.StepEraser {
 	return eraserStep[media.Checkpoint]{name: "media", purge: p.PurgeUser}
 }
 
-// notificationsEraserStep is the notifications step (step "notifications", ADR-0017 D10): devices and their token
+// notificationsEraserStep is the notifications step (step "notifications"): devices and their token
 // index, the user's own rows, and rows in other users' lists that name the user. It runs after graph, before identity.
 func notificationsEraserStep(e notifications.Eraser) identity.StepEraser {
 	return eraserStep[notifications.Checkpoint]{name: "notifications", purge: e.PurgeUser}
@@ -68,7 +68,7 @@ type graphExporter interface {
 	ExportUser(ctx context.Context, uid string) (graph.Export, error)
 }
 
-// graphSection is the export's `graph` section: graph.ExportUser's struct as JSON (never blockedBy, ADR-0008 D12).
+// graphSection is the export's `graph` section: graph.ExportUser's struct as JSON (never blockedBy).
 type graphSection struct{ g graphExporter }
 
 func (graphSection) Name() string { return "graph" }
@@ -103,7 +103,7 @@ func (s notificationsSection) WriteSection(ctx context.Context, uid string, w io
 	return s.x.ExportUser(ctx, uid, w)
 }
 
-// registerLifecycleModules registers every module's Eraser and export section on l, in the ADR-0011 Q1 order.
+// registerLifecycleModules registers every module's Eraser and export section on l, in deletion order.
 // Later slices (engagement, reports) add their lines here, before the identity step, which Lifecycle
 // always runs last.
 func registerLifecycleModules(l *identity.Lifecycle, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger, notifRepo *notifications.FirestoreRepo) error {
@@ -125,7 +125,7 @@ type followRequestsExporter interface {
 	ExportRequests(ctx context.Context, uid string) (graph.RequestsExport, error)
 }
 
-// followRequestsSection is the export's `follow_requests` section (ADR-0025 D11): {sent, received}, newest first.
+// followRequestsSection is the export's `follow_requests` section: {sent, received}, newest first.
 type followRequestsSection struct{ g followRequestsExporter }
 
 func (followRequestsSection) Name() string { return "follow_requests" }
@@ -141,7 +141,7 @@ func (s followRequestsSection) WriteSection(ctx context.Context, uid string, w i
 	return nil
 }
 
-// followRequestsEraserStep is the follow_requests step (step "follow_requests", ADR-0025 D11): BeforeIdentity, after
+// followRequestsEraserStep is the follow_requests step (step "follow_requests"): BeforeIdentity, after
 // bookmarks. It has its own checkpoint type: step names are persisted in deletionJob.step, so it never joins graph's.
 func followRequestsEraserStep(e *graph.RequestEraser) identity.StepEraser {
 	return eraserStep[graph.RequestCheckpoint]{name: "follow_requests", purge: e.PurgeUser}

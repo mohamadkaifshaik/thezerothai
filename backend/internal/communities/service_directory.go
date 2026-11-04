@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line fields of the two list RPCs (ADR-0031 D13): counts only, never an id.
+// Request-line fields of the two list RPCs: counts only, never an id.
 const (
 	fieldRowsDropped   = "rows_dropped"
 	fieldDroppedBy     = "rows_dropped_by"
@@ -107,7 +107,7 @@ func (s *service) membershipsCached(ctx context.Context, uid string) (Membership
 	return m, nil
 }
 
-// ListCommunities implements Service (ADR-0031 D2, D3, N3). Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
+// ListCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
 // 0 reads. The list is the shared Directory entry (ACTIVE only, no block filtering: D7); viewer_role comes from the community doc
 // (OWNER, MODERATOR) and the caller's memberships (MEMBER, BANNED), cached 60 s.
 func (s *service) ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error) {
@@ -154,7 +154,7 @@ func membersBinding(uid, cid string, f MemberFilter) string {
 
 func errPageToken() *apierr.Error { return apierr.Validation("page_token", "invalid page_token") }
 
-// ListCommunityMembers implements Service (ADR-0031 D2, D3, D7, F14). Order, cheapest first: the community id and the sealed page token
+// ListCommunityMembers implements Service. Order, cheapest first: the community id and the sealed page token
 // (both 0 reads: a tampered, expired, foreign or wrong-filter token stops here), the community (cache or 1 read; missing and SUSPENDED
 // are the one NOT_FOUND), the BANNED gate (the community document alone decides, so a member asking for BANNED costs the community
 // read only), the page query, the live profiles (Directory drops accounts that are not ACTIVE) and the caller's graph.

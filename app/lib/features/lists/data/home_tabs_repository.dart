@@ -14,7 +14,7 @@ import '../../communities/domain/communities_feature_flag.dart';
 import '../domain/home_tab_entry.dart';
 import '../domain/lists_feature_flag.dart';
 
-/// The client's one source of the pinned Home tabs (ADR-0030 D6)
+/// The client's one source of the pinned Home tabs
 /// and the only caller of `TimelineService.SetHomeTabs`. Home itself
 /// always starts with the fixed Following tab, which is not in here.
 ///

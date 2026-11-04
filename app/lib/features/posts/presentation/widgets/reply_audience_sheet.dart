@@ -11,7 +11,7 @@ IconData replyAudienceIcon(ReplyAudience audience) => switch (audience) {
   ReplyAudience.mentionedOnly => Icons.alternate_email,
 };
 
-/// The "Who can reply?" sheet of the composer (ADR-0021 D2): the three launch
+/// The "Who can reply?" sheet of the composer: the three launch
 /// options, each with a leading icon and a radio on the right, [selected]
 /// checked. Picking one closes the sheet and returns it; dismissing returns
 /// null. A bottom sheet at every width, like the app's other pickers

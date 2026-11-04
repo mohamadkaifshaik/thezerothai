@@ -1,6 +1,6 @@
 package search
 
-// The people half of the query grammar (ADR-0028 D1 step 4). Steps 1 to 3 are parseQuery (query.go), shared with
+// The people half of the query grammar. Steps 1 to 3 are parseQuery (query.go), shared with
 // SearchPosts: one parser. The client parser (app/lib/features/search/domain/search_query.dart) applies the same rules
 // in the same order and both are checked against testdata/search_query_grammar.json. Nothing here reads Firestore: a
 // rejected or unsupported query costs 0 reads.

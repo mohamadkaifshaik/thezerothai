@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Unit tests of the per-item rules (ADR-0021 "Sweep" steps 3 to 5): the cheapest-first checks, the outcomes a committed
+// Unit tests of the per-item rules ("Sweep" steps 3 to 5): the cheapest-first checks, the outcomes a committed
 // transaction reports, the transient-attempts ladder, both panic recovery sites and the L-8 scrubbing of every error.
 
 // A check that fails outside the transaction costs 0 reads (beyond the query) and exactly one precondition write; the

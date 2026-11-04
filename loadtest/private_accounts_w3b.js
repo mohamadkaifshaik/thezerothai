@@ -1,5 +1,5 @@
-// private_accounts_w3b: W3 Part B emulator smoke
-// (ADR-0025 "Cost impact"). One file, one timeline of five scenarios, all against ONE local API process (one "instance").
+// private_accounts_w3b: W3 Part B emulator smoke.
+// One file, one timeline of five scenarios, all against ONE local API process (one "instance").
 //
 //   setup Mints OWNER (P), OWNER2, N requesters, M strangers. P posts one public post, then protects the account
 //                    (UpdateProfile is_private=true: 4 cold reads / 3 writes). protects too (the 60-request page-50 owner).

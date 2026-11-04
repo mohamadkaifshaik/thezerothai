@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// Content disclosure (ADR-0021 D3,/C4): two user-asserted labels, stored on the post doc, frozen into the
+// Content disclosure: two user-asserted labels, stored on the post doc, frozen into the
 // Embedded snapshot, hashed only when set, gated by FEATURE_CONTENT_DISCLOSURE on SETTING only.
 
 func disclosureRegistry(disclosure flags.Spec) *flags.Registry {
@@ -34,7 +34,7 @@ func disclosureRegistry(disclosure flags.Spec) *flags.Registry {
 	)
 }
 
-// TestRequestHash_DisclosureOnlyWhenSet: a request without labels hashes byte-for-byte as it did before ADR-0021
+// TestRequestHash_DisclosureOnlyWhenSet: a request without labels hashes byte-for-byte as it did before labels existed
 // (so a retry across the deploy replays), and each label changes the hash independently.
 func TestRequestHash_DisclosureOnlyWhenSet(t *testing.T) {
 	t.Parallel()

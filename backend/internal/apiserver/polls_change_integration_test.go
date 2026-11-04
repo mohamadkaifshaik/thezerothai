@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0029 Amendment 1 A1 and A2: the voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
+// The voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
 // Names start with TestW636_ so one -run regex selects them; the flipped tests keep their names.
 
 import (

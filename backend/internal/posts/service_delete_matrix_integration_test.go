@@ -25,7 +25,7 @@ func setStatus(t *testing.T, client *firestore.Client, uid, status string) {
 	}
 }
 
-// d6Row seeds one ADR-0010 D6 relationship of A (uid-alice, caller) to B (uid-bob, author).
+// d6Row seeds one relationship of A (uid-alice, caller) to B (uid-bob, author).
 type d6Row struct {
 	name string
 	seed func(t *testing.T, c *firestore.Client)

@@ -1,6 +1,6 @@
 //go:build integration
 
-// snapshot_in_tx_integration_test.go: graph.TxReader.SnapshotInTx (ADR-0027 note): 1 read through the transaction,
+// snapshot_in_tx_integration_test.go: graph.TxReader.SnapshotInTx : 1 read through the transaction,
 // the 60 s cache neither read nor filled, a missing document is an empty Snapshot.
 package graph_test
 

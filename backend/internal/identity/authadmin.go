@@ -1,4 +1,4 @@
-// authadmin.go is the one narrow Firebase Auth admin wrapper (ADR-0011 IAM controls C1-C3). The runtime service
+// authadmin.go is the one narrow Firebase Auth admin wrapper (IAM controls C1-C3). The runtime service
 // account holds a custom role that can get, update (disable, revoke) and delete any Firebase Auth user, and IAM
 // cannot scope that to one user. So the code confines it:
 //
@@ -212,7 +212,7 @@ func (a *authAdmin) getUserRecord(ctx context.Context, t exportTarget) (accountR
 	return out, nil
 }
 
-// checkSignup is the M2 CreateProfile-boundary check (ADR-0011 amendment 2026-10-08): the caller's verified ID token
+// checkSignup is the M2 CreateProfile-boundary check : the caller's verified ID token
 // can outlive its Auth user (VerifyIDToken does not check revocation or deletion outside the emulator), so before a
 // first profile is created the Auth record of the token's own uid must exist and be enabled. 1 Auth read, 0
 // Firestore ops. Returns errSignupRefused for a deleted or disabled user and errSignupUnavailable for any other

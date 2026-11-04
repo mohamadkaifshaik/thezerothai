@@ -12,7 +12,7 @@ import (
 
 const labelCID = "1000000000000000042"
 
-// ADR-0031 D5: the community label on Home, profile and list timelines is decided only by posts.ToView: a community post carries
+// The community label on Home, profile and list timelines is decided only by posts.ToView: a community post carries
 // it, a hidden one (communityHidden) and every post while communities is globally off do not, and viewer_reply_permission stays what the
 // timelines can say with 0 reads (never NOT_ALLOWED from the community rule).
 func TestTimelines_CommunityLabel(t *testing.T) {

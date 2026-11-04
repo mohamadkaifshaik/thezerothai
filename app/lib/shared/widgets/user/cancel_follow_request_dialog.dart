@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 /// Asks "Cancel your follow request?" before a REQUESTED follow is withdrawn
-/// (ADR-0025 D7: Unfollow of a REQUESTED target withdraws it; there is no undo,
-/// the person can ask again). Returns `true` only if the user chose to cancel.
+/// (Unfollow of a REQUESTED target withdraws it; there is no undo, the person can ask again).
+/// Returns `true` only if the user chose to cancel.
 Future<bool> showCancelFollowRequestDialog(BuildContext context) async {
   final confirmed = await showDialog<bool>(
     context: context,

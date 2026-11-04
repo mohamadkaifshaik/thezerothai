@@ -18,7 +18,7 @@ func targetUserIDIssue(id string) bool {
 	return id == "" || !identity.ValidUserID(id)
 }
 
-// relationshipIDsIssue validates GetRelationshipsRequest.user_ids (ADR-0008: "1-50 ids").
+// relationshipIDsIssue validates GetRelationshipsRequest.user_ids ("1-50 ids").
 func relationshipIDsIssue(userIDs []string) (field, reason string) {
 	if len(userIDs) == 0 {
 		return "user_ids", "at least one user_id is required"

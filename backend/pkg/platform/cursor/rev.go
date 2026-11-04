@@ -12,7 +12,7 @@ import (
 const revAADLabel = aadLabel + "rev|"
 
 // EncodeRevAt seals c plus an integer revision into a token bound to binding, issued at now. The revision is the one the
-// issuer saw on the thing the token pages (messaging: conversations/{id}.rev, ADR-0027 note 2026-10-29); the verifier
+// issuer saw on the thing the token pages (messaging: conversations/{id}.rev); the verifier
 // compares it after its own read, so the binding stays free of data that must be read to compute it.
 func EncodeRevAt(key []byte, binding string, c Cursor, rev int64, now time.Time) string {
 	plain := strconv.FormatInt(now.UnixMicro(), 10) + "|" + strconv.FormatInt(c.CreatedAt.UnixMicro(), 10) + "|" +

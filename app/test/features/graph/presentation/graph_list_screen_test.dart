@@ -105,7 +105,7 @@ void main() {
 
     expect(find.text('@follower1'), findsOneWidget);
     // The row's FollowButton must come from the list item, not a separate
-    // GetRelationships round trip (ADR-0008 D4). Scoped to the OutlinedButton
+    // GetRelationships round trip. Scoped to the OutlinedButton
     // because the "Following" tab label shares the text.
     expect(find.widgetWithText(OutlinedButton, 'Following'), findsOneWidget);
     verifyNever(() => graphRepository.relationshipFor(any()));

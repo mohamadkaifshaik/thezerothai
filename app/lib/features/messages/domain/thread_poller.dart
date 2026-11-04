@@ -3,11 +3,11 @@ class PollResult {
   const PollResult({required this.newMessages});
 
   /// True when the pull brought messages the client did not have; keeps the
-  /// thread "hot" (ADR-0027 D7).
+  /// thread "hot".
   final bool newMessages;
 }
 
-/// Pulls a visible conversation (ADR-0027 D7). Implementations decide when to
+/// Pulls a visible conversation. Implementations decide when to
 /// pull; the pull itself is injected, so screens depend on this seam only and
 /// a listener or SSE transport can replace the timer implementation later.
 ///

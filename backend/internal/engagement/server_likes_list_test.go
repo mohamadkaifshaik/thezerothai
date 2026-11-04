@@ -38,7 +38,7 @@ func listLikedPosts(s *Server, ctx context.Context) error {
 	return err
 }
 
-// TestListLikedPosts_FlagMatrix (ADR-0024 D9): ListLikedPosts needs FEATURE_LIKES_LIST on for the caller and
+// TestListLikedPosts_FlagMatrix: ListLikedPosts needs FEATURE_LIKES_LIST on for the caller and
 // FEATURE_POSTS, and never FEATURE_ENGAGEMENT. A passed gate reaches LikesList exactly once, a refused one never does.
 // Whatever the outcome, this layer charges no Firestore read, write or delete.
 func TestListLikedPosts_FlagMatrix(t *testing.T) {

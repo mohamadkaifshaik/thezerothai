@@ -1,4 +1,4 @@
-/// Client-side mirror of the server's scheduling window (ADR-0021 D4).
+/// Client-side mirror of the server's scheduling window.
 ///
 /// The SERVER IS THE AUTHORITY: it truncates `publish_at` to the minute and
 /// enforces `now + SCHEDULED_MIN_LEAD <= publish_at <= now + SCHEDULED_HORIZON`

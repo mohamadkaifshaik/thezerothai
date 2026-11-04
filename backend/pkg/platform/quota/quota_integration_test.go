@@ -78,7 +78,7 @@ func TestSchedules_Integration_CapAndDayReset(t *testing.T) {
 	}
 }
 
-// legacyRecord is quotas/{uid} as a revision built before ADR-0021 knew it: no schedules field.
+// legacyRecord is quotas/{uid} as a revision built before schedules existed: no schedules field.
 type legacyRecord struct {
 	Day           string `firestore:"day"`
 	Posts         int64  `firestore:"posts"`

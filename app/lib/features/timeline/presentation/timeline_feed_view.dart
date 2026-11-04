@@ -93,7 +93,7 @@ class TimelineFeedView extends StatefulWidget {
   final String? pendingAuthorId;
 
   /// Home hides a post's author after Block/Mute and restores them after
-  /// Unblock/Unmute (ADR-0010 D6). A profile keeps its posts.
+  /// Unblock/Unmute. A profile keeps its posts.
   final bool hideAuthorsOnRelationship;
 
   /// Also told about every Block/Mute/Unblock/Unmute result.
@@ -118,7 +118,7 @@ class TimelineFeedView extends StatefulWidget {
   /// show the empty state while a next page exists). A page can be shorter
   /// than asked, or empty, and still carry a token (the server drops cards
   /// whose embedded author the caller blocks or mutes: the profile Reposts
-  /// and Media tabs, ADR-0024 D5); a view that is not tall enough to scroll
+  /// and Media tabs); a view that is not tall enough to scroll
   /// would never ask for the next page. Off for Home and the Posts and
   /// Replies tabs, whose pages are full.
   final bool fillViewport;

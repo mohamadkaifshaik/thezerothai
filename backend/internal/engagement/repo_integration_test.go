@@ -268,7 +268,7 @@ func TestJobs_NoProgressGuard(t *testing.T) {
 	}
 }
 
-// ADR-0018 "Rule 4" on the emulator: a RepostPost replay while the repost exists writes nothing,
+// "Rule 4" on the emulator: a RepostPost replay while the repost exists writes nothing,
 // reads the reposts doc once more and returns the same REPOST id; a Like replayed after an Unlike re-likes.
 func TestRepo_Rule4Replays(t *testing.T) {
 	e := newRepoEnv(t)
@@ -314,7 +314,7 @@ func TestRepo_Rule4Replays(t *testing.T) {
 	}
 }
 
-// ADR-0024 D4: the REPOST document engagement writes carries an explicit hasMedia=false, even when the original
+// The REPOST document engagement writes carries an explicit hasMedia=false, even when the original
 // has images (those live in `embedded`), so the Media tab query never returns it and "where missing" in the backfill
 // never visits it.
 func TestRepo_RepostDocStoresHasMediaFalse(t *testing.T) {
@@ -344,7 +344,7 @@ func TestRepo_RepostDocStoresHasMediaFalse(t *testing.T) {
 	}
 }
 
-// ADR-0029 D3: LoadUserLikes returns pollVotes from the same single read; a document written before polls has none.
+// LoadUserLikes returns pollVotes from the same single read; a document written before polls has none.
 func TestRepo_LoadUserLikesReturnsPollVotes(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()

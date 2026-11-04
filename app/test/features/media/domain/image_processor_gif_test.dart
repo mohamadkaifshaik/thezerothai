@@ -6,7 +6,7 @@ import 'package:image/image.dart' as img;
 
 import '../../../support/media_fixtures.dart';
 
-/// The on-device GIF checks and thumbnail (ADR-0029 D10/F10).
+/// The on-device GIF checks and thumbnail.
 void main() {
   test('a GIF goes up unchanged with a JPEG still as its thumbnail', () {
     final bytes = realGifBytes(width: 32, height: 24, frames: 3);

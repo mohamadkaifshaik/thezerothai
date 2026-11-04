@@ -12,7 +12,7 @@ import 'verify_email_view.dart';
 /// the prompt works without a dedicated route (see [VerifyEmailView]).
 ///
 /// A suspended (restricted) account gets [AccountRestrictedView] instead: its
-/// RPCs all answer ACCOUNT_RESTRICTED (ADR-0016), so no screen could work.
+/// RPCs all answer ACCOUNT_RESTRICTED, so no screen could work.
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key, required this.child});
 

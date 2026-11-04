@@ -36,7 +36,7 @@ enum SearchQueryIssue {
   unsupported,
 }
 
-/// A search-box query, classified with ADR-0028 D1 (client and server apply
+/// A search-box query, classified by one rule set (client and server apply
 /// the same rules in the same order; the server validates again):
 ///
 /// 1. NFC, trim, lower-case;
@@ -47,7 +47,7 @@ enum SearchQueryIssue {
 /// 4. people: not for a `#` sigil; the rest must be `[a-z0-9_]{1,15}`, where
 ///    1 character is too short ([peopleTooShort]) and 2 to 15 is a prefix;
 /// 5. posts: not for an `@` sigil; the rest must be exactly one hashtag body,
-///    judged by [parsePostText] (ADR-0010 D8), including a 1-character body:
+///    judged by [parsePostText], including a 1-character body:
 ///    `a` and `#a` both search the tag `a`.
 ///
 /// Pure: no I/O, no clock. Nothing is sent unless [canSearchPeople] or
@@ -113,7 +113,7 @@ class SearchQuery {
   static final _handleChars = RegExp(r'^[a-z0-9_]+$');
 
   // Control characters and the bidi formatting controls the post grammar also
-  // refuses (ADR-0010 D9). ZWJ/ZWNJ stay: tag bodies may hold them.
+  // refuses. ZWJ/ZWNJ stay: tag bodies may hold them.
   static bool _isForbidden(int r) =>
       r < 0x20 ||
       (r >= 0x7F && r <= 0x9F) ||
@@ -174,7 +174,7 @@ class SearchQuery {
   }
 
   /// Whether `#[body]` is exactly one hashtag under the post grammar: the one
-  /// rule set that decides what the server stores as a tag (ADR-0010 D8).
+  /// rule set that decides what the server stores as a tag.
   static bool _isTagBody(String body) {
     final spans = parsePostText('#$body', const []);
     return spans.length == 1 && spans.single.kind == PostSpanKind.hashtag;

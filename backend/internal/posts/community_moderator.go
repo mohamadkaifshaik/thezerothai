@@ -12,13 +12,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// CommunityModerator is the moderation seam of ADR-0031 D5 / A12, declared here and called by the communities module inside its own
+// CommunityModerator is the moderation seam, declared here and called by the communities module inside its own
 // moderation transaction (posts never imports communities).
 //
 // SetCommunityListing reads the post FRESH inside tx (1 read, never the cache), then:
 //   - found=false (and no error) when the post is missing, carries `moderation` (a platform takedown or suspended author: a community hide and
 //     restore must never touch it, L-2), is a REPOST or a plain post, is a root whose community.id is not cid, or is a reply
-//     (kind REPLY) whose conversationCommunityId is not cid (ADR-0031 Amendment 1 D4a); reply reports which of the two it was;
+//     (kind REPLY) whose conversationCommunityId is not cid; reply reports which of the two it was;
 //   - guard (when non-nil) is called with the post's authorId once the post is found and BEFORE any write, whether or not the call would change
 //     anything; its error is returned unchanged and nothing is written (F16,: the communities module passes the author-vs-actor role check,
 //     so the decision costs 0 extra reads and posts never learns what a role is). It applies to replies unchanged;
@@ -39,7 +39,7 @@ import (
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
 	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
-	// ListHidden and RestoreHiddenPage are the platform's side (ADR-0031 D14a); see community_hidden.go.
+	// ListHidden and RestoreHiddenPage are the platform's side; see community_hidden.go.
 	ListHidden(ctx context.Context, cid, after string, limit int, each HiddenRowFunc) (rows int, last string, err error)
 	RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want HiddenRowFunc) (res HiddenPageResult, err error)
 }
@@ -81,7 +81,7 @@ func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firest
 	if err := snap.DataTo(&d); err != nil {
 		return false, false, false, fmt.Errorf("posts: decode post for listing: %w", err)
 	}
-	// ADR-0031 Amendment 1 D4a: a reply qualifies through the conversation's community, a root POST or QUOTE through its label.
+	// A reply qualifies through the conversation's community, a root POST or QUOTE through its label.
 	reply = d.Kind == string(KindReply)
 	switch {
 	case reply && d.ConversationCommunityID != cid:

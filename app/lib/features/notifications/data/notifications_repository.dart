@@ -11,7 +11,7 @@ import 'notifications_store.dart';
 /// the proto says to keep paging, never infer the end from a short page).
 const kEmptyPageRetries = 3;
 
-/// Talks to `NotificationService` and keeps the list in drift (ADR-0017,
+/// Talks to `NotificationService` and keeps the list in drift (
 /// cost-model lever 6.1: a `since_token` refresh reads only newer rows).
 ///
 /// - [cached] renders from disk with no network call.

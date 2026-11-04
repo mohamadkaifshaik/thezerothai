@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ReplyAudienceFlag: FEATURE_REPLY_AUDIENCE (ADR-0021 D2) defaults to off in every environment,
+// TestLoad_ReplyAudienceFlag: FEATURE_REPLY_AUDIENCE defaults to off in every environment,
 // is overridable like the other server flags, and is listed in enabled_features only when on for the caller.
 func TestLoad_ReplyAudienceFlag(t *testing.T) {
 	clearEnv(t)

@@ -1,9 +1,9 @@
 //go:build integration
 
-// suggestions_integration_test.go: ListSuggestedUsers (ADR-0024 D8) against the Firestore emulator:
+// suggestions_integration_test.go: ListSuggestedUsers against the Firestore emulator:
 // the friends-of-friends `in` + order-by query, the exclusion matrix on real documents, the curated fallback, the
 // cold cap (31 reads at the default EdgeLimit 20, 32 with the interceptor, which these tests do not run; 41 and 42 with
-// EdgeLimit pinned to 30; ADR-0024 Amendment 2 B1(b)), the 0-read warm call and the Follow eviction. The emulator does not enforce composite indexes: the index the query needs is the existing follows
+// EdgeLimit pinned to 30), the 0-read warm call and the Follow eviction. The emulator does not enforce composite indexes: the index the query needs is the existing follows
 // (followerId ASC, createdAt DESC), reasoned from firebase/firestore.indexes.json in the repo_suggestions.go comment.
 package graph_test
 
@@ -202,8 +202,8 @@ func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	}
 }
 
-// TestListSuggestedUsers_ColdReadCapAtTheDefault is the same world at the config default (ADR-0024 Amendment 2 B1(b):
-// EdgeLimit 20, zero SuggestionLimits normalize to it): the query reads the 20 newest edges, which still hold all 12
+// TestListSuggestedUsers_ColdReadCapAtTheDefault is the same world at the config default
+// (EdgeLimit 20, zero SuggestionLimits normalize to it): the query reads the 20 newest edges, which still hold all 12
 // candidates, so the cold call is exactly the graph (1) + 20 + 10 hydrated = 31, the documented 32 with the interceptor.
 func TestListSuggestedUsers_ColdReadCapAtTheDefault(t *testing.T) {
 	w := newWired(t)

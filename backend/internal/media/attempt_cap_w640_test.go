@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// ADR-0029 Amendment 1 A5, revises / security H-3: an attempt is consumed only by a valid assessment; outages, timeouts, internal
+// Revises security H-3: an attempt is consumed only by a valid assessment; outages, timeouts, internal
 // errors, billed-but-invalid answers and a busy GIF slot consume none; a blocking verdict is final; a per-uid units cap refuses before the claim.
 
 func ptr[T any](v T) *T { return &v }

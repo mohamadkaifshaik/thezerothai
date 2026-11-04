@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// Sentinels the repo returns and the service maps to the wire (ADR-0027 D4, D5).
+// Sentinels the repo returns and the service maps to the wire.
 var (
 	// ErrCannotMessage is every refusal that must look the same on the wire: a block in either direction, a recipient
 	// that is not ACTIVE or has messaging off, and a conversation whose peer deleted the account.
@@ -26,12 +26,12 @@ var (
 	ErrNotFound = errors.New("messaging: not found")
 )
 
-// errRecipientInactive is ErrCannotMessage for a recipient whose fresh status read (a new conversation, ADR-0027 D8) was
+// errRecipientInactive is ErrCannotMessage for a recipient whose fresh status read (a new conversation) was
 // not ACTIVE. It only exists to give the log its own refused_reason; the wire answer is the same.
 var errRecipientInactive = fmt.Errorf("%w: recipient is not active", ErrCannotMessage)
 
-// errBlocked is ErrCannotMessage for a send whose recipient blocked the caller, as the send transaction read it (ADR-0027
-// note). Like errRecipientInactive it only gives the log its own refused_reason; the wire answer is the same.
+// errBlocked is ErrCannotMessage for a send whose recipient blocked the caller, as the send transaction read it.
+// Like errRecipientInactive it only gives the log its own refused_reason; the wire answer is the same.
 var errBlocked = fmt.Errorf("%w: blocked", ErrCannotMessage)
 
 // checkRecipient is the status rule of a send that creates a conversation, applied to the transaction's read of the
@@ -48,13 +48,13 @@ func checkRecipient(p identity.Profile, err error) error {
 	return nil
 }
 
-// errPeerFlagOff is ErrCannotMessage for an AcceptMessageRequest whose other participant has messaging off (ADR-0027 D6:
-// Accept needs the flag on for the caller and the peer). Like errRecipientInactive it only gives the log its own
+// errPeerFlagOff is ErrCannotMessage for an AcceptMessageRequest whose other participant has messaging off (Accept needs the flag on for the caller and the peer).
+// Like errRecipientInactive it only gives the log its own
 // refused_reason; the wire answer is the same CANNOT_MESSAGE.
 var errPeerFlagOff = fmt.Errorf("%w: peer has messaging off", ErrCannotMessage)
 
 // cannotMessageText is the one text of every CANNOT_MESSAGE answer. The same error value shape is built for every
-// cause, so the bytes on the wire are identical (ADR-0027 D4): no field says which rule refused.
+// cause, so the bytes on the wire are identical: no field says which rule refused.
 const cannotMessageText = "you can't message this account"
 
 func cannotMessage() *apierr.Error {
@@ -78,7 +78,7 @@ func keyReused() *apierr.Error {
 }
 
 // invalidKey is the VALIDATION answer for an idempotency_key that is not 16-64 characters of [A-Za-z0-9_-]; SendMessage
-// stores its key in the message id, Accept and Delete do not store theirs but format-validate it all the same (ADR-0021's
+// stores its key in the message id, Accept and Delete do not store theirs but format-validate it all the same (the
 // rule for a key the RPC does not use: "unused but still format-validated").
 func invalidKey() *apierr.Error {
 	return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")

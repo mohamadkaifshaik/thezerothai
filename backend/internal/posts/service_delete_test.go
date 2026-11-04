@@ -297,7 +297,7 @@ func TestGetForViewer_DeletedPostIsNotFoundAfterCacheExpiry(t *testing.T) {
 }
 
 // TestGetForViewer_EmbeddedAuthorBlock: a QUOTE or REPOST is NOT_FOUND when the author of the post it copies
-// blocks the caller (ADR-0018 D13), including through the blockedBy overflow path; the caller's own embedded
+// blocks the caller, including through the blockedBy overflow path; the caller's own embedded
 // posts, tombstones and a block the other way round never hide it.
 func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 	const embUID = "uid-embedded"
@@ -351,7 +351,7 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 	}
 }
 
-// The caller's own QUOTE or REPOST is exempt from the embedded-author check (ADR-0018 D13, same as a direct post):
+// The caller's own QUOTE or REPOST is exempt from the embedded-author check (same as a direct post):
 // it stays viewable even when the copied author blocks the caller, and costs no caller-graph read.
 func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
 	const embUID = "uid-embedded"

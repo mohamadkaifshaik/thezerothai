@@ -3,7 +3,7 @@
 package messaging
 
 // A takedown, and an account erasure, reach the devices of both participants that cached the thread or the inbox
-// (ADR-0027 note 2026-10-29, B1). Each "device" is a service instance of its own plus the since tokens it holds; the
+//Each "device" is a service instance of its own plus the since tokens it holds; the
 // "server" that answers after the change is another fresh instance, so no 60 s conversation cache hides the change.
 
 import (

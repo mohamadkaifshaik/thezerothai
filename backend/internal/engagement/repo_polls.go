@@ -1,12 +1,12 @@
-// repo_polls.go is the Firestore implementation of PollRepo (ADR-0029 D3, D6). Collections owned here: pollVotes/{postId}_{uid}
+// repo_polls.go is the Firestore implementation of PollRepo. Collections owned here: pollVotes/{postId}_{uid}
 // = {postId, uid, choice, createdAt, expireAt} (the natural-key vote record, TTL on expireAt) and the `pollVotes` array of
 // userLikes/{uid} (the viewer's choices, "<postId>:<index>", newest last).
 //
-// A change (ADR-0029 Amendment 1 A2.3) is ONE more blind batch (ChangeVote) under a LastUpdateTime precondition on the vote doc.
+// A change is ONE more blind batch (ChangeVote) under a LastUpdateTime precondition on the vote doc.
 //
 // The vote is ONE batch with no read: Create of the vote doc, the posts counter Update (posts.EngagementWriter.StagePollVote, an
 // implicit Exists precondition) and a field-level Set with MergeAll of userLikes.pollVotes. Every userLikes write is field-level
-// (the ADR-0021 I-3 class of bug: a whole-document Set would empty the other lists).
+// (a known class of bug: a whole-document Set would empty the other lists).
 package engagement
 
 import (
@@ -34,8 +34,8 @@ type pollVoteDoc struct {
 	Choice    int       `firestore:"choice"`
 	CreatedAt time.Time `firestore:"createdAt"`
 	ExpireAt  time.Time `firestore:"expireAt"`
-	// Changes counts the vote changes (absent = 0) and ChangedAt is the time of the last one (absent = never changed): ADR-0029 Amendment 1
-	// A2.6. Written by ChangeVote only (Increment(1) and the clock); small scalars on the automatic indexes. No earlier choice is kept.
+	// Changes counts the vote changes (absent = 0) and ChangedAt is the time of the last one (absent = never changed).
+	// Written by ChangeVote only (Increment(1) and the clock); small scalars on the automatic indexes. No earlier choice is kept.
 	Changes   int       `firestore:"changes,omitempty"`
 	ChangedAt time.Time `firestore:"changedAt,omitempty"`
 }
@@ -95,7 +95,7 @@ func (r *FirestoreRepo) GetVote(ctx context.Context, uid, postID string) (VoteSt
 	return VoteState{Choice: d.Choice, Changes: d.Changes, UpdateTime: snap.UpdateTime}, true, nil
 }
 
-// ChangeVote implements PollRepo: ONE batch, 0 reads, 4 writes (ADR-0029 Amendment 1 A2.3). The hot post document is written by Increment,
+// ChangeVote implements PollRepo: ONE batch, 0 reads, 4 writes. The hot post document is written by Increment,
 // never read. Only the vote doc (LastUpdateTime = the version the caller read) and the post (the Exists precondition of the counter Update)
 // carry preconditions; userLikes is two field-level merges (ArrayRemove of the old entry, ArrayUnion of the new one: one write cannot carry two
 // transforms on one field), so a missing userLikes doc never fails the commit and "the vote doc did not move" still means "the post is gone".

@@ -17,7 +17,7 @@ const (
 	phaseTree      = "tree"
 )
 
-// Checkpoint resumes the `messaging` account-deletion step across calls (ADR-0027 D8). It is the step's own type: step
+// Checkpoint resumes the `messaging` account-deletion step across calls. It is the step's own type: step
 // names are persisted in deletionJob.step, so it never joins another module's checkpoint. It holds ids and counters
 // only: no uid, no text.
 type Checkpoint struct {
@@ -55,7 +55,7 @@ type eraser struct {
 }
 
 // NewEraser builds the `messaging` step on a Purger. It is never flag-gated: documents outlive the flag (right to
-// delete, ADR-0011).
+// delete).
 func NewEraser(repo Purger, log *slog.Logger) Eraser {
 	if log == nil {
 		log = slog.Default()
@@ -63,7 +63,7 @@ func NewEraser(repo Purger, log *slog.Logger) Eraser {
 	return &eraser{repo: repo, log: log}
 }
 
-// PurgeUser implements Eraser: the account-deletion step `messaging` (ADR-0027 D8), registered BeforeIdentity after
+// PurgeUser implements Eraser: the account-deletion step `messaging`, registered BeforeIdentity after
 // `follow_requests`. Resumable, one bounded unit of work per call (at most 500 documents), the checkpoint is opaque JSON
 // (Checkpoint). For each conversation of the user, in __name__ order:
 //

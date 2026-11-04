@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestGIF_Integration_CreatePostGates (ADR-0029 D10): the content type rides on the media claim, so the gif gate
+// TestGIF_Integration_CreatePostGates: the content type rides on the media claim, so the gif gate
 // costs the media reads and writes nothing; an allowed single GIF is stored with its content type and copies it to the
 // wire; a GIF next to a photo is VALIDATION. Budget: root + 1 image = idempotency, post, postsCount, quotas, media.postId.
 func TestGIF_Integration_CreatePostGates(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// fixturePath is the repo-root shared fixture (ADR-0010 D21 G1); the Dart parser tests run the same rows.
+// fixturePath is the repo-root shared fixture; the Dart parser tests run the same rows.
 var fixturePath = filepath.Join("..", "..", "..", "..", "testdata", "post_text_grammar.json")
 
 type grammarRow struct {

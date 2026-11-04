@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestReportContent_FlagOffAndOnThroughTheRealChain (ADR-0016 D1): with FEATURE_REPORTS off the RPC answers
+// TestReportContent_FlagOffAndOnThroughTheRealChain: with FEATURE_REPORTS off the RPC answers
 // FAILED_PRECONDITION + FEATURE_DISABLED and does no work beyond the interceptor's own status read; with it on, an
 // unknown post is the generic NOT_FOUND and a malformed request is INVALID_ARGUMENT.
 func TestReportContent_FlagOffAndOnThroughTheRealChain(t *testing.T) {

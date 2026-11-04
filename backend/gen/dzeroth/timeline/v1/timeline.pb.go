@@ -4,15 +4,15 @@
 // 	protoc        (unknown)
 // source: dzeroth/timeline/v1/timeline.proto
 
-// Timelines: pull-on-read with incremental refresh (ADR-0004). Owner module: backend/internal/timeline.
+// Timelines: pull-on-read with incremental refresh. Owner module: backend/internal/timeline.
 // Owns no collections; reads posts through the posts module interface, graph/{uid} through the graph module, lists
-// through lists.Reader (ADR-0030), communities through communities.Reader (ADR-0031), and writes users/{uid}.homeTabs
+// through lists.Reader, communities through communities.Reader, and writes users/{uid}.homeTabs
 // only through the timeline.HomeTabsStore seam that identity implements (SetHomeTabs).
 //
 // Token contract (identical for every feed RPC: Home, user, list and community timelines; all opaque):
 // - First open, no local cache: send neither token.
 // - Pull-to-refresh / app resume: send since_token from the last response. Only posts newer than it are read.
-//   since_token trails the newest returned item by a short settle window (ADR-0010 D13), so a refresh may
+//   since_token trails the newest returned item by a short settle window, so a refresh may
 //   return posts the client already has: always dedupe by post_id.
 // - Infinite scroll: send page_token (= next_page_token of the previous page).
 // - Sending both tokens is INVALID_ARGUMENT.
@@ -24,25 +24,25 @@
 //   Scroll (page_token) and gap-fill responses return no since_token: keep the one you have.
 // - Tokens are bound to the caller, the feed (for user timelines the target and tab, for list timelines the list, for
 //   community timelines the community) and the token kind,
-//   and expire after 30 days (ADR-0010 D14). For user timelines "tab" is the EFFECTIVE tab (ADR-0024 D5): POSTS
+//   and expire after 30 days. For user timelines "tab" is the EFFECTIVE tab: POSTS
 //   and UNSPECIFIED + include_replies=false bind the same feed, as do REPLIES and UNSPECIFIED + true, so every
 //   pre-W3 token stays valid; a token used on another tab is rejected like a foreign one. An expired, foreign or
 //   tampered token => INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads:
-//   drop that token and call with no token (cold open). After a rejected page_token, or a rejected since_token
-//   (amended by ADR-0016 D10), REPLACE the cached feed with the cold open, do not merge into it: a since_token is
+//   drop that token and call with no token (cold open). After a rejected page_token, or a rejected since_token,
+// REPLACE the cached feed with the cold open, do not merge into it: a since_token is
 //   also rejected when the server cannot list removed_ids completely (below), it answers exactly as for an expired
 //   token, so the client cannot tell the two apart. Scroll down from the cold open's next_page_token.
-// - removed_ids (ADR-0016 D10): a since_token refresh also returns the ids of posts a moderator removed (takedown or
+// - removed_ids: a since_token refresh also returns the ids of posts a moderator removed (takedown or
 //   account suspension) after that token was issued; drop them from the local cache. A restored post is not listed.
 //   Cold, page and gap-page responses never carry removed_ids. When the server cannot list them completely (the
 //   token predates its removal log, or too many posts were removed), the refresh is rejected exactly like an
 //   expired token (INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token", before any post is read):
-//   the client replaces its cache for that feed with the cold open (see above). Since ADR-0016 amendment
-//   2026-10-18 (b) removed_ids is scoped to the feed it answers (Home: the posts of the caller and the accounts the
+//   the client replaces its cache for that feed with the cold open (see above). Since 2026-10-18,
+//   removed_ids is scoped to the feed it answers (Home: the posts of the caller and the accounts the
 //   caller follows; a user timeline: that account's posts), so a suspension lists ids and rejects tokens only for
 //   the feeds that show the suspended account. The client contract is unchanged: drop each id from every cached
-//   feed that holds it, and replace the feed on a rejected since_token. A community feed's removed_ids (ADR-0031 D6)
-//   also list the posts its moderators hid, come from the community's own removal list instead of the ADR-0016 log,
+//   feed that holds it, and replace the feed on a rejected since_token. A community feed's removed_ids
+//   also list the posts its moderators hid, come from the community's own removal list instead of the log,
 //   and follow FEATURE_COMMUNITIES instead of FEATURE_REMOVED_IDS (GetCommunityTimeline); the client contract is the
 //   same.
 // The Stage 2 Memorystore design keeps this contract unchanged.
@@ -68,7 +68,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// The profile tab a GetUserTimeline call reads (ADR-0024 D5).
+// The profile tab a GetUserTimeline call reads.
 type UserTimelineTab int32
 
 const (
@@ -371,7 +371,7 @@ type GetUserTimelineResponse struct {
 	// Refresh only (see the token contract): ids of posts removed by a moderator since the since_token was issued.
 	// At most 50, newest removal first. The client deletes these from its cache. Empty on every other mode.
 	RemovedIds []string `protobuf:"bytes,5,rep,name=removed_ids,json=removedIds,proto3" json:"removed_ids,omitempty"`
-	// True when the author is protected and the caller is neither the author nor a follower (ADR-0025 D4): posts is
+	// True when the author is protected and the caller is neither the author nor a follower: posts is
 	// empty and no token is set. Show the protected view and REPLACE any cached feed for this author (do not merge). A
 	// client that does not know this field sees an empty list, which fails closed.
 	AuthorProtected bool `protobuf:"varint,6,opt,name=author_protected,json=authorProtected,proto3" json:"author_protected,omitempty"`

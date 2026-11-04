@@ -1,9 +1,9 @@
 //go:build integration
 
-// invariants_integration_test.go is the reusable graph invariant checker (ADR-0008 D3). The pure checker
+// invariants_integration_test.go is the reusable graph invariant checker. The pure checker
 // (graphInvariantViolations) has negative self-tests proving it can fail; the Firestore loader is used by the
 // integration suites (newWired registers assertGraphInvariants as a t.Cleanup, so every emulator scenario ends
-// with a full invariant sweep; and the runbook drill call assertGraphInvariants directly).
+// with a full invariant sweep; and the purge drill calls assertGraphInvariants directly).
 package graph_test
 
 import (
@@ -28,7 +28,7 @@ func isPad(uid string) bool { return strings.HasPrefix(uid, seedPadPrefix) }
 type graphState struct {
 	// Edges maps follows doc ID -> its stored (followerId, followeeId).
 	Edges map[string][2]string
-	// Requests maps followRequests doc ID -> its stored (followerId, followeeId) (ADR-0025 D2).
+	// Requests maps followRequests doc ID -> its stored (followerId, followeeId).
 	Requests map[string][2]string
 	// Graphs maps uid -> graph/{uid}. A uid absent from the map has no graph doc.
 	Graphs map[string]graphDocState
@@ -38,14 +38,14 @@ type graphState struct {
 
 type graphDocState struct {
 	Following, Blocked, Muted, BlockedBy []string
-	// Requested is graph/{uid}.requested, the outgoing pending follow requests (ADR-0025 D2).
+	// Requested is graph/{uid}.requested, the outgoing pending follow requests.
 	Requested         []string
 	BlockedByOverflow bool
 }
 
 type userCounters struct{ Followers, Following int64 }
 
-// graphInvariantViolations implements every ADR-0008 D3 invariant (plus structural sanity checks) over st and
+// graphInvariantViolations implements every invariant (plus structural sanity checks) over st and
 // returns human-readable violations, sorted; empty means the graph is consistent.
 //
 //	I1  follows/{a}_{b} exists <=> b in graph/{a}.following
@@ -54,8 +54,8 @@ type userCounters struct{ Followers, Following int64 }
 //	I4  no follow edge in either direction between a and b while either blocks the other
 //	S1  follows doc ID == followerId_followeeId, no self-follow, no self-block/self-mute
 //	S2  no duplicate entries in any graph array; caps respected (5,000/2,000/2,000/10,000, requested 500)
-//	I-R followRequests/{a}_{b} exists <=> b in graph/{a}.requested (ADR-0025 D9)
-//	I-X never both follows/{a}_{b} and followRequests/{a}_{b}; never b in both graph/{a}.following and .requested (ADR-0025 D9)
+//	I-R followRequests/{a}_{b} exists <=> b in graph/{a}.requested
+//	I-X never both follows/{a}_{b} and followRequests/{a}_{b}; never b in both graph/{a}.following and .requested
 //	S1  (also) a followRequests doc ID == followerId_followeeId, no self-request
 func graphInvariantViolations(st graphState) []string {
 	var v []string
@@ -208,8 +208,8 @@ func graphInvariantViolations(st graphState) []string {
 	for _, uid := range userIDs {
 		u := st.Users[uid]
 		if _, hasGraph := st.Graphs[uid]; !hasGraph {
-			// graph/{uid} deleted = the graph purge ran (ADR-0008 D10); users/{uid} is deleted later by the
-			// runbook, and its own counters are intentionally not maintained by the purge.
+			// graph/{uid} deleted = the graph purge ran; users/{uid} is deleted later by the
+			// account-deletion procedure, and its own counters are intentionally not maintained by the purge.
 			continue
 		}
 		if u.Following != followerEdges[uid] {
@@ -335,7 +335,7 @@ func strsField(s *firestore.DocumentSnapshot, path string) []string {
 }
 
 // assertGraphInvariants is the entry point for every emulator scenario (and the drill): it loads the
-// whole graph state and fails t with every violated ADR-0008 D3 invariant. Uses t.Errorf, so it can also be
+// whole graph state and fails t with every violated graph invariant. Uses t.Errorf, so it can also be
 // called from a t.Cleanup.
 func assertGraphInvariants(t *testing.T, client *firestore.Client) {
 	t.Helper()

@@ -1,4 +1,4 @@
-// lifecycle_types.go declares the account-lifecycle seams (ADR-0011): the deletion/export job state stored on
+// lifecycle_types.go declares the account-lifecycle seams: the deletion/export job state stored on
 // users/{uid} and exports/{id}, the consumer-side interfaces other modules' adapters implement (StepEraser,
 // ExportSection, the D-C pattern also used by BlockChecker), and the infrastructure seams (job publisher, export
 // object store, Firebase Auth client). identity imports nothing from graph or posts.
@@ -20,7 +20,7 @@ const (
 )
 
 // JobMessage is the payload of a job message. The uid / export id in it is only a lookup key: a job never acts on
-// a message's word alone (ADR-0011 IAM control C1), it re-reads the document and checks its state.
+// a message's word alone (IAM control C1), it re-reads the document and checks its state.
 type JobMessage struct {
 	Kind string `json:"kind"`
 	// UID and Seq are set for account_delete. Seq has no omitempty: seq 0 is the first message.
@@ -33,7 +33,7 @@ type JobMessage struct {
 	SnapshotVersion int64 `json:"snapshotVersion,omitempty"`
 }
 
-// DeletionJob is the deletion state on users/{uid}.deletionJob (ADR-0011): Seq dedupes deliveries, Step is the
+// DeletionJob is the deletion state on users/{uid}.deletionJob: Seq dedupes deliveries, Step is the
 // step to resume at ("" = the first), Checkpoint is that step's opaque resume token, ProgressAt the last save.
 type DeletionJob struct {
 	Seq        int64
@@ -86,7 +86,7 @@ const (
 	ExportFailed  ExportStatus = "FAILED"
 )
 
-// ExportDoc is exports/{id} (ADR-0003, ADR-0011): the export's job state. UpdateTime is Firestore's, for the
+// ExportDoc is exports/{id}: the export's job state. UpdateTime is Firestore's, for the
 // status-change precondition.
 type ExportDoc struct {
 	ID         string
@@ -122,7 +122,7 @@ var (
 	ErrAuthAdminRefused = errors.New("identity: auth admin operation refused")
 )
 
-// StepEraser is one resumable step of the deletion job (ADR-0011 D-C). Run does at most a bounded amount of work
+// StepEraser is one resumable step of the deletion job. Run does at most a bounded amount of work
 // per call and returns the opaque checkpoint to resume from; done reports that the step has nothing left.
 // Implementations must be idempotent: a crash after any call re-runs it from the last saved checkpoint, and two
 // deliveries may run it concurrently (their Erasers use Exists preconditions, so counters are never decremented
@@ -133,7 +133,7 @@ type StepEraser interface {
 	Run(ctx context.Context, uid string, checkpoint []byte) (next []byte, done bool, err error)
 }
 
-// ExportSection writes one section of the account export (ADR-0011 D-D): WriteSection writes exactly one JSON
+// ExportSection writes one section of the account export: WriteSection writes exactly one JSON
 // value (it may end with whitespace) for uid to w, streaming, with every query limited.
 type ExportSection interface {
 	Name() string
@@ -141,7 +141,7 @@ type ExportSection interface {
 }
 
 // Position constrains where a registered step runs. Only BeforeIdentity is allowed: the identity step, the Auth
-// user deletion and the final users/{uid} delete always come last (ADR-0011 Q1).
+// user deletion and the final users/{uid} delete always come last.
 type Position int
 
 const (
@@ -152,7 +152,7 @@ const (
 )
 
 // JobHandler handles one message of a job kind registered with Lifecycle.RegisterJobHandler (`post_delete`).
-// The shared `jobs` topic and its push endpoint are identity's (ADR-0011 D-A); other modules' kinds ride on them
+// The shared `jobs` topic and its push endpoint are identity's; other modules' kinds ride on them
 // instead of getting a topic of their own. Handle runs one delivery: a nil error acknowledges (outcome is the log
 // value, for example "done" or "duplicate"), a non-nil error nacks and Pub/Sub redelivers. It must be idempotent
 // (a message is delivered at least once) and must never act on the message's word alone. Like the deletion
@@ -173,7 +173,7 @@ type ObjectStore interface {
 	SignedGetURL(ctx context.Context, object, filename string, ttl time.Duration, now time.Time) (string, error)
 }
 
-// AuthClient is the four-method slice of the Firebase Admin Auth client identity needs (ADR-0011 IAM control C2).
+// AuthClient is the four-method slice of the Firebase Admin Auth client identity needs (IAM control C2).
 // *fbauth.Client implements it. It is built in apiserver.Build and handed only to identity's constructor; the
 // unexported authAdmin wrapper (authadmin.go) is the only caller, and a CI test forbids every other file (except
 // cmd/opsctl and tests), including other files of this package, from calling these methods on the interface or on
@@ -247,7 +247,7 @@ type LifecycleRepo interface {
 	// when another delivery claimed or changed the doc since updateTime (a missing doc reports the same).
 	ClaimExport(ctx context.Context, id string, updateTime, leaseUntil time.Time) (time.Time, error)
 
-	// Identity-step operations (ADR-0011 Q1 step 5), each idempotent.
+	// Identity-step operations, each idempotent.
 	// ListExports lists the uid's exports docs, Limit(limit) (reads = docs returned, minimum 1).
 	ListExports(ctx context.Context, uid string, limit int) ([]ExportDoc, error)
 	// DeleteExportDocs deletes the docs in one batch (deletes = len(ids)); a missing doc is not an error.
@@ -256,7 +256,7 @@ type LifecycleRepo interface {
 	DeletePrivate(ctx context.Context, uid string, limit int) (int, error)
 	// DeleteHandleIfOwned deletes handles/{handleLower} only when it points at uid (1 read, 1 delete).
 	DeleteHandleIfOwned(ctx context.Context, handleLower, uid string) (HandleOutcome, error)
-	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors (ADR-0025 D11): 0 reads, at most 1 write (a
+	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors: 0 reads, at most 1 write (a
 	// field-level ArrayRemove; a missing set doc is success and is never created). Idempotent and unconditional.
 	RemoveFromProtectedSet(ctx context.Context, uid string) error
 	// DeleteQuotas deletes quotas/{uid} (1 delete); a missing doc is success.

@@ -167,7 +167,7 @@ func TestDeleteAccount(t *testing.T) {
 
 // TestJobs_ReferenceChain runs a whole deletion through the push handler with the fakes: the gate nacks the first
 // delivery, a slow step needs several 20 s slices with its checkpoint carried between them, and the order of
-// every side effect is the ADR-0011 Q1 order with users/{uid} last.
+// every side effect is the order with users/{uid} last.
 func TestJobs_ReferenceChain(t *testing.T) {
 	h := newHarness(t, func(d *LifecycleDeps) { d.WorkBudget = 25 * time.Second })
 	h.seedActive("u1", "Alice")
@@ -196,7 +196,7 @@ func TestJobs_ReferenceChain(t *testing.T) {
 	if len(h.repo.exports) != 0 || len(h.objs.objects) != 0 || len(h.repo.handles) != 0 || len(h.repo.quotas) != 0 || h.repo.private["u1"] != 0 {
 		t.Errorf("leftovers: exports=%v objects=%v handles=%v quotas=%v private=%d", h.repo.exports, h.objs.objects, h.repo.handles, h.repo.quotas, h.repo.private["u1"])
 	}
-	// ADR-0025 D11: the identity step removed the uid from the protected set (before users/{uid} went), unconditionally.
+	// The identity step removed the uid from the protected set (before users/{uid} went), unconditionally.
 	if len(h.repo.protectedRemoved) == 0 || h.repo.protectedRemoved[0] != "u1" {
 		t.Errorf("RemoveFromProtectedSet calls = %v, want [u1]", h.repo.protectedRemoved)
 	}
