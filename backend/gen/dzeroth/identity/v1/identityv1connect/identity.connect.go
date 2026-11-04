@@ -81,10 +81,7 @@ type IdentityServiceClient interface {
 	CreateProfile(context.Context, *connect.Request[v1.CreateProfileRequest]) (*connect.Response[v1.CreateProfileResponse], error)
 	// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid) and capped
 	// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
-	// Profile-exempt, so its reads are charged to the uid's daily Firestore read budget (over it => RATE_LIMITED,
-	// metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight) and metered on the caller IP's
-	// (IPv6: /64) key, which is NEVER a reason to reject: one address behind a carrier-grade NAT
-	// cannot block sign-ups for others. Only the per-minute bucket and check_handle_daily can still reject.
+	// Only the per-minute bucket and check_handle_daily can reject.
 	// Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
 	// Apple or verified password, gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads
 	// (before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
@@ -112,9 +109,6 @@ type IdentityServiceClient interface {
 	// reads: the follow bit comes from the caller's cached graph).
 	// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
 	// negatively cached 10 s.
-	// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance);
-	// over it => RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST
-	// midnight, 0 reads.
 	// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed), writes 0.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
 	// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
@@ -178,7 +172,7 @@ type IdentityServiceClient interface {
 	// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
 	// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
 	// Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
-	// Never rejected by the read budget (charge-only, the privacy rule); bounded instead by account_ops_daily:
+	// Bounded by account_ops_daily:
 	// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
 	// metadata["limit"] = "account_ops_daily"). DEGRADED_MODE=readonly rejects it; a
 	// started deletion still finishes.
@@ -189,14 +183,14 @@ type IdentityServiceClient interface {
 	// topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
 	// private `<project>-exports` bucket and sets READY, usually within a minute.
 	// Firestore: reads 2/1 (interceptor + quotas), writes 2/2 (exports doc + quotas); replay reads 3/2, writes 0.
-	// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
+	// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
 	// rejects it.
 	RequestAccountExport(context.Context, *connect.Request[v1.RequestAccountExportRequest]) (*connect.Response[v1.RequestAccountExportResponse], error)
 	// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored or logged).
 	// NOT_FOUND, byte-identical in every case, when the export doesn't exist, belongs to another user, or is past
 	// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
 	// Firestore: reads 2/1 (interceptor + exports, read fresh), writes 0.
-	// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
+	// Bounded by account_ops_daily (see DeleteAccount).
 	GetAccountExport(context.Context, *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error)
 }
 
@@ -341,10 +335,7 @@ type IdentityServiceHandler interface {
 	CreateProfile(context.Context, *connect.Request[v1.CreateProfileRequest]) (*connect.Response[v1.CreateProfileResponse], error)
 	// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid) and capped
 	// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
-	// Profile-exempt, so its reads are charged to the uid's daily Firestore read budget (over it => RATE_LIMITED,
-	// metadata["limit"] = "read_budget_daily", retry_after = time to IST midnight) and metered on the caller IP's
-	// (IPv6: /64) key, which is NEVER a reason to reject: one address behind a carrier-grade NAT
-	// cannot block sign-ups for others. Only the per-minute bucket and check_handle_daily can still reject.
+	// Only the per-minute bucket and check_handle_daily can reject.
 	// Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
 	// Apple or verified password, gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads
 	// (before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
@@ -372,9 +363,6 @@ type IdentityServiceHandler interface {
 	// reads: the follow bit comes from the caller's cached graph).
 	// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
 	// negatively cached 10 s.
-	// Charged, like every RPC, to the per-uid daily Firestore read budget (2,000 reads/uid/IST day per instance);
-	// over it => RATE_LIMITED, metadata["limit"] = "read_budget_daily", retry_after = time to IST
-	// midnight, 0 reads.
 	// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed), writes 0.
 	GetProfile(context.Context, *connect.Request[v1.GetProfileRequest]) (*connect.Response[v1.GetProfileResponse], error)
 	// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
@@ -438,7 +426,7 @@ type IdentityServiceHandler interface {
 	// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
 	// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
 	// Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
-	// Never rejected by the read budget (charge-only, the privacy rule); bounded instead by account_ops_daily:
+	// Bounded by account_ops_daily:
 	// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
 	// metadata["limit"] = "account_ops_daily"). DEGRADED_MODE=readonly rejects it; a
 	// started deletion still finishes.
@@ -449,14 +437,14 @@ type IdentityServiceHandler interface {
 	// topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
 	// private `<project>-exports` bucket and sets READY, usually within a minute.
 	// Firestore: reads 2/1 (interceptor + quotas), writes 2/2 (exports doc + quotas); replay reads 3/2, writes 0.
-	// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
+	// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
 	// rejects it.
 	RequestAccountExport(context.Context, *connect.Request[v1.RequestAccountExportRequest]) (*connect.Response[v1.RequestAccountExportResponse], error)
 	// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored or logged).
 	// NOT_FOUND, byte-identical in every case, when the export doesn't exist, belongs to another user, or is past
 	// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
 	// Firestore: reads 2/1 (interceptor + exports, read fresh), writes 0.
-	// Never rejected by the read budget; bounded by account_ops_daily (see DeleteAccount).
+	// Bounded by account_ops_daily (see DeleteAccount).
 	GetAccountExport(context.Context, *connect.Request[v1.GetAccountExportRequest]) (*connect.Response[v1.GetAccountExportResponse], error)
 }
 

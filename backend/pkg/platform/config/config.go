@@ -27,35 +27,6 @@ const MinTimelineSettleWindow = 15 * time.Second
 // timeline tokens effectively immortal.
 const MaxTimelineTokenTTL = 2160 * time.Hour
 
-// RemovalLogMaxReads is the most reads the shared moderation removal log refresh can cost: a full
-// incremental page (50) followed by the reload of the newest 50, once per instance per CACHE_TTL and only when 50
-// or more log entries are new. Since the 2026-10-18 (b) amendment (security audit RID-4) it is charged to a
-// detached counter (log field removal_log_reads), NOT to the user whose request triggered it, so it is no longer
-// part of ReadBudgetMaxCallReads. posts.RemovalWorstReads is the source; a test pins them equal.
-const RemovalLogMaxReads = 100
-
-// RemovalWindowMaxReads is the most reads the per-feed window query of one since_token refresh can charge to the
-// caller: when the token is older than the instance cache's coverage and the feed has at most 6 x 30 authors, at
-// most 51 new documents across the chunks, 50 more for boundary entries returned twice, plus one read per
-// empty chunk. posts.RemovalWindowWorstReads is the source;
-// a test pins them equal.
-const RemovalWindowMaxReads = 107
-
-// ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call charged to the user, the figure the
-// cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
-// 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). The removal log adds nothing to that
-// worst case: its shared refresh is detached (RemovalLogMaxReads) and its window query
-// (RemovalWindowMaxReads = 107) only runs for feeds of at most 180 authors (C <= 7, so such a call is at most
-// 2 + 7 + 100 + 107 = 216). Keep it in sync with that RPC's doc comment; tests use this constant, not a literal.
-const ReadBudgetMaxCallReads = 269
-
-// IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget. Since A8 nothing
-// reserves the IP key (it is charge-only everywhere), so this hold has no admission role; it is the constant any
-// future enforced IP procedure must respect. It is true because a profile-less call charged to the IP key stops
-// at account status after at most 1 read, and a call that finds a profile is charged 0 there (A9). CreateProfile
-// reads several docs but is charge-only, never held.
-const IPReadBudgetMaxCallReads = 2
-
 // Config is the full process configuration. Constructed once in main via Load/MustLoad.
 type Config struct {
 	// Port is the HTTP listen port. Cloud Run sets PORT explicitly in dev/prod; defaults to 8081 in local
@@ -680,16 +651,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: PROFILE_UPDATES_PER_DAY must be > 0 (got %d)", profileUpdatesPerDay)
 	}
 	rl.ProfileUpdatesPerDay = int64(profileUpdatesPerDay)
-	readBudgetUID, err := getInt("READ_BUDGET_PER_UID_PER_DAY", 2000)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.ReadBudgetPerUIDPerDay = int64(readBudgetUID)
-	readBudgetIP, err := getInt("READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", 500)
-	if err != nil {
-		return Config{}, err
-	}
-	rl.ReadBudgetPerIPNoProfilePerDay = int64(readBudgetIP)
 	checkHandleCalls, err := getInt("CHECK_HANDLE_CALLS_PER_DAY", 100)
 	if err != nil {
 		return Config{}, err
@@ -726,14 +687,12 @@ func Load() (Config, error) {
 	}
 	rl.NotificationPushesPerRecipientPerHour = int64(notifPushes)
 	// m3: a zero/negative cap would lock every uid out after one call (NewDailyCap clamps it to 1), so it is
-	// a startup error, not a way to "disable" the budget (rule 11: caps are reviewed like logic).
+	// a startup error, not a way to "disable" a cap.
 	for name, v := range map[string]int{
-		"READ_BUDGET_PER_UID_PER_DAY":           readBudgetUID,
-		"READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY": readBudgetIP,
-		"CHECK_HANDLE_CALLS_PER_DAY":            checkHandleCalls,
-		"ACCOUNT_OPS_CALLS_PER_DAY":             accountOpsCalls,
-		"NOTIFICATION_DEVICES_CALLS_PER_DAY":    notifDeviceCalls,
-		"NOTIFICATION_SEEN_CALLS_PER_DAY":       notifSeenCalls,
+		"CHECK_HANDLE_CALLS_PER_DAY":         checkHandleCalls,
+		"ACCOUNT_OPS_CALLS_PER_DAY":          accountOpsCalls,
+		"NOTIFICATION_DEVICES_CALLS_PER_DAY": notifDeviceCalls,
+		"NOTIFICATION_SEEN_CALLS_PER_DAY":    notifSeenCalls,
 
 		"NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY":     notifRecipients,
 		"NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY": notifRecipientsNew,

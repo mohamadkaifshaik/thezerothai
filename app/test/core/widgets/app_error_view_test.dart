@@ -65,15 +65,11 @@ void main() {
     expect(find.text('Retry'), findsNothing);
   });
 
-  testWidgets('a transient RATE_LIMITED says to wait a moment', (tester) async {
+  testWidgets('a per-minute RATE_LIMITED says to wait a moment', (
+    tester,
+  ) async {
     await tester.pumpWidget(
-      wrap(
-        const RateLimitedException(
-          'raw',
-          limitName: 'read_budget_inflight',
-          retryAfter: Duration(seconds: 1),
-        ),
-      ),
+      wrap(const RateLimitedException('raw', retryAfter: Duration(seconds: 1))),
     );
 
     expect(find.textContaining('Give it a moment'), findsOneWidget);
@@ -86,7 +82,7 @@ void main() {
       wrap(
         const RateLimitedException(
           'raw',
-          limitName: 'read_budget_daily',
+          limitName: 'search_daily',
           retryAfter: Duration(hours: 5, minutes: 10),
         ),
       ),

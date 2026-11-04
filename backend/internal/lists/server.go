@@ -18,7 +18,7 @@ import (
 const rpcDeadline = 8 * time.Second
 
 // Server is the ListService handler. It mounts every route so the interceptor chain (App Check, ID token, account status,
-// rate limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS) before anything
+// rate limits, degraded mode) covers them, and runs the flag gate (FEATURE_LISTS) before anything
 // else: a caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=lists with 0 Firestore reads. Past the
 // gate every RPC calls the Service (list writes, member writes, reads); a Server built without one answers
 // Unimplemented.

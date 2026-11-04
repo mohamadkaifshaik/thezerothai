@@ -164,7 +164,7 @@ class ThreadState {
 ///   succeeds again).
 /// - A failed page stops automatic paging: only [retryLoadMore] (the inline
 ///   Retry) tries again. While a RATE_LIMITED hold runs, the repository
-///   answers with it without sending (shared `RateLimitHold`).
+///   answers with it without sending (`RateLimitHold`).
 /// - Posts that leave every cached feed ([PostsRepository.removedPosts]) are
 ///   dropped from the replies; a removed parent/root becomes a tombstone.
 class ThreadCubit extends Cubit<ThreadState> {

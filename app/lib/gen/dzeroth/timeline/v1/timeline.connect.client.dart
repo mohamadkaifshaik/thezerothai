@@ -33,13 +33,12 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   ///            cold open 30 (F=60, page 20), writes 0.
   /// A since_token refresh also consults the instance-cached removal log (removed_ids, behind FEATURE_REMOVED_IDS:
   /// 0 reads while that flag is off). The shared log refresh (0 on a warm hit, 1 to 50 once per instance per
-  /// CACHE_TTL, 100 worst) runs on a detached counter and is NOT charged to the caller's read budget (request log
+  /// CACHE_TTL, 100 worst) runs on a detached counter (request log
   /// field removal_log_reads). Only a token older than the instance's log cache reads for the caller: at most 107
   /// (one bounded window query on postRemovals, only for feeds of up to 180 accounts), so a refresh stays bounded
   /// by 2 + C + 2 * page_size = 269 at 5,000 following, page 50. Other modes read nothing from the log. Suspending
   /// an account with 50 or more posts makes only the feeds that show it reset once (see removed_ids in the token
   /// contract).
-  /// Every call is charged to the per-uid daily Firestore read budget.
   Future<dzerothtimelinev1timeline.GetHomeTimelineResponse> getHomeTimeline(
     dzerothtimelinev1timeline.GetHomeTimelineRequest input, {
     connect.Headers? headers,
@@ -132,7 +131,6 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   /// most 107 (the window query; lists have <= 180 members, so it always applies): 218 worst, under the
   /// per-call hold of 269. The shared removal-log refresh is detached, as for Home. Planning: refresh 4 + new posts,
   /// cold open or older page 30; an empty since refresh by the owner, cold, 3 + C. Writes 0.
-  /// Every call is charged to the per-uid daily Firestore read budget.
   Future<dzerothtimelinev1timeline.GetListTimelineResponse> getListTimeline(
     dzerothtimelinev1timeline.GetListTimelineRequest input, {
     connect.Headers? headers,
@@ -189,7 +187,6 @@ extension type TimelineServiceClient (connect.Transport _transport) {
   /// Firestore: reads worst 25 at page 20 / 55 at page 50 (interceptor, community, caller member doc, posts <= page_size,
   /// caller graph, userLikes); a since_token refresh 1 + new posts warm, planning 3.5 + new posts; a cold open 25; an
   /// empty since_token refresh 4 cold; NOT_FOUND <= 2. Writes 0.
-  /// Every call is charged to the per-uid daily Firestore read budget.
   Future<dzerothtimelinev1timeline.GetCommunityTimelineResponse> getCommunityTimeline(
     dzerothtimelinev1timeline.GetCommunityTimelineRequest input, {
     connect.Headers? headers,

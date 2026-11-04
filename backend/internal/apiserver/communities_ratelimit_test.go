@@ -32,7 +32,7 @@ var (
 		communitiesv1connect.CommunityServiceRestoreCommunityPostProcedure,
 		communitiesv1connect.CommunityServiceSetMemberRoleProcedure,
 	}
-	// communityReadProcedures share the read bucket and have no daily cap (the read budget covers them).
+	// communityReadProcedures share the read bucket and have no daily cap.
 	communityReadProcedures = []string{
 		communitiesv1connect.CommunityServiceGetCommunityProcedure,
 		communitiesv1connect.CommunityServiceListCommunitiesProcedure,
@@ -75,7 +75,7 @@ func communitiesRateLimitViolations(rl ratelimit.Config) []string {
 	readBucket := rl.PerProcedure[communityReadProcedures[0]]
 	for _, p := range communityReadProcedures {
 		if _, ok := rl.DailyCaps[p]; ok {
-			out = append(out, "community read "+p+" must not be on a daily cap (the read budget covers it)")
+			out = append(out, "community read "+p+" must not be on a daily cap")
 		}
 		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != readBucket {
 			out = append(out, "community read "+p+" does not share the communities read bucket")
@@ -160,7 +160,6 @@ func TestCommunityDailyCaps_StopTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.CommunitiesWritePerUserPerMinute = 100000
 	cfg.RateLimit.CommunitiesReadPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.CommunityMutationsPerDay = memberCap
 	cfg.RateLimit.CommunityModActionsPerDay = modCap
 	rl := RateLimitConfig(cfg)

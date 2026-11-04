@@ -41,8 +41,7 @@ class PostsRepository {
   final TimelineStore _store;
   final PostsFeatureGate _gate;
 
-  /// The RATE_LIMITED hold shared with the timeline: reads send nothing
-  /// while it runs.
+  /// This repository's RATE_LIMITED hold: reads send nothing while it runs.
   final RateLimitHold _hold;
 
   final StreamController<String> _removed = StreamController.broadcast();
@@ -213,6 +212,10 @@ class PostsRepository {
     );
     return response.scheduledPost;
   }
+
+  /// Sign-out or a switch of account: the next account must not inherit the
+  /// previous one's hold.
+  void clearSession() => _hold.clear();
 
   /// Runs a read RPC unless a RATE_LIMITED answer is still held (the held
   /// exception is thrown without sending), and records a new one.

@@ -7,6 +7,12 @@ import 'package:dzeroth/features/search/data/search_repository.dart';
 /// what was asked, in order (`people:ab`, `posts:go:SEARCH_TAB_TOP`,
 /// `trends:`). Set a `*Gate` completer to hold an answer.
 class FakeSearchRepository implements SearchRepository {
+  /// How many times [clearSession] ran.
+  int clears = 0;
+
+  @override
+  void clearSession() => clears++;
+
   SearchPeopleResult peopleResult = const SearchPeopleResult();
   SearchPostsPage postsResult = const SearchPostsPage();
   TrendsResult trendsResult = const TrendsResult();

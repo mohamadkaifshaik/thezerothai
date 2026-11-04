@@ -24,8 +24,7 @@ class SearchUnavailableException implements Exception {
   String toString() => 'Search is not available.';
 }
 
-/// RATE_LIMITED (a per-minute bucket, the shared `search_daily` cap or the
-/// per-uid read budget). Show a friendly message; offer retry after
+/// RATE_LIMITED (a per-minute bucket or the `search_daily` cap). Show a friendly message; offer retry after
 /// [retryAfter] when known. [isDaily] limits reset at IST midnight.
 class SearchRateLimitedException implements Exception {
   const SearchRateLimitedException({this.retryAfter, this.isDaily = false});
@@ -120,6 +119,10 @@ abstract class SearchRepository {
 
   /// Trending hashtags; [prefix] filters for typeahead.
   Future<TrendsResult> getTrends({int limit = 10, String prefix = ''});
+
+  /// Sign-out or a switch of account: the next account must not inherit the
+  /// previous one's rate-limit hold.
+  void clearSession();
 }
 
 class ConnectSearchRepository implements SearchRepository {
@@ -134,6 +137,9 @@ class ConnectSearchRepository implements SearchRepository {
   final ApiClient _apiClient;
   final RateLimitHold _hold;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  @override
+  void clearSession() => _hold.clear();
 
   Future<T> _read<T>(Future<T> Function() call) async {
     final held = _hold.check();

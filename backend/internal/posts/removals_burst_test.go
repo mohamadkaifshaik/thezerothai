@@ -7,8 +7,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
 // TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL is the B1 regression: 250 entries (a suspension batch) share
@@ -118,19 +116,5 @@ func TestRemovalLog_WaiterGivesUpOnItsOwnContext(t *testing.T) {
 	close(r.src.block)
 	if err := <-done; err != nil {
 		t.Fatalf("first caller: %v", err)
-	}
-}
-
-func TestRemovalWorstReads_MatchesReadBudget(t *testing.T) {
-	t.Parallel()
-	if RemovalWorstReads != config.RemovalLogMaxReads {
-		t.Fatalf("RemovalWorstReads = %d, config.RemovalLogMaxReads = %d: keep them equal", RemovalWorstReads, config.RemovalLogMaxReads)
-	}
-}
-
-func TestRemovalWindowWorstReads_MatchesBudgetDocs(t *testing.T) {
-	t.Parallel()
-	if RemovalWindowWorstReads != config.RemovalWindowMaxReads {
-		t.Fatalf("RemovalWindowWorstReads = %d, config.RemovalWindowMaxReads = %d: keep them equal", RemovalWindowWorstReads, config.RemovalWindowMaxReads)
 	}
 }

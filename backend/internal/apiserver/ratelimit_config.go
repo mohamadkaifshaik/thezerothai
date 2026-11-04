@@ -25,7 +25,7 @@ import (
 const idleBucketTTL = 10 * time.Minute
 
 // RateLimitConfig builds the post-auth rate-limit interceptor's config: per-minute buckets, the per-uid daily
-// call caps and the read budget (uid, plus IP on profileExempt procedures). It is a function of
+// call caps. It is a function of
 // cfg alone so the guard test (guard_test.go) can inspect exactly what Build wires.
 func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlDefault := ratelimit.NewLimiter(cfg.RateLimit.PerUserPerMinute, idleBucketTTL)
@@ -50,7 +50,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// RegisterDevice and UnregisterDevice share one per-uid daily call cap, limit_name
 	// "notification_devices_daily" (each call is a transaction of up to 8 reads and 5 writes). The other three
-	// notification RPCs use the 60/min default bucket and the read budget.
+	// notification RPCs use the 60/min default bucket.
 	notificationDevicesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationDevicesCallsPerDay)
 	// MarkNotificationsSeen has its own cap, limit_name "notification_seen_daily": it is called on every tab focus,
 	// so sharing the 50/day devices cap would lock device registration out. 200 writes/uid/day worst case.
@@ -58,21 +58,21 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// Home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
 	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
-	// new accounts) and every read by the read budget, so there is no extra daily call cap.
+	// new accounts), so there is no extra daily call cap.
 	rlHomeTimeline := ratelimit.NewLimiter(cfg.RateLimit.TimelinePerUserPerMinute, idleBucketTTL)
 	rlUserTimeline := ratelimit.NewLimiter(cfg.RateLimit.UserTimelinePerMinute, idleBucketTTL)
 	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	rlPostDelete := ratelimit.NewLimiter(cfg.RateLimit.PostDeletePerMinute, idleBucketTTL)
 	// SchedulePost and CancelScheduledPost share the CreatePost bucket (the SAME limiter, so one user's
 	// creates, schedules and cancels draw on one 10/min budget; that bound is what limits schedule/cancel churn
-	// across the instance-local limiter). ListScheduledPosts is a read: the 60/min default bucket and the read budget.
+	// across the instance-local limiter). ListScheduledPosts is a read: the 60/min default bucket.
 	// Schedules are bounded per day by quota.Schedules (50, 10 for new accounts).
 	// ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
 	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
 	// LikePost, UnlikePost, RepostPost and UndoRepost share one per-user bucket
 	// (RATE_LIMIT_LIKES_PER_MIN, 30/min). Likes are bounded per day by quota.Likes (500, 100 for new accounts),
-	// reposts by quota.Posts, and every read by the read budget.
+	// reposts by quota.Posts.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
 	// VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
@@ -84,7 +84,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
 	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded per day by quota.Bookmarks (200, 50 for new
-	// accounts) and the cap, every call by the read budget. DEGRADED_MODE=readonly rejects Add and Remove through
+	// accounts) and the cap. DEGRADED_MODE=readonly rejects Add and Remove through
 	// their idempotency level, with no list here.
 	rlBookmarks := ratelimit.NewLimiter(cfg.RateLimit.BookmarksPerUserPerMinute, idleBucketTTL)
 	rlBookmarksList := ratelimit.NewLimiter(cfg.RateLimit.BookmarksListPerUserPerMinute, idleBucketTTL)
@@ -93,7 +93,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// 10/min) and GetProfileRelationship (RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, 60/min) each have their own per-user bucket;
 	// the last is not rlDefault so the header call cannot be starved by, or starve, the shared default. Suggestions also have a
 	// per-uid daily call cap (SUGGESTIONS_CALLS_PER_DAY, limit_name "suggestions_daily"); the likes list and the relationship
-	// are reads, covered by the read budget. Tabs share the existing GetUserTimeline bucket.
+	// are reads. Tabs share the existing GetUserTimeline bucket.
 	rlSuggestions := ratelimit.NewLimiter(cfg.RateLimit.SuggestionsPerUserPerMinute, idleBucketTTL)
 	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
 	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
@@ -107,24 +107,24 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// cap (limit_name "trends_daily", TRENDS_CALLS_PER_DAY, default 400), never the search_daily one.
 	trendsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.TrendsCallsPerDay)
 	// RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
-	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap. Both are covered by the
-	// read budget; responses need no quota (the pending requests bound them).
+	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap.
+	// Responses need no quota (the pending requests bound them).
 	rlFollowRequestsRespond := ratelimit.NewLimiter(cfg.RateLimit.FollowRequestsRespondPerUserPerMinute, idleBucketTTL)
 	// L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
-	// save loop was bounded by the read budget alone (about 6,000 writes a day per account at 3 instances). Its own per-uid
+	// save loop was unbounded (about 6,000 writes a day per account at 3 instances). Its own per-uid
 	// daily call cap, limit_name "profile_update_daily" (PROFILE_UPDATES_PER_DAY, default 100; see
 	// config.RateLimitConfig.ProfileUpdatesPerDay for the math). It counts every call, including a no-op one (0 writes).
 	profileUpdateDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ProfileUpdatesPerDay)
 	// M-1: ONE shared daily call cap over AddBookmark + RemoveBookmark (same DailyCap type, one counter per uid): an
 	// already bookmarked Add and a Remove of a missing bookmark reserve no quota but still store an idempotency doc (1 write +
 	// 1 TTL delete), so the per-minute bucket alone left them unbounded. See config.RateLimitConfig.BookmarkMutationsPerDay for
-	// the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read: the read budget covers it.
+	// the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read and has no daily cap.
 	bookmarkMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BookmarkMutationsPerDay)
 
 	// SendMessage has its own per-user bucket (RATE_LIMIT_MESSAGES_SEND_PER_MIN, 20/min per instance) and a per-uid
 	// daily call cap (MESSAGES_SENDS_PER_DAY, limit_name "messages_daily"); ListConversations and ListMessages share one read
 	// bucket (RATE_LIMIT_MESSAGES_READ_PER_MIN, 30/min per instance). MarkConversationRead, AcceptMessageRequest and
-	// DeleteConversation use the default bucket (the read budget covers every RPC) and, since then (security review M-1),
+	// DeleteConversation use the default bucket and, since then (security review M-1),
 	// a daily call cap each: MarkConversationRead alone (MESSAGES_MARK_READ_PER_DAY, "messages_mark_read_daily": it writes the
 	// caller's entry on every call, repeats included) and ONE shared cap over Accept + Delete (MESSAGES_MUTATIONS_PER_DAY,
 	// "messages_mutation_daily", the graph_mutation_daily shape). The new-account tier of the send cap
@@ -139,8 +139,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance) and ONE per-uid daily call cap
 	// (LIST_MUTATIONS_PER_DAY, limit_name "list_mutation_daily"; a replay or a no-op still stores an idempotency doc). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
-	// (RATE_LIMIT_LIST_TIMELINE_PER_MIN, 12/min), because tabs switch quickly while Home stays at 6. Every read is also covered
-	// by the read budget. Creates and adds are bounded per day by quota.ListCreates and quota.ListAdds.
+	// (RATE_LIMIT_LIST_TIMELINE_PER_MIN, 12/min), because tabs switch quickly while Home stays at 6.
+	// Creates and adds are bounded per day by quota.ListCreates and quota.ListAdds.
 	rlListsWrite := ratelimit.NewLimiter(cfg.RateLimit.ListsWritePerUserPerMinute, idleBucketTTL)
 	rlListsRead := ratelimit.NewLimiter(cfg.RateLimit.ListsReadPerUserPerMinute, idleBucketTTL)
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
@@ -152,8 +152,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// (COMMUNITY_MUTATIONS_PER_DAY, 200; a replay or a no-op still stores an idempotency doc), and the three moderator actions share
 	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor). GetCommunity, ListCommunities, ListMyCommunities,
 	// ListCommunityMembers and ListModerationLog share a read bucket (RATE_LIMIT_COMMUNITIES_READ_PER_MIN, 30/min);
-	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min). Every read is also covered by the
-	// read budget. The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate, not here.
+	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min).
+	// The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate, not here.
 	rlCommunitiesWrite := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesWritePerUserPerMinute, idleBucketTTL)
 	rlCommunitiesRead := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesReadPerUserPerMinute, idleBucketTTL)
 	rlCommunityTimeline := ratelimit.NewLimiter(cfg.RateLimit.CommunityTimelinePerUserPerMinute, idleBucketTTL)
@@ -285,33 +285,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			notificationsv1connect.NotificationServiceUnregisterDeviceProcedure:      {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
 			notificationsv1connect.NotificationServiceMarkNotificationsSeenProcedure: {Name: "notification_seen_daily", Cap: notificationSeenDailyCap},
 
-			// A6: ONE shared call cap for the three charge-only account operations (their only bound).
+			// ONE shared call cap for the three account operations.
 			identityv1connect.IdentityServiceDeleteAccountProcedure:        {Name: "account_ops_daily", Cap: accountOpsDailyCap},
 			identityv1connect.IdentityServiceRequestAccountExportProcedure: {Name: "account_ops_daily", Cap: accountOpsDailyCap},
 			identityv1connect.IdentityServiceGetAccountExportProcedure:     {Name: "account_ops_daily", Cap: accountOpsDailyCap},
-		},
-		// Covers every procedure; ReadBudgetExempt stays empty (guard_test.go). WithMaxCallReads
-		// arms the single-flight guard near the cap (review M1).
-		ReadBudget:   ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerUIDPerDay).WithMaxCallReads(config.ReadBudgetMaxCallReads),
-		ReadBudgetIP: ratelimit.NewDailyCap(cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay).WithMaxCallReads(config.IPReadBudgetMaxCallReads),
-		// The IP key never rejects. ReadBudgetIPEnforce is empty (the guard test keeps it so; a
-		// procedure added needs a recorded design decision); both exempt procedures are charge-only, so one account behind a
-		// shared IPv4 address cannot block sign-ups for everyone behind it. Together they must equal
-		// profileExemptProcedures (guard test, security L6).
-		ReadBudgetIPEnforce: map[string]struct{}{},
-		ReadBudgetIPChargeOnly: map[string]struct{}{
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {},
-			identityv1connect.IdentityServiceCreateProfileProcedure:           {},
-		},
-		// Privacy rule (review M2): charged, never rejected. Each entry needs a reason in
-		// guard_test.go allowedReadBudgetChargeOnly and a DailyCaps entry below (account_ops_daily).
-		ReadBudgetChargeOnly: map[string]struct{}{
-			// Right to delete: must work for a user who has spent today's budget (App Store / Play / DPDP).
-			identityv1connect.IdentityServiceDeleteAccountProcedure: {},
-			// Right to export: same reason; a small read count, and the per-minute bucket still applies.
-			identityv1connect.IdentityServiceRequestAccountExportProcedure: {},
-			// Polls the export produced by RequestAccountExport; must not be blocked while that job is pending.
-			identityv1connect.IdentityServiceGetAccountExportProcedure: {},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

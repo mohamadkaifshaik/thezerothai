@@ -53,12 +53,11 @@
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets RATE_LIMIT_LISTS_WRITE_PER_MIN (30) and
 //   RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances), the daily call cap
 //   LIST_MUTATIONS_PER_DAY (500 per uid per instance, metadata["limit"] = "list_mutation_daily", shared by the six
-//   list and Home-tab mutations) and the per-uid daily read budget; honour retry_after.
+//   list and Home-tab mutations); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 //
 // Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
-// call can exceed config.ReadBudgetMaxCallReads (269).
+// interceptor.
 
 package listsv1
 

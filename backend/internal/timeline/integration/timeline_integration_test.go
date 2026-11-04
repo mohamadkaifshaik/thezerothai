@@ -903,8 +903,6 @@ func TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers(t
 	if got := resp.GetRemovedIds(); len(got) != 1 || got[0] != p11 {
 		t.Fatalf("home removed_ids = %v, want only the followed author's takedown %s", got, p11)
 	}
-	// The viewer pays for its own window query (1 read: the followed authors have nothing older than the cache) on
-	// top of the refresh's own reads; the 50-entry shared refresh is not charged to it (RID-4).
 
 	_, _, err = newInstance(t, client).user(t, "me", "spam", coldSpam.GetSinceToken(), "", 20)
 	if err == nil {

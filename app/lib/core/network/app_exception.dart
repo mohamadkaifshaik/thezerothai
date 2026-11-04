@@ -27,27 +27,18 @@ final class ValidationException extends AppException {
 /// [retryAfter] elapses.
 ///
 /// [limitName] is the server's `metadata["limit"]` / `["limit_name"]`
-///E.g. `read_budget_inflight` (transient, ~1 s),
-/// `read_budget_daily`, `check_handle_daily`, `account_ops_daily`.
+/// E.g. `check_handle_daily`, `account_ops_daily`, `search_daily`; no name for
+/// a per-minute bucket.
 final class RateLimitedException extends AppException {
   const RateLimitedException(super.message, {this.retryAfter, this.limitName});
   final Duration? retryAfter;
   final String? limitName;
 
-  /// The per-uid in-flight read hold: a concurrent call of the
-  /// same account was still being charged. Rejected before the handler ran
-  /// (0 reads), so retrying after [retryAfter] is always safe.
-  bool get isInflightHold => limitName == inflightLimitName;
-
   /// A daily limit (resets at IST midnight): either named `*_daily` or with a
   /// long [retryAfter]. Never "try again in a moment".
   bool get isDaily =>
       (limitName?.endsWith('_daily') ?? false) ||
-      (!isInflightHold &&
-          retryAfter != null &&
-          retryAfter! > const Duration(minutes: 5));
-
-  static const inflightLimitName = 'read_budget_inflight';
+      (retryAfter != null && retryAfter! > const Duration(minutes: 5));
 }
 
 /// A per-user daily quota (posts, follows, uploads, exports...) was reached.
@@ -324,10 +315,7 @@ enum CommunityStateReason {
   owner('owner', "The owner can't leave their community."),
 
   /// The owner bans a moderator (remove the role first).
-  moderator(
-    'moderator',
-    'Remove their moderator role before banning them.',
-  ),
+  moderator('moderator', 'Remove their moderator role before banning them.'),
 
   /// A write to an ARCHIVED community.
   communityArchived(

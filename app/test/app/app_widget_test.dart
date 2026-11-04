@@ -39,6 +39,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,7 @@ import '../support/fake_transport.dart';
 import '../support/poll_fixtures.dart';
 import '../support/media_fixtures.dart' show MockMediaRepository;
 import '../support/notifications_fixtures.dart';
+import '../support/fake_search_repository.dart';
 import '../support/suggestions_fixtures.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
@@ -158,6 +160,8 @@ void main() {
     PollRepository? pollRepository,
     ListsRepository? listsRepository,
     HomeTabsRepository? homeTabsRepository,
+    PostsRepository? postsRepository,
+    SearchRepository? searchRepository,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -175,7 +179,8 @@ void main() {
         accountRepository: MockAccountRepository(),
         authRepository: MockAuthRepository(),
         database: database,
-        postsRepository: MockPostsRepository(),
+        postsRepository: postsRepository ?? MockPostsRepository(),
+        searchRepository: searchRepository,
         timelineRepository: MockTimelineRepository(),
         postsGate: PostsFeatureGate(isPostsEnabled: () => false),
         mediaRepository: MockMediaRepository(),
@@ -323,6 +328,30 @@ void main() {
     await tester.pump();
 
     expect(suggestions.clears, 1);
+  });
+
+  testWidgets('sign-out releases the posts and search rate-limit holds', (
+    tester,
+  ) async {
+    final posts = MockPostsRepository();
+    final search = FakeSearchRepository();
+    await pump(
+      tester,
+      auth: const AuthState(status: AuthStatus.authenticated, user: user),
+      onboarding: ready(),
+      postsRepository: posts,
+      searchRepository: search,
+    );
+    expect(search.clears, 0);
+
+    authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+
+    verify(posts.clearSession).called(1);
+    expect(search.clears, 1);
   });
 
   group('poll votes belong to the account (W6-19)', () {

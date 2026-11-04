@@ -441,7 +441,7 @@ func TestVotePoll_NewAccountDailyCap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dc := ratelimit.NewDailyCap(1000)
-			dc.Charge("viewer", tt.spent)
+			dc.AllowN("viewer", tt.spent)
 			e := newPollEnv(t, func(d *Deps, pe *pollEnv) {
 				pe.created = pe.now.Add(-tt.created)
 				if tt.cap {

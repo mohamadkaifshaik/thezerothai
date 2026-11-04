@@ -4,6 +4,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/session_epoch.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -376,6 +377,25 @@ void main() {
       await future;
       expect(repo.snapshot(), isEmpty);
       expect(events.whereType<BookmarkSettled>(), isEmpty);
+    });
+
+    test('clearSession releases the read hold', () async {
+      final hold = RateLimitHold();
+      final held = BookmarksRepository(
+        apiClient: ApiClient.withTransport(transport),
+        gate: ServiceFeatureGate(
+          isEnabled: () => true,
+          onDisabledByServer: () {},
+        ),
+        epoch: epoch,
+        rateLimitHold: hold,
+      );
+      addTearDown(held.dispose);
+      hold.record(const RateLimitedException('slow down'));
+
+      held.clearSession();
+
+      expect(hold.check(), isNull);
     });
 
     test('a toggle after sign-out starts clean', () async {

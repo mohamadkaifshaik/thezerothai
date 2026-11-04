@@ -202,7 +202,7 @@ void main() {
     when(() => repo.rateLimitedFor()).thenReturn(
       const RateLimitedException(
         'daily',
-        limitName: 'read_budget_daily',
+        limitName: 'search_daily',
         retryAfter: Duration(hours: 2),
       ),
     );

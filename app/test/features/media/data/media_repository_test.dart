@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
-import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as pb;
@@ -25,7 +24,6 @@ void main() {
   late List<http.BaseRequest> puts;
   late int putStatus;
   late bool enabled;
-  late RateLimitHold hold;
   late int disabledCalls;
   late List<Object> reported;
   late MediaRepository repo;
@@ -39,7 +37,6 @@ void main() {
     puts = [];
     disabledCalls = 0;
     reported = [];
-    hold = RateLimitHold();
     answer = (_, _) => throw StateError('unscripted');
     transport = FakeTransport((procedure, input) async {
       requests.add(input);
@@ -55,7 +52,6 @@ void main() {
         return http.Response('', putStatus);
       }),
       isMediaEnabled: () => enabled,
-      rateLimitHold: hold,
       onFeatureDisabled: () => disabledCalls++,
       onUnexpectedError: (error, _) => reported.add(error),
     );
@@ -97,47 +93,8 @@ void main() {
       expect(transport.calledProcedures, isEmpty);
     });
 
-    test('a held daily read budget is thrown without sending', () async {
-      hold.record(
-        const RateLimitedException(
-          'slow down',
-          retryAfter: Duration(minutes: 30),
-          limitName: 'read_budget_daily',
-        ),
-      );
-
-      await expectLater(
-        repo.createUpload(
-          idempotencyKey: 'k',
-          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-          images: [fakeProcessed()],
-        ),
-        throwsA(isA<RateLimitedException>()),
-      );
-      expect(transport.calledProcedures, isEmpty);
-    });
-
-    test('a daily read budget answer is recorded in the shared hold', () async {
-      answer = (_, _) => serverError(
-        connect.Code.resourceExhausted,
-        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': 'read_budget_daily'},
-      );
-
-      await expectLater(
-        repo.createUpload(
-          idempotencyKey: 'k',
-          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
-          images: [fakeProcessed()],
-        ),
-        throwsA(isA<RateLimitedException>()),
-      );
-
-      expect(hold.check(), isNotNull);
-    });
-
     test(
-      'a per-minute media limit is NOT recorded (reads keep working)',
+      'a RATE_LIMITED answer is thrown and does not block the next call',
       () async {
         answer = (_, _) => serverError(
           connect.Code.resourceExhausted,
@@ -154,7 +111,15 @@ void main() {
           throwsA(isA<RateLimitedException>()),
         );
 
-        expect(hold.check(), isNull);
+        await expectLater(
+          repo.createUpload(
+            idempotencyKey: 'k',
+            purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+            images: [fakeProcessed()],
+          ),
+          throwsA(isA<RateLimitedException>()),
+        );
+        expect(requests, hasLength(2));
       },
     );
 

@@ -147,7 +147,7 @@ abstract final class EngagementService {
   /// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
   /// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
   /// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
-  /// (at most 30/min with 3 instances). Charged to the per-uid daily read budget.
+  /// (at most 30/min with 3 instances).
   /// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
   /// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
   /// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
@@ -214,8 +214,7 @@ abstract final class EngagementService {
   /// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
   /// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
   /// planning 3; writes 3 (vote doc, post counters, userLikes) + 1 TTL delete at closes_at + 30 d. Replay or
-  /// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes. Charged to the per-uid
-  /// daily read budget.
+  /// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes.
   static const votePoll = connect.Spec(
     '/$name/VotePoll',
     connect.StreamType.unary,

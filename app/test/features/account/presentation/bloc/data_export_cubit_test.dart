@@ -255,7 +255,7 @@ void main() {
         throw const RateLimitedException(
           'slow down',
           retryAfter: Duration(seconds: 45),
-          limitName: 'read_budget_inflight',
+          limitName: 'export_minute',
         );
       }
       return _pending;

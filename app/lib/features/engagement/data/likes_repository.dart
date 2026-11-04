@@ -56,10 +56,8 @@ class LikesPage {
 ///   the next `GetMe`. UNIMPLEMENTED (the server skeleton) is treated like a
 ///   disabled flag for [kLikesUnavailableBackoff], without a report or a
 ///   `GetMe` refresh; [available] says whether the tab may be offered.
-/// - **Rate limits.** The shared [RateLimitHold] (the per-uid read budget,
-///   named limits) is checked before sending. The per-minute bucket of this
-///   RPC (10 / min, no limit name) holds only this repository, so it never
-///   freezes Home or Bookmarks.
+/// - **Rate limits.** A RATE_LIMITED answer is held in this repository only
+///   and checked before sending, so it never freezes Home or Bookmarks.
 /// - **Sign-out.** Works like `BookmarksRepository`: [clearSession] (or an
 ///   ended [SessionEpoch]) drops the session, a page that lands afterwards is
 ///   ignored ([fetchPage] returns null) and [sessionEnds] tells the open list.
@@ -88,9 +86,6 @@ class LikesRepository {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final RateLimitHold _hold;
   final DateTime Function() _now;
-
-  /// Holds back only this RPC's own per-minute bucket.
-  final RateLimitHold _bucketHold = RateLimitHold();
   final StreamController<void> _sessionEnds = StreamController<void>.broadcast(
     sync: true,
   );
@@ -159,7 +154,7 @@ class LikesRepository {
 
   Future<pb.ListLikedPostsResponse> _list(String token, int pageSize) async {
     if (_inBackoff) throw _unavailable();
-    final held = _hold.check() ?? _bucketHold.check();
+    final held = _hold.check();
     if (held != null) throw held;
     var unimplemented = false;
     try {
@@ -174,9 +169,7 @@ class LikesRepository {
         }
       });
     } on RateLimitedException catch (error) {
-      // A named limit is the shared per-uid read budget: it holds every read
-      // screen. No name: this RPC's own per-minute bucket.
-      (error.limitName == null ? _bucketHold : _hold).record(error);
+      _hold.record(error);
       rethrow;
     } on UnknownApiException catch (error, stack) {
       if (unimplemented) {
@@ -203,7 +196,7 @@ class LikesRepository {
     _seenEpoch = _epoch.value;
     _generation++;
     _unavailableUntil = null;
-    _bucketHold.clear();
+    _hold.clear();
     if (notify && !_sessionEnds.isClosed) _sessionEnds.add(null);
   }
 

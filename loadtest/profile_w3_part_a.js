@@ -22,7 +22,7 @@
 //                      loadtest/analyze_w3_part_a.js --curated-ids`; CURATED_N uids of 28 characters). FOLLOWEES=600 VIEWERS=1 is
 //                      the "user following 600 accounts" shape (the read cap must not grow with F).
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `read_budget_spent`, `source`, `candidates`,
+// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `source`, `candidates`,
 // `tab`), see loadtest/analyze_w3_part_a.js. Latency is emulator latency, indicative only.
 //
 // API requirements (a local API against the emulators, nothing else):
@@ -30,8 +30,8 @@
 //   FEATURE_FOLLOW_SUGGESTIONS=on, RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares
 //   127.0.0.1). Seeding limits to raise: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY,
 //   RATE_LIMIT_LIKES_PER_MIN, QUOTA_LIKES_PER_DAY, QUOTA_NEW_ACCOUNT_LIKES_PER_DAY, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN,
-//   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, GRAPH_MUTATIONS_PER_DAY and READ_BUDGET_PER_UID_PER_DAY (seeding spends the seeder's own
-//   budget; MODE=tabs runs at the default 2000). Per-RPC limits for the timed calls: RATE_LIMIT_USER_TIMELINE_PER_MIN,
+//   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, GRAPH_MUTATIONS_PER_DAY.
+//   Per-RPC limits for the timed calls: RATE_LIMIT_USER_TIMELINE_PER_MIN,
 //   RATE_LIMIT_LIKES_LIST_PER_MIN, RATE_LIMIT_SUGGESTIONS_PER_MIN, RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN,
 //   SUGGESTIONS_CALLS_PER_DAY.
 // The Media tab selects on `hasMedia`, which only the image-upload path writes; setup writes it through the Firestore emulator's

@@ -8,8 +8,7 @@
 // plus the GetProfile of the profile-open flow) are numbered in log order. The first table groups by (position in the
 // viewer's sequence, rpc, tab, page size, source): position 1 is a viewer whose caches are cold, later positions show what
 // the earlier calls of the same flow warmed. The second table groups by (rpc, tab, page size) over every call. Only lines
-// with message "request" carry the fields (pkg/platform/mw Logging). It also checks that read_budget_spent rises by exactly
-// fs_reads between two consecutive calls of one viewer, and counts read_budget_daily rejections and ERROR lines.
+// with message "request" carry the fields (pkg/platform/mw Logging). It also counts ERROR lines.
 const fs = require('fs');
 
 if (process.argv[2] === '--curated-ids') {
@@ -27,7 +26,6 @@ const WANT = /(GetUserTimeline|ListLikedPosts|GetProfileRelationship|ListSuggest
 const short = (rpc) => String(rpc).split('/').pop();
 const byUid = new Map();
 let errors = 0;
-let rejected = 0;
 for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
   if (!line.startsWith('{')) continue;
   let o;
@@ -38,7 +36,6 @@ for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
   }
   if (o.severity === 'ERROR') errors++;
   if (o.message !== 'request' || !WANT.test(String(o.rpc || ''))) continue;
-  if (o.limit_name === 'read_budget_daily') rejected++;
   if (!byUid.has(o.uid_hash)) byUid.set(o.uid_hash, []);
   byUid.get(o.uid_hash).push(o);
 }
@@ -70,8 +67,6 @@ const row = (key, rows) => {
 
 const byPos = new Map();
 const byRpc = new Map();
-let spentChecks = 0;
-let spentMismatch = 0;
 for (const rows of byUid.values()) {
   rows.forEach((r, n) => {
     const pos = Math.min(n + 1, 12);
@@ -81,15 +76,10 @@ for (const rows of byUid.values()) {
     const k2 = label(r).replace(/ sugg_cache_hit=\w+/, '');
     if (!byRpc.has(k2)) byRpc.set(k2, []);
     byRpc.get(k2).push(r);
-    if (n > 0 && r.read_budget_spent !== undefined && rows[n - 1].read_budget_spent !== undefined && r.code !== 'resource_exhausted') {
-      spentChecks++;
-      if (r.read_budget_spent - rows[n - 1].read_budget_spent !== (r.fs_reads || 0)) spentMismatch++;
-    }
   });
 }
 console.log('--- by position in the viewer\'s sequence');
 for (const [k, rows] of [...byPos.entries()].sort()) console.log(row(k, rows));
 console.log('--- by rpc, tab and page size (all calls)');
 for (const [k, rows] of [...byRpc.entries()].sort()) console.log(row(k, rows));
-console.log(`read_budget_spent delta == fs_reads: ${spentChecks - spentMismatch}/${spentChecks} consecutive pairs`);
-console.log(`read_budget_daily rejections: ${rejected}   ERROR lines: ${errors}   viewers: ${byUid.size}`);
+console.log(`ERROR lines: ${errors}   viewers: ${byUid.size}`);

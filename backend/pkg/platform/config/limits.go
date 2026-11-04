@@ -133,14 +133,13 @@ type RateLimitConfig struct {
 	// SearchCallsPerDay is the in-memory daily cap on SearchPeople + SearchPosts calls together (one counter per uid per
 	// instance, ratelimit.DailyCap), env SEARCH_CALLS_PER_DAY, logged as limit_name "search_daily".
 	//
-	// Default 300. At most 300 x 3 instances = 900 calls per account per day; the per-uid daily read budget
-	// (READ_BUDGET_PER_UID_PER_DAY 2,000 per instance) binds first for post searches (33 cold reads each).
+	// Default 300. At most 300 x 3 instances = 900 calls per account per day.
 	// Worst people rows 900 x 20 = 18,000 handles a day, already public on profiles.
 	SearchCallsPerDay int64
 
 	// TrendsCallsPerDay is the in-memory daily cap on GetTrends calls (one counter per uid per instance, ratelimit.DailyCap),
 	// env TRENDS_CALLS_PER_DAY, logged as limit_name "trends_daily" (part 4, review L-4). Its own cap,
-	// not search_daily: GetTrends is a warm 0-read call, so the read budget never binds it.
+	// not search_daily.
 	//
 	// Default 400 = 300 typeahead bursts (the search_daily level) + 100 TrendsCubit loads (a 5 min client TTL over 8 active
 	// hours is 96). At most 400 x 3 instances = 1,200 calls per account per day, about 36,500 a month: INR 3 to 10 per account
@@ -155,15 +154,13 @@ type RateLimitConfig struct {
 	// SuggestionsCallsPerDay is the in-memory daily cap on ListSuggestedUsers calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env SUGGESTIONS_CALLS_PER_DAY, logged as limit_name "suggestions_daily".
 	//
-	// Default 50. Worst case per account per day: 50 calls x 32 cold reads (SUGGESTIONS_EDGE_LIMIT 20;
-	// it was 42 at 30) x 3 instances (the cap is per instance) = 4,800 reads, under the 6,000 per-uid daily read
-	// budget (READ_BUDGET_PER_UID_PER_DAY 2,000 x 3 instances), so this call cap binds first. A warm call
+	// Default 50. At most 50 calls x 3 instances (the cap is per instance) per account per day. A warm call
 	// costs 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
 	SuggestionsCallsPerDay int64
 
 	// ProfileUpdatesPerDay is the in-memory daily cap on UpdateProfile calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env PROFILE_UPDATES_PER_DAY, logged as limit_name "profile_update_daily" (L-4).
-	// Before it, UpdateProfile had only the 60/min default bucket and the read budget, and rewrote the whole users
+	// Before it, UpdateProfile had only the 60/min default bucket, and rewrote the whole users
 	// document on every call even when nothing changed, so a save loop cost about 6,000 writes and 6,000 reads a day
 	// per account at 3 instances.
 	//
@@ -201,25 +198,12 @@ type RateLimitConfig struct {
 	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
 	GraphMutationsPerDay int64
 
-	// ReadBudgetPerUIDPerDay is the per-uid daily Firestore read budget every RPC is charged against
-	// (ratelimit.Config.ReadBudget), env READ_BUDGET_PER_UID_PER_DAY, default 2,000 (~9-11x a
-	// typical day of ~183 reads). The counter is per instance LIFETIME (in memory, reset only at the IST day
-	// boundary, lost when the instance dies): a uid spends at most 2,000 - 1 + ReadBudgetMaxCallReads = 2,268 reads
-	// on the budget plus 40 on account_ops_daily = 2,408 per instance lifetime. The daily
-	// total is that times the lifetimes the uid touches: 3 on a steady day, up to 6 on a rollout day, and up to
-	// ~270 when an attacker idle-cycles instances (residual R2, accepted; abuse-spike.md has the churn check).
-	ReadBudgetPerUIDPerDay int64
-	// ReadBudgetPerIPNoProfilePerDay is the per-IP (IPv4 or IPv6 /64) daily read METER,
-	// env READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY, default 500. Since A8 it never rejects: it is charged on
-	// CheckHandleAvailability, CreateProfile and the calls of a verified caller without a profile. The cap is the
-	// level at which a farm behind one address shows up (alert: jsonPayload.read_budget_ip_spent >= 500).
-	ReadBudgetPerIPNoProfilePerDay int64
 	// CheckHandleCallsPerDay is the per-uid daily call cap on CheckHandleAvailability (a ratelimit.DailyCap,
 	// limit_name "check_handle_daily"), env CHECK_HANDLE_CALLS_PER_DAY, default 100.
 	CheckHandleCallsPerDay int64
 	// AccountOpsCallsPerDay is the per-uid daily call cap shared by DeleteAccount, RequestAccountExport and
 	// GetAccountExport (a ratelimit.DailyCap, limit_name "account_ops_daily"), env
-	// ACCOUNT_OPS_CALLS_PER_DAY, default 20. Those calls are charge-only on the read budget, so this is their bound.
+	// ACCOUNT_OPS_CALLS_PER_DAY, default 20. This is their daily bound.
 	AccountOpsCallsPerDay int64
 	// NotificationDevicesCallsPerDay is the per-uid daily call cap shared by RegisterDevice and UnregisterDevice
 	// (a ratelimit.DailyCap, limit_name "notification_devices_daily"), env
@@ -229,7 +213,7 @@ type RateLimitConfig struct {
 	// NotificationSeenCallsPerDay is the per-uid daily call cap of MarkNotificationsSeen (a ratelimit.DailyCap,
 	// limit_name "notification_seen_daily"), env NOTIFICATION_SEEN_CALLS_PER_DAY, default 200. A call inside the
 	// 10 s no-op window writes nothing; otherwise 1 write, so the worst case is 200 writes per uid per day (1% of
-	// the 20k/day free quota for one uid; the per-minute bucket and the account read budget bound the rest).
+	// the 20k/day free quota for one uid; the per-minute bucket bounds the rest).
 	NotificationSeenCallsPerDay int64
 	// NotificationRecipientsPerActorPerDay is the per-actor daily cap on notification recipients, charged at the
 	// producer before anything is published (security audit N-1; a notifications.RecipientCap), env

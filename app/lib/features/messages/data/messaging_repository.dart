@@ -46,10 +46,9 @@ class ConversationsResult {
 /// - Sends and Accept go through [MessagingFeatureGate.run] (per caller); the
 ///   other four RPCs through [MessagingFeatureGate.runRead] (not globally
 ///   off), so a user dropped from the allowlist can still read and clean up.
-/// - ListConversations and ListMessages share the read [RateLimitHold]
-///   (one daily read budget per uid); a RATE_LIMITED answer is
-///   recorded there, which also holds [TimerThreadPoller]. Mutations never
-///   use it.
+/// - ListConversations and ListMessages share a read [RateLimitHold]; a
+///   RATE_LIMITED answer is recorded there, which also holds
+///   [TimerThreadPoller]. Mutations never use it.
 /// - Messages carry no sender uid, only `from_self` (D5). Nothing here logs
 ///   or reports message text.
 ///
@@ -102,6 +101,7 @@ class MessagingRepository {
   void clearSession() {
     _gate.endSession();
     _inflight.clear();
+    _hold.clear();
     _tail = Future<void>.value();
   }
 
@@ -109,7 +109,7 @@ class MessagingRepository {
   /// left; null when nothing is held.
   RateLimitedException? rateLimitedFor() => _hold.check();
 
-  /// The shared read hold, for building a [ThreadPoller] that pauses on it
+  /// The read hold, for building a [ThreadPoller] that pauses on it
   /// (`TimerThreadPoller(pull: ..., rateLimitHold: repo.rateLimitHold)`).
   RateLimitHold get rateLimitHold => _hold;
 
@@ -321,7 +321,7 @@ class MessagingRepository {
 
   /// One pull for [ThreadPoller] (`pull: () => repo.pollThread(id)`): the
   /// same refresh, answering whether it brought messages not held before.
-  /// A RATE_LIMITED answer is recorded in the shared hold and rethrown, so
+  /// A RATE_LIMITED answer is recorded in the hold and rethrown, so
   /// the poller stops until the hold clears.
   Future<PollResult> pollThread(String conversationId) async {
     final refresh = await _refreshThreadShared(conversationId);
@@ -658,7 +658,7 @@ class MessagingRepository {
     );
   }
 
-  /// A list read: held while the shared RATE_LIMITED hold is set, and a
+  /// A list read: held while the RATE_LIMITED hold is set, and a
   /// RATE_LIMITED answer is recorded in it.
   Future<T> _readCall<T>(Future<T> Function() call) async {
     final held = _hold.check();
