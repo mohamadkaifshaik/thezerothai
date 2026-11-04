@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -176,5 +177,58 @@ func TestBookmarkBuckets_AddAndRemoveShareOne(t *testing.T) {
 	}
 	if list == nil || list == add {
 		t.Error("ListBookmarks must have its own limiter")
+	}
+}
+
+// TestPublishArticle_DrawsOnTheCreatePostBucket: publishing an article creates a post, so PublishArticle and CreatePost
+// draw on one per-minute budget, in either order, through the real interceptor. SaveArticle is an autosave (the editor saves
+// after every pause in typing), so it stays on the default bucket and neither spends nor waits on the post budget.
+func TestPublishArticle_DrawsOnTheCreatePostBucket(t *testing.T) {
+	create := postsv1connect.PostServiceCreatePostProcedure
+	publish := articlesv1connect.ArticleServicePublishArticleProcedure
+	save := articlesv1connect.ArticleServiceSaveArticleProcedure
+	for _, tt := range []struct{ name, first, second string }{
+		{"creates then publish", create, publish},
+		{"publishes then create", publish, create},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := defaultRateLimitCfg()
+			cfg.RateLimit.PerUserPerMinute = 60
+			cfg.RateLimit.PerIPPerMinute = 100000
+			rl := RateLimitConfig(cfg)
+			setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+				return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+					return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-article", SignInProvider: authn.SignInProviderGoogle}), req)
+				}
+			})
+			opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl))
+			mux := http.NewServeMux()
+			for _, p := range []string{create, publish, save} {
+				mux.Handle(p, connect.NewUnaryHandler(p,
+					func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+						return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+					}, opts))
+			}
+			srv := httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			invoke := func(proc string) error {
+				c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
+				_, err := c.CallUnary(context.Background(), connect.NewRequest(&commonv1.ErrorDetail{}))
+				return err
+			}
+			// The whole minute's budget goes through the first procedure, so the second one finds it spent.
+			for i := 0; i < cfg.RateLimit.PostCreatePerMinute; i++ {
+				if err := invoke(tt.first); err != nil {
+					t.Fatalf("call %d to %s must pass: %v", i+1, tt.first, err)
+				}
+			}
+			var ce *connect.Error
+			if err := invoke(tt.second); !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
+				t.Errorf("%s after the budget went through %s: err = %v, want ResourceExhausted", tt.second, tt.first, err)
+			}
+			if err := invoke(save); err != nil {
+				t.Errorf("SaveArticle must not draw on the post budget: %v", err)
+			}
+		})
 	}
 }
