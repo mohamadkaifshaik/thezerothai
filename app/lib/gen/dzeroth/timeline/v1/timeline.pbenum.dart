@@ -38,16 +38,21 @@ class UserTimelineTab extends $pb.ProtobufEnum {
   static const UserTimelineTab USER_TIMELINE_TAB_REPOSTS =
       UserTimelineTab._(4, _omitEnumNames ? '' : 'USER_TIMELINE_TAB_REPOSTS');
 
+  /// Original published articles only. Uses the posts capability.
+  static const UserTimelineTab USER_TIMELINE_TAB_ARTICLES =
+      UserTimelineTab._(5, _omitEnumNames ? '' : 'USER_TIMELINE_TAB_ARTICLES');
+
   static const $core.List<UserTimelineTab> values = <UserTimelineTab>[
     USER_TIMELINE_TAB_UNSPECIFIED,
     USER_TIMELINE_TAB_POSTS,
     USER_TIMELINE_TAB_REPLIES,
     USER_TIMELINE_TAB_MEDIA,
     USER_TIMELINE_TAB_REPOSTS,
+    USER_TIMELINE_TAB_ARTICLES,
   ];
 
   static final $core.List<UserTimelineTab?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 4);
+      $pb.ProtobufEnum.$_initByValueList(values, 5);
   static UserTimelineTab? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

@@ -38,7 +38,7 @@ class NotificationsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!isFeatureEnabled(context, kFeatureNotifications)) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Notifications')),
+        appBar: AppBar(title: const Text('Notifications'), centerTitle: true),
         body: const Center(
           child: AppEmptyView(
             icon: Icons.notifications_none,
@@ -129,7 +129,11 @@ class _NotificationsViewState extends State<_NotificationsView>
                     controller: _controller,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
-                      AppTopBar.sliver(title: 'Notifications'),
+                      AppTopBar.sliver(
+                        title: 'Notifications',
+                        showAccountAvatar: false,
+                        centerTitle: true,
+                      ),
                       _inset(
                         inset,
                         SliverToBoxAdapter(

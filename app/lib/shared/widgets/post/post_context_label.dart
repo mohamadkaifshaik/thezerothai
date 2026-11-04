@@ -60,7 +60,21 @@ class PostContextLabel extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final tappable = onTap != null;
+    final labelText = Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+    );
+    final label = Semantics(
+      container: true,
+      button: tappable,
+      label: semanticsLabel ?? text,
+      excludeSemantics: true,
+      child: tappable ? InkWell(onTap: onTap, child: labelText) : labelText,
+    );
     final content = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
           width: AppSpacing.minTapTarget,
@@ -70,43 +84,16 @@ class PostContextLabel extends StatelessWidget {
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Text(
-            text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(color: muted),
-          ),
-        ),
+        Flexible(fit: FlexFit.loose, child: label),
       ],
-    );
-    final label = Semantics(
-      container: true,
-      button: tappable,
-      label: semanticsLabel ?? text,
-      excludeSemantics: true,
-      child: tappable
-          ? InkWell(
-              onTap: onTap,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minHeight: AppSpacing.minTapTarget,
-                ),
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: content,
-                ),
-              ),
-            )
-          : content,
     );
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: trailing == null
-          ? label
+          ? content
           : Row(
               children: [
-                Expanded(child: label),
+                Expanded(child: content),
                 trailing!,
               ],
             ),

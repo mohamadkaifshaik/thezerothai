@@ -20,6 +20,8 @@ class ProfileCacheEntries extends Table {
   TextColumn get avatarThumbUrl => text().withDefault(const Constant(''))();
   BoolColumn get isPrivate => boolean().withDefault(const Constant(false))();
   BoolColumn get verified => boolean().withDefault(const Constant(false))();
+  BoolColumn get subscriptionVerified =>
+      boolean().withDefault(const Constant(false))();
   IntColumn get followersCount => integer().withDefault(const Constant(0))();
   IntColumn get followingCount => integer().withDefault(const Constant(0))();
   IntColumn get postsCount => integer().withDefault(const Constant(0))();
@@ -344,7 +346,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 12;
+  int get schemaVersion => 13;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -422,6 +424,14 @@ class AppDatabase extends _$AppDatabase {
       // columns it was missing were added).
       if (from >= 9 && from < 11) {
         await m.alterTable(TableMigration(composerDraftEntries));
+      }
+      // v12 -> v13: cache the server-authoritative subscription verification
+      // entitlement so offline profile renders preserve the same badge state.
+      if (from < 13) {
+        await m.addColumn(
+          profileCacheEntries,
+          profileCacheEntries.subscriptionVerified,
+        );
       }
     },
   );

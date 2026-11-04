@@ -198,7 +198,7 @@ void main() {
       await openDrawer(tester);
 
       expectSize(tester, find.byType(Drawer), width: AppSize.drawerWidth);
-      for (final label in ['Profile', 'Settings', 'Sign out']) {
+      for (final label in ['Profile', 'Settings and Privacy', 'Sign out']) {
         final row = find.ancestor(
           of: find.text(label),
           matching: find.byType(ConstrainedBox),
@@ -257,7 +257,11 @@ void main() {
           findsOneWidget,
         );
         final y = [
-          for (final l in ['Profile', 'Follow requests', 'Settings'])
+          for (final l in [
+            'Profile',
+            'Follow requests',
+            'Settings and Privacy',
+          ])
             tester.getTopLeft(find.text(l)).dy,
         ];
         expect(y[0], lessThan(y[1]));
@@ -440,7 +444,7 @@ void main() {
           await pump(tester, profile: _alice, flags: flags);
           await openDrawer(tester);
           expect(find.text('History'), findsNothing, reason: '$flags');
-          expect(find.text('Settings'), findsOneWidget);
+          expect(find.text('Settings and Privacy'), findsOneWidget);
         }
       });
 
@@ -450,7 +454,7 @@ void main() {
         await openDrawer(tester);
 
         final y = [
-          for (final l in ['Profile', 'History', 'Settings'])
+          for (final l in ['Profile', 'History', 'Settings and Privacy'])
             tester.getTopLeft(find.text(l)).dy,
         ];
         expect(y[0], lessThan(y[1]));
@@ -484,7 +488,7 @@ void main() {
 
         expect(
           tester.getTopLeft(find.text('Lists')).dy,
-          lessThan(tester.getTopLeft(find.text('Settings')).dy),
+          lessThan(tester.getTopLeft(find.text('Settings and Privacy')).dy),
         );
         await tester.tap(find.text('Lists'));
         await tester.pumpAndSettle();
@@ -515,7 +519,7 @@ void main() {
 
         expect(
           tester.getTopLeft(find.text('Communities')).dy,
-          lessThan(tester.getTopLeft(find.text('Settings')).dy),
+          lessThan(tester.getTopLeft(find.text('Settings and Privacy')).dy),
         );
         await tester.tap(find.text('Communities'));
         await tester.pumpAndSettle();
@@ -566,7 +570,7 @@ void main() {
       await pump(tester, profile: _alice);
       await openDrawer(tester);
 
-      await tester.tap(find.text('Settings'));
+      await tester.tap(find.text('Settings and Privacy'));
       await tester.pumpAndSettle();
 
       expect(find.text('settings page'), findsOneWidget);
@@ -611,7 +615,7 @@ void main() {
 
       expect(find.text('Profile'), findsNothing);
       expect(find.text('Following', findRichText: true), findsNothing);
-      expect(find.text('Settings'), findsOneWidget);
+      expect(find.text('Settings and Privacy'), findsOneWidget);
       expect(find.text('Sign out'), findsOneWidget);
     });
 

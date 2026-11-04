@@ -159,14 +159,14 @@ class PostEngagementBar extends StatelessWidget {
                     cubit.setLiked(target, liked: !current.liked, shown: shown),
                 onRepost: () => _repost(context, cubit, target, current, shown),
                 onBookmark: onBookmark,
-                onShare: shareLinks == null
+                onShareAt: shareLinks == null
                     ? null
-                    : () => unawaited(
+                    : (anchor) => unawaited(
                         showPostShareMenu(
                           context,
                           url: shareLinks.postUrl(target),
                           nativeShare: shareLinks.nativeShare,
-                          anchor: trailingTargetRect(context),
+                          anchor: anchor,
                         ),
                       ),
               ),

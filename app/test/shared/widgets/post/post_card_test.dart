@@ -132,6 +132,24 @@ void main() {
     expect(find.text('hello world'), findsOneWidget);
   });
 
+  testWidgets('article title fallback appears once and captions stay visible', (
+    tester,
+  ) async {
+    final view = _view(text: 'Article title');
+    view.post.article = pb.ArticlePreview(
+      articleId: 'a' * 32,
+      title: 'Article title',
+      excerpt: 'Summary',
+    );
+    await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+    expect(find.text('Article title'), findsOneWidget);
+    expect(find.text('Summary'), findsOneWidget);
+    view.post.text = 'My caption';
+    await tester.pumpWidget(wrap(PostCard(view: view, now: _now)));
+    expect(find.text('My caption'), findsOneWidget);
+    expect(find.text('Article title'), findsOneWidget);
+  });
+
   testWidgets('"hi @bob see https://x.y #go" has exactly 3 tappable spans and '
       'the link opens externally', (tester) async {
     final opened = <String>[];

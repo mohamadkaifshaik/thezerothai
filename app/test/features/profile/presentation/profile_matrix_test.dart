@@ -18,7 +18,7 @@ import '../../../support/theme_harness.dart';
 import '../../../support/profile_rig.dart';
 
 /// The whole W3 profile screen (banner, location, website, "Follows
-/// you" and "Follow back", the four tabs, the Pinned row and its menu rows) at
+/// you" and "Follow back", the five tabs, the Pinned row and its menu rows) at
 /// every cell of the responsive matrix: 360 / 600 / 1200 dp, light and dark,
 /// text scale 1.0 / 1.3 / 2.0. The per-widget files (`profile_header_data_test`,
 /// `profile_tabs_test`, `profile_pinned_post_test`, `profile_sticky_tabs_test`)
@@ -80,7 +80,7 @@ void main() {
     if (pin) await rig.pinTabBar(tester);
   }
 
-  group('another user, every W3 header field, four tabs', () {
+  group('another user, every W3 header field, five tabs', () {
     forEachThemeAndWidth('header data, banner and targets fit', (
       tester,
       env,
@@ -138,15 +138,43 @@ void main() {
       semantics.dispose();
     }, textScales: kMatrixTextScalesLarge);
 
-    forEachThemeAndWidth('the tab bar pins under the app bar with four equal '
-        'tabs inside the screen', (tester, env) async {
+    forEachThemeAndWidth('the tab bar pins under the app bar and all five '
+        'content-sized tabs can scroll into view', (tester, env) async {
       rig.arrange(features: w3Tabs, followedBy: true);
       await openCell(tester, env, pin: true);
 
       expect(tester.takeException(), isNull);
-      expect(tabLabels(tester), ['Posts', 'Replies', 'Reposts', 'Media']);
+      expect(tabLabels(tester), [
+        'Posts',
+        'Replies',
+        'Reposts',
+        'Media',
+        'Articles',
+      ]);
+      expect(
+        tester.widget<AppTabBar>(find.byType(AppTabBar)).equalWidth,
+        isFalse,
+      );
+      final scroller = find.descendant(
+        of: find.byType(AppTabBar),
+        matching: find.byType(Scrollable),
+      );
+      expect(scroller, findsOneWidget);
+      if (env.size.width == 360 && env.textScale == 2.0) {
+        expect(
+          tester.state<ScrollableState>(scroller).position.maxScrollExtent,
+          greaterThan(0),
+        );
+      }
       for (final label in tabLabels(tester)) {
+        await rig.revealTab(tester, label);
+        expect(tester.takeException(), isNull, reason: label);
         expectInsideHorizontally(tester, tab(label), env.size.width);
+        expectMinTarget(
+          tester,
+          find.ancestor(of: tab(label), matching: find.byType(InkWell)).first,
+          reason: '$label tab',
+        );
       }
       expectMinTarget(tester, find.byType(AppTabBar), reason: 'tab bar');
       expect(
@@ -171,8 +199,10 @@ void main() {
         'Replies': 'post 104',
         'Reposts': 'post 204',
         'Media': 'post 304',
+        'Articles': 'post 404',
         'Posts': 'post 4',
       }.entries) {
+        await rig.revealTab(tester, entry.key);
         await tester.tap(tab(entry.key));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: entry.key);
@@ -181,35 +211,44 @@ void main() {
       }
     }, textScales: kMatrixTextScalesLarge);
 
-    forEachThemeAndWidth('empty Replies, Reposts and Media use their own copy '
-        'inside the screen', (tester, env) async {
-      rig.arrange(features: w3Tabs, rowsPerTab: 0);
-      await openCell(tester, env, pin: true);
+    forEachThemeAndWidth(
+      'empty Replies, Reposts, Media and Articles use their own copy '
+      'inside the screen',
+      (tester, env) async {
+        rig.arrange(features: w3Tabs, rowsPerTab: 0);
+        await openCell(tester, env, pin: true);
 
-      for (final entry in {
-        'Replies': ["@kaif hasn't replied yet"],
-        'Reposts': [
-          "@kaif hasn't reposted yet",
-          'Posts they repost will be listed here.',
-        ],
-        'Media': [
-          "@kaif hasn't shared any images yet",
-          'Posts with their images will be listed here.',
-        ],
-      }.entries) {
-        await tester.tap(tab(entry.key));
-        await tester.pumpAndSettle();
-        expect(tester.takeException(), isNull, reason: entry.key);
-        for (final text in entry.value) {
-          expect(
-            find.text(text),
-            findsOneWidget,
-            reason: '${entry.key}: $text',
-          );
-          expectInsideHorizontally(tester, find.text(text), env.size.width);
+        for (final entry in {
+          'Replies': ["@kaif hasn't replied yet"],
+          'Reposts': [
+            "@kaif hasn't reposted yet",
+            'Posts they repost will be listed here.',
+          ],
+          'Media': [
+            "@kaif hasn't shared any images yet",
+            'Posts with their images will be listed here.',
+          ],
+          'Articles': [
+            "@kaif hasn't published any articles yet",
+            'Articles they publish will be listed here.',
+          ],
+        }.entries) {
+          await rig.revealTab(tester, entry.key);
+          await tester.tap(tab(entry.key));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: entry.key);
+          for (final text in entry.value) {
+            expect(
+              find.text(text),
+              findsOneWidget,
+              reason: '${entry.key}: $text',
+            );
+            expectInsideHorizontally(tester, find.text(text), env.size.width);
+          }
         }
-      }
-    }, textScales: kMatrixTextScalesLarge);
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
   });
 
   group('"Follows you": both GetProfileRelationship paths', () {
@@ -429,7 +468,13 @@ void main() {
         findsOneWidget,
       );
       await rig.pinTabBar(tester);
-      expect(tabLabels(tester), ['Posts', 'Replies', 'Reposts', 'Media']);
+      expect(tabLabels(tester), [
+        'Posts',
+        'Replies',
+        'Reposts',
+        'Media',
+        'Articles',
+      ]);
     }, textScales: kMatrixTextScalesLarge);
   });
 
@@ -638,17 +683,17 @@ void main() {
     final cases = <String, (Set<String>, List<String>)>{
       'replies + profile_tabs': (
         {'posts', 'replies', 'graph', 'profile_tabs'},
-        ['Posts', 'Replies', 'Reposts', 'Media'],
+        ['Posts', 'Replies', 'Reposts', 'Media', 'Articles'],
       ),
       'profile_tabs, no replies': (
         {'posts', 'graph', 'profile_tabs'},
-        ['Posts', 'Reposts', 'Media'],
+        ['Posts', 'Reposts', 'Media', 'Articles'],
       ),
       'replies, profile_tabs off': (
         {'posts', 'replies', 'graph'},
-        ['Posts', 'Replies'],
+        ['Posts', 'Replies', 'Articles'],
       ),
-      'neither': ({'posts', 'graph'}, ['Posts']),
+      'neither': ({'posts', 'graph'}, ['Posts', 'Articles']),
     };
     for (final entry in cases.entries) {
       for (final scale in const [1.0, 2.0]) {
@@ -660,6 +705,7 @@ void main() {
           expect(tester.takeException(), isNull);
           expect(tabLabels(tester), entry.value.$2);
           for (final label in entry.value.$2) {
+            await rig.revealTab(tester, label);
             expectInsideHorizontally(tester, tab(label), 360);
           }
           if (!entry.value.$2.contains('Reposts')) {

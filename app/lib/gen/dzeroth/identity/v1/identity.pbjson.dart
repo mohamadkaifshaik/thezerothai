@@ -82,6 +82,13 @@ const Profile$json = {
     {'1': 'location', '3': 15, '4': 1, '5': 9, '10': 'location'},
     {'1': 'website', '3': 16, '4': 1, '5': 9, '10': 'website'},
     {'1': 'pinned_post_id', '3': 17, '4': 1, '5': 9, '10': 'pinnedPostId'},
+    {
+      '1': 'subscription_verified',
+      '3': 18,
+      '4': 1,
+      '5': 8,
+      '10': 'subscriptionVerified'
+    },
   ],
 };
 
@@ -97,7 +104,8 @@ final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
     'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0Eh0KCmJhbm5lcl91cmwYDSABKAlSCWJhbm5l'
     'clVybBIoChBiYW5uZXJfdGh1bWJfdXJsGA4gASgJUg5iYW5uZXJUaHVtYlVybBIaCghsb2NhdG'
     'lvbhgPIAEoCVIIbG9jYXRpb24SGAoHd2Vic2l0ZRgQIAEoCVIHd2Vic2l0ZRIkCg5waW5uZWRf'
-    'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElk');
+    'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElkEjMKFXN1YnNjcmlwdGlvbl92ZXJpZmllZBgSIA'
+    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQ=');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {

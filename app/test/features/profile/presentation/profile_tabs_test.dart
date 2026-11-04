@@ -49,6 +49,8 @@ void main() {
   FeedKey repliesOf(String uid) => FeedKey.user(uid, includeReplies: true);
   FeedKey repostsOf(String uid) => FeedKey.user(uid, tab: UserFeedTab.reposts);
   FeedKey mediaOf(String uid) => FeedKey.user(uid, tab: UserFeedTab.media);
+  FeedKey articlesOf(String uid) =>
+      FeedKey.user(uid, tab: UserFeedTab.articles);
 
   const withTabs = {'posts', 'replies', 'graph', 'profile_tabs'};
   const withoutTabs = {'posts', 'replies', 'graph'};
@@ -105,6 +107,7 @@ void main() {
       'replies': (repliesOf(uid), [for (var i = 130; i >= 101; i--) i]),
       'reposts': (repostsOf(uid), [for (var i = 230; i >= 201; i--) i]),
       'media': (mediaOf(uid), [for (var i = 330; i >= 301; i--) i]),
+      'articles': (articlesOf(uid), [for (var i = 430; i >= 401; i--) i]),
     };
     for (final entry in byTab.entries) {
       final (feed, defaults) = entry.value;
@@ -162,6 +165,15 @@ void main() {
   Finder tab(String label) =>
       find.descendant(of: find.byType(AppTabBar), matching: find.text(label));
 
+  Future<void> selectTab(WidgetTester tester, String label) async {
+    await Scrollable.of(
+      tester.element(tab(label)),
+      axis: Axis.horizontal,
+    ).position.ensureVisible(tester.renderObject(tab(label)));
+    await tester.pumpAndSettle();
+    await tester.tap(tab(label));
+  }
+
   /// The selected tab's list (the inner scroll view of the nested scroll).
   ScrollPosition innerPosition(WidgetTester tester) => tester
       .state<ScrollableState>(
@@ -190,7 +202,7 @@ void main() {
 
   group('tab list', () {
     forEachThemeAndWidth(
-      'flag off: Posts and Replies, as before [equal width]',
+      'profile_tabs off: Posts, Replies and Articles remain scrollable',
       (tester, env) async {
         arrange(features: withoutTabs);
         await open(
@@ -200,15 +212,13 @@ void main() {
           textScale: env.textScale,
         );
 
-        expect(tabLabels(tester), ['Posts', 'Replies']);
+        expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
         expect(find.text('Reposts'), findsNothing);
         expect(find.text('Media'), findsNothing);
-        final bar = tester.getRect(find.byType(AppTabBar));
-        final centers = [
-          for (final label in ['Posts', 'Replies'])
-            tester.getCenter(tab(label)).dx,
-        ];
-        expect(centers[1] - centers[0], closeTo(bar.width / 2, 1));
+        expect(
+          tester.widget<AppTabBar>(find.byType(AppTabBar)).equalWidth,
+          isFalse,
+        );
         expect(tester.takeException(), isNull);
         // Without the flag no Reposts or Media request is ever made.
         verifyNever(() => timeline.refresh(repostsOf(viewer)));
@@ -217,7 +227,7 @@ void main() {
     );
 
     forEachThemeAndWidth(
-      'flag on: Posts, Replies, Reposts, Media in equal widths, no overflow',
+      'all five tabs share a horizontally scrollable row without overflow',
       (tester, env) async {
         arrange();
         await open(
@@ -227,27 +237,35 @@ void main() {
           textScale: env.textScale,
         );
 
-        expect(tabLabels(tester), ['Posts', 'Replies', 'Reposts', 'Media']);
-        final bar = tester.getRect(find.byType(AppTabBar));
-        final centers = [
-          for (final label in ['Posts', 'Replies', 'Reposts', 'Media'])
-            tester.getCenter(tab(label)).dx,
-        ];
-        for (var i = 1; i < centers.length; i++) {
-          expect(centers[i] - centers[i - 1], closeTo(bar.width / 4, 1));
-        }
-        expect(centers.first, closeTo(bar.left + bar.width / 8, 1));
+        expect(tabLabels(tester), [
+          'Posts',
+          'Replies',
+          'Reposts',
+          'Media',
+          'Articles',
+        ]);
+        expect(
+          tester.widget<AppTabBar>(find.byType(AppTabBar)).equalWidth,
+          isFalse,
+        );
+        expect(
+          find.descendant(
+            of: find.byType(AppTabBar),
+            matching: find.byType(SingleChildScrollView),
+          ),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
       },
     );
 
-    testWidgets('360dp at text scale 2.0: four tabs do not overflow', (
+    testWidgets('360dp at text scale 2.0: five tabs do not overflow', (
       tester,
     ) async {
       arrange();
       await open(tester, size: const Size(360, 800), textScale: 2);
 
-      expect(tabLabels(tester), hasLength(4));
+      expect(tabLabels(tester), hasLength(5));
       expect(tester.takeException(), isNull);
     });
 
@@ -257,7 +275,7 @@ void main() {
       arrange(features: const {'posts', 'graph', 'profile_tabs'});
       await open(tester);
 
-      expect(tabLabels(tester), ['Posts', 'Reposts', 'Media']);
+      expect(tabLabels(tester), ['Posts', 'Reposts', 'Media', 'Articles']);
     });
 
     testWidgets('a tab nobody opens costs no request', (tester) async {
@@ -268,6 +286,31 @@ void main() {
       verifyNever(() => timeline.refresh(repliesOf(viewer)));
       verifyNever(() => timeline.refresh(repostsOf(viewer)));
       verifyNever(() => timeline.refresh(mediaOf(viewer)));
+      verifyNever(() => timeline.refresh(articlesOf(viewer)));
+    });
+
+    testWidgets('swipe reveals Articles and loads its own server feed once', (
+      tester,
+    ) async {
+      arrange();
+      await open(tester, size: const Size(360, 800));
+      final strip = find.descendant(
+        of: find.byType(AppTabBar),
+        matching: find.byType(SingleChildScrollView),
+      );
+      await tester.drag(strip, const Offset(-600, 0));
+      await tester.pumpAndSettle();
+      expect(tab('Articles').hitTestable(), findsOneWidget);
+      await tester.tap(tab('Articles'));
+      await tester.pumpAndSettle();
+      expect(find.text('post 430'), findsOneWidget);
+      verify(() => timeline.refresh(articlesOf(viewer))).called(1);
+      await selectTab(tester, 'Posts');
+      await tester.pumpAndSettle();
+      await selectTab(tester, 'Articles');
+      await tester.pumpAndSettle();
+      verifyNever(() => timeline.refresh(articlesOf(viewer)));
+      expect(tester.takeException(), isNull);
     });
   });
 
@@ -278,13 +321,13 @@ void main() {
       arrange();
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
       expect(find.text('post 230'), findsOneWidget);
       expect(find.text('post 30'), findsNothing);
       verify(() => timeline.refresh(repostsOf(viewer))).called(1);
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
       expect(find.text('post 330'), findsOneWidget);
       expect(find.text('post 230'), findsNothing);
@@ -292,10 +335,10 @@ void main() {
 
       // Back to Posts and Reposts: rows come from each tab's cubit, no new
       // request.
-      await tester.tap(tab('Posts'));
+      await selectTab(tester, 'Posts');
       await tester.pumpAndSettle();
       expect(find.text('post 30'), findsOneWidget);
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
       expect(find.text('post 230'), findsOneWidget);
       verifyNever(() => timeline.refresh(repostsOf(viewer)));
@@ -312,7 +355,7 @@ void main() {
       final postsOffset = innerPosition(tester).pixels;
       expect(postsOffset, greaterThan(100));
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
       expect(innerPosition(tester).pixels, 0);
       await scrollUp(tester, 400);
@@ -320,11 +363,11 @@ void main() {
       expect(mediaOffset, greaterThan(100));
       expect(mediaOffset, isNot(closeTo(postsOffset, 1)));
 
-      await tester.tap(tab('Posts'));
+      await selectTab(tester, 'Posts');
       await tester.pumpAndSettle();
       expect(innerPosition(tester).pixels, closeTo(postsOffset, 0.5));
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
       expect(innerPosition(tester).pixels, closeTo(mediaOffset, 0.5));
     });
@@ -345,7 +388,7 @@ void main() {
             snapshotOf([for (var i = 230; i >= 190; i--) i], authorId: viewer),
       );
       await open(tester);
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
       verifyNever(() => timeline.loadOlder(reposts));
 
@@ -361,7 +404,7 @@ void main() {
       arrange(rows: const {'reposts': [], 'media': []});
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
       expect(find.text("You haven't reposted yet"), findsOneWidget);
       expect(
@@ -369,7 +412,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
       expect(find.text("You haven't shared any images yet"), findsOneWidget);
       expect(
@@ -384,7 +427,7 @@ void main() {
       arrange(own: false, rows: const {'reposts': [], 'media': []});
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
       expect(find.text("@kaif hasn't reposted yet"), findsOneWidget);
       expect(
@@ -392,7 +435,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
       expect(find.text("@kaif hasn't shared any images yet"), findsOneWidget);
       expect(
@@ -411,12 +454,12 @@ void main() {
       when(() => timeline.refresh(mediaOf(viewer)))
           .thenAnswer((_) => Future.error(disabled));
       await open(tester);
-      expect(tabLabels(tester), hasLength(4));
+      expect(tabLabels(tester), hasLength(5));
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), ['Posts', 'Replies']);
+      expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
       expect(find.text('post 30'), findsOneWidget);
       // The refusal is not shown as an error.
       expect(find.text('Retry'), findsNothing);
@@ -432,10 +475,10 @@ void main() {
           .thenAnswer((_) => Future.error(disabled));
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), ['Posts', 'Replies']);
+      expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
       expect(find.text('post 30'), findsOneWidget);
       verify(() => timeline.refresh(repostsOf(viewer))).called(1);
     });
@@ -453,10 +496,10 @@ void main() {
       );
       await open(tester);
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), hasLength(4));
+      expect(tabLabels(tester), hasLength(5));
     });
 
     testWidgets('another failure shows the error with Retry and keeps the '
@@ -468,16 +511,40 @@ void main() {
           .thenAnswer((_) => Future.error(const UnknownApiException('boom')));
       await open(tester);
 
-      await tester.tap(tab('Media'));
+      await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), hasLength(4));
+      expect(tabLabels(tester), hasLength(5));
       expect(find.text('Retry'), findsOneWidget);
       verify(() => timeline.refresh(mediaOf(viewer))).called(1);
     });
   });
 
   group('pages shorter than asked (the token is followed)', () {
+    testWidgets(
+      'Articles follows an empty filtered page before showing empty',
+      (tester) async {
+        arrange();
+        final articles = articlesOf(viewer);
+        const empty = TimelineSnapshot(
+          sinceToken: 's-articles',
+          olderPageToken: 'p-articles',
+        );
+        when(() => timeline.cached(articles)).thenAnswer((_) async => empty);
+        when(() => timeline.refresh(articles)).thenAnswer((_) async => empty);
+        when(() => timeline.loadOlder(articles))
+            .thenAnswer((_) async => snapshotOf([405], authorId: viewer));
+        await open(tester);
+        await selectTab(tester, 'Articles');
+        await tester.pumpAndSettle();
+        verify(() => timeline.loadOlder(articles)).called(1);
+        expect(find.text('post 405'), findsOneWidget);
+        expect(
+          find.text("You haven't published any articles yet"),
+          findsNothing,
+        );
+      },
+    );
     testWidgets('Reposts: rows that do not fill the screen load the next '
         'page without any scrolling', (tester) async {
       arrange();
@@ -490,7 +557,7 @@ void main() {
       ).thenAnswer((_) async => snapshotOf([203, 202, 201], authorId: viewer));
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
 
       verify(() => timeline.loadOlder(reposts)).called(1);
@@ -508,7 +575,7 @@ void main() {
       when(() => timeline.loadOlder(reposts)).thenAnswer((_) => next.future);
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -533,7 +600,7 @@ void main() {
           .thenAnswer((_) async => const TimelineSnapshot(sinceToken: 's'));
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
 
       verify(() => timeline.loadOlder(reposts)).called(1);
@@ -555,7 +622,7 @@ void main() {
       );
       await open(tester);
 
-      await tester.tap(tab('Reposts'));
+      await selectTab(tester, 'Reposts');
       // One short row plus the notice banner leaves nothing to scroll; the
       // test would never settle if every held ask scheduled the next one.
       await tester.pumpAndSettle();

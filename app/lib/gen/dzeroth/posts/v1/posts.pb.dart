@@ -362,6 +362,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     $core.bool? madeWithAi,
     ReplyPolicy? replyPolicy,
     Poll? poll,
+    ArticlePreview? article,
   }) {
     final result = EmbeddedPost._();
     if (postId != null) result.postId = postId;
@@ -374,6 +375,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (replyPolicy != null) result.replyPolicy = replyPolicy;
     if (poll != null) result.poll = poll;
+    if (article != null) result.article = article;
     return result;
   }
 
@@ -406,6 +408,8 @@ class EmbeddedPost extends $pb.GeneratedMessage {
         enumValues: ReplyPolicy.values)
     ..aOM<Poll>(10, _omitFieldNames ? '' : 'poll',
         subBuilder: Poll.$_createMessage)
+    ..aOM<ArticlePreview>(11, _omitFieldNames ? '' : 'article',
+        subBuilder: ArticlePreview.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -524,6 +528,17 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   void clearPoll() => $_clearField(10);
   @$pb.TagNumber(10)
   Poll ensurePoll() => $_ensure(9);
+
+  @$pb.TagNumber(11)
+  ArticlePreview get article => $_getN(10);
+  @$pb.TagNumber(11)
+  set article(ArticlePreview value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasArticle() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearArticle() => $_clearField(11);
+  @$pb.TagNumber(11)
+  ArticlePreview ensureArticle() => $_ensure(10);
 }
 
 class Post extends $pb.GeneratedMessage {
@@ -550,6 +565,7 @@ class Post extends $pb.GeneratedMessage {
     $core.bool? madeWithAi,
     Poll? poll,
     CommunityRef? community,
+    ArticlePreview? article,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -574,6 +590,7 @@ class Post extends $pb.GeneratedMessage {
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (poll != null) result.poll = poll;
     if (community != null) result.community = community;
+    if (article != null) result.article = article;
     return result;
   }
 
@@ -623,6 +640,8 @@ class Post extends $pb.GeneratedMessage {
         subBuilder: Poll.$_createMessage)
     ..aOM<CommunityRef>(22, _omitFieldNames ? '' : 'community',
         subBuilder: CommunityRef.$_createMessage)
+    ..aOM<ArticlePreview>(23, _omitFieldNames ? '' : 'article',
+        subBuilder: ArticlePreview.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -850,6 +869,112 @@ class Post extends $pb.GeneratedMessage {
   void clearCommunity() => $_clearField(22);
   @$pb.TagNumber(22)
   CommunityRef ensureCommunity() => $_ensure(21);
+
+  @$pb.TagNumber(23)
+  ArticlePreview get article => $_getN(22);
+  @$pb.TagNumber(23)
+  set article(ArticlePreview value) => $_setField(23, value);
+  @$pb.TagNumber(23)
+  $core.bool hasArticle() => $_has(22);
+  @$pb.TagNumber(23)
+  void clearArticle() => $_clearField(23);
+  @$pb.TagNumber(23)
+  ArticlePreview ensureArticle() => $_ensure(22);
+}
+
+/// Bounded summary only. The reader fetches the authorized body separately.
+class ArticlePreview extends $pb.GeneratedMessage {
+  factory ArticlePreview({
+    $core.String? articleId,
+    $core.String? title,
+    $core.String? excerpt,
+    $core.String? coverUrl,
+  }) {
+    final result = ArticlePreview._();
+    if (articleId != null) result.articleId = articleId;
+    if (title != null) result.title = title;
+    if (excerpt != null) result.excerpt = excerpt;
+    if (coverUrl != null) result.coverUrl = coverUrl;
+    return result;
+  }
+
+  ArticlePreview._();
+
+  factory ArticlePreview.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ArticlePreview()..mergeFromBuffer(data, registry);
+  factory ArticlePreview.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ArticlePreview()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ArticlePreview',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: ArticlePreview.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'articleId')
+    ..aOS(2, _omitFieldNames ? '' : 'title')
+    ..aOS(3, _omitFieldNames ? '' : 'excerpt')
+    ..aOS(4, _omitFieldNames ? '' : 'coverUrl')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ArticlePreview clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ArticlePreview copyWith(void Function(ArticlePreview) updates) =>
+      super.copyWith((message) => updates(message as ArticlePreview))
+          as ArticlePreview;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use ArticlePreview() / ArticlePreview.new instead')
+  static ArticlePreview create() => ArticlePreview._();
+  static $pb.GeneratedMessage $_createMessage() => ArticlePreview._();
+  @$core.override
+  ArticlePreview createEmptyInstance() => ArticlePreview._();
+  @$core.pragma('dart2js:noInline')
+  static ArticlePreview getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<ArticlePreview>(
+          ArticlePreview.$_createMessage);
+  static ArticlePreview? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get articleId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set articleId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasArticleId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearArticleId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get title => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set title($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTitle() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTitle() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get excerpt => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set excerpt($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasExcerpt() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearExcerpt() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get coverUrl => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set coverUrl($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCoverUrl() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCoverUrl() => $_clearField(4);
 }
 
 /// The community a post was created in. A snapshot taken at post time: a rename does not rewrite old

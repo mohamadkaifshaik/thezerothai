@@ -100,6 +100,26 @@ func (l *Library) ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, 
 	return l.resolveOwned(ctx, uid, mediaID, PurposeBanner)
 }
 
+// ResolvePostCover previews an owned, unclaimed still image. Publication must
+// claim it again inside the root post transaction; this read never attaches.
+func (l *Library) ResolvePostCover(ctx context.Context, uid, mediaID string) (Ref, error) {
+	if !mediaIDPattern.MatchString(mediaID) {
+		return Ref{}, ErrNotReady
+	}
+	docs, err := l.repo.GetMany(ctx, []string{mediaID})
+	if err != nil {
+		return Ref{}, err
+	}
+	d := docs[mediaID]
+	if !usablePostCover(d, uid) {
+		return Ref{}, ErrNotReady
+	}
+	return l.ref(d), nil
+}
+func usablePostCover(d *Doc, uid string) bool {
+	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && d.ContentType != ContentTypeGIF
+}
+
 // resolveOwned is the one lookup behind the profile-image resolvers: ErrNotReady unless the document
 // exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
 // (a retired image's objects are scheduled for deletion, so it can never be set again).

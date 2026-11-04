@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'post_share_menu.dart';
 
 /// Engagement callbacks for [PostActionBar]. Each one should add an event to
 /// the owning bloc (e.g. `context.read<TimelineBloc>().add(...)`); the bar
@@ -13,6 +14,7 @@ class PostActions {
     this.onLike,
     this.onBookmark,
     this.onShare,
+    this.onShareAt,
   });
 
   final VoidCallback? onReply;
@@ -20,13 +22,17 @@ class PostActions {
   final VoidCallback? onLike;
   final VoidCallback? onBookmark;
   final VoidCallback? onShare;
+
+  /// Like [onShare], with the Share button's global rect, so a menu can open
+  /// at the button wherever it sits in the row. Takes precedence over
+  /// [onShare].
+  final ValueChanged<Rect>? onShareAt;
 }
 
 /// Reply / repost / like / bookmark / share: 16dp outline icons (in 48dp tap
 /// boxes) with compact counts. Every visible counted action (reply, repost,
-/// like) gets an equal, left-aligned slot, so two actions (replies off) sit
-/// next to each other instead of at opposite edges; Bookmark and Share, when
-/// offered, are right-aligned after them (Bookmark filled and accent when
+/// like) gets an equal, left-aligned slot. Share and Bookmark use the final
+/// slots in that order (Bookmark filled and accent when
 /// bookmarked). The liked / reposted state uses the like / repost colours and
 /// is announced as `selected`. Rendered by `PostCard` only when it is given
 /// [PostActions] (the engagement bar).
@@ -111,7 +117,8 @@ class PostActionBar extends StatelessWidget {
           onPressed: actions.onLike,
         ),
     ];
-    final shareShown = _shows(actions.onShare);
+    final shareShown =
+        showDisabled || actions.onShare != null || actions.onShareAt != null;
     // Offered only with a callback (never as a disabled placeholder).
     Widget? bookmark({required bool alignEnd}) => actions.onBookmark == null
         ? null
@@ -123,12 +130,16 @@ class PostActionBar extends StatelessWidget {
             alignEnd: alignEnd,
             onPressed: actions.onBookmark,
           );
-    Widget share({required bool alignEnd}) => _ActionButton(
-      icon: Icons.ios_share,
-      iconSize: iconSize,
-      label: 'Share',
-      alignEnd: alignEnd,
-      onPressed: actions.onShare,
+    Widget share({required bool alignEnd}) => Builder(
+      builder: (buttonContext) => _ActionButton(
+        icon: Icons.ios_share,
+        iconSize: iconSize,
+        label: 'Share',
+        alignEnd: alignEnd,
+        onPressed: actions.onShareAt != null
+            ? () => actions.onShareAt!(targetRectOf(buttonContext))
+            : actions.onShare,
+      ),
     );
 
     if (spread) {
@@ -138,19 +149,17 @@ class PostActionBar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           for (final button in counted) Flexible(child: button),
-          // The last glyph sits flush with the right edge, as in the list.
-          ?bookmark(alignEnd: !shareShown),
-          if (shareShown) share(alignEnd: true),
+          if (shareShown) Flexible(child: share(alignEnd: false)),
+          ?bookmark(alignEnd: false),
         ],
       );
     }
     return Row(
       children: [
         for (final button in counted) _ActionSlot(child: button),
-        // Bookmark and Share sit together at the right edge (X's action row);
-        // alone, Bookmark takes the flush-right place Share would have.
-        ?bookmark(alignEnd: !shareShown),
-        if (shareShown) share(alignEnd: true),
+        if (shareShown) _ActionSlot(child: share(alignEnd: false)),
+        if (actions.onBookmark != null)
+          _ActionSlot(child: bookmark(alignEnd: false)!),
       ],
     );
   }

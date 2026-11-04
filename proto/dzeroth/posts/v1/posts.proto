@@ -400,6 +400,7 @@ message EmbeddedPost {
   // The original's poll as a frozen definition: labels and closes_at, no counts (see Poll). Unset when
   // the original has no poll, in a tombstone, and when the embed is stripped (EMBED_VIEWER_STATE_PROTECTED).
   Poll poll = 10;
+  ArticlePreview article = 11;
 }
 
 message Post {
@@ -441,6 +442,15 @@ message Post {
   // embed. Set on every surface that returns the post (Home, profile, lists, search, GetPost, GetThread, bookmarks),
   // whatever the viewer's own flag. Unset on a withheld row. The label is not an access boundary: the post is public.
   CommunityRef community = 22;
+  ArticlePreview article = 23;
+}
+
+// Bounded summary only. The reader fetches the authorized body separately.
+message ArticlePreview {
+  string article_id = 1;
+  string title = 2;
+  string excerpt = 3;
+  string cover_url = 4;
 }
 
 // The community a post was created in. A snapshot taken at post time: a rename does not rewrite old

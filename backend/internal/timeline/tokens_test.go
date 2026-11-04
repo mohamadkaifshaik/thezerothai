@@ -251,7 +251,7 @@ func TestCodec_UserTokenBinding(t *testing.T) {
 func TestCodec_UserTabTokenMatrix(t *testing.T) {
 	t.Parallel()
 	cd := newCodec(newClock())
-	tabs := []userTab{tabPosts, tabReplies, tabMedia, tabReposts}
+	tabs := []userTab{tabPosts, tabReplies, tabMedia, tabReposts, tabArticles}
 	for _, from := range tabs {
 		f := userFeed("alice", "carol", from)
 		since := cd.encodeSince(f, pos(5000, 5))

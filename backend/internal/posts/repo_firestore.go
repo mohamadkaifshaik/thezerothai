@@ -91,16 +91,18 @@ var _ Repo = (*FirestoreRepo)(nil)
 // postDoc is the posts/{postId} shape; counters start at 0. Embedded and mentionIds are not
 // written yet; media is written from (empty unless the post has images).
 type postDoc struct {
-	AuthorID       string    `firestore:"authorId"`
-	Author         authorDoc `firestore:"author"`
-	Kind           string    `firestore:"kind"`
-	IsReply        bool      `firestore:"isReply"`
-	Text           string    `firestore:"text"`
-	ReplyToID      string    `firestore:"replyToId,omitempty"`
-	ReplyToHandle  string    `firestore:"replyToHandle,omitempty"`
-	ConversationID string    `firestore:"conversationId"`
-	QuoteOfID      string    `firestore:"quoteOfId,omitempty"`
-	RepostOfID     string    `firestore:"repostOfId,omitempty"`
+	HasArticle     bool            `firestore:"hasArticle"`
+	Article        *ArticlePreview `firestore:"article,omitempty"`
+	AuthorID       string          `firestore:"authorId"`
+	Author         authorDoc       `firestore:"author"`
+	Kind           string          `firestore:"kind"`
+	IsReply        bool            `firestore:"isReply"`
+	Text           string          `firestore:"text"`
+	ReplyToID      string          `firestore:"replyToId,omitempty"`
+	ReplyToHandle  string          `firestore:"replyToHandle,omitempty"`
+	ConversationID string          `firestore:"conversationId"`
+	QuoteOfID      string          `firestore:"quoteOfId,omitempty"`
+	RepostOfID     string          `firestore:"repostOfId,omitempty"`
 	// Embedded is the QUOTE/REPOST snapshot; EmbeddedAuthorID is its top-level, indexed author id.
 	Embedded         *embeddedDoc `firestore:"embedded,omitempty"`
 	EmbeddedAuthorID string       `firestore:"embeddedAuthorId,omitempty"`
@@ -195,12 +197,13 @@ type authorDoc struct {
 
 // embeddedDoc is the stored Embedded snapshot. A tombstone keeps only PostID and Unavailable.
 type embeddedDoc struct {
-	PostID      string     `firestore:"postId"`
-	Author      *authorDoc `firestore:"author,omitempty"`
-	Text        string     `firestore:"text,omitempty"`
-	Media       []mediaDoc `firestore:"media,omitempty"`
-	CreatedAt   *time.Time `firestore:"createdAt,omitempty"`
-	Unavailable bool       `firestore:"unavailable,omitempty"`
+	Article     *ArticlePreview `firestore:"article,omitempty"`
+	PostID      string          `firestore:"postId"`
+	Author      *authorDoc      `firestore:"author,omitempty"`
+	Text        string          `firestore:"text,omitempty"`
+	Media       []mediaDoc      `firestore:"media,omitempty"`
+	CreatedAt   *time.Time      `firestore:"createdAt,omitempty"`
+	Unavailable bool            `firestore:"unavailable,omitempty"`
 	// The embedded post's labels, copied by snapshotOf; absent = false.
 	PaidPartnership bool `firestore:"paidPartnership,omitempty"`
 	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
@@ -230,7 +233,9 @@ type mediaDoc struct {
 // toDoc converts a domain Post to its stored shape (used by writers, and by integration-test seeding).
 func toDoc(p *Post) postDoc {
 	d := postDoc{
-		AuthorID: p.AuthorID,
+		HasArticle: p.Kind == KindPost && !p.IsReply && p.Article != nil && p.Article.ArticleID != "",
+		Article:    cloneArticle(p.Article),
+		AuthorID:   p.AuthorID,
 		Author: authorDoc{
 			UserID: p.Author.UserID, Handle: p.Author.Handle, DisplayName: p.Author.DisplayName,
 			AvatarURL: p.Author.AvatarURL, Verified: p.Author.Verified,
@@ -254,6 +259,7 @@ func toDoc(p *Post) postDoc {
 	if e := p.Embedded; e != nil {
 		ed := &embeddedDoc{PostID: e.PostID, Unavailable: e.Unavailable}
 		if !e.Unavailable {
+			ed.Article = cloneArticle(e.Article)
 			ed.PaidPartnership, ed.MadeWithAI = e.PaidPartnership, e.MadeWithAI
 			ed.ReplyPolicy = string(e.ReplyPolicy)
 			if e.Poll != nil {
@@ -287,7 +293,8 @@ func toDoc(p *Post) postDoc {
 
 func (d postDoc) toPost(id string) *Post {
 	p := &Post{
-		ID: id, AuthorID: d.AuthorID,
+		Article: cloneArticle(d.Article),
+		ID:      id, AuthorID: d.AuthorID,
 		Author: AuthorSnapshot{
 			UserID: d.Author.UserID, Handle: d.Author.Handle, DisplayName: d.Author.DisplayName,
 			AvatarURL: d.Author.AvatarURL, Verified: d.Author.Verified,
@@ -311,6 +318,9 @@ func (d postDoc) toPost(id string) *Post {
 	if e := d.Embedded; e != nil {
 		pe := &Embedded{PostID: e.PostID, Text: e.Text, Unavailable: e.Unavailable,
 			PaidPartnership: e.PaidPartnership, MadeWithAI: e.MadeWithAI, ReplyPolicy: ReplyPolicy(e.ReplyPolicy)}
+		if !e.Unavailable {
+			pe.Article = cloneArticle(e.Article)
+		}
 		if e.Author != nil {
 			pe.Author = AuthorSnapshot{UserID: e.Author.UserID, Handle: e.Author.Handle, DisplayName: e.Author.DisplayName, AvatarURL: e.Author.AvatarURL, Verified: e.Author.Verified}
 		}

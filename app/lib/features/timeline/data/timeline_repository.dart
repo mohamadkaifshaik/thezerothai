@@ -502,13 +502,13 @@ class TimelineRepository {
 /// field is not sent) for the two tabs the server also reaches through
 /// `include_replies`. Posts and Replies therefore go out exactly as they did
 /// before the field existed, so an older server (or a cache of an older
-/// client) answers them identically; only Reposts and Media set it, and they
-/// are shown only while `profile_tabs` is on, which a server that knows the
-/// field is the one to list.
+/// client) answers them identically; Reposts, Media and Articles set it.
+/// Reposts and Media additionally need `profile_tabs`; Articles uses `posts`.
 tl.UserTimelineTab? _wireTab(UserFeedTab tab) => switch (tab) {
   UserFeedTab.posts || UserFeedTab.replies => null,
   UserFeedTab.reposts => tl.UserTimelineTab.USER_TIMELINE_TAB_REPOSTS,
   UserFeedTab.media => tl.UserTimelineTab.USER_TIMELINE_TAB_MEDIA,
+  UserFeedTab.articles => tl.UserTimelineTab.USER_TIMELINE_TAB_ARTICLES,
 };
 
 Duration Function() _stopwatchClock() {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'article_preview_card.dart';
+
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../format/relative_time.dart';
@@ -124,7 +126,9 @@ class EmbeddedPostCard extends StatelessWidget {
                   ),
               ],
             ),
-            if (embedded.text.isNotEmpty) ...[
+            if (embedded.text.isNotEmpty &&
+                !(embedded.hasArticle() &&
+                    embedded.text == embedded.article.title)) ...[
               const SizedBox(height: AppSpacing.xs),
               Text(
                 embedded.text,
@@ -133,9 +137,13 @@ class EmbeddedPostCard extends StatelessWidget {
                 style: theme.textTheme.bodyMedium?.copyWith(height: 1.35),
               ),
             ],
-            if (embedded.media.isNotEmpty) ...[
+            if (embedded.media.isNotEmpty && !embedded.hasArticle()) ...[
               const SizedBox(height: AppSpacing.sm),
               PostMedia(media: embedded.media),
+            ],
+            if (embedded.hasArticle()) ...[
+              const SizedBox(height: 8),
+              ArticlePreviewCard(article: embedded.article),
             ],
             // The frozen poll definition, compact and read-only; the
             // whole card opens the original for live results.

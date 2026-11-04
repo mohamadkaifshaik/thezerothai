@@ -309,11 +309,10 @@ void main() {
     });
 
     group('compose button rule (D2)', () {
-      testWidgets('hidden on Home, where the inline composer is', (
-        tester,
-      ) async {
+      testWidgets('shown on Home too; the inline composer is an alternate '
+          'entry', (tester) async {
         await pump(tester, location: '/home');
-        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(find.byType(FloatingActionButton), findsOneWidget);
       });
 
       testWidgets('hidden on Notifications and Settings', (tester) async {
@@ -355,7 +354,7 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Account menu'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Settings'));
+      await tester.tap(find.text('Settings and Privacy'));
       await tester.pumpAndSettle();
 
       expect(find.text('settings body'), findsOneWidget);
@@ -783,7 +782,14 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
         expect(labels, ['Home', 'Lists', 'Profile']);
 
@@ -822,7 +828,14 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
         expect(labels, ['Home', 'Communities', 'Profile']);
 
@@ -870,9 +883,16 @@ void main() {
         final labels = tester
             .widget<NavigationRail>(rail)
             .destinations
-            .map((d) => (d.label as Text).data)
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
             .toList();
-        expect(labels, ['Home', 'History', 'Profile']);
+        expect(labels, ['Home', 'History', 'Profile', 'More']);
 
         await tester.tap(find.byIcon(Icons.bookmark_border));
         await tester.pumpAndSettle();
@@ -925,7 +945,9 @@ void main() {
     });
   });
 
-  testWidgets('showComposeFabAt follows the D2 table', (tester) async {
+  testWidgets('showComposeFabAt hides only where the FAB conflicts', (
+    tester,
+  ) async {
     final results = <String, bool>{};
     whenListen(
       onboarding,
@@ -954,7 +976,7 @@ void main() {
     );
 
     expect(results, {
-      '/home': false,
+      '/home': true,
       '/notifications': false,
       '/bookmarks': false,
       '/settings/blocked': false,

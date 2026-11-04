@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
+
+import '../features/articles/domain/articles_repository.dart';
+
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -78,6 +81,7 @@ class AppWidget extends StatefulWidget {
     required this.authRepository,
     required this.database,
     required this.postsRepository,
+    this.articlesRepository,
     required this.timelineRepository,
     required this.postsGate,
     required this.mediaRepository,
@@ -117,6 +121,7 @@ class AppWidget extends StatefulWidget {
   final AuthRepository authRepository;
   final AppDatabase database;
   final PostsRepository postsRepository;
+  final ArticlesRepository? articlesRepository;
   final TimelineRepository timelineRepository;
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
@@ -493,6 +498,10 @@ class _AppWidgetState extends State<AppWidget> {
           value: reportUnexpectedError,
         ),
         RepositoryProvider.value(value: widget.postsRepository),
+        if (widget.articlesRepository != null)
+          RepositoryProvider<ArticlesRepository>.value(
+            value: widget.articlesRepository!,
+          ),
         RepositoryProvider.value(value: widget.timelineRepository),
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),

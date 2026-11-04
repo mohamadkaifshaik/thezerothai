@@ -102,6 +102,20 @@ class $ProfileCacheEntriesTable extends ProfileCacheEntries
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _subscriptionVerifiedMeta =
+      const VerificationMeta('subscriptionVerified');
+  @override
+  late final GeneratedColumn<bool> subscriptionVerified = GeneratedColumn<bool>(
+    'subscription_verified',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("subscription_verified" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _followersCountMeta = const VerificationMeta(
     'followersCount',
   );
@@ -159,6 +173,7 @@ class $ProfileCacheEntriesTable extends ProfileCacheEntries
     avatarThumbUrl,
     isPrivate,
     verified,
+    subscriptionVerified,
     followersCount,
     followingCount,
     postsCount,
@@ -236,6 +251,15 @@ class $ProfileCacheEntriesTable extends ProfileCacheEntries
         verified.isAcceptableOrUnknown(data['verified']!, _verifiedMeta),
       );
     }
+    if (data.containsKey('subscription_verified')) {
+      context.handle(
+        _subscriptionVerifiedMeta,
+        subscriptionVerified.isAcceptableOrUnknown(
+          data['subscription_verified']!,
+          _subscriptionVerifiedMeta,
+        ),
+      );
+    }
     if (data.containsKey('followers_count')) {
       context.handle(
         _followersCountMeta,
@@ -309,6 +333,10 @@ class $ProfileCacheEntriesTable extends ProfileCacheEntries
         DriftSqlType.bool,
         data['${effectivePrefix}verified'],
       )!,
+      subscriptionVerified: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}subscription_verified'],
+      )!,
       followersCount: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}followers_count'],
@@ -344,6 +372,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
   final String avatarThumbUrl;
   final bool isPrivate;
   final bool verified;
+  final bool subscriptionVerified;
   final int followersCount;
   final int followingCount;
   final int postsCount;
@@ -360,6 +389,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
     required this.avatarThumbUrl,
     required this.isPrivate,
     required this.verified,
+    required this.subscriptionVerified,
     required this.followersCount,
     required this.followingCount,
     required this.postsCount,
@@ -376,6 +406,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
     map['avatar_thumb_url'] = Variable<String>(avatarThumbUrl);
     map['is_private'] = Variable<bool>(isPrivate);
     map['verified'] = Variable<bool>(verified);
+    map['subscription_verified'] = Variable<bool>(subscriptionVerified);
     map['followers_count'] = Variable<int>(followersCount);
     map['following_count'] = Variable<int>(followingCount);
     map['posts_count'] = Variable<int>(postsCount);
@@ -393,6 +424,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
       avatarThumbUrl: Value(avatarThumbUrl),
       isPrivate: Value(isPrivate),
       verified: Value(verified),
+      subscriptionVerified: Value(subscriptionVerified),
       followersCount: Value(followersCount),
       followingCount: Value(followingCount),
       postsCount: Value(postsCount),
@@ -414,6 +446,9 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
       avatarThumbUrl: serializer.fromJson<String>(json['avatarThumbUrl']),
       isPrivate: serializer.fromJson<bool>(json['isPrivate']),
       verified: serializer.fromJson<bool>(json['verified']),
+      subscriptionVerified: serializer.fromJson<bool>(
+        json['subscriptionVerified'],
+      ),
       followersCount: serializer.fromJson<int>(json['followersCount']),
       followingCount: serializer.fromJson<int>(json['followingCount']),
       postsCount: serializer.fromJson<int>(json['postsCount']),
@@ -432,6 +467,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
       'avatarThumbUrl': serializer.toJson<String>(avatarThumbUrl),
       'isPrivate': serializer.toJson<bool>(isPrivate),
       'verified': serializer.toJson<bool>(verified),
+      'subscriptionVerified': serializer.toJson<bool>(subscriptionVerified),
       'followersCount': serializer.toJson<int>(followersCount),
       'followingCount': serializer.toJson<int>(followingCount),
       'postsCount': serializer.toJson<int>(postsCount),
@@ -448,6 +484,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
     String? avatarThumbUrl,
     bool? isPrivate,
     bool? verified,
+    bool? subscriptionVerified,
     int? followersCount,
     int? followingCount,
     int? postsCount,
@@ -461,6 +498,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
     avatarThumbUrl: avatarThumbUrl ?? this.avatarThumbUrl,
     isPrivate: isPrivate ?? this.isPrivate,
     verified: verified ?? this.verified,
+    subscriptionVerified: subscriptionVerified ?? this.subscriptionVerified,
     followersCount: followersCount ?? this.followersCount,
     followingCount: followingCount ?? this.followingCount,
     postsCount: postsCount ?? this.postsCount,
@@ -480,6 +518,9 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
           : this.avatarThumbUrl,
       isPrivate: data.isPrivate.present ? data.isPrivate.value : this.isPrivate,
       verified: data.verified.present ? data.verified.value : this.verified,
+      subscriptionVerified: data.subscriptionVerified.present
+          ? data.subscriptionVerified.value
+          : this.subscriptionVerified,
       followersCount: data.followersCount.present
           ? data.followersCount.value
           : this.followersCount,
@@ -504,6 +545,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
           ..write('avatarThumbUrl: $avatarThumbUrl, ')
           ..write('isPrivate: $isPrivate, ')
           ..write('verified: $verified, ')
+          ..write('subscriptionVerified: $subscriptionVerified, ')
           ..write('followersCount: $followersCount, ')
           ..write('followingCount: $followingCount, ')
           ..write('postsCount: $postsCount, ')
@@ -522,6 +564,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
     avatarThumbUrl,
     isPrivate,
     verified,
+    subscriptionVerified,
     followersCount,
     followingCount,
     postsCount,
@@ -539,6 +582,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
           other.avatarThumbUrl == this.avatarThumbUrl &&
           other.isPrivate == this.isPrivate &&
           other.verified == this.verified &&
+          other.subscriptionVerified == this.subscriptionVerified &&
           other.followersCount == this.followersCount &&
           other.followingCount == this.followingCount &&
           other.postsCount == this.postsCount &&
@@ -554,6 +598,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
   final Value<String> avatarThumbUrl;
   final Value<bool> isPrivate;
   final Value<bool> verified;
+  final Value<bool> subscriptionVerified;
   final Value<int> followersCount;
   final Value<int> followingCount;
   final Value<int> postsCount;
@@ -568,6 +613,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
     this.avatarThumbUrl = const Value.absent(),
     this.isPrivate = const Value.absent(),
     this.verified = const Value.absent(),
+    this.subscriptionVerified = const Value.absent(),
     this.followersCount = const Value.absent(),
     this.followingCount = const Value.absent(),
     this.postsCount = const Value.absent(),
@@ -583,6 +629,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
     this.avatarThumbUrl = const Value.absent(),
     this.isPrivate = const Value.absent(),
     this.verified = const Value.absent(),
+    this.subscriptionVerified = const Value.absent(),
     this.followersCount = const Value.absent(),
     this.followingCount = const Value.absent(),
     this.postsCount = const Value.absent(),
@@ -601,6 +648,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
     Expression<String>? avatarThumbUrl,
     Expression<bool>? isPrivate,
     Expression<bool>? verified,
+    Expression<bool>? subscriptionVerified,
     Expression<int>? followersCount,
     Expression<int>? followingCount,
     Expression<int>? postsCount,
@@ -616,6 +664,8 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
       if (avatarThumbUrl != null) 'avatar_thumb_url': avatarThumbUrl,
       if (isPrivate != null) 'is_private': isPrivate,
       if (verified != null) 'verified': verified,
+      if (subscriptionVerified != null)
+        'subscription_verified': subscriptionVerified,
       if (followersCount != null) 'followers_count': followersCount,
       if (followingCount != null) 'following_count': followingCount,
       if (postsCount != null) 'posts_count': postsCount,
@@ -633,6 +683,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
     Value<String>? avatarThumbUrl,
     Value<bool>? isPrivate,
     Value<bool>? verified,
+    Value<bool>? subscriptionVerified,
     Value<int>? followersCount,
     Value<int>? followingCount,
     Value<int>? postsCount,
@@ -648,6 +699,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
       avatarThumbUrl: avatarThumbUrl ?? this.avatarThumbUrl,
       isPrivate: isPrivate ?? this.isPrivate,
       verified: verified ?? this.verified,
+      subscriptionVerified: subscriptionVerified ?? this.subscriptionVerified,
       followersCount: followersCount ?? this.followersCount,
       followingCount: followingCount ?? this.followingCount,
       postsCount: postsCount ?? this.postsCount,
@@ -683,6 +735,9 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
     if (verified.present) {
       map['verified'] = Variable<bool>(verified.value);
     }
+    if (subscriptionVerified.present) {
+      map['subscription_verified'] = Variable<bool>(subscriptionVerified.value);
+    }
     if (followersCount.present) {
       map['followers_count'] = Variable<int>(followersCount.value);
     }
@@ -712,6 +767,7 @@ class ProfileCacheEntriesCompanion extends UpdateCompanion<CachedProfile> {
           ..write('avatarThumbUrl: $avatarThumbUrl, ')
           ..write('isPrivate: $isPrivate, ')
           ..write('verified: $verified, ')
+          ..write('subscriptionVerified: $subscriptionVerified, ')
           ..write('followersCount: $followersCount, ')
           ..write('followingCount: $followingCount, ')
           ..write('postsCount: $postsCount, ')
@@ -5108,6 +5164,7 @@ typedef $$ProfileCacheEntriesTableCreateCompanionBuilder =
       Value<String> avatarThumbUrl,
       Value<bool> isPrivate,
       Value<bool> verified,
+      Value<bool> subscriptionVerified,
       Value<int> followersCount,
       Value<int> followingCount,
       Value<int> postsCount,
@@ -5124,6 +5181,7 @@ typedef $$ProfileCacheEntriesTableUpdateCompanionBuilder =
       Value<String> avatarThumbUrl,
       Value<bool> isPrivate,
       Value<bool> verified,
+      Value<bool> subscriptionVerified,
       Value<int> followersCount,
       Value<int> followingCount,
       Value<int> postsCount,
@@ -5177,6 +5235,11 @@ class $$ProfileCacheEntriesTableFilterComposer
 
   ColumnFilters<bool> get verified => $composableBuilder(
     column: $table.verified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get subscriptionVerified => $composableBuilder(
+    column: $table.subscriptionVerified,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5250,6 +5313,11 @@ class $$ProfileCacheEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get subscriptionVerified => $composableBuilder(
+    column: $table.subscriptionVerified,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get followersCount => $composableBuilder(
     column: $table.followersCount,
     builder: (column) => ColumnOrderings(column),
@@ -5307,6 +5375,11 @@ class $$ProfileCacheEntriesTableAnnotationComposer
 
   GeneratedColumn<bool> get verified =>
       $composableBuilder(column: $table.verified, builder: (column) => column);
+
+  GeneratedColumn<bool> get subscriptionVerified => $composableBuilder(
+    column: $table.subscriptionVerified,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<int> get followersCount => $composableBuilder(
     column: $table.followersCount,
@@ -5378,6 +5451,7 @@ class $$ProfileCacheEntriesTableTableManager
                 Value<String> avatarThumbUrl = const Value.absent(),
                 Value<bool> isPrivate = const Value.absent(),
                 Value<bool> verified = const Value.absent(),
+                Value<bool> subscriptionVerified = const Value.absent(),
                 Value<int> followersCount = const Value.absent(),
                 Value<int> followingCount = const Value.absent(),
                 Value<int> postsCount = const Value.absent(),
@@ -5392,6 +5466,7 @@ class $$ProfileCacheEntriesTableTableManager
                 avatarThumbUrl: avatarThumbUrl,
                 isPrivate: isPrivate,
                 verified: verified,
+                subscriptionVerified: subscriptionVerified,
                 followersCount: followersCount,
                 followingCount: followingCount,
                 postsCount: postsCount,
@@ -5408,6 +5483,7 @@ class $$ProfileCacheEntriesTableTableManager
                 Value<String> avatarThumbUrl = const Value.absent(),
                 Value<bool> isPrivate = const Value.absent(),
                 Value<bool> verified = const Value.absent(),
+                Value<bool> subscriptionVerified = const Value.absent(),
                 Value<int> followersCount = const Value.absent(),
                 Value<int> followingCount = const Value.absent(),
                 Value<int> postsCount = const Value.absent(),
@@ -5422,6 +5498,7 @@ class $$ProfileCacheEntriesTableTableManager
                 avatarThumbUrl: avatarThumbUrl,
                 isPrivate: isPrivate,
                 verified: verified,
+                subscriptionVerified: subscriptionVerified,
                 followersCount: followersCount,
                 followingCount: followingCount,
                 postsCount: postsCount,

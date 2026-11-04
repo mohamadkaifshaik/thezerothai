@@ -92,6 +92,7 @@ type Mention struct {
 // visibility PUBLIC, all counters 0, and the replies and engagement slices add their fields. Media
 // is the published image refs the post carries, in request order.
 type Post struct {
+	Article       *ArticlePreview
 	ID            string
 	AuthorID      string
 	Author        AuthorSnapshot
@@ -186,6 +187,7 @@ func (p *Post) EmbeddedAuthor() string {
 // Embedded is the frozen one-level snapshot a QUOTE or REPOST carries of the post it copies. The
 // author snapshot is not refreshed by the profile-snapshot job. A tombstone has only PostID and Unavailable set.
 type Embedded struct {
+	Article     *ArticlePreview
 	PostID      string
 	Author      AuthorSnapshot
 	Text        string
@@ -351,6 +353,10 @@ type Service interface {
 // CreateInput is the CreatePost request at the domain layer (server.go converts from the proto). Slice-2+
 // fields are carried only so the service can reject them uniformly (FEATURE_DISABLED).
 type CreateInput struct {
+	// Trusted module input; the public CreatePost handler never sets it.
+	ArticlePublication ArticlePublication
+	// Article is trusted internal publication metadata; ordinary PostService requests cannot set it.
+	Article        *ArticlePreview
 	IdempotencyKey string
 	Text           string
 	MediaIDs       []string
@@ -400,6 +406,19 @@ type CreateInput struct {
 	// community conversation then skips CommunityGate.CanReply.
 	CommunitiesGloballyOff bool
 }
+
+// ArticlePublication loads the frozen draft inside the root post transaction;
+// its claim finalizes the article in the same atomic unit of work.
+type ArticlePublication interface {
+	LoadForPublish(context.Context, *firestore.Transaction) (ArticlePublicationClaim, error)
+}
+
+// ArticleReader returns indexed original article roots in chronological windows.
+// It is separate from Reader so older consumer adapters remain compatible.
+type ArticleReader interface {
+	ByAuthorArticles(context.Context, string, Window, int) ([]*Post, error)
+}
+type ArticlePublicationClaim interface{ Publish(store.Batch, string) }
 
 // ErrMediaNotReady is returned by Repo.Create when a media id is missing, not the caller's, not a READY POST
 // image, or already attached to another post (one answer: no oracle). The service maps it to

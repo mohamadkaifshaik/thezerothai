@@ -235,7 +235,7 @@ func TestW320_UnknownTabIsValidationAtZeroReads(t *testing.T) {
 	} {
 		r := newW320Chain(t, mut)
 		r.w320Warm(t, viewer)
-		for _, n := range []timelinev1.UserTimelineTab{5, 6, 99, -1} {
+		for _, n := range []timelinev1.UserTimelineTab{6, 7, 99, -1} {
 			_, err := r.w320TabCall(viewer, author.uid, n, false, 20, "", "")
 			w320Reason(t, fmt.Sprintf("%s, tab=%d", name, n), err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "tab")
 		}

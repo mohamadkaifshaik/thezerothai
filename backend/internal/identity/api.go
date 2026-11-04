@@ -31,24 +31,25 @@ const (
 
 // Profile is the identity module's domain representation of users/{uid}.
 type Profile struct {
-	UserID              string
-	Handle              string
-	HandleLower         string
-	DisplayName         string
-	Bio                 string
-	AvatarURL           string
-	AvatarThumbURL      string
-	IsPrivate           bool
-	Verified            bool
-	Status              AccountStatus
-	FollowersCount      int64
-	FollowingCount      int64
-	PostsCount          int64
-	NotificationsSeenAt time.Time
-	HandleChangedAt     time.Time
-	SnapshotVersion     int64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	UserID               string
+	Handle               string
+	HandleLower          string
+	DisplayName          string
+	Bio                  string
+	AvatarURL            string
+	AvatarThumbURL       string
+	IsPrivate            bool
+	Verified             bool
+	SubscriptionVerified bool
+	Status               AccountStatus
+	FollowersCount       int64
+	FollowingCount       int64
+	PostsCount           int64
+	NotificationsSeenAt  time.Time
+	HandleChangedAt      time.Time
+	SnapshotVersion      int64
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 	// Profile extras: all absent = none. Never part of the author snapshot. PinnedPostID is omitted from the
 	// RPC responses while profile_extras is globally off.
 	BannerURL      string

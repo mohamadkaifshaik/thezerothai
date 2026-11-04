@@ -851,6 +851,7 @@ void main() {
     final replies = FeedKey.user(uid, includeReplies: true);
     final reposts = FeedKey.user(uid, tab: UserFeedTab.reposts);
     final media = FeedKey.user(uid, tab: UserFeedTab.media);
+    final articles = FeedKey.user(uid, tab: UserFeedTab.articles);
 
     void giveUser(List<int> n, {String next = '', String since = ''}) {
       script[_user]!.add(
@@ -861,6 +862,24 @@ void main() {
         ),
       );
     }
+
+    test(
+      'Articles sends its server filter and keeps its own paging tokens',
+      () async {
+        giveUser([31], next: 'p-articles', since: 's-articles');
+        await repo.refresh(articles);
+        final initial = requests.single as tl.GetUserTimelineRequest;
+        expect(initial.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_ARTICLES);
+        expect(initial.includeReplies, isFalse);
+        requests.clear();
+        giveUser([30]);
+        await repo.loadOlder(articles);
+        final older = requests.single as tl.GetUserTimelineRequest;
+        expect(older.tab, tl.UserTimelineTab.USER_TIMELINE_TAB_ARTICLES);
+        expect(older.pageToken, 'p-articles');
+        expect((await repo.cached(posts)).posts, isEmpty);
+      },
+    );
 
     test('Posts and Replies go out exactly as before the tab field: no tab, '
         'include_replies only', () async {

@@ -44,6 +44,7 @@ class Profile extends $pb.GeneratedMessage {
     $core.String? location,
     $core.String? website,
     $core.String? pinnedPostId,
+    $core.bool? subscriptionVerified,
   }) {
     final result = Profile._();
     if (userId != null) result.userId = userId;
@@ -63,6 +64,8 @@ class Profile extends $pb.GeneratedMessage {
     if (location != null) result.location = location;
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
+    if (subscriptionVerified != null)
+      result.subscriptionVerified = subscriptionVerified;
     return result;
   }
 
@@ -98,6 +101,7 @@ class Profile extends $pb.GeneratedMessage {
     ..aOS(15, _omitFieldNames ? '' : 'location')
     ..aOS(16, _omitFieldNames ? '' : 'website')
     ..aOS(17, _omitFieldNames ? '' : 'pinnedPostId')
+    ..aOB(18, _omitFieldNames ? '' : 'subscriptionVerified')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -298,6 +302,17 @@ class Profile extends $pb.GeneratedMessage {
   $core.bool hasPinnedPostId() => $_has(16);
   @$pb.TagNumber(17)
   void clearPinnedPostId() => $_clearField(17);
+
+  /// Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
+  /// an active paid subscription; unrelated to verified identity or email status.
+  @$pb.TagNumber(18)
+  $core.bool get subscriptionVerified => $_getBF(17);
+  @$pb.TagNumber(18)
+  set subscriptionVerified($core.bool value) => $_setBool(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasSubscriptionVerified() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearSubscriptionVerified() => $_clearField(18);
 }
 
 class CreateProfileRequest extends $pb.GeneratedMessage {

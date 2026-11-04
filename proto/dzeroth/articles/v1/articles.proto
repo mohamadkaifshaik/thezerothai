@@ -1,0 +1,52 @@
+syntax = "proto3";
+package dzeroth.articles.v1;
+
+import "dzeroth/posts/v1/posts.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1;articlesv1";
+
+// Article bodies are read separately from bounded timeline previews.
+service ArticleService {
+  rpc GetArticle(GetArticleRequest) returns (GetArticleResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc ListArticles(ListArticlesRequest) returns (ListArticlesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc SaveArticle(SaveArticleRequest) returns (SaveArticleResponse);
+  rpc DeleteArticle(DeleteArticleRequest) returns (DeleteArticleResponse);
+  rpc PublishArticle(PublishArticleRequest) returns (PublishArticleResponse);
+}
+
+message Article {
+  string article_id = 1;
+  string author_id = 2;
+  int64 revision = 3;
+  string title = 4;
+  // JSON array of validated structured blocks; never HTML.
+  string body_json = 5;
+  string cover_media_id = 6;
+  string post_id = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  string cover_url = 9;
+  bool publication_pending = 10;
+  string publication_caption = 11;
+  dzeroth.posts.v1.ReplyPolicy publication_reply_policy = 12;
+}
+message GetArticleRequest { string article_id = 1; }
+message GetArticleResponse { Article article = 1; dzeroth.posts.v1.PostView post = 2; }
+message ListArticlesRequest { bool published = 1; int32 page_size = 2; string page_token = 3; }
+message ListArticlesResponse { repeated Article articles = 1; string next_page_token = 2; }
+message SaveArticleRequest { Article article = 1; int64 expected_revision = 2; }
+message SaveArticleResponse { Article article = 1; }
+message DeleteArticleRequest { string article_id = 1; int64 expected_revision = 2; }
+message DeleteArticleResponse {}
+message PublishArticleRequest {
+  string article_id = 1;
+  int64 expected_revision = 2;
+  string idempotency_key = 3;
+  string caption = 4;
+  dzeroth.posts.v1.ReplyPolicy reply_policy = 5;
+}
+message PublishArticleResponse { Article article = 1; dzeroth.posts.v1.PostView post = 2; }

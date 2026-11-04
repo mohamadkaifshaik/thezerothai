@@ -83,6 +83,8 @@ const (
 	UserTimelineTab_USER_TIMELINE_TAB_MEDIA UserTimelineTab = 3
 	// The author's REPOST items (kind == REPOST). Needs FEATURE_PROFILE_TABS.
 	UserTimelineTab_USER_TIMELINE_TAB_REPOSTS UserTimelineTab = 4
+	// Original published articles only. Uses the posts capability.
+	UserTimelineTab_USER_TIMELINE_TAB_ARTICLES UserTimelineTab = 5
 )
 
 // Enum value maps for UserTimelineTab.
@@ -93,6 +95,7 @@ var (
 		2: "USER_TIMELINE_TAB_REPLIES",
 		3: "USER_TIMELINE_TAB_MEDIA",
 		4: "USER_TIMELINE_TAB_REPOSTS",
+		5: "USER_TIMELINE_TAB_ARTICLES",
 	}
 	UserTimelineTab_value = map[string]int32{
 		"USER_TIMELINE_TAB_UNSPECIFIED": 0,
@@ -100,6 +103,7 @@ var (
 		"USER_TIMELINE_TAB_REPLIES":     2,
 		"USER_TIMELINE_TAB_MEDIA":       3,
 		"USER_TIMELINE_TAB_REPOSTS":     4,
+		"USER_TIMELINE_TAB_ARTICLES":    5,
 	}
 )
 
@@ -951,13 +955,14 @@ const file_dzeroth_timeline_v1_timeline_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12.\n" +
 	"\x04tabs\x18\x02 \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\x04tabs\"E\n" +
 	"\x13SetHomeTabsResponse\x12.\n" +
-	"\x04tabs\x18\x01 \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\x04tabs*\xac\x01\n" +
+	"\x04tabs\x18\x01 \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\x04tabs*\xcc\x01\n" +
 	"\x0fUserTimelineTab\x12!\n" +
 	"\x1dUSER_TIMELINE_TAB_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17USER_TIMELINE_TAB_POSTS\x10\x01\x12\x1d\n" +
 	"\x19USER_TIMELINE_TAB_REPLIES\x10\x02\x12\x1b\n" +
 	"\x17USER_TIMELINE_TAB_MEDIA\x10\x03\x12\x1d\n" +
-	"\x19USER_TIMELINE_TAB_REPOSTS\x10\x042\xcf\x04\n" +
+	"\x19USER_TIMELINE_TAB_REPOSTS\x10\x04\x12\x1e\n" +
+	"\x1aUSER_TIMELINE_TAB_ARTICLES\x10\x052\xcf\x04\n" +
 	"\x0fTimelineService\x12q\n" +
 	"\x0fGetHomeTimeline\x12+.dzeroth.timeline.v1.GetHomeTimelineRequest\x1a,.dzeroth.timeline.v1.GetHomeTimelineResponse\"\x03\x90\x02\x01\x12q\n" +
 	"\x0fGetUserTimeline\x12+.dzeroth.timeline.v1.GetUserTimelineRequest\x1a,.dzeroth.timeline.v1.GetUserTimelineResponse\"\x03\x90\x02\x01\x12q\n" +

@@ -67,6 +67,7 @@ type collectionRow struct {
 // lifecycleCollections is the table: every collection in the data model plus the ones the code names
 // today. A slice that adds a collection adds its row in its own PR.
 var lifecycleCollections = []collectionRow{
+	{Name: "articles", Disposition: erasedByStep, Step: "articles", Section: "articles", Owner: "articles", Cite: "ADR-0011 Q1/Q10: article eraser and export cover owned drafts and published bodies"},
 	{Name: "users", Disposition: erasedByStep, Step: "users_doc", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 7 (users/{uid} last)"},
 	{Name: "private", Sub: true, Disposition: erasedByStep, Step: "identity", ExportNote: "reserved for PII, none at Stage 0 (ADR-0003 row users/{uid}/private)", Owner: "identity", Cite: "ADR-0011 Q1 step 5"},
 	{Name: "handles", Disposition: erasedByStep, Step: "identity", Section: "profile", Owner: "identity", Cite: "ADR-0011 Q1 step 5 (only when owned by the uid)"},
@@ -329,6 +330,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerEngagementLifecycle(l, engagement.NewFirestoreRepo(nil, engagement.WriteDeps{})); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerArticleLifecycle(l, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := registerModerationLifecycle(l, moderation.NewFirestoreRepo(nil, nil)); err != nil {

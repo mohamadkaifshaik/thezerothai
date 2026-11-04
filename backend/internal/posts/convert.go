@@ -21,7 +21,8 @@ func ToProtoForViewer(p *Post, viewer string) *postsv1.Post {
 
 func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post {
 	out := &postsv1.Post{
-		PostId: p.ID,
+		Article: articleToProto(p.Article),
+		PostId:  p.ID,
 		Author: &commonv1.AuthorSnapshot{
 			UserId: p.Author.UserID, Handle: p.Author.Handle, DisplayName: p.Author.DisplayName,
 			AvatarUrl: p.Author.AvatarURL, Verified: p.Author.Verified,
@@ -79,6 +80,7 @@ func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 		AvatarUrl: e.Author.AvatarURL, Verified: e.Author.Verified,
 	}
 	out.Text = e.Text
+	out.Article = articleToProto(e.Article)
 	out.PaidPartnership, out.MadeWithAi = e.PaidPartnership, e.MadeWithAI
 	out.ReplyPolicy = policyToProto(e.ReplyPolicy)
 	out.CreatedAt = timestamppb.New(e.CreatedAt)

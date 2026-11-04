@@ -486,6 +486,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.google.protobuf.Timestamp': $1.Timestamp$json,
   '.dzeroth.posts.v1.Poll': $0.Poll$json,
   '.dzeroth.posts.v1.PollChoice': $0.PollChoice$json,
+  '.dzeroth.posts.v1.ArticlePreview': $0.ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
   '.dzeroth.posts.v1.CommunityRef': $0.CommunityRef$json,
   '.dzeroth.engagement.v1.ListLikedPostsRequest': ListLikedPostsRequest$json,

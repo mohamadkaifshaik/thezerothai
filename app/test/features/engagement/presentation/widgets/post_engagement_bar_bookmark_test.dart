@@ -167,7 +167,10 @@ void main() {
                   PostEngagementBar(view: v, bookmarkEnabled: bookmarkEnabled)
               else
                 for (var i = 0; i < bars; i++)
-                  PostEngagementBar(view: view, bookmarkEnabled: bookmarkEnabled),
+                  PostEngagementBar(
+                    view: view,
+                    bookmarkEnabled: bookmarkEnabled,
+                  ),
             ],
           ),
         ),
@@ -225,19 +228,20 @@ void main() {
     expect(calls, isEmpty);
   });
 
-  testWidgets('flag on: an outline icon at the right of the row, no Share', (
+  testWidgets('flag on: an outline icon in the slot after Like, no Share', (
     tester,
   ) async {
     await pump(tester, _view());
     expect(outline(), findsOneWidget);
     expect(find.byIcon(Icons.ios_share), findsNothing);
 
+    // Reply, Repost, Like, Bookmark: four equal slots, left-aligned in each.
+    final row = tester.getRect(find.byType(PostEngagementBar));
+    final slot = row.width / 4;
     final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
     final bookmark = tester.getTopLeft(outline()).dx;
-    final rowRight = tester.getBottomRight(find.byType(PostEngagementBar)).dx;
-    expect(bookmark, greaterThan(like));
-    // Flush with the right edge of the row (48dp box, icon at its end).
-    expect(rowRight - tester.getBottomRight(outline()).dx, lessThan(1));
+    expect(like, closeTo(row.left + 2 * slot, 1));
+    expect(bookmark, closeTo(row.left + 3 * slot, 1));
     expect(tester.getSize(outline()), const Size(16, 16));
   });
 

@@ -190,16 +190,19 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if in.CommunityID != "" { // appended only when set: a request without one hashes byte-for-byte as before
 		reqHash = idempotency.HashRequest(requestHashBase(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI) + pollHashSuffix(pollDraft) + "|community=" + in.CommunityID)
 	}
+	reqHash = articleRequestHash(reqHash, in.Article)
 	params := CreateParams{
-		AuthorID:    uid,
-		IdemKey:     idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: reqHash,
-		Poll:        pollDraft,
-		QuotaLimit:  limit,
-		MediaIDs:    in.MediaIDs,
-		MediaAlts:   in.MediaAltTexts,
-		GifEnabled:  in.GifEnabled,
+		ArticlePublication: in.ArticlePublication,
+		AuthorID:           uid,
+		IdemKey:            idempotency.Key(uid, createRPC, in.IdempotencyKey),
+		RequestHash:        reqHash,
+		Poll:               pollDraft,
+		QuotaLimit:         limit,
+		MediaIDs:           in.MediaIDs,
+		MediaAlts:          in.MediaAltTexts,
+		GifEnabled:         in.GifEnabled,
 		Draft: Post{
+			Article:  cloneArticle(in.Article),
 			AuthorID: uid,
 			Author:   snapshot,
 			Kind:     KindPost, Text: parsed.Text,

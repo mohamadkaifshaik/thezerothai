@@ -3,6 +3,7 @@ import 'package:connectrpc/protobuf.dart' show ProtoCodec;
 import 'package:connectrpc/protocol/connect.dart' as protocol_connect;
 
 import '../../gen/dzeroth/communities/v1/communities.connect.client.dart';
+import '../../gen/dzeroth/articles/v1/articles.connect.client.dart';
 import '../../gen/dzeroth/engagement/v1/engagement.connect.client.dart';
 import '../../gen/dzeroth/graph/v1/graph.connect.client.dart';
 import '../../gen/dzeroth/identity/v1/identity.connect.client.dart';
@@ -55,6 +56,7 @@ class ApiClient {
   late final graph = GraphServiceClient(_transport);
   late final media = MediaServiceClient(_transport);
   late final posts = PostServiceClient(_transport);
+  late final articles = ArticleServiceClient(_transport);
   late final timeline = TimelineServiceClient(_transport);
   late final notifications = NotificationServiceClient(_transport);
   late final moderation = ModerationServiceClient(_transport);
