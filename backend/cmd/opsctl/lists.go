@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -55,18 +54,15 @@ func parseListsArgs(sub, listID string, a modArgs) error {
 // reads), so a hide reaches every warm instance within 60 s and a restore likewise. Client caches (a screen already open)
 // follow their own refresh. Nothing in opsctl can evict a server's cache; the printed line says so.
 //
-// Cost: hide and restore are 1 read and, when the flag changes, 1 write (a repeat writes 0; a missing list refuses with 0
-// writes). --dry-run is 1 read and no write. --report R (hide only; checked first: R must be a LIST report of exactly this list)
-// resolves R as TAKEDOWN after the write, also when the list was already hidden; it adds 1 read to check and the resolve (1 read,
-// 1 write). The cost line is printed last. Output holds no list name, description or owner:
+// Hide and restore change the flag only when it differs (a repeat writes nothing; a missing list refuses without writing).
+// --dry-run only reads. --report R (hide only; checked first: R must be a LIST report of exactly this list)
+// resolves R as TAKEDOWN after the write, also when the list was already hidden. Output holds no list name, description or owner:
 // the id appears only as list_hash (the same one-way hash as uid_hash), in a fixed-shape audit line that is the moderation
 // trail because the document records no actor.
 func listsCommand(ctx context.Context, b *backends, project, sub, listID string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.lists == nil {
 		return errors.New("lists: no lists moderator configured")
 	}
-	ctx, counter := budget.WithCounter(ctx)
-	defer func() { fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes()) }()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	dryRun := a.dryRun

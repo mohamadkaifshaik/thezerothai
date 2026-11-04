@@ -38,8 +38,6 @@ var _ CommunityReporter = (*service)(nil)
 // checks no flag: the report handler has already required `reports` on and `communities` not globally off, so a user dropped from the
 // allowlist can still report what they saw. Staleness: the community comes from the 60 s instance cache (D12), the owner's handle from
 // the identity directory cache (60 s).
-//
-// Firestore, worst case: the community 1 (0 warm), the owner's profile 1 (directory cache, 0 warm); none for an ARCHIVED community.
 func (s *service) ReportableCommunity(ctx context.Context, callerUID, communityID string) (ReportedCommunity, error) {
 	if err := ValidateCommunityID(communityID); err != nil {
 		return ReportedCommunity{}, ErrNotFound

@@ -1,11 +1,11 @@
-// analyze_poll.js: W6 reads, writes and server time per call from the API's JSON request log (scenario poll_vote.js). Plain Node,
+// analyze_poll.js: W6 server time per call from the API's JSON request log (scenario poll_vote.js). Plain Node,
 // no dependencies.
 //
 //   node loadtest/analyze_poll.js api.log k6.out [--from-line N]
 //
 // api.log is the API process's stdout (JSON lines); k6.out is the k6 console output (stdout and stderr together), which carries the
 // `W6 PHASE <name> <iso>` and `W6 STEP <name> <iso>` markers. The log is cut into phases at the first marker of each phase. In the serial
-// phase (cold_calls) the k-th request line is the k-th STEP (one virtual user), so each case prints its own reads and writes. In the load
+// phase (cold_calls) the k-th request line is the k-th STEP (one virtual user), so each case prints its own line. In the load
 // phases (hot_poll, mix, verify) lines are grouped by rpc, outcome, code and contention, with the txn_attempts histogram (the rule-3
 // signal) and the count of poll_vote_contention / engagement_txn_contention WARN lines. Only lines with message "request" carry the
 // request fields.
@@ -83,7 +83,7 @@ for (const p of phases.map((x) => x.name)) {
     if (mine.length !== rs.length) console.log(`  WARNING: steps ${mine.length} != request lines ${rs.length}: labels may be off`);
     rs.forEach((o, i) => {
       console.log(
-        `  ${(mine[i] ? mine[i].name : '?').padEnd(30)} ${describe(o)} fs_reads=${o.fs_reads ?? 0} fs_writes=${o.fs_writes ?? 0} fs_deletes=${o.fs_deletes ?? 0}` +
+        `  ${(mine[i] ? mine[i].name : '?').padEnd(30)} ${describe(o)}` +
           `${o.txn_attempts !== undefined ? ' txn_attempts=' + o.txn_attempts : ''} latency_ms=${o.latency_ms ?? 0}`,
       );
     });
@@ -98,8 +98,6 @@ for (const p of phases.map((x) => x.name)) {
   for (const [k, g] of [...groups.entries()].sort()) {
     const lat = g.map((r) => r.latency_ms || 0);
     console.log(`${k}  n=${g.length}`);
-    console.log(`    fs_reads   ${stat(g.map((r) => r.fs_reads || 0))}`);
-    console.log(`    fs_writes  ${stat(g.map((r) => r.fs_writes || 0))}`);
     if (g.some((r) => r.txn_attempts !== undefined)) console.log(`    txn_attempts ${stat(g.map((r) => r.txn_attempts ?? 0))}`);
     console.log(`    latency_ms p50 ${pct(lat, 50)} p95 ${pct(lat, 95)} p99 ${pct(lat, 99)} max ${Math.max(...lat)} mean ${mean(lat).toFixed(1)}`);
   }

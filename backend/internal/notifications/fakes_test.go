@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -156,7 +155,6 @@ type fakeDirectory struct {
 	forgotten []string
 	// forgottenUnread is what ForgetUnread was called with.
 	forgottenUnread []string
-	cold            map[string]bool // uids evicted by Forget and not yet re-read
 	seenAt          time.Time
 }
 
@@ -172,15 +170,10 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	if d.err != nil {
 		return nil, d.err
 	}
-	// Mirror the real directory's cost: a uid evicted by Forget is read from Firestore (1 read each), once.
-	var cold int64
-	for _, u := range uids {
-		if d.cold[u] {
-			cold++
-			delete(d.cold, u)
-		}
+	// Like the real directory, a lookup on a cancelled context fails.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	budget.FromContext(ctx).AddReads(cold)
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
 		if p, ok := d.profiles[u]; ok {
@@ -204,15 +197,9 @@ func (d *fakeDirectory) ResolveHandles(context.Context, []string) (map[string]st
 
 func (d *fakeDirectory) Forget(uids ...string) {
 	d.forgotten = append(d.forgotten, uids...)
-	if d.cold == nil {
-		d.cold = map[string]bool{}
-	}
-	for _, u := range uids {
-		d.cold[u] = true
-	}
 }
 
-// ForgetUnread records the uids but, unlike Forget, leaves their profiles warm (the cold map is untouched).
+// ForgetUnread records the uids it was called with.
 func (d *fakeDirectory) ForgetUnread(uids ...string) {
 	d.forgottenUnread = append(d.forgottenUnread, uids...)
 }

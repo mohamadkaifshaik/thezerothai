@@ -18,8 +18,6 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // A Send that makes another message the conversation's last one commits after the takedown's first run read the previews and
@@ -44,8 +42,7 @@ func TestTakedown_SendBetweenRunsKeepsThePreviewOfTheNewMessage(t *testing.T) {
 		},
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
-	res, err := e.repo.TakedownMessage(ctx, convID, m2, false)
+	res, err := e.repo.TakedownMessage(context.Background(), convID, m2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +52,6 @@ func TestTakedown_SendBetweenRunsKeepsThePreviewOfTheNewMessage(t *testing.T) {
 	if res.Entries != 0 || !res.Wrote {
 		t.Errorf("result = %+v, want the message and the conversation written and no preview rewritten", res)
 	}
-	// Writes are counted for the committing run only: the message and the conversation.
-
 	msgs := e.msgs(convID)
 	var third string
 	for id, m := range msgs {
@@ -95,7 +90,7 @@ func TestTombstonePage_RacingATakedownKeepsRemoved(t *testing.T) {
 			return
 		}
 		ran = true
-		_, _, takedownErr = e.takedown(convID, m2, false)
+		_, takedownErr = e.takedown(convID, m2, false)
 	}}
 
 	_, _, _, err := e.repo.TombstonePage(context.Background(), bob, convID, "")

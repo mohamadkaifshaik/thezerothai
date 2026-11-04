@@ -9,7 +9,7 @@ import (
 )
 
 // DeleteConversation stores the digest of its idempotency_key as clearedKey.{caller} in the same update as clearedAt:
-// +0 reads, +0 writes. Given B deletes with K and the response is lost, then A sends a new message, which
+// (no extra operation). Given B deletes with K and the response is lost, then A sends a new message, which
 // recreates B's entry, then B retries with K: a replay, nothing written, B's entry intact and A's new message visible in
 // B's thread. Given B deletes again with a new key K2, then it is a real delete.
 func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {
@@ -18,7 +18,7 @@ func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {
 	id := e.request(2)
 	e.tick(time.Minute)
 
-	_, err := e.delKey(e.newService(), bob, id, k1)
+	err := e.delKey(e.newService(), bob, id, k1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,11 +39,10 @@ func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {
 	// B retries with K from a cold instance.
 	e.tick(time.Second)
 	retry := e.newService()
-	rc, err := e.delKey(retry, bob, id, k1)
+	err = e.delKey(retry, bob, id, k1)
 	if err != nil {
 		t.Fatalf("retry with the same key: %v", err)
 	}
-	t.Logf("retry with the same key: reads %d writes %d deletes %d", rc.Reads(), rc.Writes(), rc.Deletes())
 	after, ok := e.entry(bob, dmRequestsCollection, id)
 	if !ok || after != before {
 		t.Errorf("bob's entry after the retry = %+v %v, want it intact (%+v)", after, ok, before)
@@ -60,8 +59,7 @@ func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {
 
 	// A new key is a real delete: the recreated entry goes, the thread is empty, the stored digest is K2's.
 	e.tick(time.Second)
-	_, err = e.delKey(e.newService(), bob, id, k2)
-	if err != nil {
+	if err := e.delKey(e.newService(), bob, id, k2); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.entry(bob, dmRequestsCollection, id); ok {
@@ -78,8 +76,13 @@ func TestDelete_RetryWithTheSameKeyAfterANewerMessage(t *testing.T) {
 		t.Error("bob's delete wrote alice's clearedKey")
 	}
 	// The retry of the old key K now finds no entry and a clearedAt: a state replay, nothing written.
-	oc, err := e.delKey(e.newService(), bob, id, k1)
-	if err != nil {
-		t.Errorf("retry of the old key after the second delete: err %v writes/deletes %d/%d, want success and 0/0", err, oc.Writes(), oc.Deletes())
+	if err := e.delKey(e.newService(), bob, id, k1); err != nil {
+		t.Errorf("retry of the old key after the second delete: err %v, want success", err)
+	}
+	if again, _ := e.conv(id); !reflect.DeepEqual(again, final) {
+		t.Errorf("the retry of the old key changed the conversation: %+v -> %+v", final, again)
+	}
+	if _, ok := e.entry(bob, dmRequestsCollection, id); ok {
+		t.Error("the retry of the old key recreated bob's entry")
 	}
 }

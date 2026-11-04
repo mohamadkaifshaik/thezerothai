@@ -6,11 +6,11 @@ package apiserver
 // real Follow / Block / Mute calls (the chain test seeds edges directly). Covered here: the exclusion matrix (self,
 // already followed, blocked, blocks the caller, muted, SUSPENDED, DELETING, a user that does not exist), blockedBy
 // overflow suggesting nothing, the curated fallback (also with blocked, blocking, followed, muted, DELETING, ghost and
-// the viewer's own uid on the list), friends of friends first and the curated rows after them, the exact 32-read hard cap
-// at the config default (EdgeLimit 20) and the exact 42-read cap with EdgeLimit pinned to 30,
+// the viewer's own uid on the list), friends of friends first and the curated rows after them, the hydration cap of 10
+// candidates at the config default (EdgeLimit 20) and with EdgeLimit pinned to 30,
 // each with 30 followees (also on a dense graph), the L-5 per-followee cap of 3 and the known-inactive followee skip, and
 // the L-1 re-filter: a user who blocks the viewer on ANOTHER instance leaves the viewer's warm rows once the
-// snapshot expires (2 reads), and a warm hit inside the snapshot's TTL is free.
+// snapshot expires, while a warm hit inside the snapshot's TTL is served from the cache.
 //
 // The candidate window of the friends-of-friends query is the newest EdgeLimit follow edges (20 at the default, 30 where a
 // test pins it) of the sampled followees and each
@@ -43,19 +43,6 @@ func w320SugChain(c *config.Config) {
 func w320SugEdge30(c *config.Config) {
 	w320SugChain(c)
 	c.Suggestions.EdgeLimit = 30
-}
-
-// w320SugColdCap is the cold friends-of-friends hard cap of the config the chains are built from (config.Load, as cfgCap
-// does for the bookmarks cap): interceptor 1 + caller graph 1 + EdgeLimit + HydrateMax, 32 at the defaults.
-// It is for ceilings that are incidental to a case; the default itself is pinned by the literal 32 of
-// TestW320_SuggestionsHardCap32, so a default that moved back to 30 fails there.
-func w320SugColdCap(t *testing.T) int64 {
-	t.Helper()
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return int64(2 + cfg.Suggestions.EdgeLimit + cfg.Suggestions.HydrateMax)
 }
 
 func (e *bmChain) w320Suggest(u bmUser, max int32) (*graphv1.ListSuggestedUsersResponse, error) {
@@ -162,7 +149,7 @@ func TestW320_SuggestionsExclusionMatrix(t *testing.T) {
 }
 
 // TestW320_SuggestionsOverflowSuggestsNothing: a viewer whose blockedBy overflowed cannot rule out a candidate who blocked
-// them at 0 reads, so nothing is suggested (source none) and nothing past the caller graph is read.
+// them, so nothing is suggested (source none).
 func TestW320_SuggestionsOverflowSuggestsNothing(t *testing.T) {
 	ctx := context.Background()
 	w := newW320Chain(t, w320SugChain)
@@ -216,9 +203,8 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 		if l := r.line(t, w320RPCListSuggested); l["source"] != "curated" {
 			t.Errorf("source = %v, want curated", l["source"])
 		}
-		// interceptor 1 + graph 1 + hydration of the 3 candidates the snapshot lets through (c1, c3, ghost, c2 => 4).
 	})
-	t.Run("no followees and no curated list: an empty answer for two reads", func(t *testing.T) {
+	t.Run("no followees and no curated list: an empty answer", func(t *testing.T) {
 		r := newW320Chain(t, w320SugChain)
 		lone := r.user(t)
 		got, err := r.w320Suggest(lone, 0)
@@ -272,14 +258,13 @@ func w320SugFullWindowWorld(t *testing.T) (w *w320Chain, v bmUser, f, cand []bmU
 	return w, v, f, cand, base
 }
 
-// TestW320_SuggestionsHardCap42: the 30-edge bound stays tested. SUGGESTIONS_EDGE_LIMIT is pinned to 30 (w320SugEdge30), the
+// TestW320_SuggestionsHydrationCapEdgeLimit30: the 30-edge bound stays tested. SUGGESTIONS_EDGE_LIMIT is pinned to 30 (w320SugEdge30), the
 // pre-Amendment 2 default and the top of the supported 20 to 30 range, on the 30-followee world of
 // w320SugFullWindowWorld, so the friends-of-friends query returns its full 30-edge window (Limit) and 12 distinct
-// candidates reach hydration, which stops at the cap of 10. The whole request is interceptor 1 + graph 1 + 30 + 10 = 42,
-// exactly, and not one read more however large the graph around the viewer is. A denser graph (every followee following 4
-// of the candidates, 120 edges) still reads the same 30 edges and hydrates at most 10: the cap is a ceiling, never a target.
-// The config default is TestW320_SuggestionsHardCap32.
-func TestW320_SuggestionsHardCap42(t *testing.T) {
+// candidates reach hydration, which stops at the cap of 10. A denser graph (every followee following 4
+// of the candidates, 120 edges) still hydrates at most 10: the cap is a ceiling, never a target.
+// The config default is TestW320_SuggestionsHydrationCapDefault.
+func TestW320_SuggestionsHydrationCapEdgeLimit30(t *testing.T) {
 	w, v, f, cand, base := w320SugFullWindowWorld(t)
 	r := newW320Chain(t, w320SugEdge30)
 	got, err := r.w320Suggest(v, 0)
@@ -303,12 +288,11 @@ func TestW320_SuggestionsHardCap42(t *testing.T) {
 	}
 }
 
-// TestW320_SuggestionsHardCap32: the same 30-followee world at the CONFIG DEFAULT
+// TestW320_SuggestionsHydrationCapDefault: the same 30-followee world at the CONFIG DEFAULT
 // (SUGGESTIONS_EDGE_LIMIT 20, no mutate). The newest 20 edges come from followees 10..29 and hold all 12 distinct
-// candidates, the per-followee cap of 3 takes nothing away, and hydration stops at the cap of 10, so the whole request is
-// interceptor 1 + graph 1 + 20 + 10 = 32, exactly. The literals are on purpose: a default that moved back to 30 would
-// read 42 here and fail. A denser graph (120 edges) reads the same 20 edges and hydrates at most 10: at most 32.
-func TestW320_SuggestionsHardCap32(t *testing.T) {
+// candidates, the per-followee cap of 3 takes nothing away, and hydration stops at the cap of 10. A denser graph (120
+// edges) still hydrates at most 10.
+func TestW320_SuggestionsHydrationCapDefault(t *testing.T) {
 	w, v, f, cand, base := w320SugFullWindowWorld(t)
 	r := newW320Chain(t, w320SugChain)
 	got, err := r.w320Suggest(v, 0)
@@ -320,8 +304,7 @@ func TestW320_SuggestionsHardCap32(t *testing.T) {
 		t.Errorf("source=%v candidates=%v, want fof and the hydration cap of 10", l["source"], l["candidates"])
 	}
 
-	// A denser graph: every followee now follows 3 more candidates (120 edges). The query still reads 20 edges, so the
-	// request is at most 32 (the 20 newest edges name fewer distinct candidates, so hydration may read fewer than 10).
+	// A denser graph: every followee now follows 3 more candidates (120 edges).
 	for i, fe := range f {
 		for j := 1; j <= 3; j++ {
 			seedFollowEdge(t, w.fs, fe.uid, cand[(i+j)%len(cand)].uid, base.Add(time.Hour+time.Duration(i*4+j)*time.Second))
@@ -375,7 +358,7 @@ func TestW320_SuggestionsPerFolloweeCap(t *testing.T) {
 }
 
 // TestW320_SuggestionsKnownInactiveFolloweeIsSkipped: L-5(a). A followee the instance's profile cache already knows is
-// SUSPENDED no longer steers the suggestions and no longer costs reads: it is left out of the edge query and its share of
+// SUSPENDED no longer steers the suggestions: it is left out of the edge query and its share of
 // the window goes to the others. The cache is primed by an ordinary GetProfile of the suspended account (NOT_FOUND on the
 // wire). A control instance that has not seen the account yet still suggests the spam candidates (the probe is
 // cache-only and never "active by default"), so the difference between the two answers is exactly the probe.
@@ -403,7 +386,6 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	controlCands := num(control.line(t, w320RPCListSuggested), "candidates")
-	controlReads := control.lineBudget(t, w320RPCListSuggested).Reads()
 
 	r := newW320Chain(t, w320SugChain)
 	_, err = r.identity.GetProfile(ctx, authed(v.token, &identityv1.GetProfileRequest{Target: &identityv1.GetProfileRequest_UserId{UserId: spam.uid}}))
@@ -422,21 +404,17 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 		t.Errorf("rows = %v, want the three ordinary candidates %v", uids, []string{x[0].uid, x[1].uid, x[2].uid})
 	}
 	if n := num(r.line(t, w320RPCListSuggested), "candidates"); n != 3 {
-		t.Errorf("candidates hydrated = %d, want 3 (the suspended followee's edges are not even read)", n)
+		t.Errorf("candidates hydrated = %d, want 3 (the suspended followee's edges are left out)", n)
 	}
-	cr := r.lineBudget(t, w320RPCListSuggested)
 	if controlCands != 6 || len(cg.GetUsers()) != 5 {
 		t.Errorf("control: %d candidates and %d rows, want 6 and 5 (the probe is cache-only: an instance that has not seen the account still samples it)", controlCands, len(cg.GetUsers()))
 	}
-	// Reads past the interceptor and graph: control 3 + 3 edges... the primed instance reads 3 edges and hydrates 3.
-	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", w320RPCListSuggested, "known-suspended followee skipped (control read "+fmt.Sprint(controlReads)+")", cr.Reads(), cr.Writes(), cr.Deletes(), w320SugColdCap(t), 0)
 }
 
 // TestW320_SuggestionsBlockerOnAnotherInstance: L-1 (fixed in #350). The viewer's rows are cached for an hour on
 // instance A. A candidate then blocks the viewer through instance B. A's own graph snapshot expires after CACHE_TTL (1 s
-// here, 60 s in production) and EVERY warm hit is re-filtered against the snapshot: the next call loads it (1 read, plus
-// the interceptor's own profile read that expired with the same TTL: 2 in all, the "2 when the 60 s snapshot
-// expired" figure) and the blocker is gone from the rows. Inside the 60 s window the re-filter is free (0 reads).
+// here, 60 s in production) and EVERY warm hit is re-filtered against the snapshot: the next call loads it
+// and the blocker is gone from the rows. Inside the 60 s window the next warm hit is served from the cache.
 func TestW320_SuggestionsBlockerOnAnotherInstance(t *testing.T) {
 	a := newW320Chain(t, func(c *config.Config) { w320SugChain(c); c.CacheTTL = time.Second })
 	b := newW320Chain(t, nil)
@@ -468,9 +446,12 @@ func TestW320_SuggestionsBlockerOnAnotherInstance(t *testing.T) {
 	if l := a.line(t, w320RPCListSuggested); l["suggestions_cache_hit"] != true {
 		t.Errorf("suggestions_cache_hit = %v, want true: the second call must be the warm path that re-filters", l["suggestions_cache_hit"])
 	}
-	// Inside the snapshot's TTL the next warm hit is free.
+	// Inside the snapshot's TTL the next warm hit comes from the cache.
 	if _, err := a.w320Suggest(v, 0); err != nil {
 		t.Fatal(err)
+	}
+	if l := a.line(t, w320RPCListSuggested); l["suggestions_cache_hit"] != true {
+		t.Errorf("suggestions_cache_hit = %v on a warm hit inside the snapshot TTL, want true", l["suggestions_cache_hit"])
 	}
 	// A fresh instance has no cached rows and sees the block too.
 	fresh := newW320Chain(t, w320SugChain)

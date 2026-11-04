@@ -10,7 +10,7 @@
 // A community's own moderators act only in that community's view, through dzeroth.communities.v1, and never
 // see reports.
 // Every ModerationService RPC is behind the FEATURE_REPORTS server flag (wire name `reports`): when it is off for the
-// caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads.
+// caller the RPC returns FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED before any lookup.
 // Privacy: the reporter's identity is never returned to, or derivable by, the reported user.
 
 package moderationv1
@@ -45,8 +45,7 @@ const (
 	// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
 	// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
 	// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
-	// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
-	// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+	// off; the existing reports quota applies.
 	ReportTargetType_REPORT_TARGET_TYPE_LIST ReportTargetType = 4
 	// A community. target_id = the community id (19 digits, else VALIDATION "target_id"). A missing or
 	// SUSPENDED community is the one NOT_FOUND "community not found"; an ARCHIVED one is reportable; the caller's own
@@ -55,9 +54,8 @@ const (
 	// community's name, description and rules and its creation time (no member id, no child doc), kept in the report
 	// document with the post evidence's retention. Reports of posts in a community use REPORT_TARGET_TYPE_POST; they go to
 	// the platform only, never to the community's moderators. Needs FEATURE_COMMUNITIES not globally off (else
-	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads); the existing reports quota
-	// applies. Firestore: reads cold 5 (interceptor 1, community 1, owner users 1, report doc 1, quotas 1), warm 2;
-	// writes 2.
+	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup); the existing reports quota
+	// applies.
 	ReportTargetType_REPORT_TARGET_TYPE_COMMUNITY ReportTargetType = 5
 )
 

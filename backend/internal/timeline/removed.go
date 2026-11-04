@@ -30,12 +30,12 @@ const (
 // neither listed nor a reason to reject the token. A log that cannot answer completely for this feed (token older
 // than the log keeps, a window it could not query for this author set, or more than 50 matches) rejects the
 // refresh exactly like an expired since_token, before any post is read: the client then cold-opens and replaces
-// its cache. Reads: see posts.Removals.RemovedSince.
+// its cache. The reads are those of posts.Removals.RemovedSince.
 func (s *Server) removedIDs(ctx context.Context, tok request, authors []string) ([]string, error) {
 	if tok.Since == nil || s.deps.Removals == nil {
 		return nil, nil
 	}
-	// FEATURE_REMOVED_IDS per caller (allowlist/percent rollout); 0 reads, checked before the log is touched.
+	// FEATURE_REMOVED_IDS per caller (allowlist/percent rollout); checked before the log is touched.
 	if uid, ok := authn.UIDFromContext(ctx); !ok || s.deps.Flags == nil || !s.deps.Flags.Enabled(uid, FlagRemovedIDs) {
 		return nil, nil
 	}

@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const (
@@ -31,7 +30,7 @@ const (
 
 var testNow = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
-// fakeRepo is an in-memory Repo that records its calls and charges reads like the Firestore repo does (1 per point read).
+// fakeRepo is an in-memory Repo that records its calls.
 type fakeRepo struct {
 	mu        sync.Mutex
 	docs      map[string]Community
@@ -115,7 +114,6 @@ func (r *fakeRepo) Get(ctx context.Context, id string) (Community, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.gets++
-	budget.FromContext(ctx).AddReads(1)
 	if r.getErr != nil {
 		return Community{}, r.getErr
 	}
@@ -130,28 +128,22 @@ func (r *fakeRepo) Member(ctx context.Context, cid, uid string) (MemberState, er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.memberGet++
-	budget.FromContext(ctx).AddReads(1)
 	return r.members[cid+"|"+uid], nil
 }
 
-// fakeDirectory serves profiles and charges one read per uid it was asked for, like an uncached identity.Directory.
+// fakeDirectory serves profiles and counts the uids it was asked for.
 type fakeDirectory struct {
 	identity.Directory
 	profiles map[string]identity.Profile
-	// free makes a lookup cost 0 reads, like the production directory behind the account-status interceptor (it has just loaded the caller).
-	free  bool
-	mu    sync.Mutex // the join/leave race tests call it from many goroutines
-	asked int
-	err   error
+	mu       sync.Mutex // the join/leave race tests call it from many goroutines
+	asked    int
+	err      error
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.asked += len(uids)
-	if !d.free {
-		budget.FromContext(ctx).AddReads(int64(len(uids)))
-	}
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
 		if p, ok := d.profiles[u]; ok {
@@ -172,7 +164,6 @@ func (g *fakeGraph) Snapshot(ctx context.Context, _ string) (graph.Snapshot, err
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.calls++
-	budget.FromContext(ctx).AddReads(1)
 	return g.snap, g.err
 }
 
@@ -316,8 +307,7 @@ func TestCreateCommunity_StoresNormalizedAndFillsCaches(t *testing.T) {
 		t.Errorf("view = %+v, want the OWNER view", v)
 	}
 	// the written data fills the caches: GetCommunity then reads nothing
-	ctx, _ := budget.WithCounter(context.Background())
-	if _, err := f.svc.GetCommunity(ctx, ownerUID, v.Community.ID); err != nil {
+	if _, err := f.svc.GetCommunity(context.Background(), ownerUID, v.Community.ID); err != nil {
 		t.Fatal(err)
 	}
 	if f.repo.gets != 0 || f.repo.memberGet != 0 {
@@ -525,15 +515,13 @@ func TestGetCommunity_Roles(t *testing.T) {
 				t.Errorf("member doc reads = %d, want %d", f.repo.memberGet, tt.memberRead)
 			}
 			// a second call is warm: nothing is read, not even for an outsider (absence is cached)
-			before, _, _ := f.repo.gets+f.repo.memberGet, f.gr.calls, f.dir.asked
-			ctx, _ := budget.WithCounter(context.Background())
-			if _, err := f.svc.GetCommunity(ctx, tt.uid, testCID); err != nil {
+			before := f.repo.gets + f.repo.memberGet
+			if _, err := f.svc.GetCommunity(context.Background(), tt.uid, testCID); err != nil {
 				t.Fatal(err)
 			}
 			if f.repo.gets+f.repo.memberGet != before {
 				t.Error("a warm Get read the repo")
 			}
-			// profiles and the graph are cache-first behind their own modules (this fake charges them every time)
 		})
 	}
 }
@@ -561,26 +549,6 @@ func TestGetCommunity_RoleHoldersAndRelationships(t *testing.T) {
 	d2, err := f2.svc.GetCommunity(context.Background(), nobodyUID, testCID)
 	if err != nil || d2.Owner != nil {
 		t.Errorf("DELETING owner shown: %+v, %v", d2.Owner, err)
-	}
-}
-
-func TestGetCommunity_ColdReadsFitTheBudget(t *testing.T) {
-	// 15 cold including the interceptor's 1 = community 1 + caller member doc 1 + caller graph 1 + owner and 10 moderators 11
-	f := newFixture(ownerUID)
-	mods := make([]string, 10)
-	for i := range mods {
-		mods[i] = fmt.Sprintf("m%d", i)
-		f.dir.profiles[mods[i]] = profile(mods[i], identity.AccountStatusActive)
-	}
-	f.seed(Community{ID: testCID, Name: "Go", OwnerID: ownerUID, ModeratorIDs: mods})
-	ctx, _ := budget.WithCounter(context.Background())
-	if _, err := f.svc.GetCommunity(ctx, nobodyUID, testCID); err != nil {
-		t.Fatal(err)
-	}
-	// the owner skips the member doc
-	ctx, _ = budget.WithCounter(context.Background())
-	if _, err := f.svc.GetCommunity(ctx, ownerUID, testCID); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -659,7 +627,6 @@ func (r *fakeRepo) Memberships(ctx context.Context, uid string) (Memberships, er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.mshipsGet++
-	budget.FromContext(ctx).AddReads(1)
 	return r.mships[uid], nil
 }
 
@@ -667,7 +634,6 @@ func (r *fakeRepo) GetMany(ctx context.Context, ids []string) (map[string]Commun
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.manyGets = append(r.manyGets, append([]string(nil), ids...))
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if r.manyErr != nil {
 		return nil, r.manyErr
 	}

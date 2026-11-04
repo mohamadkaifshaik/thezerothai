@@ -4,17 +4,16 @@ package media
 
 // The banner moderation path against the REAL Firestore repo on the emulator, with the fake object
 // store and the scripted SafeSearch of the unit tests. The cells that banner_test.go (fakes) and
-// TestIntegration_BannerBudgetsAndResolver / _BannerErasureAndExport (real repo, happy path) leave open:
+// TestIntegration_BannerAndResolver / _BannerErasureAndExport (real repo, happy path) leave open:
 //   - the Racy rule table on each of the two images, for a BANNER, an AVATAR and a POST, with the Vision calls made and
 //     the units recorded in the real monthly counter (banner 2, avatar 1, post 1 while VISION_SCREEN_THUMB is off);
 //   - the exhausted-cap paths on the real counter: 2 units left, 1 unit left (a banner needs 2), at the cap, with the
 //     "established" policy for an old account, a 6-day-old account and a 7-day-old one, and the "reject" policy;
 //   - concurrent FinalizeUpload of one banner on ONE instance (M-3, fixed in #351): all callers get READY, one
 //     screening is paid (exactly 2 units, 2 SafeSearch calls); a claim held by another instance answers the retryable
-//     MEDIA_NOT_READY at 0 writes and 0 Vision units, an expired claim is taken over, and a failed screening releases
+//     MEDIA_NOT_READY with no Vision units spent, an expired claim is taken over, and a failed screening releases
 //     its claim so the client's retry is not locked out (the cross-instance race itself is main's
 //     TestIntegration_ConcurrentBannerFinalizeScreensOnce);
-//   - the FinalizeUpload BANNER budget through the real repo (reads <= 2, writes exactly 3: claim, resolve, counter);
 //   - purge coverage: every status a banner can be in, PENDING included, with its objects, and nobody else's.
 //
 // Names carry the w320 prefix so a symbol added by a fix branch cannot collide.
@@ -32,7 +31,6 @@ import (
 	"google.golang.org/api/googleapi"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
@@ -299,7 +297,7 @@ func TestW320Banner_ConcurrentFinalizeUnits(t *testing.T) {
 
 // TestW320Banner_ClaimHeldElsewhereAndFailureRelease: the screening claim on the real repo (M-3 part b). (a) A claim
 // held by another instance (stamped straight onto the PENDING document) makes FinalizeUpload answer the retryable
-// MEDIA_NOT_READY after reading only, with 0 writes, 0 SafeSearch calls and 0 Vision units, and leaves the claim alone.
+// MEDIA_NOT_READY with no SafeSearch calls and no Vision units, and leaves the claim alone.
 // (b) Once the claim has expired the next call takes the image over and publishes it (units 2, claim cleared by the
 // resolve). (c) A failed screening (Vision down) answers UNAVAILABLE and RELEASES its claim, so the client's immediate
 // retry is not locked out for the 30 s of the claim.
@@ -314,11 +312,9 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 		}
 		return docs[id]
 	}
-	finalize := func(id string) ([]Result, *budget.Counter, error) {
+	finalize := func(id string) ([]Result, error) {
 		t.Helper()
-		cctx, c := budget.WithCounter(ctx)
-		res, err := e.svc.FinalizeUpload(cctx, uidA, []FinalizeItem{{MediaID: id, Blurhash: "LEHV6n"}})
-		return res, c, err
+		return e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: id, Blurhash: "LEHV6n"}})
 	}
 
 	tg := e.bannerUpload(t, uidA, "claim")
@@ -326,9 +322,8 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	if _, err := e.real.ClaimScreening(ctx, held.ID, held.UpdateTime, testNow.Add(20*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	_, c, err := finalize(tg.MediaID)
+	_, err := finalize(tg.MediaID)
 	_ = wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY) // retryable: the other instance is screening
-	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", "MediaService.FinalizeUpload", "BANNER, claim held by another instance", c.Reads(), c.Writes(), c.Deletes(), 3, 0)
 	if len(e.mod.calls) != 0 || e.w320Used(t) != 0 {
 		t.Errorf("a refused finalize spent SafeSearch calls=%v units=%d, want none", e.mod.calls, e.w320Used(t))
 	}
@@ -341,11 +336,10 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	if _, err := e.real.ClaimScreening(ctx, d.ID, d.UpdateTime, testNow.Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	res, c, err := finalize(tg.MediaID)
+	res, err := finalize(tg.MediaID)
 	if err != nil || res[0].Status != StatusReady {
 		t.Fatalf("after the claim expired: %v, %v; want READY", res, err)
 	}
-	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", "MediaService.FinalizeUpload", "BANNER, expired claim taken over", c.Reads(), c.Writes(), c.Deletes(), 2, 3)
 	if d := load(tg.MediaID); d.Status != string(StatusReady) || d.ScreeningUntil != nil {
 		t.Errorf("doc = %+v, want READY with the claim cleared by the resolve", d)
 	}
@@ -358,7 +352,7 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	e.mod.mu.Lock()
 	e.mod.err = &googleapi.Error{Code: 503} // a Vision outage (refunded: only the claim and the release are written; an ambiguous failure also writes the monthly counter)
 	e.mod.mu.Unlock()
-	_, _, err = finalize(tg2.MediaID)
+	_, err = finalize(tg2.MediaID)
 	_ = wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if d := load(tg2.MediaID); d.Status != string(StatusPending) || d.ScreeningUntil != nil {
 		t.Errorf("doc after a failed screening = %+v, want PENDING with NO claim (released)", d)
@@ -366,7 +360,7 @@ func TestW320Banner_ClaimHeldElsewhereAndFailureRelease(t *testing.T) {
 	e.mod.mu.Lock()
 	e.mod.err = nil
 	e.mod.mu.Unlock()
-	if res, _, err := finalize(tg2.MediaID); err != nil || res[0].Status != StatusReady {
+	if res, err := finalize(tg2.MediaID); err != nil || res[0].Status != StatusReady {
 		t.Errorf("the immediate retry after a failed attempt: %v, %v; want READY (the claim was released)", res, err)
 	}
 }

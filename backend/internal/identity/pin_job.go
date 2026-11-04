@@ -20,7 +20,7 @@ type pinJobMessage struct {
 	PostID string `json:"postId"`
 }
 
-// PostGone reports, from a fresh read that bypasses every cache, whether the post no longer exists (1 read). It is the
+// PostGone reports, from a fresh read that bypasses every cache, whether the post no longer exists. It is the
 // same shape as media.PostGone and engagement.PostGone; apiserver's postGone adapter over the posts repo implements all
 // three, so a job never acts on a message's word alone (the JobHandler contract).
 type PostGone interface {
@@ -38,14 +38,14 @@ type PinJobs struct {
 }
 
 // NewPinJobs builds the step over the Pins seam (*FirestoreRepo) and the fresh post-existence check. forget, when not nil,
-// evicts a uid from this instance's profile cache after a pin was cleared (Directory.Forget, 0 reads), so the instance
+// evicts a uid from this instance's profile cache after a pin was cleared (Directory.Forget, no read), so the instance
 // that ran the job stops showing the pin at once; other instances keep it for at most CACHE_TTL.
 func NewPinJobs(p Pins, gone PostGone, forget func(uids ...string)) *PinJobs {
 	return &PinJobs{pins: p, gone: gone, forget: forget}
 }
 
-// Handle implements JobHandler. Reads: 2 per message (the post, fresh; then users/{uid}, fresh, in the transaction),
-// writes: 1 only when the stored pin is exactly this post (outcome "pin_cleared"), otherwise 0 ("noop"). A message
+// Handle implements JobHandler. It checks the post fresh, then reads users/{uid} fresh in the transaction, and
+// writes only when the stored pin is exactly this post (outcome "pin_cleared"; otherwise "noop"). A message
 // for a post that still exists is "refused" (nothing read or written beyond the existence check). The step can never
 // unpin anything but that exact post id. A malformed message is acknowledged and dropped, because no retry can fix it: it
 // never reaches the DLQ. This step's outcome is not logged: postDeleteChain keeps only pin_cleared. A Firestore error nacks

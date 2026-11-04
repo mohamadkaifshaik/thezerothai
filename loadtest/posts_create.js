@@ -1,8 +1,7 @@
 // posts_create: CreatePost at 20 rps for 2 min.
 //
-// Budget under test (posts.proto CreatePost): reads 14 cold / 2 warm / 2.5 planning, writes 4 (idempotency, post,
-// users.postsCount, quotas). Acceptance: CreatePost p95 < 500 ms (emulator, note the machine), mean fs_reads per
-// call <= 2.5, 0 ERROR log lines. fs_reads/fs_writes come from the API log, not k6:
+// Acceptance: CreatePost p95 < 500 ms (emulator, note the machine), 0 ERROR log lines. Server latency and ERROR
+// lines come from the API log, not k6:
 //   node loadtest/analyze_logs.js api.log CreatePost
 //
 // Limits respected (defaults): 10 CreatePost/min/uid and the NEW-account quota of 20 posts/day/uid (users minted

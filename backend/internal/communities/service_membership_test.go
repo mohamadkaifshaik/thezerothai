@@ -15,7 +15,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -345,8 +344,7 @@ func TestListMyCommunities(t *testing.T) {
 	// 0000...607 is joined but its document is gone; ids[0] appears twice (the newest occurrence wins)
 	f.repo.mships[memberUID] = Memberships{Joined: append(append([]string{}, ids...), "0000000000000000607", ids[0])}
 
-	ctx, _ := budget.WithCounter(context.Background())
-	got, err := f.svc.ListMyCommunities(ctx, memberUID, "")
+	got, err := f.svc.ListMyCommunities(context.Background(), memberUID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +375,7 @@ func TestListMyCommunities(t *testing.T) {
 }
 
 func TestListMyCommunities_EdgeCases(t *testing.T) {
-	t.Run("page_token is VALIDATION with 0 reads", func(t *testing.T) {
+	t.Run("page_token is VALIDATION before any fetch", func(t *testing.T) {
 		f := joinFixture(t)
 		_, err := f.svc.ListMyCommunities(context.Background(), memberUID, "tok")
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})

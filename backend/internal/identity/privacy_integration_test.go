@@ -14,11 +14,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// on the emulator: the toggle transaction's exact reads and writes, the set doc it maintains, the loader's
+// on the emulator: the toggle transaction, the set doc it maintains, the loader's
 // detached read, and the identity eraser step's ArrayRemove.
 
 func privacyService(t *testing.T, client *firestore.Client, limits identity.PrivacyLimits) (identity.Service, *identity.FirestoreRepo, *identity.ProtectedSetLoader) {
@@ -28,7 +27,7 @@ func privacyService(t *testing.T, client *firestore.Client, limits identity.Priv
 	reg := flags.NewRegistry(flags.Spec{Name: identity.PrivateAccountsFlag, Mode: flags.On})
 	svc := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour,
 		identity.WithExtrasFlags(reg), identity.WithPrivacy(identity.PrivacyDeps{Repo: repo, Set: set, Limits: limits}))
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, err := svc.CreateProfile(ctx, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -48,50 +47,51 @@ func setUIDs(t *testing.T, client *firestore.Client) (uids []string, exists bool
 	return uids, true
 }
 
-func TestPrivacyToggle_Integration_Budgets(t *testing.T) {
+func TestPrivacyToggle_Integration_SetDocAndQuota(t *testing.T) {
 	client := newTestClient(t)
 	svc, _, set := privacyService(t, client, identity.PrivacyLimits{TogglesPerDay: 4, SetMax: 20000})
 	yes := true
-	update := func(name string, v bool, writes int64) error {
+	update := func(name string, v bool) error {
 		t.Helper()
-		ctx, _ := budget.WithCounter(context.Background())
-		_, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &v})
+		_, err := svc.UpdateProfile(context.Background(), itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &v})
 		return err
 	}
 
-	// No set doc yet: the first protect creates it (3 reads, 3 writes; the 4th cold read is the interceptor's).
-	if err := update("protect (creates the set doc)", true, 3); err != nil {
+	// No set doc yet: the first protect creates it.
+	if err := update("protect (creates the set doc)", true); err != nil {
 		t.Fatal(err)
 	}
 	if uids, ok := setUIDs(t, client); !ok || !slices.Equal(uids, []string{itUID}) {
 		t.Fatalf("set after protect = %v (exists %v), want [uid]", uids, ok)
 	}
-	// The committing instance sees it at once, without reading (the loader was never asked before).
-	ctx, c := budget.WithCounter(context.Background())
-	cur, err := set.Current(ctx)
+	// The committing instance sees it at once (the loader was never asked before).
+	cur, err := set.Current(context.Background())
 	if err != nil || !cur.Has(itUID) {
-		t.Fatalf("loader after protect: has=%v err=%v reads charged to the caller=%d", cur != nil && cur.Has(itUID), err, c.Reads())
+		t.Fatalf("loader after protect: has=%v err=%v", cur != nil && cur.Has(itUID), err)
 	}
 
-	if err := update("protect again (equal value)", true, 0); err != nil {
+	// An equal value changes nothing and does not spend one of the 4 daily toggles (the 5th real toggle is the one refused below).
+	if err := update("protect again (equal value)", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := update("unprotect", false, 3); err != nil {
+	if uids, _ := setUIDs(t, client); !slices.Equal(uids, []string{itUID}) {
+		t.Fatalf("set after an equal-value protect = %v, want [uid]", uids)
+	}
+	if err := update("unprotect", false); err != nil {
 		t.Fatal(err)
 	}
 	if uids, ok := setUIDs(t, client); !ok || len(uids) != 0 {
 		t.Fatalf("set after unprotect = %v (exists %v), want an empty list on a surviving doc", uids, ok)
 	}
-	if err := update("protect (set doc exists)", true, 3); err != nil {
+	if err := update("protect (set doc exists)", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := update("unprotect 2", false, 3); err != nil {
+	if err := update("unprotect 2", false); err != nil {
 		t.Fatal(err)
 	}
 
-	// The 5th toggle: QUOTA_EXCEEDED, no writes.
-	ctx, _ = budget.WithCounter(context.Background())
-	_, err = svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &yes})
+	// The 5th toggle: QUOTA_EXCEEDED, nothing written.
+	_, err = svc.UpdateProfile(context.Background(), itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &yes})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Metadata["quota"] != "privacy_toggles" {
 		t.Fatalf("5th toggle err = %v, want QUOTA_EXCEEDED quota=privacy_toggles", err)
@@ -108,7 +108,7 @@ func TestPrivacyToggle_Integration_CapAndLoader(t *testing.T) {
 		t.Fatal(err)
 	}
 	yes := true
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	_, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &yes})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Metadata["limit"] != "private_accounts" {
@@ -118,10 +118,9 @@ func TestPrivacyToggle_Integration_CapAndLoader(t *testing.T) {
 		t.Errorf("set = %v after a capped protect", uids)
 	}
 
-	// A fresh loader reads the doc once on a detached counter: nothing is charged to the caller.
+	// A fresh loader reads the doc itself.
 	fresh := identity.NewProtectedSetLoader(repo, time.Minute, 10*time.Minute, nil, nil)
-	cctx, _ := budget.WithCounter(context.Background())
-	cur, err := fresh.Current(cctx)
+	cur, err := fresh.Current(context.Background())
 	if err != nil || !cur.Has("x") || !cur.Has("y") || cur.Has(itUID) {
 		t.Fatalf("fresh loader: %v, %v", cur, err)
 	}
@@ -150,8 +149,7 @@ func TestRemoveFromProtectedSet_Integration(t *testing.T) {
 	if _, err := client.Doc("privacy/protectedAuthors").Set(ctx, map[string]any{"uids": []string{"a", "b", "c"}, "updatedAt": time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	bctx, _ := budget.WithCounter(ctx)
-	if err := repo.RemoveFromProtectedSet(bctx, "b"); err != nil {
+	if err := repo.RemoveFromProtectedSet(ctx, "b"); err != nil {
 		t.Fatal(err)
 	}
 	if uids, _ := setUIDs(t, client); !slices.Equal(uids, []string{"a", "c"}) {

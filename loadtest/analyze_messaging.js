@@ -1,12 +1,12 @@
-// analyze_messaging.js: W7 reads, writes, deletes and server time per call from the API's JSON request log (scenario
+// analyze_messaging.js: W7 server time per call from the API's JSON request log (scenario
 // messaging.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_messaging.js api.log k6.out [--from-line N]
 //
 // api.log is the API process's stdout (JSON lines); k6.out is the k6 console output (stdout and stderr together), which carries the
 // `W723 PHASE <name> <iso time>` markers. The log is cut into phases at the first marker of each phase; a phase ends where the next
-// one starts (the last one at the end of the log). Prints, per phase and per (rpc, kind, folder): calls, histogram and mean of
-// fs_reads / fs_writes / fs_deletes, server time (latency_ms) p50 / p95 / max, the response codes, and for ListMessages the `results`
+// one starts (the last one at the end of the log). Prints, per phase and per (rpc, kind, folder): calls, server time (latency_ms)
+// p50 / p95 / p99 / max, the response codes, and for ListMessages the `results`
 // (messages returned) histogram; the Send txn_attempts histogram and the contention WARNs; the poll share of all requests in the herd
 // phase; the VERIFY line of the burst. Only lines with message "request" carry the fields. latency_ms is an integer number of ms.
 const fs = require('fs');
@@ -93,9 +93,6 @@ for (const p of bounds.map((b) => b.name).concat(['(before the first phase)'])) 
   for (const [k, g] of [...groups.entries()].sort()) {
     const lat = g.map((r) => r.latency_ms || 0);
     console.log(`${k}  n=${g.length}`);
-    console.log(`    fs_reads   ${stat(g.map((r) => r.fs_reads || 0))}`);
-    console.log(`    fs_writes  ${stat(g.map((r) => r.fs_writes || 0))}`);
-    if (g.some((r) => r.fs_deletes)) console.log(`    fs_deletes ${stat(g.map((r) => r.fs_deletes || 0))}`);
     console.log(`    latency_ms p50 ${pct(lat, 50)} p95 ${pct(lat, 95)} p99 ${pct(lat, 99)} max ${Math.max(...lat)} mean ${mean(lat).toFixed(1)}`);
     if (g.some((r) => r.results !== undefined)) console.log(`    results    ${stat(g.map((r) => r.results || 0))}`);
     if (g.some((r) => r.txn_attempts !== undefined)) console.log(`    txn_attempts ${stat(g.map((r) => r.txn_attempts || 0))}`);
@@ -122,9 +119,9 @@ for (const p of bounds.map((b) => b.name).concat(['(before the first phase)'])) 
     }
     const first = [];
     const later = [];
-    for (const us of byUser.values()) us.forEach((r, i) => (i === 0 ? first : later).push(r.fs_reads || 0));
-    console.log(`  fs_reads of each user's FIRST poll: ${stat(first)}`);
-    console.log(`  fs_reads of every later poll:       ${stat(later)}`);
+    for (const us of byUser.values()) us.forEach((r, i) => (i === 0 ? first : later).push(r.latency_ms || 0));
+    console.log(`  latency_ms of each user's FIRST poll: ${stat(first)}`);
+    console.log(`  latency_ms of every later poll:       ${stat(later)}`);
   }
 }
 console.log(`\nWARN lines: ${warns} ${[...warnKinds.entries()].map(([k, v]) => `${k}=${v}`).join(' ')}; ERROR lines: ${errors}`);

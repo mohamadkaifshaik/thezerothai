@@ -6,7 +6,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const embViewer, embAuthor = "uid-viewer", "uid-emb"
@@ -71,7 +70,7 @@ func TestFilterEmbeds_IndependentOfFlag(t *testing.T) {
 					embCopy(posts.KindRepost, embViewer, emb, embAuthor), // own copy
 					embCopy(posts.KindRepost, "a", &posts.Embedded{PostID: "9", Unavailable: true}, ""),
 				}
-				ctx, _ := budget.WithCounter(context.Background())
+				ctx := context.Background()
 				got, _, err := s.filterEmbeds(ctx, embViewer, "uid-profile", in)
 				if err != nil {
 					t.Fatal(err)

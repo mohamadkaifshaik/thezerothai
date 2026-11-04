@@ -6,8 +6,8 @@
 // scan in id order uses the automatic __name__ index (no firestore.indexes.json change). The Limit(500) is an ops path
 // (purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
 //
-// Cost: 1 read per post scanned (the `Select` projection narrows the payload, not the billing) and 1 write per post whose
-// document lacks the key, never more than BackfillMaxWrites in one run. A rerun finds no missing key and writes 0.
+// It writes only to posts whose document lacks the key, never more than BackfillMaxWrites in one run. A rerun finds no
+// missing key and writes nothing.
 package posts
 
 import (
@@ -18,15 +18,14 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // fieldHasMedia is the stored name of posts.hasMedia (postDoc.HasMedia).
 const fieldHasMedia = "hasMedia"
 
-// BackfillMaxWrites is the most writes one backfill run issues: a quarter of a day's free Firestore writes
-// (20,000), so the backfill never starves the live API of its quota. A bigger collection is finished by rerunning the
+// BackfillMaxWrites is the most writes one backfill run issues, so the backfill never starves the
+// live API of its write quota. A bigger collection is finished by rerunning the
 // next day (with `--after`, from the checkpoint the capped run printed).
 const BackfillMaxWrites = 5_000
 
@@ -45,7 +44,7 @@ type BackfillOptions struct {
 	// MaxWrites caps the writes of the whole run (the checkpoint's Updated counts them); 0 or more than
 	// BackfillMaxWrites means BackfillMaxWrites. It is ignored in a dry run, which writes nothing.
 	MaxWrites int
-	// DryRun scans and counts but writes nothing. It costs the same reads as a real run.
+	// DryRun scans and counts but writes nothing. It scans the same documents as a real run.
 	DryRun bool
 }
 
@@ -141,8 +140,8 @@ func normaliseBackfill(o BackfillOptions) (page, maxWrites int) {
 	return page, maxWrites
 }
 
-// BackfillHasMedia implements HasMediaBackfiller. One call reads one page (<= opsPage posts, 1 read each, 1 for an empty
-// page) and commits one field-level `Update` batch for the posts that lack `hasMedia` (1 write each, <= 500, never
+// BackfillHasMedia implements HasMediaBackfiller. One call reads one page (<= opsPage posts) and commits one
+// field-level `Update` batch for the posts that lack `hasMedia` (at most 500 writes, never
 // `Set`). It never overwrites an existing value, explicit false included.
 //
 // There is deliberately no LastUpdateTime precondition (unlike HideAuthor): the inputs, kind and media, are immutable
@@ -161,14 +160,13 @@ func (r *FirestoreRepo) BackfillHasMedia(ctx context.Context, cp BackfillCheckpo
 	if opts.DryRun {
 		room = -1
 	} else if room <= 0 {
-		return cp, BackfillCapped, nil // the cap was reached by an earlier call: read nothing more
+		return cp, BackfillCapped, nil // the cap was reached by an earlier call: stop reading
 	}
 	q := r.client.Collection(postsCollection).Select("kind", "media", fieldHasMedia).OrderBy(firestore.DocumentID, firestore.Asc)
 	if cp.After != "" {
 		q = q.StartAfter(r.ref(cp.After))
 	}
 	snaps, err := q.Limit(page).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddReads(int64(max(len(snaps), 1)))
 	if err != nil {
 		return cp, BackfillMore, fmt.Errorf("posts: backfill hasMedia: query: %w", err)
 	}
@@ -178,7 +176,7 @@ func (r *FirestoreRepo) BackfillHasMedia(ctx context.Context, cp BackfillCheckpo
 	}
 	writes, decided, capped := planBackfillPage(docs, room)
 	if len(writes) > 0 && !opts.DryRun {
-		b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+		b := store.NewFirestoreBatch(r.client)
 		for _, w := range writes {
 			b.Update(r.ref(w.id), []firestore.Update{{Path: fieldHasMedia, Value: w.value}})
 		}

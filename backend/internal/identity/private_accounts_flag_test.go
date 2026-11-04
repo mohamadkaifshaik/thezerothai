@@ -9,7 +9,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -74,8 +73,7 @@ func TestUpdateProfile_PrivateAccountsFlagModes(t *testing.T) {
 			}
 			before := repo.updateCalls
 			tt.params.IdempotencyKey = validKey
-			ctx, _ := budget.WithCounter(context.Background())
-			_, err := svc.UpdateProfile(ctx, tt.uid, tt.params)
+			_, err := svc.UpdateProfile(context.Background(), tt.uid, tt.params)
 			switch {
 			case tt.wantDisabled:
 				_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "private_accounts")

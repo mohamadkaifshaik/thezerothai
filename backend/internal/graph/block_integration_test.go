@@ -1,20 +1,20 @@
 //go:build integration
 
-// block_integration_test.go exercises Block/Unblock/Mute/Unmute against the Firestore emulator (acceptance criteria and budgets).
+// block_integration_test.go exercises Block/Unblock/Mute/Unmute against the Firestore emulator (acceptance criteria).
 package graph_test
 
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func TestBlock_Integration_MutualFollow_Budget(t *testing.T) {
+func TestBlock_Integration_MutualFollow(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
@@ -26,7 +26,7 @@ func TestBlock_Integration_MutualFollow_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rel, err := w.graph.Block(ctx, "uid-a", key2, "uid-b")
 	if err != nil {
 		t.Fatalf("Block: %v", err)
@@ -51,21 +51,30 @@ func TestBlock_Integration_MutualFollow_Budget(t *testing.T) {
 		}
 	}
 
-	// Replay: 0 writes, blocking=true.
-	ctx2, _ := budget.WithCounter(context.Background())
+	// Replay: still blocking, and neither graph document changed.
+	ctx2 := context.Background()
 	rel, err = w.graph.Block(ctx2, "uid-a", key3, "uid-b")
 	if err != nil || !rel.Blocking {
 		t.Fatalf("replay = %+v, %v", rel, err)
 	}
+	if a2, b2 := graphArrays(t, w.client, "uid-a"), graphArrays(t, w.client, "uid-b"); !reflect.DeepEqual(a, a2) || !reflect.DeepEqual(b, b2) {
+		t.Errorf("the replay changed the graphs: a %v -> %v, b %v -> %v", a, a2, b, b2)
+	}
 }
 
-func TestBlock_Integration_TypicalBudget(t *testing.T) {
+func TestBlock_Integration_Typical(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, err := w.graph.Block(ctx, "uid-a", key1, "uid-b"); err != nil {
 		t.Fatal(err)
+	}
+	if a := graphArrays(t, w.client, "uid-a"); !contains(a["blocked"], "uid-b") {
+		t.Errorf("a = %v, want blocked to name uid-b", a)
+	}
+	if b := graphArrays(t, w.client, "uid-b"); !contains(b["blockedBy"], "uid-a") {
+		t.Errorf("b = %v, want blockedBy to name uid-a", b)
 	}
 }
 
@@ -95,7 +104,7 @@ func TestUnblock_Integration_NoRestoreAndNoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rel, err := w.graph.Unblock(ctx, "uid-a", key3, "uid-b")
 	if err != nil || rel.Blocking || rel.FollowState != graph.FollowStateNone {
 		t.Fatalf("Unblock = %+v, %v", rel, err)
@@ -105,9 +114,13 @@ func TestUnblock_Integration_NoRestoreAndNoop(t *testing.T) {
 		t.Errorf("a=%v b=%v", a, b)
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
+	// Unblock of someone no longer blocked is a no-op: the graphs stay as they are.
+	ctx2 := context.Background()
 	if _, err := w.graph.Unblock(ctx2, "uid-a", "aaaaaaaaaaaaaaaa", "uid-b"); err != nil {
 		t.Fatal(err)
+	}
+	if a2, b2 := graphArrays(t, w.client, "uid-a"), graphArrays(t, w.client, "uid-b"); !reflect.DeepEqual(a, a2) || !reflect.DeepEqual(b, b2) {
+		t.Errorf("the no-op Unblock changed the graphs: a %v -> %v, b %v -> %v", a, a2, b, b2)
 	}
 }
 
@@ -116,7 +129,7 @@ func TestMute_Integration_OnlyCallerGraphChanges(t *testing.T) {
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rel, err := w.graph.Mute(ctx, "uid-a", key1, "uid-b")
 	if err != nil || !rel.Muting {
 		t.Fatalf("Mute = %+v, %v", rel, err)
@@ -128,20 +141,28 @@ func TestMute_Integration_OnlyCallerGraphChanges(t *testing.T) {
 		t.Errorf("target graph changed: %v", b)
 	}
 
-	// Replay: 0 writes.
-	ctx2, _ := budget.WithCounter(context.Background())
+	// Replay: nothing changes.
+	ctx2 := context.Background()
+	before := graphArrays(t, w.client, "uid-a")
 	if _, err := w.graph.Mute(ctx2, "uid-a", key2, "uid-b"); err != nil {
 		t.Fatal(err)
 	}
+	if after := graphArrays(t, w.client, "uid-a"); !reflect.DeepEqual(before, after) {
+		t.Errorf("the Mute replay changed the graph: %v -> %v", before, after)
+	}
 
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	rel, err = w.graph.Unmute(ctx3, "uid-a", key3, "uid-b")
 	if err != nil || rel.Muting {
 		t.Fatalf("Unmute = %+v, %v", rel, err)
 	}
-	ctx4, _ := budget.WithCounter(context.Background())
+	ctx4 := context.Background()
+	before = graphArrays(t, w.client, "uid-a")
 	if _, err := w.graph.Unmute(ctx4, "uid-a", "aaaaaaaaaaaaaaaa", "uid-b"); err != nil {
 		t.Fatal(err)
+	}
+	if after := graphArrays(t, w.client, "uid-a"); !reflect.DeepEqual(before, after) {
+		t.Errorf("the no-op Unmute changed the graph: %v -> %v", before, after)
 	}
 }
 

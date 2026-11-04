@@ -5,6 +5,7 @@ package identity_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -13,13 +14,11 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// on the emulator: the SetHomeTabs transaction's exact reads and writes (the account-status interceptor's
-// own read is not part of this harness), the field-level write, Unpin and Retitle for lists.Pins, and the proof that a
+// on the emulator: the SetHomeTabs transaction, the field-level write, Unpin and Retitle for lists.Pins, and the proof that a
 // whole-document rewrite of users/{uid} (UpdateProfile, ChangeHandle, the privacy toggle) keeps homeTabs.
 
 const (
@@ -47,7 +46,7 @@ func newHomeTabsEnv(t *testing.T) *homeTabsEnv {
 	reg := flags.NewRegistry(flags.Spec{Name: identity.PrivateAccountsFlag, Mode: flags.On}, flags.Spec{Name: identity.ListsFlag, Mode: flags.On})
 	svc := identity.New(repo, cache, 7*24*time.Hour, identity.WithFeatureFlags(reg), identity.WithExtrasFlags(reg),
 		identity.WithPrivacy(identity.PrivacyDeps{Repo: repo, Set: set, Limits: identity.PrivacyLimits{TogglesPerDay: 4, SetMax: 20000}}))
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, err := svc.CreateProfile(ctx, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -71,20 +70,18 @@ func tab(id, title string) identity.HomeTab {
 	return identity.HomeTab{Kind: identity.HomeTabKindList, ID: id, Title: title}
 }
 
-func TestHomeTabsReplace_Integration_Budgets(t *testing.T) {
+func TestHomeTabsReplace_Integration(t *testing.T) {
 	e := newHomeTabsEnv(t)
 	ctx := context.Background()
 	before := userData(t, e.client, itUID)
 
-	run := func(name, key, hash string, writes int64, next func([]identity.HomeTab) ([]identity.HomeTab, error)) ([]identity.HomeTab, error) {
+	run := func(key, hash string, next func([]identity.HomeTab) ([]identity.HomeTab, error)) ([]identity.HomeTab, error) {
 		t.Helper()
-		c, _ := budget.WithCounter(ctx)
-		got, err := e.adapter.Replace(c, itUID, key, hash, next)
-		return got, err
+		return e.adapter.Replace(ctx, itUID, key, hash, next)
 	}
 
 	want := []identity.HomeTab{tab(htListA, "Mine"), tab(htListB, "")}
-	got, err := run("SetHomeTabs, changed order", htKey1, "h1", 2, setTo(want...))
+	got, err := run(htKey1, "h1", setTo(want...))
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Replace = %+v, %v", got, err)
 	}
@@ -102,12 +99,19 @@ func TestHomeTabsReplace_Integration_Budgets(t *testing.T) {
 		}
 	}
 
-	// The same order under a new key: only the idempotency record is written.
-	if _, err := run("SetHomeTabs, same order, new key", htKey2, "h1", 1, setTo(want...)); err != nil {
+	// The same order under a new key: only the idempotency record is written, the user document is not touched.
+	docBefore := userData(t, e.client, itUID)
+	if _, err := run(htKey2, "h1", setTo(want...)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := e.client.Collection("idempotency").Doc(idempotency.Key(itUID, "SetHomeTabs", htKey2)).Get(ctx); err != nil {
+		t.Errorf("the unchanged call stored no idempotency record: %v", err)
+	}
+	if docAfter := userData(t, e.client, itUID); !mapsEqualAny(docBefore, docAfter) {
+		t.Errorf("an unchanged order rewrote the user document: %v -> %v", docBefore, docAfter)
+	}
 	// A replay of the first key: stored tabs, no write, and next must not even run.
-	got, err = run("SetHomeTabs, replay", htKey1, "h1", 0,
+	got, err = run(htKey1, "h1",
 		func([]identity.HomeTab) ([]identity.HomeTab, error) { t.Error("next ran on a replay"); return nil, nil })
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("replay = %+v, %v", got, err)
@@ -125,7 +129,7 @@ func TestHomeTabsReplace_Integration_Budgets(t *testing.T) {
 		t.Error("a refused call left an idempotency record")
 	}
 	// Unpin everything removes the field instead of storing an empty array.
-	if _, err := run("SetHomeTabs, unpin all", htKey3, "h3", 2, setTo()); err != nil {
+	if _, err := run(htKey3, "h3", setTo()); err != nil {
 		t.Fatal(err)
 	}
 	if _, has := userData(t, e.client, itUID)["homeTabs"]; has {
@@ -140,13 +144,27 @@ func TestHomeTabsReplace_Integration_Budgets(t *testing.T) {
 	}
 }
 
+// mapsEqualAny compares two document snapshots, treating equal times as equal.
+func mapsEqualAny(a, b map[string]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if w, ok := b[k]; !ok || !equalAny(v, w) {
+			return false
+		}
+	}
+	return true
+}
+
 func equalAny(a, b any) bool {
 	at, aok := a.(time.Time)
 	bt, bok := b.(time.Time)
 	if aok && bok {
 		return at.Equal(bt)
 	}
-	return a == b
+	// Arrays and maps come back from Firestore as []any and map[string]any, which == cannot compare.
+	return reflect.DeepEqual(a, b)
 }
 
 func TestHomeTabsPins_Integration_UnpinRetitle(t *testing.T) {
@@ -155,37 +173,36 @@ func TestHomeTabsPins_Integration_UnpinRetitle(t *testing.T) {
 	if _, err := e.adapter.Replace(ctx, itUID, htKey1, "h", setTo(tab(htListA, "Old"), tab(htListB, ""), tab(htListC, "C"))); err != nil {
 		t.Fatal(err)
 	}
-	measure := func(name string, reads, writes int64, fn func(context.Context)) {
+	unchanged := func(what string, fn func()) {
 		t.Helper()
-		c, _ := budget.WithCounter(ctx)
-		fn(c)
+		before := userData(t, e.client, itUID)
+		fn()
+		if after := userData(t, e.client, itUID); !mapsEqualAny(before, after) {
+			t.Errorf("%s rewrote the user document: %v -> %v", what, before, after)
+		}
 	}
 
-	measure("Retitle a pinned list", 1, 1, func(c context.Context) {
-		pinned, err := e.adapter.Retitle(c, itUID, htListA, "New name")
+	pinned, err := e.adapter.Retitle(ctx, itUID, htListA, "New name")
+	if err != nil || !pinned {
+		t.Fatalf("Retitle a pinned list = %v, %v", pinned, err)
+	}
+	unchanged("Retitle to the same title", func() {
+		pinned, err := e.adapter.Retitle(ctx, itUID, htListA, "New name")
 		if err != nil || !pinned {
 			t.Fatalf("Retitle = %v, %v", pinned, err)
 		}
 	})
-	measure("Retitle to the same title", 1, 0, func(c context.Context) {
-		pinned, err := e.adapter.Retitle(c, itUID, htListA, "New name")
-		if err != nil || !pinned {
-			t.Fatalf("Retitle = %v, %v", pinned, err)
-		}
-	})
-	measure("Retitle a list that is not pinned", 1, 0, func(c context.Context) {
-		pinned, err := e.adapter.Retitle(c, itUID, "0000000000000000999", "x")
+	unchanged("Retitle of a list that is not pinned", func() {
+		pinned, err := e.adapter.Retitle(ctx, itUID, "0000000000000000999", "x")
 		if err != nil || pinned {
 			t.Fatalf("Retitle = %v, %v", pinned, err)
 		}
 	})
-	measure("Unpin a pinned list", 1, 1, func(c context.Context) {
-		if err := e.adapter.Unpin(c, itUID, htListB); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("Unpin a list that is not pinned", 1, 0, func(c context.Context) {
-		if err := e.adapter.Unpin(c, itUID, htListB); err != nil {
+	if err := e.adapter.Unpin(ctx, itUID, htListB); err != nil {
+		t.Fatal(err)
+	}
+	unchanged("Unpin of a list that is not pinned", func() {
+		if err := e.adapter.Unpin(ctx, itUID, htListB); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -212,15 +229,13 @@ func TestHomeTabs_Integration_GetMeAndCache(t *testing.T) {
 	if _, err := e.adapter.Replace(ctx, itUID, htKey1, "h", setTo(tab(htListB, ""), tab(htListA, "Mine"))); err != nil {
 		t.Fatal(err)
 	}
-	c, _ := budget.WithCounter(ctx)
-	me, err := e.svc.GetMe(c, itUID)
+	me, err := e.svc.GetMe(ctx, itUID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []identity.HomeTab{tab(htListB, ""), tab(htListA, "Mine")}; !slices.Equal(me.HomeTabs, want) {
 		t.Fatalf("GetMe tabs = %+v, want %+v", me.HomeTabs, want)
 	}
-	// GetMe's own cost is unchanged by tabs: the profile is cached, the unread count is the one read.
 }
 
 // UpdateProfile, ChangeHandle and the privacy toggle each rewrite the whole users document; homeTabs must survive all three.

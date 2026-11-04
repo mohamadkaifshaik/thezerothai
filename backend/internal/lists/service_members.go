@@ -67,7 +67,7 @@ func (s *service) targetVerdict(ctx context.Context, uid, target string, owner g
 	return nil, nil
 }
 
-// AddMember implements Service. Validation first (0 reads), then the owner\'s and the target\'s profiles
+// AddMember implements Service. Validation first (no reads), then the owner\'s and the target\'s profiles
 // (one cache-first call) and the owner\'s graph, then one repository transaction that applies the verdict after the idempotency
 // lookup. The instance cache is filled from the written list.
 func (s *service) AddMember(ctx context.Context, uid, key, listID, userID string) (View, error) {

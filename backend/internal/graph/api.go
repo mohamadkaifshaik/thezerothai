@@ -133,7 +133,7 @@ type Service interface {
 // Reader is graph's read-only seam other modules use for filtering ("the timeline, posts and
 // notifications plans must use them" — never by reading graph/* directly).
 type Reader interface {
-	// Snapshot returns uid's whole social context, cached 60s (0 reads on a cache hit).
+	// Snapshot returns uid's whole social context, cached 60s.
 	Snapshot(ctx context.Context, uid string) (Snapshot, error)
 }
 
@@ -143,7 +143,7 @@ type Reader interface {
 // that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way.
 // *FirestoreRepo implements it.
 type TxReader interface {
-	// SnapshotInTx reads graph/{uid} through tx: 1 read (charged to ctx's budget.Counter), never the 60 s cache (it
+	// SnapshotInTx reads graph/{uid} through tx, never the 60 s cache (it
 	// neither reads nor fills it). A missing document is an empty Snapshot, like Reader.Snapshot. The error text names
 	// no uid.
 	SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error)
@@ -151,7 +151,7 @@ type TxReader interface {
 
 // FollowEvents is a post-commit hook, a no-op until the notifications plan: "graph calls a
 // no-op FollowEvents.Followed(ctx, follower, followee, at) after a commit that created an edge; replays and
-// no-ops don't call it." Never called synchronously inside the mutation's own transaction/budget.
+// no-ops don't call it." Never called synchronously inside the mutation's own transaction.
 type FollowEvents interface {
 	Followed(ctx context.Context, followerUID, followeeUID string, at time.Time)
 	// FollowRequested is called after the commit that created a follow request to a protected account.

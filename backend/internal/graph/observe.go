@@ -14,7 +14,7 @@ import (
 
 // Request-log fields every graph RPC must carry. They ride on the mw.Logging
 // line through logger.RequestInfo (the same mechanism as uid_hash/limit_name), so there is no extra log line
-// and no new middleware. fs_reads/fs_writes/fs_deletes/limit_name are already emitted by mw.Logging.
+// and no new middleware. limit_name is already emitted by mw.Logging.
 // Values are enums, counts and bools only - never uids or graph array contents (security review L4).
 const (
 	fieldOp        = "graph_op"

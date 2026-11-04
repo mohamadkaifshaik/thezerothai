@@ -3,8 +3,8 @@
 package apiserver
 
 // Over the real Build chain (Firestore, Auth, Pub/Sub and Storage emulators): a replaced or
-// removed avatar or banner publishes a profile_media_retired job after the UpdateProfile commit (0 extra reads), the
-// job tags the old image and retires its media document (2 reads, 1 write), a redelivery does nothing, the resolvers
+// removed avatar or banner publishes a profile_media_retired job after the UpdateProfile commit, the
+// job tags the old image and retires its media document, a redelivery does nothing, the resolvers
 // refuse a retired image, and a forged message never retires a current image or another user's image.
 //
 // The Storage emulator does not implement objects.patch (it answers 501), which objstore.SetCustomTime accepts against
@@ -98,7 +98,6 @@ func TestProfileMediaRetire_Chain(t *testing.T) {
 	if got.GetAvatarUrl() != e.profileImageURL(av2) || got.GetBannerUrl() != "" {
 		t.Fatalf("profile = avatar %q banner %q", got.GetAvatarUrl(), got.GetBannerUrl())
 	}
-	// 0 extra reads and no extra writes on the request path: the transaction's read and the avatar's media doc, 1 write.
 	msgs := e.pull(t)
 	if len(msgs) != 2 {
 		t.Fatalf("messages = %v, want the avatar and the banner", msgs)
@@ -114,14 +113,14 @@ func TestProfileMediaRetire_Chain(t *testing.T) {
 		t.Fatalf("old urls = %v / %v", byPurpose["AVATAR"]["oldUrl"], byPurpose["BANNER"]["oldUrl"])
 	}
 
-	// --- the handler: 2 reads, 1 write, then the redelivery does nothing ---
+	// --- the handler retires, then the redelivery does nothing ---
 	for _, purpose := range []string{"AVATAR", "BANNER"} {
 		if code := e.deliver(t, byPurpose[purpose]); code != http.StatusNoContent {
 			t.Fatalf("%s delivery = %d", purpose, code)
 		}
 		jl := e.lastRetireLine(t)
 		if jl["outcome"] != "retired" {
-			t.Errorf("%s job line = outcome %v reads %v writes %v, want retired / 2 / 1", purpose, jl["outcome"], jl["fs_reads"], jl["fs_writes"])
+			t.Errorf("%s job line outcome = %v, want retired", purpose, jl["outcome"])
 		}
 		if strings.Contains(fmt.Sprint(jl), a.uid) {
 			t.Errorf("the job line leaks the raw uid: %v", jl)
@@ -131,7 +130,7 @@ func TestProfileMediaRetire_Chain(t *testing.T) {
 		}
 		jl = e.lastRetireLine(t)
 		if jl["outcome"] != "duplicate" {
-			t.Errorf("%s redelivery line = outcome %v writes %v, want duplicate / 0", purpose, jl["outcome"], jl["fs_writes"])
+			t.Errorf("%s redelivery line outcome = %v, want duplicate", purpose, jl["outcome"])
 		}
 	}
 	for _, id := range []string{av1, bn1} {

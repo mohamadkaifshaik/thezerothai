@@ -3,14 +3,11 @@
 package apiserver
 
 // GetUserTimeline tabs MEDIA and REPOSTS over the real Build chain on the emulators: the rows
-// and their order, the documented cold budget (24 reads at page 20, 54 at page 50: account-status interceptor 1, target
-// users 1, caller graph 1, one Limit(page) query, the caller's userLikes 1), the 20-read warm figure (no instance cache
-// for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules.
+// and their order on a cold reader at page 20 and 50, a warm repeat (no instance cache for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules.
 //
 // The data is written through one chain (the "writer") and read through a freshly booted chain (the "reader") on the
-// same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold: the worst case the
-// documented budget describes. The emulator does not enforce composite indexes, so these tests prove the query shape and
-// the budget; Firestore itself needs the two indexes READY and the backfill run before profile_tabs leaves off
+// same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold: the worst case.
+// The emulator does not enforce composite indexes, so these tests prove the query shape; Firestore itself needs the two indexes READY and the backfill run before profile_tabs leaves off
 //
 
 import (
@@ -43,7 +40,7 @@ const (
 	tabPostsPB   = timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS
 )
 
-// profileTabsOn turns FEATURE_PROFILE_TABS and FEATURE_ENGAGEMENT on (the userLikes read of the documented budget) with the
+// profileTabsOn turns FEATURE_PROFILE_TABS and FEATURE_ENGAGEMENT on with the
 // abuse limits relaxed for loopback seeding.
 func profileTabsOn(c *config.Config) {
 	engagementOn(c)
@@ -51,7 +48,7 @@ func profileTabsOn(c *config.Config) {
 	c.FeatureProfileTabs = flags.Spec{Name: "profile_tabs", Mode: flags.On}
 }
 
-// newTabChain boots a chain with profileTabsOn then mutate. It is a bmChain so the budget-from-log helper is shared.
+// newTabChain boots a chain with profileTabsOn then mutate. It is a bmChain so the log-line helper is shared.
 func newTabChain(t *testing.T, mutate func(*config.Config)) *bmChain {
 	t.Helper()
 	env := newChain(t, func(c *config.Config) {
@@ -86,7 +83,7 @@ func tabPostIDs(r *timelinev1.GetUserTimelineResponse) []string {
 	return out
 }
 
-// tabWorld is the data of the budget tests: an author with media posts, plain posts and reposts of another user's posts,
+// tabWorld is the data of the tab tests: an author with media posts, plain posts and reposts of another user's posts,
 // and a viewer who follows nobody.
 type tabWorld struct {
 	author, viewer, other bmUser
@@ -128,10 +125,9 @@ func (e *bmChain) repostOthers(t *testing.T, by, other bmUser, n int) []string {
 	return out
 }
 
-// Cold budget: page 20 costs at most 24 reads and page 50 at most 54, writes 0, on a freshly booted reader whose every
-// cache is cold; rows are the tab's rows newest first. The same figures hold for the Reposts tab, whose rows trigger the
-// embed filter (it must cost 0 reads: the caller's graph was just read by the visibility check and is cached).
-func TestProfileTabsChain_ColdBudgetAndRows(t *testing.T) {
+// Cold: page 20 and page 50 on a freshly booted reader whose every cache is cold; rows are the tab's rows newest first.
+// The same holds for the Reposts tab, whose rows go through the embed filter.
+func TestProfileTabsChain_ColdRows(t *testing.T) {
 	w := newTabChain(t, nil)
 	tw := seedTabWorld(t, w, 55, 5, 55)
 	for _, tc := range []struct {
@@ -163,9 +159,8 @@ func TestProfileTabsChain_ColdBudgetAndRows(t *testing.T) {
 	}
 }
 
-// Warm: users, graph and userLikes are cached, and a tab has no instance cache, so a repeat open costs exactly the
-// Limit(page) query: 20 at page 20. Walking the tab by next_page_token covers every row once.
-func TestProfileTabsChain_WarmReadsAndPaging(t *testing.T) {
+// Warm: users, graph and userLikes are cached, and a tab has no instance cache, so a repeat open re-queries. Walking the tab by next_page_token covers every row once.
+func TestProfileTabsChain_WarmAndPaging(t *testing.T) {
 	w := newTabChain(t, nil)
 	tw := seedTabWorld(t, w, 45, 3, 0)
 	r := newTabChain(t, nil)
@@ -194,7 +189,7 @@ func TestProfileTabsChain_WarmReadsAndPaging(t *testing.T) {
 }
 
 // A token opens only on the tab that issued it: a Posts-tab page or since token on Media, a Media token on Reposts, is
-// VALIDATION on that field with 0 reads (a warm interceptor makes the whole request line 0). A pre-W3 call that never set
+// VALIDATION on that field. A pre-W3 call that never set
 // `tab` keeps working, and a Media since_token refresh returns the media posts newer than it.
 func TestProfileTabsChain_TokensAreBoundToTheTab(t *testing.T) {
 	w := newTabChain(t, nil)

@@ -28,37 +28,25 @@ import (
 
 // Create implements Service.
 //
-// Firestore, worst case (CreatePost proto comment; keep the integration budget assertion in sync):
-//
-//	reads : author profile (the account-status interceptor's cached read) 1, handles/* <= 10 in one GetAll (only
-//	        when the text has mention candidates outside URLs), idempotency 1, quotas 1 (the last two fresh inside
-//	        the transaction)  => 13 cold / 2 warm, planning 2.5. The documented ceiling stays 14: the author graph
-//	        is no longer read (M2, D7 amendment), so the proto and plan numbers are conservative upper bounds.
-//	writes: idempotency doc, post, users.postsCount, quotas = 4, plus 1 eventual TTL delete
-//	with media (FEATURE_MEDIA): + len(media_ids) reads (one GetAll of media/*, inside the transaction, so
-//	        up to 4 more: 17 cold / 6 warm ceiling, planning 2.5 + n) and + len(media_ids) writes (media/{id}.postId,
-//	        so up to 8); a replay re-reads no media
-//	replay: the idempotency doc, then the post (cache first): 13 cold / 1 warm reads, 0 writes
-//
-// Poll (FEATURE_POLLS): a root post with a poll costs exactly a root post, +0 reads and +0 writes (the poll is a field of
+// Poll (FEATURE_POLLS): a root post with a poll needs no extra read or write (the poll is a field of
 // the same post doc, written in the same commit; replay unchanged). A refused poll (flag, shape, combination) reads and writes
 // nothing.
 //
 // Community: a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
-// FEATURE_DISABLED feature=communities, 0 reads, 0 writes. Otherwise the shape is validated (0 reads), a protected caller is refused (0
-// reads), and the gate runs: +2 reads cold (community via the 60 s cache, member doc read fresh inside the transaction) / +1 warm over a
-// plain post, +0 writes (quotas.communityPosts rides the one quota Set). Every refusal (not a member, banned, archived, quota, per-community
-// cap) writes 0; a replay returns before the member read, so it costs a plain replay (+0, plus the cached community read).
+// FEATURE_DISABLED feature=communities, before any read or write. Otherwise the shape is validated and a protected caller is
+// refused before any read, and the gate runs (community via the 60 s cache, member doc read fresh inside the transaction;
+// quotas.communityPosts rides the one quota Set, so it adds no write). Every refusal (not a member, banned, archived,
+// quota, per-community cap) writes nothing; a replay returns before the member read, so it behaves like a plain replay
+// plus the cached community read.
 //
 // Members-only replies: a reply whose parent carries conversationCommunityId (communities not globally off) runs
-// CommunityGate.CanReply after the reply-policy rules: +2 reads cold (community status, member doc, both 60 s caches), +0 warm, +0 writes; a
-// non-member or banned caller is FORBIDDEN reason=not_member with 0 writes; a reply to a non-community post costs nothing extra. The outcome is
+// CommunityGate.CanReply after the reply-policy rules (community status and member doc, both from 60 s caches, no write); a
+// non-member or banned caller is FORBIDDEN reason=not_member and nothing is written; a reply to a non-community post is unaffected. The outcome is
 // the request-line field community_reply_gate.
 //
-// Reply policy: setting one on a root post or quote costs +0 reads and +0 writes. A reply in a
-// FOLLOWING / MENTIONED_ONLY conversation adds, cold (0 warm, caches 60 s): parent = root MENTIONED_ONLY +0,
-// FOLLOWING +1; deeper MENTIONED_ONLY +3, FOLLOWING +4 (see enforceReplyPolicy); a refusal reads the same and
-// writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
+// Reply policy: setting one on a root post or quote needs no extra read or write. A reply in a
+// FOLLOWING / MENTIONED_ONLY conversation loads more data through 60 s caches (see enforceReplyPolicy); a refusal reads
+// the same and writes nothing. An EVERYONE / absent conversation adds nothing and never loads the root.
 func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create")
 	logger.SetRequestField(ctx, fieldHasPoll, in.Poll != nil) // also on the refusals: a count of polls attempted, never the labels
@@ -83,7 +71,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, featureDisabled("media")
 	}
 	// reply_audience gates only SETTING a policy: any reply_policy other than UNSPECIFIED (EVERYONE, the
-	// not-yet-available values and unknown numbers included) is FEATURE_DISABLED while the flag is off, 0 reads.
+	// not-yet-available values and unknown numbers included) is FEATURE_DISABLED while the flag is off.
 	// Enforcing a stored policy (enforceReplyPolicy) never consults the flag. Disclosure comes after it.
 	if in.ReplyPolicy != int32(postsv1.ReplyPolicy_REPLY_POLICY_UNSPECIFIED) && !in.ReplyAudienceEnabled {
 		return nil, featureDisabled("reply_audience")
@@ -91,12 +79,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if (in.PaidPartnership || in.MadeWithAI) && !in.DisclosureEnabled {
 		return nil, featureDisabled("content_disclosure")
 	}
-	// polls comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED, 0 reads.
+	// polls comes after content_disclosure: a poll with FEATURE_POLLS off for the caller is FEATURE_DISABLED.
 	if in.Poll != nil && !in.PollsEnabled {
 		return nil, featureDisabled("polls")
 	}
 	// communities comes after polls: a set community_id with FEATURE_COMMUNITIES off for the caller is FEATURE_DISABLED
-	// feature=communities, 0 reads beyond the interceptor. With the flag on but no CommunityGate wired (SetCommunityGate) it is refused the
+	// feature=communities. With the flag on but no CommunityGate wired (SetCommunityGate) it is refused the
 	// same way, so a set community_id can never create an ordinary public post outside the community.
 	logger.SetRequestField(ctx, fieldCommunityPost, in.CommunityID != "")
 	if in.CommunityID != "" {
@@ -264,7 +252,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		return nil, logger.RedactErr(fmt.Errorf("posts: create: %w", err), uid)
 	}
 
-	// Replay: the first call's post, cache-first (0 reads warm, 1 cold). No post-commit effects.
+	// Replay: the first call's post, cache-first. No post-commit effects.
 	if res.Post == nil {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
 		p, err := s.Get(ctx, res.ReplayID)

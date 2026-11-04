@@ -13,7 +13,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -33,13 +32,12 @@ func newDeleteEnv() *createEnv {
 	return e
 }
 
-func (e *createEnv) del(id string) (*budget.Counter, string, error) {
+func (e *createEnv) del(id string) (string, error) {
 	ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), testUID))
-	ctx, c := budget.WithCounter(ctx)
 	err := e.svc.Delete(ctx, testUID, key1, id)
 	out, _ := info.Get(fieldOutcome)
 	s, _ := out.(string)
-	return c, s, err
+	return s, err
 }
 
 func TestDelete_Own(t *testing.T) {
@@ -48,12 +46,12 @@ func TestDelete_Own(t *testing.T) {
 	e.cache.SetPost(p)
 	e.cache.StoreAuthorRecent(testUID, []*Post{p}, false, time.Now())
 
-	c, outcome, err := e.del(pidMine)
+	outcome, err := e.del(pidMine)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome != outcomeDeleted {
-		t.Fatalf("outcome=%s reads=%d writes=%d deletes=%d, want deleted 0/1/1 (warm)", outcome, c.Reads(), c.Writes(), c.Deletes())
+	if outcome != outcomeDeleted || e.repo.getAllCalls != 0 || e.repo.deleteCalls != 1 {
+		t.Fatalf("outcome=%s getAllCalls=%d deleteCalls=%d, want deleted from the warm cache with no fetch and one delete", outcome, e.repo.getAllCalls, e.repo.deleteCalls)
 	}
 	if _, ok := e.cache.GetPost(pidMine); ok {
 		t.Fatal("posts cache not evicted")
@@ -68,21 +66,21 @@ func TestDelete_Own(t *testing.T) {
 		t.Fatalf("postsCount delta = %d", e.repo.postsCount)
 	}
 
-	// Second delete: the post is gone, 1 read (cache evicted), 0 writes, success.
-	c, outcome, err = e.del(pidMine)
+	// Second delete: the post is gone and the cache evicted, so it is fetched once, nothing is deleted again, success.
+	outcome, err = e.del(pidMine)
 	if err != nil || outcome != outcomeNoop {
-		t.Fatalf("repeat: err=%v outcome=%s reads=%d writes=%d deletes=%d", err, outcome, c.Reads(), c.Writes(), c.Deletes())
+		t.Fatalf("repeat: err=%v outcome=%s", err, outcome)
 	}
-	if e.repo.deleteCalls != 1 {
-		t.Fatalf("deleteCalls = %d, want 1", e.repo.deleteCalls)
+	if e.repo.deleteCalls != 1 || e.repo.getAllCalls != 1 {
+		t.Fatalf("deleteCalls = %d, getAllCalls = %d, want 1 and 1", e.repo.deleteCalls, e.repo.getAllCalls)
 	}
 }
 
-func TestDelete_ColdOwnIsOneRead(t *testing.T) {
+func TestDelete_ColdOwnFetchesOnce(t *testing.T) {
 	e := newDeleteEnv()
-	c, outcome, err := e.del(pidMine)
-	if err != nil || outcome != outcomeDeleted {
-		t.Fatalf("err=%v outcome=%s reads=%d writes=%d deletes=%d", err, outcome, c.Reads(), c.Writes(), c.Deletes())
+	outcome, err := e.del(pidMine)
+	if err != nil || outcome != outcomeDeleted || e.repo.getAllCalls != 1 || e.repo.deleteCalls != 1 {
+		t.Fatalf("err=%v outcome=%s getAllCalls=%d deleteCalls=%d, want deleted after one fetch", err, outcome, e.repo.getAllCalls, e.repo.deleteCalls)
 	}
 }
 
@@ -98,12 +96,12 @@ func TestDelete_EveryNonOwnCaseLooksTheSame(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newDeleteEnv()
-			c, outcome, err := e.del(tt.id)
+			outcome, err := e.del(tt.id)
 			if err != nil {
 				t.Fatalf("err = %v, want success", err)
 			}
 			if outcome != tt.outcome || e.repo.deleteCalls != 0 {
-				t.Fatalf("outcome=%s reads=%d writes=%d deletes=%d batch calls=%d", outcome, c.Reads(), c.Writes(), c.Deletes(), e.repo.deleteCalls)
+				t.Fatalf("outcome=%s delete calls=%d", outcome, e.repo.deleteCalls)
 			}
 			if tt.id == pidOther {
 				if _, ok := e.repo.docs[pidOther]; !ok {
@@ -120,9 +118,12 @@ func TestDelete_EveryNonOwnCaseLooksTheSame(t *testing.T) {
 func TestDelete_LostRaceIsASuccessWithNoWrites(t *testing.T) {
 	e := newDeleteEnv()
 	e.repo.deleteRace = true
-	c, outcome, err := e.del(pidMine)
+	outcome, err := e.del(pidMine)
 	if err != nil || outcome != outcomeNoop {
-		t.Fatalf("err=%v outcome=%s writes=%d deletes=%d", err, outcome, c.Writes(), c.Deletes())
+		t.Fatalf("err=%v outcome=%s", err, outcome)
+	}
+	if e.repo.postsCount != 0 {
+		t.Fatalf("postsCount delta = %d, want 0: the loser must not change the counter", e.repo.postsCount)
 	}
 	if len(e.events.deleted) != 0 || len(e.dir.forgotten) != 0 {
 		t.Fatal("the loser must not publish or forget")
@@ -142,14 +143,13 @@ func TestDelete_Validation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newDeleteEnv()
-			ctx, _ := budget.WithCounter(googleCtx(context.Background(), testUID))
-			err := e.svc.Delete(ctx, testUID, tt.key, tt.id)
+			err := e.svc.Delete(googleCtx(context.Background(), testUID), testUID, tt.key, tt.id)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != tt.field {
 				t.Fatalf("field = %q, want %q", ae.Metadata["field"], tt.field)
 			}
 			if e.repo.getAllCalls != 0 {
-				t.Fatal("validation must cost 0 reads")
+				t.Fatal("validation must fail before any fetch")
 			}
 		})
 	}
@@ -158,23 +158,21 @@ func TestDelete_Validation(t *testing.T) {
 func TestDelete_StorageErrorsAreWrapped(t *testing.T) {
 	e := newDeleteEnv()
 	e.repo.deleteErr = errBoom
-	_, _, err := e.del(pidMine)
+	_, err := e.del(pidMine)
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("err = %v", err)
 	}
 	e = newDeleteEnv()
 	e.repo.getAllErr = errBoom
-	if _, _, err = e.del(pidMine); !errors.Is(err, errBoom) {
+	if _, err = e.del(pidMine); !errors.Is(err, errBoom) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 // ---- GetForViewer ----
 
-func (e *createEnv) get(id string) (*budget.Counter, *Post, error) {
-	ctx, c := budget.WithCounter(googleCtx(context.Background(), testUID))
-	p, err := e.svc.GetForViewer(ctx, testUID, id)
-	return c, p, err
+func (e *createEnv) get(id string) (*Post, error) {
+	return e.svc.GetForViewer(googleCtx(context.Background(), testUID), testUID, id)
 }
 
 func wantPostNotFound(t *testing.T, err error) {
@@ -185,46 +183,49 @@ func wantPostNotFound(t *testing.T, err error) {
 	}
 }
 
-// The unit budgets count what the posts service itself reads (post + graph); the author profile is read through
-// identity.Directory, whose cost the emulator test in service_delete_integration_test.go measures end to end.
+// wantGraph is how many graph snapshots the visibility check takes; the author profile comes through
+// identity.Directory, which the emulator test in service_delete_integration_test.go exercises end to end.
 func TestGetForViewer(t *testing.T) {
 	overflow := graph.Snapshot{BlockedByOverflow: true}
 	tests := []struct {
 		name      string
 		mutate    func(e *createEnv)
 		wantFound bool
-		wantReads int64
+		wantGraph int
 	}{
-		{"public post", func(*createEnv) {}, true, 2},
-		{"own post skips the graph", func(e *createEnv) { e.repo.docs[pidOther].AuthorID = testUID }, true, 1},
-		{"missing", func(e *createEnv) { delete(e.repo.docs, pidOther) }, false, 1},
-		{"author suspended or deleting or gone", func(e *createEnv) { delete(e.dir.profiles, otherUID) }, false, 1},
+		{"public post", func(*createEnv) {}, true, 1},
+		{"own post skips the graph", func(e *createEnv) { e.repo.docs[pidOther].AuthorID = testUID }, true, 0},
+		{"missing", func(e *createEnv) { delete(e.repo.docs, pidOther) }, false, 0},
+		{"author suspended or deleting or gone", func(e *createEnv) { delete(e.dir.profiles, otherUID) }, false, 0},
 		{"author blocked the caller", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{otherUID: true}}}
-		}, false, 2},
+		}, false, 1},
 		{"caller blocked the author", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: {Blocked: map[string]bool{otherUID: true}}}
-		}, true, 2},
+		}, true, 1},
 		{"caller muted the author", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: {Muted: map[string]bool{otherUID: true}}}
-		}, true, 2},
+		}, true, 1},
 		{"overflow and author blocked the caller", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: overflow, otherUID: {Blocked: map[string]bool{testUID: true}}}
-		}, false, 3},
+		}, false, 2},
 		{"overflow and no block", func(e *createEnv) {
 			e.graph.snaps = map[string]graph.Snapshot{testUID: overflow}
-		}, true, 3},
-		{"protected author, not following", func(e *createEnv) { e.protect(otherUID) }, false, 2},
+		}, true, 2},
+		{"protected author, not following", func(e *createEnv) { e.protect(otherUID) }, false, 1},
 		{"protected author, following", func(e *createEnv) {
 			e.protect(otherUID)
 			e.graph.snaps = map[string]graph.Snapshot{testUID: {Following: map[string]bool{otherUID: true}}}
-		}, true, 2},
+		}, true, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newDeleteEnv()
 			tt.mutate(e)
-			_, p, err := e.get(pidOther)
+			p, err := e.get(pidOther)
+			if e.graph.calls != tt.wantGraph {
+				t.Fatalf("graph snapshots = %d, want %d", e.graph.calls, tt.wantGraph)
+			}
 			if tt.wantFound {
 				if err != nil || p == nil || p.ID != pidOther {
 					t.Fatalf("p=%v err=%v", p, err)
@@ -248,7 +249,7 @@ func TestGetForViewer_NotFoundIsByteIdentical(t *testing.T) {
 	} {
 		e := newDeleteEnv()
 		mutate(e)
-		_, _, err := e.get(pidOther)
+		_, err := e.get(pidOther)
 		errs = append(errs, err)
 	}
 	for _, err := range errs[1:] {
@@ -262,34 +263,33 @@ func TestGetForViewer_NotFoundIsByteIdentical(t *testing.T) {
 func TestGetForViewer_WarmPostCache(t *testing.T) {
 	e := newDeleteEnv()
 	e.cache.SetPost(e.repo.docs[pidOther])
-	c, _, err := e.get(pidOther)
+	_, err := e.get(pidOther)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fake directory is uncharged and the fake graph charges every call (the real ones are cache-first, 0
-	// warm); the posts module's own read is cached, so only the graph snapshot shows.
+	// The post comes from the cache, so the repo is not asked.
 	if e.repo.getAllCalls != 0 {
-		t.Fatalf("getAllCalls=%d reads=%d", e.repo.getAllCalls, c.Reads())
+		t.Fatalf("getAllCalls=%d, want 0", e.repo.getAllCalls)
 	}
 }
 
 func TestGetForViewer_Validation(t *testing.T) {
 	e := newDeleteEnv()
-	c, _, err := e.get("abc")
+	_, err := e.get("abc")
 	ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	if ae.Metadata["field"] != "post_id" {
-		t.Fatalf("field=%q reads=%d", ae.Metadata["field"], c.Reads())
+	if ae.Metadata["field"] != "post_id" || e.repo.getAllCalls != 0 {
+		t.Fatalf("field=%q getAllCalls=%d, want post_id and no fetch", ae.Metadata["field"], e.repo.getAllCalls)
 	}
 }
 
 func TestGetForViewer_DeletedPostIsNotFoundAfterCacheExpiry(t *testing.T) {
 	e := newDeleteEnv()
-	if _, _, err := e.get(pidOther); err != nil {
+	if _, err := e.get(pidOther); err != nil {
 		t.Fatal(err)
 	}
 	delete(e.repo.docs, pidOther) // deleted by its author on another instance
 	e.cache.DeletePost(pidOther)  // models the 60 s TTL expiring
-	_, _, err := e.get(pidOther)
+	_, err := e.get(pidOther)
 	wantPostNotFound(t, err)
 }
 
@@ -336,7 +336,7 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 			if tt.snaps != nil {
 				e.graph.snaps = tt.snaps
 			}
-			_, p, err := e.get(pidOther)
+			p, err := e.get(pidOther)
 			if tt.wantFound {
 				if err != nil || p == nil {
 					t.Fatalf("p=%v err=%v", p, err)
@@ -361,11 +361,11 @@ func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
 	d.EmbeddedAuthorID = embUID
 	e.graph.snaps = map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{embUID: true}, BlockedByOverflow: true}}
 	e.dir.profiles[testUID] = identity.Profile{UserID: testUID, Handle: "alice", Status: identity.AccountStatusActive}
-	_, p, err := e.get(pidOther)
+	p, err := e.get(pidOther)
 	if err != nil || p == nil {
 		t.Fatalf("own copy hidden: p=%v err=%v", p, err)
 	}
 	if e.graph.calls != 0 {
-		t.Errorf("caller-graph reads = %d, want 0 for the caller's own copy", e.graph.calls)
+		t.Errorf("caller-graph snapshots = %d, want 0 for the caller's own copy", e.graph.calls)
 	}
 }

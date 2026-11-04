@@ -44,8 +44,8 @@ func TestRequestAccountExport(t *testing.T) {
 		if v.ID != expID("u1", expKey1) || v.Status != ExportPending || v.DownloadURL != "" {
 			t.Errorf("view = %+v", v)
 		}
-		if h.repo.reads != 1 || h.repo.writes != 2 {
-			t.Errorf("reads/writes = %d/%d, want 1/2 (the interceptor's read comes on top: proto 2/1 and 2 writes)", h.repo.reads, h.repo.writes)
+		if h.repo.writes != 2 {
+			t.Errorf("writes = %d, want 2 (the export doc and the quota, in one commit)", h.repo.writes)
 		}
 		want := JobMessage{Kind: JobKindAccountExport, ExportID: v.ID}
 		if h.pub.count() != 1 || h.pub.msgs[0] != want {
@@ -76,13 +76,13 @@ func TestRequestAccountExport(t *testing.T) {
 		h := newHarness(t)
 		first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
 		h.clock.Advance(exportRepublishAfter)
-		reads, writes := h.repo.reads, h.repo.writes
+		writes := h.repo.writes
 		again, err := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
 		if err != nil || again.ID != first.ID {
 			t.Fatalf("replay = %+v, %v", again, err)
 		}
-		if h.repo.writes != writes || h.repo.reads != reads+2 {
-			t.Errorf("replay reads/writes = +%d/+%d, want +2/+0 (proto: replay 3 with the interceptor)", h.repo.reads-reads, h.repo.writes-writes)
+		if h.repo.writes != writes {
+			t.Errorf("replay writes = +%d, want +0", h.repo.writes-writes)
 		}
 		if h.pub.count() != 2 {
 			t.Errorf("publishes = %d, want 2 (a PENDING replay recovers a lost publish)", h.pub.count())

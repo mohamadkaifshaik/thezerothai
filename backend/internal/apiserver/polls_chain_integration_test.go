@@ -245,7 +245,7 @@ func TestW617_NotFoundBytesIdentical(t *testing.T) {
 	}
 
 	// The other direction: the voter who blocked the author still SEES the post (GetPost shares Viewable; only
-	// an author who blocks the caller hides it), but cannot vote: FAILED_PRECONDITION TARGET_BLOCKED, 0 writes, and the poll view says so.
+	// an author who blocks the caller hides it), but cannot vote: FAILED_PRECONDITION TARGET_BLOCKED, nothing written, and the poll view says so.
 	g, err := e.posts.GetPost(ctx, authed(blocksA.token, &postsv1.GetPostRequest{PostId: pid}))
 	if err != nil || g.Msg.GetPost().GetPost().GetPostId() != pid {
 		t.Fatalf("GetPost by a user who blocked the author = %v, %v", g, err)
@@ -739,35 +739,5 @@ func TestW617_RepostIDVotesInTheOriginal(t *testing.T) {
 	}
 	if got, _ := ul.DataAt("pollVotes"); !onePollEntry(got, pid, 0) {
 		t.Errorf("userLikes.pollVotes after the REPOST-id change = %v, want the one entry %s:0:<closesAtUnix>", got, pid)
-	}
-}
-
-// Polls add no Firestore read to the read path: GetPost and the user timeline cost the same reads for a poll post as for a plain post,
-// each on a fresh instance (equal cold caches), for a viewer who voted and one who did not.
-func TestW617_ReadBudgetPollVsPlain(t *testing.T) {
-	setup := newPollChain(t)
-	a, voted, fresh := setup.user(t), setup.user(t), setup.user(t)
-	pollID := setup.poll(t, a)
-	plain, err := setup.posts.CreatePost(context.Background(), authed(a.token, &postsv1.CreatePostRequest{IdempotencyKey: "w617-budget-plain-key-1", Text: "plain"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plainID := plain.Msg.GetPost().GetPost().GetPostId()
-	if _, err := setup.vote(voted, "w617-budget-vote-key-01", pollID, 0); err != nil {
-		t.Fatal(err)
-	}
-	const getPost = "/dzeroth.posts.v1.PostService/GetPost"
-	for _, viewer := range []struct {
-		name string
-		u    testUser
-	}{{"voter", voted}, {"non-voter", fresh}} {
-		readsOf := func(id string) int64 {
-			e := newPollChain(t)
-			e.getPost(t, viewer.u, id)
-			return e.lineBudget(t, getPost).Reads()
-		}
-		if p, q := readsOf(pollID), readsOf(plainID); p != q {
-			t.Errorf("GetPost as %s: %d reads for the poll post, %d for the plain post, want equal", viewer.name, p, q)
-		}
 	}
 }

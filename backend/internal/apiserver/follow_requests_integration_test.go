@@ -5,10 +5,10 @@ package apiserver
 // Follow requests through the real Build chain on the emulators, with the real protected-set loader and
 // the real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - Follow of a protected P is REQUESTED; ListFollowRequests shows the requests newest first at the documented reads;
-//   - an unapproved viewer (a stranger, or a mere requester) gets PROTECTED_ACCOUNT on P's followers and following at 3
-//     cold reads and no page read;
+//   - an unapproved viewer (a stranger, or a mere requester) gets PROTECTED_ACCOUNT on P's followers and following
+//     with no page read;
 //   - Accept creates the edge, moves both counters, keeps I-R and I-X, notifies the requester (follow_accepted_{P}, no
-//     follow_{requester} row for P) and makes the requester see P's posts; a replay costs 0 writes; Decline writes
+//     follow_{requester} row for P) and makes the requester see P's posts; a replay writes nothing more; Decline writes
 //     nothing else and notifies nobody;
 //   - the D12 flag matrix: with FEATURE_PRIVATE_ACCOUNTS off, allowlisted without the caller, percent 0 or on, a
 //     protected P can still list and answer (undo is never gated), and only a public caller is refused, and only in off.
@@ -198,7 +198,7 @@ func TestW328a_FollowRequestsThroughTheChain(t *testing.T) {
 		}
 	}
 
-	// Replay: the request is gone; 0 writes, no second row.
+	// Replay: the request is gone; no second row.
 	if _, err := c.w328Respond(p, a.uid, true); err != nil {
 		t.Fatalf("accept replay: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestW328a_FollowRequestsThroughTheChain(t *testing.T) {
 		t.Errorf("pending requester's Posts tab: %v err=%v, want author_protected", resp, err)
 	}
 
-	// Decline b: 1 write + 1 delete (the requester's `requested`), nobody notified, no edge; b may ask again.
+	// Decline b: the requester's `requested` goes, nobody notified, no edge; b may ask again.
 	if _, err := c.w328Respond(p, b.uid, false); err != nil {
 		t.Fatalf("decline: %v", err)
 	}

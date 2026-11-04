@@ -8,20 +8,18 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // CommunityModerator is the moderation seam, declared here and called by the communities module inside its own
 // moderation transaction (posts never imports communities).
 //
-// SetCommunityListing reads the post FRESH inside tx (1 read, never the cache), then:
+// SetCommunityListing reads the post FRESH inside tx (never the cache), then:
 //   - found=false (and no error) when the post is missing, carries `moderation` (a platform takedown or suspended author: a community hide and
 //     restore must never touch it, L-2), is a REPOST or a plain post, is a root whose community.id is not cid, or is a reply
 //     (kind REPLY) whose conversationCommunityId is not cid; reply reports which of the two it was;
 //   - guard (when non-nil) is called with the post's authorId once the post is found and BEFORE any write, whether or not the call would change
 //     anything; its error is returned unchanged and nothing is written (F16,: the communities module passes the author-vs-actor role check,
-//     so the decision costs 0 extra reads and posts never learns what a role is). It applies to replies unchanged;
+//     so the decision needs no extra read and posts never learns what a role is). It applies to replies unchanged;
 //   - listed=false (hide) of a root: when communityId is present, one field-level Update deletes communityId and sets communityHidden and
 //     communityHiddenAt (server time); when it is already absent (hidden), nothing is written and changed is false;
 //   - listed=true (restore) of a root: when communityId is absent, one field-level Update sets communityId to the label's id and deletes
@@ -34,7 +32,7 @@ import (
 // posts.NewCommunityModerator to it.
 //
 // A hide is never a takedown: it does not touch moderation, Hidden() or Visible(), so the post stays on the author's profile and in Home.
-// All reads of a transaction must precede its writes, so the caller calls this LAST among its reads. Reads 1, writes 0 or 1. The posts
+// All reads of a transaction must precede its writes, so the caller calls this LAST among its reads. It writes at most the post. The posts
 // instance cache and author-recent cache are not touched: a label already cached on an instance shows until its entry expires (60 s
 // staleness bound, CACHE_TTL); the community feed does not depend on it (it drops the post through the community's recentRemovals).
 type CommunityModerator interface {
@@ -70,7 +68,6 @@ func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firest
 	}
 	ref := m.client.Collection(postsCollection).Doc(postID)
 	snap, err := tx.Get(ref)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return false, false, false, nil
@@ -107,7 +104,6 @@ func (m *firestoreModerator) SetCommunityListing(ctx context.Context, tx *firest
 	if err := tx.Update(ref, listingUpdates(reply, listed, cid)); err != nil {
 		return false, true, reply, fmt.Errorf("posts: set community listing: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return true, true, reply, nil
 }
 

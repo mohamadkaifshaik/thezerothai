@@ -33,7 +33,7 @@ func (m *Module) ListBookmarks(ctx context.Context, uid string, pageSize int32, 
 func bookmarksBinding(uid string) string { return listBinding("bookmarks", uid) }
 
 // decodeBookmarkToken opens token for uid, bound to bookmarks|<uid> with the cursor package's 24 h TTL. An empty token
-// is the first page (nil position); a foreign, expired, tampered or malformed one is errListToken. Pure: 0 reads.
+// is the first page (nil position); a foreign, expired, tampered or malformed one is errListToken. Pure.
 func (s *service) decodeBookmarkToken(uid, token string) (*posts.Position, error) {
 	if token == "" {
 		return nil, nil
@@ -112,7 +112,7 @@ func (s *service) noteList(ctx context.Context, t dropTally, returned, pruned in
 
 // prune is the lazy clean-up of: the bookmark docs of posts that no longer exist (confirmed missing by
 // GetMany; hidden and blocked rows stay) are deleted with their userLikes.bookmarks entries in one best-effort batch
-// (1 write + 1 delete per row, 0 reads), so each row is paid for once. It is skipped under DEGRADED_MODE=readonly (the
+// (one update and a delete per row, no reads), so each row is cleaned once. It is skipped under DEGRADED_MODE=readonly (the
 // list is NO_SIDE_EFFECTS and must stay write-free) and a failure is a WARN with counts only: the page is still
 // served and the next open tries again. It returns the number of rows pruned.
 func (s *service) prune(ctx context.Context, repo BookmarkRepo, uid string, gone []string) int {

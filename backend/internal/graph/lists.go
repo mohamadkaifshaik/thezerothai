@@ -15,7 +15,7 @@ import (
 // GetRelationships: the caller's relationship to 1-50 users, computed from the caller's
 // cached Snapshot only — never from the targets' graphs, so a user who blocked the caller looks exactly like
 // a stranger. Duplicates collapse (first occurrence wins) and request order is preserved.
-// Firestore: reads 1 (0 on a cache hit), writes 0.
+// It reads the caller's snapshot (a cache hit reads nothing) and writes nothing.
 func (s *service) GetRelationships(ctx context.Context, callerUID string, targetUIDs []string) (_ []Relationship, err error) {
 	defer begin(ctx, "get_relationships")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -45,14 +45,14 @@ func (s *service) GetRelationships(ctx context.Context, callerUID string, target
 }
 
 // ListBlockedUsers: the caller's own blocked[] array, newest first, hydrated through
-// identity.Directory. Firestore: reads 1 + <= page_size (50 max) via one batched GetAll (fewer when profiles are
-// cached); writes 0, or 1 when the page holds a uid whose profile no longer exists (lazy clean-up: one
+// identity.Directory. It reads the graph doc and at most page_size (50 max) profiles via one batched GetAll (fewer when profiles are
+// cached). It writes only when the page holds a uid whose profile no longer exists (lazy clean-up: one
 // ArrayRemove on the caller's own graph doc, once per stale entry, ever).
 func (s *service) ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "blocked", pageSize, pageToken, func(l Lists) []string { return l.Blocked })
 }
 
-// ListMutedUsers: as ListBlockedUsers, over muted[]. Reads 1 + <= page_size, writes 0 (1).
+// ListMutedUsers: as ListBlockedUsers, over muted[]. It reads and writes the same way.
 func (s *service) ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listOwnArray(ctx, callerUID, "muted", pageSize, pageToken, func(l Lists) []string { return l.Muted })
 }
@@ -118,7 +118,7 @@ func (s *service) listOwnArray(ctx context.Context, callerUID, kind string, page
 }
 
 // lazyCleanup removes uids confirmed to have no users/{uid} doc from the caller's OWN array (refinement).
-// At most one page (<= 50 ids) and one write; 0 reads. Best effort: a failure is logged
+// At most one page (<= 50 ids) and one write, with no read. Best effort: a failure is logged
 // as a WARN with a count only and never fails the list RPC. No raw uids are logged. Under
 // DEGRADED_MODE=readonly the list RPCs still run (they are NO_SIDE_EFFECTS) but must stay write-free, so the
 // write is skipped (DEBUG only); the stale entries are cleaned up on a later call once the mode is off.

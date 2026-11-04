@@ -26,7 +26,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
 
@@ -101,8 +100,8 @@ type PollSweepResult struct {
 
 // PollVoteSweeper removes expired userLikes.pollVotes entries from accounts that have not come back.
 type PollVoteSweeper interface {
-	// SweepPollVotes runs one bounded pass. Reads: documents returned (min 1, at most PollSweepLimit); writes: one per document
-	// changed. 0 when nothing is due beyond the 1 read of the empty query.
+	// SweepPollVotes runs one bounded pass. It reads at most PollSweepLimit documents and writes one per
+	// document changed; nothing is written when nothing is due.
 	SweepPollVotes(ctx context.Context, now time.Time, ttl time.Duration) (PollSweepResult, error)
 }
 
@@ -123,8 +122,6 @@ func (r *FirestoreRepo) SweepPollVotes(ctx context.Context, now time.Time, ttl t
 		days = append(days, d)
 	}
 	docs, err := r.client.Collection(userLikesCollection).Where("pollVotesDueDays", "array-contains-any", days).Limit(PollSweepLimit).Documents(ctx).GetAll()
-	n := max(len(docs), 1)
-	budget.FromContext(ctx).AddReads(int64(n))
 	if err != nil {
 		return res, fmt.Errorf("engagement: poll vote sweep query: %w", err)
 	}
@@ -151,7 +148,6 @@ func (r *FirestoreRepo) SweepPollVotes(ctx context.Context, now time.Time, ttl t
 		_, err := snap.Ref.Update(ctx, updates, firestore.LastUpdateTime(snap.UpdateTime))
 		switch status.Code(err) {
 		case codes.OK:
-			budget.FromContext(ctx).AddWrites(1)
 			res.Pruned++
 			res.Entries += len(expired)
 		case codes.FailedPrecondition, codes.NotFound, codes.Aborted:

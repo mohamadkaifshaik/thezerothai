@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// fakeRepo is an in-memory Repo. It charges nothing; budgets are asserted by the integration tests.
+// fakeRepo is an in-memory Repo. It is the unit-test stand-in for the Firestore repo.
 type fakeRepo struct {
 	mu       sync.Mutex
 	docs     map[string]*Doc

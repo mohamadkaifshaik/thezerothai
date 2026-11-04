@@ -113,7 +113,7 @@ func TestListFollowRequests_TokenBinding(t *testing.T) {
 			_, err := svc.ListFollowRequests(context.Background(), tc.caller, 20, tc.token)
 			assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if repo.edgeCalls != before {
-				t.Error("a bad token must cost 0 reads")
+				t.Error("a bad token must not reach the edge query")
 			}
 		})
 	}

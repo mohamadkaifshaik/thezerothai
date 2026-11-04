@@ -11,7 +11,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeClock is a settable clock.
@@ -35,7 +34,7 @@ func (c *fakeClock) Advance(d time.Duration) {
 }
 
 // fakePosts is an in-memory posts.Reader with the real contract: createdAt DESC order, window semantics, Limit
-// clamped to 1..50, reads = max(len(result), 1) charged to the request's budget counter, 60 s author-recent.
+// clamped to 1..50, 60 s author-recent.
 type fakePosts struct {
 	posts.Reader // unused methods panic via nil embed
 	clock        *fakeClock
@@ -107,7 +106,6 @@ func (f *fakePosts) query(ctx context.Context, label string, authors []string, w
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(out), 1)))
 	return out
 }
 
@@ -174,7 +172,7 @@ func (f *fakePosts) queryCount(prefix string) int {
 	return n
 }
 
-// fakeGraph serves a per-uid Snapshot and charges 1 read per call (a cold graph read).
+// fakeGraph serves a per-uid Snapshot and records every call.
 type fakeGraph struct {
 	snaps map[string]graph.Snapshot
 	calls []string
@@ -183,7 +181,6 @@ type fakeGraph struct {
 
 func (g *fakeGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
 	g.calls = append(g.calls, uid)
-	budget.FromContext(ctx).AddReads(1)
 	if err := g.errs[uid]; err != nil {
 		return graph.Snapshot{}, err
 	}
@@ -198,7 +195,7 @@ func following(uids ...string) map[string]bool {
 	return m
 }
 
-// fakeDirectory returns the ACTIVE profiles it was given and charges 1 read per call (a cold users read).
+// fakeDirectory returns the ACTIVE profiles it was given.
 type fakeDirectory struct {
 	identity.Directory
 	profiles map[string]identity.Profile
@@ -209,7 +206,6 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	if d.err != nil {
 		return nil, d.err
 	}
-	budget.FromContext(ctx).AddReads(1)
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
 		if p, ok := d.profiles[u]; ok {

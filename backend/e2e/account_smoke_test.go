@@ -21,7 +21,7 @@ package e2e
 //     REMOTE MODE HAS NOT BEEN RUN: it needs credentials and a deployed candidate revision this environment does not
 //     have. It is written so that A is deleted and B only ever follows A, so a re-run needs a fresh pair of accounts.
 //
-// Budget: about 30 requests, ~30 reads, ~15 writes, ~15 deletes per run (under the < 100-request prod smoke cap).
+// Request count: about 30 requests per run (under the < 100-request prod smoke cap).
 
 import (
 	"context"

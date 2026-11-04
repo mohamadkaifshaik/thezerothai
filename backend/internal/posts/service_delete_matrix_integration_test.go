@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func arrUnion(path string, uid string) firestore.Update {
@@ -73,7 +71,7 @@ func d6Fixture(t *testing.T) (*firestore.Client, string) {
 	setup := newCreateInstance(t, client, time.Nanosecond)
 	setup.signUp(t, "uid-alice", "alice")
 	setup.signUp(t, "uid-bob", "bob")
-	p, _, err := setup.create(t, "uid-bob", key(1), "from bob")
+	p, err := setup.create(t, "uid-bob", key(1), "from bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,14 +79,14 @@ func d6Fixture(t *testing.T) (*firestore.Client, string) {
 }
 
 // TestDeletePost_Integration_D6Matrix: with each relationship seeded, A deleting B's post is a silent success
-// (<= 1 read, 0 writes, 0 deletes) and the post survives (audit item #16).
+// and the post survives (audit item #16).
 func TestDeletePost_Integration_D6Matrix(t *testing.T) {
 	for _, row := range d6Rows() {
 		t.Run(row.name, func(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			_, err := in.del("uid-alice", id)
+			err := in.del("uid-alice", id)
 			if err != nil {
 				t.Fatalf("DeletePost: %v, want nil", err)
 			}
@@ -100,7 +98,7 @@ func TestDeletePost_Integration_D6Matrix(t *testing.T) {
 }
 
 // TestGetPost_Integration_D6Matrix: the GetPost column of D6 per row, including own, A follows B, both-block and
-// DELETING, with the NOT_FOUND budget (<= 3, overflow <= 4) and byte-identity with a missing post
+// DELETING, with byte-identity with a missing post
 // (audit items #15 and the GetPost part of #10).
 func TestGetPost_Integration_D6Matrix(t *testing.T) {
 	for _, row := range d6Rows() {
@@ -108,7 +106,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			_, p, err := in.get("uid-alice", id)
+			p, err := in.get("uid-alice", id)
 			if row.getFound {
 				if err != nil || p == nil || p.ID != id {
 					t.Fatalf("want the post returned, got %v %v", p, err)
@@ -116,7 +114,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 				return
 			}
 			wantPostNotFound(t, err)
-			_, _, missing := in.get("uid-alice", pid(777))
+			_, missing := in.get("uid-alice", pid(777))
 			wantPostNotFound(t, missing)
 			if err.Error() != missing.Error() {
 				t.Fatalf("not byte-identical to a missing post: %q vs %q", err, missing)
@@ -129,7 +127,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 func TestGetPost_Integration_Own(t *testing.T) {
 	client, id := d6Fixture(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
-	_, p, err := in.get("uid-bob", id)
+	p, err := in.get("uid-bob", id)
 	if err != nil || p == nil || p.ID != id {
 		t.Fatalf("own post: %v %v", p, err)
 	}
@@ -145,7 +143,7 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	seedMany(t, client, uid, 1203, 1) // pid(1) oldest .. pid(1203) newest
 	seedMany(t, client, "uid-keep", 7, 5000)
 
-	ctx1, _ := budget.WithCounter(context.Background())
+	ctx1 := context.Background()
 	cp, done, err := repo.PurgeUser(ctx1, uid, Checkpoint{})
 	if err != nil || done || cp.Deleted != 500 {
 		t.Fatalf("batch 1: cp=%+v done=%v err=%v", cp, done, err)
@@ -166,7 +164,7 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	}
 
 	// Crash: the saved checkpoint is lost. Restart from zero.
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	cp = Checkpoint{}
 	done = false
 	for calls := 0; !done; calls++ {

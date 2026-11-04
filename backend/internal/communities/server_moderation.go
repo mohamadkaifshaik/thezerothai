@@ -12,13 +12,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// HideCommunityPost is gated by FEATURE_COMMUNITIES (reason=not_moderator for anyone but the owner and moderators; reason=not_owner when a moderator targets the owner's or another moderator's post, F16, 0 extra reads, nothing written; a post with `moderation` set is NOT_FOUND). The post leaves the
+// HideCommunityPost is gated by FEATURE_COMMUNITIES (reason=not_moderator for anyone but the owner and moderators; reason=not_owner when a moderator targets the owner's or another moderator's post, F16, nothing written; a post with `moderation` set is NOT_FOUND). The post leaves the
 // community's feed and loses its label; it stays on the author's profile and in Home. Moderators never delete posts. Already hidden is
-// success with the idempotency document only.
-//
-// Firestore (interceptor included): reads 5 cold (interceptor, idempotency, community, actor memberships, post; all fresh) / 4 warm;
-// writes 3 (post, community, idempotency) +1 on the actor's first log entry in this community (memberships modlogged) + 1 TTL delete
-// later; already hidden 1 write; replay 2 reads, 0 writes; refused 0 writes.
+// success with the idempotency document only. A replay and a refused request write nothing.
 func (s *Server) HideCommunityPost(ctx context.Context, req *connect.Request[communitiesv1.HideCommunityPostRequest]) (*connect.Response[communitiesv1.HideCommunityPostResponse], error) {
 	m := req.Msg
 	err := s.postAction(ctx, "HideCommunityPost", PostActionInput{Key: m.GetIdempotencyKey(), CommunityID: m.GetCommunityId(), PostID: m.GetPostId()}, Moderation.HideCommunityPost)
@@ -28,10 +24,7 @@ func (s *Server) HideCommunityPost(ctx context.Context, req *connect.Request[com
 	return connect.NewResponse(&communitiesv1.HideCommunityPostResponse{}), nil
 }
 
-// RestoreCommunityPost is gated by FEATURE_COMMUNITIES: the reverse of HideCommunityPost, with the same roles, errors and budget.
-//
-// Firestore (interceptor included): reads 5 cold / 4 warm; writes 3 (+1 on the actor's first log entry), 1 when the post is not hidden,
-// + 1 TTL delete later; replay 2 reads, 0 writes.
+// RestoreCommunityPost is gated by FEATURE_COMMUNITIES: the reverse of HideCommunityPost, with the same roles and errors.
 func (s *Server) RestoreCommunityPost(ctx context.Context, req *connect.Request[communitiesv1.RestoreCommunityPostRequest]) (*connect.Response[communitiesv1.RestoreCommunityPostResponse], error) {
 	m := req.Msg
 	err := s.postAction(ctx, "RestoreCommunityPost", PostActionInput{Key: m.GetIdempotencyKey(), CommunityID: m.GetCommunityId(), PostID: m.GetPostId()}, Moderation.RestoreCommunityPost)
@@ -52,10 +45,7 @@ func (s *Server) postAction(ctx context.Context, rpc string, in PostActionInput,
 
 // SetMemberRole is gated by FEATURE_COMMUNITIES. BAN and UNBAN are for the owner and moderators (reason=not_moderator), MAKE and
 // REMOVE_MODERATOR for the owner (reason=not_owner); a ban accepts a non-member and never touches earlier posts.
-//
-// Firestore (interceptor included): reads 7 cold (interceptor, target profile, idempotency, community, target member doc, target
-// memberships, actor memberships) / 6 warm; writes BAN 4, UNBAN 3 + 1 delete, MAKE or REMOVE_MODERATOR 2 to 3, +1 on the actor's first log
-// entry in this community, worst 5; a request that changes nothing 1 write; replay 3 reads, 0 writes; refused 0 writes.
+// A request that changes nothing writes only the idempotency document; a replay and a refused request write nothing.
 func (s *Server) SetMemberRole(ctx context.Context, req *connect.Request[communitiesv1.SetMemberRoleRequest]) (*connect.Response[communitiesv1.SetMemberRoleResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "SetMemberRole")
 	if err != nil {
@@ -87,11 +77,7 @@ func roleActionFromProto(a communitiesv1.MemberRoleAction) RoleAction {
 }
 
 // ListModerationLog is gated by FEATURE_COMMUNITIES; owner and moderators only (reason=not_moderator after the community read), newest
-// first, at most 25 entries a page. A tampered, expired or foreign page_token is VALIDATION "page_token" with 0 reads beyond the
-// interceptor.
-//
-// Firestore (interceptor included): reads 52 cold (interceptor, community, <= 50 actor and target profiles) / 0 warm (profiles come from the directory cache); a
-// refused caller 2; writes 0.
+// first, at most 25 entries a page. A tampered, expired or foreign page_token is VALIDATION "page_token" before any lookup.
 func (s *Server) ListModerationLog(ctx context.Context, req *connect.Request[communitiesv1.ListModerationLogRequest]) (*connect.Response[communitiesv1.ListModerationLogResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListModerationLog")
 	if err != nil {

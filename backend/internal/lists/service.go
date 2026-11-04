@@ -120,7 +120,7 @@ func updateHash(listID string, name, description *string, isPrivate *bool) strin
 
 func deleteHash(listID string) string { return idempotency.HashRequest("list_id=" + listID) }
 
-// validateKey and validateListID are the shared front checks: 0 reads, the field named in the VALIDATION metadata.
+// validateKey and validateListID are the shared front checks: no reads, the field named in the VALIDATION metadata.
 func validateKey(key string) error {
 	if !idempotency.KeyFormatValid(key) {
 		return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
@@ -151,7 +151,7 @@ func validateDescription(s string) (string, error) {
 	return n, nil
 }
 
-// profile is the caller's live row, cache-first (0 reads behind the account-status interceptor, which has just loaded it).
+// profile is the caller's live row, cache-first (the account-status interceptor has just loaded it).
 func (s *service) profile(ctx context.Context, uid string) (identity.Profile, error) {
 	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
@@ -234,7 +234,7 @@ func mapErr(ctx context.Context, op, uid, listID string, err error) error {
 	return logger.RedactErr(fmt.Errorf("lists: %s: %w", op, err), uid, listID)
 }
 
-// CreateList implements Service. Validation first (0 reads), the caller's profile (cache-first; it
+// CreateList implements Service. Validation first (no reads), the caller's profile (cache-first; it
 // decides the new-account quota tier and is the response's owner row), then one repository transaction. The new list's data
 // fills the instance cache.
 func (s *service) CreateList(ctx context.Context, uid string, in CreateInput) (View, error) {

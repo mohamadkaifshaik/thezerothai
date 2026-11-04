@@ -13,7 +13,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -31,7 +30,7 @@ func (in *createInstance) protectIn(uids ...string) *fakeProtected {
 
 // TestAudience_Integration_GetPostQuoteAndRefusals: over real Firestore, GetPost of a protected author's post
 // is byte-identical to a deleted post at the unchanged 3 cold reads (4 per request with the interceptor); a follower
-// reads it at the same cost; quoting it is NOT_FOUND for a stranger and PROTECTED_ACCOUNT for a follower, 0 writes; a
+// reads it normally; quoting it is NOT_FOUND for a stranger and PROTECTED_ACCOUNT for a follower, with nothing written; a
 // quote made while the author was public is stripped for an unapproved viewer; and the stored doc stays PUBLIC.
 func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	client := newTestClient(t)
@@ -39,7 +38,7 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	for _, u := range []string{"alice", "bob", "carol"} {
 		setup.signUp(t, "uid-"+u, u)
 	}
-	bobPost, _, err := setup.create(t, "uid-bob", key(1), "from bob")
+	bobPost, err := setup.create(t, "uid-bob", key(1), "from bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +55,9 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	// Bob protects. Alice is a stranger.
 	in := newCreateInstance(t, client, time.Nanosecond)
 	set := in.protectIn("uid-bob")
-	_, _, err = in.get("uid-alice", bobPost.ID)
+	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
-	_, _, missing := in.get("uid-alice", pid(777))
+	_, missing := in.get("uid-alice", pid(777))
 	if err.Error() != missing.Error() {
 		t.Fatalf("not byte-identical to a deleted post: %q vs %q", err, missing)
 	}
@@ -66,9 +65,9 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 		t.Fatal("the set was never consulted for a non-followed author")
 	}
 
-	// A quote target refusal for the stranger is the same NOT_FOUND, 0 writes.
+	// A quote target refusal for the stranger is the same NOT_FOUND, with nothing written.
 	actx := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
-	actx, _ = budget.WithCounter(actx)
+
 	_, err = in.svc.Create(actx, "uid-alice", CreateInput{IdempotencyKey: key(3), Text: "q", QuoteOfPostID: bobPost.ID, QuotesEnabled: true})
 	wantPostNotFound(t, err)
 
@@ -86,18 +85,18 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 		t.Fatalf("embed not stripped: %+v", e)
 	}
 
-	// Alice follows bob: reads the post at the same cost; wire visibility is FOLLOWERS; quote is PROTECTED_ACCOUNT.
+	// Alice follows bob: reads the post; wire visibility is FOLLOWERS; quote is PROTECTED_ACCOUNT.
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "following", Value: firestore.ArrayUnion("uid-bob")}})
 	in2 := newCreateInstance(t, client, time.Nanosecond)
 	in2.protectIn("uid-bob")
-	_, p, err := in2.get("uid-alice", bobPost.ID)
+	p, err := in2.get("uid-alice", bobPost.ID)
 	if err != nil {
 		t.Fatalf("follower: %v", err)
 	}
 	if p.Visibility != VisibilityPublic {
 		t.Fatal("stored visibility must stay PUBLIC")
 	}
-	actx2, _ := budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
+	actx2 := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
 	_, err = in2.svc.Create(actx2, "uid-alice", CreateInput{IdempotencyKey: key(4), Text: "q", QuoteOfPostID: bobPost.ID, QuotesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 

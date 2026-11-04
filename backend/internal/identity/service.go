@@ -145,8 +145,8 @@ func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "profile not found")
 }
 
-// getProfileCached is the read-through cache every RPC uses: 0 reads on a cache hit (60s TTL),
-// 0 reads on a negative-cache hit (M1: ~10s "no profile yet" cache) — the latter matters because this is
+// getProfileCached is the read-through cache every RPC uses: a cache hit (60s TTL) and a
+// negative-cache hit (M1: ~10s "no profile yet" cache) read nothing; the latter matters because this is
 // exactly what authn.AccountStatusInterceptor calls (via AccountStatus below) for every request from a
 // caller who never completes sign-up, so without it such a caller could burn one Firestore read per
 // request indefinitely.
@@ -169,11 +169,11 @@ func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, er
 	return p, nil
 }
 
-// CreateProfile: worst case Firestore reads 2, writes 3 (see repo_firestore.go). Idempotent by uid: a
+// CreateProfile: see repo_firestore.go for the transaction. Idempotent by uid: a
 // replay (profile already exists) is a pure read, no writes and no Auth call. Auth (M2): exactly
 // one users.get of the token's own uid, only when users/{uid} does not exist, before any create; a deleted or
 // disabled Auth user is PERMISSION_DENIED, an Auth outage UNAVAILABLE (fail closed), nothing written either way.
-// 0 extra Firestore ops.
+// No extra Firestore operation.
 func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle, displayName string) (Profile, error) {
 	if idempotencyKeyIssue(idempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -208,8 +208,8 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 	return s.present(profile), nil
 }
 
-// CheckHandleAvailability: 1 read, 0 writes (cache hit on the handle map or the 10 s negative handle cache
-// 0 reads). A stale "available" is only a hint; CreateProfile/ChangeHandle stay transactional.
+// CheckHandleAvailability reads once and never writes (a cache hit on the handle map or the 10 s negative handle
+// cache reads nothing). A stale "available" is only a hint; CreateProfile/ChangeHandle stay transactional.
 func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (bool, string, error) {
 	if reason := handleFormatIssue(handle); reason != "" {
 		return false, reason, nil
@@ -233,13 +233,13 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 	}
 }
 
-// GetMe: reads 2 worst case (profile + unread count, both cache misses), 1 typical.
-// enabled_features comes from the FeatureFlags provider, 0 extra reads.
-// pending_follow_request_count is +1 read per 1,000 matches (minimum 1, one count() on followRequests)
-// for a caller whose isPrivate is true and whose 30 s cached count is gone; 0 reads for every other caller (a public
-// caller never reaches the counter) and on a hit. A failed count is WARN pending_count_failed with the badge at 0.
-// unread_conversation_count is +1 read (a count on users/{uid}/dmInbox, Limit 100) on a cache miss
-// for a caller with messaging on; 0 reads for every other caller and on a hit (30 s). A failed count is WARN
+// GetMe returns the caller's profile plus the unread notification count.
+// enabled_features comes from the FeatureFlags provider, with no extra read.
+// pending_follow_request_count is one count() on followRequests, only for a caller whose isPrivate is true and whose
+// 30 s cached count is gone; every other caller (a public caller never reaches the counter) and every hit reads
+// nothing. A failed count is WARN pending_count_failed with the badge at 0.
+// unread_conversation_count is a count on users/{uid}/dmInbox (Limit 100) on a cache miss for a caller with
+// messaging on; every other caller and every hit (30 s) reads nothing. A failed count is WARN
 // unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	profile, err := s.getProfileCached(ctx, uid)
@@ -324,8 +324,8 @@ func (s *service) pendingRequests(ctx context.Context, p Profile) int64 {
 	return n
 }
 
-// GetProfile: reads up to 2 (handle resolve + profile; both cacheable), +1 more when BlockChecker is wired
-// and misses its own cache (proto worst case 3, +1 on a viewer's blockedByOverflow). If the
+// GetProfile resolves the handle and loads the profile (both cacheable), and consults BlockChecker when it is
+// wired. If the
 // target blocked the caller, returns the byte-identical NOT_FOUND used for a missing profile ("no existence leak")
 // — the caller can still view a target they themselves blocked, so they can unblock.
 func (s *service) GetProfile(ctx context.Context, callerUID string, target ProfileTarget) (Profile, error) {
@@ -347,7 +347,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		if cached, ok := s.cache.GetHandleUID(lower); ok {
 			uid = cached
 		} else if s.cache.GetHandleFree(lower) {
-			return Profile{}, notFoundErr() // negative handle cache: 0 reads
+			return Profile{}, notFoundErr() // negative handle cache: no read
 		} else {
 			resolved, err := s.repo.ResolveHandle(ctx, lower)
 			if err != nil {
@@ -390,7 +390,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 // while the flag is globally off (Registry.GloballyOff: mode off; an allowlist or a percent, even an
 // empty one or 0, is a rollout, not the switch; no flags wired counts as off) it omits pinned_post_id (so clients stop
 // the GetPost call) and website (the one field that sends a viewer somewhere else, the phishing surface). It covers
-// every Profile identity returns, the owner's own view included, with 0 reads. Everything else is returned as stored;
+// every Profile identity returns, the owner's own view included, without a read. Everything else is returned as stored;
 // rendering of banner and location stays ungated (D9). The cache, the stored document and the export keep the stored
 // values, so a flag that comes back shows both again without a write.
 func (s *service) present(p Profile) Profile {
@@ -426,47 +426,44 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 // string is a clear and is never gated; anything else, whitespace-only included, is a set.
 func setsExtra(p *string) bool { return p != nil && *p != "" }
 
-// UpdateProfile: reads 1, writes 1 (the transaction's read and write of users/{uid}; 0 writes when the request changes nothing,
-// L-4: UpdatedAt moves only on a real change and the repo then skips the write), plus the account-status
-// interceptor's profile read when its cache is cold (+1, outside this method). Resolves before the transaction add
-// reads: +1 for a non-empty avatar_media_id (the media doc), +1 for a non-empty banner_media_id (the media doc),
-// +1 for a non-empty pinned_post_id (the post, cache-first so 1 cold / 0 warm). Worst case with the
-// Fields (banner and pin) is 3 reads / 1 write in this method (4 with the interceptor cold); a request that
-// also sets an avatar adds a fourth (5 with the interceptor). A media id that is not a READY, caller-owned AVATAR or
+// UpdateProfile runs the users/{uid} transaction (L-4: it writes nothing when the request changes nothing,
+// because UpdatedAt moves only on a real change and the repo then skips the write). Before the transaction it
+// resolves a non-empty avatar_media_id and banner_media_id against the media doc and a non-empty pinned_post_id
+// against the post (cache-first). A media id that is not a READY, caller-owned AVATAR or
 // BANNER is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
 // field=pinned_post_id (one answer for every cause, so the call is no existence oracle).
 // Setting banner_media_id, location, website or pinned_post_id (any non-empty value, whitespace-only included) needs
 // profile_extras on for the caller: otherwise FEATURE_DISABLED feature=profile_extras, checked before any validation or
-// read, 0 writes (D9), and a request that mixes a clear with a set is refused whole. The exact string "" (a clear) is
-// accepted from any authenticated caller whatever the flag, globally off included, at the same 1 read / 1 write
+// read, so nothing is written (D9), and a request that mixes a clear with a set is refused whole. The exact string "" (a clear) is
+// accepted from any authenticated caller whatever the flag, globally off included
 // (Amendment 1 A2: a rectification or erasure request must not wait for a flag). None of them bumps
 // snapshotVersion, spends snapshotEdits or enqueues a snapshot job (not in AuthorSnapshot). The request log carries
 // profile_fields_changed (names only, never values) and, for a non-empty pinned_post_id, pin_check=ok|rejected
 // (never the cause).
 //
 // An is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
-// protect 3 reads (users, quotas, the privacy/protectedAuthors doc for the cap) and 3 writes (isPrivate, the set doc with
-// ArrayUnion, quotas.privacyToggles), 4 reads with the interceptor cold; unprotect 2 reads and 3 writes (ArrayRemove, no cap
-// check), 3 with the interceptor cold. An is_private equal to the stored value is the plain update's 1 read and 0 writes and
-// is not charged to the quota. The 5th change of an IST day is QUOTA_EXCEEDED quota=privacy_toggles and a full set is
-// LIMIT_REACHED limit=private_accounts, both with 0 writes. After the commit the committing instance updates its own copy of
+// a protect reads users, quotas and the privacy/protectedAuthors doc for the cap, and writes isPrivate, the set doc
+// with ArrayUnion and quotas.privacyToggles; an unprotect reads users and quotas and writes the same three (ArrayRemove,
+// no cap check). An is_private equal to the stored value is the plain update and uses no quota. The 5th change of an
+// IST day is QUOTA_EXCEEDED quota=privacy_toggles and a full set is
+// LIMIT_REACHED limit=private_accounts, both writing nothing. After the commit the committing instance updates its own copy of
 // the set at once (Install on a protect, Apply on an unprotect; other instances within CACHE_TTL), and an unprotect calls
 // PrivacyListener.BecamePublic (detached, short deadline; a failure is ERROR privacy_public_enqueue_failed and never fails the
 // call). The cached profile is written from the committed data (SetProfile), so no Directory.Forget is needed. A toggle bumps
 // no snapshotVersion and enqueues no snapshot job. is_private=true is gated by private_accounts; is_private=false never is.
 //
 // A4: a commit that replaced or removed the avatar or the banner hands the old image to the media
-// module's retire step (WithMediaRetirer, after the commit, best effort): 0 extra Firestore reads, since the old URLs are
+// module's retire step (WithMediaRetirer, after the commit, best effort): no extra Firestore read, since the old URLs are
 // in the document the transaction read, and at most 2 Pub/Sub publishes (one per image, each under a 2 s deadline). The
 // step deletes the old objects after a grace of at least 24 h, only while PROFILE_MEDIA_RETIRE allows it; a failed hand-over
-// is logged at ERROR and the image stays until the account is deleted. A request that changes nothing (0 writes) hands over
+// is logged at ERROR and the image stays until the account is deleted. A request that changes nothing hands over
 // nothing.
 func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdateProfileParams) (Profile, error) {
 	if idempotencyKeyIssue(params.IdempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
 	}
 	// Is_private=true needs private_accounts on for the caller, checked first so a caller outside the
-	// cohort learns nothing about the other fields and costs nothing (0 reads, 0 writes). A request that sets is_private=true
+	// cohort learns nothing about the other fields and nothing is read or written. A request that sets is_private=true
 	// together with other fields is refused whole (the M-1 mixed rule). is_private=false is never gated (the undo rule).
 	if params.IsPrivate != nil && *params.IsPrivate {
 		if err := s.privateAccountsDisabled(ctx, uid); err != nil {
@@ -550,14 +547,14 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		logger.SetRequestField(ctx, "pin_check", "ok")
 	}
-	// Without the privacy wiring (unit tests) protecting stays refused before any read, 0 writes (behaviour).
+	// Without the privacy wiring (unit tests) protecting stays refused before any read or write (behaviour).
 	if s.privacy == nil && params.IsPrivate != nil && *params.IsPrivate {
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
 	// A display-name edit rewrites the author snapshot on the user's posts, limited to
-	// SnapshotEditsPerDay a day. The comparison uses the cached profile (0 reads: the interceptor warmed it); a
-	// stale cache can only over-count an edit. Reserved before the write: 1 read, 1 write on quotas/{uid}.
+	// SnapshotEditsPerDay a day. The comparison uses the cached profile (no read: the interceptor warmed it); a
+	// stale cache can only over-count an edit. Reserved before the write, on quotas/{uid}.
 	// Only while FEATURE_PROFILE_SNAPSHOT is on for the caller.
 	refresh := s.snapshotsOn(uid)
 	if refresh && params.DisplayName != nil {
@@ -647,8 +644,8 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		toggle  PrivacyUpdate
 	)
 	if s.privacy != nil && params.IsPrivate != nil {
-		// An is_private request runs the toggle transaction. Equal to the stored value it costs the plain
-		// update's 1 read and charges no quota.
+		// An is_private request runs the toggle transaction. Equal to the stored value it behaves like the plain
+		// update and uses no quota.
 		toggle, err = s.privacy.repo.UpdateProfileWithPrivacy(ctx, uid, mutate, s.privacy.limits)
 		profile = toggle.Profile
 		logger.SetRequestField(ctx, fieldPrivacyToggleAttempts, toggle.Attempts)
@@ -666,7 +663,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		return Profile{}, logger.RedactErr(fmt.Errorf("identity: update profile: %w", err), uid)
 	}
-	// The written profile is the cache entry (read-your-writes, 0 reads); Directory.Forget would only evict it.
+	// The written profile is the cache entry (read-your-writes, no read); Directory.Forget would only evict it.
 	s.cache.SetProfile(profile)
 	if s.privacy != nil && params.IsPrivate != nil {
 		s.afterPrivacyCommit(ctx, uid, toggle, now)
@@ -681,12 +678,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	return s.present(profile), nil
 }
 
-// ChangeHandle: reads 2, writes 2, deletes 1 worst case. M4 fix: the no-op, case-only
+// ChangeHandle: M4 fix: the no-op, case-only
 // rename, cooldown and handle-uniqueness checks all run inside FirestoreRepo.ChangeHandle's own
 // transaction, against the doc read fresh there — never against this instance's cache, which could be
 // stale relative to a change committed on another Cloud Run instance. That also means this service method
-// no longer needs its own pre-transaction read to decide those: every call costs exactly the repo's 2
-// reads, matching the proto doc comment regardless of whether the caller's profile was already cached.
+// no longer needs its own pre-transaction read to decide those, whether or not the caller's profile was already
+// cached.
 func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHandle string) (Profile, error) {
 	if idempotencyKeyIssue(idempotencyKey) {
 		return Profile{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 chars of [A-Za-z0-9_-]")
@@ -696,7 +693,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	}
 	newLower := strings.ToLower(newHandle)
 	// Whether this rename changed the snapshot is decided by the version the repo's transaction writes; the
-	// version known before the call (cache, 0 reads) is the baseline. No cached baseline means "assume changed":
+	// version known before the call (cache, no read) is the baseline. No cached baseline means "assume changed":
 	// the job is replay-safe and a no-op write is rare.
 	before, haveBefore := s.cache.GetProfile(uid)
 
@@ -785,7 +782,7 @@ func (s *service) LookupProfiles(ctx context.Context, uids []string) (map[string
 // (they can never own a handle doc); more than MaxResolveHandles distinct candidates is a caller bug.
 // A positive cache entry older than notFoundTTL (10 s), or contradicted by a cached profile, is a miss.
 // Residual, accepted: a rename plus a reclaim within 10 s observed on another instance.
-// Firestore: reads = uncached handles <= 10, writes 0.
+// It never writes.
 func (s *service) ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error) {
 	out := make(map[string]string, len(lowers))
 	var misses []string
@@ -854,7 +851,7 @@ func (s *service) ForgetUnread(uids ...string) {
 }
 
 // AccountStatus backs pkg/platform/authn.AccountStatusProvider; reuses the same 60s cache as every
-// other RPC, so this costs ~0 extra Firestore reads once a user's first request has warmed the cache.
+// other RPC, so it adds no Firestore read once a user's first request has warmed the cache.
 func (s *service) AccountStatus(ctx context.Context, uid string) (bool, AccountStatus, error) {
 	p, err := s.getProfileCached(ctx, uid)
 	if err != nil {
@@ -889,9 +886,9 @@ func (s *service) privateAccountsDisabled(ctx context.Context, uid string) error
 // pinForViewer is the pin rule for GetProfile: the pin of a protected account is shown to the account
 // itself (the caller never gets here), to its followers and to nobody else; every other header field is public. Order, so
 // that the common cases cost nothing (AQ6): a follower keeps the pin on the viewer's cached snapshot alone, without the set;
-// anyone else needs the set (a detached instance cache, 0 reads charged to the caller), and a set that cannot be loaded
-// omits the pin (fail closed) with WARN pin_omitted=set_unavailable while the rest of the profile is returned. Reads: +0
-// (the snapshot was loaded by the block check just before). A failed follow check also omits the pin.
+// anyone else needs the set (a detached instance cache, not read on the caller's behalf), and a set that cannot be loaded
+// omits the pin (fail closed) with WARN pin_omitted=set_unavailable while the rest of the profile is returned. The snapshot was loaded by the block check just before.
+// A failed follow check also omits the pin.
 func (s *service) pinForViewer(ctx context.Context, viewerUID, targetUID, pin string) string {
 	if s.protected == nil {
 		return pin

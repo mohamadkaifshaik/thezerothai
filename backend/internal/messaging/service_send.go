@@ -53,25 +53,14 @@ const (
 // Send implements Service.Send.
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient (CANNOT_MESSAGE, the same bytes as a block).
-// Validation (key, target, text) and the self check cost 0 reads. The per-minute bucket and the MESSAGES_SENDS_PER_DAY
+// Validation (key, target, text) and the self check run before any read. The per-minute bucket and the MESSAGES_SENDS_PER_DAY
 // cap run in the rate-limit interceptor; the new-account tier of that cap runs here.
-//
-// Worst-case Firestore cost (budget.Counter, interceptor read included as the proto comment counts it):
-//   - accepted conversation: reads 5 cold (interceptor, caller graph, recipient profile through the directory,
-//     conversation and the recipient's graph in the transaction), 2 warm, planning 3.5; writes 3 (message, two entries)
-//   - existing REQUEST, the requester's next message: writes 4 (+ requestCount); the reply that accepts it: 4 writes and
-//     1 delete (the replier's dmRequests entry moves to dmInbox)
-//   - new conversation: reads 7 (+ the recipient.s users doc in the transaction, quotas), writes 5 (message, conversation, two entries,
-//     quotas.dmNew)
-//   - by conversation_id: +1 read (the participant check) with a cold conversation cache, warm +0 for a participant; a
-//     non-participant always pays that 1 read (the cache never answers or learns from it)
-//   - replay: +1 read (the stored message), 0 writes; refused: at most 5 reads, 0 writes
 func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err
 	}
 	logger.SetRequestField(ctx, fieldKind, kindSend)
-	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): 0 reads, after the flag, before validation.
+	// Defence in depth behind authn.VerifiedIdentityInterceptor (security review L-8): no read, after the flag, before validation.
 	if err := authn.RequireVerifiedEmail(ctx, s.d.AllowAnonymous, "sending messages"); err != nil {
 		return nil, err
 	}
@@ -93,7 +82,7 @@ type sendInput struct {
 	byConvID     bool
 }
 
-// validateSend is step 1: the key, the target and the text, 0 reads.
+// validateSend is step 1: the key, the target and the text, before any read.
 func validateSend(uid string, req *messagingv1.SendMessageRequest) (sendInput, error) {
 	var in sendInput
 	if !idempotency.KeyFormatValid(req.GetIdempotencyKey()) {
@@ -228,7 +217,7 @@ func (s *service) afterSend(ctx context.Context, uid string, in sendInput, res S
 }
 
 // conversation is the participant check's read for uid: the instance cache first (convCacheTTL) when uid is a participant of
-// the cached copy, else 1 read. A missing document is NOT_FOUND, the same answer as a non-participant (D11).
+// the cached copy, else a fresh read. A missing document is NOT_FOUND, the same answer as a non-participant (D11).
 func (s *service) conversation(ctx context.Context, uid, id string) (ConvDoc, error) {
 	c, _, err := s.conversationHit(ctx, uid, id)
 	return c, err
@@ -241,7 +230,7 @@ func (s *service) conversation(ctx context.Context, uid, id string) (ConvDoc, er
 // probe is an existence oracle for "does A talk to B"). Hence: a cached copy answers only a caller who is in its
 // participants; every other caller (a non-participant against a warm copy, or any miss) pays one fresh GetConversation,
 // found or not, and a document read for a non-participant is never put into the cache. A non-participant probe therefore
-// always costs exactly 1 repo read and leaves no trace; a participant's path is unchanged (0 reads warm, 1 cold). The
+// always does one fresh repo read and leaves no trace; a participant's path is unchanged (cache first, then a read). The
 // returned document may belong to a conversation uid is not in: the caller's hasParticipant check turns it into NOT_FOUND.
 func (s *service) conversationHit(ctx context.Context, uid, id string) (ConvDoc, bool, error) {
 	if c, ok := s.convs.Get(id); ok && c.hasParticipant(uid) {

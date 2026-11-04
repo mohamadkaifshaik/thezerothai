@@ -16,15 +16,13 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota ("Sweep"). The
-// clock is real: items are seeded relative to time.Now(), so nothing sleeps. Budgets are the RUN's: the due query plus the
-// publish transactions, matching the "Sweep run" and "Publish one item" rows of the cost table.
+// clock is real: items are seeded relative to time.Now(), so nothing sleeps.
 
 // sweepMedia is a MediaAttacher over media/{id} docs with the real validity rules (owned, READY or READY_UNSCREENED,
 // not yet attached to a post) and a real Attach (media/{id}.postId). It counts its loads, so a test can prove the media
@@ -55,7 +53,6 @@ func (m *sweepMedia) LoadForPost(ctx context.Context, tx *firestore.Transaction,
 		refs[i] = m.client.Collection("media").Doc(id)
 	}
 	snaps, err := tx.GetAll(refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +199,7 @@ func newSweepIT(t *testing.T, opts ...sweepITOption) *sweepIT {
 }
 
 // cold builds an instance whose identity directory has nothing cached (a fresh Cloud Run instance), so every handle in a
-// draft is a real read: the worst case of the cost table.
+// draft is a real read.
 func (e *sweepIT) cold() *service {
 	d := e.deps
 	d.Directory = identity.New(e.idRepo, identity.NewCache(time.Minute), 7*24*time.Hour).(identity.Directory)
@@ -331,24 +328,17 @@ func (e *sweepIT) postsCount(uid string) int64 {
 	return fieldInt(e.t, e.client, "users/"+uid, "postsCount")
 }
 
-func (e *sweepIT) sweepWith(svc *service) (SweepResult, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	res, err := svc.Sweep(ctx)
-	return res, c, err
+func (e *sweepIT) sweepWith(svc *service) (SweepResult, error) {
+	return svc.Sweep(context.Background())
 }
 
-func (e *sweepIT) sweep() (SweepResult, *budget.Counter) {
+func (e *sweepIT) sweep() SweepResult {
 	e.t.Helper()
-	res, c, err := e.sweepWith(e.svc)
+	res, err := e.sweepWith(e.svc)
 	if err != nil {
 		e.t.Fatalf("Sweep: %v", err)
 	}
-	return res, c
-}
-
-// assertCost fails when the run's cost is not exactly reads and writes (the cost table rows are exact for a given path).
-func assertCost(t *testing.T, name string, c *budget.Counter, reads, writes int64) {
-	t.Helper()
+	return res
 }
 
 // TestSweepIT_PublishHappyPath: a due item becomes a post exactly like a CreatePost would have made it (author snapshot
@@ -367,12 +357,10 @@ func TestSweepIT_PublishHappyPath(t *testing.T) {
 		}
 	})
 
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Outcome != SweepOK || res.Due != 1 || res.Published != 1 || res.Transient != 0 || len(res.Failed) != 0 {
 		t.Fatalf("res = %+v", res)
 	}
-	// due query 1 + scheduled 1 + users 1 + quotas 1 + media 2 + handles 3 (bob, nobody: two candidates, cold cache => 2)
-	// reads; writes: post, users.postsCount, quotas, scheduled, 2 media.
 
 	doc := e.raw(it)
 	postID, _ := doc["postId"].(string)
@@ -432,19 +420,16 @@ func (e *sweepIT) mediaDoc(n int) map[string]any {
 	return snap.Data()
 }
 
-// TestSweepIT_PublishBudget pins the cost table: "Publish one item" typical 3 reads (planning 4), worst 17, and 4 writes
-// (+ one per image); the run adds the due query's reads.
-func TestSweepIT_PublishBudget(t *testing.T) {
+// TestSweepIT_PublishPaths: the plain publish, the largest draft (4 images and 10 mentions) and the runs that do nothing.
+func TestSweepIT_PublishPaths(t *testing.T) {
 	t.Run("typical: no images, no mentions", func(t *testing.T) {
 		e := newSweepIT(t)
 		e.signUp("uid-alice", "alice")
-		e.seedDue("uid-alice", 1)
-		res, c := e.sweep()
-		if res.Published != 1 {
-			t.Fatalf("res = %+v", res)
+		it := e.seedDue("uid-alice", 1)
+		res := e.sweep()
+		if res.Published != 1 || e.raw(it)["status"] != "PUBLISHED" || len(e.postsOf("uid-alice")) != 1 {
+			t.Fatalf("res = %+v doc = %v, want one PUBLISHED item and one post", res, e.raw(it))
 		}
-		// scheduled 1 + users 1 + quotas 1 = 3 reads (+ the query's 1); post, postsCount, quotas, scheduled = 4 writes.
-		assertCost(t, "publish (typical)", c, 3+1, 4)
 	})
 	t.Run("worst case: 4 images and 10 mentions", func(t *testing.T) {
 		e := newSweepIT(t)
@@ -458,46 +443,44 @@ func TestSweepIT_PublishBudget(t *testing.T) {
 			}
 		})
 		// A cold instance: the sign-ups above warmed this one's handle cache, so every @mention would be free there.
-		res, c, err := e.sweepWith(e.cold())
+		res, err := e.sweepWith(e.cold())
 		if err != nil || res.Published != 1 {
 			t.Fatalf("res = %+v err = %v", res, err)
 		}
-		// scheduled 1 + users 1 + quotas 1 + media 4 + handles 10 = 17 reads (+ the query's 1); 4 writes + 4 media updates.
-		assertCost(t, "publish (worst case)", c, 17+1, 8)
 		if p := e.postsOf("uid-alice"); len(p) != 1 || len(p[0].Mentions) != 10 || len(p[0].Media) != 4 {
 			t.Errorf("post = %+v", p)
 		}
 	})
-	t.Run("nothing due is one read", func(t *testing.T) {
+	t.Run("nothing due", func(t *testing.T) {
 		e := newSweepIT(t)
-		res, c := e.sweep()
-		if res.Due != 0 {
+		res := e.sweep()
+		if res.Due != 0 || res.Published != 0 {
 			t.Fatalf("res = %+v", res)
 		}
-		assertCost(t, "empty sweep", c, 1, 0)
 	})
-	t.Run("flag off is zero reads", func(t *testing.T) {
+	t.Run("flag off does nothing", func(t *testing.T) {
 		e := newSweepIT(t, func(d *Deps) { d.Sweep.Flags = sweepFlags{ScheduledPostsFlagName: true} })
 		e.signUp("uid-alice", "alice")
 		it := e.seedDue("uid-alice", 1)
-		res, c := e.sweep()
+		res := e.sweep()
 		if res.Outcome != SweepFlagOff {
 			t.Fatalf("res = %+v", res)
 		}
-		assertCost(t, "flag off", c, 0, 0)
 		if e.raw(it)["status"] != "PENDING" {
 			t.Error("the item moved although the sweep is off")
 		}
 	})
-	t.Run("readonly is zero reads", func(t *testing.T) {
+	t.Run("readonly does nothing", func(t *testing.T) {
 		e := newSweepIT(t, func(d *Deps) { d.Sweep.ReadOnly = true })
 		e.signUp("uid-alice", "alice")
-		e.seedDue("uid-alice", 1)
-		res, c := e.sweep()
+		it := e.seedDue("uid-alice", 1)
+		res := e.sweep()
 		if res.Outcome != SweepDegraded {
 			t.Fatalf("res = %+v", res)
 		}
-		assertCost(t, "readonly", c, 0, 0)
+		if e.raw(it)["status"] != "PENDING" {
+			t.Error("the item moved although the sweep is read-only")
+		}
 	})
 }
 
@@ -510,11 +493,10 @@ func TestSweepIT_SkipsNonPendingItems(t *testing.T) {
 		cancelled := e.seedDue("uid-alice", 1, func(p *ScheduledPost) { p.Status, p.Draft = ScheduledCancelled, nil })
 		published := e.seedDue("uid-alice", 2, func(p *ScheduledPost) { p.Status, p.Draft, p.PostID = ScheduledPublished, nil, "1234567890123456789" })
 		failed := e.seedDue("uid-alice", 3, func(p *ScheduledPost) { p.Status, p.Draft, p.Failure = ScheduledFailed, nil, FailureQuotaExceeded })
-		res, c := e.sweep()
+		res := e.sweep()
 		if res.Due != 0 || res.Published != 0 {
 			t.Fatalf("res = %+v, want nothing due", res)
 		}
-		assertCost(t, "only terminal docs", c, 1, 0)
 		for _, it := range []*ScheduledPost{cancelled, published, failed} {
 			if got := e.raw(it)["status"]; got == "PENDING" {
 				t.Errorf("a terminal item changed to %v", got)
@@ -533,12 +515,10 @@ func TestSweepIT_SkipsNonPendingItems(t *testing.T) {
 				t.Errorf("CancelScheduled: %v", err)
 			}
 		}
-		res, c := e.sweep()
+		res := e.sweep()
 		if res.Noop != 1 || res.Published != 0 {
 			t.Fatalf("res = %+v, want a no-op", res)
 		}
-		// query 1 + the publish transaction's scheduled read 1 (the Cancel above runs on its own, uncounted context); no write.
-		assertCost(t, "cancel race", c, 2, 0)
 		if got := e.raw(it); got["status"] != "CANCELLED" || got["failure"] != nil {
 			t.Errorf("doc = %v, want the user's CANCELLED untouched", got)
 		}
@@ -567,7 +547,7 @@ func TestSweepIT_TwoConcurrentSweepsPublishExactlyOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i], _, errs[i] = e.sweepWith(svc)
+			results[i], errs[i] = e.sweepWith(svc)
 		}()
 	}
 	wg.Wait()
@@ -600,7 +580,7 @@ func TestSweepIT_FiveDueItemsOfOneAuthor(t *testing.T) {
 		items[i] = e.seedDue("uid-alice", i+1)
 	}
 
-	res, c := e.sweep()
+	res := e.sweep()
 	if res.Due != 5 || res.Published != 3 || res.Deferred != 2 {
 		t.Fatalf("res = %+v, want 5 due, 3 published, 2 deferred", res)
 	}
@@ -613,8 +593,6 @@ func TestSweepIT_FiveDueItemsOfOneAuthor(t *testing.T) {
 			t.Errorf("item %d = %v, want %s untouched", i+1, got["status"], want)
 		}
 	}
-	// 5 reads for the query + 3 publishes x 3 reads; 3 x 4 writes. The deferred items cost no write.
-	assertCost(t, "5 due of one author", c, 5+9, 12)
 	if e.fault.maxInflightBy["uid-alice"] != 1 {
 		t.Errorf("one author's items overlapped: max in flight %d", e.fault.maxInflightBy["uid-alice"])
 	}
@@ -622,7 +600,7 @@ func TestSweepIT_FiveDueItemsOfOneAuthor(t *testing.T) {
 		t.Errorf("postsCount %d quota %d, want 3 and 3", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
 	}
 
-	res2, _ := e.sweep()
+	res2 := e.sweep()
 	if res2.Published != 2 || res2.Deferred != 0 {
 		t.Fatalf("second run = %+v, want the remaining 2 published", res2)
 	}
@@ -650,7 +628,7 @@ func TestSweepIT_RetriedAttemptDrawsAFreshIDAndCollisionRedraws(t *testing.T) {
 				}
 				return nil
 			}
-			res, _ := e.sweep()
+			res := e.sweep()
 			if res.Published != 1 || len(seen) != 2 {
 				t.Fatalf("res = %+v, attempts = %d, want 1 published after 2 attempts", res, len(seen))
 			}

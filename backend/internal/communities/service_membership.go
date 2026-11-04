@@ -23,7 +23,7 @@ func (s *service) Get(ctx context.Context, communityID string) (Community, error
 }
 
 // Role implements Reader: the D4 role of uid, from the cached community (OWNER, MODERATOR) or the cached member doc (60 s staleness
-// bound, absence cached too; 0 reads warm, 1 cold).
+// bound, absence cached too).
 func (s *service) Role(ctx context.Context, communityID, uid string) (Role, error) {
 	c, err := s.loadCommunity(ctx, communityID)
 	if err != nil {
@@ -32,7 +32,7 @@ func (s *service) Role(ctx context.Context, communityID, uid string) (Role, erro
 	return s.roleFor(ctx, c, uid)
 }
 
-// Memberships implements Reader: uid's memberships document, never cached (1 read, charged when missing too).
+// Memberships implements Reader: uid's memberships document, never cached.
 func (s *service) Memberships(ctx context.Context, uid string) (Memberships, error) {
 	return s.d.Repo.Memberships(ctx, uid)
 }
@@ -42,7 +42,7 @@ func errNoProfile() *apierr.Error {
 }
 
 // joinQuotaLimit is the caller's daily quota.CommunityJoins limit: the new-account tier inside NewAccountWindow. The caller's profile is
-// cache-first (0 reads behind the account-status interceptor, which has just loaded it).
+// cache-first (the account-status interceptor has just loaded it).
 func (s *service) joinQuotaLimit(ctx context.Context, uid string) (int64, error) {
 	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
@@ -185,9 +185,9 @@ func (s *service) LeaveCommunity(ctx context.Context, uid string, in MembershipI
 	return View{Community: c, Role: roleAfter(c, uid, res.State)}, nil
 }
 
-// ListMyCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
-// 0 reads. The memberships document is read fresh (1 read); its joined array is in join order, so the reverse is newest first. The
-// community documents come from the cache, the misses from one GetAll (1 read each, at most COMMUNITIES_MAX_JOINED). A SUSPENDED
+// ListMyCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" before
+// any lookup. The memberships document is read fresh; its joined array is in join order, so the reverse is newest first. The
+// community documents come from the cache, the misses from one GetAll (at most COMMUNITIES_MAX_JOINED). A SUSPENDED
 // community is left out unless the caller owns it; an ARCHIVED one stays; a document that is gone is skipped.
 func (s *service) ListMyCommunities(ctx context.Context, uid, pageToken string) (MyCommunities, error) {
 	begin(ctx, "my")

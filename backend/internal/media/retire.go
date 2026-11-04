@@ -4,22 +4,22 @@
 // identity.Lifecycle routes messages of this kind to RetireHandler.
 //
 // Publish: after an UpdateProfile commit that changed or cleared an image, identity calls ProfileImageReplaced (through
-// identity.MediaRetirer) with the old URLs it already read, so the request path costs 0 extra reads.
+// identity.MediaRetirer) with the old URLs it already read, so the request path adds no read.
 //
 // Handle (Retire): the message is never trusted on its own word, so the step re-reads. In order, cheapest refusal first:
 //
-//	validate the message                         dropped:invalid_message   0 reads
-//	PROFILE_MEDIA_RETIRE does not allow it       disabled                  0 reads
-//	parse the media id from the object names     unparseable               0 reads
-//	users/{uid}, fresh: old image still current  still_current             1 read
-//	media/{id}: missing or already retired       duplicate                 2 reads
-//	            not this owner, purpose, or published   refused            2 reads
+//	validate the message                         dropped:invalid_message
+//	PROFILE_MEDIA_RETIRE does not allow it       disabled
+//	parse the media id from the object names     unparseable
+//	users/{uid}, fresh: old image still current  still_current
+//	media/{id}: missing or already retired       duplicate
+//	            not this owner, purpose, or published   refused
 //	customTime = changedAt on both objects (objects first), then
-//	media/{id}.retiredAt + expireAt (document last, LastUpdateTime precondition)    retired   2 reads, 1 write, 2 Class A
+//	media/{id}.retiredAt + expireAt (document last, LastUpdateTime precondition)    retired
 //
 // A crash between the two last steps leaves tagged objects and an unretired document; the redelivery repeats the tag
 // (same value, accepted by Cloud Storage) and writes the document, so it converges. A redelivery after completion finds
-// retiredAt and does nothing: 0 writes, no GCS call. The objects are deleted by the media bucket's lifecycle rule
+// retiredAt and does nothing: no write, no GCS call. The objects are deleted by the media bucket's lifecycle rule
 // (delete when daysSinceCustomTime >= 1, infra/terraform/modules/media-buckets) 24-48 h after changedAt, and nothing
 // else in the application ever sets customTime (TestCustomTimeIsSetOnlyByTheRetireStep). Until the document's own TTL
 // (changedAt + RetiredDocTTL) removes it, it keeps the image inside the account eraser and the export.
@@ -69,7 +69,7 @@ type PublicTagger interface {
 }
 
 // ProfileImages reports, from a fresh read that bypasses every cache, the image URLs users/{uid} holds right now: the
-// avatar, its thumbnail, the banner and its thumbnail, empty ones omitted (1 read). found is false when the document
+// avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false when the document
 // does not exist. *identity.FirestoreRepo implements it (a job never acts on a message's word alone).
 type ProfileImages interface {
 	ProfileImageURLs(ctx context.Context, uid string) (urls []string, found bool, err error)
@@ -94,7 +94,7 @@ func (j *Jobs) WithProfileRetire(d RetireDeps) *Jobs {
 }
 
 // ProfileImageReplaced publishes the retire job for an avatar or banner that was replaced or removed. It is called after
-// the profile change committed, with the old URLs identity already read; 0 reads. PROFILE_MEDIA_RETIRE is checked first,
+// the profile change committed, with the old URLs identity already read, so it reads nothing. PROFILE_MEDIA_RETIRE is checked first,
 // in memory: a switch that does not allow the purpose publishes nothing and returns nil. An error means the image falls
 // back to the account eraser (it is deleted with the account), so the caller logs it at ERROR.
 func (j *Jobs) ProfileImageReplaced(ctx context.Context, uid string, purpose Purpose, oldURL, oldThumbURL string, changedAt time.Time) error {
@@ -135,9 +135,10 @@ func (h *RetireHandler) Handle(ctx context.Context, data []byte) (string, error)
 }
 
 // Retire is the step itself, shared by the Pub/Sub handler and `opsctl clear-profile-fields` (called in process, no
-// Pub/Sub). It returns the outcome named in the file comment. Reads: 0 to 2 (users/{uid} fresh, media/{id}); writes: 1
-// only for "retired" (retiredAt and expireAt, one field-level Update with a LastUpdateTime precondition); GCS: 2 Class A
-// for "retired", none otherwise. A redelivery after completion is "duplicate": 0 writes, no GCS call. A changedAt in
+// Pub/Sub). It returns the outcome named in the file comment. It reads users/{uid} fresh and media/{id} as far as the outcome
+// needs, and writes only for "retired" (retiredAt and expireAt, one field-level Update with a LastUpdateTime
+// precondition); it sets customTime on both objects for "retired", none otherwise. A redelivery after completion is
+// "duplicate": no write, no GCS call. A changedAt in
 // the future is clamped to now, because Cloud Storage never lets customTime move back and a far-future value would
 // outlive the document's TTL and escape the account eraser.
 func (j *Jobs) Retire(ctx context.Context, m RetireMessage) (string, error) {

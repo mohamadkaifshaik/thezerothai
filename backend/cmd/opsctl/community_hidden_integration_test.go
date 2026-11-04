@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -122,7 +121,7 @@ func mustContain(t *testing.T, name, out string, want ...string) {
 }
 
 // 3 hidden posts and 2 hidden replies are listed, nothing from another community, over 3 pages of 2; the time reads "unknown" for a post hidden
-// before communityHiddenAt; no text appears; the cost line is last.
+// before communityHiddenAt; no text appears.
 func TestCommunityHidden_Integration_List(t *testing.T) {
 	e := newHiddenEnv(t, 2)
 	const cid, other = "0000000000000007001", "0000000000000007002"
@@ -138,7 +137,7 @@ func TestCommunityHidden_Integration_List(t *testing.T) {
 
 	var all strings.Builder
 	token := ""
-	for page, wantReads := range []int{3, 3, 2} { // community 1 + max(1, rows)
+	for page := range 3 {
 		args := []string{"community", "hidden", cid}
 		if token != "" {
 			args = append(args, "--page-token", token)
@@ -147,10 +146,7 @@ func TestCommunityHidden_Integration_List(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("page %d: code=%d stderr=%s", page, code, errOut)
 		}
-		mustContain(t, "page", out, fmt.Sprintf("cost: reads=%d writes=0", wantReads), "community_hash=")
-		if !strings.HasSuffix(strings.TrimSpace(out), fmt.Sprintf("cost: reads=%d writes=0", wantReads)) {
-			t.Errorf("page %d: cost line is not last:\n%s", page, out)
-		}
+		mustContain(t, "page", out, "community_hash=")
 		all.WriteString(out)
 		token = ""
 		for _, l := range strings.Split(out, "\n") {
@@ -190,12 +186,12 @@ func TestCommunityRestoreHidden_Integration(t *testing.T) {
 	e.post(a4, cid, false, time.Time{}, "")                    // no time
 	e.post(a5, cid, false, since.Add(time.Hour), "TAKEN_DOWN") // platform removal
 
-	// dry-run --since: the same reads, no writes, nothing changed.
+	// dry-run --since: reports the same counts, nothing changed.
 	code, out, errOut := e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339), "--dry-run")
 	if code != 0 {
 		t.Fatalf("dry-run: code=%d stderr=%s", code, errOut)
 	}
-	mustContain(t, "dry-run", out, "listed=5 would_restore=2 skipped_platform=1 skipped_no_time=1", "cost: reads=8 writes=0")
+	mustContain(t, "dry-run", out, "listed=5 would_restore=2 skipped_platform=1 skipped_no_time=1")
 	for _, id := range []string{a1, a2, a3, a4, a5} {
 		if e.listed(id) {
 			t.Fatalf("dry-run restored %s", id)
@@ -211,10 +207,7 @@ func TestCommunityRestoreHidden_Integration(t *testing.T) {
 		t.Fatalf("restore: code=%d stderr=%s", code, errOut)
 	}
 	mustContain(t, "restore", out, "listed=5 restored=2 skipped_platform=1 skipped_no_time=1", "modlog: 1 platform entry", "5 minutes",
-		"audit: community restore-hidden project="+e.project, "cost: reads=8 writes=3")
-	if !strings.HasSuffix(strings.TrimSpace(out), "cost: reads=8 writes=3") {
-		t.Errorf("cost line is not last:\n%s", out)
-	}
+		"audit: community restore-hidden project="+e.project)
 	if !e.listed(a2) {
 		t.Errorf("a2/a3 not restored: %v %v", e.postDoc(a2), e.postDoc(a3))
 	}
@@ -251,14 +244,14 @@ func TestCommunityRestoreHidden_Integration(t *testing.T) {
 
 	// A re-run restores nothing and writes nothing.
 	_, out, _ = e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339))
-	mustContain(t, "re-run", out, "listed=3 restored=0 skipped_platform=1 skipped_no_time=1", "modlog: 0 platform entry", "writes=0")
+	mustContain(t, "re-run", out, "listed=3 restored=0 skipped_platform=1 skipped_no_time=1", "modlog: 0 platform entry")
 	if len(e.communityDoc(cid)["modlog"].([]any)) != 1 {
 		t.Error("a re-run wrote a modlog entry")
 	}
 
 	// Without --since the post with no time (and the older one) come back; the platform removal never does; a new run, a new entry.
 	_, out, _ = e.cli("community", "restore-hidden", cid)
-	mustContain(t, "no --since", out, "listed=3 restored=2 skipped_platform=1 skipped_no_time=0", "modlog: 1 platform entry", "cost: reads=5 writes=3")
+	mustContain(t, "no --since", out, "listed=3 restored=2 skipped_platform=1 skipped_no_time=0", "modlog: 1 platform entry")
 	if !e.listed(a1) || !e.listed(a4) || e.postDoc(a5)["communityHidden"] != true {
 		t.Error("run without --since did not restore a1 and a4 only")
 	}
@@ -270,9 +263,9 @@ func TestCommunityRestoreHidden_Integration(t *testing.T) {
 		t.Errorf("modlog = %v, want one entry per run", c["modlog"])
 	}
 
-	// Nothing but the platform removal is left: 2 reads (the community and the one row), 0 writes.
+	// Nothing but the platform removal is left.
 	_, out, _ = e.cli("community", "restore-hidden", cid)
-	mustContain(t, "final", out, "listed=1 restored=0 skipped_platform=1", "cost: reads=2 writes=0")
+	mustContain(t, "final", out, "listed=1 restored=0 skipped_platform=1")
 }
 
 func TestCommunityHidden_Integration_Args(t *testing.T) {
@@ -317,10 +310,13 @@ func TestCommunityRestoreHidden_Integration_OtherRowsAndLatePage(t *testing.T) {
 	e.post(c6, cid, true, after, "")
 
 	_, out, _ := e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339), "--dry-run")
-	mustContain(t, "dry-run", out, "listed=6 would_restore=2 skipped_platform=0 skipped_no_time=0 skipped_other=2", "writes=0")
+	mustContain(t, "dry-run", out, "listed=6 would_restore=2 skipped_platform=0 skipped_no_time=0 skipped_other=2")
+	if e.listed(c5) || e.postDoc(c6)["communityHidden"] != true {
+		t.Error("the dry run restored c5 or c6")
+	}
 
 	_, out, _ = e.cli("community", "restore-hidden", cid, "--since", since.Format(time.RFC3339))
-	mustContain(t, "restore", out, "listed=6 restored=2 skipped_platform=0 skipped_no_time=0 skipped_other=2", "modlog: 1 platform entry", "outcome=ok", "cost: reads=11 writes=3")
+	mustContain(t, "restore", out, "listed=6 restored=2 skipped_platform=0 skipped_no_time=0 skipped_other=2", "modlog: 1 platform entry", "outcome=ok")
 	for _, id := range []string{c1, c2, c3, c4} {
 		if e.postDoc(id)["communityHidden"] != true {
 			t.Errorf("%s was restored", id)

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -39,7 +38,7 @@ func TestSweep_NoOpCases(t *testing.T) {
 			e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Flags, d.ReadOnly = tc.flags, tc.readOnly })
 			e.dueItem("uid-alice", 1)
 
-			res, c, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatalf("err = %v, want nil (204)", err)
 			}
@@ -47,7 +46,7 @@ func TestSweep_NoOpCases(t *testing.T) {
 				t.Errorf("outcome = %q, want %q", res.Outcome, tc.want)
 			}
 			if e.repo.dueCalls != 0 || len(e.repo.callsOf("publish")) != 0 {
-				t.Errorf("a no-op run touched the repository: reads=%d writes=%d due calls=%d", c.Reads(), c.Writes(), e.repo.dueCalls)
+				t.Errorf("a no-op run touched the repository: due calls=%d publishes=%d", e.repo.dueCalls, len(e.repo.callsOf("publish")))
 			}
 			if got := e.repo.doc("uid-alice", e.firstID("uid-alice")); got.Status != ScheduledPending {
 				t.Errorf("item status = %v, want it left PENDING", got.Status)
@@ -82,7 +81,7 @@ func TestSweep_RolloutModesStillPublishAndOffDoesNot(t *testing.T) {
 			reg := flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, tc.spec)
 			e := newSweepEnv(t, func(d *SweepDeps, _ *sweepEnv) { d.Flags = reg })
 			e.dueItem("uid-alice", 1)
-			res, _, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil || res.Outcome != tc.want || res.Published != tc.pub {
 				t.Fatalf("res = %+v err = %v, want outcome %q and %d published", res, err, tc.want, tc.pub)
 			}
@@ -99,15 +98,13 @@ func TestSweep_PublishesADueItemLikeCreatePost(t *testing.T) {
 		}
 	})
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Outcome != SweepOK || res.Due != 1 || res.Published != 1 || res.Deferred != 0 || len(res.Failed) != 0 {
 		t.Fatalf("res = %+v", res)
 	}
-	// 1 read for the due query + the publish transaction's (the fake charges its documented typical 3) and 4 writes.
-
 	// The transaction was handed the parsed draft and the limits; the author snapshot is built inside it.
 	if len(e.repo.params) != 1 {
 		t.Fatalf("publish calls = %d, want 1", len(e.repo.params))
@@ -157,7 +154,7 @@ func TestSweep_FetchThenDispatchAndPerAuthorCapAcrossPages(t *testing.T) {
 	a4 := e.dueItem("uid-a", 4) // page 2, over the cap of 3
 	e.dueItem("uid-a", 5)       // not fetched: MaxPages is 2 pages of 2
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +175,6 @@ func TestSweep_FetchThenDispatchAndPerAuthorCapAcrossPages(t *testing.T) {
 	if n := len(e.repo.callsOf("transition")) + len(e.repo.callsOf("bump")); n != 0 {
 		t.Errorf("a deferred item cost %d bookkeeping writes, want 0", n)
 	}
-	// 2 pages x 2 reads + 3 publishes x (3 reads, 4 writes).
 
 	// Fetch FIRST, then dispatch: no publish before the last due call.
 	lastDue, firstPublish := -1, -1
@@ -235,7 +231,7 @@ func TestSweep_BoundedConcurrencyAcrossAuthors(t *testing.T) {
 		return e.repo.publishDefault(ctx, p)
 	}
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,21 +253,20 @@ func TestSweep_PathShapeAndUndecodableAreCountedNotProcessed(t *testing.T) {
 	e.repo.bad, e.repo.undecodable = 2, 1
 	e.dueItem("uid-alice", 1)
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.SkippedBadPath != 2 || res.Undecodable != 1 || res.Due != 1 || res.Published != 1 {
 		t.Errorf("res = %+v", res)
 	}
-	// They cost one read each in the query, every run.
 }
 
 func TestSweep_MaxLatenessIsTheLargestAge(t *testing.T) {
 	e := newSweepEnv(t)
 	e.dueItem("uid-a", 1, func(p *ScheduledPost) { p.PublishAt = e.now.Add(-90 * time.Minute) })
 	e.dueItem("uid-b", 1, func(p *ScheduledPost) { p.PublishAt = e.now.Add(-time.Minute) })
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil || res.MaxLateness != 90*time.Minute {
 		t.Fatalf("max lateness = %v err = %v, want 1h30m", res.MaxLateness, err)
 	}
@@ -282,7 +277,7 @@ func TestSweep_DueQueryFailure(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem("uid-alice", 1)
 		e.repo.dueErr, e.repo.dueErrAt = errors.New("rpc error: documents/users/uid-alice/scheduled/x unavailable"), 1
-		res, _, err := e.sweep(context.Background())
+		res, err := e.sweep(context.Background())
 		if err == nil || res.Outcome != SweepError {
 			t.Fatalf("err = %v outcome = %q, want an error and outcome error", err, res.Outcome)
 		}
@@ -298,16 +293,16 @@ func TestSweep_DueQueryFailure(t *testing.T) {
 		e.dueItem("uid-a", 1)
 		e.dueItem("uid-b", 2)
 		e.repo.dueErr, e.repo.dueErrAt = errors.New("unavailable"), 2
-		res, _, err := e.sweep(context.Background())
+		res, err := e.sweep(context.Background())
 		if err != nil || res.Outcome != SweepError || res.LaterPageErr == nil || res.Published != 1 {
 			t.Fatalf("res = %+v err = %v, want page one published, outcome error and LaterPageErr set (no returned error: no retry)", res, err)
 		}
 	})
-	t.Run("nothing due is one read and no error", func(t *testing.T) {
+	t.Run("nothing due is ok and runs one due query", func(t *testing.T) {
 		e := newSweepEnv(t)
-		res, c, err := e.sweep(context.Background())
-		if err != nil || res.Outcome != SweepOK || res.Due != 0 {
-			t.Fatalf("res = %+v err = %v reads = %d writes = %d, want ok with 1 read", res, err, c.Reads(), c.Writes())
+		res, err := e.sweep(context.Background())
+		if err != nil || res.Outcome != SweepOK || res.Due != 0 || e.repo.dueCalls != 1 {
+			t.Fatalf("res = %+v err = %v due calls = %d, want ok after one due query", res, err, e.repo.dueCalls)
 		}
 	})
 }
@@ -322,7 +317,7 @@ func TestSweep_DeadlineGuard(t *testing.T) {
 			e.svc.sweepTimeLeft = func(context.Context) time.Duration { return tc.left }
 			e.dueItem("uid-a", 1)
 			e.dueItem("uid-b", 2)
-			_, _, err := e.sweep(context.Background())
+			_, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -334,7 +329,7 @@ func TestSweep_DeadlineGuard(t *testing.T) {
 	t.Run("an item starts only while 6 s remain; the rest are deferred without a write", func(t *testing.T) {
 		e := newSweepEnv(t)
 		var calls atomic.Int64
-		// One author, so the checks are sequential: the first item has time, then the budget runs out.
+		// One author, so the checks are sequential: the first item has time, then the time runs out.
 		e.svc.sweepTimeLeft = func(context.Context) time.Duration {
 			if calls.Add(1) == 1 {
 				return 20 * time.Second
@@ -344,7 +339,7 @@ func TestSweep_DeadlineGuard(t *testing.T) {
 		for i := 1; i <= 3; i++ {
 			e.dueItem("uid-a", i)
 		}
-		res, _, err := e.sweep(context.Background())
+		res, err := e.sweep(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -360,7 +355,7 @@ func TestSweep_DeadlineGuard(t *testing.T) {
 		it := e.dueItem("uid-a", 1)
 		ctx, cancel := context.WithCancel(context.Background())
 		e.repo.afterDue = cancel // the client hangs up after the query
-		res, _, err := e.sweep(ctx)
+		res, err := e.sweep(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -371,33 +366,4 @@ func TestSweep_DeadlineGuard(t *testing.T) {
 			t.Errorf("item = %+v, want untouched", got)
 		}
 	})
-}
-
-// The per-author counter is folded into the run's: the run line's fs_reads/fs_writes stay exact, and an author whose
-// items spent more than SCHEDULED_AUTHOR_READS_WARN reads gets one warning with the one-way uid hash.
-func TestSweep_AuthorReadsWarning(t *testing.T) {
-	e := newSweepEnv(t)
-	e.repo.publish = func(ctx context.Context, p PublishParams) (PublishResult, error) {
-		reads := int64(40) // at the threshold: no warning
-		if p.UID == "uid-heavy" {
-			reads = 41
-		}
-		budget.FromContext(ctx).AddReads(reads)
-		budget.FromContext(ctx).AddWrites(4)
-		return PublishResult{Outcome: PublishNoop}, nil
-	}
-	e.dueItem("uid-heavy", 1)
-	e.dueItem("uid-light", 2)
-
-	_, _, err := e.sweep(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	warns := e.logs.lines(`"scheduled_author_reads"`)
-	if len(warns) != 1 {
-		t.Fatalf("scheduled_author_reads lines = %d, want 1: %v", len(warns), warns)
-	}
-	if !strings.Contains(warns[0], `"uid_hash":"`) || strings.Contains(warns[0], "uid-heavy") || !strings.Contains(warns[0], `"level":"WARN"`) {
-		t.Errorf("warning = %s, want a WARN with only the uid hash", warns[0])
-	}
 }

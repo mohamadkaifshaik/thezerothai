@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -50,20 +49,11 @@ func decodeExport(snap *firestore.DocumentSnapshot) (ExportDoc, error) {
 	return d.toDomain(snap.Ref.ID, snap.UpdateTime), nil
 }
 
-func addReads(ctx context.Context, docs int) {
-	if docs < 1 {
-		docs = 1
-	}
-	budget.FromContext(ctx).AddReads(int64(docs))
-}
-
-// BeginDeletion: 1 read, 1 write (replay: 1 read, 0 writes).
+// BeginDeletion writes the deletion state once; a replay writes nothing.
 func (r *FirestoreRepo) BeginDeletion(ctx context.Context, uid string, now time.Time) (DeletionStart, error) {
 	var out DeletionStart
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -81,7 +71,7 @@ func (r *FirestoreRepo) BeginDeletion(ctx context.Context, uid string, now time.
 		}
 		// ACTIVE, SUSPENDED, or DELETING set by hand without job state: (re)start the job.
 		job := DeletionJob{Seq: 0, ProgressAt: now}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.userRef(uid), []firestore.Update{
 			{Path: "status", Value: statusToString(AccountStatusDeleting)},
 			{Path: "updatedAt", Value: now},
@@ -104,10 +94,9 @@ func (r *FirestoreRepo) BeginDeletion(ctx context.Context, uid string, now time.
 	return out, nil
 }
 
-// GetJobState: 1 read.
+// GetJobState reads users/{uid} fresh.
 func (r *FirestoreRepo) GetJobState(ctx context.Context, uid string) (Profile, time.Time, error) {
 	snap, err := r.userRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Profile{}, time.Time{}, ErrNotFound
@@ -121,7 +110,7 @@ func (r *FirestoreRepo) GetJobState(ctx context.Context, uid string) (Profile, t
 	return d.toProfile(uid), snap.UpdateTime, nil
 }
 
-// SaveJobState: 1 write.
+// SaveJobState writes users/{uid}.deletionJob.
 func (r *FirestoreRepo) SaveJobState(ctx context.Context, uid string, updateTime time.Time, job DeletionJob) error {
 	_, err := r.userRef(uid).Update(ctx, []firestore.Update{
 		{Path: "deletionJob.seq", Value: job.Seq},
@@ -138,13 +127,11 @@ func (r *FirestoreRepo) SaveJobState(ctx context.Context, uid string, updateTime
 		}
 		return fmt.Errorf("identity: save job state: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }
 
-// CreateExport matches RequestAccountExport's documented budget (proto: reads 2/1 with the interceptor, writes 2;
-// replay reads 3/2, writes 0): the first request reads quotas/{uid} (1 read) and creates the PENDING doc and the
-// incremented quota in one atomic commit (2 writes). A replay is told apart without a second probe on the first
+// CreateExport: the first request reads quotas/{uid} and creates the PENDING doc and the
+// incremented quota in one atomic commit. A replay is told apart without a second probe on the first
 // request: if the daily quota is already used up, the exports doc is read (the replay of the request that used it,
 // or QUOTA_EXCEEDED); if quota is left, the Create fails with AlreadyExists, which rolls the whole commit back (the
 // quota is not incremented), and the doc is read after it. Either way a replay writes nothing.
@@ -155,16 +142,14 @@ func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) 
 	// store.RunTransaction counts each attempt in its own scratch counter and folds the writes in only when the
 	// commit succeeds: a commit that rolls back (AlreadyExists, below) wrote nothing.
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		rec, err := qs.Get(ctx, tx, p.UID)
 		if err != nil {
 			return fmt.Errorf("identity: export quota: %w", err)
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if qerr := quota.CheckAndReserve(b, qs.Ref(p.UID), rec, quota.Exports, p.ExportsPerDay); qerr != nil {
 			// Over the daily quota: only the request that used it up may be replayed.
 			snap, gerr := tx.Get(r.exportRef(p.ID))
-			counter.AddReads(1)
 			switch {
 			case gerr == nil:
 				doc, derr := decodeExport(snap)
@@ -201,10 +186,9 @@ func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) 
 	return out, replay, nil
 }
 
-// GetExport: 1 read.
+// GetExport reads exports/{id}.
 func (r *FirestoreRepo) GetExport(ctx context.Context, id string) (ExportDoc, error) {
 	snap, err := r.exportRef(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return ExportDoc{}, ErrNotFound
@@ -214,7 +198,7 @@ func (r *FirestoreRepo) GetExport(ctx context.Context, id string) (ExportDoc, er
 	return decodeExport(snap)
 }
 
-// SetExportStatus: 1 write.
+// SetExportStatus sets exports/{id}.status.
 func (r *FirestoreRepo) SetExportStatus(ctx context.Context, id string, st ExportStatus, updateTime time.Time) error {
 	_, err := r.exportRef(id).Update(ctx, []firestore.Update{{Path: "status", Value: string(st)}}, firestore.LastUpdateTime(updateTime))
 	if err != nil {
@@ -226,11 +210,10 @@ func (r *FirestoreRepo) SetExportStatus(ctx context.Context, id string, st Expor
 		}
 		return fmt.Errorf("identity: set export status: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }
 
-// ClaimExport: 1 write. The status stays PENDING; only leaseUntil changes, under the read's update time.
+// ClaimExport sets the lease. The status stays PENDING; only leaseUntil changes, under the read's update time.
 func (r *FirestoreRepo) ClaimExport(ctx context.Context, id string, updateTime, leaseUntil time.Time) (time.Time, error) {
 	res, err := r.exportRef(id).Update(ctx, []firestore.Update{{Path: "leaseUntil", Value: leaseUntil}}, firestore.LastUpdateTime(updateTime))
 	if err != nil {
@@ -240,14 +223,12 @@ func (r *FirestoreRepo) ClaimExport(ctx context.Context, id string, updateTime, 
 		}
 		return time.Time{}, fmt.Errorf("identity: claim export: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return res.UpdateTime, nil
 }
 
-// ListExports: reads = docs returned (minimum 1). The uid equality uses the automatic single-field index.
+// ListExports lists the uid's exports. The uid equality uses the automatic single-field index.
 func (r *FirestoreRepo) ListExports(ctx context.Context, uid string, limit int) ([]ExportDoc, error) {
 	snaps, err := r.client.Collection(exportsCollection).Where("uid", "==", uid).Limit(limit).Documents(ctx).GetAll()
-	addReads(ctx, len(snaps))
 	if err != nil {
 		return nil, fmt.Errorf("identity: list exports: %w", err)
 	}
@@ -271,24 +252,23 @@ func (r *FirestoreRepo) DeleteExportDocs(ctx context.Context, ids []string) erro
 	if len(ids) == 0 {
 		return nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, id := range ids {
 		b.Delete(r.exportRef(id))
 	}
 	return b.Commit(ctx)
 }
 
-// DeletePrivate: reads = docs returned (minimum 1), deletes = docs.
+// DeletePrivate deletes up to limit docs of users/{uid}/private.
 func (r *FirestoreRepo) DeletePrivate(ctx context.Context, uid string, limit int) (int, error) {
 	snaps, err := r.userRef(uid).Collection(privateSubcollection).Limit(limit).Documents(ctx).GetAll()
-	addReads(ctx, len(snaps))
 	if err != nil {
 		return 0, fmt.Errorf("identity: list private docs: %w", err)
 	}
 	if len(snaps) == 0 {
 		return 0, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, s := range snaps {
 		b.Delete(s.Ref)
 	}
@@ -298,16 +278,14 @@ func (r *FirestoreRepo) DeletePrivate(ctx context.Context, uid string, limit int
 	return len(snaps), nil
 }
 
-// DeleteHandleIfOwned: 1 read, at most 1 delete, in one transaction.
+// DeleteHandleIfOwned reads the handle and deletes it only when it is uid's, in one transaction.
 func (r *FirestoreRepo) DeleteHandleIfOwned(ctx context.Context, handleLower, uid string) (HandleOutcome, error) {
 	if handleLower == "" {
 		return HandleAbsent, nil
 	}
 	outcome := HandleAbsent
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.handleRef(handleLower))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				outcome = HandleAbsent
@@ -323,7 +301,7 @@ func (r *FirestoreRepo) DeleteHandleIfOwned(ctx context.Context, handleLower, ui
 			outcome = HandleOwnerMismatch
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Delete(r.handleRef(handleLower))
 		if b.Err() != nil {
 			return b.Err()
@@ -337,23 +315,20 @@ func (r *FirestoreRepo) DeleteHandleIfOwned(ctx context.Context, handleLower, ui
 	return outcome, nil
 }
 
-// DeleteQuotas: 1 delete.
+// DeleteQuotas deletes quotas/{uid}.
 func (r *FirestoreRepo) DeleteQuotas(ctx context.Context, uid string) error {
 	if _, err := quota.New(r.client).Ref(uid).Delete(ctx); err != nil {
 		return fmt.Errorf("identity: delete quotas: %w", err)
 	}
-	budget.FromContext(ctx).AddDeletes(1)
 	return nil
 }
 
-// DeleteUserDoc: one transaction, 1 read + 1 delete (a missing doc: 1 read, no delete). The delete happens only
+// DeleteUserDoc: one transaction that reads users/{uid} and deletes it (a missing doc deletes nothing). The delete happens only
 // while users/{uid} is still DELETING with deletionJob.seq == seq, the seq of the delivery that got here; anything
 // else (a restore by hand, another delivery that advanced the job) is ErrJobConflict and deletes nothing.
 func (r *FirestoreRepo) DeleteUserDoc(ctx context.Context, uid string, seq int64) error {
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return nil // already gone: success
@@ -367,7 +342,7 @@ func (r *FirestoreRepo) DeleteUserDoc(ctx context.Context, uid string, seq int64
 		if p := d.toProfile(uid); p.Status != AccountStatusDeleting || p.DeletionJob == nil || p.DeletionJob.Seq != seq {
 			return ErrJobConflict
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Delete(r.userRef(uid))
 		return b.Err()
 	})
@@ -380,7 +355,7 @@ func (r *FirestoreRepo) DeleteUserDoc(ctx context.Context, uid string, seq int64
 	return nil
 }
 
-// ListDeleting: reads = docs returned (minimum 1), at most limit. Ordered by (deletionJob.progressAt, __name__)
+// ListDeleting returns at most limit accounts. Ordered by (deletionJob.progressAt, __name__)
 // ascending so a run walks the oldest-progress jobs first and a cursor continues after the last one (L-6); the
 // no-progress threshold is in the query, so fresh jobs cost no read. Composite index users(status ASC,
 // deletionJob.progressAt ASC) in firebase/firestore.indexes.json. Documents without deletionJob.progressAt (a
@@ -394,7 +369,6 @@ func (r *FirestoreRepo) ListDeleting(ctx context.Context, noProgressSince time.T
 		q = q.StartAfter(after.At, after.ID)
 	}
 	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
-	addReads(ctx, len(snaps))
 	if err != nil {
 		return nil, fmt.Errorf("identity: list deleting accounts: %w", err)
 	}
@@ -409,7 +383,7 @@ func (r *FirestoreRepo) ListDeleting(ctx context.Context, noProgressSince time.T
 	return out, nil
 }
 
-// ListPendingExports: reads = docs returned (minimum 1), at most limit. Ordered by (createdAt, __name__) ascending
+// ListPendingExports returns at most limit exports. Ordered by (createdAt, __name__) ascending
 // with the age threshold in the query (L-6). Composite index exports(status ASC, createdAt ASC).
 func (r *FirestoreRepo) ListPendingExports(ctx context.Context, createdBefore time.Time, after BackstopCursor, limit int) ([]ExportDoc, error) {
 	q := r.client.Collection(exportsCollection).
@@ -420,7 +394,6 @@ func (r *FirestoreRepo) ListPendingExports(ctx context.Context, createdBefore ti
 		q = q.StartAfter(after.At, after.ID)
 	}
 	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
-	addReads(ctx, len(snaps))
 	if err != nil {
 		return nil, fmt.Errorf("identity: list pending exports: %w", err)
 	}

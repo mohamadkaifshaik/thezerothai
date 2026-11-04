@@ -87,7 +87,7 @@ const (
 )
 
 // Evidence is the copy of the reported post (or, for an ACCOUNT report, of the reported profile) taken at report time, so
-// a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (0 reads:
+// a later author delete or edit does not destroy it. MediaIDs are the ids of the post's images at report time (no read:
 // they ride on the post the report already read). Deleting the post deletes the objects (The post_delete job), so this keeps the ids only; see
 // for what a takedown does and does not preserve.
 //
@@ -165,12 +165,11 @@ type ReportResult struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// Report records uid's report of one post, account or message. Firestore, worst case: caller profile (cached) 0-1,
-	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE:
-	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
-	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
-	// cold and 3 warm for a MESSAGE. LIST: list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
-	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY: community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
+	// Report records uid's report of one post, account or message. It looks up the target first (POST: the post, its
+	// author and the caller's graph; ACCOUNT: the target user; MESSAGE: the conversation, the message, which is never
+	// cached, and the sender; LIST: the list, the caller's graph and the owner's user and graph; COMMUNITY: the community
+	// and its owner, none for an ARCHIVED one), cache-first where a cache exists. Then one transaction writes the report
+	// and the quota; a repeat writes nothing. Only a MESSAGE report has an evidence child.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 
@@ -192,13 +191,12 @@ var ErrNotFound = errors.New("moderation: report not found")
 // Ops is the moderator-side seam opsctl uses.
 type Ops interface {
 	// List returns reports with the given status, oldest first, at most limit (clamped to 1..MaxListLimit).
-	// Reads: len(result), minimum 1.
 	List(ctx context.Context, status Status, limit int) ([]Report, error)
-	// Get returns one report (ErrNotFound when missing). Reads 1; a MESSAGE report reads its evidence child too (2), and
+	// Get returns one report (ErrNotFound when missing). A MESSAGE report reads its evidence child too, and
 	// Evidence.TextExpired says the child is gone.
 	Get(ctx context.Context, id string) (Report, error)
 	// Resolve closes a report. Resolving an already RESOLVED report is a no-op that returns it unchanged
-	// (0 writes). Reads 1, writes 1. A re-report after RESOLVED reopens the same document (Repo.Create).
+	// (nothing is written). A re-report after RESOLVED reopens the same document (Repo.Create).
 	Resolve(ctx context.Context, id string, res Resolution, note string, now time.Time) (Report, error)
 }
 

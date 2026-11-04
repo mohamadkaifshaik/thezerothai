@@ -67,8 +67,8 @@ var (
 // MessageLookup is the consumer-side seam to messaging. ReportableMessage answers whether callerUID
 // is a participant of the conversation and the message is the peer's and VISIBLE, and returns its evidence. It returns
 // ErrMessageNotFound (one cause, one answer) or ErrOwnMessage, or an infrastructure error. It checks no flag: the caller's
-// flag rules (reports on, messaging not globally off) are the handler's. Firestore, worst case: conversation 1 (instance
-// cache, 0 warm) + message 1 + the sender's profile 1 (directory cache, 0 warm).
+// flag rules (reports on, messaging not globally off) are the handler's. It reads the conversation (instance
+// cache), the message and the sender's profile (directory cache).
 type MessageLookup interface {
 	ReportableMessage(ctx context.Context, callerUID, convID, msgID string) (ReportedMessage, error)
 }

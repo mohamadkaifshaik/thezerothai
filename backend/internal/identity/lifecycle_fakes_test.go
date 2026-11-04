@@ -132,13 +132,15 @@ func (b *syncBuffer) records(msg string) []map[string]any {
 // fakeLCRepo is an in-memory LifecycleRepo with Firestore's precondition semantics: every write to a user or
 // export doc bumps its version, which is its UpdateTime.
 type fakeLCRepo struct {
-	mu      sync.Mutex
-	log     *opLog
-	users   map[string]*fakeUser
-	exports map[string]*ExportDoc
-	handles map[string]string
-	quotas  map[string]int64
-	private map[string]int
+	// pendingBefore is the createdBefore of every ListPendingExports call, in order.
+	pendingBefore []time.Time
+	mu            sync.Mutex
+	log           *opLog
+	users         map[string]*fakeUser
+	exports       map[string]*ExportDoc
+	handles       map[string]string
+	quotas        map[string]int64
+	private       map[string]int
 	// failOnce injects one error for the named method (consumed on use).
 	failOnce map[string]error
 	// failFor makes an injected error repeat that many times instead of once.
@@ -504,6 +506,7 @@ func (f *fakeLCRepo) ListPendingExports(_ context.Context, createdBefore time.Ti
 	if err := f.enter("ListPendingExports"); err != nil {
 		return nil, err
 	}
+	f.pendingBefore = append(f.pendingBefore, createdBefore)
 	var all []ExportDoc
 	for _, e := range f.exports {
 		if e.Status == ExportPending && !e.CreatedAt.After(createdBefore) {

@@ -1,6 +1,6 @@
 // Package logger provides a single slog JSON logger, shaped for Cloud Logging: "severity" and
 // "message" keys, a Cloud Trace correlation field, and a per-request line with rpc/uid_hash/
-// fs_reads/fs_writes/latency_ms/code. No request/response bodies, no PII,
+// latency_ms/code. No request/response bodies, no PII,
 // tokens or post text are ever logged.
 package logger
 
@@ -115,8 +115,7 @@ func HashUID(uid string) string {
 // (the interceptor closest to the top of the chain, so its one log line runs after every inner
 // interceptor has had a chance to run) so inner interceptors — App Check, ID token — can surface fields
 // that log line needs (uid_hash, app_check_failed) even though they only see a *derived* ctx and cannot
-// hand mutations back up to an ancestor through a returned (resp, err) alone. This mirrors the
-// budget.Counter pattern (pkg/platform/budget) rather than introducing a new mechanism.
+// hand mutations back up to an ancestor through a returned (resp, err) alone.
 type RequestInfo struct {
 	// UID is the verified caller, set by authn.IDTokenInterceptor on success. Empty until then.
 	UID string

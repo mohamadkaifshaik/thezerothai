@@ -13,7 +13,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -40,12 +39,6 @@ func (f *fixture) seedMembers(cid string, banned bool, uids ...string) {
 		f.repo.lst.pages = map[string][]MemberRow{}
 	}
 	f.repo.lst.pages[pageKey(cid, banned)] = rows
-}
-
-func counted(fn func(ctx context.Context)) *budget.Counter {
-	ctx, c := budget.WithCounter(context.Background())
-	fn(ctx)
-	return c
 }
 
 func TestListCommunities_FiltersAndRoles(t *testing.T) {
@@ -90,20 +83,20 @@ func TestListCommunities_WarmEntryAndTTL(t *testing.T) {
 	f := newListFixture()
 	f.repo.lst.rank = []Community{dirCommunity("0000000000000000601", 5, StatusActive)}
 	f.repo.mships = map[string]Memberships{}
-	counted(func(ctx context.Context) {
-		if _, err := f.svc.ListCommunities(ctx, "u1", ""); err != nil {
+	for _, uid := range []string{"u1", "u2"} {
+		if _, err := f.svc.ListCommunities(context.Background(), uid, ""); err != nil {
 			t.Fatal(err)
 		}
-	})
-	warm := counted(func(ctx context.Context) {
-		if _, err := f.svc.ListCommunities(ctx, "u2", ""); err != nil {
-			t.Fatal(err)
-		}
-	})
-	if f.repo.lst.dirCalls != 1 { // only u2's memberships; the shared entry is warm
-		t.Errorf("warm reads = %d, refills = %d, want 1 and 1", warm.Reads(), f.repo.lst.dirCalls)
 	}
-	counted(func(ctx context.Context) { _, _ = f.svc.ListCommunities(ctx, "u1", "") })
+	if f.repo.lst.dirCalls != 1 { // only u2's memberships; the shared entry is warm
+		t.Errorf("directory refills = %d, want 1 (the second viewer finds the shared entry warm)", f.repo.lst.dirCalls)
+	}
+	// the same viewer again is fully warm: neither the directory nor the memberships doc is fetched again
+	mships := f.repo.mshipsGet
+	_, _ = f.svc.ListCommunities(context.Background(), "u1", "")
+	if f.repo.lst.dirCalls != 1 || f.repo.mshipsGet != mships {
+		t.Errorf("a warm repeat fetched again: refills %d, memberships fetches +%d", f.repo.lst.dirCalls, f.repo.mshipsGet-mships)
+	}
 	f.svc.now = func() time.Time { return testNow.Add(DirectoryTTL + time.Second) }
 	_, _ = f.svc.ListCommunities(context.Background(), "u1", "")
 	if f.repo.lst.dirCalls != 2 {
@@ -111,14 +104,12 @@ func TestListCommunities_WarmEntryAndTTL(t *testing.T) {
 	}
 }
 
-func TestListCommunities_PageTokenIsValidationAt0Reads(t *testing.T) {
+func TestListCommunities_PageTokenIsValidation(t *testing.T) {
 	f := newListFixture()
-	c := counted(func(ctx context.Context) {
-		_, err := f.svc.ListCommunities(ctx, "u1", "x")
-		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
-	})
-	if f.repo.lst.dirCalls != 0 {
-		t.Errorf("reads = %d, refills = %d, want 0", c.Reads(), f.repo.lst.dirCalls)
+	_, err := f.svc.ListCommunities(context.Background(), "u1", "x")
+	wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
+	if f.repo.lst.dirCalls != 0 || f.repo.mshipsGet != 0 {
+		t.Errorf("refills = %d, memberships fetches = %d, want 0 before validating", f.repo.lst.dirCalls, f.repo.mshipsGet)
 	}
 }
 
@@ -254,12 +245,10 @@ func TestListCommunityMembers_BannedPage(t *testing.T) {
 		t.Run("refused/"+uid, func(t *testing.T) {
 			f := membersFixture()
 			f.repo.members = map[string]MemberState{testCID + "|a": MemberJoined, testCID + "|" + bannedUID: MemberBanned}
-			c := counted(func(ctx context.Context) {
-				_, err := f.svc.ListCommunityMembers(ctx, uid, MembersInput{CommunityID: testCID, Filter: FilterBanned})
-				wantAPIErr(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, map[string]string{"reason": "not_moderator"})
-			})
+			_, err := f.svc.ListCommunityMembers(context.Background(), uid, MembersInput{CommunityID: testCID, Filter: FilterBanned})
+			wantAPIErr(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, map[string]string{"reason": "not_moderator"})
 			if len(f.repo.lst.memberQs) != 0 || f.repo.memberGet != 0 {
-				t.Errorf("reads = %d (want the community read only), queries = %d, member docs = %d", c.Reads(), len(f.repo.lst.memberQs), f.repo.memberGet)
+				t.Errorf("queries = %d, member docs = %d (want none: the refusal needs the community only)", len(f.repo.lst.memberQs), f.repo.memberGet)
 			}
 		})
 	}
@@ -289,10 +278,8 @@ func TestListCommunityMembers_NotFoundAndValidation(t *testing.T) {
 		t.Log(name)
 		wantAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
 	}
-	counted(func(ctx context.Context) {
-		_, err := f.svc.ListCommunityMembers(ctx, "viewer", MembersInput{CommunityID: "12"})
-		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "community_id"})
-	})
+	_, err := f.svc.ListCommunityMembers(context.Background(), "viewer", MembersInput{CommunityID: "12"})
+	wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "community_id"})
 }
 
 func TestListCommunityMembers_PagingAndCursorBinding(t *testing.T) {
@@ -336,10 +323,8 @@ func TestListCommunityMembers_PagingAndCursorBinding(t *testing.T) {
 	for name, tc := range wrong {
 		t.Run(name, func(t *testing.T) {
 			tc.in.PageToken = tc.token
-			counted(func(ctx context.Context) {
-				_, err := f.svc.ListCommunityMembers(ctx, tc.uid, tc.in)
-				wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
-			})
+			_, err := f.svc.ListCommunityMembers(context.Background(), tc.uid, tc.in)
+			wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
 		})
 	}
 }
@@ -361,19 +346,4 @@ func TestListCommunityMembers_ClampsPageSize(t *testing.T) {
 			t.Errorf("page_size %d queried %d, want %d", in, got, want)
 		}
 	}
-}
-
-func TestListCommunityMembers_ColdBudgetAtPage20(t *testing.T) {
-	f := newListFixture()
-	f.seed(Community{ID: testCID, Name: "Go", OwnerID: ownerUID})
-	names := make([]string, 20)
-	for i := range names {
-		names[i] = fmt.Sprintf("m%02d", i)
-	}
-	f.seedMembers(testCID, false, names...)
-	counted(func(ctx context.Context) {
-		if _, err := f.svc.ListCommunityMembers(ctx, "viewer", MembersInput{CommunityID: testCID}); err != nil {
-			t.Fatal(err)
-		}
-	})
 }

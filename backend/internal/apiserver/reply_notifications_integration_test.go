@@ -5,9 +5,7 @@ package apiserver
 // Reply notifications over the real Build chain with the inline emitter: a reply writes
 // users/{parentAuthor}/notifications/reply_{replyId}; replying to yourself, a recipient that muted the replier and
 // a repeated idempotent create write nothing extra; a reply that also @mentions the parent author yields ONE row
-// (the reply row; the mention is folded into it). The budget assertion is the logged fs_reads/fs_writes of the
-// reply's request line, which must not grow because notifications are on (the producer reads nothing: the parent
-// author comes from the parent the reply validation already loaded).
+// (the reply row; the mention is folded into it).
 
 import (
 	"context"
@@ -76,13 +74,9 @@ func TestReplyNotifications(t *testing.T) {
 	}
 	root := post(a, "rn-root-key-000000001", "root post", "")
 
-	// 1. b replies to a: one reply row for a. Budget: the reply's own request line is unchanged by notifications
-	// (5 writes: idempotency, post, postsCount, quotas, parent replyCount; reads within the plan ceiling of 15).
+	// 1. b replies to a: one reply row for a.
 	r1 := post(b, "rn-reply-key-00000001", "first reply", root)
 	waitForDoc(t, e.fs, "users/"+a.uid+"/notifications/reply_"+r1)
-	if reads, writes := e.lastLine(t, rpcCreatePost); reads > 15 || writes != 5 {
-		t.Errorf("reply CreatePost: reads=%v writes=%v, want reads <= 15 and writes 5 (notifications add none)", reads, writes)
-	}
 	snap, err := e.fs.Doc("users/" + a.uid + "/notifications/reply_" + r1).Get(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -91,12 +85,9 @@ func TestReplyNotifications(t *testing.T) {
 		t.Errorf("type = %v, want reply", typ)
 	}
 
-	// 2. Replaying the same create is a no-op: no second row, no new write on the request line.
+	// 2. Replaying the same create is a no-op: the same post comes back and no second row follows.
 	if again := post(b, "rn-reply-key-00000001", "first reply", root); again != r1 {
 		t.Fatalf("replay returned %s, want %s", again, r1)
-	}
-	if _, writes := e.lastLine(t, rpcCreatePost); writes != 0 {
-		t.Errorf("replay writes = %v, want 0", writes)
 	}
 
 	// 3. a replying to a's own post, and a reply when the recipient muted the replier: no rows.

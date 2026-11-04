@@ -12,10 +12,9 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// TestSetAccountStatus_Integration: ACTIVE <-> SUSPENDED in one transaction (1 read, 1 write, 0 on a no-op); a
+// TestSetAccountStatus_Integration: ACTIVE <-> SUSPENDED in one transaction (a no-op writes nothing); a
 // DELETING account is never touched; unknown users are ErrNotFound.
 func TestSetAccountStatus_Integration(t *testing.T) {
 	client := newTestClient(t)
@@ -34,13 +33,13 @@ func TestSetAccountStatus_Integration(t *testing.T) {
 		return s
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	changed, err := repo.SetAccountStatus(ctx, "uid-s", identity.AccountStatusActive, identity.AccountStatusSuspended, now)
 	if err != nil || !changed || stored() != "SUSPENDED" {
 		t.Fatalf("suspend: changed=%v err=%v status=%q", changed, err, stored())
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	changed, err = repo.SetAccountStatus(ctx, "uid-s", identity.AccountStatusActive, identity.AccountStatusSuspended, now)
 	if err != nil || changed {
 		t.Fatalf("suspend again: changed=%v err=%v", changed, err)

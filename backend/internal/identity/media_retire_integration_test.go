@@ -14,24 +14,20 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// On the real repo: UpdateProfile's hand-over of a replaced or removed avatar or banner costs
-// nothing on the request path (the budgets are the pre-A4 ones, 1 read and 1 write in the transaction plus the
-// resolvers' reads), and ProfileImageURLs, the fresh users/{uid} read the media step checks, is 1 read.
+// On the real repo: UpdateProfile hands over a replaced or removed avatar or banner for retirement, and ProfileImageURLs is the
+// fresh users/{uid} read the media step checks.
 
-// pickyImages resolves like media.Library would (1 read each) but returns whatever URL the test last set.
+// pickyImages resolves like media.Library would but returns whatever URL the test last set.
 type pickyImages struct{ avatar, banner string }
 
 func (p *pickyImages) ResolveAvatar(ctx context.Context, _, _ string) (identity.AvatarRef, error) {
-	budget.FromContext(ctx).AddReads(1)
 	return identity.AvatarRef{URL: p.avatar, ThumbURL: p.avatar + "_t"}, nil
 }
 
 func (p *pickyImages) ResolveBanner(ctx context.Context, _, _ string) (identity.BannerRef, error) {
-	budget.FromContext(ctx).AddReads(1)
 	return identity.BannerRef{URL: p.banner, ThumbURL: p.banner + "_t"}, nil
 }
 
@@ -48,7 +44,7 @@ func (r *recordingRetirer) RetireProfileImage(_ context.Context, _ string, image
 	return nil
 }
 
-func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T) {
+func TestUpdateProfile_Integration_RetireHandOver(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	imgs, rec := &pickyImages{}, &recordingRetirer{}
@@ -56,32 +52,31 @@ func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T)
 	svc := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour,
 		identity.WithAvatarResolver(imgs), identity.WithBannerResolver(imgs), identity.WithExtrasFlags(reg),
 		identity.WithMediaRetirer(rec, slog.New(slog.NewJSONHandler(io.Discard, nil))))
-	setup, _ := budget.WithCounter(context.Background())
+	setup := context.Background()
 	if _, err := svc.CreateProfile(setup, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatal(err)
 	}
 	str := func(s string) *string { return &s }
 
-	save := func(name string, p identity.UpdateProfileParams, wantWrites int64) {
+	save := func(name string, p identity.UpdateProfileParams) {
 		t.Helper()
 		p.IdempotencyKey = validKeyForIntegration
-		ctx, _ := budget.WithCounter(context.Background())
-		if _, err := svc.UpdateProfile(ctx, itUID, p); err != nil {
+		if _, err := svc.UpdateProfile(context.Background(), itUID, p); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
 
-	// First set of both images: tx read + the two resolvers = 3 reads, 1 write, nothing to retire.
+	// First set of both images: nothing to retire.
 	imgs.avatar, imgs.banner = "https://m/a1.webp", "https://m/b1.webp"
-	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1"), BannerMediaID: str("b1")}, 1)
+	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1"), BannerMediaID: str("b1")})
 	if len(rec.calls) != 0 {
 		t.Fatalf("a first-time set handed over %+v", rec.calls)
 	}
 
-	// Replace the avatar, remove the banner: tx read + the avatar resolver = 2 reads, 1 write; both old images handed over.
+	// Replace the avatar, remove the banner; both old images are handed over.
 	imgs.avatar = "https://m/a2.webp"
 	before := time.Now()
-	save("replace avatar, remove banner", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, 1)
+	save("replace avatar, remove banner", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")})
 	want := []recordedRetire{
 		{image: identity.ProfileImageAvatar, url: "https://m/a1.webp", thumbURL: "https://m/a1.webp_t"},
 		{image: identity.ProfileImageBanner, url: "https://m/b1.webp", thumbURL: "https://m/b1.webp_t"},
@@ -100,34 +95,38 @@ func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T)
 		t.Errorf("stored images = %v / %v (a removed banner is an absent or empty field)", stored["avatarUrl"], stored["bannerUrl"])
 	}
 
-	// The same request again changes nothing: 1 read for the avatar resolver + tx read, 0 writes, nothing handed over.
+	// The same request again changes nothing: the document is not rewritten and nothing is handed over.
 	rec.calls = nil
-	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, 0)
+	savedDoc := userData(t, client, itUID)
+	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")})
 	if len(rec.calls) != 0 {
 		t.Errorf("a no-op save handed over %+v", rec.calls)
 	}
+	if after := userData(t, client, itUID); !mapsEqualAny(savedDoc, after) {
+		t.Errorf("a no-op save rewrote the user document: %v -> %v", savedDoc, after)
+	}
 
-	// Removing the avatar: tx read only, 1 write, one hand-over of the avatar that is now current.
-	save("remove avatar", identity.UpdateProfileParams{AvatarMediaID: str("")}, 1)
+	// Removing the avatar: one hand-over of the avatar that is now current.
+	save("remove avatar", identity.UpdateProfileParams{AvatarMediaID: str("")})
 	if len(rec.calls) != 1 || rec.calls[0].image != identity.ProfileImageAvatar || rec.calls[0].url != "https://m/a2.webp" {
 		t.Errorf("hand-overs = %+v, want the second avatar", rec.calls)
 	}
 }
 
-// TestProfileImageURLs_Integration: one fresh read of users/{uid}; empty fields are omitted; a missing user is not an
+// TestProfileImageURLs_Integration: a fresh read of users/{uid}; empty fields are omitted; a missing user is not an
 // error. It bypasses the identity cache by construction (it is the repo's own read).
 func TestProfileImageURLs_Integration(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	svc := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour)
-	setup, _ := budget.WithCounter(context.Background())
+	setup := context.Background()
 	if _, err := svc.CreateProfile(setup, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatal(err)
 	}
 
 	read := func(uid string) ([]string, bool) {
 		t.Helper()
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		urls, found, err := repo.ProfileImageURLs(ctx, uid)
 		if err != nil {
 			t.Fatalf("ProfileImageURLs(%s): %v", uid, err)

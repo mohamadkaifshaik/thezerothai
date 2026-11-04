@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -95,10 +94,9 @@ func (r *FirestoreRepo) requestsRef(uid, convID string) *firestore.DocumentRef {
 	return r.client.Collection(usersCollection).Doc(uid).Collection(dmRequestsCollection).Doc(convID)
 }
 
-// GetConversation implements Repo. Reads 1.
+// GetConversation implements Repo.
 func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc, bool, error) {
 	snap, err := r.convRef(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return ConvDoc{}, false, nil
 	}
@@ -112,11 +110,9 @@ func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc
 	return c, true, nil
 }
 
-// GetEntry implements Repo: users/{uid}/dmInbox/{convId} or dmRequests/{convId} by folder (entryRequests, else inbox). Reads 1,
-// counted for a missing document too (Firestore bills it).
+// GetEntry implements Repo: users/{uid}/dmInbox/{convId} or dmRequests/{convId} by folder (entryRequests, else inbox).
 func (r *FirestoreRepo) GetEntry(ctx context.Context, uid, convID, folder string) (EntryDoc, bool, error) {
 	snap, err := r.entryRef(uid, convID, folder).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return EntryDoc{}, false, nil
 	}
@@ -130,11 +126,10 @@ func (r *FirestoreRepo) GetEntry(ctx context.Context, uid, convID, folder string
 	return e, true, nil
 }
 
-// GetMessage implements Repo: the stored message (1 read); found is false when it is missing. A send reads it to answer a
+// GetMessage implements Repo: the stored message; found is false when it is missing. A send reads it to answer a
 // replay, a message report to take its evidence.
 func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (MsgDoc, bool, error) {
 	snap, err := r.msgRef(convID, msgID).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return MsgDoc{}, false, nil
 	}
@@ -156,14 +151,14 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 // cap first reads the message document (1) because a replay of the last allowed message must replay, not refuse.
 //
 // Writes: the message (Create, deterministic id), the sender's dmInbox entry and the recipient's entry (field-level
-// Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). Accepted
-// conversation: 3 writes. An existing REQUEST: + the conversation (requestCount +1), 4. A new conversation: + the
-// conversation Create and quotas.dmNew, 5. The reply that accepts a request: the conversation state update, 4 writes,
-// plus 1 delete (the replier's dmRequests entry moves to dmInbox). The entry maps also carry requestPending (set or
-// deleted inside the same MergeAll writes: +0 reads, +0 writes).
+// Set with MergeAll; unreadCount is a FieldValue.Increment unless the recipient muted the caller). An accepted
+// conversation writes only those three. An existing REQUEST also updates the conversation (requestCount +1). A new
+// conversation also creates the conversation and increments quotas.dmNew. The reply that accepts a request updates the
+// conversation state and deletes the replier's dmRequests entry (it moves to dmInbox). The entry maps also carry
+// requestPending (set or deleted inside the same MergeAll writes).
 //
-// A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back (0 writes), the stored
-// message is read (1 read) and returned, or ErrKeyReused when its request digest differs. A message a moderator took
+// A replay is AlreadyExists at commit on the message Create: the whole transaction rolls back, the stored
+// message is read and returned, or ErrKeyReused when its request digest differs. A message a moderator took
 // down (state REMOVED, digest cleared) replays as that tombstone.
 //
 // An error from Send does NOT prove nothing was written. txTimeout (or the request deadline) can expire while the
@@ -209,11 +204,10 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 	return SendResult{}, fmt.Errorf("messaging: send: %w", store.ErrContended)
 }
 
-// txConversation reads conversations/{id} inside a transaction (1 read, always fresh, never the instance cache). A missing
+// txConversation reads conversations/{id} inside a transaction (always fresh, never the instance cache). A missing
 // document is nil. Send, Accept and Delete all open their transaction with it.
 func (r *FirestoreRepo) txConversation(ctx context.Context, tx *firestore.Transaction, id string) (*ConvDoc, error) {
 	snap, err := tx.Get(r.convRef(id))
-	budget.FromContext(ctx).AddReads(1)
 	switch status.Code(err) {
 	case codes.OK:
 		var c ConvDoc
@@ -231,7 +225,6 @@ func (r *FirestoreRepo) txConversation(ctx context.Context, tx *firestore.Transa
 // sendTx is one run of the send transaction body. res.Conv carries the conversation as read (or created) even when the
 // body fails, so the replay path can answer without another read.
 func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p SendParams) (SendResult, error) {
-	c := budget.FromContext(ctx)
 	conv, err := r.txConversation(ctx, tx, p.ConvID)
 	if err != nil {
 		return SendResult{}, err
@@ -290,7 +283,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	// clock read and this attempt would otherwise leave the recreated entry with a preview and an unread count but an
 	// empty thread (ListMessages hides createdAt <= clearedAt). It also holds whatever the clock skew between instances.
 	now := stampAfterClear(wireTime(p.Now), conv)
-	b := store.NewFirestoreTxBatch(tx, c)
+	b := store.NewFirestoreTxBatch(tx)
 	msg := MsgDoc{SenderID: p.UID, Text: p.Text, State: msgVisible, RequestHash: p.RequestHash, CreatedAt: now}
 	b.Create(r.msgRef(p.ConvID, p.MsgID), msg)
 
@@ -365,7 +358,6 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 // otherwise the original refusal. 1 extra read, only on this path.
 func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transaction, p SendParams, res SendResult, refusal error) (SendResult, error) {
 	snap, err := tx.Get(r.msgRef(p.ConvID, p.MsgID))
-	budget.FromContext(ctx).AddReads(1)
 	switch status.Code(err) {
 	case codes.OK:
 		var stored MsgDoc
@@ -391,12 +383,11 @@ func sortedPair(a, b string) []string {
 	return []string{a, b}
 }
 
-// requestCountCap bounds CountRequests (the query-limit rule: every query has a Limit, aggregations included). Firestore bills
-// a count() as 1 read per 1,000 matches, so the cap keeps "Message requests (N)" at 1 read; the client shows "999+".
+// requestCountCap bounds CountRequests (the query-limit rule: every query has a Limit, aggregations included). The client shows "999+".
 const requestCountCap = 1000
 
 // ListEntries implements Repo: `users/{uid}/{folder}` ordered `lastMessageAt DESC, __name__ DESC` (a since refresh:
-// `changedAt DESC, __name__ DESC`; automatic single-field indexes, no composite), Limit q.Limit. Reads one per document returned, minimum 1 (an empty query bills 1). folder is
+// `changedAt DESC, __name__ DESC`; automatic single-field indexes, no composite), Limit q.Limit. folder is
 // dmInboxCollection or dmRequestsCollection: the caller picks it from an enum, never from request text.
 func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q ListQuery) ([]EntryRow, error) {
 	col := r.client.Collection(usersCollection).Doc(uid).Collection(folder)
@@ -415,7 +406,6 @@ func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q L
 		query = query.EndBefore(q.After.CreatedAt, col.Doc(q.After.DocID))
 	}
 	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("messaging: list %s: %w", folder, err)
 	}
@@ -430,11 +420,10 @@ func (r *FirestoreRepo) ListEntries(ctx context.Context, uid, folder string, q L
 	return out, nil
 }
 
-// CountRequests implements Repo: count() on users/{uid}/dmRequests, Limit requestCountCap. 1 read.
+// CountRequests implements Repo: count() on users/{uid}/dmRequests, Limit requestCountCap.
 func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, error) {
 	q := r.client.Collection(usersCollection).Doc(uid).Collection(dmRequestsCollection).Limit(requestCountCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		return 0, fmt.Errorf("messaging: count requests: %w", err)
 	}
@@ -448,16 +437,15 @@ func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, e
 }
 
 // unreadConversationsCap bounds CountUnreadConversations: the count is never above 100 and the client shows
-// "99+". Firestore bills the aggregation 1 read per 1,000 matches, so the cap keeps the GetMe badge at 1 read.
+// "99+".
 const unreadConversationsCap = 100
 
 // CountUnreadConversations implements Repo: count() of users/{uid}/dmInbox where unreadCount > 0, Limit
-// unreadConversationsCap, on the automatic single-field index. 1 read. Requests (dmRequests) never count.
+// unreadConversationsCap, on the automatic single-field index. Requests (dmRequests) never count.
 func (r *FirestoreRepo) CountUnreadConversations(ctx context.Context, uid string) (int64, error) {
 	q := r.client.Collection(usersCollection).Doc(uid).Collection(dmInboxCollection).
 		Where("unreadCount", ">", 0).Limit(unreadConversationsCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		return 0, fmt.Errorf("messaging: count unread conversations: %w", err)
 	}
@@ -472,7 +460,7 @@ func (r *FirestoreRepo) CountUnreadConversations(ctx context.Context, uid string
 
 // ListMessages implements Repo: conversations/{id}/messages ordered `createdAt DESC, __name__ DESC` (automatic
 // single-field index, no composite), Limit q.Limit, and `createdAt > ClearedAt` when the caller cleared the thread (a
-// range on the ordered field, the same index). Reads one per document returned, minimum 1 (an empty query bills 1).
+// range on the ordered field, the same index).
 func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error) {
 	col := r.convRef(convID).Collection(messagesCollection)
 	query := col.Query
@@ -487,7 +475,6 @@ func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q Messa
 		query = query.EndBefore(q.After.CreatedAt, col.Doc(q.After.DocID))
 	}
 	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("messaging: list messages: %w", err)
 	}
@@ -504,15 +491,13 @@ func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q Messa
 
 // MarkRead implements Repo: a field-level Update (never Set) of the caller's own entry; Update carries the Exists precondition by
 // definition, so a missing entry (unknown id, non-participant, deleted for the caller) is NotFound and writes nothing. dmInbox is tried
-// first, then dmRequests: an entry lives in exactly one of them. 0 reads; 1 write when found (a NotFound attempt is not a
-// write).
+// first, then dmRequests: an entry lives in exactly one of them. It reads nothing, and a NotFound attempt writes nothing.
 func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at time.Time) (bool, error) {
 	updates := []firestore.Update{{Path: "unreadCount", Value: 0}, {Path: "lastReadAt", Value: wireTime(at)}}
 	for _, ref := range []*firestore.DocumentRef{r.inboxRef(uid, convID), r.requestsRef(uid, convID)} {
 		_, err := ref.Update(ctx, updates) // Update itself requires the document to exist (an explicit Exists precondition is refused by the SDK)
 		switch status.Code(err) {
 		case codes.OK:
-			budget.FromContext(ctx).AddWrites(1)
 			return true, nil
 		case codes.NotFound:
 		default:

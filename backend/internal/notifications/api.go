@@ -116,7 +116,7 @@ type Event struct {
 }
 
 // Emitter is the one seam other slices call after their commit. Emit is best effort: it never fails
-// the caller's operation, and it must not be called inside a transaction or its read budget. A returned error is
+// the caller's operation, and it must not be called inside a transaction. A returned error is
 // informational (already logged); callers ignore it.
 type Emitter interface {
 	Emit(ctx context.Context, e Event) error

@@ -12,8 +12,8 @@ import (
 )
 
 // TestServer_PollsFlagModes (off/allowlist/percent/on): the handler's PollsEnabled follows the real registry for
-// the caller, and the service refuses a poll exactly when it is false (FEATURE_DISABLED feature=polls, 0 reads and writes),
-// before any Firestore access. The percent rows pick one caller on either side of the bucket so the row is deterministic.
+// the caller, and the service refuses a poll exactly when it is false (FEATURE_DISABLED feature=polls),
+// before any repo call. The percent rows pick one caller on either side of the bucket so the row is deterministic.
 func TestServer_PollsFlagModes(t *testing.T) {
 	t.Parallel()
 	in, out := "uid-in", "uid-out"
@@ -58,7 +58,7 @@ func TestServer_PollsFlagModes(t *testing.T) {
 			}
 			e := newCreateEnv()
 			capture.got.IdempotencyKey, capture.got.Text = key1, "hi"
-			_, c, err := e.create(capture.got)
+			_, err = e.create(capture.got)
 			if tt.want {
 				if err != nil {
 					t.Fatalf("enabled caller refused: %v", err)
@@ -67,7 +67,7 @@ func TestServer_PollsFlagModes(t *testing.T) {
 			}
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 			if ae.Metadata["feature"] != "polls" || e.repo.createCalls != 0 {
-				t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
+				t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 			}
 		})
 	}

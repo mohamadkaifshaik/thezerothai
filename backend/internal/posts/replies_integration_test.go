@@ -1,7 +1,6 @@
 //go:build integration
 
-// replies_integration_test.go: the reply path and GetThread against the Firestore emulator, with the
-// documented read/write budgets asserted.
+// replies_integration_test.go: the reply path and GetThread against the Firestore emulator.
 package posts
 
 import (
@@ -16,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 type blockMuter interface {
@@ -24,24 +22,20 @@ type blockMuter interface {
 	Mute(ctx context.Context, caller, key, target string) (graph.Relationship, error)
 }
 
-func (in *createInstance) reply(t testing.TB, uid, key, text, parent string) (*Post, *budget.Counter, error) {
+func (in *createInstance) reply(t testing.TB, uid, key, text, parent string) (*Post, error) {
 	t.Helper()
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 	if _, err := in.svc.directory.GetProfiles(context.Background(), []string{uid}); err != nil {
 		t.Errorf("warm profile: %v", err)
 	}
-	ctx, c := budget.WithCounter(ctx)
-	p, err := in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: text, ReplyToPostID: parent, RepliesEnabled: true})
-	return p, c, err
+	return in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: text, ReplyToPostID: parent, RepliesEnabled: true})
 }
 
-func (in *createInstance) thread(t testing.TB, uid string, ti ThreadInput) (*Thread, *budget.Counter, error) {
+func (in *createInstance) thread(t testing.TB, uid string, ti ThreadInput) (*Thread, error) {
 	t.Helper()
 	in.svc.cursorKey = []byte("0123456789abcdef0123456789abcdef")
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
-	ctx, c := budget.WithCounter(ctx)
-	th, err := in.svc.GetThread(ctx, uid, ti)
-	return th, c, err
+	return in.svc.GetThread(ctx, uid, ti)
 }
 
 func replyCount(t *testing.T, in *createInstance, id string) int64 {
@@ -49,23 +43,22 @@ func replyCount(t *testing.T, in *createInstance, id string) int64 {
 	return fieldInt(t, in.repo.client, postsCollection+"/"+id, "replyCount")
 }
 
-// TestReplies_Integration_CreateShapeBudgetAndPull: the reply doc shape, the parent counter, the 5-write
-// budget, and that a reply never reaches a root-post (Home / Posts tab) query but is in the Replies tab query.
-func TestReplies_Integration_CreateShapeBudgetAndPull(t *testing.T) {
+// TestReplies_Integration_CreateShapeAndPull: the reply doc shape, the parent counter, and that a reply never reaches a
+// root-post (Home / Posts tab) query but is in the Replies tab query.
+func TestReplies_Integration_CreateShapeAndPull(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 
-	root, _, err := in.create(t, "uid-alice", key(1), "root post")
+	root, err := in.create(t, "uid-alice", key(1), "root post")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r1, _, err := in.reply(t, "uid-bob", key(2), "first reply", root.ID)
+	r1, err := in.reply(t, "uid-bob", key(2), "first reply", root.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cold ceiling 15 reads / 5 writes; warm profile here, parent cold.
 
 	var d postDoc
 	snap, err := client.Collection(postsCollection).Doc(r1.ID).Get(context.Background())
@@ -83,7 +76,7 @@ func TestReplies_Integration_CreateShapeBudgetAndPull(t *testing.T) {
 	}
 
 	// A reply to the reply shares the conversation and bumps the reply's own counter.
-	r2, _, err := in.reply(t, "uid-alice", key(3), "answer", r1.ID)
+	r2, err := in.reply(t, "uid-alice", key(3), "answer", r1.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,15 +102,15 @@ func TestReplies_Integration_CreateShapeBudgetAndPull(t *testing.T) {
 	}
 }
 
-// TestReplies_Integration_ThreadOrderFilteringAndBudget: chronological order, blocked and muted authors
-// dropped, the focal/parent/root excluded, paging, and the GetThread budget.
-func TestReplies_Integration_ThreadOrderFilteringAndBudget(t *testing.T) {
+// TestReplies_Integration_ThreadOrderAndFiltering: chronological order, blocked and muted authors
+// dropped, the focal/parent/root excluded, and paging.
+func TestReplies_Integration_ThreadOrderAndFiltering(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	for _, u := range []string{"alice", "bob", "carol", "dave"} {
 		in.signUp(t, "uid-"+u, u)
 	}
-	root, _, err := in.create(t, "uid-alice", key(1), "root")
+	root, err := in.create(t, "uid-alice", key(1), "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +118,7 @@ func TestReplies_Integration_ThreadOrderFilteringAndBudget(t *testing.T) {
 	byUser := map[string]string{}
 	for i, u := range []string{"bob", "carol", "dave", "bob", "carol"} {
 		time.Sleep(3 * time.Millisecond) // distinct Snowflake milliseconds
-		p, _, err := in.reply(t, "uid-"+u, key(10+i), "reply "+u, root.ID)
+		p, err := in.reply(t, "uid-"+u, key(10+i), "reply "+u, root.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,7 +138,7 @@ func TestReplies_Integration_ThreadOrderFilteringAndBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	th, _, err := in.thread(t, "uid-alice", ThreadInput{PostID: root.ID})
+	th, err := in.thread(t, "uid-alice", ThreadInput{PostID: root.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,8 +156,8 @@ func TestReplies_Integration_ThreadOrderFilteringAndBudget(t *testing.T) {
 		t.Fatalf("a root focal has no parent: %+v", th)
 	}
 
-	// Warm: only the conversation query (<= page) is paid.
-	_, _, err = in.thread(t, "uid-alice", ThreadInput{PostID: root.ID})
+	// A repeat read of the same thread works.
+	_, err = in.thread(t, "uid-alice", ThreadInput{PostID: root.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +166,7 @@ func TestReplies_Integration_ThreadOrderFilteringAndBudget(t *testing.T) {
 	var paged []string
 	token := ""
 	for i := 0; i < 10; i++ {
-		page, _, err := in.thread(t, "uid-alice", ThreadInput{PostID: root.ID, PageSize: 2, PageToken: token})
+		page, err := in.thread(t, "uid-alice", ThreadInput{PostID: root.ID, PageSize: 2, PageToken: token})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,21 +186,21 @@ func TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesC
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
-	root, _, err := in.create(t, "uid-alice", key(1), "root")
+	root, err := in.create(t, "uid-alice", key(1), "root")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r1, _, err := in.reply(t, "uid-bob", key(2), "reply", root.ID)
+	r1, err := in.reply(t, "uid-bob", key(2), "reply", root.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, _, err := in.reply(t, "uid-alice", key(3), "answer", r1.ID)
+	r2, err := in.reply(t, "uid-alice", key(3), "answer", r1.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Deleting a reply releases the parent's counter in the same call: 2 writes (postsCount, parent) + 1 delete.
-	ctx, _ := budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
+	// Deleting a reply releases the parent's counter in the same call.
+	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
 	if err := in.svc.Delete(ctx, "uid-alice", key(4), r2.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -216,11 +209,11 @@ func TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesC
 	}
 
 	// Deleting the root (a different instance cache would converge in <= 60 s) leaves the reply with tombstones.
-	ctx, _ = budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
+	ctx = authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
 	if err := in.svc.Delete(ctx, "uid-alice", key(5), root.ID); err != nil {
 		t.Fatal(err)
 	}
-	th, _, err := in.thread(t, "uid-bob", ThreadInput{PostID: r1.ID})
+	th, err := in.thread(t, "uid-bob", ThreadInput{PostID: r1.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +222,7 @@ func TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesC
 	}
 
 	// Replying to a deleted parent is the uniform NOT_FOUND, with no write.
-	_, _, err = in.reply(t, "uid-bob", key(6), "late", root.ID)
+	_, err = in.reply(t, "uid-bob", key(6), "late", root.ID)
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Code != connect.CodeNotFound || ae.Message != postNotFoundText {
 		t.Fatalf("err = %v, want NOT_FOUND post not found", err)
@@ -245,7 +238,7 @@ func TestReplies_Integration_ConcurrentRepliesCountExactly(t *testing.T) {
 	for i := 0; i < n; i++ {
 		in.signUp(t, "uid-u"+string(rune('a'+i)), "user"+string(rune('a'+i)))
 	}
-	root, _, err := in.create(t, "uid-alice", key(1), "root")
+	root, err := in.create(t, "uid-alice", key(1), "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +248,7 @@ func TestReplies_Integration_ConcurrentRepliesCountExactly(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, _, err := in.reply(t, "uid-u"+string(rune('a'+i)), key(100+i), "r", root.ID)
+			_, err := in.reply(t, "uid-u"+string(rune('a'+i)), key(100+i), "r", root.ID)
 			errs <- err
 		}(i)
 	}

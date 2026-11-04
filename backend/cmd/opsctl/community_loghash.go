@@ -28,7 +28,7 @@ func communityHashForAudit(cid string) string {
 // the keyed pseudonyms the API puts on its Communities moderation request lines so an operator can filter Logs Explorer by them:
 // community_hash for a community id, post_hash for a post id, and for a uid both target_hash (the SetMemberRole target) and the
 // plain uid_hash (that user's own request lines). Needs CURSOR_HMAC_KEY of the project whose logs are read; a secret rotation
-// changes every hash, so use the version that was live when the lines were written. Cost: 0 reads, 0 writes.
+// changes every hash, so use the version that was live when the lines were written.
 func communityLogHash(args []string, key string, out, errOut io.Writer) error {
 	fs := flag.NewFlagSet("community loghash", flag.ContinueOnError)
 	fs.SetOutput(errOut)

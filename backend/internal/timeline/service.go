@@ -59,8 +59,8 @@ const chunkWorkerOp = "timeline/chunk_worker"
 // number: the field is a closed set of values so the log stays free of client-chosen data.
 const tabUnknownLog = "unknown"
 
-// home implements GetHomeTimeline. Reads: caller graph (cached 60 s) + one query
-// per 30 uncovered authors, each at most k = ceil(2p/C') docs; worst 2 + C + 2p with the interceptor read.
+// home implements GetHomeTimeline. It reads the caller's graph (cached 60 s) and one query
+// per 30 uncovered authors, each returning at most k = ceil(2p/C') docs.
 func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTimelineRequest) (*timelinev1.GetHomeTimelineResponse, error) {
 	start := s.now()
 	limit := limits.ClampPageSize(req.GetPageSize())
@@ -124,7 +124,7 @@ type homeSourcesResult struct {
 	chunks  int
 }
 
-// homeSources reads what the window needs: covered authors from author-recent (0 reads), the rest in chunks of
+// homeSources reads what the window needs: covered authors from author-recent, the rest in chunks of
 // 30 with at most chunkConcurrency queries in flight.
 func (s *Server) homeSources(ctx context.Context, authors []string, tok request, limit int, start time.Time) (homeSourcesResult, error) {
 	var out homeSourcesResult
@@ -306,10 +306,10 @@ func (s *Server) toViews(ctx context.Context, uid string, following, blocked map
 
 // filterEmbeds applies embedAllowed and the audience rules to a profile page: a REPOST of a
 // protected author's post the caller may not see is dropped, a QUOTE of one is kept with a PROTECTED embed state. The
-// caller's graph snapshot is the one checkVisible just read (cached), so the filter costs 0 reads. A page with no
+// caller's graph snapshot is the one checkVisible just read (cached), so the filter reads nothing more. A page with no
 // REPOST or QUOTE skips it. A caller viewing their own profile skips embedAllowed (their own copies are kept, D13) but
 // not the audience rule: a copy of a post whose author protected since stays hidden from its copier. That case reads
-// the caller's graph (+1 cold, cached 60 s) only when the page holds a copy of someone else's post.
+// the caller's graph (cached 60 s) only when the page holds a copy of someone else's post.
 func (s *Server) filterEmbeds(ctx context.Context, caller, target string, ps []*posts.Post) ([]*posts.Post, map[string]postsv1.EmbedViewerState, error) {
 	need := false
 	for _, p := range ps {
@@ -360,9 +360,9 @@ func embedAllowed(snap graph.Snapshot, uid string, p *posts.Post) bool {
 	return allowedAuthor(snap, a)
 }
 
-// user implements GetUserTimeline (D13-D16). Reads: target users + caller graph (+ target
-// graph when the caller's blockedBy overflowed) + one query of Limit(page_size); 0 for a Posts-tab first page
-// or an empty refresh served by a fresh author-recent entry. The Media and Reposts tabs always run that one query
+// user implements GetUserTimeline (D13-D16). It reads the target users doc, the caller graph (and the target
+// graph when the caller's blockedBy overflowed) and one query of Limit(page_size); a Posts-tab first page
+// or an empty refresh served by a fresh author-recent entry needs no query. The Media and Reposts tabs always run that one query
 // (no author-recent entry) and need FEATURE_PROFILE_TABS: they are refused before any read when it is off.
 func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUserTimelineRequest) (*timelinev1.GetUserTimelineResponse, error) {
 	start := s.now()
@@ -457,7 +457,7 @@ func (s *Server) resolveTab(ctx context.Context, caller string, req *timelinev1.
 // non-ACTIVE or caller-blocking target (D6). A caller who blocks or mutes the target still sees the posts.
 // After those rules it applies: protected is true when the target is a protected account and the caller is
 // neither that account nor a follower of it, so every tab answers author_protected. The decision uses the caller's
-// graph snapshot checkVisible already read (it also returns the caller's following set for the wire-visibility hint, L-4) (3 cold reads: interceptor, target users, caller graph) and the detached
+// graph snapshot checkVisible already read (it also returns the caller's following set for the wire-visibility hint, L-4) and the detached
 // protected-set loader, and runs before any page or author-recent entry is touched. A set error is UNAVAILABLE.
 // Staleness bound: a follow, unfollow or toggle is seen within CACHE_TTL (60 s, the graph and set caches).
 func (s *Server) checkVisible(ctx context.Context, caller, target string) (protected bool, following, blocked map[string]bool, err error) {

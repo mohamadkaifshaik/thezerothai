@@ -3,8 +3,7 @@
 package apiserver
 
 // over the real Build chain (Firestore, Auth, Pub/Sub emulators): like, repost, quote, viewer flags, the
-// post_delete job and FEATURE_ENGAGEMENT off. The budget assertions here are the logged fs_reads / fs_writes of the
-// request line, kept in sync with the engagement plan's table.
+// post_delete job and FEATURE_ENGAGEMENT off.
 
 import (
 	"context"
@@ -44,19 +43,6 @@ const (
 	rpcRepost   = "/dzeroth.engagement.v1.EngagementService/RepostPost"
 	rpcUndoRepo = "/dzeroth.engagement.v1.EngagementService/UndoRepost"
 )
-
-// lastLine returns the logged fs_reads and fs_writes of the last request line for rpc.
-func (e *lifecycleEnv) lastLine(t *testing.T, rpc string) (reads, writes float64) {
-	t.Helper()
-	lines := e.requestLinesFor(rpc)
-	if len(lines) == 0 {
-		t.Fatalf("no request line for %s", rpc)
-	}
-	l := lines[len(lines)-1]
-	reads, _ = l["fs_reads"].(float64)
-	writes, _ = l["fs_writes"].(float64)
-	return reads, writes
-}
 
 func fsInt(t *testing.T, c *firestore.Client, path, field string) int64 {
 	t.Helper()
@@ -121,7 +107,7 @@ func TestEngagementChain_LikeRepostQuoteAndDeleteJob(t *testing.T) {
 	}
 	pid := created.Msg.GetPost().GetPost().GetPostId()
 
-	// Like: first like, then a replay (0 writes, same answer, no second counter).
+	// Like: first like, then a replay (same answer, no second counter).
 	r, err := eng.LikePost(ctx, authed(b.token, &engagementv1.LikePostRequest{IdempotencyKey: "eng-like-key-0000001", PostId: pid}))
 	if err != nil {
 		t.Fatalf("LikePost: %v", err)

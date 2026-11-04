@@ -13,49 +13,30 @@ import (
 	"connectrpc.com/connect"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// chargedProfiles charges the directory read of a cold lookup (1 read) like identity.Directory does on a miss.
-type chargedProfiles struct{ inner Profiles }
-
-func (c chargedProfiles) GetProfiles(ctx context.Context, uids []string) (map[string]identityProfile, error) {
-	budget.FromContext(ctx).AddReads(1)
-	return c.inner.GetProfiles(ctx, uids)
-}
-func (c chargedProfiles) Forget(uids ...string) { c.inner.Forget(uids...) }
-
-// msgSvc is a second instance (cold caches) whose graph and directory reads are charged, so the budgets below are the
-// per-RPC budgets and not only the repo's own reads.
+// msgSvc is a second instance (cold caches) on the same repo.
 func (e *itEnv) msgSvc() *service {
-	svc := e.newService()
-	svc.d.Social = chargedSocial{e.social}
-	svc.d.Profiles = chargedProfiles{e.profs}
-	return svc
+	return e.newService()
 }
 
-// listMsgs runs ListMessages under its own counter, pre-charged with the account-status interceptor's 1 read.
-func (e *itEnv) listMsgs(svc *service, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	c.AddReads(1)
-	resp, err := svc.ListMessages(ctx, uid, req)
-	return resp, c, err
+// listMsgs runs ListMessages.
+func (e *itEnv) listMsgs(svc *service, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, error) {
+	return svc.ListMessages(context.Background(), uid, req)
 }
 
-func (e *itEnv) mustListMsgs(svc *service, uid string, req *messagingv1.ListMessagesRequest) (*messagingv1.ListMessagesResponse, *budget.Counter) {
+func (e *itEnv) mustListMsgs(svc *service, uid string, req *messagingv1.ListMessagesRequest) *messagingv1.ListMessagesResponse {
 	e.t.Helper()
-	resp, c, err := e.listMsgs(svc, uid, req)
+	resp, err := e.listMsgs(svc, uid, req)
 	if err != nil {
 		e.t.Fatalf("ListMessages: %v", err)
 	}
-	return resp, c
+	return resp
 }
 
-func (e *itEnv) markRead(svc *service, uid, convID string) (*budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	c.AddReads(1)
-	_, err := svc.MarkRead(ctx, uid, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: convID})
-	return c, err
+func (e *itEnv) markRead(svc *service, uid, convID string) error {
+	_, err := svc.MarkRead(context.Background(), uid, &messagingv1.MarkConversationReadRequest{IdempotencyKey: lifeKey, ConversationId: convID})
+	return err
 }
 
 func idsOf(r *messagingv1.ListMessagesResponse) []string {
@@ -66,10 +47,8 @@ func idsOf(r *messagingv1.ListMessagesResponse) []string {
 	return out
 }
 
-// Given 45 messages, then 20 / 20 / 5, newest first, no overlap. Budget (table): first or older page of 20
-// 25 reads (interceptor, conversation, query 20, peer, caller graph, caller entry), 0 writes; a page of 50 is 55; an
-// older page is 24 / 54 (no entry read).
-func TestListMessages_PagesWithinBudget(t *testing.T) {
+// Given 45 messages, then 20 / 20 / 5, newest first, no overlap; a page of 50 returns all 45 and no next token.
+func TestListMessages_Pages(t *testing.T) {
 	e := newIT(t, nil)
 	msgs := make([][2]string, 0, 45)
 	for i := range 45 {
@@ -82,7 +61,7 @@ func TestListMessages_PagesWithinBudget(t *testing.T) {
 	id := e.seedConversation(alice, bob, stateAccepted, base, msgs...)
 	svc := e.msgSvc()
 
-	first, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	first := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if len(first.Messages) != 20 || first.NextPageToken == "" || first.SinceToken == "" || first.GapPageToken != "" || first.Conversation == nil {
 		t.Fatalf("first page: %d messages next=%q since=%q gap=%q conversation=%v", len(first.Messages), first.NextPageToken, first.SinceToken, first.GapPageToken, first.Conversation)
 	}
@@ -92,13 +71,13 @@ func TestListMessages_PagesWithinBudget(t *testing.T) {
 	if cv := first.Conversation; cv.Peer.UserId != bob || cv.Peer.Handle != "bob" || !cv.CanReply {
 		t.Errorf("conversation = %+v", cv)
 	}
-	second, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
-	third, c3 := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: second.NextPageToken})
+	second := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
+	third := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: second.NextPageToken})
 	if len(second.Messages) != 20 || len(third.Messages) != 5 || third.NextPageToken != "" || third.SinceToken != "" || second.SinceToken != "" {
 		t.Fatalf("pages: %d / %d, third next=%q", len(second.Messages), len(third.Messages), third.NextPageToken)
 	}
 	if third.Conversation == nil {
-		t.Errorf("older page conversation = %v writes = %d", third.Conversation, c3.Writes())
+		t.Errorf("older page conversation = %v, want one", third.Conversation)
 	}
 	seen := map[string]bool{}
 	for _, r := range []*messagingv1.ListMessagesResponse{first, second, third} {
@@ -113,41 +92,48 @@ func TestListMessages_PagesWithinBudget(t *testing.T) {
 		t.Errorf("distinct messages = %d, want 45", len(seen))
 	}
 
-	// The maximum page: 54 reads cold.
-	_, _ = e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
-	// Warm caches: only the interceptor and the query.
-	_, _ = e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	// The maximum page, on a cold instance.
+	big := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
+	if len(big.Messages) != 45 || big.NextPageToken != "" {
+		t.Errorf("page of 50: %d messages next=%q, want 45 and no next token", len(big.Messages), big.NextPageToken)
+	}
+	// The same first page again on the warm instance.
+	if again := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id}); idsOf(again)[0] != idsOf(first)[0] || len(again.Messages) != 20 {
+		t.Errorf("a warm repeat of the first page differs: %d messages", len(again.Messages))
+	}
 }
 
-// Given a poll with 0 new messages, then 3 reads cold (interceptor, conversation, query min 1), 2 warm; the response has
-// no conversation and the poll reads neither the peer profile nor the graph. A new message adds 1 read.
-func TestListMessages_PollWithinBudget(t *testing.T) {
+// Given a poll with no new messages, the response has
+// no conversation and the poll reads neither the peer profile nor the graph. A new message is delivered first.
+func TestListMessages_Poll(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
 	e.must(bob, toUser(skey(1), alice, "hello"))
 	id := ConversationID(alice, bob)
 	e.tick(time.Minute)
-	first, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	first := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if first.SinceToken == "" || first.Conversation == nil {
 		t.Fatalf("first = %+v", first)
 	}
 
 	poller := e.msgSvc() // a cold instance
 	profBefore, graphBefore := e.listProfileCalls(), e.social.calls
-	quiet, _ := e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
+	quiet := e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
 	if quiet.Conversation != nil || quiet.GapPageToken != "" || quiet.NextPageToken != "" || quiet.SinceToken == "" {
 		t.Errorf("quiet poll = %+v", quiet)
 	}
 	if e.listProfileCalls() != profBefore || e.social.calls != graphBefore {
 		t.Error("a poll read the peer profile or the graph")
 	}
-	// Warm: the conversation comes from the cache.
-	_, _ = e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: quiet.SinceToken})
+	// Warm: the conversation comes from the cache, and an unchanged conversation is still not sent.
+	if warm := e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: quiet.SinceToken}); warm.Conversation != nil {
+		t.Errorf("warm quiet poll = %+v", warm)
+	}
 
-	// One new message from bob: 1 more read, delivered first.
+	// One new message from bob, delivered first.
 	e.tick(time.Minute)
 	e.must(bob, toUser(skey(2), alice, "again"))
-	news, _ := e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: quiet.SinceToken})
+	news := e.mustListMsgs(poller, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: quiet.SinceToken})
 	if len(news.Messages) == 0 || news.Messages[0].Text != "again" || news.Messages[0].FromSelf {
 		t.Fatalf("poll = %+v", news.Messages)
 	}
@@ -158,7 +144,7 @@ func TestListMessages_GapFillOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.seedConversation(alice, bob, stateAccepted, base, [2]string{bob, "old 1"}, [2]string{bob, "old 2"})
 	svc := e.msgSvc()
-	first, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	first := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	// 25 new messages, ten seconds apart (wider than the settle window), after the first page.
 	for i := range 25 {
 		mid := fmt.Sprintf("%032x", 5000+i)
@@ -168,14 +154,14 @@ func TestListMessages_GapFillOnEmulator(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	poll, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken, PageSize: 10})
+	poll := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken, PageSize: 10})
 	if len(poll.Messages) != 10 || poll.GapPageToken == "" || poll.Conversation != nil || poll.Messages[0].Text != "new 24" {
 		t.Fatalf("poll = %d messages gap=%q conversation=%v", len(poll.Messages), poll.GapPageToken, poll.Conversation)
 	}
 	got := idsOf(poll)
 	token := poll.GapPageToken
 	for token != "" {
-		page, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: token, PageSize: 10})
+		page := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: token, PageSize: 10})
 		if page.Conversation != nil {
 			t.Fatal("a gap fill carries a conversation")
 		}
@@ -208,17 +194,17 @@ func TestListMessages_ClearedAtOnEmulator(t *testing.T) {
 	if _, err := e.fs.Collection("conversations").Doc(id).Update(context.Background(), []firestore.Update{{Path: "clearedAt", Value: map[string]time.Time{alice: base.Add(5 * time.Second)}}}); err != nil {
 		t.Fatal(err)
 	}
-	resp, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	resp := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if len(resp.Messages) != 4 || resp.Messages[3].Text != "m6" || resp.NextPageToken != "" {
 		t.Fatalf("alice sees %d messages (last %q) next=%q, want m9..m6", len(resp.Messages), resp.Messages[len(resp.Messages)-1].Text, resp.NextPageToken)
 	}
-	bobView, _ := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
+	bobView := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if len(bobView.Messages) != 10 {
 		t.Errorf("bob sees %d messages, want 10", len(bobView.Messages))
 	}
 	// A page walk below the clear stops: an older page token on a full first page ends at the clear.
-	one, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 4})
-	rest, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: one.NextPageToken, PageSize: 4})
+	one := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 4})
+	rest := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: one.NextPageToken, PageSize: 4})
 	if len(one.Messages) != 4 || len(rest.Messages) != 0 {
 		t.Errorf("walk = %d then %d, want 4 then 0", len(one.Messages), len(rest.Messages))
 	}
@@ -243,7 +229,7 @@ func TestListMessages_TombstonesAndDeletedPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := e.listProfileCalls()
-	resp, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	resp := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if e.listProfileCalls() != before {
 		t.Error("an erased peer was looked up")
 	}
@@ -258,16 +244,16 @@ func TestListMessages_TombstonesAndDeletedPeer(t *testing.T) {
 	}
 }
 
-// Given a non-participant, then the same bytes as an unknown id, after exactly 2 reads (cold or warm) and without reading messages.
+// Given a non-participant, then the same bytes as an unknown id, cold or warm.
 func TestListMessages_NotFoundByteIdentical(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.seedConversation(alice, bob, stateAccepted, base, [2]string{bob, "private"})
 	e.addUser(carol, "carol", false)
 	unknown := ConversationID(alice, "uid-nobody")
 
-	_, cNon, errNon := e.listMsgs(e.msgSvc(), carol, &messagingv1.ListMessagesRequest{ConversationId: id})
-	_, cUnk, errUnk := e.listMsgs(e.msgSvc(), carol, &messagingv1.ListMessagesRequest{ConversationId: unknown})
-	_, _, errUnkAlice := e.listMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: unknown})
+	_, errNon := e.listMsgs(e.msgSvc(), carol, &messagingv1.ListMessagesRequest{ConversationId: id})
+	_, errUnk := e.listMsgs(e.msgSvc(), carol, &messagingv1.ListMessagesRequest{ConversationId: unknown})
+	_, errUnkAlice := e.listMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: unknown})
 	for name, err := range map[string]error{"non-participant": errNon, "unknown": errUnk, "unknown, participant elsewhere": errUnkAlice} {
 		if codeOf(err) != connect.CodeNotFound {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
@@ -276,27 +262,25 @@ func TestListMessages_NotFoundByteIdentical(t *testing.T) {
 	if !bytes.Equal(wireBytes(t, errNon), wireBytes(t, errUnk)) || !bytes.Equal(wireBytes(t, errNon), wireBytes(t, errUnkAlice)) {
 		t.Errorf("NOT_FOUND bytes differ: %q / %q / %q", wireBytes(t, errNon), wireBytes(t, errUnk), wireBytes(t, errUnkAlice))
 	}
-	for range map[string]*budget.Counter{"non-participant": cNon, "unknown": cUnk} {
-	}
-	// Warm (review H-1): a participant caches the conversation on this instance, and the non-participant still pays
-	// the interceptor and one fresh conversation read, the same 2 as cold, with the same bytes; nothing it read is cached.
+	// Warm (review H-1): a participant caches the conversation on this instance, and the non-participant still gets
+	// the same bytes as cold; nothing it read is cached.
 	warmSvc := e.msgSvc()
 	e.mustListMsgs(warmSvc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	for i := range 2 {
-		_, _, errWarm := e.listMsgs(warmSvc, carol, &messagingv1.ListMessagesRequest{ConversationId: id})
+		_, errWarm := e.listMsgs(warmSvc, carol, &messagingv1.ListMessagesRequest{ConversationId: id})
 		if !bytes.Equal(wireBytes(t, errWarm), wireBytes(t, errNon)) {
 			t.Errorf("warm probe %d: NOT_FOUND bytes differ from the cold ones", i)
 		}
 	}
-	// Malformed: VALIDATION, 0 reads.
-	_, cBad, errBad := e.listMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: "nope"})
+	// Malformed: VALIDATION.
+	_, errBad := e.listMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: "nope"})
 	if codeOf(errBad) != connect.CodeInvalidArgument {
-		t.Errorf("malformed id: err = %v reads = %d, want INVALID_ARGUMENT with only the interceptor's read", errBad, cBad.Reads())
+		t.Errorf("malformed id: err = %v, want INVALID_ARGUMENT", errBad)
 	}
 }
 
-// Given MarkConversationRead, then unreadCount is 0 and lastReadAt set on the caller's own entry only, the badge cache is
-// evicted, and the cost is the interceptor's 1 read and 1 write.
+// Given MarkConversationRead, then unreadCount is 0 and lastReadAt set on the caller's own entry only, and the badge cache is
+// evicted.
 func TestMarkRead_WritesOwnEntryOnly(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
@@ -311,7 +295,7 @@ func TestMarkRead_WritesOwnEntryOnly(t *testing.T) {
 
 	svc := e.newService()
 	e.tick(time.Minute)
-	_, err := e.markRead(svc, alice, id)
+	err := e.markRead(svc, alice, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +324,7 @@ func TestMarkRead_WritesOwnEntryOnly(t *testing.T) {
 }
 
 // A request sits in dmRequests: mark-read finds it there. A missing entry (unknown id, non-participant, deleted for the
-// caller) is success with 0 writes and creates nothing.
+// caller) is success and creates nothing.
 func TestMarkRead_RequestsFolderAndMissingEntry(t *testing.T) {
 	e := newIT(t, nil)
 	e.must(bob, toUser(skey(1), alice, "request")) // not mutual: lands in alice's dmRequests
@@ -348,9 +332,9 @@ func TestMarkRead_RequestsFolderAndMissingEntry(t *testing.T) {
 	if ent, ok := e.entry(alice, dmRequestsCollection, id); !ok || ent.UnreadCount != 1 {
 		t.Fatalf("setup: requests entry = %+v ok=%v", ent, ok)
 	}
-	c, err := e.markRead(e.newService(), alice, id)
+	err := e.markRead(e.newService(), alice, id)
 	if err != nil {
-		t.Fatalf("err = %v writes = %d, want success with 1 write", err, c.Writes())
+		t.Fatalf("err = %v, want success", err)
 	}
 	if ent, _ := e.entry(alice, dmRequestsCollection, id); ent.UnreadCount != 0 || ent.LastReadAt.IsZero() {
 		t.Errorf("requests entry = %+v", ent)
@@ -364,7 +348,7 @@ func TestMarkRead_RequestsFolderAndMissingEntry(t *testing.T) {
 		"non-participant": {carol, id},
 		"unknown id":      {alice, ConversationID(alice, "uid-nobody")},
 	} {
-		_, err := e.markRead(e.newService(), tt.uid, tt.id)
+		err := e.markRead(e.newService(), tt.uid, tt.id)
 		if err != nil {
 			t.Fatalf("%s: err = %v, want success", name, err)
 		}

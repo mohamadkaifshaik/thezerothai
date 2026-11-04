@@ -157,7 +157,7 @@ func w636ConcurrencyArmB(t *testing.T) {
 }
 
 // The voter blocks the author after voting (A1): the vote and the check mark are kept and counted, the results stay visible, a replay and a change
-// are TARGET_BLOCKED with 0 writes at the documented read ceiling, and after Unblock the voter can change again.
+// are TARGET_BLOCKED with nothing written, and after Unblock the voter can change again.
 func TestW636_VoterBlocksAuthor(t *testing.T) {
 	e := newPollChain(t)
 	a, voter, neverVoted := e.user(t), e.user(t), e.user(t)
@@ -204,9 +204,9 @@ func TestW636_VoterBlocksAuthor(t *testing.T) {
 	}
 }
 
-// The change write over the chain: 4 writes and at most 9 reads (the 8 of a new vote + the vote doc), the total fixed, one userLikes entry, the
-// cap with its metadata, and POLL_CLOSED after close.
-func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
+// The change write over the chain: the total stays fixed, one userLikes entry, the cap with its metadata, and
+// POLL_CLOSED after close.
+func TestW636_ChangeCapAndClose(t *testing.T) {
 	e := newPollChain(t, func(c *config.Config) { c.Composer.PollVoteChangesMax = 2 })
 	a, voter := e.user(t), e.user(t)
 	pid := e.poll(t, a)
@@ -218,8 +218,6 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 		if err != nil || v.GetViewerPollChoice() != to+1 || v.GetPost().GetPoll().GetTotalVotes() != 1 || v.GetPost().GetPoll().GetChoices()[to].GetVotes() != 1 {
 			t.Fatalf("change %d = %v, %v", i+1, v, err)
 		}
-		got := e.lineBudget(t, rpcVotePoll)
-		t.Logf("change %d: fs_reads=%d fs_writes=%d", i+1, got.Reads(), got.Writes())
 	}
 	if total, counts := e.counts(t, pid); total != 1 || counts["2"] != 1 || counts["0"] != 0 || counts["1"] != 0 {
 		t.Fatalf("after two changes total=%d counts=%v, want the one vote on choice 2", total, counts)
@@ -233,7 +231,7 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 		t.Errorf("userLikes.pollVotes = %v, want the one entry for choice 2", got)
 	}
 
-	// The cap: LIMIT_REACHED with limit and the stored choice, 0 writes.
+	// The cap: LIMIT_REACHED with limit and the stored choice, nothing written.
 	_, err := e.voteExpecting(voter, "w636-chg-vote-0000009", pid, 0, 3)
 	d := wireError(t, err, connect.CodeFailedPrecondition)
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)

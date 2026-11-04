@@ -13,43 +13,28 @@ import (
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 const carol = "uid-carol"
 
-// chargedSocial charges the caller's graph read the way a cold graph.Reader does (1 read), so the budgets below are the
-// per-RPC budgets and not only the repo's own reads.
-type chargedSocial struct{ inner Social }
-
-func (c chargedSocial) Snapshot(ctx context.Context, uid string) (graph.Snapshot, error) {
-	budget.FromContext(ctx).AddReads(1)
-	return c.inner.Snapshot(ctx, uid)
-}
-
-// listSvc is a second instance whose graph reads are charged.
+// listSvc is a second instance (cold caches) on the same repo.
 func (e *itEnv) listSvc() *service {
-	svc := e.newService()
-	svc.d.Social = chargedSocial{e.social}
-	return svc
+	return e.newService()
 }
 
-// list runs ListConversations under its own counter, pre-charged with the account-status interceptor's 1 read.
-func (e *itEnv) list(svc *service, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	c.AddReads(1)
-	resp, err := svc.ListConversations(ctx, uid, req)
-	return resp, c, err
+// list runs ListConversations.
+func (e *itEnv) list(svc *service, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
+	return svc.ListConversations(context.Background(), uid, req)
 }
 
-func (e *itEnv) mustList(svc *service, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, *budget.Counter) {
+func (e *itEnv) mustList(svc *service, uid string, req *messagingv1.ListConversationsRequest) *messagingv1.ListConversationsResponse {
 	e.t.Helper()
-	resp, c, err := e.list(svc, uid, req)
+	resp, err := e.list(svc, uid, req)
 	if err != nil {
 		e.t.Fatalf("ListConversations: %v", err)
 	}
-	return resp, c
+	return resp
 }
 
 // codeOf is the Connect code the handler boundary would answer for err; 0 for nil.
@@ -74,9 +59,8 @@ func (e *itEnv) listProfileCalls() int {
 	return e.profs.calls
 }
 
-// Given 25 conversations, pages of 20 + 5, newest activity first. Budget (table): first INBOX page 23 reads
-// (interceptor, query 20, caller graph, requests count()), a later page 22 at most, 0 writes.
-func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
+// Given 25 conversations, pages of 20 + 5, newest activity first.
+func TestList_PagesNewestFirst(t *testing.T) {
 	e := newIT(t, nil)
 	svc := e.listSvc()
 	want := make([]string, 0, 25)
@@ -89,11 +73,11 @@ func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
 		e.seedConversation(fmt.Sprintf("req-%d", i), alice, stateRequest, base.Add(time.Duration(i)*time.Minute), [2]string{fmt.Sprintf("req-%d", i), "hello"})
 	}
 
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if len(first.Conversations) != 20 || first.NextPageToken == "" || first.SinceToken == "" || first.RequestCount != 3 {
 		t.Fatalf("first page: %d conversations next=%q since=%q request_count=%d", len(first.Conversations), first.NextPageToken, first.SinceToken, first.RequestCount)
 	}
-	second, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, PageToken: first.NextPageToken})
+	second := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, PageToken: first.NextPageToken})
 	if len(second.Conversations) != 5 || second.NextPageToken != "" || second.RequestCount != 0 || second.SinceToken != "" {
 		t.Fatalf("second page: %d conversations next=%q request_count=%d since=%q", len(second.Conversations), second.NextPageToken, second.RequestCount, second.SinceToken)
 	}
@@ -109,16 +93,15 @@ func TestList_PagesNewestFirstWithinBudget(t *testing.T) {
 	}
 
 	// REQUESTS: the same rules without the count().
-	reqs, c3 := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests})
+	reqs := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests})
 	if len(reqs.Conversations) != 3 || reqs.RequestCount != 0 {
-		t.Errorf("REQUESTS: %d conversations request_count=%d reads=%d, want 3 / 0 / 5", len(reqs.Conversations), reqs.RequestCount, c3.Reads())
+		t.Errorf("REQUESTS: %d conversations request_count=%d, want 3 / 0", len(reqs.Conversations), reqs.RequestCount)
 	}
 }
 
 // Given a since token and one new message, then that entry returns. The token trails the newest entry by the 5 s settle
 // window, so the previous newest comes back once as well when the new message lands in another conversation (the client
-// dedupes by id): 4 reads when the new message is in the newest conversation, 5 when it is in another one (the
-// requests count() rides every INBOX since refresh).
+// dedupes by id).
 func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e := newIT(t, nil)
 	e.addUser(carol, "carol", false)
@@ -131,7 +114,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e.must(carol, toUser(skey(2), alice, "first from carol"))
 	bobConv, carolConv := ConversationID(alice, bob), ConversationID(alice, carol)
 
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if got := respIDs(first); len(got) != 2 || got[0] != carolConv || got[1] != bobConv {
 		t.Fatalf("first page = %v", got)
 	}
@@ -140,7 +123,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	e.seedConversation("req-late", alice, stateRequest, base, [2]string{"req-late", "hello"})
 
 	// Nothing new: the entry the token trails (carol) is the one row read.
-	quiet, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	quiet := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	if quiet.RequestCount != 1 {
 		t.Errorf("since refresh request_count = %d, want 1 (the request created after the first page)", quiet.RequestCount)
 	}
@@ -151,7 +134,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	// One new message in the newest conversation: exactly that entry.
 	e.tick(time.Minute)
 	e.must(carol, toUser(skey(3), alice, "carol again"))
-	ref, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	ref := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	if got := respIDs(ref); len(got) != 1 || got[0] != carolConv {
 		t.Fatalf("refresh = %v, want exactly the entry that moved", got)
 	}
@@ -162,7 +145,7 @@ func TestList_SinceReturnsTheMovedEntry(t *testing.T) {
 	// A new message in the other conversation: that entry plus the settle-window one.
 	e.tick(time.Minute)
 	e.must(bob, toUser(skey(4), alice, "bob again"))
-	other, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: ref.SinceToken})
+	other := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: ref.SinceToken})
 	if got := respIDs(other); len(got) != 2 || got[0] != bobConv || got[1] != carolConv {
 		t.Fatalf("refresh = %v, want bob's entry then carol's (settle window)", got)
 	}
@@ -190,21 +173,21 @@ func TestList_RequestsHideBlockedMutedBlockingPeers(t *testing.T) {
 			bobConv, carolConv := ConversationID(alice, bob), ConversationID(alice, carol)
 			e.setSocial(alice, tt.snap)
 
-			page1, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, PageSize: 1})
+			page1 := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, PageSize: 1})
 			if len(page1.Conversations) != 0 {
 				t.Fatalf("hidden request shown: %v", respIDs(page1))
 			}
 			if page1.NextPageToken == "" || page1.SinceToken == "" {
 				t.Fatalf("a short page must still carry next_page_token and since_token: %+v", page1)
 			}
-			page2, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, PageSize: 1, PageToken: page1.NextPageToken})
+			page2 := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, PageSize: 1, PageToken: page1.NextPageToken})
 			if got := respIDs(page2); len(got) != 1 || got[0] != bobConv {
 				t.Fatalf("page 2 = %v, want bob's request", got)
 			}
 			// The since token advanced past the hidden entry: a refresh shows only what is new and visible.
 			e.tick(time.Minute)
 			e.must(bob, toUser(skey(3), alice, "bob again"))
-			ref, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: page1.SinceToken})
+			ref := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: page1.SinceToken})
 			for _, id := range respIDs(ref) {
 				if id == carolConv {
 					t.Fatalf("hidden request returned by the refresh: %v", respIDs(ref))
@@ -238,7 +221,7 @@ func TestList_InboxKeepsBlockedWithoutReply(t *testing.T) {
 	}
 	bobConv, carolConv := ConversationID(alice, bob), ConversationID(alice, carol)
 
-	resp, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	resp := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	m := byID(resp)
 	if len(m) != 2 || !m[bobConv].CanReply || !m[carolConv].CanReply || !m[carolConv].Silent || m[bobConv].Silent {
 		t.Fatalf("plain: %+v", m)
@@ -249,7 +232,7 @@ func TestList_InboxKeepsBlockedWithoutReply(t *testing.T) {
 		"bob blocks the caller": {BlockedBy: map[string]bool{bob: true}, Muted: map[string]bool{carol: true}},
 	} {
 		e.setSocial(alice, snap)
-		resp, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+		resp := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 		m := byID(resp)
 		if len(m) != 2 {
 			t.Fatalf("%s: INBOX shows %d entries, want both", name, len(m))
@@ -260,7 +243,7 @@ func TestList_InboxKeepsBlockedWithoutReply(t *testing.T) {
 	}
 }
 
-// Given a foreign or tampered token, then VALIDATION with 0 reads (the counter is not pre-charged here).
+// Given a foreign or tampered token, then VALIDATION.
 func TestList_ForeignOrTamperedTokenCostsNothing(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
@@ -270,7 +253,7 @@ func TestList_ForeignOrTamperedTokenCostsNothing(t *testing.T) {
 		e.must(bob, toUser(skey(i), alice, "m"))
 	}
 	e.seedConversation(alice, "peer-a", stateAccepted, base, [2]string{"peer-a", "x"})
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, PageSize: 1})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, PageSize: 1})
 	if first.NextPageToken == "" {
 		t.Fatal("no next page token")
 	}
@@ -290,8 +273,7 @@ func TestList_ForeignOrTamperedTokenCostsNothing(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := budget.WithCounter(context.Background())
-			_, err := svc.ListConversations(ctx, tt.uid, tt.req)
+			_, err := svc.ListConversations(context.Background(), tt.uid, tt.req)
 			if codeOf(err) != connect.CodeInvalidArgument {
 				t.Fatalf("err = %v, want INVALID_ARGUMENT", err)
 			}
@@ -299,10 +281,9 @@ func TestList_ForeignOrTamperedTokenCostsNothing(t *testing.T) {
 	}
 	// An expired token (31 days on) is the same VALIDATION.
 	e.tick(31 * 24 * time.Hour)
-	ctx, c := budget.WithCounter(context.Background())
-	_, err := svc.ListConversations(ctx, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	_, err := svc.ListConversations(context.Background(), alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	if codeOf(err) != connect.CodeInvalidArgument {
-		t.Errorf("expired since token: err = %v reads = %d", err, c.Reads())
+		t.Errorf("expired since token: err = %v, want INVALID_ARGUMENT", err)
 	}
 }
 
@@ -313,17 +294,17 @@ func TestList_WorksForACallerOutsideTheAllowlist(t *testing.T) {
 	})
 	e.seedConversation(alice, bob, stateAccepted, base, [2]string{bob, "hello"})
 	svc := e.listSvc()
-	resp, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	resp := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if len(resp.Conversations) != 1 {
 		t.Fatalf("listed %d, want 1", len(resp.Conversations))
 	}
-	if _, _, err := e.sendOn(svc, alice, toUser(skey(1), bob, "x")); err == nil {
+	if _, err := e.sendOn(svc, alice, toUser(skey(1), bob, "x")); err == nil {
 		t.Fatal("SendMessage must still need the flag for the caller")
 	}
 	off := newIT(t, func(e *itEnv) { e.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Off}) })
-	_, c, err := off.list(off.listSvc(), alice, &messagingv1.ListConversationsRequest{Folder: inbox})
-	if err == nil { // only the pre-charged interceptor read
-		t.Fatalf("globally off: err = %v reads = %d, want FEATURE_DISABLED and 0 Firestore reads", err, c.Reads())
+	_, err := off.list(off.listSvc(), alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	if err == nil {
+		t.Fatalf("globally off: err = %v, want FEATURE_DISABLED", err)
 	}
 }
 
@@ -343,7 +324,7 @@ func TestList_ErasedPeerIsDeletedAccount(t *testing.T) {
 
 	before := e.listProfileCalls()
 	for _, f := range []messagingv1.Folder{inbox, requests} {
-		resp, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: f})
+		resp := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: f})
 		if len(resp.Conversations) != 1 {
 			t.Fatalf("%v: %d conversations, want the erased peer's one", f, len(resp.Conversations))
 		}
@@ -363,24 +344,24 @@ func TestList_ErasedPeerIsDeletedAccount(t *testing.T) {
 	}
 }
 
-// An EMPTY INBOX since refresh (no row, so no graph read) still carries the current request_count: 3 reads
-// (interceptor, query min 1, count()), and an older page or REQUESTS never carries it.
+// An EMPTY INBOX since refresh (no row, so no graph read) still carries the current request_count
+// and an older page or REQUESTS never carries it.
 func TestList_EmptySinceRefreshCarriesRequestCount(t *testing.T) {
 	e := newIT(t, nil)
 	svc := e.listSvc()
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if first.RequestCount != 0 || first.SinceToken == "" {
 		t.Fatalf("first page: request_count=%d since=%q", first.RequestCount, first.SinceToken)
 	}
 	now := e.tick(time.Minute)
 	e.seedConversation("req-0", alice, stateRequest, now, [2]string{"req-0", "hello"})
 	e.seedConversation("req-1", alice, stateRequest, now, [2]string{"req-1", "hello"})
-	ref, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	ref := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	if len(ref.Conversations) != 0 || ref.RequestCount != 2 {
 		t.Errorf("empty refresh: rows=%d request_count=%d, want 0 and 2", len(ref.Conversations), ref.RequestCount)
 	}
-	reqs, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests})
-	rsince, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: reqs.SinceToken})
+	reqs := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests})
+	rsince := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: requests, SinceToken: reqs.SinceToken})
 	if reqs.RequestCount != 0 || rsince.RequestCount != 0 {
 		t.Errorf("REQUESTS request_count = %d / %d, want 0", reqs.RequestCount, rsince.RequestCount)
 	}

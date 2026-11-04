@@ -1,10 +1,8 @@
 package timeline
 
 // GetUserTimeline tabs: the effective tab, the Media and Reposts queries, the flag gate,
-// the tab-bound tokens, the drop rules and the budget, over the fakes. The documented figures (24 reads at page 20,
-// 54 at page 50 cold) include the account-status interceptor and the caller's userLikes read; the fake rig has the
-// second (a charging viewer) but not the first, so it asserts 23 and 53. The apiserver integration test
-// (profile_tabs_integration_test.go) asserts 24 and 54 through the real interceptor chain.
+// the tab-bound tokens and the drop rules, over the fakes. The apiserver integration test
+// (profile_tabs_integration_test.go) exercises the tabs through the real interceptor chain.
 
 import (
 	"context"
@@ -22,7 +20,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -36,43 +33,42 @@ const (
 )
 
 // tabCall is r.user with the tab field: it keeps the request-log info of the call in r.info.
-func (r *rig) tabCall(caller, target string, req *timelinev1.GetUserTimelineRequest) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (r *rig) tabCall(caller, target string, req *timelinev1.GetUserTimelineRequest) (*timelinev1.GetUserTimelineResponse, error) {
 	r.t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(caller))
 	r.info = info
-	ctx, counter := budget.WithCounter(ictx)
+	ctx := ictx
 	req.UserId = target
 	resp, err := r.srv.GetUserTimeline(ctx, connect.NewRequest(req))
 	if err != nil {
-		return nil, counter, err
+		return nil, err
 	}
-	return resp.Msg, counter, nil
+	return resp.Msg, nil
 }
 
-func (r *rig) tabPage(caller, target string, tab timelinev1.UserTimelineTab, size int32, since, page string) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (r *rig) tabPage(caller, target string, tab timelinev1.UserTimelineTab, size int32, since, page string) (*timelinev1.GetUserTimelineResponse, error) {
 	r.t.Helper()
 	return r.tabCall(caller, target, &timelinev1.GetUserTimelineRequest{Tab: tab, PageSize: size, SinceToken: since, PageToken: page})
 }
 
 func (r *rig) mustTab(caller, target string, tab timelinev1.UserTimelineTab, size int32, since, page string) *timelinev1.GetUserTimelineResponse {
 	r.t.Helper()
-	resp, _, err := r.tabPage(caller, target, tab, size, since, page)
+	resp, err := r.tabPage(caller, target, tab, size, since, page)
 	if err != nil {
 		r.t.Fatalf("tab %v: %v", tab, err)
 	}
 	return resp
 }
 
-// chargingViewer stands in for engagement's viewer: it charges the one userLikes read a cold caller costs.
+// chargingViewer stands in for engagement's viewer: it tallies the userLikes lookups.
 type chargingViewer struct{ calls int }
 
-func (v *chargingViewer) Viewer(ctx context.Context, _ string) posts.ViewerSet {
+func (v *chargingViewer) Viewer(_ context.Context, _ string) posts.ViewerSet {
 	v.calls++
-	budget.FromContext(ctx).AddReads(1)
 	return posts.ViewerSet{}
 }
 
-// withViewer rebuilds r.srv with every flag on and a charging viewer, so the fake rig reads what the real chain reads.
+// withViewer rebuilds r.srv with every flag on and a counting viewer, so the fake rig asks for what the real chain asks for.
 func withViewer(r *rig) *chargingViewer {
 	v := &chargingViewer{}
 	r.srv = NewServer(Deps{
@@ -188,7 +184,7 @@ func TestTabs_RowsPerTab(t *testing.T) {
 			t.Parallel()
 			r := newRig(t)
 			f := r.seedTabFixture("bob")
-			resp, _, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: tc.tab, IncludeReplies: tc.replies})
+			resp, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: tc.tab, IncludeReplies: tc.replies})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,8 +199,7 @@ func TestTabs_RowsPerTab(t *testing.T) {
 }
 
 // TestTabs_PagesCoverEveryRowOnce: a tab with 45, exactly 40, 1 and 0 rows among decoys of the other tabs is walked by
-// next_page_token in pages of 20, every row once; an exactly full last page is followed by one empty call that reads
-// the target, the graph and one empty query.
+// next_page_token in pages of 20, every row once; an exactly full last page is followed by one empty call.
 func TestTabs_PagesCoverEveryRowOnce(t *testing.T) {
 	t.Parallel()
 	for _, tab := range []timelinev1.UserTimelineTab{pbMedia, pbReposts} {
@@ -236,7 +231,7 @@ func TestTabs_PagesCoverEveryRowOnce(t *testing.T) {
 				tok, calls := "", 0
 				for {
 					calls++
-					resp, _, err := r.tabPage("me", "bob", tab, 20, "", tok)
+					resp, err := r.tabPage("me", "bob", tab, 20, "", tok)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -261,10 +256,9 @@ func TestTabs_PagesCoverEveryRowOnce(t *testing.T) {
 	}
 }
 
-// TestTabs_BudgetHasNoInstanceCache: a Media or Reposts open is one Limit(page) query every time (no author-recent
-// read or write), and the reads are the documented ones minus the interceptor: users 1 + graph 1 + page + userLikes 1
-// = page + 3 (documented 24 at page 20 and 54 at page 50 with the interceptor). Warm, only the query repeats.
-func TestTabs_BudgetHasNoInstanceCache(t *testing.T) {
+// TestTabs_NoInstanceCache: a Media or Reposts open is one Limit(page) query every time (no author-recent
+// read or write) and one userLikes lookup. Warm, the query repeats.
+func TestTabs_NoInstanceCache(t *testing.T) {
 	t.Parallel()
 	for _, tab := range []timelinev1.UserTimelineTab{pbMedia, pbReposts} {
 		t.Run(tab.String(), func(t *testing.T) {
@@ -279,11 +273,8 @@ func TestTabs_BudgetHasNoInstanceCache(t *testing.T) {
 					p.Kind = posts.KindRepost
 				}
 			}
-			for _, tc := range []struct {
-				page int32
-				want int64 // fake reads: users 1 + graph 1 + rows + userLikes 1
-			}{{20, 23}, {50, 53}, {5, 8}, {0, 23}} {
-				_, _, err := r.tabPage("me", "bob", tab, tc.page, "", "")
+			for _, page := range []int32{20, 50, 5, 0} {
+				_, err := r.tabPage("me", "bob", tab, page, "", "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -306,13 +297,13 @@ func TestTabs_BudgetHasNoInstanceCache(t *testing.T) {
 	}
 }
 
-// TestTabs_EmptyTabCostsOneRow: an author with no rows on the tab costs the profile reads plus 1 for the empty query.
-func TestTabs_EmptyTabCostsOneRow(t *testing.T) {
+// TestTabs_EmptyTab: an author with no rows on the tab gets an empty page with a since token and no next token.
+func TestTabs_EmptyTab(t *testing.T) {
 	t.Parallel()
 	for _, tab := range []timelinev1.UserTimelineTab{pbMedia, pbReposts} {
 		r := newRig(t)
 		r.seedUser("bob", 3) // plain posts only
-		resp, _, err := r.tabPage("me", "bob", tab, 20, "", "")
+		resp, err := r.tabPage("me", "bob", tab, 20, "", "")
 		if err != nil || len(resp.Posts) != 0 || resp.NextPageToken != "" || resp.SinceToken == "" {
 			t.Fatalf("%v: err=%v posts=%d next=%q since=%q", tab, err, len(resp.GetPosts()), resp.GetNextPageToken(), resp.GetSinceToken())
 		}
@@ -338,7 +329,7 @@ func pctUIDs(t *testing.T, name string) (in, out string) {
 }
 
 // TestTabs_FlagMatrix: MEDIA and REPOSTS need profile_tabs on for the caller, else FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=profile_tabs and 0 reads and no query; Posts, Replies and UNSPECIFIED are
+// FEATURE_DISABLED with metadata feature=profile_tabs and no query; Posts, Replies and UNSPECIFIED are
 // ungated in every mode. The gate does not depend on FEATURE_ENGAGEMENT or on the target's existence.
 func TestTabs_FlagMatrix(t *testing.T) {
 	t.Parallel()
@@ -376,7 +367,7 @@ func TestTabs_FlagMatrix(t *testing.T) {
 					CursorKey: testKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: r.clock.Now,
 				})
 				r.seedTabFixture("bob")
-				resp, counter, err := r.tabPage(tc.uid, "bob", tab, 20, "", "")
+				resp, err := r.tabPage(tc.uid, "bob", tab, 20, "", "")
 				refused := tc.gated && (tab == pbMedia || tab == pbReposts)
 				if !refused {
 					if err != nil {
@@ -395,7 +386,7 @@ func TestTabs_FlagMatrix(t *testing.T) {
 					t.Fatalf("metadata feature = %q, want %q", ae.Metadata["feature"], ProfileTabsFlagName)
 				}
 				if len(r.posts.queries) != 0 || len(r.graph.calls) != 0 {
-					t.Fatalf("a refused call read %d docs, ran queries %v, graph calls %v", counter.Reads(), r.posts.queries, r.graph.calls)
+					t.Fatalf("a refused call ran queries %v, graph calls %v", r.posts.queries, r.graph.calls)
 				}
 				if got, _ := r.info.Get("feature_disabled"); got != true {
 					t.Fatalf("feature_disabled = %v, want true", got)
@@ -409,7 +400,7 @@ func TestTabs_FlagMatrix(t *testing.T) {
 }
 
 // TestTabs_FlagGateRunsBeforeValidationAndTokens: a refused tab never reaches user_id validation, token parsing or the
-// directory, so a flag-off caller learns nothing about the target (0 reads, no profile lookup).
+// directory, so a flag-off caller learns nothing about the target (no profile lookup).
 func TestTabs_FlagGateRunsBeforeValidationAndTokens(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -420,27 +411,27 @@ func TestTabs_FlagGateRunsBeforeValidationAndTokens(t *testing.T) {
 	for _, tc := range []struct{ name, target, page string }{
 		{"missing user id", "", ""}, {"unknown user", "nobody", ""}, {"garbage page token", "bob", "not-a-token"},
 	} {
-		_, counter, err := r.tabPage("me", tc.target, pbMedia, 20, "", tc.page)
+		_, err := r.tabPage("me", tc.target, pbMedia, 20, "", tc.page)
 		var ae *apierr.Error
 		if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
-			t.Fatalf("%s: err=%v reads=%d, want FEATURE_DISABLED and 0 reads", tc.name, err, counter.Reads())
+			t.Fatalf("%s: err=%v, want FEATURE_DISABLED", tc.name, err)
 		}
 	}
 	// The ungated Posts tab with the same flags still validates.
-	_, _, err := r.tabPage("me", "", pbPosts, 20, "", "")
+	_, err := r.tabPage("me", "", pbPosts, 20, "", "")
 	wantField(t, err, "user_id")
 }
 
-// TestTabs_UnknownTabIsValidation: a tab number from a newer client is VALIDATION field=tab with 0 reads, whatever the
+// TestTabs_UnknownTabIsValidation: a tab number from a newer client is VALIDATION field=tab without a query, whatever the
 // flags, and the log names it as unknown rather than echoing the number.
 func TestTabs_UnknownTabIsValidation(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.seedTabFixture("bob")
-	_, counter, err := r.tabPage("me", "bob", timelinev1.UserTimelineTab(42), 20, "", "")
+	_, err := r.tabPage("me", "bob", timelinev1.UserTimelineTab(42), 20, "", "")
 	wantField(t, err, "tab")
 	if len(r.posts.queries) != 0 {
-		t.Fatalf("reads=%d queries=%v, want none", counter.Reads(), r.posts.queries)
+		t.Fatalf("queries=%v, want none", r.posts.queries)
 	}
 	if got, _ := r.info.Get(fieldTab); got != tabUnknownLog {
 		t.Fatalf("%s = %v, want %s", fieldTab, got, tabUnknownLog)
@@ -461,7 +452,7 @@ func TestTabs_LogsTheEffectiveTab(t *testing.T) {
 	for _, tc := range tests {
 		r := newRig(t)
 		r.seedTabFixture("bob")
-		if _, _, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: tc.tab, IncludeReplies: tc.replies}); err != nil {
+		if _, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: tc.tab, IncludeReplies: tc.replies}); err != nil {
 			t.Fatal(err)
 		}
 		if got, ok := r.info.Get(fieldTab); !ok || got != tc.want {
@@ -470,13 +461,13 @@ func TestTabs_LogsTheEffectiveTab(t *testing.T) {
 	}
 	r := newRig(t)
 	r.srv = NewServer(Deps{Flags: fakeFlags{}, Posts: r.posts, Graph: r.graph, Directory: r.dir, CursorKey: testKey, TokenTTL: time.Hour})
-	_, _, _ = r.tabPage("me", "bob", pbMedia, 20, "", "")
+	_, _ = r.tabPage("me", "bob", pbMedia, 20, "", "")
 	if got, _ := r.info.Get(fieldTab); got != nil {
 		// fakeFlags{} is off for FEATURE_POSTS too, so the posts guard answers before the tab is known.
 		t.Fatalf("a call refused by the posts flag logged tab=%v", got)
 	}
 	r.srv = NewServer(Deps{Flags: offFor{[]string{ProfileTabsFlagName}}, Posts: r.posts, Graph: r.graph, Directory: r.dir, CursorKey: testKey, TokenTTL: time.Hour})
-	_, _, _ = r.tabPage("me", "bob", pbMedia, 20, "", "")
+	_, _ = r.tabPage("me", "bob", pbMedia, 20, "", "")
 	if got, _ := r.info.Get(fieldTab); got != "media" {
 		t.Fatalf("a refused Media call logged tab=%v, want media", got)
 	}
@@ -505,7 +496,7 @@ var tabTokenSources = []tabToken{
 
 // TestTabs_TokensAreBoundToTheEffectiveTab: a since_token or page_token opens exactly on the
 // calls whose EFFECTIVE tab is the one that issued it (so every pre-W3 token stays valid: UNSPECIFIED + false is the
-// Posts tab and UNSPECIFIED + true the Replies tab), and is VALIDATION on that field with 0 reads on any other tab.
+// Posts tab and UNSPECIFIED + true the Replies tab), and is VALIDATION on that field without a query on any other tab.
 func TestTabs_TokensAreBoundToTheEffectiveTab(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -540,7 +531,7 @@ func TestTabs_TokensAreBoundToTheEffectiveTab(t *testing.T) {
 					} else {
 						req.PageToken, field = tokens[src.name].page, fieldPage
 					}
-					_, _, err := r.tabCall("me", "bob", req)
+					_, err := r.tabCall("me", "bob", req)
 					if src.binds == dst.binds {
 						if err != nil {
 							t.Fatalf("%s token on the same effective tab %s: %v", kind, dst.binds, err)
@@ -556,7 +547,7 @@ func TestTabs_TokensAreBoundToTheEffectiveTab(t *testing.T) {
 
 func (r *rig) mustCall(src tabToken) *timelinev1.GetUserTimelineResponse {
 	r.t.Helper()
-	resp, _, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: src.tab, IncludeReplies: src.replies, PageSize: 20})
+	resp, err := r.tabCall("me", "bob", &timelinev1.GetUserTimelineRequest{Tab: src.tab, IncludeReplies: src.replies, PageSize: 20})
 	if err != nil {
 		r.t.Fatalf("%s: %v", src.name, err)
 	}
@@ -580,9 +571,9 @@ func TestTabs_TokensAreBoundToCallerAndTarget(t *testing.T) {
 		}
 		first := r.mustTab("me", "bob", tab, 20, "", "")
 		for _, tc := range []struct{ caller, target string }{{"mallory", "bob"}, {"me", "carol"}} {
-			_, _, err := r.tabPage(tc.caller, tc.target, tab, 20, first.SinceToken, "")
+			_, err := r.tabPage(tc.caller, tc.target, tab, 20, first.SinceToken, "")
 			wantField(t, err, fieldSince)
-			_, _, err2 := r.tabPage(tc.caller, tc.target, tab, 20, "", first.NextPageToken)
+			_, err2 := r.tabPage(tc.caller, tc.target, tab, 20, "", first.NextPageToken)
 			wantField(t, err2, fieldPage)
 		}
 	}
@@ -655,7 +646,7 @@ func TestTabs_RemovedIDsOnRefresh(t *testing.T) {
 			}
 			// A log that cannot answer rejects the since_token exactly like the Posts tab.
 			f.truncated = true
-			_, _, err := r.tabPage("me", "bob", tab, 20, cold.SinceToken, "")
+			_, err := r.tabPage("me", "bob", tab, 20, cold.SinceToken, "")
 			wantField(t, err, fieldSince)
 		})
 	}
@@ -663,31 +654,31 @@ func TestTabs_RemovedIDsOnRefresh(t *testing.T) {
 
 // TestTabs_VisibilityMatrix: the Media and Reposts tabs share the Posts tab's target rules. A missing, non-ACTIVE or
 // caller-blocking target is NOT_FOUND byte-identical to GetProfile's (and across the tabs); a caller who blocks or
-// mutes the target still gets the rows; the profile reads are the Posts tab's (a refused target stops there, before
-// any query).
+// mutes the target still gets the rows; the profile checks are the Posts tab's (a refused target stops there, before
+// any query), and only an overflowed caller reads the target's own graph.
 func TestTabs_VisibilityMatrix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		setup     func(r *rig)
-		wantFound bool
-		maxReads  int64 // the profile reads before the query (target users, caller graph, target graph on overflow)
+		name        string
+		setup       func(r *rig)
+		wantFound   bool
+		targetGraph bool // the caller's blockedBy overflowed, so the target's own graph is read too
 		// copiesDropped: the caller's blockedBy overflowed, so every foreign REPOST or QUOTE row fails closed (D13).
 		copiesDropped bool
 	}{
-		{"stranger", func(r *rig) {}, true, 2, false},
-		{"missing or non-ACTIVE (Directory drops it)", func(r *rig) { delete(r.dir.profiles, "bob") }, false, 1, false},
-		{"B blocks A", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob")} }, false, 2, false},
+		{"stranger", func(r *rig) {}, true, false, false},
+		{"missing or non-ACTIVE (Directory drops it)", func(r *rig) { delete(r.dir.profiles, "bob") }, false, false, false},
+		{"B blocks A", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob")} }, false, false, false},
 		{"both block each other", func(r *rig) {
 			r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob"), Blocked: following("bob")}
-		}, false, 2, false},
-		{"A blocks B: rows returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Blocked: following("bob")} }, true, 2, false},
-		{"A mutes B: rows returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Muted: following("bob")} }, true, 2, false},
+		}, false, false, false},
+		{"A blocks B: rows returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Blocked: following("bob")} }, true, false, false},
+		{"A mutes B: rows returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Muted: following("bob")} }, true, false, false},
 		{"overflow, B blocks A (target graph)", func(r *rig) {
 			r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true}
 			r.graph.snaps["bob"] = graph.Snapshot{Blocked: following("me")}
-		}, false, 3, false},
-		{"overflow, no block: +1 read", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true} }, true, 3, true},
+		}, false, true, false},
+		{"overflow, no block: the target graph is read too", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true} }, true, true, true},
 	}
 	var wire []byte
 	for _, tc := range tests {
@@ -696,7 +687,10 @@ func TestTabs_VisibilityMatrix(t *testing.T) {
 				r := newRig(t)
 				f := r.seedTabFixture("bob")
 				tc.setup(r)
-				resp, _, err := r.tabPage("me", "bob", tab, 20, "", "")
+				resp, err := r.tabPage("me", "bob", tab, 20, "", "")
+				if read := contains(r.graph.calls, "bob"); read != tc.targetGraph && (tc.wantFound || tc.targetGraph) {
+					t.Fatalf("target graph read = %v, want %v (calls %v)", read, tc.targetGraph, r.graph.calls)
+				}
 				if !tc.wantFound {
 					b := notFound(t, err)
 					if wire == nil {
@@ -775,19 +769,19 @@ func TestTabs_DropRules(t *testing.T) {
 			})
 		}
 	}
-	t.Run("own profile keeps the viewer's own copies at no graph read", func(t *testing.T) {
+	t.Run("own profile keeps the viewer's own copies without a graph read", func(t *testing.T) {
 		t.Parallel()
 		r := newRig(t)
 		r.dir.profiles["me"] = identity.Profile{UserID: "me", Status: identity.AccountStatusActive}
 		cp := r.posts.add("me", r.ms(-2*time.Second))
 		makeCopy(cp, posts.KindRepost)
 		r.graph.snaps["me"] = graph.Snapshot{Blocked: following(embAuthor)}
-		resp, counter, err := r.tabPage("me", "me", pbReposts, 20, "", "")
+		resp, err := r.tabPage("me", "me", pbReposts, 20, "", "")
 		if err != nil || !contains(userIDs(resp), cp.ID) {
 			t.Fatalf("own copy dropped: err=%v %v", err, userIDs(resp))
 		}
-		if len(r.graph.calls) != 0 { // users + the one query row
-			t.Fatalf("reads = %d, graph calls = %v, want 2 and none", counter.Reads(), r.graph.calls)
+		if len(r.graph.calls) != 0 {
+			t.Fatalf("graph calls = %v, want none", r.graph.calls)
 		}
 	})
 	t.Run("a tombstone copy has no embedded author and is kept", func(t *testing.T) {

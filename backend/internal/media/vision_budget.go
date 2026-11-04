@@ -25,7 +25,7 @@ const visionCacheTTL = 60 * time.Second
 // monthKey is the counter's month, in UTC like Google Cloud billing.
 func monthKey(t time.Time) string { return t.UTC().Format("200601") }
 
-// reserve takes n units if they fit under the cap. It reads the counter (1 read) when the cached value is older
+// reserve takes n units if they fit under the cap. It reads the counter when the cached value is older
 // than visionCacheTTL or from another month.
 func (v *visionBudget) reserve(ctx context.Context, n int64) (bool, error) {
 	if v.cap <= 0 {

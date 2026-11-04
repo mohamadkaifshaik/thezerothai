@@ -20,7 +20,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -102,13 +101,13 @@ func (e *itEnv) eraseLikeTheJob(uid string) (absorbed int, err error) {
 	return absorbed, fmt.Errorf("the eraser did not finish")
 }
 
-// runEraserFor drives the step for uid to completion on the real repo, summing the cost of every call. It fails the test
+// runEraserFor drives the step for uid to completion on the real repo, counting the calls. It fails the test
 // on the first error and must be called from the test goroutine: it is for one account at a time, where nothing
 // contends. Two accounts erased concurrently use eraseLikeTheJob.
-func (e *itEnv) runEraserFor(uid string) (calls int, total *budget.Counter) {
+func (e *itEnv) runEraserFor(uid string) (calls int) {
 	e.t.Helper()
 	er := NewEraser(e.repo, discardLog())
-	ctx, total := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var cp []byte
 	for calls < 500 {
 		next, done, err := er.PurgeUser(ctx, uid, cp)
@@ -118,11 +117,11 @@ func (e *itEnv) runEraserFor(uid string) (calls int, total *budget.Counter) {
 		}
 		cp = next
 		if done {
-			return calls, total
+			return calls
 		}
 	}
 	e.t.Fatal("the eraser did not finish")
-	return 0, nil
+	return 0
 }
 
 // The thread, inbox, requests, badge count() and eraser queries, run on the emulator against collections that hold
@@ -217,9 +216,7 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			calls, total := e.runEraserFor(alice)
-			t.Logf("eraser: %d calls, reads %d, writes %d, deletes %d", calls, total.Reads(), total.Writes(), total.Deletes())
-			// next+mark 3 reads (cursor, conversation, peer entry) + 5 messages + the conversation rewrite 1 + the closing cursor read 1.
+			e.runEraserFor(alice)
 
 			var tombstones, intact int
 			for _, m := range e.msgs(convID) {
@@ -281,13 +278,13 @@ func TestEraser_DeletedUserLeavesTombstonesForThePeer(t *testing.T) {
 				t.Errorf("bob's export after alice's erasure: %s", exp.String())
 			}
 			// A fresh instance (cold cache) still refuses bob, by both addresses of the conversation.
-			_, _, cerr := e.sendOn(e.newService(), bob, toConv(skey(501), convID, "by id"))
+			_, cerr := e.sendOn(e.newService(), bob, toConv(skey(501), convID, "by id"))
 			wantAPI(t, cerr, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-			_, _, err := e.send(bob, toUser(skey(500), alice, "are you there?"))
+			_, err := e.send(bob, toUser(skey(500), alice, "are you there?"))
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 
 			// A repeat of the whole step is one empty cursor query: the rewritten conversation is no longer listed.
-			_, _ = e.runEraserFor(alice)
+			e.runEraserFor(alice)
 		})
 	}
 }
@@ -306,7 +303,7 @@ func TestEraser_BothDeletedLeavesNothing(t *testing.T) {
 	if left := e.treeDocs(convID); len(left) != 11 { // the conversation and 10 messages stay while bob lives
 		t.Fatalf("after alice: %d docs left, want 11", len(left))
 	}
-	_, _ = e.runEraserFor(bob)
+	e.runEraserFor(bob)
 	if left := e.treeDocs(convID); len(left) != 0 {
 		t.Errorf("docs left under the conversation after both erasures: %v", left)
 	}
@@ -358,7 +355,7 @@ func TestEraser_RequesterDeleted(t *testing.T) {
 }
 
 // More than 500 own messages take several tombstone pages with a cursor; the peer's messages are never touched; every
-// call is bounded to 500 writes.
+// call tombstones at most one 500-operation batch.
 func TestEraser_TombstonesInPagesOf500(t *testing.T) {
 	e := newIT(t, nil)
 	convID := ConversationID(alice, bob)
@@ -398,15 +395,20 @@ func TestEraser_TombstonesInPagesOf500(t *testing.T) {
 
 	er := NewEraser(e.repo, discardLog())
 	var cp []byte
-	maxWrites, tombstonePages := int64(0), 0
+	// One call tombstones at most one Firestore batch (500 operations), so the checkpoint's running count moves by at
+	// most 500 per call; a call that moves it by 400 or more is a full page.
+	maxPage, tombstonePages, prev := 0, 0, 0
 	for range 100 {
-		cctx, c := budget.WithCounter(ctx)
-		next, done, err := er.PurgeUser(cctx, alice, cp)
+		next, done, err := er.PurgeUser(ctx, alice, cp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		maxWrites = max(maxWrites, c.Writes())
-		if c.Writes() >= 400 {
+		var step Checkpoint
+		_ = json.Unmarshal(next, &step)
+		moved := step.Tombstoned - prev
+		prev = step.Tombstoned
+		maxPage = max(maxPage, moved)
+		if moved >= 400 {
 			tombstonePages++
 		}
 		cp = next
@@ -414,8 +416,8 @@ func TestEraser_TombstonesInPagesOf500(t *testing.T) {
 			break
 		}
 	}
-	if maxWrites > 500 {
-		t.Errorf("one call wrote %d, want at most 500", maxWrites)
+	if maxPage > 500 {
+		t.Errorf("one call tombstoned %d messages, want at most 500", maxPage)
 	}
 	var out Checkpoint
 	_ = json.Unmarshal(cp, &out)
@@ -512,9 +514,9 @@ func TestEraser_BothDeletedConcurrently(t *testing.T) {
 // A user with no conversations: the step is one empty query.
 func TestEraser_NoConversations(t *testing.T) {
 	e := newIT(t, nil)
-	calls, total := e.runEraserFor("uid-nobody")
+	calls := e.runEraserFor("uid-nobody")
 	if calls != 1 {
-		t.Errorf("calls/reads/writes/deletes = %d/%d/%d/%d, want 1/1/0/0", calls, total.Reads(), total.Writes(), total.Deletes())
+		t.Errorf("calls = %d, want 1", calls)
 	}
 }
 
@@ -542,11 +544,9 @@ func TestExport_MatchesGolden(t *testing.T) {
 	delete(e.profs.profiles, "uid-dave")
 
 	var buf bytes.Buffer
-	ctx, _ := budget.WithCounter(context.Background())
-	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(ctx, alice, &buf); err != nil {
+	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(context.Background(), alice, &buf); err != nil {
 		t.Fatal(err)
 	}
-	// 4 conversations + 3 + 2 + 1 + 1 messages (both sides are read to order the section).
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, bytes.TrimSpace(buf.Bytes()), "", "  "); err != nil {
 		t.Fatalf("the section is not one JSON value: %v\n%s", err, buf.String())

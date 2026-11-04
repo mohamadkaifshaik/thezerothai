@@ -52,8 +52,8 @@ var (
 )
 
 // CommunityLookup is the consumer-side seam to communities. ReportableCommunity returns the evidence of the community, or
-// ErrCommunityNotFound, ErrOwnCommunity or an infrastructure error. It checks no flag. Firestore, worst case: community 1 + the owner's
-// profile 1 (both cache-first, 0 warm); an ARCHIVED community has no owner to read.
+// ErrCommunityNotFound, ErrOwnCommunity or an infrastructure error. It checks no flag. It reads the community and the owner's
+// profile (both cache-first); an ARCHIVED community has no owner to read.
 type CommunityLookup interface {
 	ReportableCommunity(ctx context.Context, callerUID, communityID string) (ReportedCommunity, error)
 }

@@ -12,9 +12,8 @@ const MaxSuggestedUserIDs = 20
 
 // SuggestionsConfig holds the SUGGESTIONS_* limits and the curated fallback list of GraphService.ListSuggestedUsers
 // The RPC's per-minute bucket and daily call cap live in RateLimitConfig
-// (RATE_LIMIT_SUGGESTIONS_PER_MIN, SUGGESTIONS_CALLS_PER_DAY). These values bound the read cap: friends of friends
-// is 1 (interceptor) + 1 (graph) + EdgeLimit (edges) + HydrateMax (profiles) = 32 reads at the defaults (the edge limit
-// went from 30, a cap of 42, to 20), the curated path 1 + 1 + HydrateMax = 12.
+// (RATE_LIMIT_SUGGESTIONS_PER_MIN, SUGGESTIONS_CALLS_PER_DAY). These values bound the work of one call: friends of friends
+// reads the caller's graph, at most EdgeLimit edges and at most HydrateMax profiles; the curated path reads only the profiles.
 type SuggestionsConfig struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query
 	// (SUGGESTIONS_SAMPLE_FOLLOWEES, default 30, at most 30: the Firestore `in` limit).

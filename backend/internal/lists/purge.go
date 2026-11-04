@@ -14,7 +14,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -56,7 +55,6 @@ var _ PagePurger = (*FirestoreRepo)(nil)
 // PurgeOwnedPage implements PagePurger.
 func (r *FirestoreRepo) PurgeOwnedPage(ctx context.Context, uid string) (int, error) {
 	docs, err := r.col().Where("ownerId", "==", uid).Select().Limit(purgePage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return 0, logger.RedactErr(fmt.Errorf("lists: purge owned %s: query: %w", logger.HashUID(uid), err), uid)
 	}
@@ -64,7 +62,7 @@ func (r *FirestoreRepo) PurgeOwnedPage(ctx context.Context, uid string) (int, er
 		return 0, nil
 	}
 	ids := make([]string, len(docs))
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for i, d := range docs {
 		ids[i] = d.Ref.ID
 		b.Delete(d.Ref)
@@ -79,7 +77,6 @@ func (r *FirestoreRepo) PurgeOwnedPage(ctx context.Context, uid string) (int, er
 // RemoveMemberPage implements PagePurger.
 func (r *FirestoreRepo) RemoveMemberPage(ctx context.Context, uid string) (MemberPage, error) {
 	docs, err := r.col().Where("memberIds", "array-contains", uid).Select().Limit(purgePage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return MemberPage{}, logger.RedactErr(fmt.Errorf("lists: purge member %s: query: %w", logger.HashUID(uid), err), uid)
 	}
@@ -88,7 +85,7 @@ func (r *FirestoreRepo) RemoveMemberPage(ctx context.Context, uid string) (Membe
 	}
 	ids := make([]string, len(docs))
 	now := r.now().UTC()
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for i, d := range docs {
 		ids[i] = d.Ref.ID
 		b.Update(d.Ref, []firestore.Update{
@@ -125,8 +122,8 @@ type Eraser struct {
 func NewEraser(repo PagePurger) *Eraser { return &Eraser{repo: repo} }
 
 // PurgeUser runs one page and reports whether the step is finished. An account with no lists takes two calls (an empty page
-// per phase, 1 read each, 0 writes); a repeat after completion is the same two empty pages, so a rerun writes 0. Reads: one
-// per list (minimum 1 per call); deletes: one per own list; writes: one per list the user was a member of.
+// per phase, no writes); a repeat after completion is the same two empty pages, so a rerun writes nothing. It deletes each own
+// list and updates each list the user was a member of.
 func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase == phaseOwn {
 		n, err := e.repo.PurgeOwnedPage(ctx, uid)
@@ -181,7 +178,6 @@ func (r *FirestoreRepo) ExportPage(ctx context.Context, uid, after string, limit
 		q = q.StartAfter(r.ref(after))
 	}
 	docs, err := q.Limit(min(max(limit, 1), exportPage)).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("lists: export %s: query: %w", logger.HashUID(uid), err), uid, after)
 	}

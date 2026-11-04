@@ -115,7 +115,7 @@ func TestProfileExtras_Chain(t *testing.T) {
 		t.Fatalf("a rejected request changed the profile: %v", got)
 	}
 
-	// --- everything at once: 1 write, and the budget of the ticket ---
+	// --- everything at once ---
 	got, err := update(&identityv1.UpdateProfileRequest{
 		IdempotencyKey: "pinext-all-fields-0001", BannerMediaId: &banner, Location: str("Pune"), Website: str("HTTPS://example.com/me"), PinnedPostId: &p1,
 	})
@@ -127,8 +127,6 @@ func TestProfileExtras_Chain(t *testing.T) {
 		t.Fatalf("profile = %v", got)
 	}
 	line := lastRequestLine(t, e, rpcUpdateProfile)
-	// Worst case 4 reads with the interceptor cold (it is warm after sign-up): the transaction, the banner's media doc and
-	// the pinned post (warm in the posts cache after CreatePost). 1 write.
 	if line["profile_fields_changed"] != "banner,location,website,pinned_post" || line["pin_check"] != "ok" {
 		t.Errorf("profile_fields_changed=%v pin_check=%v", line["profile_fields_changed"], line["pin_check"])
 	}
@@ -217,7 +215,7 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	loc, spaces := "Pune", "   "
 
 	// Outside the cohort: FEATURE_DISABLED feature=profile_extras for a SET, and for a request that mixes a clear with a
-	// set (refused whole), with 0 writes (only a clear passes, below).
+	// set (refused whole), and writes nothing (only a clear passes, below).
 	empty := ""
 	for name, req := range map[string]*identityv1.UpdateProfileRequest{
 		"location":         {IdempotencyKey: "pinext-gate-000000001", Location: &loc},
@@ -275,7 +273,7 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 
 // TestProfileExtras_KillSwitchOmitsThePinAndWebsite: with profile_extras globally off (mode off) the stored pin and website
 // are not returned by any RPC, the owner's own view included, while banner and location still are (clients
-// stop the GetPost call; Amendment 1 A1: the link stops rendering). A clear still works, at 1 read and 1 write
+// stop the GetPost call; Amendment 1 A1: the link stops rendering). A clear still works
 // (Amendment 1 A2).
 func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
@@ -317,8 +315,7 @@ func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 		t.Errorf("stored pinnedPostId = %v, website = %v, want both kept", fsDocField(t, e, "users/"+a.uid, "pinnedPostId"), fsDocField(t, e, "users/"+a.uid, "website"))
 	}
 
-	// The owner cannot see their website or pin now, but the clear still works (A2): 1 read and 1 write beyond the
-	// interceptor, the stored values go, and the response still shows neither.
+	// The owner cannot see their website or pin now, but the clear still works (A2): the stored values go, and the response still shows neither.
 	empty := ""
 	cleared, err := e.identity.UpdateProfile(context.Background(), authed(a.token, &identityv1.UpdateProfileRequest{
 		IdempotencyKey: "pinext-kill-000000002", Website: &empty, Location: &empty, PinnedPostId: &empty, BannerMediaId: &empty,

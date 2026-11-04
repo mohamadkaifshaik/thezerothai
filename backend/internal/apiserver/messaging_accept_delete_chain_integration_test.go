@@ -79,7 +79,7 @@ func (e *dmChain) request(t *testing.T, a, b dmUser, n int) string {
 
 // Given B accepts, then both see the conversation in the Inbox, the state is ACCEPTED, B's unread count is kept, A's
 // entry is untouched, A's messages past the old cap land in B's Inbox, and B's reply is a plain accepted-conversation send
-// (not a request). The budget on a cold instance is 3 reads / 2 writes / 1 delete; a replay is 2 reads and writes nothing.
+// (not a request).
 func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 	setup := newDMChain(t, nil)
 	a, b := setup.user(t), setup.user(t)
@@ -93,8 +93,6 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 	if err := e.accept(b, id); err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
-	line := e.lineBudget(t, rpcAccept)
-	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "accept, cold", line.Reads(), line.Writes(), line.Deletes())
 
 	conv, _ := setup.convDoc(t, a, b)
 	if conv["state"] != "ACCEPTED" || conv["requestTo"] != b.uid || conv["requestFrom"] != a.uid {
@@ -163,7 +161,7 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 }
 
 // Given B deletes, then B's folders lack the conversation, clearedAt[B] is set, the state stays REQUEST (A's cap still
-// applies), and the budget on a cold instance is 3 reads / 1 write / 1 delete. Given the same instance lists the thread
+// applies). Given the same instance lists the thread
 // afterwards, B sees nothing at once, while A still sees everything; A's next message recreates B's request entry with
 // only that message visible. A repeat of the delete is success with no write.
 func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
@@ -178,10 +176,6 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 	if err := e.del(b, id); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	line := e.lineBudget(t, rpcDelete)
-	// The account-status read is cached on e (warm), and Delete always reads the conversation and the entry fresh in its
-	// transaction, so this is 2 reads, below the cold figure of 3 measured next.
-	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, warm instance", line.Reads(), line.Writes(), line.Deletes())
 	if got := e.thread(t, b, id); len(got) != 0 {
 		t.Errorf("the deleting instance still shows %v to b", got)
 	}
@@ -209,15 +203,13 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 	d := wireError(t, err, connect.CodeFailedPrecondition)
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 
-	// Cold budget of a first delete (a new request, cold instance) and of a repeat.
+	// A first delete on a cold instance (a new request) and a repeat.
 	a2 := setup.user(t)
 	id3 := setup.request(t, a2, b, 1)
 	cold := newDMChain(t, nil)
 	if err := cold.del(b, id3); err != nil {
 		t.Fatal(err)
 	}
-	cl := cold.lineBudget(t, rpcDelete)
-	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, cold", cl.Reads(), cl.Writes(), cl.Deletes())
 	last := cold.logs.requestLines(rpcDelete)[0]
 	for k, want := range map[string]any{"kind": "delete", "state": "request", "folder": "requests", "replay": false} {
 		if last[k] != want {
@@ -262,8 +254,7 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 }
 
 // An unknown id, a non-participant, the requester calling Accept on its own request and a conversation that never was a
-// request all answer the same NOT_FOUND bytes, after the interceptor's read and the conversation's, writing nothing; a
-// malformed id is VALIDATION after the interceptor's read alone.
+// request all answer the same NOT_FOUND bytes and write nothing; a malformed id is VALIDATION.
 func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 	setup := newDMChain(t, nil)
 	a, b, c, d := setup.user(t), setup.user(t), setup.user(t), setup.user(t)
@@ -273,7 +264,7 @@ func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 	mutualID := messaging.ConversationID(a.uid, d.uid)
 	unknown := messaging.ConversationID(a.uid, "uid-nobody")
 	// A request the recipient already deleted for themselves: still a REQUEST for them, but their entry is gone, so Accept is the
-	// same NOT_FOUND after one more read (interceptor, conversation, the missing entry).
+	// same NOT_FOUND.
 	e2, f2 := setup.user(t), setup.user(t)
 	deletedID := setup.request(t, e2, f2, 1)
 	if err := setup.del(f2, deletedID); err != nil {
@@ -281,19 +272,17 @@ func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 	}
 
 	type call struct {
-		name  string
-		rpc   string
-		reads int64
-		run   func(e *dmChain) error
+		name string
+		run  func(e *dmChain) error
 	}
 	calls := []call{
-		{"accept: the requester", rpcAccept, 2, func(e *dmChain) error { return e.accept(a, id) }},
-		{"accept: a non-participant", rpcAccept, 2, func(e *dmChain) error { return e.accept(c, id) }},
-		{"accept: an unknown id", rpcAccept, 2, func(e *dmChain) error { return e.accept(a, unknown) }},
-		{"accept: never a request", rpcAccept, 2, func(e *dmChain) error { return e.accept(d, mutualID) }},
-		{"delete: a non-participant", rpcDelete, 2, func(e *dmChain) error { return e.del(c, id) }},
-		{"delete: an unknown id", rpcDelete, 2, func(e *dmChain) error { return e.del(a, unknown) }},
-		{"accept: a request the recipient deleted", rpcAccept, 3, func(e *dmChain) error { return e.accept(f2, deletedID) }},
+		{"accept: the requester", func(e *dmChain) error { return e.accept(a, id) }},
+		{"accept: a non-participant", func(e *dmChain) error { return e.accept(c, id) }},
+		{"accept: an unknown id", func(e *dmChain) error { return e.accept(a, unknown) }},
+		{"accept: never a request", func(e *dmChain) error { return e.accept(d, mutualID) }},
+		{"delete: a non-participant", func(e *dmChain) error { return e.del(c, id) }},
+		{"delete: an unknown id", func(e *dmChain) error { return e.del(a, unknown) }},
+		{"accept: a request the recipient deleted", func(e *dmChain) error { return e.accept(f2, deletedID) }},
 	}
 	var first string
 	for i, tc := range calls {
@@ -451,8 +440,7 @@ func TestMessagingChain_ErasedRequesterCannotBeAcceptedButCanBeDeleted(t *testin
 	}
 }
 
-// DEGRADED_MODE=readonly refuses both mutations in the interceptor, before any handler or read: the request line shows 0
-// reads, 0 writes and 0 deletes (not even the account-status read).
+// DEGRADED_MODE=readonly refuses both mutations in the interceptor, before any handler runs, so nothing is written.
 func TestMessagingChain_DegradedReadonlyRefusesAcceptAndDelete(t *testing.T) {
 	setup := newDMChain(t, nil)
 	a, b := setup.user(t), setup.user(t)
@@ -460,11 +448,10 @@ func TestMessagingChain_DegradedReadonlyRefusesAcceptAndDelete(t *testing.T) {
 	e := newDMChain(t, func(c *config.Config) { c.Degraded = config.DegradedReadonly })
 	for _, tc := range []struct {
 		name string
-		rpc  string
 		run  func() error
 	}{
-		{"accept", rpcAccept, func() error { return e.accept(b, id) }},
-		{"delete", rpcDelete, func() error { return e.del(b, id) }},
+		{"accept", func() error { return e.accept(b, id) }},
+		{"delete", func() error { return e.del(b, id) }},
 	} {
 		d := wireError(t, tc.run(), connect.CodeUnavailable)
 		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_DEGRADED_MODE)
@@ -507,8 +494,6 @@ func TestMessagingChain_DeleteRetryWithTheSameKey(t *testing.T) {
 	if err := e.delKey(b, id, k1); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
-	line := e.lineBudget(t, rpcDelete)
-	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, retry with the same key", line.Reads(), line.Writes(), line.Deletes())
 	if last := e.logs.requestLines(rpcDelete)[0]; last["replay"] != true || last["kind"] != "delete" {
 		t.Errorf("request line = %v, want kind=delete replay=true", last)
 	}

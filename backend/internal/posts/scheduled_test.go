@@ -12,7 +12,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -179,7 +178,7 @@ func TestScheduledPageSize(t *testing.T) {
 }
 
 // TestListScheduledPage: PENDING and FAILED items page in publishAt order, other statuses never appear, the cursor is
-// bound to the caller, a short page has no next token, and every page costs one read per item.
+// bound to the caller, a short page has no next token.
 func TestListScheduledPage(t *testing.T) {
 	var all []*ScheduledPost
 	for n := 0; n < 5; n++ {
@@ -192,7 +191,7 @@ func TestListScheduledPage(t *testing.T) {
 	all = append(all, newSched(t, "alice", 9, ScheduledPublished), newSched(t, "alice", 10, ScheduledCancelled), newSched(t, "bob", 0, ScheduledPending))
 	repo := newFakeScheduledStore(all...)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var got []string
 	token := ""
 	pages := 0
@@ -222,8 +221,8 @@ func TestListScheduledPage(t *testing.T) {
 		}
 	}
 
-	t.Run("an exactly full last page yields a token whose page is empty and costs 1 read", func(t *testing.T) {
-		ctx, _ := budget.WithCounter(context.Background())
+	t.Run("an exactly full last page yields a token whose page is empty", func(t *testing.T) {
+		ctx := context.Background()
 		first, err := ListScheduledPage(ctx, repo, schedKey, "alice", 5, "", schedNow)
 		if err != nil || len(first.Items) != 5 || first.NextPageToken == "" {
 			t.Fatalf("first = %d items token=%q err=%v", len(first.Items), first.NextPageToken, err)
@@ -404,7 +403,7 @@ func TestScheduledDocRoundTrip(t *testing.T) {
 }
 
 func TestScheduledEraser(t *testing.T) {
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var docs []*ScheduledPost
 	for n := 0; n < opsPage+3; n++ {
 		docs = append(docs, newSched(t, "alice", n, ScheduledPending))
@@ -519,7 +518,7 @@ func TestScheduledExporter(t *testing.T) {
 		for n := 0; n < opsPage+2; n++ {
 			docs = append(docs, newSched(t, "dave", n, ScheduledPending))
 		}
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		var buf bytes.Buffer
 		if err := NewScheduledExporter(newFakeScheduledStore(docs...)).ExportUser(ctx, "dave", &buf); err != nil {
 			t.Fatal(err)

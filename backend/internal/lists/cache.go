@@ -21,7 +21,7 @@ const negativeTTL = 60 * time.Second
 type docCache struct {
 	lru *cache.LRU[string, List]
 	// miss is the negative cache (security review L-1): ids whose point read found no document, for negativeTTL. A
-	// missing id then costs 0 reads on a repeat probe and answers as fast as a cached private list, so latency tells the two
+	// missing id is then answered from the cache on a repeat probe, as fast as a cached private list, so latency tells the two
 	// apart no better than the byte-identical NOT_FOUND does. Staleness bound 60 s on every instance. A list created after an
 	// entry is visible at once on the creating instance (put clears the entry); on another instance the bound is the TTL,
 	// which needs a probe of an id before it is minted: ids are server-generated Snowflakes, so that is not guessable.

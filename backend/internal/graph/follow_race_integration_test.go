@@ -14,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestFollow_Integration_ProtectRacingWithFollowIsSerialized (acceptance "a protect committed while Follow is in flight commits as a request, never as an edge").
@@ -81,7 +80,7 @@ func TestFollow_Integration_ProtectRacingWithFollowIsSerialized(t *testing.T) {
 			})
 		}
 
-		cctx, counter := budget.WithCounter(ctx)
+		cctx := ctx
 		rel, _, err := repo.Follow(cctx, follower, target, 200, time.Now())
 		if err != nil {
 			wg.Wait()
@@ -95,7 +94,7 @@ func TestFollow_Integration_ProtectRacingWithFollowIsSerialized(t *testing.T) {
 		_, edgeErr := client.Doc("follows/" + follower + "_" + target).Get(ctx)
 		_, reqErr := client.Doc("followRequests/" + follower + "_" + target).Get(ctx)
 		hasEdge, hasReq := edgeErr == nil, reqErr == nil
-		t.Logf("round %d: state %v, edge=%v request=%v, reads=%d writes=%d", i, rel.FollowState, hasEdge, hasReq, counter.Reads(), counter.Writes())
+		t.Logf("round %d: state %v, edge=%v request=%v", i, rel.FollowState, hasEdge, hasReq)
 		switch rel.FollowState {
 		case FollowStateFollowing:
 			sawEdge++

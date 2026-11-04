@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/search"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const trendsUsage = `  opsctl trends hide      TAG --project P   (the tag leaves Trending on every server within 10 min, every screen within 15; quote a leading #)
@@ -39,16 +38,13 @@ func parseTrendsArgs(sub, tag string) error {
 // removal of an abusive trend, with no deploy. It writes only trends/hidden, through search.TrendsStore. The usual prod
 // confirmation (the typed project id) already ran in run().
 //
-// Cost: hide and unhide are one transaction: 1 read and, when the list changes, 1 write (a repeat, an unknown key and a
-// missing document write 0; a full list of 100 keys refuses with 0 writes). list is 1 read. The cost line is printed
-// last. Hide and unhide print a fixed-shape audit line (project, UTC time, folded key, whether it wrote, the list size):
+// Hide and unhide are one transaction: a repeat, an unknown key and a missing document write nothing, and a full list of 100
+// keys is refused. Hide and unhide print a fixed-shape audit line (project, UTC time, folded key, whether it wrote, the list size):
 // it is the moderation trail, because the document records no actor.
 func trendsCommand(ctx context.Context, b *backends, project, sub, tag string, out io.Writer, now func() time.Time) error {
 	if b.trends == nil {
 		return errors.New("trends: no trends store configured")
 	}
-	ctx, counter := budget.WithCounter(ctx)
-	defer func() { fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes()) }()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	switch sub {

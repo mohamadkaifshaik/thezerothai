@@ -89,7 +89,7 @@ func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 
 // ToView converts a Post to the PostView the clients render, with the viewer's like/repost/bookmark flags from vs
 // (the zero ViewerSet gives false/false/false, which is what every response carried before then) and the viewer's reply
-// hint (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data). bookmarked_by_viewer is
+// hint (replyPermissionFor; never flag-gated, it only describes stored data). bookmarked_by_viewer is
 // ViewerSet.Bookmarked: HydrateViewer decides whether the set is filled, so this adds no read.
 func ToView(p *Post, vs ViewerSet, viewer string) *postsv1.PostView {
 	return ToViewAt(p, vs, viewer, time.Now())
@@ -109,7 +109,7 @@ func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post
 	return v
 }
 
-// replyPermissionFor is the viewer hint the timelines compute with 0 reads (review I-6). It is
+// replyPermissionFor is the viewer hint the timelines compute without any read. It is
 // advisory: CreatePost decides.
 //   - a REPOST row has no policy of its own and EmbeddedPost has no mentions: the embedded policy decides, EVERYONE
 //     is ALLOWED, anything restricted (or a tombstone) is UNKNOWN;
@@ -209,7 +209,7 @@ func embeddedPollToProto(e *EmbeddedPoll, now time.Time) *postsv1.Poll {
 }
 
 // communityRef is the one decision about the community label on the wire: the post carries a label, a moderator has not hidden
-// it (communityHidden) and communities is not globally off (the kill switch). 0 reads. ToViewAt calls it for every PostView; CreatePost's
+// it (communityHidden) and communities is not globally off (the kill switch). ToViewAt calls it for every PostView; CreatePost's
 // own response calls it with off=false (its caller just passed the community gate, so the flag is on).
 func communityRef(p *Post, off bool) *postsv1.CommunityRef {
 	if p.Community == nil || p.CommunityHidden || off {

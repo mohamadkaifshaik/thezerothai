@@ -15,8 +15,8 @@
 // re-queries. Deletes carry no Exists precondition (deleting a missing doc succeeds), so the only failed-batch cause
 // is a missing counterpart graph doc.
 //
-// Cost per account deletion: 1 read per doc, minimum 2 (one empty query per side). Outgoing: 1 delete per doc.
-// Incoming: 1 delete + 1 update per doc, +1 read per doc only on the fallback after a missing counterpart.
+// Per account deletion it queries each side once. Outgoing requests are deleted; incoming ones are deleted and the
+// requester's counterpart is updated, with an extra read only on the fallback after a missing counterpart.
 package graph
 
 import (
@@ -27,7 +27,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -114,11 +113,6 @@ func (r *FirestoreRepo) queryRequests(ctx context.Context, uid string, outgoing 
 		q = r.client.Collection(followRequestsCollection).Where("followeeId", "==", uid).OrderBy("createdAt", firestore.Desc)
 	}
 	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(snaps))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("graph: purge follow requests query: %w", err), uid)
 	}
@@ -146,7 +140,6 @@ func (r *FirestoreRepo) deleteRequests(ctx context.Context, uid string, docs []r
 		refs[i] = r.graphRef(d.FollowerID)
 	}
 	snaps, gerr := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(refs)))
 	if gerr != nil {
 		ids := []string{uid}
 		for _, d := range docs {
@@ -163,8 +156,7 @@ func (r *FirestoreRepo) deleteRequests(ctx context.Context, uid string, docs []r
 
 // commitRequestBatch builds and commits the batch. exists == nil means "assume every counterpart graph doc exists".
 func (r *FirestoreRepo) commitRequestBatch(ctx context.Context, uid string, docs []requestDoc, outgoing bool, exists map[string]bool) error {
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	ids := []string{uid}
 	for _, d := range docs {
 		ref, err := r.requestRef(d.FollowerID, d.FolloweeID)
@@ -186,9 +178,6 @@ func (r *FirestoreRepo) commitRequestBatch(ctx context.Context, uid string, docs
 		// Firestore's message names the documents, so every uid in the batch is hashed.
 		return logger.RedactErr(fmt.Errorf("graph: purge follow requests: %w", err), ids...)
 	}
-	c := budget.FromContext(ctx)
-	c.AddWrites(scratch.Writes())
-	c.AddDeletes(scratch.Deletes())
 	return nil
 }
 

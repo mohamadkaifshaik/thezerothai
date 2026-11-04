@@ -3,7 +3,7 @@ package search
 // The people half of the query grammar. Steps 1 to 3 are parseQuery (query.go), shared with
 // SearchPosts: one parser. The client parser (app/lib/features/search/domain/search_query.dart) applies the same rules
 // in the same order and both are checked against testdata/search_query_grammar.json. Nothing here reads Firestore: a
-// rejected or unsupported query costs 0 reads.
+// rejected or unsupported query reads nothing.
 
 const (
 	// minPrefixLen and maxHandleLen bound a people prefix: handles are 3 to 15 characters, a prefix 2 to 15.
@@ -19,7 +19,7 @@ const (
 	peopleInvalid peopleResult = iota
 	// peopleTooShort: VALIDATION `query` ("too short"), a handle-class rest of one character; `a` and `@a` alike.
 	peopleTooShort
-	// peopleUnsupported: an empty answer with unsupported_query = true, 0 reads (a `#` sigil, or a rest that is not
+	// peopleUnsupported: an empty answer with unsupported_query = true (a `#` sigil, or a rest that is not
 	// [a-z0-9_]{1,15}).
 	peopleUnsupported
 	// peoplePrefix: a handle prefix of 2 to 15 characters; nothing else is searched.

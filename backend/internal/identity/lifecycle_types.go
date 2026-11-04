@@ -188,7 +188,7 @@ type AuthClient interface {
 var _ AuthClient = (*fbauth.Client)(nil)
 
 // DeletionStart is BeginDeletion's result: the profile as written (status DELETING, deletion state set) and
-// whether the call was a replay (0 writes).
+// whether the call was a replay (which writes nothing).
 type DeletionStart struct {
 	Profile Profile
 	Replay  bool
@@ -218,65 +218,64 @@ type CreateExportParams struct {
 }
 
 // LifecycleRepo is the storage seam of the account lifecycle; repo_lifecycle_firestore.go implements it and the
-// unit tests use an in-memory fake with the same precondition semantics. Every method documents its Firestore
-// cost; the callers charge them to the request's budget.Counter.
+// unit tests use an in-memory fake with the same precondition semantics.
 type LifecycleRepo interface {
-	// BeginDeletion (DeleteAccount): one transaction reads users/{uid} fresh (1 read) and, unless the account is
+	// BeginDeletion (DeleteAccount): one transaction reads users/{uid} fresh and, unless the account is
 	// already DELETING with job state, sets status DELETING, updatedAt, deletionRequestedAt and deletionJob{seq 0}
-	// in 1 write. A replay writes nothing. ErrNotFound when the profile is absent.
+	// in a single write. A replay writes nothing. ErrNotFound when the profile is absent.
 	BeginDeletion(ctx context.Context, uid string, now time.Time) (DeletionStart, error)
-	// GetJobState reads users/{uid} fresh (1 read) with its Firestore update time. ErrNotFound when absent.
+	// GetJobState reads users/{uid} fresh with its Firestore update time. ErrNotFound when absent.
 	GetJobState(ctx context.Context, uid string) (Profile, time.Time, error)
 	// SaveJobState writes users/{uid}.deletionJob (not updatedAt, not deletionRequestedAt) with a LastUpdateTime
-	// precondition (1 write). ErrJobConflict when the doc changed since updateTime or no longer exists (Firestore
+	// precondition. ErrJobConflict when the doc changed since updateTime or no longer exists (Firestore
 	// reports a missing document as a failed precondition); callers re-read to tell the two apart.
 	SaveJobState(ctx context.Context, uid string, updateTime time.Time, job DeletionJob) error
 
-	// CreateExport (RequestAccountExport): reads quotas/{uid} (1 read) and creates the PENDING doc and the
-	// incremented quota atomically (2 writes). A replay of the same id returns the existing doc with 0 writes
-	// (2 reads: quotas + the doc); over the daily quota with a different id is the quota package's
+	// CreateExport (RequestAccountExport): reads quotas/{uid} and creates the PENDING doc and the
+	// incremented quota atomically. A replay of the same id returns the existing doc and writes nothing;
+	// over the daily quota with a different id is the quota package's
 	// RESOURCE_EXHAUSTED + QUOTA_EXCEEDED error.
 	CreateExport(ctx context.Context, p CreateExportParams) (doc ExportDoc, replay bool, err error)
-	// GetExport reads exports/{id} fresh (1 read). ErrNotFound when absent.
+	// GetExport reads exports/{id} fresh. ErrNotFound when absent.
 	GetExport(ctx context.Context, id string) (ExportDoc, error)
-	// SetExportStatus sets exports/{id}.status with a LastUpdateTime precondition (1 write). ErrJobConflict on a
+	// SetExportStatus sets exports/{id}.status with a LastUpdateTime precondition. ErrJobConflict on a
 	// lost precondition, which is also what a missing doc reports; callers re-read to tell the two apart.
 	SetExportStatus(ctx context.Context, id string, status ExportStatus, updateTime time.Time) error
-	// ClaimExport sets exports/{id}.leaseUntil with a LastUpdateTime precondition (1 write, status unchanged) and
+	// ClaimExport sets exports/{id}.leaseUntil with a LastUpdateTime precondition (status unchanged) and
 	// returns the document's new update time, which the claimant uses for its later SetExportStatus. ErrJobConflict
 	// when another delivery claimed or changed the doc since updateTime (a missing doc reports the same).
 	ClaimExport(ctx context.Context, id string, updateTime, leaseUntil time.Time) (time.Time, error)
 
 	// Identity-step operations, each idempotent.
-	// ListExports lists the uid's exports docs, Limit(limit) (reads = docs returned, minimum 1).
+	// ListExports lists the uid's exports docs, Limit(limit).
 	ListExports(ctx context.Context, uid string, limit int) ([]ExportDoc, error)
 	// DeleteExportDocs deletes the docs in one batch (deletes = len(ids)); a missing doc is not an error.
 	DeleteExportDocs(ctx context.Context, ids []string) error
-	// DeletePrivate deletes up to limit docs of users/{uid}/private (reads = docs, minimum 1) and returns the count.
+	// DeletePrivate deletes up to limit docs of users/{uid}/private and returns the count.
 	DeletePrivate(ctx context.Context, uid string, limit int) (int, error)
-	// DeleteHandleIfOwned deletes handles/{handleLower} only when it points at uid (1 read, 1 delete).
+	// DeleteHandleIfOwned deletes handles/{handleLower} only when it points at uid.
 	DeleteHandleIfOwned(ctx context.Context, handleLower, uid string) (HandleOutcome, error)
-	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors: 0 reads, at most 1 write (a
+	// RemoveFromProtectedSet removes uid from privacy/protectedAuthors (a
 	// field-level ArrayRemove; a missing set doc is success and is never created). Idempotent and unconditional.
 	RemoveFromProtectedSet(ctx context.Context, uid string) error
-	// DeleteQuotas deletes quotas/{uid} (1 delete); a missing doc is success.
+	// DeleteQuotas deletes quotas/{uid}; a missing doc is success.
 	DeleteQuotas(ctx context.Context, uid string) error
-	// DeleteUserDoc deletes users/{uid} in one transaction (1 read, 1 delete) only while it is still DELETING with
+	// DeleteUserDoc deletes users/{uid} in one transaction only while it is still DELETING with
 	// deletionJob.seq == seq; a missing doc is success; anything else is ErrJobConflict and nothing is deleted.
 	// Always the last step.
 	DeleteUserDoc(ctx context.Context, uid string, seq int64) error
 
 	// Backstop queries (daily-maintenance), every one limited.
 	// ListDeleting returns up to limit DELETING accounts whose deletionJob.progressAt <= noProgressSince, oldest
-	// progress first, strictly after cursor (reads = docs returned, minimum 1; L-6). Accounts without job state are
+	// progress first, strictly after cursor (L-6). Accounts without job state are
 	// not returned. Needs the composite index users(status, deletionJob.progressAt).
 	ListDeleting(ctx context.Context, noProgressSince time.Time, after BackstopCursor, limit int) ([]Profile, error)
 	// ListPendingExports returns up to limit PENDING exports with createdAt <= createdBefore, oldest first, strictly
-	// after cursor (reads = docs returned, minimum 1; L-6). A leased (RUNNING in spirit) export is still PENDING, so
+	// after cursor (L-6). A leased (RUNNING in spirit) export is still PENDING, so
 	// a crashed run is included once it is old enough. Needs the composite index exports(status, createdAt).
 	ListPendingExports(ctx context.Context, createdBefore time.Time, after BackstopCursor, limit int) ([]ExportDoc, error)
 
-	// GetProfile is Repo.GetProfile (1 read), used by the export job for the profile section and the DELETING check.
+	// GetProfile is Repo.GetProfile, used by the export job for the profile section and the DELETING check.
 	GetProfile(ctx context.Context, uid string) (Profile, error)
 }
 

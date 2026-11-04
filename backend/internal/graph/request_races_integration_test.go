@@ -17,7 +17,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // twoInstances wires two Cloud Run instances (own caches, own event recorders) onto one Firestore project.
@@ -405,8 +404,7 @@ func TestW335b_PrivacyPublic_AgainstWithdrawBlockAndManualAccept(t *testing.T) {
 
 // TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun: a requester at the 5,000 following cap keeps a pending
 // request (nothing written, the target may decline), so it never drops out of the query. Every rerun
-// re-reads it: the cost is the same on every delivery (no growth, no writes), the outcome stays "done", and healthy
-// requesters are accepted once.
+// sees it again: the outcome stays "done" and the stuck requests stay, and healthy requesters are accepted once.
 func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {
 	ev := &acceptRecorder{}
 	w := newWired(t, withEvents(ev))
@@ -421,7 +419,7 @@ func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {
 	unprotect(t, w, "uid-p")
 
 	for run := 1; run <= 3; run++ {
-		out, _ := runJob(t, w, ev)
+		out := runJob(t, w, ev)
 		if out != "done" {
 			t.Fatalf("run %d outcome = %q", run, out)
 		}
@@ -429,7 +427,7 @@ func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {
 			t.Errorf("run %d: pending = %d, want the 3 at-cap requests to stay", run, got)
 		}
 	}
-	// Run 1 accepts 2; runs 2 and 3 re-read the 3 stuck requests (users 1 + request 1 + requester graph 1 each) and write nothing.
+	// Run 1 accepts 2; runs 2 and 3 find the 3 stuck requests again and accept nothing.
 	if _, followers := counts(t, w, "uid-p"); followers != 2 {
 		t.Errorf("followersCount = %d, want 2", followers)
 	}
@@ -457,12 +455,12 @@ func TestW335b_PrivacyPublic_AtCapRequestersAckAsStuck(t *testing.T) {
 	unprotect(t, w, "uid-p")
 	job := pendingJob(w, 1)
 	for run := 1; run <= 2; run++ {
-		ctx, c := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		out, err := job.Run(ctx, "uid-p")
 		if err != nil || out != "stuck" {
 			t.Fatalf("run %d = %q, %v; want an ack with outcome stuck", run, out, err)
 		}
-		t.Logf("run %d acked as stuck after %d reads, %d writes", run, c.Reads(), c.Writes())
+		t.Logf("run %d acked as stuck", run)
 	}
 	// The owner clears the backlog by declining; the next delivery is done.
 	for _, r := range reqs {

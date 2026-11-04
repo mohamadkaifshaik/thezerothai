@@ -46,7 +46,7 @@ func TestRepo_Integration_ByHashtag(t *testing.T) {
 	takeDown(t, client, pid(5))
 
 	t.Run("pages of 20 + 6 come newest first; a REPOST and other tags never match; no filtering", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		first, err := svc.ByHashtag(ctx, "go", Window{}, 20)
 		if err != nil || len(first) != 20 {
 			t.Fatalf("first page: %d posts, err %v", len(first), err)
@@ -55,7 +55,7 @@ func TestRepo_Integration_ByHashtag(t *testing.T) {
 			t.Fatalf("order = %v", idList(first[:3]))
 		}
 		last := first[19]
-		ctx2, _ := measured(context.Background())
+		ctx2 := context.Background()
 		second, err := svc.ByHashtag(ctx2, "go", Window{Before: &Position{CreatedAt: last.CreatedAt, ID: last.ID}}, 20)
 		if err != nil {
 			t.Fatal(err)
@@ -93,8 +93,8 @@ func TestRepo_Integration_ByHashtag(t *testing.T) {
 		}
 	})
 
-	t.Run("no match bills 1 read", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+	t.Run("no match is an empty result", func(t *testing.T) {
+		ctx := context.Background()
 		got, err := svc.ByHashtag(ctx, "nothing", Window{}, 20)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("got %d err %v", len(got), err)
@@ -115,7 +115,7 @@ func TestRepo_Integration_CreatedAfter(t *testing.T) {
 	takeDown(t, client, pid(6))
 
 	t.Run("from a watermark: strictly newer, oldest first, ties by id, projected", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.CreatedAfter(ctx, Position{CreatedAt: time.UnixMilli(2000).UTC(), ID: pid(2)}, 500)
 		if err != nil {
 			t.Fatal(err)
@@ -164,13 +164,13 @@ func TestRepo_Integration_CreatedAfter(t *testing.T) {
 		}
 	})
 
-	t.Run("Limit is honoured and an empty result bills 1", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+	t.Run("Limit is honoured and an empty result is fine", func(t *testing.T) {
+		ctx := context.Background()
 		got, err := svc.CreatedAfter(ctx, Position{CreatedAt: time.UnixMilli(500).UTC(), ID: pid(0)}, 2)
 		if err != nil || len(got) != 2 {
 			t.Fatalf("got %d err %v", len(got), err)
 		}
-		ctx, _ = measured(context.Background())
+		ctx = context.Background()
 		got, err = svc.CreatedAfter(ctx, Position{CreatedAt: time.UnixMilli(99000).UTC(), ID: pid(99)}, 500)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("got %d err %v", len(got), err)

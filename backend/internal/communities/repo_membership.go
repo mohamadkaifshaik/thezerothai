@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -37,10 +36,9 @@ func notFoundIfNoDoc(err error) error {
 	return err
 }
 
-// memberInTx reads the member doc inside tx (1 read, charged when missing too). A missing doc is MemberNone.
+// memberInTx reads the member doc inside tx. A missing doc is MemberNone.
 func (r *FirestoreRepo) memberInTx(ctx context.Context, tx *firestore.Transaction, cid, uid string) (MemberState, error) {
 	snap, err := tx.Get(r.memberRef(cid, uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return MemberNone, nil
@@ -61,7 +59,7 @@ func (r *FirestoreRepo) memberInTx(ctx context.Context, tx *firestore.Transactio
 // Join implements Repo. One transaction. Reads, fresh and in this order: idempotency (a replay returns here),
 // the caller's member doc (BANNED is ErrBanned, JOINED writes the idempotency document only and spends no quota), the caller's
 // memberships (the joined cap is exact, ErrJoinedLimit), quotas/{uid} (QUOTA_EXCEEDED). The community document is never read: its status
-// comes from the service's 60 s cache, and memberCount is a blind Increment. Writes 5: Create the member doc (JOINED), memberships
+// comes from the service's 60 s cache, and memberCount is a blind Increment. Writes: Create the member doc (JOINED), memberships
 // (joined += id, created when missing), the memberCount Increment, quotas.communityJoins, and Create the idempotency document. A community
 // deleted inside the cache window fails the memberCount Update at commit with NotFound, which is ErrNotFound with nothing written.
 func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, error) {
@@ -84,7 +82,7 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 		if st == MemberBanned {
 			return ErrBanned
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if st == MemberJoined {
 			r.putIdem(b, p.UID, p.IdemKey, rpcJoinCommunity, p.RequestHash, p.ID)
 			if err := b.Err(); err != nil {
@@ -132,12 +130,12 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 }
 
 // Leave implements Repo. One transaction. Reads, fresh and in this order: idempotency (a replay returns here), the
-// caller's member doc (none or BANNED: the idempotency document only, the ban stays; 2 reads), the caller's memberships (the owner is
-// exact there: C in owned, I-M, ErrOwnerLeave, 0 writes). A caller who may be a moderator (the service's hint from its cached community,
-// or the community in the caller's modlogged, which a promotion adds, I-L) also reads the community fresh (+1 read): a confirmed
+// caller's member doc (none or BANNED: the idempotency document only, the ban stays), the caller's memberships (the owner is
+// exact there: C in owned, I-M, ErrOwnerLeave, nothing written). A caller who may be a moderator (the service's hint from its cached community,
+// or the community in the caller's modlogged, which a promotion adds, I-L) also reads the community fresh: a confirmed
 // moderator leaves moderatorIds and gets a MODERATOR_LEFT entry (seq+1, trimmed to ModlogMax) in the same single community Update as
 // the memberCount -1, and the community joins modlogged in the same memberships Update. Otherwise the community write is the blind
-// memberCount -1. Writes 3 (memberships joined -= id, the community, idempotency) + 1 delete (the member doc).
+// memberCount -1. Writes: memberships (joined -= id), the community and idempotency, and a delete of the member doc.
 //
 // Residual window: a moderator promoted on another instance whose promotion is neither in the service's 60 s
 // cache nor in this caller's modlogged would stay in moderatorIds after leaving. The promotion must add the target to modlogged in
@@ -159,7 +157,7 @@ func (r *FirestoreRepo) Leave(ctx context.Context, p LeaveParams) (LeaveResult, 
 		if err != nil {
 			return err
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if st != MemberJoined {
 			r.putIdem(b, p.UID, p.IdemKey, rpcLeaveCommunity, p.RequestHash, p.ID)
 			if err := b.Err(); err != nil {
@@ -222,13 +220,12 @@ func (r *FirestoreRepo) Leave(ctx context.Context, p LeaveParams) (LeaveResult, 
 	return res, notFoundIfNoDoc(err)
 }
 
-// Memberships implements Repo: one point read outside any transaction, charged as 1 read whether or not it exists.
+// Memberships implements Repo: one point read outside any transaction.
 func (r *FirestoreRepo) Memberships(ctx context.Context, uid string) (Memberships, error) {
 	if r == nil || r.client == nil {
 		return Memberships{}, errors.New("communities: repo has no firestore client")
 	}
 	snap, err := r.membershipsRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Memberships{}, nil
@@ -242,7 +239,7 @@ func (r *FirestoreRepo) Memberships(ctx context.Context, uid string) (Membership
 	return d.memberships(), nil
 }
 
-// GetMany implements Repo: one GetAll over the ids (1 read per id, charged when a document is missing too).
+// GetMany implements Repo: one GetAll over the ids.
 func (r *FirestoreRepo) GetMany(ctx context.Context, ids []string) (map[string]Community, error) {
 	if r == nil || r.client == nil {
 		return nil, errors.New("communities: repo has no firestore client")
@@ -256,7 +253,6 @@ func (r *FirestoreRepo) GetMany(ctx context.Context, ids []string) (map[string]C
 		refs[i] = r.ref(id)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("communities: get communities: %w", err), ids...)
 	}

@@ -90,7 +90,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 	t.Logf("dry run output:\n%s", stdout)
 	for _, want := range []string{`website: would clear "https://phish.example/login"`, "dry-run: 3 field(s) to clear, 0 already empty (nothing written)",
 		"banner object (still public until deleted): m/222.webp in bucket " + project + "-media", "avatar object (still public until deleted): m/111_t.webp",
-		"would resolve report " + rep.ID + " as PROFILE_CLEARED", "cost: reads=2 writes=0"} {
+		"would resolve report " + rep.ID + " as PROFILE_CLEARED"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("dry run stdout missing %q", want)
 		}
@@ -111,7 +111,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 	}
 	t.Logf("run output:\n%s", stdout)
 	for _, want := range []string{"4 field(s) cleared with one field-level update", "report " + rep.ID + ": RESOLVED (PROFILE_CLEARED)",
-		"banner object (still public until deleted): m/222.webp in bucket " + project + "-media", "cost: reads=3 writes=2"} {
+		"banner object (still public until deleted): m/222.webp in bucket " + project + "-media"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("run stdout missing %q", want)
 		}
@@ -137,7 +137,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 
 	// A rerun writes nothing at all: every field is empty, the report is already resolved (a warning, no second write).
 	code, stdout, stderr = runClearCLI(t, client, "", "clear-profile-fields", "--project", project, "--uid", uid, "--fields", "website,banner,avatar,location", "--report", rep.ID)
-	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") || !strings.Contains(stdout, "cost: reads=3 writes=0") || !strings.Contains(stdout, "already RESOLVED") {
+	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") || !strings.Contains(stdout, "already RESOLVED") {
 		t.Fatalf("rerun: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}
 	if got, _ := stored(uid)["updatedAt"].(time.Time); !got.Equal(time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)) {

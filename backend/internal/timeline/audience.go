@@ -28,8 +28,8 @@ func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 // audienceFilter applies posts.Audience.Decide to the rows of one response: a REPOST whose original is
 // by a protected author the viewer may not see is dropped, a QUOTE of one is kept with embed_viewer_state PROTECTED
 // (posts.ApplyEmbedState strips the copy). Decisions run after the author-recent entry or the page query, per viewer,
-// so a cache filled before the viewer was checked never leaks. Reads: +0 (the caller's graph snapshot is already
-// held, the set is a detached instance cache).
+// so a cache filled before the viewer was checked never leaks. The caller's graph snapshot is already
+// held and the set is a detached instance cache, so it reads nothing.
 type audienceFilter struct {
 	aud     *posts.Audience
 	ctx     context.Context

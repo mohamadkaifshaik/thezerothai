@@ -12,7 +12,7 @@
 // Token contract for ListNotifications (same shape as the timelines; all tokens opaque):
 // - First open, no local cache: send neither token.
 // - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
-//   than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a
+//   than it are read. since_token trails the newest item by a short settle window, so a
 //   refresh may return items the client already has: always dedupe by notification id and replace the old row
 //   (a collapsed LIKE row is rewritten in place with a new created_at and actor_count).
 // - Infinite scroll: send page_token (= next_page_token of the previous page).
@@ -20,7 +20,7 @@
 // - A refresh whose page was full returns gap_page_token: keep the cache, show a "show more" row between the new
 //   items and the cached ones, and fill it with page_token = gap_page_token (bounded below by the old since_token).
 // - Tokens are bound to the caller and expire after 30 days. An expired, foreign or tampered token =>
-//   INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop it and call
+//   INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", before any lookup: drop it and call
 //   with no token.
 
 package notificationsv1

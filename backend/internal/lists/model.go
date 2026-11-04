@@ -70,38 +70,30 @@ type UpdateInput struct {
 // Service is everything the ListService handlers call (seam: handlers call only this): the write path
 // and the reads. *service also implements Reader, the seam other modules use.
 type Service interface {
-	// CreateList creates a list owned by uid. Firestore: reads 4 cold (interceptor, idempotency, quotas, count()) / 3
-	// warm; writes 3 (list, idempotency, quotas); replay reads 2, writes 0; at the cap or the quota 0 writes.
+	// CreateList creates a list owned by uid. A replay, a list at the cap and an exhausted quota write nothing.
 	CreateList(ctx context.Context, uid string, in CreateInput) (View, error)
 	// UpdateList changes the set fields of one of uid's lists; any other caller, a missing or a deleted list is the one
-	// NOT_FOUND. Firestore: reads 3 cold / 2 warm (interceptor, idempotency, list), +1 when a pinned list is renamed
-	// (Pins); writes 2 (list, idempotency), 1 when nothing changes; replay reads 2, writes 0.
+	// NOT_FOUND. A pinned list that is renamed is retitled (Pins). A request that changes nothing writes only the idempotency
+	// document; a replay writes nothing.
 	UpdateList(ctx context.Context, uid string, in UpdateInput) (View, error)
 	// DeleteList deletes one of uid's lists; a list that is not uid's or does not exist is success with no effect.
-	// Firestore: reads 3 (interceptor, idempotency, list), +1 when pinned (Pins); writes 1 (idempotency) + 1 when
-	// pinned; deletes 1 (the list, Exists precondition); replay reads 2, writes 0.
+	// A pinned list is also unpinned (Pins). The list is deleted with an Exists precondition; a replay writes nothing.
 	DeleteList(ctx context.Context, uid, key, listID string) error
 	// AddMember adds userID to one of uid's lists; any other caller or list is the one NOT_FOUND. The target checks
 	// (ACTIVE, block either way, protected and not followed) run before the transaction from cache-first reads and are applied
-	// only after the idempotency lookup misses, so a replay answers with the stored outcome. Firestore: reads 5 cold (caller graph,
-	// target profile, idempotency, list, quotas; +1 target graph when the caller's blockedBy overflowed) / 3 warm, plus the
-	// interceptor's 1; writes 3 (list, quotas, idempotency), 1 when already a member; replay reads <= 3, writes 0; refused 0 writes.
+	// only after the idempotency lookup misses, so a replay answers with the stored outcome. Already a member writes only the
+	// idempotency document; a replay and a refused request write nothing.
 	AddMember(ctx context.Context, uid, key, listID, userID string) (View, error)
 	// RemoveMember removes userID from one of uid's lists; any other caller or list is the one NOT_FOUND. Not a member is
-	// success with the idempotency document only. Firestore: reads idempotency + list (2) + the caller graph (cache-first, 1 cold)
-	// only when a member is actually removed, plus the interceptor's 1; writes 2 (list, idempotency), 1 when not a member;
-	// replay reads 1, writes 0. No quota.
+	// success with the idempotency document only. The caller graph is read (cache-first) only when a member is actually removed;
+	// a replay writes nothing. No quota.
 	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
-	// GetList returns one list as viewer may see it; any other case is the one NOT_FOUND. pinned_by_viewer is false until
-	// supplies the pin check. Firestore: reads 5 cold for a non-owner (interceptor, list, caller graph, owner profile, owner
-	// graph), 2 for the owner; 0-1 warm; writes 0.
+	// GetList returns one list as viewer may see it; any other case is the one NOT_FOUND. pinned_by_viewer is false until Pins
+	// supplies the pin check.
 	GetList(ctx context.Context, viewer, listID string) (View, error)
 	// ListUserLists returns an owner's lists, oldest first: all of the caller's own, only public non-hidden ones of anyone else.
-	// Firestore: another owner 24 cold at 20 lists (interceptor, caller graph, owner profile, owner graph, <= 20 docs), the
-	// caller's own 21; writes 0.
 	ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error)
-	// ListListMembers returns a page of the list's members, newest added first. Firestore: 25 cold at page 20 / 55 at page 50
-	// for a non-owner (interceptor, list, caller graph, owner profile, owner graph, page profiles), 23 / 53 for the owner; writes 0.
+	// ListListMembers returns a page of the list's members, newest added first.
 	ListListMembers(ctx context.Context, viewer, listID string, pageSize int32, pageToken string) (MembersPage, error)
 }
 
@@ -110,10 +102,10 @@ type Service interface {
 // pinned tab is cleaned up lazily by GetMe. Both calls run after the list's own commit and are best effort: a failure is
 // logged and never fails the RPC. Neither signature names a timeline or lists type, so identity imports neither.
 type Pins interface {
-	// Unpin removes listID from uid's homeTabs (a field-level update, only when pinned; +1 read, +1 write when it is).
+	// Unpin removes listID from uid's homeTabs (a field-level update, only when pinned).
 	Unpin(ctx context.Context, uid, listID string) error
-	// Retitle sets the stored title of uid's pinned tab for listID to name and reports whether the list was pinned (+1
-	// read, +1 write only when it is).
+	// Retitle sets the stored title of uid's pinned tab for listID to name and reports whether the list was pinned (it writes
+	// only when it is).
 	Retitle(ctx context.Context, uid, listID, name string) (pinned bool, err error)
 }
 
@@ -194,7 +186,7 @@ type Repo interface {
 	Delete(ctx context.Context, p DeleteParams) (DeleteResult, error)
 	AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error)
 	RemoveMember(ctx context.Context, p RemoveMemberParams) (MemberResult, error)
-	// Get reads lists/{id} outside any transaction (1 read, charged even when missing): ErrNotFound when it does not exist. It does
+	// Get reads lists/{id} outside any transaction: ErrNotFound when it does not exist. It does
 	// not decide who may see the list; the service applies the list visibility rules.
 	Get(ctx context.Context, id string) (List, error)
 	// ListByOwner reads ownerId == owner ordered by list id, after the id `after` ("" = from the start), at most limit docs
@@ -251,7 +243,7 @@ type ListMembers struct {
 	Header    Header
 	Owner     identity.Profile
 	MemberIDs []string
-	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (cache-first, 0 reads when the interceptor loaded the viewer).
+	// PinnedByViewer is whether the viewer has the list pinned as a Home tab (cache-first; the interceptor has usually loaded the viewer).
 	PinnedByViewer bool
 }
 
@@ -259,14 +251,13 @@ type ListMembers struct {
 // visibility rules for viewer and answers ErrNotFound (one sentinel, every cause) when viewer may not see the list.
 // *service implements it; apiserver passes `listsSvc.(lists.Reader)`.
 type Reader interface {
-	// Get returns the list as viewer may see it. Firestore: the list doc (cache-first, 60 s; 1 read cold); a non-owner
+	// Get returns the list as viewer may see it. The list doc is cache-first (60 s); a non-owner
 	// viewer also reads the caller's graph, the owner's profile and the owner's graph (each cache-first).
 	Get(ctx context.Context, viewer, listID string) (ListView, error)
-	// Members returns the member uids viewer may build a feed from, after the owner-level drop. Same reads as Get plus the
-	// owner viewer's own graph (cache-first, 1 cold).
+	// Members returns the member uids viewer may build a feed from, after the owner-level drop. Same lookups as Get plus the
+	// owner viewer's own graph (cache-first).
 	Members(ctx context.Context, viewer, listID string) (ListMembers, error)
-	// OwnedBy returns uid's own lists (private ones included), oldest first, at most LISTS_MAX_PER_USER. Firestore: one
-	// query, reads = lists returned (minimum 1), uncached.
+	// OwnedBy returns uid's own lists (private ones included), oldest first, at most LISTS_MAX_PER_USER. One uncached query.
 	OwnedBy(ctx context.Context, uid string) ([]List, error)
 }
 

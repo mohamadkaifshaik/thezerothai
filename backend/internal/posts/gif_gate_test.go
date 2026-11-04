@@ -31,7 +31,7 @@ func TestCreate_GifSentinelsMapToTheDocumentedErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
 			e.repo.createErr = tt.err
-			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true})
 			ae := wantAPIError(t, err, tt.wantCode, tt.wantReason)
 			if ae.Metadata["feature"] != tt.wantFeature || ae.Metadata["field"] != tt.wantField {
 				t.Fatalf("metadata = %v", ae.Metadata)
@@ -43,7 +43,7 @@ func TestCreate_GifSentinelsMapToTheDocumentedErrors(t *testing.T) {
 func TestCreate_GifEnabledReachesTheRepo(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		e := newCreateEnv()
-		if _, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true, GifEnabled: on}); err != nil {
+		if _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true, GifEnabled: on}); err != nil {
 			t.Fatal(err)
 		}
 		if e.repo.lastCreate.GifEnabled != on {
@@ -55,10 +55,10 @@ func TestCreate_GifEnabledReachesTheRepo(t *testing.T) {
 func TestSchedule_GifIsValidation(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.repo.createErr = ErrGifNotSchedulable
-	_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(1) }))
+	_, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(1) }))
 	ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 	if ae.Metadata["field"] != "media_ids" {
-		t.Fatalf("metadata = %v writes=%d", ae.Metadata, c.Writes())
+		t.Fatalf("metadata = %v", ae.Metadata)
 	}
 }
 

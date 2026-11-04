@@ -58,7 +58,7 @@ func New(fc FlagChecker, opts ...Option) Service {
 }
 
 // guard is the flag gate of every method, run before any Firestore access. Disabled is FAILED_PRECONDITION +
-// FEATURE_DISABLED with metadata feature=<name>, 0 reads.
+// FEATURE_DISABLED with metadata feature=<name>.
 func (s *service) guard(ctx context.Context, uid, name string) error {
 	enabled := func(uid, name string) bool { return s.flags != nil && s.flags.Enabled(uid, name) }
 	err := flags.Guard(ctx, enabled, uid, name)
@@ -78,10 +78,7 @@ func errNotImplemented() error {
 	return apierr.New(connect.CodeUnimplemented, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "not implemented yet")
 }
 
-// Posts is SearchPosts. Flag: search, checked before any read. Without WithPosts: Unimplemented, 0 reads.
-// Worst case (interceptor included, writes 0): 33 cold for TOP, LATEST page 1 and MEDIA page 1 (page_size <= 30) and for
-// a MEDIA scan, 53 for LATEST at page_size 50, 23 / 53 for older LATEST pages at 20 / 50, 0 to 3 warm;
-// the rules are postsRuntime.search.
+// Posts is SearchPosts. Flag: search, checked before any read. Without WithPosts: Unimplemented. The rules are postsRuntime.search.
 func (s *service) Posts(ctx context.Context, uid, query string, tab searchv1.SearchTab, pageSize int32, pageToken string) (*searchv1.SearchPostsResponse, error) {
 	if err := s.guard(ctx, uid, FlagSearch); err != nil {
 		return nil, err

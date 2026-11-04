@@ -233,9 +233,9 @@ func TestApplyWireVisibility(t *testing.T) {
 func TestGetForViewerProtectedMatchesDeleted(t *testing.T) {
 	e := newDeleteEnv()
 	f := e.protect(otherUID)
-	_, _, errProt := e.get(pidOther)
+	_, errProt := e.get(pidOther)
 	wantPostNotFound(t, errProt)
-	_, _, errGone := newDeleteEnv().get("0000000000000000999")
+	_, errGone := newDeleteEnv().get("0000000000000000999")
 	if errProt.Error() != errGone.Error() {
 		t.Fatalf("protected %q vs deleted %q", errProt, errGone)
 	}
@@ -245,7 +245,7 @@ func TestGetForViewerProtectedMatchesDeleted(t *testing.T) {
 
 	e3 := newDeleteEnv()
 	e3.protect(otherUID).err = errBoom
-	_, _, err := e3.get(pidOther)
+	_, err := e3.get(pidOther)
 	_ = wantAPIError(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
@@ -303,19 +303,19 @@ func TestServer_GetPost_ProtectedStripAndVisibility(t *testing.T) {
 }
 
 func TestCreateQuoteOfProtectedPost(t *testing.T) {
-	// Unapproved: NOT_FOUND; approved non-author: PROTECTED_ACCOUNT with 0 writes; the author may quote.
+	// Unapproved: NOT_FOUND; approved non-author: PROTECTED_ACCOUNT with nothing written; the author may quote.
 	e := newDeleteEnv()
 	e.protect(otherUID)
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
 	wantPostNotFound(t, err)
 
 	e.graph.snaps = map[string]graph.Snapshot{testUID: following(otherUID)}
-	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
+	_, err = e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 
 	// The caller quoting their own post is fine even when they are in the set.
 	e.protect(testUID)
-	if _, _, err = e.create(CreateInput{IdempotencyKey: key2, Text: "t", QuoteOfPostID: pidMine, QuotesEnabled: true}); err != nil {
+	if _, err = e.create(CreateInput{IdempotencyKey: key2, Text: "t", QuoteOfPostID: pidMine, QuotesEnabled: true}); err != nil {
 		t.Fatalf("own quote: %v", err)
 	}
 }

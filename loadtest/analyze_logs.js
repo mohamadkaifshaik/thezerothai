@@ -2,7 +2,7 @@
 //
 //   node loadtest/analyze_logs.js api.log [rpcSubstring ...]
 //
-// Prints, per rpc: calls, mean/max/p50/p95 server latency_ms, mean/max fs_reads, mean fs_writes/fs_deletes and a
+// Prints, per rpc: calls, mean/max/p50/p95/p99 server latency_ms and a
 // code histogram; plus the count of severity=ERROR lines. Only lines with message "request" carry the fields
 // (pkg/platform/mw Logging). Server-side latency excludes the network/k6 client.
 const fs = require('fs');
@@ -38,17 +38,10 @@ const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 
 for (const [rpc, rows] of [...byRpc.entries()].sort()) {
   const lat = rows.map((r) => r.latency_ms).sort((a, b) => a - b);
-  const reads = rows.map((r) => r.fs_reads || 0);
-  const writes = rows.map((r) => r.fs_writes || 0);
-  const dels = rows.map((r) => r.fs_deletes || 0);
   const codes = {};
   for (const r of rows) codes[r.code] = (codes[r.code] || 0) + 1;
-  const readHist = {};
-  for (const x of reads) readHist[x] = (readHist[x] || 0) + 1;
   console.log(
-    `${rpc}\n  calls=${rows.length} server_latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} max=${lat[lat.length - 1]}\n` +
-      `  fs_reads mean=${mean(reads).toFixed(2)} max=${Math.max(...reads)} hist=${JSON.stringify(readHist)}\n` +
-      `  fs_writes mean=${mean(writes).toFixed(2)} max=${Math.max(...writes)}  fs_deletes mean=${mean(dels).toFixed(2)} max=${Math.max(...dels)}\n` +
+    `${rpc}\n  calls=${rows.length} server_latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)} max=${lat[lat.length - 1]}\n` +
       `  codes=${JSON.stringify(codes)}`,
   );
 }

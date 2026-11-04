@@ -126,9 +126,9 @@ func idsOf(r *timelinev1.GetListTimelineResponse) []string {
 	return out
 }
 
-// TestListTimelineChain_Budgets asserts the read budgets over the whole chain: a non-owner and the owner of a
-// 150-member list at page 20 and 50 (cold, a fresh Build each), the owner's empty since refresh (3 + C), and a warm repeat.
-func TestListTimelineChain_Budgets(t *testing.T) {
+// TestListTimelineChain_ColdPagesAndSince covers the whole chain: a non-owner and the owner of a
+// 150-member list at page 20 and 50 (cold, a fresh Build each), the owner's empty since refresh, and a warm repeat.
+func TestListTimelineChain_ColdPagesAndSince(t *testing.T) {
 	setup := newLTChain(t, nil)
 	owner, viewer := setup.user(t), setup.user(t)
 	members := memberNames(150)
@@ -240,7 +240,7 @@ func TestListTimelineChain_NotFoundIsByteIdenticalToGetList(t *testing.T) {
 }
 
 // TestListTimelineChain_FlagModes: off, allowlist (in and out), percent (in and out) and on, for FEATURE_LISTS; FEATURE_POSTS
-// off refuses too. A refusal reads only the interceptor's caller profile.
+// off refuses too.
 func TestListTimelineChain_FlagModes(t *testing.T) {
 	setup := newLTChain(t, nil)
 	owner := setup.user(t)
@@ -318,7 +318,7 @@ func TestListTimelineChain_FlagModes(t *testing.T) {
 }
 
 // TestListTimelineChain_PerViewerAndTakedown: a member the viewer mutes drops out, the owner-level drop (a member who blocks
-// the owner) is gone for everyone, a Home token is refused with 0 list reads, and a moderator takedown after the token is in
+// the owner) is gone for everyone, a Home token is refused before any list is read, and a moderator takedown after the token is in
 // removed_ids on the refresh.
 func TestListTimelineChain_PerViewerAndTakedown(t *testing.T) {
 	c := newLTChain(t, func(cfg *config.Config) { cfg.FeatureRemovedIDs = flags.Spec{Name: "removed_ids", Mode: flags.On} })
@@ -400,7 +400,7 @@ func TestListTimelineChain_WindowQueryAtOneHundredFiftyMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 55 removals by other authors, newer than the token: a cold cache loads only the newest 50, so its coverage starts after the
-	// token and the refresh must be answered by the per-feed window query, the 107-read worst case.
+	// token and the refresh must be answered by the per-feed window query.
 	for i := 0; i < 55; i++ {
 		id := fmt.Sprintf("%019d", rand.Int64N(9_000_000_000_000_000_000)+1)
 		now := time.Now().UTC()

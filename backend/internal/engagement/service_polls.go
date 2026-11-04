@@ -73,7 +73,7 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 		}
 		noteRejected(ctx, err)
 	}()
-	// D6 step 3: shape, 0 reads. The message never echoes the value.
+	// D6 step 3: shape only, no reads. The message never echoes the value.
 	if err := validate(key, postID); err != nil {
 		return PollVote{}, err
 	}
@@ -83,7 +83,7 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	if choiceIndex < 0 || choiceIndex >= posts.MaxPollChoices {
 		return PollVote{}, apierr.Validation("choice_index", "choice_index must be between 0 and 3")
 	}
-	// expected_choice (A2.2) is 0 or the 1-based choice the caller holds; shape only, 0 reads. A value beyond the poll's options never matches.
+	// expected_choice (A2.2) is 0 or the 1-based choice the caller holds; shape only, no reads. A value beyond the poll's options never matches.
 	if expectedChoice < 0 || expectedChoice > posts.MaxPollChoices {
 		return PollVote{}, apierr.Validation("expected_choice", "expected_choice must be between 0 and 4")
 	}
@@ -123,7 +123,7 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 		return PollVote{}, apierr.Validation("choice_index", "choice_index is not a choice of this poll")
 	}
 	// Step 5e (A1): the voter blocks the author. After the closed and range checks, so a blocked voter on a closed poll refreshes to the final
-	// results; after Viewable, so an author who blocks the voter has already answered the one NOT_FOUND. 0 reads: the snapshot is the one
+	// results; after Viewable, so an author who blocks the voter has already answered the one NOT_FOUND. No read: the snapshot is the one
 	// Viewable just cached. A replay is refused too (A1.1).
 	blocked, berr := s.voterBlocksAuthor(ctx, uid, target.AuthorID)
 	if berr != nil {
@@ -139,7 +139,7 @@ func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceI
 	return s.decideAndWrite(ctx, uid, target, choice, int(expectedChoice), &outcome)
 }
 
-// voterBlocksAuthor reports whether uid blocks authorID, from the caller's own graph snapshot (blocked[], cached 60 s: +0 reads after Viewable).
+// voterBlocksAuthor reports whether uid blocks authorID, from the caller's own graph snapshot (blocked[], cached 60 s: no extra read after Viewable).
 // It fails closed: no graph wired, or a snapshot error, is an error and never "not blocked".
 func (s *service) voterBlocksAuthor(ctx context.Context, uid, authorID string) (bool, error) {
 	if s.d.Graph == nil {
@@ -176,7 +176,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 			}
 			switch res {
 			case VotePostGone:
-				return PollVote{}, notFound() // deleted between the visibility read and the commit: 0 writes
+				return PollVote{}, notFound() // deleted between the visibility read and the commit: nothing written
 			case VoteWritten:
 				logger.SetRequestField(ctx, fieldOutcome, outcomeVoted)
 				post := target.Voted(choice)
@@ -203,10 +203,10 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 			continue
 		}
 		switch {
-		case cur.Choice == choice: // a replay: the current view, 0 writes
+		case cur.Choice == choice: // a replay: the current view, nothing written
 			logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
 			return s.pollVoteView(ctx, uid, target, choice, false), nil
-		case expected != cur.Choice+1: // a stale or absent expected_choice: today's answer, 0 writes
+		case expected != cur.Choice+1: // a stale or absent expected_choice: today's answer, nothing written
 			*outcome = outcomeStale
 			return PollVote{}, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED,
 				"you already voted in this poll").WithMeta(pollMetaChoice, strconv.Itoa(cur.Choice))
@@ -237,7 +237,7 @@ func (s *service) decideAndWrite(ctx context.Context, uid string, target *posts.
 }
 
 // pollVoteView builds the response of a committed or replayed vote: the viewer's like, repost and bookmark flags from the
-// userLikes cache (1 read when cold), with viewer_poll_choice and results_visible from THIS call's vote, never from userLikes
+// userLikes cache, with viewer_poll_choice and results_visible from THIS call's vote, never from userLikes
 // (D6 step 8), so a replay shows the results even when the userLikes entry was trimmed. The cache is updated from the written
 // data; a failed userLikes read degrades to a view without those flags (logged), it never fails a committed vote.
 func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post, choice int, wrote bool) PollVote {
@@ -261,7 +261,7 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 	}
 	out := PollVote{Post: post, Viewer: vs}
 	if s.d.Audience != nil && s.d.Graph != nil {
-		// 0 reads: the snapshot is the one the visibility check just cached.
+		// No read: the snapshot is the one the visibility check just cached.
 		if snap, err := s.d.Graph.Snapshot(ctx, uid); err == nil {
 			out.Hint = RowHint{Protected: s.d.Audience.ProtectedAuthor(ctx, uid, post.AuthorID, snap.Following[post.AuthorID])}
 		}
@@ -273,7 +273,7 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 }
 
 // trimPollVotes is the lazy trim of userLikes.pollVotes (the TrimLikes pattern A3): a cached list over
-// PollViewerVotesKept + slack gets its oldest entries ArrayRemoved down to PollViewerVotesKept (1 write, no read). Best effort: a
+// PollViewerVotesKept + slack gets its oldest entries ArrayRemoved down to PollViewerVotesKept (no read). Best effort: a
 // failure is logged and the list stays long until the next vote. The read side never trims.
 func (s *service) trimPollVotes(ctx context.Context, uid string) {
 	kept := s.d.PollViewerVotesKept
@@ -339,7 +339,7 @@ func withPollVote(list []string, postID, entry string) []string {
 
 // pruneExpiredPollVotes drops the expired userLikes.pollVotes entries (closesAt + POLL_VOTE_TTL_AFTER_CLOSE, poll_retention.go) from
 // a freshly loaded document: they are never cached or shown, and one best-effort field-level Update (an Exists precondition, no
-// read, 1 write, once per expiry because the removal is persisted) removes them from Firestore. A failed write is logged and
+// read, once per expiry because the removal is persisted) removes them from Firestore. A failed write is logged and
 // retried the next time the document is loaded (at most once per CACHE_TTL per instance); DEGRADED_MODE=readonly writes nothing.
 // Staleness: a cached copy can show the check mark of an entry that expired inside the last CACHE_TTL (60 s).
 func (s *service) pruneExpiredPollVotes(ctx context.Context, uid string, ul UserLikes) UserLikes {

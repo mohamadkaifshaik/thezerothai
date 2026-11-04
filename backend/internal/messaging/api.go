@@ -33,7 +33,7 @@ type FlagChecker interface {
 }
 
 // Service is the Connect handler's dependency. Each method takes the caller's uid from the token (never
-// from the request), checks the flag before any Firestore access (FEATURE_DISABLED feature=messaging, 0 reads) and then
+// from the request), checks the flag before any Firestore access (FEATURE_DISABLED feature=messaging, nothing read) and then
 // applies the rules. The request and response are the wire messages: there is no domain model before then needs one.
 //
 // Flag class per method (D6): Send and Accept need the flag on for the caller; ListConversations, ListMessages, MarkRead
@@ -107,13 +107,13 @@ type UnreadCounter interface {
 
 // UnreadBadge implements identity.MessageBadge without importing identity: the method has exactly the
 // interface's shape, so apiserver passes it to identity.WithMessageBadge. It is the count() of dmInbox entries with
-// unreadCount > 0, Limit 100 (1 read). It does not check the flag: identity calls it only for a caller with messaging on.
+// unreadCount > 0, Limit 100. It does not check the flag: identity calls it only for a caller with messaging on.
 type UnreadBadge struct{ counter UnreadCounter }
 
 // NewUnreadBadge builds the badge on the repo.
 func NewUnreadBadge(c UnreadCounter) *UnreadBadge { return &UnreadBadge{counter: c} }
 
-// UnreadConversations: 1 read, 0 writes. The result is at most 100.
+// UnreadConversations returns the unread conversation count, at most 100; it never writes.
 func (b *UnreadBadge) UnreadConversations(ctx context.Context, uid string) (int64, error) {
 	return b.counter.CountUnreadConversations(ctx, uid)
 }

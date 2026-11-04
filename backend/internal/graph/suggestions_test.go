@@ -11,7 +11,6 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -80,7 +79,7 @@ func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := budget.WithCounter(w3Ctx(tt.uid))
+			ctx := w3Ctx(tt.uid)
 			repo := newFakeRepo()
 			_, err := w312Server(repo, tt.reg...).ListSuggestedUsers(ctx, connect.NewRequest(&graphv1.ListSuggestedUsersRequest{}))
 			if (repo.calls > 0) != (tt.want == "") {

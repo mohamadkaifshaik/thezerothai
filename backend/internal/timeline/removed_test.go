@@ -10,23 +10,20 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// fakeRemovals is a posts.Removals that records its cutoffs and charges a fixed number of reads per call.
+// fakeRemovals is a posts.Removals that records its cutoffs.
 type fakeRemovals struct {
 	ids       []string
 	truncated bool
 	err       error
-	reads     int64
 	cutoffs   []time.Time
 	scopes    []posts.RemovalScope
 }
 
-func (f *fakeRemovals) RemovedSince(ctx context.Context, cutoff time.Time, scope posts.RemovalScope) ([]string, bool, error) {
+func (f *fakeRemovals) RemovedSince(_ context.Context, cutoff time.Time, scope posts.RemovalScope) ([]string, bool, error) {
 	f.cutoffs = append(f.cutoffs, cutoff)
 	f.scopes = append(f.scopes, scope)
-	budget.FromContext(ctx).AddReads(f.reads)
 	return f.ids, f.truncated, f.err
 }
 
@@ -41,11 +38,11 @@ func TestRemovedIDs_HomeRefreshCarriesTheIDsAndUsesTheTokenIssueTime(t *testing.
 	r.follow("me", 3)
 	cold := r.mustHome("", "", 20)
 	issued := r.clock.Now()
-	f := withRemovals(r, &fakeRemovals{ids: []string{"9", "8"}, reads: 1})
+	f := withRemovals(r, &fakeRemovals{ids: []string{"9", "8"}})
 
 	// A refresh two days later: the cutoff is the token's issue time minus the lag, whatever the posts' times are.
 	r.clock.Advance(48 * time.Hour)
-	resp, _, err := r.home("me", cold.SinceToken, "", 20)
+	resp, err := r.home("me", cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,15 +55,6 @@ func TestRemovedIDs_HomeRefreshCarriesTheIDsAndUsesTheTokenIssueTime(t *testing.
 	if got, ok := r.info.Get(fieldRemoved); !ok || fmt.Sprint(got) != "2" {
 		t.Fatalf("logged %s = %v, want 2", fieldRemoved, got)
 	}
-	// The log's reads are charged to the request: the same refresh without a log costs one read less.
-	r2 := newRig(t)
-	r2.follow("me", 3)
-	c2 := r2.mustHome("", "", 20)
-	r2.clock.Advance(48 * time.Hour)
-	_, _, err = r2.home("me", c2.SinceToken, "", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestRemovedIDs_UserRefreshCarriesTheIDs(t *testing.T) {
@@ -76,7 +64,7 @@ func TestRemovedIDs_UserRefreshCarriesTheIDs(t *testing.T) {
 	cold := r.mustUser("me", "bob", false, "", "", 20)
 	f := withRemovals(r, &fakeRemovals{ids: []string{"7"}})
 	r.clock.Advance(time.Minute)
-	resp, _, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
+	resp, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,13 +73,13 @@ func TestRemovedIDs_UserRefreshCarriesTheIDs(t *testing.T) {
 	}
 }
 
-// Only a since_token refresh consults the log: cold opens and page tokens never carry removed_ids and never cost
-// a log read.
+// Only a since_token refresh consults the log: cold opens and page tokens never carry removed_ids and never consult
+// the log.
 func TestRemovedIDs_OnlyRefreshConsultsTheLog(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.follow("me", 3)
-	f := withRemovals(r, &fakeRemovals{ids: []string{"1"}, reads: 1})
+	f := withRemovals(r, &fakeRemovals{ids: []string{"1"}})
 	cold := r.mustHome("", "", 5)
 	if len(f.cutoffs) != 0 || len(cold.RemovedIds) != 0 {
 		t.Fatalf("cold open: log calls=%d removed_ids=%v", len(f.cutoffs), cold.RemovedIds)
@@ -119,12 +107,12 @@ func TestRemovedIDs_TruncatedRejectsTheSinceToken(t *testing.T) {
 		r := newRig(t)
 		r.follow("me", 3)
 		cold := r.mustHome("", "", 20)
-		withRemovals(r, &fakeRemovals{truncated: true, reads: 1})
+		withRemovals(r, &fakeRemovals{truncated: true})
 		r.posts.queries, r.graph.calls = nil, nil
-		_, counter, err := r.home("me", cold.SinceToken, "", 20)
+		_, err := r.home("me", cold.SinceToken, "", 20)
 		wantField(t, err, fieldSince)
 		if len(r.posts.queries) != 0 || len(r.graph.calls) != 1 {
-			t.Fatalf("reads=%d queries=%v graph=%v, want only the graph read and the log read", counter.Reads(), r.posts.queries, r.graph.calls)
+			t.Fatalf("queries=%v graph=%v, want no post query and only the graph read", r.posts.queries, r.graph.calls)
 		}
 		if got, ok := r.info.Get(fieldRemovedReset); !ok || got != true {
 			t.Fatalf("logged %s = %v, want true", fieldRemovedReset, got)
@@ -138,7 +126,7 @@ func TestRemovedIDs_TruncatedRejectsTheSinceToken(t *testing.T) {
 		withRemovals(r, &fakeRemovals{truncated: true})
 		r.clock.Advance(5 * time.Minute)
 		r.posts.queries = nil
-		_, _, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
+		_, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
 		wantField(t, err, fieldSince)
 		if len(r.posts.queries) != 0 {
 			t.Fatalf("a rejected refresh ran post queries %v", r.posts.queries)
@@ -153,7 +141,7 @@ func TestRemovedIDs_LogErrorFailsTheRefreshWithoutPostReads(t *testing.T) {
 	cold := r.mustHome("", "", 20)
 	withRemovals(r, &fakeRemovals{err: errors.New("firestore down")})
 	r.posts.queries = nil
-	_, _, err := r.home("me", cold.SinceToken, "", 20)
+	_, err := r.home("me", cold.SinceToken, "", 20)
 	var ae *apierr.Error
 	if err == nil || (errors.As(err, &ae) && ae.Metadata["field"] != "") {
 		t.Fatalf("err = %v, want a non-validation failure", err)
@@ -187,17 +175,17 @@ type namedFlags map[string]bool
 
 func (f namedFlags) Enabled(_, name string) bool { return f[name] }
 
-// TestRemovedIDs_FlagOffReadsNothing: FEATURE_REMOVED_IDS off for the caller means a refresh never consults the log
-// (0 reads, no rejection even if the log would truncate), while the posts flag still lets the RPC through.
-func TestRemovedIDs_FlagOffReadsNothing(t *testing.T) {
+// TestRemovedIDs_FlagOffAsksForNothing: FEATURE_REMOVED_IDS off for the caller means a refresh never consults the log
+// (no rejection even if the log would truncate), while the posts flag still lets the RPC through.
+func TestRemovedIDs_FlagOffAsksForNothing(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.follow("me", 3)
 	cold := r.mustHome("", "", 20)
-	f := withRemovals(r, &fakeRemovals{ids: []string{"9"}, truncated: true, reads: 50})
+	f := withRemovals(r, &fakeRemovals{ids: []string{"9"}, truncated: true})
 	r.srv.deps.Flags = namedFlags{"posts": true}
 	r.clock.Advance(time.Hour)
-	resp, _, err := r.home("me", cold.SinceToken, "", 20)
+	resp, err := r.home("me", cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatalf("refresh with the flag off: %v", err)
 	}
@@ -215,7 +203,7 @@ func TestRemovedIDs_ScopeIsTheFeedsAuthors(t *testing.T) {
 	cold := r.mustHome("", "", 20)
 	f := withRemovals(r, &fakeRemovals{})
 	r.clock.Advance(time.Minute)
-	if _, _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
+	if _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.scopes) != 1 || !reflect.DeepEqual(f.scopes[0].Authors, []string{"me", "f1", "f2", "f3"}) {
@@ -227,7 +215,7 @@ func TestRemovedIDs_ScopeIsTheFeedsAuthors(t *testing.T) {
 	uc := u.mustUser("me", "bob", false, "", "", 20)
 	uf := withRemovals(u, &fakeRemovals{})
 	u.clock.Advance(time.Minute)
-	if _, _, err := u.user("me", "bob", false, uc.SinceToken, "", 20); err != nil {
+	if _, err := u.user("me", "bob", false, uc.SinceToken, "", 20); err != nil {
 		t.Fatal(err)
 	}
 	if len(uf.scopes) != 1 || !reflect.DeepEqual(uf.scopes[0].Authors, []string{"bob"}) {

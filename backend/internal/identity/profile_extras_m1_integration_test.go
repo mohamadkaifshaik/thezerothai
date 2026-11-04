@@ -13,11 +13,10 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// M-1 against the Firestore emulator: a clear costs 1 read / 1 write for a caller
+// M-1 against the Firestore emulator: a clear succeeds for a caller
 // outside the cohort and under a globally pulled kill switch, and the operator's ClearProfileFields is one field-level
 // update that skips empty fields.
 
@@ -46,7 +45,7 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 
 			// A set from this caller is refused for free...
 			loc := "Delhi"
-			ctx, _ := budget.WithCounter(context.Background())
+			ctx := context.Background()
 			_, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, Location: &loc})
 			var ae *apierr.Error
 			if !errors.As(err, &ae) || ae.Code != connect.CodeFailedPrecondition {
@@ -55,7 +54,7 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 
 			// ... and a mixed request is refused whole.
 			empty := ""
-			ctx, _ = budget.WithCounter(context.Background())
+			ctx = context.Background()
 			_, err = svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, Website: &empty, Location: &loc})
 			if !errors.As(err, &ae) || ae.Code != connect.CodeFailedPrecondition {
 				t.Fatalf("mixed err = %v, want FEATURE_DISABLED", err)
@@ -64,8 +63,8 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 				t.Fatalf("a refused request changed the document: %v", after)
 			}
 
-			// The clear: 1 read, 1 write, whatever the flag says.
-			ctx, _ = budget.WithCounter(context.Background())
+			// The clear works whatever the flag says.
+			ctx = context.Background()
 			got, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
 				IdempotencyKey: validKeyForIntegration, BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty,
 			})
@@ -86,9 +85,9 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 				t.Errorf("a clear touched other fields: before %v after %v", before, after)
 			}
 
-			// Clearing what is already empty is the L-4 no-op: the read, no write, and
+			// Clearing what is already empty is the L-4 no-op: nothing is written, and
 			// updatedAt stays where the first clear put it.
-			ctx, _ = budget.WithCounter(context.Background())
+			ctx = context.Background()
 			if _, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
 				IdempotencyKey: validKeyForIntegration, BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty,
 			}); err != nil {
@@ -114,8 +113,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 	t.Run("dry run reads once, writes nothing and reports the stored values", func(t *testing.T) {
 		client, repo := newRepo(t)
 		before := userData(t, client, itUID)
-		cctx, _ := budget.WithCounter(ctx)
-		res, err := repo.ClearProfileFields(cctx, itUID, all, now, true)
+		res, err := repo.ClearProfileFields(ctx, itUID, all, now, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,8 +137,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 	t.Run("one field-level update clears the named fields, a rerun writes nothing", func(t *testing.T) {
 		client, repo := newRepo(t)
 		before := userData(t, client, itUID)
-		cctx, _ := budget.WithCounter(ctx)
-		res, err := repo.ClearProfileFields(cctx, itUID, all, now, false)
+		res, err := repo.ClearProfileFields(ctx, itUID, all, now, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,8 +160,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 			}
 		}
 
-		cctx, _ = budget.WithCounter(ctx)
-		res, err = repo.ClearProfileFields(cctx, itUID, all, now.Add(time.Hour), false)
+		res, err = repo.ClearProfileFields(ctx, itUID, all, now.Add(time.Hour), false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -182,8 +178,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		if _, err := client.Collection("users").Doc(itUID).Update(ctx, []firestore.Update{{Path: "avatarUrl", Value: ""}}); err != nil {
 			t.Fatal(err)
 		}
-		cctx, _ := budget.WithCounter(ctx)
-		res, err := repo.ClearProfileFields(cctx, itUID, []identity.ProfileField{identity.ProfileFieldAvatar, identity.ProfileFieldLocation}, now, false)
+		res, err := repo.ClearProfileFields(ctx, itUID, []identity.ProfileField{identity.ProfileFieldAvatar, identity.ProfileFieldLocation}, now, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,8 +196,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 
 	t.Run("a missing user is NotFound and is never recreated", func(t *testing.T) {
 		client, repo := newRepo(t)
-		cctx, _ := budget.WithCounter(ctx)
-		_, err := repo.ClearProfileFields(cctx, "gone-1", all, now, false)
+		_, err := repo.ClearProfileFields(ctx, "gone-1", all, now, false)
 		if !errors.Is(err, identity.ErrNotFound) {
 			t.Fatalf("err = %v, want ErrNotFound", err)
 		}
@@ -217,8 +211,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := userData(t, client, itUID)
-		cctx, _ := budget.WithCounter(ctx)
-		_, err := repo.ClearProfileFields(cctx, itUID, all, now, false)
+		_, err := repo.ClearProfileFields(ctx, itUID, all, now, false)
 		if !errors.Is(err, identity.ErrStatusConflict) {
 			t.Fatalf("err = %v, want ErrStatusConflict", err)
 		}

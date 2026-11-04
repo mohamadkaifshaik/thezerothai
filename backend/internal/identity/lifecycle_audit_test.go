@@ -365,23 +365,23 @@ func TestExportJob_RefusesAnExportWithoutAUser(t *testing.T) {
 	}
 }
 
-// TestGetAccountExport_BudgetOfEveryPath (Q6): every path, NOT_FOUND ones included, costs the one fresh read and no
-// write, only a READY export of the owner is signed, and a malformed id costs no read at all.
-func TestGetAccountExport_BudgetOfEveryPath(t *testing.T) {
+// TestGetAccountExport_EveryPath (Q6): every path, NOT_FOUND ones included, looks the export up once and writes
+// nothing, only a READY export of the owner is signed, and a malformed id is refused before any lookup.
+func TestGetAccountExport_EveryPath(t *testing.T) {
 	h := newHarness(t)
 	id := expID("u1", expKey1)
 	h.repo.exports[id] = &ExportDoc{ID: id, UID: "u1", Status: ExportReady, ObjectPath: id + ".json", ExpireAt: h.clock.Now().Add(time.Hour)}
 	tests := []struct {
-		name      string
-		uid, id   string
-		wantReads int
-		wantSign  int
-		wantErr   bool
+		name        string
+		uid, id     string
+		wantLookups int
+		wantSign    int
+		wantErr     bool
 	}{
-		{"owner, READY: 1 read, 1 signature", "u1", id, 1, 1, false},
-		{"another user: 1 read, no signature", "u2", id, 1, 0, true},
-		{"unknown id: 1 read", "u1", strings.Repeat("e", 64), 1, 0, true},
-		{"malformed id: 0 reads", "u1", "../x", 0, 0, true},
+		{"owner, READY: looked up, signed", "u1", id, 1, 1, false},
+		{"another user: looked up, not signed", "u2", id, 1, 0, true},
+		{"unknown id: looked up", "u1", strings.Repeat("e", 64), 1, 0, true},
+		{"malformed id: no lookup", "u1", "../x", 0, 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -390,8 +390,8 @@ func TestGetAccountExport_BudgetOfEveryPath(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v", err)
 			}
-			if got := h.repo.reads - readsBefore; got != tt.wantReads {
-				t.Errorf("reads = %d, want %d", got, tt.wantReads)
+			if got := h.repo.reads - readsBefore; got != tt.wantLookups {
+				t.Errorf("lookups = %d, want %d", got, tt.wantLookups)
 			}
 			if got := len(h.objs.signed) - signedBefore; got != tt.wantSign {
 				t.Errorf("signatures = %d, want %d", got, tt.wantSign)

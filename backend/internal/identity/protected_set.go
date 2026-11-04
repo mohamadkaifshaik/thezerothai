@@ -13,7 +13,6 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -31,8 +30,6 @@ const (
 	// protectedSetRetryBackoff is the pause after a failed refresh before the next attempt, so an outage costs one
 	// attempt per backoff on an instance rather than one per request.
 	protectedSetRetryBackoff = 5 * time.Second
-
-	fieldProtectedSetReads = "protected_set_reads"
 )
 
 // ErrProtectedSetUnavailable is returned by ProtectedAuthors.Current when the instance has no set younger than
@@ -82,14 +79,13 @@ func (s *protectedSet) with(uid string, add bool) *protectedSet {
 
 // ProtectedSetSource reads privacy/protectedAuthors. FirestoreRepo implements it.
 type ProtectedSetSource interface {
-	// LoadProtectedSet reads the set doc: 1 read (charged to the budget.Counter in ctx). A missing doc is an empty set.
+	// LoadProtectedSet reads the set doc. A missing doc is an empty set.
 	LoadProtectedSet(ctx context.Context) ([]string, error)
 }
 
 // ProtectedSetLoader implements ProtectedAuthors. Lazy: it reads only when a caller asks and its copy is
-// older than ttl. Concurrent callers share one refresh (singleflight). The read runs on a detached counter logged as
-// protected_set_reads, never charged to a caller. Reads: at most 1 per instance per ttl (60 s), plus at most one retry
-// per 5 s while refreshes fail; 0 while idle.
+// older than ttl. Concurrent callers share one refresh (singleflight). It loads at most once per instance per ttl (60 s), plus at most one retry
+// per 5 s while refreshes fail, and not at all while idle.
 //
 // Staleness bound: a served set is at most ttl old, or, while refreshes fail, at most maxStale old (WARN
 // protected_set_stale). Past maxStale, or never loaded, Current returns ErrProtectedSetUnavailable (ERROR
@@ -194,11 +190,10 @@ func (l *ProtectedSetLoader) Cached() (ProtectedSet, bool) {
 	return set, true
 }
 
-// refresh runs the one shared read. It uses its own context (not the first caller's cancellation) and its own counter.
+// refresh runs the one shared read. It uses its own context (not the first caller's cancellation).
 func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), protectedSetReadTimeout)
 	defer cancel()
-	rctx, counter := budget.WithCounter(rctx)
 	l.mu.Lock()
 	// Re-check inside the flight: a flight that finished just before this one started has already refreshed.
 	if l.set != nil && l.now().Sub(l.fetchedAt) < l.ttl {
@@ -216,7 +211,6 @@ func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 		uids, err = l.src.LoadProtectedSet(rctx)
 		return err
 	})()
-	logger.SetRequestField(reqCtx, fieldProtectedSetReads, counter.Reads())
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	deltas := l.applied

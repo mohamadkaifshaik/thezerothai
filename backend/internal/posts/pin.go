@@ -21,7 +21,7 @@ func NewPinChecker(r Reader) *PinChecker { return &PinChecker{reader: r} }
 // malformed id, a deleted post, one a moderator hid (taken down or author suspended), another user's post, a REPOST
 // Or an empty uid. A non-nil error is an infrastructure failure and is never collapsed into false.
 //
-// Reads: 1 cold, 0 warm (Reader.Get is cache-first); writes 0. Staleness bound: the posts instance cache TTL
+// It writes nothing (Reader.Get is cache-first). Staleness bound: the posts instance cache TTL
 // (CACHE_TTL, 60 s): a post deleted or taken down on another instance can still pass for up to that long; the D3
 // client backstop (GetPost answers NOT_FOUND for a hidden pin) and the post_delete job's Pins.ClearIfPinned cover it.
 func (c *PinChecker) CanPin(ctx context.Context, uid, postID string) (bool, error) {

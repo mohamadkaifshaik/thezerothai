@@ -34,8 +34,7 @@ class ReportTargetType extends $pb.ProtobufEnum {
   /// reported; a private, hidden, missing or blocking-owner list is the one NOT_FOUND "list not found", and the caller's own
   /// list => VALIDATION "target_id". The evidence is the owner's handle, the list's name and description and its creation
   /// time (no member id), kept in the report document with the post evidence's retention. Needs FEATURE_LISTS not globally
-  /// off; the existing reports quota applies. Firestore: reads cold 7 (interceptor 1, list 1, caller graph 1, owner users 1,
-  /// owner graph 1, report doc 1, quotas 1), warm 2; writes 2.
+  /// off; the existing reports quota applies.
   static const ReportTargetType REPORT_TARGET_TYPE_LIST =
       ReportTargetType._(4, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_LIST');
 
@@ -46,9 +45,8 @@ class ReportTargetType extends $pb.ProtobufEnum {
   /// community's name, description and rules and its creation time (no member id, no child doc), kept in the report
   /// document with the post evidence's retention. Reports of posts in a community use REPORT_TARGET_TYPE_POST; they go to
   /// the platform only, never to the community's moderators. Needs FEATURE_COMMUNITIES not globally off (else
-  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads); the existing reports quota
-  /// applies. Firestore: reads cold 5 (interceptor 1, community 1, owner users 1, report doc 1, quotas 1), warm 2;
-  /// writes 2.
+  /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup); the existing reports quota
+  /// applies.
   static const ReportTargetType REPORT_TARGET_TYPE_COMMUNITY =
       ReportTargetType._(
           5, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_COMMUNITY');

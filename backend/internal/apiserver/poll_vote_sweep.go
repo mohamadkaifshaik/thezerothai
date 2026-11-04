@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -41,7 +40,6 @@ func (s pollVoteSweepStep) Refresh(ctx context.Context) error {
 		s.log.InfoContext(ctx, "poll_vote_sweep", "outcome", "skipped_readonly")
 		return nil
 	}
-	ctx, c := budget.WithCounter(ctx)
 	ctx, cancel := context.WithTimeout(ctx, pollVoteSweepMax)
 	defer cancel()
 	defer func() {
@@ -52,7 +50,6 @@ func (s pollVoteSweepStep) Refresh(ctx context.Context) error {
 	res, err := s.sweeper.SweepPollVotes(ctx, s.now(), s.ttl)
 	attrs := []any{
 		"docs", res.Docs, "pruned", res.Pruned, "entries", res.Entries, "skipped", res.Skipped, "more", res.More,
-		"fs_reads", c.Reads(), "fs_writes", c.Writes(),
 	}
 	if err != nil {
 		s.log.ErrorContext(ctx, "poll_vote_sweep_failed", append(attrs, "error", logger.ScrubErr(err).Error())...)

@@ -28,8 +28,8 @@ type Export struct {
 }
 
 // ExportUser walks the subject's follow edges (both sides, 500 per page, every query limited), reads blocked
-// and muted from graph/{uid}, and resolves handles through the ProfileReader in batches of 50. Reads:
-// edges + 1 graph doc + one per distinct listed user; writes 0.
+// and muted from graph/{uid}, and resolves handles through the ProfileReader in batches of 50. It reads
+// the edges, the graph doc and one profile per distinct listed user, and writes nothing.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string) (Export, error) {
 	if r.profiles == nil {
 		return Export{}, fmt.Errorf("graph: export: ProfileReader not wired (SetProfiles)")

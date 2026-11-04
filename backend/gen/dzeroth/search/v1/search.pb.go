@@ -14,33 +14,30 @@
 //
 // Query grammar (the shared cases are testdata/search_query_grammar.json), applied before any read:
 // - Normalise: NFC, trim, lower-case. Then remove at most one leading sigil, '@' or '#'.
-// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads, when nothing is left (empty, "@" or "#"
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", before any lookup, when nothing is left (empty, "@" or "#"
 //   alone), when more than 50 code points are left (the sigil does NOT count: '#' plus a 50-code-point tag is valid),
 //   or when the query holds a control character or a bidi formatting control.
 // - People: a '#' sigil => unsupported. Otherwise the rest must match [a-z0-9_]{1,15}: 1 character => VALIDATION
 //   "query" (too short; "@a" and "a" alike); 2 to 15 => a handle prefix ("@ab" and "ab" are valid; full handles are
-//   3 to 15). Anything else => an empty answer with unsupported_query = true and 0 Firestore reads.
+//   3 to 15). Anything else => an empty answer with unsupported_query = true and no Firestore read.
 // - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it,
 // 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
 //   word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
-//   "#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+//   "#go!") => an empty answer with unsupported_query = true and no Firestore read; show "Search posts by #hashtag".
 //
 // Flags (clients learn them from IdentityService.GetMe enabled_features):
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
-//   or "trends", 0 reads.
+//   or "trends", before any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
-// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix; 0 reads.
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
 //   A negative page_size or limit is VALIDATION; values above the maximum are clamped.
 // - FAILED_PRECONDITION + FEATURE_DISABLED (above).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily";
 //   honour retry_after.
 // - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (PROTECTED_SET_MAX_STALE),
 // as every list does. Retry later.
-//
-// Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor.
 
 package searchv1
 

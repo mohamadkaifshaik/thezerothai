@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -52,10 +51,9 @@ func recipientFlagsOn(fl FlagChecker, uid string, t Type) bool {
 	return t != TypeMessage || fl.Enabled(uid, MessagingFlagName)
 }
 
-// RecipientCap is the per-actor daily cap on notification recipients (security audit N-1, the cost-caps-are-code rule). Every
-// recipient costs the project at least 1 + R reads and 1 write in the fan-out handler (more with devices), paid
-// from the shared free quota, so the actor is charged for them at the producer: 0 reads, in memory, before the
-// publish. An event is admitted or dropped whole. The count is per Cloud Run instance lifetime and resets at IST
+// RecipientCap is the per-actor daily cap on notification recipients (security audit N-1). Every
+// recipient makes the fan-out handler read and write documents (more with devices), so the actor is limited at the
+// producer, in memory and before the publish. An event is admitted or dropped whole. The count is per Cloud Run instance lifetime and resets at IST
 // midnight (ratelimit.DailyCap; the same accepted approximation as every in-memory cap here).
 type RecipientCap struct {
 	established, newAccount *ratelimit.DailyCap
@@ -126,7 +124,7 @@ func (e *PubSubEmitter) WithRecipientCap(c *RecipientCap) *PubSubEmitter {
 
 var _ Emitter = (*PubSubEmitter)(nil)
 
-// Emit implements Emitter. Reads 0, writes 0, one Pub/Sub publish when there is at least one eligible recipient
+// Emit implements Emitter. It touches no Firestore document and makes one Pub/Sub publish when there is at least one eligible recipient
 // and the actor is under the daily recipient cap (N-1; an over-cap event is dropped and logged, nothing published).
 // A failed publish is logged and returned, never fatal to the producer.
 func (e *PubSubEmitter) Emit(ctx context.Context, ev Event) error {
@@ -194,10 +192,8 @@ func (e *InlineEmitter) Emit(ctx context.Context, ev Event) error {
 		e.log.WarnContext(ctx, "notification_inline_dropped", "type", string(ev.Type), "reason", "busy")
 		return nil
 	}
-	// The delivery is its own unit of work (a push request in production), so it gets its own budget counter:
-	// WithoutCancel keeps ctx's values, and the fan-out's reads would otherwise land on the producer's counter
-	// whenever they beat its request log line, making the producer's fs_reads depend on goroutine timing.
-	bg, _ := budget.WithCounter(context.WithoutCancel(ctx))
+	// The delivery is its own unit of work (a push request in production), so the producer's cancellation must not end it.
+	bg := context.WithoutCancel(ctx)
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()

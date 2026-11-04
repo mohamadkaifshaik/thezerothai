@@ -11,8 +11,8 @@ package e2e
 //     profiles and, on prod, are on the FEATURE_GRAPH allowlist). No emulator env is needed and nothing
 //     is created except graph edges, which are removed again on exit.
 //
-// Budget: about 15 requests per run (well under the < 100-request prod smoke cap), about 15 reads and 12
-// writes. The test always leaves A and B with no follow and no block between them, so it is re-runnable.
+// Request count: about 15 requests per run (well under the < 100-request prod smoke cap). The test always
+// leaves A and B with no follow and no block between them, so it is re-runnable.
 
 import (
 	"context"

@@ -10,12 +10,11 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestGIF_Integration_CreatePostGates: the content type rides on the media claim, so the gif gate
-// costs the media reads and writes nothing; an allowed single GIF is stored with its content type and copies it to the
-// wire; a GIF next to a photo is VALIDATION. Budget: root + 1 image = idempotency, post, postsCount, quotas, media.postId.
+// writes nothing; an allowed single GIF is stored with its content type and copies it to the
+// wire; a GIF next to a photo is VALIDATION.
 func TestGIF_Integration_CreatePostGates(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
@@ -36,30 +35,28 @@ func TestGIF_Integration_CreatePostGates(t *testing.T) {
 	}
 	gif1, gif2, photo := seed(1, "image/gif"), seed(2, "image/gif"), seed(3, "image/jpeg")
 
-	create := func(n int, ids []string, gifOn bool) (*Post, *budget.Counter, error) {
-		ctx, c := measured(googleCtx(ctx0, "uid-alice"))
-		p, err := in.svc.Create(ctx, "uid-alice", CreateInput{
+	create := func(n int, ids []string, gifOn bool) (*Post, error) {
+		return in.svc.Create(googleCtx(ctx0, "uid-alice"), "uid-alice", CreateInput{
 			IdempotencyKey: key(n), Text: "gif", MediaIDs: ids, MediaEnabled: true, GifEnabled: gifOn,
 		})
-		return p, c, err
 	}
 
-	t.Run("gif off: FEATURE_DISABLED, media read only, 0 writes", func(t *testing.T) {
-		_, c, err := create(1, []string{gif1}, false)
+	t.Run("gif off: FEATURE_DISABLED and nothing written", func(t *testing.T) {
+		_, err := create(1, []string{gif1}, false)
 		ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-		if ae.Metadata["feature"] != "gif" {
-			t.Fatalf("feature=%q reads=%d writes=%d, want gif, <= 3 reads (idempotency, quotas, 1 media) and 0 writes", ae.Metadata["feature"], c.Reads(), c.Writes())
+		if ae.Metadata["feature"] != "gif" || countDocs(t, client, postsCollection) != 0 {
+			t.Fatalf("feature=%q posts=%d, want gif and no post written", ae.Metadata["feature"], countDocs(t, client, postsCollection))
 		}
 	})
-	t.Run("gif next to a photo: VALIDATION media_ids, 0 writes", func(t *testing.T) {
-		_, c, err := create(2, []string{gif2, photo}, true)
+	t.Run("gif next to a photo: VALIDATION media_ids and nothing written", func(t *testing.T) {
+		_, err := create(2, []string{gif2, photo}, true)
 		ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-		if ae.Metadata["field"] != "media_ids" {
-			t.Fatalf("field=%q writes=%d", ae.Metadata["field"], c.Writes())
+		if ae.Metadata["field"] != "media_ids" || countDocs(t, client, postsCollection) != 0 {
+			t.Fatalf("field=%q posts=%d, want media_ids and no post written", ae.Metadata["field"], countDocs(t, client, postsCollection))
 		}
 	})
 	t.Run("a single gif with the flag on is stored with its content type", func(t *testing.T) {
-		p, _, err := create(3, []string{gif1}, true)
+		p, err := create(3, []string{gif1}, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +72,7 @@ func TestGIF_Integration_CreatePostGates(t *testing.T) {
 		}
 	})
 	t.Run("a photo stays valid with the flag off", func(t *testing.T) {
-		if _, _, err := create(4, []string{photo}, false); err != nil {
+		if _, err := create(4, []string{photo}, false); err != nil {
 			t.Fatal(err)
 		}
 	})

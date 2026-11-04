@@ -4,12 +4,9 @@ import (
 	"context"
 	"sort"
 	"sync"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// fakeScheduledStore is an in-memory ScheduledLister, ScheduledPurger and ScheduledExportSource. It charges reads and
-// deletes the way FirestoreRepo does (a query: one per document, minimum 1; a purge: one delete per document).
+// fakeScheduledStore is an in-memory ScheduledLister, ScheduledPurger and ScheduledExportSource.
 type fakeScheduledStore struct {
 	mu    sync.Mutex
 	docs  map[string][]*ScheduledPost // uid -> documents
@@ -62,7 +59,6 @@ func (f *fakeScheduledStore) page(ctx context.Context, uid string, keep func(*Sc
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	budget.FromContext(ctx).AddQueryReads(len(out))
 	return out, nil
 }
 
@@ -85,8 +81,6 @@ func (f *fakeScheduledStore) PurgeScheduledPage(ctx context.Context, uid string)
 	}
 	all := f.sorted(uid, func(*ScheduledPost) bool { return true }, nil)
 	n := min(len(all), opsPage)
-	budget.FromContext(ctx).AddQueryReads(n)
-	budget.FromContext(ctx).AddDeletes(int64(n))
 	f.docs[uid] = all[n:]
 	return n, nil
 }

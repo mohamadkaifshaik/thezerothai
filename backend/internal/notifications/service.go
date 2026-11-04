@@ -99,10 +99,9 @@ func clampPageSize(n int32) int {
 	return int(n)
 }
 
-// List: reads rows returned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph snapshot
-// (cached 60 s: 0 on a hit, +1 cold; the blockedBy overflow is not consulted here, see visible); a refresh with
-// nothing new reads 1 (+ the graph). The seen_at profile is the account-status interceptor's cached entry (0 reads
-// on a hit, +1 on a cold instance). Writes 0.
+// List: reads the page of rows (20 at the default page, 50 at the maximum) and the caller's graph snapshot
+// (cached 60 s; the blockedBy overflow is not consulted here, see visible). The seen_at profile is the account-status
+// interceptor's cached entry. It writes nothing.
 //
 // Filtering runs after the page query, so a page may come back shorter than page_size, or empty, while more rows
 // exist: the tokens are computed from the raw rows (what was scanned), never the filtered ones, and the client
@@ -234,8 +233,7 @@ func (s *service) sinceToken(uid string, rows []Notification, prev *cursor.Curso
 // that marks seen on every tab focus must not turn each focus into a write.
 const MarkSeenMinInterval = 10 * time.Second
 
-// MarkSeen: 0 reads (the profile is the account-status interceptor's cached entry; +1 on a cold instance), 1
-// write, 0 writes when the cached seen_at is younger than MarkSeenMinInterval (the cached value is returned and
+// MarkSeen: the profile is the account-status interceptor's cached entry. It writes the seen_at, but nothing when the cached seen_at is younger than MarkSeenMinInterval (the cached value is returned and
 // nothing is evicted). The per-uid daily call cap is limit_name "notification_seen_daily" (apiserver).
 func (s *service) MarkSeen(ctx context.Context, uid, idempotencyKey string) (time.Time, error) {
 	if !idempotency.KeyFormatValid(idempotencyKey) {
@@ -300,9 +298,9 @@ func (s *service) checkToken(ctx context.Context, uid, token string) error {
 	return nil
 }
 
-// RegisterDevice: reads worst 8 / typical 2, writes worst 5 / typical 2 (0 when fresh). See FirestoreRepo.RegisterDevice.
-// The FCM dry-run validation (N-5) is a Google API call, not a Firestore operation: it costs 0 reads and 0 writes,
-// and a token it rejects returns INVALID_ARGUMENT before the repo is touched (0 reads, 0 writes).
+// RegisterDevice: see FirestoreRepo.RegisterDevice for what is read and written (a fresh registration writes nothing).
+// The FCM dry-run validation (N-5) is a Google API call, not a Firestore operation, and a token it rejects returns
+// INVALID_ARGUMENT before the repo is touched.
 func (s *service) RegisterDevice(ctx context.Context, uid string, in DeviceInput) error {
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
@@ -327,7 +325,7 @@ func (s *service) RegisterDevice(ctx context.Context, uid string, in DeviceInput
 	return nil
 }
 
-// UnregisterDevice: reads 2, deletes 0-2.
+// UnregisterDevice removes the device and its token index (see FirestoreRepo.RemoveDevice).
 func (s *service) UnregisterDevice(ctx context.Context, uid, idempotencyKey, deviceID string) error {
 	if !idempotency.KeyFormatValid(idempotencyKey) {
 		return apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")

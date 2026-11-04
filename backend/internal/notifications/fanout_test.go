@@ -340,8 +340,8 @@ func TestHandler(t *testing.T) {
 						mustNoErr(t, json.Unmarshal([]byte(l), &line))
 					}
 				}
-				if line == nil || line["message_id"] != "m-1" || line["fs_reads"] == nil || line["fs_writes"] == nil || line["fanout_fs_reads"] == nil || line["rpc"] != fanoutRPC || line["push_throttled"] == nil {
-					t.Errorf("delivery log line = %v (needs message_id, fs_reads, fs_writes)", line)
+				if line == nil || line["message_id"] != "m-1" || line["rpc"] != fanoutRPC || line["push_throttled"] == nil {
+					t.Errorf("delivery log line = %v (needs message_id, rpc, push_throttled)", line)
 				}
 			}
 		})
@@ -461,7 +461,7 @@ func TestDeliver_FreshStatusReadAndWriteFreeLikeRedelivery(t *testing.T) {
 	if r.repo.foldWrite != 1 {
 		t.Errorf("fold writes = %d, want 1 (redelivery must be write-free)", r.repo.foldWrite)
 	}
-	// AddActor moves createdAt, so each of carol's 3 deliveries evicts bob's cached unread count (0 reads).
+	// AddActor moves createdAt, so each of carol's 3 deliveries evicts bob's cached unread count.
 	if want := "bob,bob,bob"; strings.Join(r.dir.forgottenUnread, ",") != want {
 		t.Errorf("after carol's likes forgottenUnread = %v, want %s", r.dir.forgottenUnread, want)
 	}

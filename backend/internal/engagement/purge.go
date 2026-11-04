@@ -20,7 +20,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -66,7 +65,7 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		}
 		return next, false, nil
 	default:
-		b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+		b := store.NewFirestoreBatch(r.client)
 		b.Delete(r.userLikesRef(uid))
 		if err := b.Commit(ctx); err != nil {
 			return cp, false, fmt.Errorf("engagement: purge %s: delete userLikes: %w", logger.HashUID(uid), err)
@@ -79,11 +78,6 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 // purgePage deletes up to purgePage docs of the user's likes or reposts with their post's counter.
 func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, likes bool) (n int, full bool, err error) {
 	docs, err := r.client.Collection(collection).Where("uid", "==", uid).Limit(purgePage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return 0, false, fmt.Errorf("engagement: purge %s: query: %w", logger.HashUID(uid), err)
 	}
@@ -100,7 +94,6 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 		s, _ := pid.(string)
 		rows = append(rows, row{ref: d.Ref, postID: s})
 	}
-	c := budget.FromContext(ctx)
 	stage := func(b store.Batch, rw row, counter bool) {
 		b.Delete(rw.ref, firestore.Exists)
 		if !counter || rw.postID == "" {
@@ -112,15 +105,12 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 			r.w.Writer.StageRepostCount(b, rw.postID, -1)
 		}
 	}
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	for _, rw := range rows {
 		stage(b, rw, true)
 	}
 	switch err := b.Commit(ctx); {
 	case err == nil:
-		c.AddWrites(scratch.Writes())
-		c.AddDeletes(scratch.Deletes())
 		return len(rows), len(docs) >= purgePage, nil
 	case !store.IsPreconditionFailed(err):
 		return 0, false, redactLikeDocErr(fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err), uid, docs)
@@ -134,13 +124,10 @@ func (r *FirestoreRepo) purgePage(ctx context.Context, uid, collection string, l
 			return done, false, fmt.Errorf("engagement: purge %s: %w", logger.HashUID(uid), err)
 		}
 		for _, counter := range []bool{true, false} {
-			var one budget.Counter
-			sb := store.NewFirestoreBatch(r.client, &one)
+			sb := store.NewFirestoreBatch(r.client)
 			stage(sb, rw, counter)
 			err := sb.Commit(ctx)
 			if err == nil {
-				c.AddWrites(one.Writes())
-				c.AddDeletes(one.Deletes())
 				done++
 				break
 			}
@@ -195,11 +182,6 @@ func (r *FirestoreRepo) exportCollection(ctx context.Context, uid, collection st
 			q = q.StartAfter(last)
 		}
 		docs, err := q.Documents(ctx).GetAll()
-		reads := int64(len(docs))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return fmt.Errorf("engagement: export %s: query: %w", logger.HashUID(uid), err)
 		}

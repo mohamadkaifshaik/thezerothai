@@ -15,7 +15,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -104,14 +103,14 @@ func TestCreate_Disclosure(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
-			p, c, err := e.create(CreateInput{
+			p, err := e.create(CreateInput{
 				IdempotencyKey: key1, Text: "hello",
 				PaidPartnership: tt.pp, MadeWithAI: tt.ai, DisclosureEnabled: tt.enabled,
 			})
 			if tt.wantReject {
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 				if ae.Metadata["feature"] != "content_disclosure" || e.repo.createCalls != 0 {
-					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
+					t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 				}
 				return
 			}
@@ -136,17 +135,17 @@ func TestCreate_Disclosure(t *testing.T) {
 func TestCreate_DisclosureIdempotency(t *testing.T) {
 	e := newCreateEnv()
 	in := CreateInput{IdempotencyKey: key1, Text: "hello", MadeWithAI: true, DisclosureEnabled: true}
-	first, _, err := e.create(in)
+	first, err := e.create(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay, c, err := e.create(in)
-	if err != nil || replay.ID != first.ID {
-		t.Fatalf("replay id=%v err=%v writes=%d", replay, err, c.Writes())
+	replay, err := e.create(in)
+	if err != nil || replay.ID != first.ID || e.repo.postsCount != 1 {
+		t.Fatalf("replay id=%v err=%v postsCount=%d, want the first post and one stored", replay, err, e.repo.postsCount)
 	}
 	changed := in
 	changed.PaidPartnership = true
-	_, _, err = e.create(changed)
+	_, err = e.create(changed)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 
 	// Pre-deploy record: stored under the legacy hash, retried by the new code without labels.
@@ -157,7 +156,7 @@ func TestCreate_DisclosureIdempotency(t *testing.T) {
 		postID: pidMine,
 	}}
 	e2.repo.docs[pidMine] = post(pidMine, testUID)
-	got, _, err := e2.create(CreateInput{IdempotencyKey: key2, Text: "hello"})
+	got, err := e2.create(CreateInput{IdempotencyKey: key2, Text: "hello"})
 	if err != nil || got.ID != pidMine {
 		t.Fatalf("legacy retry: post=%v err=%v, want a replay of %s", got, err, pidMine)
 	}
@@ -169,7 +168,7 @@ func TestCreate_DisclosureQuoteCopiesTargetLabels(t *testing.T) {
 	e := newDeleteEnv()
 	e.repo.docs[pidOther].PaidPartnership = true
 	e.repo.docs[pidOther].MadeWithAI = true
-	p, _, err := e.create(CreateInput{
+	p, err := e.create(CreateInput{
 		IdempotencyKey: key1, Text: "my take", QuoteOfPostID: pidOther, QuotesEnabled: true,
 		MadeWithAI: false, PaidPartnership: true, DisclosureEnabled: true,
 	})
@@ -190,7 +189,7 @@ func TestCreate_DisclosureQuoteCopiesTargetLabels(t *testing.T) {
 	// Quoting with the flag off for the caller still copies the target's labels (display never consults the flag).
 	e2 := newDeleteEnv()
 	e2.repo.docs[pidOther].MadeWithAI = true
-	q, _, err := e2.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
+	q, err := e2.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
 	if err != nil || q.PaidPartnership || q.MadeWithAI || q.Embedded == nil || !q.Embedded.MadeWithAI {
 		t.Fatalf("flag-off quote: %+v err=%v", q, err)
 	}
@@ -328,11 +327,11 @@ func TestExport_DisclosureShape(t *testing.T) {
 }
 
 // TestGet_WarmCacheKeepsDisclosure: CreatePost seeds the instance cache with SetPost, and a counter adjustment
-// copies the cached post; a warm Get (0 reads) must still carry both labels on the post and on its embed.
+// copies the cached post; a warm Get (no repo fetch) must still carry both labels on the post and on its embed.
 func TestGet_WarmCacheKeepsDisclosure(t *testing.T) {
 	e := newDeleteEnv()
 	e.repo.docs[pidOther].MadeWithAI = true
-	p, _, err := e.create(CreateInput{
+	p, err := e.create(CreateInput{
 		IdempotencyKey: key1, Text: "my take", QuoteOfPostID: pidOther, QuotesEnabled: true,
 		PaidPartnership: true, DisclosureEnabled: true,
 	})
@@ -343,10 +342,13 @@ func TestGet_WarmCacheKeepsDisclosure(t *testing.T) {
 		if step == "after AdjustCounts" {
 			e.cache.AdjustCounts(p.ID, 1, 0, 0)
 		}
-		ctx, _ := budget.WithCounter(context.Background())
-		got, err := e.svc.Get(ctx, p.ID)
+		fetchesBefore := e.repo.getAllCalls
+		got, err := e.svc.Get(context.Background(), p.ID)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if e.repo.getAllCalls != fetchesBefore {
+			t.Fatalf("%s: Get went to the repo, want the cache", step)
 		}
 		if !got.PaidPartnership || got.MadeWithAI || got.Embedded == nil || got.Embedded.PaidPartnership || !got.Embedded.MadeWithAI {
 			t.Fatalf("%s: labels lost on the cache path: %+v embedded %+v", step, got, got.Embedded)

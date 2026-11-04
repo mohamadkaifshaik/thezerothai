@@ -334,7 +334,7 @@ func TestLatest_TailPageWith50RowsFallsBackToANormalToken(t *testing.T) {
 }
 
 // A tampered tail token, a tail token on another tag, tab or caller, and a LATEST token on another tab are VALIDATION
-// page_token with 0 reads.
+// page_token without a query.
 func TestLatest_TailTokenBinding(t *testing.T) {
 	t.Parallel()
 	byTag := map[string][]*posts.Post{"go": tagWith(25, nil), "rust": tagWith(25, nil)}
@@ -366,7 +366,7 @@ func TestLatest_TailTokenBinding(t *testing.T) {
 	// A normal LATEST token (a busy tag) is not a tail token on another tab either: covered by TestPageToken_Rejections.
 }
 
-// Reads per tier, as the fake reader bills them (rows returned, minimum 1): page 1 at k <= 30 reads the 30-row entry, at
+// Rows queried per tier, as the fake reader tallies them (rows returned, minimum 1): page 1 at k <= 30 reads the 30-row entry, at
 // k 31..50 one 50-row query; an older page 20 rows at k <= 20 and 50 rows at k 21..50, whatever the page size is inside the
 // tier. The document figures are these + interceptor 1 + graph 1 + userLikes 1.
 func TestLatest_QueryReadsPerTier(t *testing.T) {

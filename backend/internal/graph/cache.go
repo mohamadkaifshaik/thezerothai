@@ -26,7 +26,7 @@ type edgeKey struct{ follower, followee string }
 type Cache struct {
 	snapshots *cache.LRU[string, Snapshot]
 	// edges holds whether follows/{follower}_{followee} exists, true and false alike, so a non-follower's
-	// repeat view is 0 reads too. Staleness bound: at most the TTL (config.CacheTTL, <= 60 s) behind another
+	// repeat view is served from memory too. Staleness bound: at most the TTL (config.CacheTTL, <= 60 s) behind another
 	// instance's write; this instance evicts the pair itself on every Follow, Unfollow and Block that
 	// changes or may have changed the edge (see ForgetEdge).
 	edges *cache.LRU[edgeKey, bool]

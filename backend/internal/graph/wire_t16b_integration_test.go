@@ -2,7 +2,7 @@
 
 // wire_t16b_integration_test.go is a scenario-specific rig: the real generated Connect handlers for
 // identity + graph, served from an httptest.Server over the already-wired services, with the interceptor
-// order that matters for these tests (caller uid -> budget counter -> daily list cap -> error mapping). It
+// order that matters for these tests (caller uid -> daily list cap -> error mapping). It
 // exists so can assert on serialized wire bytes (byte-identical NOT_FOUND, no `blockedBy` in any JSON
 // response) and on the interceptor-level list cap. It seeds nothing.
 package graph_test
@@ -28,7 +28,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -86,9 +85,6 @@ type rig struct {
 	srv *httptest.Server
 	rec *recorder
 
-	mu      sync.Mutex
-	counter *budget.Counter // Firestore ops of the most recent server-side call
-
 	// errLog captures what mw.ErrorMapping logs (JSON lines; INTERNAL errors are logged at ERROR).
 	errLog *syncBuffer
 }
@@ -141,15 +137,6 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 			return next(ctx, req)
 		}
 	})
-	count := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			ctx, c := budget.WithCounter(ctx)
-			r.mu.Lock()
-			r.counter = c
-			r.mu.Unlock()
-			return next(ctx, req)
-		}
-	})
 	rl := ratelimit.Config{}
 	if listDailyCap > 0 {
 		dc := ratelimit.NewDailyCap(listDailyCap)
@@ -182,7 +169,7 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 	for _, mod := range mods {
 		mod(&rl)
 	}
-	opts := connect.WithInterceptors(setUID, count, ratelimit.Interceptor(rl), mw.ErrorMapping(slog.New(slog.NewJSONHandler(r.errLog, nil))))
+	opts := connect.WithInterceptors(setUID, ratelimit.Interceptor(rl), mw.ErrorMapping(slog.New(slog.NewJSONHandler(r.errLog, nil))))
 
 	mux := http.NewServeMux()
 	idPath, idH := identityv1connect.NewIdentityServiceHandler(identity.NewServer(w.identity), opts)
@@ -193,13 +180,6 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 	t.Cleanup(r.srv.Close)
 	r.rec = &recorder{next: http.DefaultTransport}
 	return r
-}
-
-// lastOps returns the Firestore op counter of the most recent request handled by the server.
-func (r *rig) lastOps() *budget.Counter {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.counter
 }
 
 // caller is a pair of generated Connect (JSON) clients acting as one uid.

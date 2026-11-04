@@ -7,7 +7,7 @@ package apiserver
 // without the interceptors, so they cannot see the interceptor's read, the graph snapshot reads or the rate limiters.
 // This file runs ListConversations, ListMessages and MarkConversationRead through the whole chain, compares NOT_FOUND bytes on the wire,
 // walks the flag classes of the read RPCs (F6), and covers DEGRADED_MODE=readonly, the send and read caps, and the
-// suspended, muted and blockedByOverflow cases. A chain that measures is booted AFTER the data is written, so nothing is
+// suspended, muted and blockedByOverflow cases. A chain that reads is booted AFTER the data is written, so nothing is
 // warm (a cold instance).
 
 import (
@@ -64,11 +64,10 @@ func (e *dmChain) unread(t *testing.T, owner, peer dmUser) int64 {
 // convID is the deterministic conversation id of a pair.
 func convID(a, b dmUser) string { return messaging.ConversationID(a.uid, b.uid) }
 
-// Budget table of the read RPCs through the whole chain on a cold instance, against the proto doc comments:
-// ListConversations first INBOX page of n rows 3+n reads (interceptor, caller graph, query rows, request count()), REQUESTS
-// 2+n, a since refresh 3 worst; ListMessages first page 5+n (interceptor, conversation, caller graph, peer, caller entry, rows; older page 4+n), a poll 3 +
-// 1 per new message; MarkConversationRead 1 read (the interceptor's) and 1 write, 0 writes for a missing entry.
-func TestMessagingChain_ReadBudgetTable(t *testing.T) {
+// The read RPCs through the whole chain on a cold instance: ListConversations (first INBOX page, an older page,
+// REQUESTS, a since refresh), ListMessages (first page, a page of 50, an older page, a poll with nothing new and with one new
+// message) and MarkConversationRead, with and without an entry.
+func TestMessagingChain_ReadsOnAColdInstance(t *testing.T) {
 	setup := newDMChain(t, nil)
 	me := setup.user(t)
 	const peers, requests = 20, 3
@@ -111,14 +110,13 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 		t.Fatalf("setup: calm thread = %v, %v", calmThread, err)
 	}
 
-	measure := func(label, rpc string, run func(e *dmChain)) {
+	// cold runs one call on a cold instance (no cache is warm), so it is answered from what the data says.
+	cold := func(label string, run func(e *dmChain)) {
 		t.Helper()
-		e := newDMChain(t, nil) // a cold instance: no cache is warm
-		run(e)
-		got := e.lineBudget(t, rpc)
-		t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", label, got.Reads(), got.Writes(), got.Deletes())
+		t.Log(label)
+		run(newDMChain(t, nil))
 	}
-	measure("ListConversations INBOX first page of 20, cold", rpcListConversations, func(e *dmChain) {
+	cold("ListConversations INBOX first page of 20, cold", func(e *dmChain) {
 		r, err := e.listConvs(me, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, PageSize: 20})
 		if err != nil || len(r.GetConversations()) != 20 {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
@@ -127,25 +125,25 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 			t.Errorf("request_count = %d, want %d", r.GetRequestCount(), requests)
 		}
 	})
-	measure("ListConversations INBOX older page (2 rows), cold", rpcListConversations, func(e *dmChain) {
+	cold("ListConversations INBOX older page (2 rows), cold", func(e *dmChain) {
 		r, err := e.listConvs(me, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, PageSize: 20, PageToken: firstPage.GetNextPageToken()})
 		if err != nil || len(r.GetConversations()) != 2 {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
 		}
 	})
-	measure("ListConversations REQUESTS (3 rows), cold", rpcListConversations, func(e *dmChain) {
+	cold("ListConversations REQUESTS (3 rows), cold", func(e *dmChain) {
 		r, err := e.listConvs(me, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_REQUESTS})
 		if err != nil || len(r.GetConversations()) != requests {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
 		}
 	})
-	measure("ListConversations since, nothing new, cold", rpcListConversations, func(e *dmChain) {
+	cold("ListConversations since, nothing new, cold", func(e *dmChain) {
 		r, err := e.listConvs(me, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX, SinceToken: firstPage.GetSinceToken()})
 		if err != nil || len(r.GetConversations()) != 0 {
 			t.Fatalf("rows = %d, err = %v", len(r.GetConversations()), err)
 		}
 	})
-	measure("ListMessages first page of 20, cold", rpcListMessages, func(e *dmChain) {
+	cold("ListMessages first page of 20, cold", func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, heavy), PageSize: 20})
 		if err != nil || len(r.GetMessages()) != 20 || r.GetConversation() == nil {
 			t.Fatalf("messages = %d, conversation %v, err = %v", len(r.GetMessages()), r.GetConversation(), err)
@@ -155,34 +153,34 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 			t.Errorf("first page unread_count = %d, want 55", n)
 		}
 	})
-	measure("ListMessages first page of 50, cold", rpcListMessages, func(e *dmChain) {
+	cold("ListMessages first page of 50, cold", func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, heavy), PageSize: 50})
 		if err != nil || len(r.GetMessages()) != 50 {
 			t.Fatalf("messages = %d, err = %v", len(r.GetMessages()), err)
 		}
 	})
-	measure("ListMessages older page of 20, cold", rpcListMessages, func(e *dmChain) {
+	cold("ListMessages older page of 20, cold", func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, heavy), PageSize: 20, PageToken: thread.GetNextPageToken()})
 		if err != nil || len(r.GetMessages()) != 20 {
 			t.Fatalf("messages = %d, err = %v", len(r.GetMessages()), err)
 		}
 	})
-	measure("ListMessages poll, 0 new, cold", rpcListMessages, func(e *dmChain) {
+	cold("ListMessages poll, 0 new, cold", func(e *dmChain) {
 		// The token trails the newest message by the 5 s settle window, so the one message already seen comes back (the client
-		// dedupes by id); it is the query's minimum read, so the poll still costs 3.
+		// dedupes by id).
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, calm), SinceToken: calmThread.GetSinceToken()})
 		if err != nil || len(r.GetMessages()) > 1 || r.GetConversation() != nil || r.GetSinceToken() == "" {
 			t.Fatalf("poll = %d messages, conversation %v, err = %v", len(r.GetMessages()), r.GetConversation(), err)
 		}
 	})
 	setup.mustSend(t, calm, me, "one new")
-	measure("ListMessages poll, 1 new, cold", rpcListMessages, func(e *dmChain) {
+	cold("ListMessages poll, 1 new, cold", func(e *dmChain) {
 		r, err := e.listMsgs(me, &messagingv1.ListMessagesRequest{ConversationId: convID(me, calm), SinceToken: calmThread.GetSinceToken()})
 		if err != nil || len(r.GetMessages()) < 1 || len(r.GetMessages()) > 2 || r.GetMessages()[0].GetText() != "one new" {
 			t.Fatalf("poll = %v, err = %v", r.GetMessages(), err)
 		}
 	})
-	measure("MarkConversationRead, cold", rpcMarkRead, func(e *dmChain) {
+	cold("MarkConversationRead, cold", func(e *dmChain) {
 		if err := e.markRead(me, convID(me, heavy)); err != nil {
 			t.Fatal(err)
 		}
@@ -190,7 +188,7 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 	if n := setup.unread(t, me, heavy); n != 0 {
 		t.Errorf("unreadCount after MarkConversationRead = %d, want 0", n)
 	}
-	measure("MarkConversationRead, no entry, cold", rpcMarkRead, func(e *dmChain) {
+	cold("MarkConversationRead, no entry, cold", func(e *dmChain) {
 		if err := e.markRead(me, convID(me, setup.user(t))); err != nil {
 			t.Fatal(err)
 		}
@@ -198,9 +196,8 @@ func TestMessagingChain_ReadBudgetTable(t *testing.T) {
 }
 
 // A non-participant, an unknown id and a well-formed id nobody derives all answer ListMessages with the same NOT_FOUND
-// bytes, after at most 2 reads. A malformed id is VALIDATION. SendMessage by conversation_id answers the same bytes for
-// the same three causes. Foreign and tampered tokens are VALIDATION after the
-// interceptor's one read alone. MarkConversationRead on a conversation that is not the caller's is a success that writes
+// bytes. A malformed id is VALIDATION. SendMessage by conversation_id answers the same bytes for
+// the same three causes. Foreign and tampered tokens are VALIDATION. MarkConversationRead on a conversation that is not the caller's is a success that writes
 // nothing and touches nobody else's entry.
 func TestMessagingChain_ReadAuthzIsByteIdentical(t *testing.T) {
 	setup := newDMChain(t, nil)
@@ -314,9 +311,9 @@ func TestMessagingChain_ReadAuthzIsByteIdentical(t *testing.T) {
 	}
 }
 
-// A caller past the blockedBy cap pays one peer graph read per REQUESTS row, cold, on top of the 2 + rows of any other
-// caller. The chain measures after the data is written, so nothing is warm.
-func TestMessagingChain_RequestsOverflowCallerBudget(t *testing.T) {
+// A caller past the blockedBy cap still lists every REQUESTS row, cold. The chain is booted after the data is written, so
+// nothing is warm.
+func TestMessagingChain_RequestsOverflowCaller(t *testing.T) {
 	setup := newDMChain(t, nil)
 	x, a, b := setup.user(t), setup.user(t), setup.user(t)
 	setup.mustSend(t, a, x, "a request")

@@ -14,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -45,9 +44,7 @@ type Exporter interface {
 //	        remaining actor (one Directory.GetProfiles per page; deleted instead when that actor is gone or no
 //	        Directory is wired).
 //
-// Updated and deleted documents drop out of the next page, so every step is self-resuming after a crash. Reads:
-// one per document returned (1 for an empty page), plus one per device for its token index, plus the
-// GetProfiles cache misses of a step 2 page; deletes: one per deleted document, writes one per repointed row.
+// Updated and deleted documents drop out of the next page, so every step is self-resuming after a crash.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	switch cp.Step {
 	case 0:
@@ -82,9 +79,7 @@ func (r *FirestoreRepo) withRaceRetry(ctx context.Context, uid string, cp Checkp
 
 // purgeOwnRows is step 1: a page of the user's own notification rows.
 func (r *FirestoreRepo) purgeOwnRows(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
-	counter := budget.FromContext(ctx)
 	docs, err := r.notifications(uid).Select().Limit(opsPage).Documents(ctx).GetAll()
-	counter.AddQueryReads(len(docs))
 	if err != nil {
 		return cp, false, fmt.Errorf("notifications: purge %s step 1: query: %w", logger.HashUID(uid), err)
 	}
@@ -111,10 +106,8 @@ func (r *FirestoreRepo) purgeOwnRows(ctx context.Context, uid string, cp Checkpo
 
 // purgeActorRows is step 2: rows in other users' lists that name uid in actorIds.
 func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
-	counter := budget.FromContext(ctx)
 	docs, err := r.client.CollectionGroup(notificationsCollection).Where("actorIds", "array-contains", uid).
 		Select("actorIds", "actor.userId", "actorCount").Limit(opsPage).Documents(ctx).GetAll()
-	counter.AddQueryReads(len(docs))
 	if err != nil {
 		return cp, false, fmt.Errorf("notifications: purge %s step 2: query: %w", logger.HashUID(uid), err)
 	}
@@ -205,20 +198,18 @@ func (r *FirestoreRepo) purgeActorRows(ctx context.Context, uid string, cp Check
 // failed.
 func (r *FirestoreRepo) commitPurge(ctx context.Context, build func(store.Batch)) (bool, error) {
 	res, err := store.CommitWithRetry(ctx,
-		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		func() *store.FirestoreBatch { return store.NewFirestoreBatch(r.client) },
 		store.RetryConfig{MaxAttempts: purgeCommitAttempts, Backoff: purgeCommitBackoff},
 		build)
 	return res.Committed, err
 }
 
 func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
-	counter := budget.FromContext(ctx)
 	docs, err := r.devices(uid).Limit(opsPage).Documents(ctx).GetAll()
-	counter.AddQueryReads(len(docs))
 	if err != nil {
 		return cp, false, fmt.Errorf("notifications: purge %s devices: query: %w", logger.HashUID(uid), err)
 	}
-	b := store.NewFirestoreBatch(r.client, counter)
+	b := store.NewFirestoreBatch(r.client)
 	if len(docs) > 0 {
 		idxRefs := make([]*firestore.DocumentRef, 0, len(docs))
 		for _, s := range docs {
@@ -229,7 +220,6 @@ func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpo
 		}
 		if len(idxRefs) > 0 {
 			snaps, err := r.client.GetAll(ctx, idxRefs)
-			counter.AddReads(int64(len(idxRefs)))
 			if err != nil {
 				return cp, false, fmt.Errorf("notifications: purge %s devices: token index: %w", logger.HashUID(uid), err)
 			}
@@ -280,12 +270,9 @@ type exportedDevice struct {
 }
 
 // ExportUser implements Exporter: it streams {"userId", "devices": [...], "notifications": [...]} to w, newest
-// notifications first in pages of opsPage. Never a token, never another user's id. Reads: one per row, minimum 1
-// per query.
+// notifications first in pages of opsPage. Never a token, never another user's id.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
-	counter := budget.FromContext(ctx)
 	devDocs, err := r.devices(uid).Limit(opsPage).Documents(ctx).GetAll()
-	counter.AddQueryReads(len(devDocs))
 	if err != nil {
 		return fmt.Errorf("notifications: export %s devices: %w", logger.HashUID(uid), err)
 	}
@@ -313,7 +300,6 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			q = q.StartAfter(last)
 		}
 		docs, err := q.Documents(ctx).GetAll()
-		counter.AddQueryReads(len(docs))
 		if err != nil {
 			return fmt.Errorf("notifications: export %s: query: %w", logger.HashUID(uid), err)
 		}

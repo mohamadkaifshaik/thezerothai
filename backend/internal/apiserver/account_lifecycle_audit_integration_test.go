@@ -3,7 +3,7 @@
 package apiserver
 
 // Tester audit of the acceptance criteria over the real Build chain (Firestore, Auth, Pub/Sub and Storage
-// emulators): wire-level NOT_FOUND bytes, the budgets of replays and polls, degraded mode and the flag, the
+// emulators): wire-level NOT_FOUND bytes, replays and polls, degraded mode and the flag, the
 // interceptor exemption for every mounted RPC, a resumed job after the Auth user is already gone, concurrent
 // deliveries with exact counters, a double-submitted DeleteAccount, and the OIDC wall in front of the job routes.
 // Helpers come from account_lifecycle_integration_test.go and posts_restricted_test.go.
@@ -93,7 +93,7 @@ func intField(t *testing.T, e *lifecycleEnv, path, field string) int64 {
 	return n
 }
 
-// TestAccountLifecycle_ExportWireContract: budgets of the first request, its replay and the poll, and the Q6
+// TestAccountLifecycle_ExportWireContract: the first request, its replay and the poll, and the Q6
 // guarantee on the wire: an unknown id, another user's id, a malformed id and an expired export (document still
 // present, TTL lag) produce byte-identical responses.
 func TestAccountLifecycle_ExportWireContract(t *testing.T) {
@@ -500,7 +500,7 @@ func TestAccountLifecycle_ConcurrentDeleteAccount(t *testing.T) {
 	}
 }
 
-// TestAccountLifecycle_JobRoutesNeedOIDC ("Given a delivery without a valid OIDC token, then 401 and 0 reads"):
+// TestAccountLifecycle_JobRoutesNeedOIDC ("Given a delivery without a valid OIDC token, then 401"):
 // with the verifier configured, neither job route does anything for an unauthenticated or garbage-token caller, even
 // when the body is a perfectly valid message for a user who is past the start gate.
 func TestAccountLifecycle_JobRoutesNeedOIDC(t *testing.T) {

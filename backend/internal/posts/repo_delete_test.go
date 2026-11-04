@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -27,7 +26,7 @@ func (countersStub) AddFollowersCount(store.Batch, string, int64) {}
 func (countersStub) AddCounts(store.Batch, string, int64, int64)  {}
 
 // TestDeleteOwn_RetryLoop drives DeleteOwn's contention retry (jittered via store.CommitWithRetry) with injected
-// commit/backoff: success counts 1 write + 1 delete once, a failed precondition 0, exhaustion is an error.
+// commit/backoff: success deletes once, a failed precondition deletes nothing, exhaustion is an error.
 func TestDeleteOwn_RetryLoop(t *testing.T) {
 	t.Parallel()
 	aborted := status.Error(codes.Aborted, "lock")
@@ -38,10 +37,9 @@ func TestDeleteOwn_RetryLoop(t *testing.T) {
 		wantErr      bool
 		wantWaits    int
 		wantAttempts int
-		wantWrites   int64
 	}{
-		{name: "clean", results: []error{nil}, want: true, wantAttempts: 1, wantWrites: 1},
-		{name: "wins after contention", results: []error{aborted, nil}, want: true, wantWaits: 1, wantAttempts: 2, wantWrites: 1},
+		{name: "clean", results: []error{nil}, want: true, wantAttempts: 1},
+		{name: "wins after contention", results: []error{aborted, nil}, want: true, wantWaits: 1, wantAttempts: 2},
 		{name: "gone after contention", results: []error{aborted, status.Error(codes.NotFound, "x")}, wantWaits: 1, wantAttempts: 2},
 		{name: "exhausted", results: []error{aborted, aborted, aborted, aborted}, wantErr: true, wantWaits: 3, wantAttempts: 4},
 	}
@@ -58,7 +56,6 @@ func TestDeleteOwn_RetryLoop(t *testing.T) {
 			}
 			repo.backoff = func(context.Context, time.Duration) error { waits++; return nil }
 			ctx, info := logger.WithRequestInfo(context.Background())
-			ctx, _ = budget.WithCounter(ctx)
 
 			got, err := repo.DeleteOwn(ctx, "1", "uid-a")
 			if got != tt.want || (err != nil) != tt.wantErr || waits != tt.wantWaits {

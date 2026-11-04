@@ -4,8 +4,7 @@ package apiserver
 
 // Protected timelines through the real Build chain on the emulators, with the real protected-set loader and the real
 // UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
-//   - GetUserTimeline of a protected P for an unapproved viewer answers author_protected on all four tabs at 3 cold
-//     reads (interceptor, target users, caller graph) and 0 page reads, with no posts and no tokens, even when a
+//   - GetUserTimeline of a protected P for an unapproved viewer answers author_protected on all four tabs with no posts and no tokens, even when a
 //     follower filled the shared author-recent entry first and even for a since token issued while P was public;
 //   - a follower reads the tabs at the unchanged ceilings (24 at page 20) and P reads their own;
 //   - Home, another user's tabs and the caller's own Reposts tab: X's REPOST of P's post is dropped for an unapproved
@@ -96,7 +95,7 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 		tab  timelinev1.UserTimelineTab
 	}{{"posts", tabPostsPB}, {"replies", tabRepliesPB30}, {"media", tabMediaPB}, {"reposts", tabRepostsPB}}
 
-	t.Run("unapproved viewer: author_protected at 3 cold reads, 0 page reads, on every tab", func(t *testing.T) {
+	t.Run("unapproved viewer: author_protected with no posts and no tokens, on every tab", func(t *testing.T) {
 		for _, tc := range tabs {
 			r := newW320Chain(t, w330On)
 			resp, err := r.tabCall(stranger, p.uid, tc.tab, 20, "", "")

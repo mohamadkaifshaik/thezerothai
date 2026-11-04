@@ -126,7 +126,7 @@ func LoadSpec(envName, wireName string, defaultMode Mode) (Spec, error) {
 	return Spec{Name: wireName, Mode: mode, Allowlist: allow, Percent: percent}, nil
 }
 
-// Registry answers "is <name> enabled for <uid>" for every flag loaded at startup (0 reads: everything is
+// Registry answers "is <name> enabled for <uid>" for every flag loaded at startup (nothing is read from Firestore: everything is
 // resolved from the Spec values captured at process start).
 type Registry struct {
 	specs map[string]Spec

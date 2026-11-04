@@ -15,7 +15,7 @@ import (
 )
 
 // End-to-end emulator test of the levers: the real run flag handling and output over the real communities, posts and (for the
-// reports) fake report store. The cost line is the budget assertion.
+// reports) fake report store.
 func TestCommunity_Integration_CLI(t *testing.T) {
 	client, project := backfillTestClient(t)
 	ctx := context.Background()
@@ -59,14 +59,14 @@ func TestCommunity_Integration_CLI(t *testing.T) {
 		want   []string
 		status string
 	}{
-		{"suspend", []string{"community", "suspend", cid}, []string{"suspended: community_hash=", "wrote=true", "cost: reads=1 writes=1"}, "SUSPENDED"},
-		{"suspend again", []string{"community", "suspend", cid}, []string{"already suspended", "wrote=false", "cost: reads=1 writes=0"}, "SUSPENDED"},
+		{"suspend", []string{"community", "suspend", cid}, []string{"suspended: community_hash=", "wrote=true"}, "SUSPENDED"},
+		{"suspend again", []string{"community", "suspend", cid}, []string{"already suspended", "wrote=false"}, "SUSPENDED"},
 		{"archive of a suspended one is refused", []string{"community", "archive", cid}, nil, "SUSPENDED"},
-		{"dry-run restore", []string{"community", "restore", cid, "--dry-run"}, []string{"currently SUSPENDED", "cost: reads=1 writes=0"}, "SUSPENDED"},
-		{"restore", []string{"community", "restore", cid}, []string{"restored: community_hash=", "status=ACTIVE", "wrote=true", "cost: reads=1 writes=1"}, "ACTIVE"},
-		{"restore again", []string{"community", "restore", cid}, []string{"not suspended", "wrote=false", "cost: reads=1 writes=0"}, "ACTIVE"},
-		{"archive", []string{"community", "archive", cid}, []string{"archived: community_hash=", "wrote=true", "cost: reads=3 writes=2"}, "ARCHIVED"},
-		{"archive again", []string{"community", "archive", cid}, []string{"already ownerless", "wrote=false", "cost: reads=1 writes=0"}, "ARCHIVED"},
+		{"dry-run restore", []string{"community", "restore", cid, "--dry-run"}, []string{"currently SUSPENDED"}, "SUSPENDED"},
+		{"restore", []string{"community", "restore", cid}, []string{"restored: community_hash=", "status=ACTIVE", "wrote=true"}, "ACTIVE"},
+		{"restore again", []string{"community", "restore", cid}, []string{"not suspended", "wrote=false"}, "ACTIVE"},
+		{"archive", []string{"community", "archive", cid}, []string{"archived: community_hash=", "wrote=true"}, "ARCHIVED"},
+		{"archive again", []string{"community", "archive", cid}, []string{"already ownerless", "wrote=false"}, "ARCHIVED"},
 	}
 	for _, s := range steps {
 		_, out, errOut := runCLI(append(s.args, "--project", project)...)
@@ -98,7 +98,7 @@ func TestCommunity_Integration_CLI(t *testing.T) {
 }
 
 // takedown-post of a community post over the real posts and communities repositories: the post is TAKEN_DOWN and the community's
-// recentRemovals lists it (so the next community refresh answers it in removed_ids); the append is 1 read and 1 write, and a repeat writes
+// recentRemovals lists it (so the next community refresh answers it in removed_ids); a repeat writes
 // nothing. suspend-user's hide loop does the same once per community per page.
 func TestTakedownAndSuspend_Integration_CommunityRemovals(t *testing.T) {
 	client, project := backfillTestClient(t)
@@ -157,16 +157,15 @@ func TestTakedownAndSuspend_Integration_CommunityRemovals(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "community removal log: communities=1 entries=1 missing=0") {
 		t.Fatalf("takedown: code=%d out=%s err=%s", code, out, errOut)
 	}
-	// Takedown 1 read + 2 writes, the append 1 read + 1 write.
-	if !strings.Contains(out, "cost: reads=2 writes=3") {
-		t.Errorf("takedown cost: %s", out)
-	}
 	if got := removals(cidA); !slices.Equal(got, []string{p1}) {
 		t.Fatalf("removals(A) = %v", got)
 	}
 	code, out, _ = runCLI("takedown-post", "--post", p1, "--project", project)
-	if code != 0 || !strings.Contains(out, "cost: reads=2 writes=0") || strings.Contains(out, "community removal log") {
+	if code != 0 || strings.Contains(out, "community removal log") {
 		t.Errorf("repeat: code=%d out=%s", code, out)
+	}
+	if got := removals(cidA); !slices.Equal(got, []string{p1}) {
+		t.Errorf("removals(A) after a repeat takedown = %v, want [p1]", got)
 	}
 
 	// suspend-user: p1 is already hidden and listed (not appended again), p2 and p3 are new, p4 is a plain post.
