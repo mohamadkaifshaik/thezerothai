@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
-
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -127,7 +125,7 @@ func TestProfileSnapshot_RenameRewritesNewest100Posts(t *testing.T) {
 	}
 }
 
-func TestProfileSnapshot_DisplayNameEditAndDailyQuota(t *testing.T) {
+func TestProfileSnapshot_DisplayNameEditAndNoDailyQuota(t *testing.T) {
 	ctx := context.Background()
 	e := newSnapshotEnv(t)
 	u := e.newUser(t)
@@ -158,23 +156,13 @@ func TestProfileSnapshot_DisplayNameEditAndDailyQuota(t *testing.T) {
 		}
 	}
 
-	// Edits 2..5 are accepted, the 6th is RESOURCE_EXHAUSTED (5 snapshot edits a day).
-	for i, n := range []string{"Beta", "Gamma", "Delta", "Epsilon"} {
+	// Edits 2..6 are all accepted: there is no daily snapshot-edit quota (it used to stop at 5), and no quotas doc is written.
+	for i, n := range []string{"Beta", "Gamma", "Delta", "Epsilon", "Zeta"} {
 		if err := edit(n); err != nil {
 			t.Fatalf("edit %d: %v", i+2, err)
 		}
 	}
-	wireError(t, edit("Zeta"), connect.CodeResourceExhausted)
-	// A bio-only edit is not a snapshot edit.
-	bio := "still allowed"
-	if _, err := e.identity.UpdateProfile(ctx, authed(u.token, &identityv1.UpdateProfileRequest{IdempotencyKey: "bio-key-0000000001", Bio: &bio})); err != nil {
-		t.Fatalf("bio edit at the quota: %v", err)
-	}
-	snap, err := e.fs.Doc("quotas/" + u.uid).Get(ctx)
-	if err != nil {
-		t.Fatalf("quotas doc: %v", err)
-	}
-	if n, _ := snap.DataAt("snapshotEdits"); n != int64(5) {
-		t.Fatalf("snapshotEdits = %v, want 5", n)
+	if _, err := e.fs.Doc("quotas/" + u.uid).Get(ctx); err == nil {
+		t.Error("a display-name edit wrote quotas/{uid}")
 	}
 }

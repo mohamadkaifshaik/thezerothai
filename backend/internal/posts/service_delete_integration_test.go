@@ -41,7 +41,7 @@ func postExists(t *testing.T, client *firestore.Client, id string) bool {
 // TestDelete_Integration_AndNoOps covers the DeletePost acceptance criteria on the emulator.
 func TestDelete_Integration_AndNoOps(t *testing.T) {
 	client := newTestClient(t)
-	author := newCreateInstance(t, client, time.Nanosecond)
+	author := newCreateInstance(t, client)
 	author.signUp(t, "uid-alice", "alice")
 	author.signUp(t, "uid-bob", "bob")
 	mine, err := author.create(t, "uid-alice", key(1), "mine")
@@ -57,7 +57,7 @@ func TestDelete_Integration_AndNoOps(t *testing.T) {
 	}
 
 	// A second, cold instance: the post read is the only read (the interceptor's read is outside the call).
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 
 	// Another user's post: success, the post survives.
 	err = in.del("uid-alice", theirs.ID)
@@ -109,7 +109,7 @@ func TestDelete_Integration_AndNoOps(t *testing.T) {
 // instances, so every one passes the read and races to the batch) decrement postsCount exactly once.
 func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 	client := newTestClient(t)
-	author := newCreateInstance(t, client, time.Nanosecond)
+	author := newCreateInstance(t, client)
 	author.signUp(t, "uid-alice", "alice")
 	var ids []string
 	for i := 1; i <= 2; i++ {
@@ -129,7 +129,7 @@ func TestDelete_Integration_ConcurrentDeletesDecrementOnce(t *testing.T) {
 		errs  = make([]error, 5)
 	)
 	for i := 0; i < 5; i++ {
-		in := newCreateInstance(t, client, time.Nanosecond)
+		in := newCreateInstance(t, client)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -162,7 +162,7 @@ func setGraph(t *testing.T, client *firestore.Client, uid string, updates []fire
 // TestGetPost_Integration_Visibility: the GetPost acceptance criteria with real identity and graph.
 func TestGetPost_Integration_Visibility(t *testing.T) {
 	client := newTestClient(t)
-	setup := newCreateInstance(t, client, time.Nanosecond)
+	setup := newCreateInstance(t, client)
 	setup.signUp(t, "uid-alice", "alice")
 	setup.signUp(t, "uid-bob", "bob")
 	bobPost, err := setup.create(t, "uid-bob", key(1), "from bob")
@@ -171,7 +171,7 @@ func TestGetPost_Integration_Visibility(t *testing.T) {
 	}
 
 	// Cold instance, caller alice: the post, the author and the caller graph are all loaded, nothing written.
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	p, err := in.get("uid-alice", bobPost.ID)
 	if err != nil || p.ID != bobPost.ID {
 		t.Fatalf("get: %v %v", p, err)
@@ -185,14 +185,14 @@ func TestGetPost_Integration_Visibility(t *testing.T) {
 	// Alice blocked or muted bob: still returned.
 	setGraph(t, client, "uid-alice", []firestore.Update{
 		{Path: "blocked", Value: firestore.ArrayUnion("uid-bob")}, {Path: "muted", Value: firestore.ArrayUnion("uid-bob")}})
-	in = newCreateInstance(t, client, time.Nanosecond)
+	in = newCreateInstance(t, client)
 	if _, err := in.get("uid-alice", bobPost.ID); err != nil {
 		t.Fatalf("a caller who blocked the author still gets the post: %v", err)
 	}
 
 	// Bob blocked alice (alice.blockedBy has bob): NOT_FOUND, same bytes as a deleted post.
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "blockedBy", Value: firestore.ArrayUnion("uid-bob")}})
-	in = newCreateInstance(t, client, time.Nanosecond)
+	in = newCreateInstance(t, client)
 	_, blockedErr := in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, blockedErr)
 	_, missingErr := in.get("uid-alice", pid(777))
@@ -205,7 +205,7 @@ func TestGetPost_Integration_Visibility(t *testing.T) {
 	setGraph(t, client, "uid-alice", []firestore.Update{
 		{Path: "blockedBy", Value: firestore.ArrayRemove("uid-bob")}, {Path: "blockedByOverflow", Value: true}})
 	setGraph(t, client, "uid-bob", []firestore.Update{{Path: "blocked", Value: firestore.ArrayUnion("uid-alice")}})
-	in = newCreateInstance(t, client, time.Nanosecond)
+	in = newCreateInstance(t, client)
 	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
 
@@ -214,7 +214,7 @@ func TestGetPost_Integration_Visibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "blockedByOverflow", Value: false}})
-	in = newCreateInstance(t, client, time.Nanosecond)
+	in = newCreateInstance(t, client)
 	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
 
@@ -226,7 +226,7 @@ func TestGetPost_Integration_Visibility(t *testing.T) {
 	if _, err := client.Collection("users").Doc("uid-bob").Update(context.Background(), []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
 		t.Fatal(err)
 	}
-	in = newCreateInstance(t, client, time.Nanosecond)
+	in = newCreateInstance(t, client)
 	_, err = in.get("uid-alice", live.ID)
 	wantPostNotFound(t, err)
 }

@@ -61,7 +61,7 @@ func bookmarkBusyErr() error {
 }
 
 // mapBookmarkErr turns a BookmarkRepo error into the handler's answer: the cap, the reused key, an already shaped
-// apierr (the daily quota) as they are; exhausted contention (Aborted after the bounded re-runs) or the transaction's own
+// apierr as they are; exhausted contention (Aborted after the bounded re-runs) or the transaction's own
 // 5 s timeout as a retryable UNAVAILABLE logged at WARN; a client that left as CANCELED / DEADLINE_EXCEEDED (no server
 // fault); anything else a redacted internal error that reaches Error Reporting. The raw uid and post id are redacted from
 // that chain (a Firestore error embeds document paths), so a log line cannot link a uid hash to a private bookmark id.
@@ -106,8 +106,8 @@ func noteBookmarkOutcome(ctx context.Context, o BookmarkOutcome) {
 }
 
 // addBookmark implements Bookmarks.AddBookmark. Before the transaction: the visibility check
-// (which also covers a REPOST id) and the caller's profile for the new-account quota (cache first, so no extra read
-// behind the account-status interceptor). In the transaction: idempotency, quotas, userLikes.
+// (which also covers a REPOST id) and the caller's profile check (cache first, so no extra read
+// behind the account-status interceptor). In the transaction: idempotency, userLikes.
 func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ BookmarkState, err error) {
 	logger.SetRequestField(ctx, fieldOp, "add_bookmark")
 	defer func() {
@@ -126,17 +126,12 @@ func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ B
 	if err != nil {
 		return BookmarkState{}, err
 	}
-	prof, err := s.profile(ctx, uid)
-	if err != nil {
+	if _, err := s.profile(ctx, uid); err != nil {
 		return BookmarkState{}, err
-	}
-	limit := s.d.BookmarksPerDay
-	if s.isNew(prof) {
-		limit = s.d.NewAccountBookmarksPerDay
 	}
 	res, err := repo.Add(ctx, AddBookmarkParams{
 		UID: uid, PostID: target.ID, IdemKey: idempotency.Key(uid, rpcAddBookmark, key),
-		RequestHash: bookmarkRequestHash(postID), QuotaLimit: limit, MaxPerUser: s.d.BookmarksMaxPerUser,
+		RequestHash: bookmarkRequestHash(postID), MaxPerUser: s.d.BookmarksMaxPerUser,
 	})
 	if err != nil {
 		return BookmarkState{}, mapBookmarkErr(ctx, "add bookmark", uid, postID, err)
@@ -150,7 +145,7 @@ func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ B
 	return res.State, nil
 }
 
-// removeBookmark implements Bookmarks.RemoveBookmark: no visibility check and no quota, a user can always remove.
+// removeBookmark implements Bookmarks.RemoveBookmark: no visibility check, a user can always remove.
 func (s *service) removeBookmark(ctx context.Context, uid, key, postID string) (_ BookmarkState, err error) {
 	logger.SetRequestField(ctx, fieldOp, "remove_bookmark")
 	defer func() {

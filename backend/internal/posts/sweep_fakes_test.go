@@ -388,7 +388,6 @@ func newSweepEnv(t *testing.T, mut ...func(*SweepDeps, *sweepEnv)) *sweepEnv {
 	}
 	e.svc = New(Deps{
 		Repo: newFakeRepo(), Cache: e.cache, Events: e.events, Directory: e.dir,
-		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
 		Sweep: deps, Now: func() time.Time { return e.now },
 	}).(*service)
 	return e

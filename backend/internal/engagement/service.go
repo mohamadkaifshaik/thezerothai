@@ -54,19 +54,13 @@ type Deps struct {
 	Directory identity.Directory
 	Events    Events
 
-	LikesPerDay           int64
-	NewAccountLikesPerDay int64
-	PostsPerDay           int64
-	NewAccountPostsPerDay int64
-	NewAccountWindow      time.Duration
+	// NewAccountWindow decides the new-account tier of the poll-vote cap.
+	NewAccountWindow time.Duration
 
 	// BookmarkRepo is the storage of AddBookmark and RemoveBookmark; nil answers them with an internal error.
-	// BookmarksPerDay and NewAccountBookmarksPerDay are the daily AddBookmark quota (200 / 50), BookmarksMaxPerUser the
-	// per-user cap (1,000); all come from config.Quota.
-	BookmarkRepo              BookmarkRepo
-	BookmarksPerDay           int64
-	NewAccountBookmarksPerDay int64
-	BookmarksMaxPerUser       int
+	// BookmarksMaxPerUser is the per-user cap (1,000), from config.Quota.
+	BookmarkRepo        BookmarkRepo
+	BookmarksMaxPerUser int
 	// ListBookmarks: Graph filters blocked and muted authors (one cached snapshot per page), Flags
 	// decides viewer-state hydration (posts.HydrateViewer), CursorKey seals the page tokens (config.CursorHMACKey) and
 	// ReadOnly (DEGRADED_MODE=readonly) skips the lazy prune. Without Graph or CursorKey the list answers an internal
@@ -357,16 +351,11 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	if err != nil {
 		return Result{}, err
 	}
-	prof, err := s.profile(ctx, uid)
-	if err != nil {
+	if _, err := s.profile(ctx, uid); err != nil {
 		return Result{}, err
 	}
-	limit := s.d.LikesPerDay
-	if s.isNew(prof) {
-		limit = s.d.NewAccountLikesPerDay
-	}
 	// Concurrent likes of one post by one user (a retry storm, a double tap) collapse into one transaction per
-	// instance: they would only contend on the same like, post and quota docs. The followers did not write, so
+	// instance: they would only contend on the same like and post docs. The followers did not write, so
 	// they are replays (no counter bump, no notification).
 	//
 	// The flight runs on a context detached from the leader's cancellation (values such as the
@@ -376,7 +365,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// wrote nothing, gives up on its own context.
 	ch, leader := s.likeFlight.do(uid+"/"+target.ID, func() (any, error) {
 		fctx := context.WithoutCancel(ctx) // runTx bounds the transaction with txTimeout
-		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID, QuotaLimit: limit})
+		rep, err := s.d.Repo.Like(fctx, LikeParams{UID: uid, PostID: target.ID})
 		if err != nil {
 			return nil, err
 		}
@@ -413,19 +402,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 		logger.SetRequestField(ctx, fieldOutcome, outcomeNotFound)
 		return Result{}, notFound()
 	case err != nil:
-		var ae *apierr.Error
-		if errors.As(err, &ae) {
-			// At the daily limit a replay of a like the cache knows about is still a success (idempotent).
-			if ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED {
-				if st, ok := s.cache.get(uid); ok {
-					if liked, _ := st.set.Flags(target); liked {
-						logger.SetRequestField(ctx, fieldOutcome, outcomeReplay)
-						out := s.result(ctx, uid, target, 0, 0)
-						out.LikedByViewer = true
-						return out, nil
-					}
-				}
-			}
+		if errors.As(err, new(*apierr.Error)) {
 			return Result{}, err
 		}
 		return Result{}, logger.RedactErrPosts(fmt.Errorf("engagement: like: %w", err), []string{postID}, uid)
@@ -576,12 +553,8 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	if err != nil {
 		return Result{}, err
 	}
-	limit := s.d.PostsPerDay
-	if s.isNew(prof) {
-		limit = s.d.NewAccountPostsPerDay
-	}
 	res, err := s.d.Repo.Repost(ctx, RepostParams{
-		UID: uid, Original: target, QuotaLimit: limit, SnapshotVersion: prof.SnapshotVersion,
+		UID: uid, Original: target, SnapshotVersion: prof.SnapshotVersion,
 		Author: posts.AuthorSnapshot{
 			UserID: uid, Handle: prof.Handle, DisplayName: prof.DisplayName, AvatarURL: prof.AvatarThumbURL, Verified: prof.Verified,
 		},

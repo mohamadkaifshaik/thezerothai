@@ -228,7 +228,7 @@ func TestRespond_Integration_DriftIsDropped(t *testing.T) {
 
 // Paging: 25 pending requests are 20 + 5 rows (token then ""), newest first.
 func TestListFollowRequests_Integration_Pages(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(time.Nanosecond))
+	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-p", "userp")
 	protect(t, w, "uid-p")
 	reqs := mustCreateUsers(t, w.identity, "q", 25)

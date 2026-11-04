@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -120,7 +119,6 @@ type followDoc struct {
 // FirestoreRepo implements Repo (and identity.GraphInitializer) against the shared Firestore client.
 type FirestoreRepo struct {
 	client   *firestore.Client
-	quota    *quota.Store
 	counters identity.Counters
 	profiles ProfileReader
 	// txProfiles reads the Follow target's users doc inside the Follow transaction.
@@ -136,7 +134,7 @@ type FirestoreRepo struct {
 // call site (identity's GraphInitializer wiring, and every InitGraph-only test) keeps compiling. Call
 // SetCounters once identity.Counters is available (required before any Follow/Unfollow/Block/Mute call).
 func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
-	return &FirestoreRepo{client: client, quota: quota.New(client)}
+	return &FirestoreRepo{client: client}
 }
 
 // SetCounters wires identity.Counters (users/{uid} followers/following count increments). The counter
@@ -219,10 +217,7 @@ func (r *FirestoreRepo) getGraph(ctx context.Context, uid string) (doc, error) {
 }
 
 // getGraphTx is getGraph's transactional counterpart ("mutations read fresh inside their transaction").
-// It also returns the doc's Firestore CreateTime (zero if the doc doesn't exist): since
-// InitGraph creates graph/{uid} atomically with users/{uid} in CreateProfile's own transaction, this is a
-// free (already-fetched) proxy for account age — Block and Mute use it to pick the new-account quota tier
-// without needing a separate identity.Directory read (unlike Follow, which looks up the target's isPrivate flag).
+// It also returns the doc's Firestore CreateTime (zero if the doc doesn't exist).
 func (r *FirestoreRepo) getGraphTx(ctx context.Context, tx *firestore.Transaction, uid string) (doc, time.Time, error) {
 	snap, err := tx.Get(r.graphRef(uid))
 	if err != nil {
@@ -255,16 +250,6 @@ func (r *FirestoreRepo) getGraphTxExists(ctx context.Context, tx *firestore.Tran
 		return doc{}, false, fmt.Errorf("graph: decode %s: %w", uid, err)
 	}
 	return d, true, nil
-}
-
-// resolvedDailyLimit picks the new-account or standard daily limit from a graph doc's creation time
-// (Block/Mute; see getGraphTx's doc comment). A zero createdAt (defensive: a missing doc) is never treated
-// as a new account.
-func resolvedDailyLimit(createdAt, now time.Time, window time.Duration, standard, newAccountLimit int64) int64 {
-	if createdAt.IsZero() || now.Sub(createdAt) >= window {
-		return standard
-	}
-	return newAccountLimit
 }
 
 func followStateOf(d doc, uid string) FollowState {
@@ -319,15 +304,15 @@ type followHooks struct {
 // transaction (identity.TxProfiles.ProfileInTx, never the 60 s cache) so a protect that commits while a Follow is in
 // flight conflicts with it and the retry sees isPrivate: no Follow can slip past a just-committed protect. Precedence:
 // target missing or not ACTIVE / blocked-by (incl. the D2 overflow fallback) -> caller-blocks-target -> already
-// following (replay, before any request logic: I-X) -> protected target: request replay -> requested cap -> quota ->
-// request; public target: following-cap -> quota -> edge. A public target that is still in the caller's `requested`
+// following (replay, before any request logic: I-X) -> protected target: request replay -> requested cap ->
+// request; public target: following-cap -> edge. A public target that is still in the caller's `requested`
 // (the privacy_public job has not run yet) takes the edge path and also deletes the request.
 //
-// It reads the target users doc, the caller graph and quotas, plus the target graph only for an overflowed caller.
-// It writes either the edge (follows doc, caller graph, 2 counters, quota) or a request (followRequests Create,
-// caller graph `requested` ArrayUnion, quota), and nothing on any replay. It deletes a leftover request only on the
+// It reads the target users doc and the caller graph, plus the target graph only for an overflowed caller.
+// It writes either the edge (follows doc, caller graph, 2 counters) or a request (followRequests Create,
+// caller graph `requested` ArrayUnion), and nothing on any replay. It deletes a leftover request only on the
 // AQ4 path. The outcome tells the caller which of the three it was (Relationship.FollowState: FOLLOWING vs REQUESTED).
-func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error) {
 	profiles, err := r.txProfilesReader()
 	if err != nil {
 		return Relationship{}, "", err
@@ -375,11 +360,6 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			return ErrCallerBlocksTarget
 		}
 
-		rec, err := r.quota.Get(ctx, tx, callerUID)
-		if err != nil {
-			return err
-		}
-
 		muting := callerDoc.hasMuted(targetUID)
 		if callerDoc.hasFollowing(targetUID) { // I-X: an edge wins over any request, protected target or not
 			outcome = OutcomeReplay
@@ -403,9 +383,6 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 			if len(callerDoc.Requested) >= maxRequested {
 				return &LimitReachedError{Limit: "follow_requests"}
 			}
-			if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
-				return err
-			}
 			requestPath = true
 			b.Create(requestRef, requestDoc{FollowerID: callerUID, FolloweeID: targetUID, CreatedAt: now})
 			b.Update(r.graphRef(callerUID), []firestore.Update{
@@ -422,9 +399,6 @@ func (r *FirestoreRepo) Follow(ctx context.Context, callerUID, targetUID string,
 
 		if len(callerDoc.Following) >= maxFollowing {
 			return &LimitReachedError{Limit: "following"}
-		}
-		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Follows, dailyLimit); err != nil {
-			return err
 		}
 		edgeRef, err := r.followRef(callerUID, targetUID)
 		if err != nil {

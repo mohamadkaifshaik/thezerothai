@@ -119,76 +119,25 @@ func TestSweepIT_FailuresCommitInsteadOfRollingBack(t *testing.T) {
 	}
 }
 
-// TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead: the posts quota is checked right after the account, so an
-// item bound to fail never reaches the media or the handles (review L-4). The account tier comes from the profile read INSIDE the
-// transaction, not from the cached directory.
-func TestSweepIT_QuotaExhaustedFailsBeforeAnyMediaOrHandleRead(t *testing.T) {
-	setQuota := func(e *sweepIT, uid string, posts int64) {
-		if _, err := e.client.Collection("quotas").Doc(uid).Set(context.Background(), quota.Record{Day: quota.Today(), Posts: posts}); err != nil {
-			t.Fatal(err)
-		}
+// TestSweepIT_NoDailyPostsQuota: a legacy quotas/{uid} showing the old daily posts quota used up (20 for a new account) no
+// longer fails the item: it publishes, and the doc is left untouched.
+func TestSweepIT_NoDailyPostsQuota(t *testing.T) {
+	e := newSweepIT(t)
+	e.signUp("uid-alice", "alice")
+	it := e.seedDue("uid-alice", 1)
+	if _, err := e.client.Collection("quotas").Doc("uid-alice").Set(context.Background(), map[string]any{"day": quota.Today(), "posts": int64(100)}); err != nil {
+		t.Fatal(err)
 	}
-	// The draft names 2 images and 10 handles: none of them may be read.
-	heavy := func(e *sweepIT) func(*ScheduledPost) {
-		text := e.signUpFriends(10)
-		e.seedMedia("uid-alice", nil, 1, 2)
-		return func(p *ScheduledPost) {
-			p.Draft = &ScheduledDraft{Text: text, Media: []MediaRef{{ID: sweepMediaID(1)}, {ID: sweepMediaID(2)}}}
-		}
+	res := e.sweep()
+	if res.Published != 1 || res.Failed[FailureQuotaExceeded] != 0 {
+		t.Fatalf("res = %+v, want the item published", res)
 	}
-
-	t.Run("a new account is held to the new-account limit", func(t *testing.T) {
-		e := newSweepIT(t, func(d *Deps) { d.NewAccountPostsPerDay = 1 })
-		e.signUp("uid-alice", "alice")
-		it := e.seedDue("uid-alice", 1, heavy(e))
-		setQuota(e, "uid-alice", 1)
-
-		res := e.sweep()
-		if res.Failed[FailureQuotaExceeded] != 1 || res.Published != 0 {
-			t.Fatalf("res = %+v", res)
-		}
-		if got := e.media.loadCount(); got != 0 {
-			t.Errorf("the media were read %d time(s) for an item over its quota", got)
-		}
-		e.assertTerminal(it, ScheduledFailed, FailureQuotaExceeded)
-		if e.quotaPosts("uid-alice") != 1 || e.postsCount("uid-alice") != 0 {
-			t.Errorf("quota posts %d (want the untouched 1), postsCount %d (want 0)", e.quotaPosts("uid-alice"), e.postsCount("uid-alice"))
-		}
-	})
-	t.Run("an established account has the higher limit (createdAt read in the transaction)", func(t *testing.T) {
-		e := newSweepIT(t, func(d *Deps) { d.NewAccountPostsPerDay = 1 })
-		e.signUp("uid-alice", "alice")
-		e.setUserField("uid-alice", "createdAt", time.Now().Add(-72*time.Hour).UTC())
-		e.seedDue("uid-alice", 1)
-		setQuota(e, "uid-alice", 1)
-
-		res := e.sweep()
-		if res.Published != 1 || e.quotaPosts("uid-alice") != 2 {
-			t.Fatalf("res = %+v quota posts = %d, want published and the quota at 2", res, e.quotaPosts("uid-alice"))
-		}
-	})
-	t.Run("one below the limit still publishes, and reaches it", func(t *testing.T) {
-		e := newSweepIT(t, func(d *Deps) { d.NewAccountPostsPerDay = 2 })
-		e.signUp("uid-alice", "alice")
-		e.seedDue("uid-alice", 1)
-		setQuota(e, "uid-alice", 1)
-		res := e.sweep()
-		if res.Published != 1 || e.quotaPosts("uid-alice") != 2 {
-			t.Fatalf("res = %+v quota = %d", res, e.quotaPosts("uid-alice"))
-		}
-	})
-	t.Run("yesterday's counter does not count (the IST day reset)", func(t *testing.T) {
-		e := newSweepIT(t, func(d *Deps) { d.NewAccountPostsPerDay = 1 })
-		e.signUp("uid-alice", "alice")
-		e.seedDue("uid-alice", 1)
-		if _, err := e.client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: "2001-01-01", Posts: 50}); err != nil {
-			t.Fatal(err)
-		}
-		res := e.sweep()
-		if res.Published != 1 || e.quotaPosts("uid-alice") != 1 {
-			t.Fatalf("res = %+v quota = %d, want published against a fresh day", res, e.quotaPosts("uid-alice"))
-		}
-	})
+	if doc := e.raw(it); doc["status"] != string(ScheduledPublished) || doc["postId"] == nil {
+		t.Errorf("scheduled doc = %v, want PUBLISHED with a postId", doc)
+	}
+	if e.quotaPosts("uid-alice") != 100 || e.postsCount("uid-alice") != 1 {
+		t.Errorf("quota posts %d (want the untouched 100), postsCount %d (want 1)", e.quotaPosts("uid-alice"), e.postsCount("uid-alice"))
+	}
 }
 
 func TestSweepIT_ReadyUnscreenedImagesPublish(t *testing.T) {

@@ -6,10 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-
-	"connectrpc.com/connect"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // tests: the trigger side (UpdateProfile / ChangeHandle) over fakeRepo, and the job side over the lifecycle
@@ -19,41 +15,23 @@ type fakeSnapFlags struct{ on bool }
 
 func (f fakeSnapFlags) Enabled(_, name string) bool { return f.on && name == ProfileSnapshotFlag }
 
-type fakeSnapQuota struct {
-	perDay int64
-	used   int64
-	calls  int
-}
-
-func (q *fakeSnapQuota) Reserve(_ context.Context, _ string, perDay int64) error {
-	q.calls++
-	q.perDay = perDay
-	if q.used >= perDay {
-		return apierr.New(connect.CodeResourceExhausted, 0, "daily limit reached")
-	}
-	q.used++
-	return nil
-}
-
 type snapEnv struct {
-	repo  *fakeRepo
-	svc   *service
-	pub   *fakePublisher
-	quota *fakeSnapQuota
+	repo *fakeRepo
+	svc  *service
+	pub  *fakePublisher
 }
 
 func newSnapEnv(t *testing.T, flagOn bool) *snapEnv {
 	t.Helper()
 	repo := newFakeRepo()
 	pub := &fakePublisher{log: &opLog{}}
-	q := &fakeSnapQuota{}
 	svc := New(repo, NewCache(60e9), 7*24*60*60*1e9,
-		WithProfileSnapshots(ProfileSnapshotDeps{Publisher: pub, Flags: fakeSnapFlags{on: flagOn}, Quota: q, PerDay: 5}),
+		WithProfileSnapshots(ProfileSnapshotDeps{Publisher: pub, Flags: fakeSnapFlags{on: flagOn}}),
 	).(*service)
 	if _, err := svc.CreateProfile(context.Background(), "uid-1", validKey, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
-	return &snapEnv{repo: repo, svc: svc, pub: pub, quota: q}
+	return &snapEnv{repo: repo, svc: svc, pub: pub}
 }
 
 func strp(s string) *string { return &s }
@@ -71,12 +49,12 @@ func TestUpdateProfile_DisplayNameChange_BumpsVersionAndEnqueues(t *testing.T) {
 	if !ok || msg.Kind != JobKindProfileSnapshot || msg.UID != "uid-1" || msg.SnapshotVersion != 1 {
 		t.Fatalf("published %+v ok=%v, want one profile_snapshot_refresh for uid-1 v1", msg, ok)
 	}
-	if e.pub.count() != 0 || e.quota.calls != 1 || e.quota.perDay != 5 {
-		t.Fatalf("extra publishes or quota calls: pub=%d quota=%d perDay=%d", e.pub.count(), e.quota.calls, e.quota.perDay)
+	if e.pub.count() != 0 {
+		t.Fatalf("extra publishes: %d", e.pub.count())
 	}
 }
 
-func TestUpdateProfile_NoSnapshotChange_NoJobNoQuota(t *testing.T) {
+func TestUpdateProfile_NoSnapshotChange_NoJob(t *testing.T) {
 	e := newSnapEnv(t, true)
 	cases := map[string]UpdateProfileParams{
 		"bio only":       {IdempotencyKey: validKey, Bio: strp("hello")},
@@ -89,38 +67,35 @@ func TestUpdateProfile_NoSnapshotChange_NoJobNoQuota(t *testing.T) {
 			if err != nil {
 				t.Fatalf("UpdateProfile: %v", err)
 			}
-			if got.SnapshotVersion != 0 || e.pub.count() != 0 || e.quota.calls != 0 {
-				t.Fatalf("version=%d published=%d quota=%d, want 0/0/0", got.SnapshotVersion, e.pub.count(), e.quota.calls)
+			if got.SnapshotVersion != 0 || e.pub.count() != 0 {
+				t.Fatalf("version=%d published=%d, want 0/0", got.SnapshotVersion, e.pub.count())
 			}
 		})
 	}
 }
 
-func TestUpdateProfile_FlagOff_BumpsVersionButNoQuotaNoJob(t *testing.T) {
+func TestUpdateProfile_FlagOff_BumpsVersionButNoJob(t *testing.T) {
 	e := newSnapEnv(t, false)
 	got, err := e.svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, DisplayName: strp("Alice B.")})
 	if err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
-	if got.SnapshotVersion != 1 || e.pub.count() != 0 || e.quota.calls != 0 {
-		t.Fatalf("version=%d published=%d quota=%d, want 1/0/0", got.SnapshotVersion, e.pub.count(), e.quota.calls)
+	if got.SnapshotVersion != 1 || e.pub.count() != 0 {
+		t.Fatalf("version=%d published=%d, want 1/0", got.SnapshotVersion, e.pub.count())
 	}
 }
 
-func TestUpdateProfile_DailyQuotaExhausted_RejectsBeforeWrite(t *testing.T) {
+// TestUpdateProfile_NoDailySnapshotQuota: display-name edits are no longer limited per day; a sixth edit in a row (the old
+// limit was 5) still writes and enqueues a refresh.
+func TestUpdateProfile_NoDailySnapshotQuota(t *testing.T) {
 	e := newSnapEnv(t, true)
-	e.quota.used = 5
-	_, err := e.svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, DisplayName: strp("Alice B.")})
-	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Code != connect.CodeResourceExhausted {
-		t.Fatalf("err = %v, want RESOURCE_EXHAUSTED", err)
+	for i, name := range []string{"B", "C", "D", "E", "F", "G"} {
+		if _, err := e.svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, DisplayName: strp("Alice " + name)}); err != nil {
+			t.Fatalf("edit %d: %v", i+1, err)
+		}
 	}
-	if e.repo.updateCalls != 0 || e.pub.count() != 0 {
-		t.Fatalf("a rejected edit wrote (updates=%d) or published (%d)", e.repo.updateCalls, e.pub.count())
-	}
-	// A bio-only edit never spends the snapshot quota, so it still works at the limit.
-	if _, err := e.svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{IdempotencyKey: validKey, Bio: strp("hi")}); err != nil {
-		t.Fatalf("bio-only edit at the limit: %v", err)
+	if e.pub.count() != 6 {
+		t.Fatalf("published %d refreshes, want 6", e.pub.count())
 	}
 }
 
@@ -152,9 +127,6 @@ func TestChangeHandle_EnqueuesOnlyWhenTheSnapshotChanged(t *testing.T) {
 	msg, ok := e.pub.pop()
 	if !ok || msg.Kind != JobKindProfileSnapshot || msg.SnapshotVersion != got.SnapshotVersion || got.SnapshotVersion != 1 {
 		t.Fatalf("published %+v ok=%v for version %d", msg, ok, got.SnapshotVersion)
-	}
-	if e.quota.calls != 0 {
-		t.Fatalf("handle rename spent the snapshot-edit quota (%d calls); the 7-day cooldown bounds it", e.quota.calls)
 	}
 }
 

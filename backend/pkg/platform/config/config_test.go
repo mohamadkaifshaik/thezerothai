@@ -100,7 +100,7 @@ func TestLoad_LocalDefaults(t *testing.T) {
 	if len(cfg.CursorHMACKey) == 0 {
 		t.Error("CursorHMACKey should have a local dev default")
 	}
-	if cfg.Quota.PostsPerDay != 100 || cfg.Quota.NewAccountPostsPerDay != 20 {
+	if cfg.Quota.ReportsPerDay != 20 || cfg.Quota.NewAccountReportsPerDay != 5 || cfg.Quota.DMNewConversationsPerDay != 20 {
 		t.Errorf("unexpected quota defaults: %+v", cfg.Quota)
 	}
 	if cfg.RateLimit.PerUserPerMinute != 60 {
@@ -445,7 +445,7 @@ func TestLoad_InvalidDuration(t *testing.T) {
 
 func TestLoad_InvalidInt(t *testing.T) {
 	clearEnv(t)
-	t.Setenv("QUOTA_POSTS_PER_DAY", "not-an-int")
+	t.Setenv("QUOTA_REPORTS_PER_DAY", "not-an-int")
 	if _, err := Load(); err == nil {
 		t.Fatal("expected error for invalid int")
 	}
@@ -586,18 +586,12 @@ func TestLoad_FeatureGraphOverride(t *testing.T) {
 	}
 }
 
-// TestLoad_GraphQuotaAndRateLimitDefaults locks in the numbers.
-func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
+// TestLoad_GraphRateLimitDefaults locks in the numbers.
+func TestLoad_GraphRateLimitDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.Quota.BlocksPerDay != 200 {
-		t.Errorf("Quota.BlocksPerDay = %d, want 200", cfg.Quota.BlocksPerDay)
-	}
-	if cfg.Quota.NewAccountBlocksPerDay != 50 {
-		t.Errorf("Quota.NewAccountBlocksPerDay = %d, want 50", cfg.Quota.NewAccountBlocksPerDay)
 	}
 	if cfg.RateLimit.GraphFollowPerMinute != 30 {
 		t.Errorf("RateLimit.GraphFollowPerMinute = %d, want 30", cfg.RateLimit.GraphFollowPerMinute)
@@ -773,5 +767,31 @@ func TestLoad_ProfileUpdatesPerDay(t *testing.T) {
 				t.Errorf("ProfileUpdatesPerDay = %d, want %d", cfg.RateLimit.ProfileUpdatesPerDay, tc.want)
 			}
 		})
+	}
+}
+
+// TestLoad_RemovedQuotaKeysIgnored: the daily quotas on posts, follows, uploads, exports, snapshot edits, blocks, likes,
+// schedules, bookmarks, privacy toggles, list creates and adds, community joins and community posts were removed. Their
+// env vars may still be set on a running service until the Terraform change lands, so a value that used to fail startup
+// (0, negative, unparseable) must now be ignored.
+func TestLoad_RemovedQuotaKeysIgnored(t *testing.T) {
+	for _, key := range []string{
+		"QUOTA_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", "QUOTA_FOLLOWS_PER_DAY", "QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY",
+		"QUOTA_MEDIA_PER_DAY", "QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", "QUOTA_EXPORTS_PER_DAY", "QUOTA_SNAPSHOT_EDITS_PER_DAY",
+		"QUOTA_BLOCKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", "QUOTA_LIKES_PER_DAY", "QUOTA_NEW_ACCOUNT_LIKES_PER_DAY",
+		"QUOTA_SCHEDULES_PER_DAY", "QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY", "QUOTA_BOOKMARKS_PER_DAY", "QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY",
+		"QUOTA_PRIVACY_TOGGLES_PER_DAY", "QUOTA_LIST_CREATES_PER_DAY", "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY",
+		"QUOTA_LIST_ADDS_PER_DAY", "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", "QUOTA_COMMUNITY_JOINS_PER_DAY",
+		"QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", "QUOTA_COMMUNITY_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY",
+	} {
+		for _, val := range []string{"0", "-1", "many"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				clearEnv(t)
+				t.Setenv(key, val)
+				if _, err := Load(); err != nil {
+					t.Errorf("Load() error = %v, want the removed key ignored", err)
+				}
+			})
+		}
 	}
 }

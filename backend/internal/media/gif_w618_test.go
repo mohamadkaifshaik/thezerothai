@@ -477,7 +477,7 @@ func TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts(t *testing.T) {
 	reg := flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: ProfileExtrasFlagName, Mode: flags.On},
 		flags.Spec{Name: GifFlagName, Mode: flags.Percent, Percent: 50})
 	var on, off int
-	e := newEnv(t, envOpts{perDay: 1000, newPerDay: 1000})
+	e := newEnv(t, envOpts{})
 	s := NewServer(e.svc, reg)
 	full, thumb := gifBytes("F"), jpegBytes("T")
 	for i := 0; i < 40; i++ {

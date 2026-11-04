@@ -48,7 +48,7 @@ func seedReadyMedia(t *testing.T, client *firestore.Client, owner string, n int)
 // write, as an explicit false for a text-only post, and a quote of an image post without an image of its own is false.
 func TestHasMedia_Integration_CreatePostPaths(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.repo.w.Media = &sweepMedia{client: client}
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")

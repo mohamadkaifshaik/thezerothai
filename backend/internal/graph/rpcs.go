@@ -23,12 +23,12 @@ func (s *service) checkFlag(callerUID string) error {
 // request path or the edge path; see repo_firestore.go's Follow doc comment for that precedence). The target's users doc
 // is read inside the transaction, so only the caller's profile goes through identity.Directory (cache-first).
 //
-// The transaction reads the target users doc, the caller graph and quotas (plus the target graph for an overflowed
+// The transaction reads the target users doc and the caller graph (plus the target graph for an overflowed
 // caller); the caller's profile comes from the cache the account-status interceptor fills. It writes an edge (follows
-// doc, caller graph, 2 counters, quota) or, for a protected target, a request (followRequests Create, caller
-// `requested`, quota), and deletes a leftover request to a now-public target (AQ4); a replay (already following,
+// doc, caller graph, 2 counters) or, for a protected target, a request (followRequests Create, caller
+// `requested`), and deletes a leftover request to a now-public target (AQ4); a replay (already following,
 // or already requested) writes nothing.
-// A request counts against the follows quota and returns FOLLOW_STATE_REQUESTED; FEATURE_PRIVATE_ACCOUNTS never gates it.
+// A request returns FOLLOW_STATE_REQUESTED; FEATURE_PRIVATE_ACCOUNTS never gates it.
 func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "follow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -44,18 +44,12 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		return Relationship{}, selfActionErr("user_id")
 	}
 
-	profiles, err := s.directory.GetProfiles(ctx, []string{callerUID})
-	if err != nil {
-		return Relationship{}, s.internalErr("follow", err, callerUID, targetUID)
-	}
-	caller := profiles[callerUID]
 	now := s.now()
-	dailyLimit := s.followsLimit(s.isNewAccount(caller, now))
 	// The D6 contention signal: the target's users doc is in every Follow's read set, so a hot target shows as
 	// txn_attempts > 1 or UNAVAILABLE here. The hash identifies the target without naming it.
 	logger.SetRequestField(ctx, fieldTargetHash, logger.HashUID(targetUID))
 
-	rel, outcome, err := s.repo.Follow(ctx, callerUID, targetUID, dailyLimit, now)
+	rel, outcome, err := s.repo.Follow(ctx, callerUID, targetUID, now)
 	if err != nil {
 		return Relationship{}, s.mapFollowErr(callerUID, targetUID, err)
 	}
@@ -151,10 +145,6 @@ func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targe
 	return Relationship{UserID: targetUID, FollowState: FollowStateNone}, nil
 }
 
-func (s *service) blockLimits() dailyLimits {
-	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
-}
-
 // Block. It deletes the follow edges in both directions, plus at most 2 pending follow requests in either direction
 // (so at most 4 deletes), without extra reads or writes.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
@@ -172,7 +162,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 		return Relationship{}, selfActionErr("user_id")
 	}
 
-	result, err := s.repo.Block(ctx, callerUID, targetUID, s.blockLimits(), s.now())
+	result, err := s.repo.Block(ctx, callerUID, targetUID, s.now())
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFoundOrBlocked):
@@ -235,8 +225,8 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	return rel, nil
 }
 
-// Mute. It reads the caller graph, the target graph (existence) and quotas; a replay writes nothing.
-// A target without a graph doc => NOT_FOUND before the quota read, nothing written (same rule as Block; no blockedBy branching).
+// Mute. It reads the caller graph and the target graph (existence); a replay writes nothing.
+// A target without a graph doc => NOT_FOUND, nothing written (same rule as Block; no blockedBy branching).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "mute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -252,7 +242,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 		return Relationship{}, selfActionErr("user_id")
 	}
 
-	rel, outcome, err := s.repo.Mute(ctx, callerUID, targetUID, s.blockLimits(), s.now())
+	rel, outcome, err := s.repo.Mute(ctx, callerUID, targetUID, s.now())
 	if err != nil {
 		if errors.Is(err, ErrNotFoundOrBlocked) {
 			return Relationship{}, notFoundErr()

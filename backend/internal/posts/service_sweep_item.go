@@ -4,7 +4,7 @@
 //  1. expiry: now - publishAt > SCHEDULED_MAX_LATENESS -> FAILED EXPIRED (no reads)
 //  2. schemaVersion above ours -> FAILED UNSUPPORTED; no draft, an unreadable policy or media shape, or text that no
 //     longer parses -> FAILED INVALID_CONTENT (CPU only)
-//  3. the publish transaction (repo_publish_scheduled.go): status, quota, media, mentions, then the post
+//  3. the publish transaction (repo_publish_scheduled.go): status, media, mentions, then the post
 //
 // Every write outside the transaction (expiry, UNSUPPORTED, INVALID_CONTENT, attempts++, FAILED after the attempts
 // limit or a panic) is an Update with firestore.LastUpdateTime(the query snapshot's UpdateTime). A
@@ -121,7 +121,6 @@ func (s *service) publishParams(it *ScheduledPost) (PublishParams, bool) {
 			PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy,
 		},
 		MediaIDs: mediaIDs, MediaAlts: alts,
-		PostsLimit: s.postsPerDay, NewAccountPostsLimit: s.newAccountPostsPerDay, NewAccountWindow: s.newAccountWindow,
 		Now: s.now(), TerminalTTL: s.sweep.Limits.TerminalTTL,
 	}
 	if len(mediaIDs) == 0 {

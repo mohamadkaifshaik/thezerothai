@@ -34,9 +34,8 @@ import (
 //
 // Community: a set community_id with FEATURE_COMMUNITIES off for the caller (or no CommunityGate wired) is
 // FEATURE_DISABLED feature=communities, before any read or write. Otherwise the shape is validated and a protected caller is
-// refused before any read, and the gate runs (community via the 60 s cache, member doc read fresh inside the transaction;
-// quotas.communityPosts rides the one quota Set, so it adds no write). Every refusal (not a member, banned, archived,
-// quota, per-community cap) writes nothing; a replay returns before the member read, so it behaves like a plain replay
+// refused before any read, and the gate runs (community via the 60 s cache, member doc read fresh inside the transaction).
+// Every refusal (not a member, banned, archived, per-community cap) writes nothing; a replay returns before the member read, so it behaves like a plain replay
 // plus the cached community read.
 //
 // Members-only replies: a reply whose parent carries conversationCommunityId (communities not globally off) runs
@@ -177,10 +176,6 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	logger.SetRequestField(ctx, fieldMentionsDropped, len(parsed.Mentions)-len(mentions))
 
 	// 3. The transaction.
-	limit := s.postsPerDay
-	if s.isNewAccount(author, s.now()) {
-		limit = s.newAccountPostsPerDay
-	}
 	hashtags := parsed.Hashtags
 	if hashtags == nil {
 		hashtags = []string{}
@@ -197,7 +192,6 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		IdemKey:            idempotency.Key(uid, createRPC, in.IdempotencyKey),
 		RequestHash:        reqHash,
 		Poll:               pollDraft,
-		QuotaLimit:         limit,
 		MediaIDs:           in.MediaIDs,
 		MediaAlts:          in.MediaAltTexts,
 		GifEnabled:         in.GifEnabled,
@@ -247,7 +241,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		}
 		var ae *apierr.Error
 		if errors.As(err, &ae) {
-			return nil, err // quota exceeded and other already-shaped errors
+			return nil, err // already-shaped errors
 		}
 		if busy := createBusy(ctx, err, uid); busy != nil {
 			return nil, busy
@@ -314,11 +308,6 @@ func (s *service) resolveMentions(ctx context.Context, uid string, candidates []
 		out = append(out, Mention{UserID: mu, Handle: h})
 	}
 	return out, nil
-}
-
-// isNewAccount reports whether p was created within the new-account window (quotas).
-func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
-	return !p.CreatedAt.IsZero() && now.Sub(p.CreatedAt) < s.newAccountWindow
 }
 
 // requestHash is the canonical hash of the request body for IDEMPOTENCY_KEY_REUSED: the normalised text, the

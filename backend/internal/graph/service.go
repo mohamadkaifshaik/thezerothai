@@ -44,23 +44,21 @@ type Repo interface {
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
 
 	// Follow runs the whole Follow transaction (the target's users doc is read inside it, so the
-	// repo decides edge versus request; the returned FollowState says which). dailyLimit is the caller's resolved
-	// follows/day cap (service.go picks the new-account or standard limit before calling this).
-	Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
+	// repo decides edge versus request; the returned FollowState says which).
+	Follow(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error)
 	// Unfollow is a blind batch: changed=false, nil error means "wasn't following" (nothing is written).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 	// WithdrawRequest is Unfollow's second blind batch, run only when Unfollow found no edge: it deletes the
 	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (nothing is written).
 	WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 
-	// Block runs the whole Block transaction. limits picks the new-account vs standard quota
-	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).
-	Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error)
-	// Unblock is never quota-gated. changed=false means "wasn't blocking" (nothing is written).
+	// Block runs the whole Block transaction.
+	Block(ctx context.Context, callerUID, targetUID string, now time.Time) (BlockResult, error)
+	// changed=false means "wasn't blocking" (nothing is written).
 	Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
-	// Mute runs the whole Mute transaction, sharing the same quota kind/limits as Block.
-	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
-	// Unmute is never quota-gated. changed=false means "wasn't muting" (nothing is written).
+	// Mute runs the whole Mute transaction.
+	Mute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error)
+	// changed=false means "wasn't muting" (nothing is written).
 	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
 
 	// GetLists reads graph/{uid} once and returns the ordered blocked/muted arrays (insertion order,
@@ -102,12 +100,6 @@ type Deps struct {
 	// Nil keeps the no-op.
 	Events FollowEvents
 
-	FollowsPerDay           int64
-	NewAccountFollowsPerDay int64
-	BlocksPerDay            int64
-	NewAccountBlocksPerDay  int64
-	NewAccountWindow        time.Duration
-
 	// Suggestions are the ListSuggestedUsers limits and curated list; zero or out-of-range values
 	// fall back to the config defaults and bounds (SuggestionLimits.normalized).
 	Suggestions SuggestionLimits
@@ -139,14 +131,9 @@ type service struct {
 	readOnly  bool
 	events    FollowEvents
 
-	followsPerDay           int64
-	newAccountFollowsPerDay int64
-	blocksPerDay            int64
-	newAccountBlocksPerDay  int64
-	newAccountWindow        time.Duration
-	suggestions             SuggestionLimits
-	suggester               Suggester
-	protected               identity.ProtectedAuthors
+	suggestions SuggestionLimits
+	suggester   Suggester
+	protected   identity.ProtectedAuthors
 	// suggested is the per-viewer ListSuggestedUsers result cache (suggestion_cache.go).
 	suggested *suggestionCache
 }
@@ -154,21 +141,16 @@ type service struct {
 // New builds the graph Service. Call SetDirectory once identity.Directory is available.
 func New(d Deps) *service {
 	s := &service{
-		events:                  d.Events,
-		repo:                    d.Repo,
-		cache:                   d.Cache,
-		flags:                   d.Flags,
-		cursorKey:               d.CursorKey,
-		now:                     time.Now,
-		readOnly:                d.ReadOnly,
-		followsPerDay:           d.FollowsPerDay,
-		newAccountFollowsPerDay: d.NewAccountFollowsPerDay,
-		blocksPerDay:            d.BlocksPerDay,
-		newAccountBlocksPerDay:  d.NewAccountBlocksPerDay,
-		newAccountWindow:        d.NewAccountWindow,
-		suggestions:             d.Suggestions.normalized(),
-		suggester:               d.Suggester,
-		protected:               d.Protected,
+		events:      d.Events,
+		repo:        d.Repo,
+		cache:       d.Cache,
+		flags:       d.Flags,
+		cursorKey:   d.CursorKey,
+		now:         time.Now,
+		readOnly:    d.ReadOnly,
+		suggestions: d.Suggestions.normalized(),
+		suggester:   d.Suggester,
+		protected:   d.Protected,
 	}
 	s.suggested = newSuggestionCache(s.suggestions.CacheTTL)
 	if s.events == nil {
@@ -257,21 +239,6 @@ func (s *service) Followed(context.Context, string, string, time.Time) {}
 // replaces them, and the follow-request paths call them.
 func (s *service) FollowRequested(context.Context, string, string, time.Time)       {}
 func (s *service) FollowRequestAccepted(context.Context, string, string, time.Time) {}
-
-// isNewAccount reports whether p was created within s.newAccountWindow of now (new-account quotas).
-func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
-	if p.CreatedAt.IsZero() {
-		return false
-	}
-	return now.Sub(p.CreatedAt) < s.newAccountWindow
-}
-
-func (s *service) followsLimit(newAccount bool) int64 {
-	if newAccount {
-		return s.newAccountFollowsPerDay
-	}
-	return s.followsPerDay
-}
 
 func notFoundErr() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "user not found")

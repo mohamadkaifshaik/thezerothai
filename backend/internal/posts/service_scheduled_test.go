@@ -33,7 +33,6 @@ type schedSvcEnv struct {
 func defaultScheduleLimits() ScheduleLimits {
 	return ScheduleLimits{
 		MaxPending: 25, WindowCap: 3, MinLead: 2 * time.Minute, Horizon: 1440 * time.Hour, TerminalTTL: 168 * time.Hour,
-		SchedulesPerDay: 50, NewAccountSchedulesPerDay: 10,
 	}
 }
 
@@ -47,7 +46,7 @@ func newSchedSvcEnv(ps ...*ScheduledPost) *schedSvcEnv {
 	}
 	e.svc = New(Deps{
 		Repo: newFakeRepo(), Cache: NewCache(time.Minute, 0, 0), Directory: e.dir,
-		NewAccountWindow: 24 * time.Hour, CursorKey: schedKey,
+		CursorKey: schedKey,
 		Scheduled: e.repo, Schedule: defaultScheduleLimits(),
 		Now: func() time.Time { return e.clock },
 	}).(*service)
@@ -114,9 +113,6 @@ func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 	}
 	if len(e.dir.resolved) != 0 {
 		t.Errorf("mentions were resolved at schedule time (%v): they resolve at publish", e.dir.resolved)
-	}
-	if e.repo.lastCreate.QuotaLimit != 50 {
-		t.Errorf("quota limit = %d, want 50 for an established account", e.repo.lastCreate.QuotaLimit)
 	}
 	if e.repo.lastPendingLimit != 26 || e.repo.lastCreate.WindowCap != 3 {
 		t.Errorf("pending limit %d, window cap %d, want 26 and 3 (the repository counts WindowCap+1)", e.repo.lastPendingLimit, e.repo.lastCreate.WindowCap)
@@ -242,8 +238,8 @@ func TestSchedule_ReplayReturnsTheStoredItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	if again.ID != first.ID || e.repo.creates != 1 || e.repo.schedules[schedUID] != 1 {
-		t.Errorf("replay created again: id %s/%s creates %d quota %d", again.ID, first.ID, e.repo.creates, e.repo.schedules[schedUID])
+	if again.ID != first.ID || e.repo.creates != 1 {
+		t.Errorf("replay created again: id %s/%s creates %d", again.ID, first.ID, e.repo.creates)
 	}
 	if v, _ := info.Get("outcome"); v != "replay" {
 		t.Errorf("outcome = %v, want replay", v)
@@ -269,7 +265,6 @@ func TestSchedule_ReplayWinsOverTheLeadTimeAndTheCaps(t *testing.T) {
 				e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(n, e.clock.Add(time.Hour+time.Duration(n)*time.Minute)))
 			}
 		}},
-		{"daily cap spent", func(e *schedSvcEnv) { e.repo.schedules[schedUID] = 50 }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -486,8 +481,8 @@ func TestSchedule_WindowCap(t *testing.T) {
 				t.Errorf("lookups %d pending counts %d transactions %d window counts %d, want 1 each: the window is decided inside the transaction", e.repo.gets, e.repo.pendingCounts, e.repo.creates, e.repo.windowEvals)
 			}
 			// The rejection wrote nothing: the seeded items and the FAILED one are all there is, and no quota was charged.
-			if got := len(e.repo.docs[schedUID]); got != len(tt.items)+1 || e.repo.schedules[schedUID] != 0 {
-				t.Errorf("documents %d (seeded %d + 1 failed), schedules %d: a rejected call must write nothing", got, len(tt.items), e.repo.schedules[schedUID])
+			if got := len(e.repo.docs[schedUID]); got != len(tt.items)+1 {
+				t.Errorf("documents %d (seeded %d + 1 failed): a rejected call must write nothing", got, len(tt.items))
 			}
 		})
 	}
@@ -511,8 +506,8 @@ func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	if e.repo.windowEvals != 2 {
 		t.Errorf("window counts = %d, want 2: the second attempt must count again", e.repo.windowEvals)
 	}
-	if got := len(e.repo.docs[schedUID]); got != 3 || e.repo.schedules[schedUID] != 0 {
-		t.Errorf("documents = %d (2 seeded + the winner), schedules = %d: the loser must write nothing", got, e.repo.schedules[schedUID])
+	if got := len(e.repo.docs[schedUID]); got != 3 {
+		t.Errorf("documents = %d (2 seeded + the winner): the loser must write nothing", got)
 	}
 
 	// The control: the same winner on a window with room afterwards (cap 4) lets the retry succeed, so the first attempt's
@@ -554,16 +549,14 @@ func TestSchedule_ExistsFromAFullWindowAnswersAReplay(t *testing.T) {
 	}
 }
 
-// TestSchedule_WindowFullIsReportedWhenBothCapsAreHit: the service maps a window-full answer even when the daily cap is
-// spent too, so a caller over both hears LIMIT_REACHED. The real check order (window before daily cap) is asserted
+// TestSchedule_WindowFullIsLimitReached: a full window answers LIMIT_REACHED scheduled_window. The exact check is asserted
 // against the repository in TestScheduled_Integration_WindowCap.
-func TestSchedule_WindowFullIsReportedWhenBothCapsAreHit(t *testing.T) {
+func TestSchedule_WindowFullIsLimitReached(t *testing.T) {
 	e := newSchedSvcEnv()
 	at := e.clock.Add(time.Hour)
 	for n := 0; n < 3; n++ {
 		e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(n, at))
 	}
-	e.repo.schedules[schedUID] = 50 // the daily cap is spent too
 	_, err := e.schedule(e.validIn())
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if ae.Metadata["limit"] != "scheduled_window" {
@@ -586,58 +579,12 @@ func TestSchedule_RepoRefusalOfAWindowCapBelowOneIsInternal(t *testing.T) {
 	}
 }
 
-func TestSchedule_DailyQuotaTiers(t *testing.T) {
-	tests := []struct {
-		name      string
-		created   time.Duration // account age
-		used      int64
-		media     int
-		wantLimit int64
-		ok        bool
-	}{
-		{"established, 49 used", 72 * time.Hour, 49, 0, 50, true},
-		{"established, 50 used", 72 * time.Hour, 50, 0, 50, false},
-		{"new account, 9 used", time.Hour, 9, 0, 10, true},
-		{"new account, 10 used", time.Hour, 10, 0, 10, false},
-		{"just past the window is established", 24*time.Hour + time.Second, 10, 0, 50, true},
-		{"cap with four images is decided before the media load", 72 * time.Hour, 50, 4, 50, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newSchedSvcEnv()
-			prof := e.dir.profiles[schedUID]
-			prof.CreatedAt = e.clock.Add(-tt.created)
-			e.dir.profiles[schedUID] = prof
-			e.repo.schedules[schedUID] = tt.used
-			e.repo.mediaNotReady = tt.media > 0 // the daily cap is decided before the media load, so this never surfaces
-			_, err := e.schedule(e.validIn(func(i *ScheduleInput) {
-				if tt.media > 0 {
-					i.MediaIDs = mediaIDs(tt.media)
-				}
-			}))
-			if e.repo.lastCreate.QuotaLimit != tt.wantLimit {
-				t.Errorf("quota limit = %d, want %d", e.repo.lastCreate.QuotaLimit, tt.wantLimit)
-			}
-			if tt.ok {
-				if err != nil {
-					t.Fatalf("want ok, got %v", err)
-				}
-				return
-			}
-			ae := wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-			if ae.Metadata["quota"] != "schedules" || ae.RetryAfter <= 0 {
-				t.Errorf("meta %v retry-after %v", ae.Metadata, ae.RetryAfter)
-			}
-		})
-	}
-}
-
 func TestSchedule_MediaNotReady(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.repo.mediaNotReady = true
 	_, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(2) }))
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
-	if len(e.repo.docs[schedUID]) != 0 || e.repo.schedules[schedUID] != 0 {
+	if len(e.repo.docs[schedUID]) != 0 {
 		t.Error("something was stored")
 	}
 }

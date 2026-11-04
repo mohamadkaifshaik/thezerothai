@@ -68,7 +68,6 @@ func newThreadEnv() *createEnv {
 	now := time.Unix(1_700_000_000, 0)
 	e.svc = New(Deps{
 		Repo: e.repo, Cache: e.cache, Events: e.events, Directory: e.dir, Graph: e.graph,
-		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Now: func() time.Time { return now },
 	}).(*service)
 	return e

@@ -37,7 +37,6 @@ type fakeRepo struct {
 	createCalls int
 	createErr   error
 	onCreate    func() // runs inside Create just before createErr is returned (e.g. the caller cancels mid-transaction)
-	quotaUsed   int64
 	postsCount  int64
 	nextID      int64
 	lastCreate  CreateParams

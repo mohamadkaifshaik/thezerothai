@@ -18,6 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 const (
@@ -29,7 +30,6 @@ const (
 func newJoinEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnv(t, 100)
-	e.svc.d.Limits.JoinsPerDay, e.svc.d.Limits.NewAccountJoinsPerDay, e.svc.d.Limits.NewAccountWindow = 20, 5, 72*time.Hour
 	return e
 }
 
@@ -106,9 +106,6 @@ func TestJoin_ColdWarmAndWrites(t *testing.T) {
 	if ms, ok := e.memberships(t, u1); !ok || !slices.Equal(ms.Joined, []string{joinCID}) || len(ms.Owned) != 0 || len(ms.Banned) != 0 || len(ms.Modlogged) != 0 {
 		t.Errorf("memberships = %+v", ms)
 	}
-	if got := e.quotaJoins(t, u1); got != 1 {
-		t.Errorf("quotas.communityJoins = %d, want 1", got)
-	}
 	rec, ok := e.data(t, "idempotency/"+idempotency.Key(u1, "JoinCommunity", key(1)))
 	if res, _ := rec["result"].(map[string]any); !ok || res["id"] != joinCID || rec["expireAt"] == nil {
 		t.Errorf("idempotency record = %v", rec)
@@ -146,9 +143,6 @@ func TestJoin_AlreadyAMemberWritesTheIdempotencyDocOnly(t *testing.T) {
 	}
 	if got := e.count(t, joinCID); got != 3 {
 		t.Errorf("memberCount = %d, want 3 (owner, mod1, u1)", got)
-	}
-	if got := e.quotaJoins(t, u1); got != 1 {
-		t.Errorf("quotas.communityJoins = %d, no quota may be spent by a repeat", got)
 	}
 }
 
@@ -193,9 +187,6 @@ func TestJoin_BannedArchivedSuspendedAndGone(t *testing.T) {
 	wantAPIErr(t, err, connect.CodePermissionDenied, rForbidden, map[string]string{"reason": "banned"})
 	if _, ok := e.data(t, "idempotency/"+idempotency.Key(b1, "JoinCommunity", key(1))); ok {
 		t.Error("a refusal stored an idempotency record")
-	}
-	if got := e.quotaJoins(t, b1); got != 0 {
-		t.Errorf("quota spent by a banned Join: %d", got)
 	}
 
 	_, err = e.join(context.Background(), b1, 2, joinCID2)
@@ -243,9 +234,6 @@ func TestJoin_FiftyFirstIsLimitReachedAndTheCapIsExact(t *testing.T) {
 	e.seedMemberships(t, u, Memberships{Joined: joined})
 	_, err := e.join(context.Background(), u, 1, joinCID)
 	wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
-	if got := e.quotaJoins(t, u); got != 0 {
-		t.Errorf("the cap spent quota: %d", got)
-	}
 	// 49 joined: the 50th is allowed, the 51st is refused
 	e.seedMemberships(t, u, Memberships{Joined: joined[:49]})
 	if _, err := e.join(context.Background(), u, 2, joinCID); err != nil {
@@ -259,37 +247,27 @@ func TestJoin_FiftyFirstIsLimitReachedAndTheCapIsExact(t *testing.T) {
 	}
 }
 
-func TestJoin_DailyQuotaAndTheNewAccountTier(t *testing.T) {
+// TestJoin_NoDailyQuota: a new account joins past the old daily quota (5 for a new account, 20 otherwise), even with a
+// legacy quotas/{uid} showing it used up, and no join writes quotas/{uid}.
+func TestJoin_NoDailyQuota(t *testing.T) {
 	e := newJoinEnv(t)
-	e.svc.d.Limits.JoinsPerDay, e.svc.d.Limits.NewAccountJoinsPerDay = 3, 1
-	for _, cid := range []string{joinCID, joinCID2, joinCID3} {
-		e.seedOwned(t, cid, "owner")
-	}
-	old, young := e.user("old"), e.user("young")
+	young := e.user("young")
 	p := profile(young, identity.AccountStatusActive)
 	p.CreatedAt = time.Now().Add(-time.Hour)
 	e.dir.profiles[young] = p
-
-	if _, err := e.join(context.Background(), young, 1, joinCID); err != nil {
+	if _, err := e.client.Doc("quotas/"+young).Set(context.Background(), map[string]any{"day": quota.Today(), "communityJoins": int64(20)}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := e.join(context.Background(), young, 2, joinCID2)
-	wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "community_joins"})
-	if _, ok := e.data(t, "idempotency/"+idempotency.Key(young, "JoinCommunity", key(2))); ok || e.quotaJoins(t, young) != 1 {
-		t.Errorf("the quota refusal left a trace: idempotency record %v, quota %d", ok, e.quotaJoins(t, young))
-	}
-	// a repeat of an existing membership is free even at the limit
-	if _, err := e.join(context.Background(), young, 3, joinCID); err != nil {
-		t.Errorf("already a member at the quota: %v", err)
-	}
-	for i, cid := range []string{joinCID, joinCID2, joinCID3} {
-		if _, err := e.join(context.Background(), old, 10+i, cid); err != nil {
-			t.Fatalf("old account join %d: %v", i, err)
+	for i := 0; i < 6; i++ {
+		cid := fmt.Sprintf("%019d", 7100+i)
+		e.seedOwned(t, cid, "owner")
+		if _, err := e.join(context.Background(), young, i+1, cid); err != nil {
+			t.Fatalf("join %d: %v", i+1, err)
 		}
 	}
-	e.seedOwned(t, "0000000000000000704", "owner")
-	_, err = e.join(context.Background(), old, 20, "0000000000000000704")
-	wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, nil)
+	if got := e.quotaJoins(t, young); got != 20 {
+		t.Errorf("quotas.communityJoins = %d, want the seeded 20 untouched", got)
+	}
 }
 
 func TestJoin_TenJoinsBurstKeepMemberCountExact(t *testing.T) {
@@ -349,9 +327,6 @@ func TestJoin_SameUserTwoKeysJoinsOnce(t *testing.T) {
 	if ms, _ := e.memberships(t, u); !slices.Equal(ms.Joined, []string{joinCID}) {
 		t.Errorf("joined = %v", ms.Joined)
 	}
-	if got := e.quotaJoins(t, u); got != 1 {
-		t.Errorf("quotas.communityJoins = %d, want 1", got)
-	}
 }
 
 func TestLeave_UpdatesCountAndRecords(t *testing.T) {
@@ -376,9 +351,6 @@ func TestLeave_UpdatesCountAndRecords(t *testing.T) {
 	}
 	if ms, _ := e.memberships(t, u1); len(ms.Joined) != 0 {
 		t.Errorf("joined = %v", ms.Joined)
-	}
-	if got := e.quotaJoins(t, u1); got != 1 {
-		t.Errorf("Leave refunded or charged quota: %d", got)
 	}
 	// replay: changes nothing
 	if _, err := e.leave(context.Background(), u1, 2, joinCID); err != nil {
@@ -631,7 +603,6 @@ func TestModeratorLeaveRacingAJoinBurstStaysConsistent(t *testing.T) {
 
 func TestListMyCommunities_FiftyInNewestFirstOrder(t *testing.T) {
 	e := newJoinEnv(t)
-	e.svc.d.Limits.JoinsPerDay = 100
 	ids := make([]string, 50)
 	for i := range ids {
 		ids[i] = fmt.Sprintf("%019d", 8000+i)

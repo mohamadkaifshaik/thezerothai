@@ -16,9 +16,6 @@ func TestLoad_PrivacyDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Quota.PrivacyTogglesPerDay != 4 {
-		t.Errorf("PrivacyTogglesPerDay = %d, want 4", cfg.Quota.PrivacyTogglesPerDay)
-	}
 	if cfg.Privacy.ProtectedAuthorsMax != 20000 || cfg.Privacy.ProtectedSetMaxStale != 10*time.Minute {
 		t.Errorf("Privacy = %+v, want 20000 and 10m", cfg.Privacy)
 	}
@@ -38,7 +35,6 @@ func TestLoad_PrivacyDefaults(t *testing.T) {
 func TestLoad_PrivacyOverridesAndValidation(t *testing.T) {
 	t.Run("overrides", func(t *testing.T) {
 		clearEnv(t)
-		t.Setenv("QUOTA_PRIVACY_TOGGLES_PER_DAY", "2")
 		t.Setenv("PROTECTED_AUTHORS_MAX", "2")
 		t.Setenv("PROTECTED_SET_MAX_STALE", "90s")
 		t.Setenv("RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", "7")
@@ -48,9 +44,9 @@ func TestLoad_PrivacyOverridesAndValidation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
-		if cfg.Quota.PrivacyTogglesPerDay != 2 || cfg.Privacy.ProtectedAuthorsMax != 2 ||
+		if cfg.Privacy.ProtectedAuthorsMax != 2 ||
 			cfg.Privacy.ProtectedSetMaxStale != 90*time.Second || cfg.RateLimit.FollowRequestsRespondPerUserPerMinute != 7 {
-			t.Errorf("overrides not applied: %+v %+v", cfg.Quota.PrivacyTogglesPerDay, cfg.Privacy)
+			t.Errorf("overrides not applied: %+v", cfg.Privacy)
 		}
 		reg := flags.NewRegistry(cfg.FeaturePrivateAccounts)
 		if got := reg.EnabledFeatures("uid-a"); len(got) != 1 || got[0] != "private_accounts" {
@@ -61,9 +57,6 @@ func TestLoad_PrivacyOverridesAndValidation(t *testing.T) {
 		}
 	})
 	bad := []struct{ key, val string }{
-		{"QUOTA_PRIVACY_TOGGLES_PER_DAY", "0"},
-		{"QUOTA_PRIVACY_TOGGLES_PER_DAY", "-1"},
-		{"QUOTA_PRIVACY_TOGGLES_PER_DAY", "x"},
 		{"PROTECTED_AUTHORS_MAX", "0"},
 		{"PROTECTED_AUTHORS_MAX", "20001"},
 		{"PROTECTED_AUTHORS_MAX", "x"},

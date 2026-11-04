@@ -47,9 +47,9 @@ func setUIDs(t *testing.T, client *firestore.Client) (uids []string, exists bool
 	return uids, true
 }
 
-func TestPrivacyToggle_Integration_SetDocAndQuota(t *testing.T) {
+func TestPrivacyToggle_Integration_SetDocAndNoDailyQuota(t *testing.T) {
 	client := newTestClient(t)
-	svc, _, set := privacyService(t, client, identity.PrivacyLimits{TogglesPerDay: 4, SetMax: 20000})
+	svc, _, set := privacyService(t, client, identity.PrivacyLimits{SetMax: 20000})
 	yes := true
 	update := func(name string, v bool) error {
 		t.Helper()
@@ -70,7 +70,7 @@ func TestPrivacyToggle_Integration_SetDocAndQuota(t *testing.T) {
 		t.Fatalf("loader after protect: has=%v err=%v", cur != nil && cur.Has(itUID), err)
 	}
 
-	// An equal value changes nothing and does not spend one of the 4 daily toggles (the 5th real toggle is the one refused below).
+	// An equal value changes nothing.
 	if err := update("protect again (equal value)", true); err != nil {
 		t.Fatal(err)
 	}
@@ -90,20 +90,21 @@ func TestPrivacyToggle_Integration_SetDocAndQuota(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The 5th toggle: QUOTA_EXCEEDED, nothing written.
-	_, err = svc.UpdateProfile(context.Background(), itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &yes})
-	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Metadata["quota"] != "privacy_toggles" {
-		t.Fatalf("5th toggle err = %v, want QUOTA_EXCEEDED quota=privacy_toggles", err)
+	// The 5th toggle goes through: there is no daily toggle quota (it used to stop at 4), and no quotas doc is written.
+	if _, err = svc.UpdateProfile(context.Background(), itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, IsPrivate: &yes}); err != nil {
+		t.Fatalf("5th toggle: %v", err)
 	}
-	if p := userData(t, client, itUID); p["isPrivate"] != false {
-		t.Errorf("isPrivate = %v after the refused toggle, want false", p["isPrivate"])
+	if p := userData(t, client, itUID); p["isPrivate"] != true {
+		t.Errorf("isPrivate = %v after the 5th toggle, want true", p["isPrivate"])
+	}
+	if _, err := client.Collection("quotas").Doc(itUID).Get(context.Background()); err == nil {
+		t.Error("a toggle wrote quotas/{uid}")
 	}
 }
 
 func TestPrivacyToggle_Integration_CapAndLoader(t *testing.T) {
 	client := newTestClient(t)
-	svc, repo, _ := privacyService(t, client, identity.PrivacyLimits{TogglesPerDay: 4, SetMax: 2})
+	svc, repo, _ := privacyService(t, client, identity.PrivacyLimits{SetMax: 2})
 	if _, err := client.Doc("privacy/protectedAuthors").Set(context.Background(), map[string]any{"uids": []string{"x", "y"}, "updatedAt": time.Now()}); err != nil {
 		t.Fatal(err)
 	}

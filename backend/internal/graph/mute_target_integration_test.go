@@ -36,34 +36,9 @@ func TestT26_Mute_UnknownTarget_NotFound_SameAsBlock(t *testing.T) {
 	if me.Code != be.Code || me.Reason != be.Reason || me.Message != be.Message || len(me.Metadata) != len(be.Metadata) {
 		t.Errorf("Mute NOT_FOUND %+v differs from Block NOT_FOUND %+v (existence oracle)", me, be)
 	}
-	if got := quotaUsed(t, w.client, "uid-a", "", "blocks"); got != 0 {
-		t.Errorf("quotas.blocks = %d, want 0 (NOT_FOUND reserves nothing)", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 	if a := graphArrays(t, w.client, "uid-a"); len(a["muted"]) != 0 {
 		t.Errorf("muted = %v, want empty", a["muted"])
-	}
-}
-
-func TestT26_Mute_ExhaustedQuota_NonexistentTargetStillNotFound(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(1))
-	mustCreateProfile(t, w.identity, "uid-a", "usera")
-	mustCreateProfile(t, w.identity, "uid-b", "userb")
-	seedQuota(t, w.client, "uid-a", istDay(0), "blocks", 200)
-
-	// Mute (exhausted quota, ghost target)
-	{
-		ctx := context.Background()
-		_, err := w.graph.Mute(ctx, "uid-a", key1, "uid-ghost")
-		requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
-	}
-	// Mute (exhausted quota, existing target)
-	{
-		ctx := context.Background()
-		_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-b")
-		requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "blocks"); got != 200 {
-		t.Errorf("quotas.blocks = %d, want 200 (unchanged)", got)
 	}
 }
 

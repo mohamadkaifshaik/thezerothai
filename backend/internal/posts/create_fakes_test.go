@@ -7,18 +7,14 @@ import (
 	"sort"
 	"time"
 
-	"connectrpc.com/connect"
-
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Create implements Repo for unit tests: an in-memory model of the CreatePost transaction that models the
-// idempotency doc, the daily quota and the post counter.
+// idempotency doc and the post counter.
 func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	r.createCalls++
 	if r.idem == nil {
@@ -41,10 +37,6 @@ func (r *fakeRepo) Create(ctx context.Context, p CreateParams) (CreateResult, er
 	if r.createErr != nil {
 		return CreateResult{Attempts: 1}, r.createErr
 	}
-	if r.quotaUsed >= p.QuotaLimit {
-		return CreateResult{Attempts: 1}, apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit reached").WithMeta("quota", "posts")
-	}
-	r.quotaUsed++
 	r.nextID++
 	id := fmt.Sprintf("%019d", r.nextID)
 	post := p.Draft

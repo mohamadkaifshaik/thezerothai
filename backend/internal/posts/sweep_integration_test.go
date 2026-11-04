@@ -16,12 +16,11 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Emulator tests of the publish sweep over the real FirestoreRepo, identity and quota ("Sweep"). The
+// Emulator tests of the publish sweep over the real FirestoreRepo and identity ("Sweep"). The
 // clock is real: items are seeded relative to time.Now(), so nothing sleeps.
 
 // sweepMedia is a MediaAttacher over media/{id} docs with the real validity rules (owned, READY or READY_UNSCREENED,
@@ -178,11 +177,10 @@ func newSweepIT(t *testing.T, opts ...sweepITOption) *sweepIT {
 	e := &sweepIT{t: t, client: client, idRepo: idRepo, idSvc: idSvc, dir: idSvc.(identity.Directory), events: &sweepEvents{}, logs: &lockedBuffer{}}
 	e.media = &sweepMedia{client: client}
 	e.repo = NewFirestoreRepo(client)
-	e.repo.SetWriters(WriteDeps{Quotas: quota.New(client), Counters: idRepo, IDs: node, Media: e.media, Profiles: idRepo})
+	e.repo.SetWriters(WriteDeps{Counters: idRepo, IDs: node, Media: e.media, Profiles: idRepo})
 	e.fault = &faultRepo{FirestoreRepo: e.repo}
 	e.deps = Deps{
 		Repo: e.repo, Cache: NewCache(time.Minute, 0, 0), Events: e.events, Directory: e.dir,
-		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
 		Scheduled: e.repo, Schedule: defaultScheduleLimits(), CursorKey: schedKey,
 		Sweep: SweepDeps{
 			Repo: e.fault, Flags: sweepFlags{}, Limits: defaultSweepLimits(),
@@ -310,17 +308,16 @@ func (e *sweepIT) postsOf(uid string) []postDoc {
 	}
 }
 
+// quotaPosts reads quotas/{uid}.posts, 0 when absent. The publish no longer writes it, so only a seeded legacy value shows.
 func (e *sweepIT) quotaPosts(uid string) int64 {
 	e.t.Helper()
 	snap, err := e.client.Collection("quotas").Doc(uid).Get(context.Background())
 	if err != nil {
 		return 0
 	}
-	var rec quota.Record
-	if err := snap.DataTo(&rec); err != nil {
-		e.t.Fatal(err)
-	}
-	return rec.Posts
+	n, _ := snap.DataAt("posts")
+	v, _ := n.(int64)
+	return v
 }
 
 func (e *sweepIT) postsCount(uid string) int64 {
@@ -395,8 +392,8 @@ func TestSweepIT_PublishHappyPath(t *testing.T) {
 			t.Errorf("media %d attached to %q, want %q", n, got, postID)
 		}
 	}
-	if e.postsCount("uid-alice") != 1 || e.quotaPosts("uid-alice") != 1 {
-		t.Errorf("postsCount %d quota posts %d, want 1 and 1", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
+	if e.postsCount("uid-alice") != 1 || e.quotaPosts("uid-alice") != 0 {
+		t.Errorf("postsCount %d quota posts %d, want 1 and 0 (no quota written)", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
 	}
 
 	// The same post-commit hooks as CreatePost: PostEvents.Created (mention notifications) with the resolved
@@ -523,7 +520,7 @@ func TestSweepIT_SkipsNonPendingItems(t *testing.T) {
 			t.Errorf("doc = %v, want the user's CANCELLED untouched", got)
 		}
 		if len(e.postsOf("uid-alice")) != 0 || e.postsCount("uid-alice") != 0 || e.quotaPosts("uid-alice") != 0 {
-			t.Error("a cancelled item published or reserved quota")
+			t.Error("a cancelled item published")
 		}
 	})
 }
@@ -564,8 +561,8 @@ func TestSweepIT_TwoConcurrentSweepsPublishExactlyOnce(t *testing.T) {
 		if n := len(e.postsOf(uid)); n != 1 {
 			t.Errorf("%s has %d posts, want exactly 1", uid, n)
 		}
-		if e.postsCount(uid) != 1 || e.quotaPosts(uid) != 1 {
-			t.Errorf("%s: postsCount %d quota %d, want 1 and 1", uid, e.postsCount(uid), e.quotaPosts(uid))
+		if e.postsCount(uid) != 1 || e.quotaPosts(uid) != 0 {
+			t.Errorf("%s: postsCount %d quota %d, want 1 and 0 (no quota written)", uid, e.postsCount(uid), e.quotaPosts(uid))
 		}
 	}
 }
@@ -596,8 +593,8 @@ func TestSweepIT_FiveDueItemsOfOneAuthor(t *testing.T) {
 	if e.fault.maxInflightBy["uid-alice"] != 1 {
 		t.Errorf("one author's items overlapped: max in flight %d", e.fault.maxInflightBy["uid-alice"])
 	}
-	if e.postsCount("uid-alice") != 3 || e.quotaPosts("uid-alice") != 3 {
-		t.Errorf("postsCount %d quota %d, want 3 and 3", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
+	if e.postsCount("uid-alice") != 3 || e.quotaPosts("uid-alice") != 0 {
+		t.Errorf("postsCount %d quota %d, want 3 and 0 (no quota written)", e.postsCount("uid-alice"), e.quotaPosts("uid-alice"))
 	}
 
 	res2 := e.sweep()

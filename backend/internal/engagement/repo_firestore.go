@@ -19,7 +19,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -47,7 +46,6 @@ type IDGenerator interface{ Generate() string }
 
 // WriteDeps are the collaborators of the write paths.
 type WriteDeps struct {
-	Quotas   *quota.Store
 	Writer   posts.EngagementWriter
 	Counters identity.Counters
 	IDs      IDGenerator
@@ -109,7 +107,7 @@ func (r *FirestoreRepo) userLikesRef(uid string) *firestore.DocumentRef {
 }
 
 func (r *FirestoreRepo) ready() error {
-	if r.w.Quotas == nil || r.w.Writer == nil || r.w.Counters == nil || r.w.IDs == nil {
+	if r.w.Writer == nil || r.w.Counters == nil || r.w.IDs == nil {
 		return errors.New("engagement: repo has no writers configured")
 	}
 	return nil
@@ -154,20 +152,13 @@ func (r *FirestoreRepo) runTx(ctx context.Context, fn store.TxnFunc) (int, error
 	return total, err
 }
 
-// Like implements Repo: one transaction that reads quotas and writes the like doc, likeCount, userLikes and the quota.
+// Like implements Repo: one transaction that writes the like doc, likeCount and userLikes.
 func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
 	}
 	attempts, err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		rec, err := r.w.Quotas.Get(ctx, tx, p.UID)
-		if err != nil {
-			return fmt.Errorf("engagement: quota lookup: %w", err)
-		}
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), rec, quota.Likes, p.QuotaLimit); err != nil {
-			return err
-		}
 		now := r.now().UTC()
 		b.Create(r.likeRef(p.PostID, p.UID), likeDoc{PostID: p.PostID, UID: p.UID, CreatedAt: now})
 		r.w.Writer.StageLikeCount(b, p.PostID, 1)
@@ -231,8 +222,8 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, e
 	return res.Committed, nil
 }
 
-// Repost implements Repo: one transaction that reads quotas and writes the reposts doc, REPOST post, repostCount,
-// postsCount, userLikes and the quota. The REPOST id is drawn inside every attempt (the settle watermark).
+// Repost implements Repo: one transaction that writes the reposts doc, REPOST post, repostCount,
+// postsCount and userLikes. The REPOST id is drawn inside every attempt (the settle watermark).
 func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
 	if err := r.ready(); err != nil {
 		return RepostResult{}, err
@@ -243,10 +234,6 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 		var attempts int
 		attempts, err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 			post = nil
-			rec, err := r.w.Quotas.Get(ctx, tx, p.UID)
-			if err != nil {
-				return fmt.Errorf("engagement: quota lookup: %w", err)
-			}
 			id := r.w.IDs.Generate()
 			createdAt, err := snowflake.Time(id)
 			if err != nil {
@@ -254,9 +241,6 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 			}
 			np := posts.NewRepostPost(id, createdAt, p.Author, p.SnapshotVersion, p.Original)
 			b := store.NewFirestoreTxBatch(tx)
-			if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), rec, quota.Posts, p.QuotaLimit); err != nil {
-				return err
-			}
 			b.Create(r.repostRef(p.Original.ID, p.UID), repostDoc{PostID: p.Original.ID, UID: p.UID, RepostPostID: id, CreatedAt: createdAt.UTC()})
 			r.w.Writer.StageRepost(b, np)
 			r.w.Writer.StageRepostCount(b, p.Original.ID, 1)

@@ -129,8 +129,7 @@ func roleToProto(r Role) communitiesv1.CommunityRole {
 }
 
 // JoinCommunity is gated by FEATURE_COMMUNITIES. A BANNED caller is FORBIDDEN reason=banned; an ARCHIVED community is COMMUNITY_STATE
-// reason=community_archived; the 51st joined community is LIMIT_REACHED communities_joined; over the daily quota is QUOTA_EXCEEDED
-// community_joins. Already a member (the owner and moderators included) is success and spends no quota. member_count may lag other
+// reason=community_archived; the 51st joined community is LIMIT_REACHED communities_joined. Already a member (the owner and moderators included) is success. member_count may lag other
 // instances by up to 60 s (the transaction never reads the community document).
 func (s *Server) JoinCommunity(ctx context.Context, req *connect.Request[communitiesv1.JoinCommunityRequest]) (*connect.Response[communitiesv1.JoinCommunityResponse], error) {
 	v, err := s.membership(ctx, "JoinCommunity", MembershipInput{Key: req.Msg.GetIdempotencyKey(), CommunityID: req.Msg.GetCommunityId()}, Service.JoinCommunity)

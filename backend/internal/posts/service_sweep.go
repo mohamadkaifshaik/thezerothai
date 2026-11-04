@@ -6,7 +6,7 @@
 //	          item joins its author's queue and counts toward that author's cap (review L-3)
 //	dispatch: one worker per author, at most SweepConcurrency at once (errgroup.Group with a limit, never
 //	          WithContext: one failure must not cancel the others). A worker runs at most SweepPerAuthorPerRun of its
-//	          author's items ONE AFTER ANOTHER, so no two items of one author contend on that author's users and quotas
+//	          author's items ONE AFTER ANOTHER, so no two items of one author contend on that author's users
 //	          docs within a run; the rest are deferred to the next run without a write
 //	isolate : every item has its own context and its own recover (review M-2); one item's error or panic never stops
 //	          the author's next item or any other worker

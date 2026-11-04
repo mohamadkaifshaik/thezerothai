@@ -27,7 +27,7 @@ func (e *env) sibling(t *testing.T, repo Repo) Service {
 	svc, err := New(Deps{
 		Repo: repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-30 * 24 * time.Hour)}, IDs: &seqIDs{},
-		PublicBaseURL: "https://cdn.test/media", MediaPerDay: 20, NewAccountMediaPerDay: 8, NewAccountWindow: 24 * time.Hour,
+		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
 		VisionMonthlyCap: 100, Now: func() time.Time { return testNow },
 	})
 	if err != nil {

@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 	"google.golang.org/api/option"
@@ -130,7 +129,7 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 		t.Fatalf("draft cover resolver: %v", err)
 	}
 	pr := posts.NewFirestoreRepo(client)
-	pr.SetWriters(posts.WriteDeps{Idempotency: idempotency.New(client), Quotas: quota.New(client), Counters: identity.NewFirestoreRepo(client, nil), IDs: node, Media: testMediaAttacher{lib}})
+	pr.SetWriters(posts.WriteDeps{Idempotency: idempotency.New(client), Counters: identity.NewFirestoreRepo(client, nil), IDs: node, Media: testMediaAttacher{lib}})
 	key := idempotency.Key(uid, "CreatePost", "publication-key-1")
 	defer func() {
 		docs, _ := client.Collection("posts").Where("authorId", "==", uid).Documents(context.Background()).GetAll()
@@ -141,16 +140,17 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 			_, _ = ref.Delete(context.Background())
 		}
 	}()
-	in := posts.CreateParams{AuthorID: uid, IdemKey: key, RequestHash: "article-hash", QuotaLimit: 0, ArticlePublication: &publicationIntent{repo: r, expected: a, now: time.Now()}, Draft: posts.Post{AuthorID: uid, Kind: posts.KindPost, Text: "Title", Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title}}}
-	in.MediaIDs = []string{coverID}
+	in := posts.CreateParams{AuthorID: uid, IdemKey: key, RequestHash: "article-hash", ArticlePublication: &publicationIntent{repo: r, expected: a, now: time.Now()}, Draft: posts.Post{AuthorID: uid, Kind: posts.KindPost, Text: "Title", Article: &posts.ArticlePreview{ArticleID: id, Title: a.Title}}}
+	// A media id that does not exist fails the transaction after the article claim was read, so nothing may be finalized.
+	in.MediaIDs = []string{node.Generate()}
 	if _, err = pr.Create(ctx, in); err == nil {
-		t.Fatal("quota-zero transaction unexpectedly committed")
+		t.Fatal("a transaction with a missing image unexpectedly committed")
 	}
 	loaded, err := r.get(ctx, id)
 	if err != nil || loaded.Published {
 		t.Fatalf("article finalized without root: %v", err)
 	}
-	in.QuotaLimit = 100
+	in.MediaIDs = []string{coverID}
 	result, err := pr.Create(ctx, in)
 	if err != nil {
 		t.Fatal(err)

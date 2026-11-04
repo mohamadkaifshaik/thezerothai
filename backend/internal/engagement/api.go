@@ -52,14 +52,14 @@ type Result struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// Like likes a post for uid. The transaction writes the like doc, likeCount, userLikes and the quota; a replay
+	// Like likes a post for uid. The transaction writes the like doc, likeCount and userLikes; a replay
 	// writes nothing. The visibility check (post, author, caller graph) runs first.
 	Like(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
 	// Unlike removes uid's like. The post for the returned counts comes cache first. It updates likeCount and
 	// userLikes and deletes the like doc; a no-op writes nothing.
 	Unlike(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
 	// Repost reposts a post for uid. It reads as Like and writes the reposts doc, the REPOST post, repostCount,
-	// postsCount, userLikes and the quota; a replay writes nothing.
+	// postsCount and userLikes; a replay writes nothing.
 	Repost(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
 	// UndoRepost removes uid's repost of the ORIGINAL postID. It reads the reposts doc and the original (cache
 	// first); a no-op writes nothing.
@@ -97,7 +97,6 @@ type Repo interface {
 // LikeParams is one like transaction.
 type LikeParams struct {
 	UID, PostID string
-	QuotaLimit  int64
 }
 
 // RepostParams is one repost transaction.
@@ -108,7 +107,6 @@ type RepostParams struct {
 	// Author and SnapshotVersion are the reposter's denormalised profile for the REPOST doc.
 	Author          posts.AuthorSnapshot
 	SnapshotVersion int64
-	QuotaLimit      int64
 }
 
 // RepostResult is the outcome of Repo.Repost: exactly one of Post (a new REPOST, committed) and ReplayPostID.
@@ -182,11 +180,11 @@ type BookmarkState struct {
 // notifies nobody; a bookmark is private to the caller.
 type Bookmarks interface {
 	// AddBookmark bookmarks postID (a REPOST id: its original) for uid. It runs the visibility check, then reads
-	// idempotency, quotas and userLikes; a replay stops after the idempotency read. It writes the bookmark, the
-	// idempotency doc, quotas and userLikes; an existing bookmark writes only the idempotency doc (so a late retry
-	// replays); a replay, the cap and the quota write nothing.
+	// idempotency and userLikes; a replay stops after the idempotency read. It writes the bookmark, the
+	// idempotency doc and userLikes; an existing bookmark writes only the idempotency doc (so a late retry
+	// replays); a replay and the cap write nothing.
 	AddBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
-	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. It reads the
+	// RemoveBookmark removes uid's bookmark of postID. No visibility check. It reads the
 	// idempotency doc, writes it and userLikes, and deletes the bookmark; a missing bookmark writes only the
 	// idempotency doc; a replay writes nothing.
 	RemoveBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
@@ -238,9 +236,7 @@ type AddBookmarkParams struct {
 	PostID string
 	// IdemKey is idempotency.Key(uid, "AddBookmark", key); RequestHash is the hash of the post_id as sent.
 	IdemKey, RequestHash string
-	// QuotaLimit is the daily AddBookmark limit for this caller (200, or 50 for a new account); MaxPerUser is the
-	// hard cap of bookmarks (1,000).
-	QuotaLimit int64
+	// MaxPerUser is the hard cap of bookmarks (1,000).
 	MaxPerUser int
 }
 
@@ -259,8 +255,8 @@ type BookmarkResult struct {
 
 // BookmarkRepo is the storage seam of the bookmark service; repo_bookmarks.go implements it, tests use a fake.
 type BookmarkRepo interface {
-	// Add runs the AddBookmark transaction. It returns ErrBookmarkLimit at the cap, a
-	// quota.ExceededError at the daily quota and ErrIdempotencyKeyReused for a key used with another post_id.
+	// Add runs the AddBookmark transaction. It returns ErrBookmarkLimit at the cap and
+	// ErrIdempotencyKeyReused for a key used with another post_id.
 	Add(ctx context.Context, p AddBookmarkParams) (BookmarkResult, error)
 	// Remove runs the RemoveBookmark transaction. It returns ErrIdempotencyKeyReused like Add.
 	Remove(ctx context.Context, p RemoveBookmarkParams) (BookmarkResult, error)

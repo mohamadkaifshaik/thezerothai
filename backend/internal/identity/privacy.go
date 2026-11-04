@@ -19,7 +19,7 @@ import (
 
 // Request-log fields (observability).
 const (
-	fieldPrivacyToggle         = "privacy_toggle"          // on | off | noop | quota | cap
+	fieldPrivacyToggle         = "privacy_toggle"          // on | off | noop | cap
 	fieldPrivacyToggleAttempts = "privacy_toggle_attempts" // transaction attempts; the hot-doc signal (D3)
 )
 
@@ -100,15 +100,10 @@ func (s *service) afterPrivacyCommit(ctx context.Context, uid string, up Privacy
 // privacyRefusal turns the toggle transaction's refusals into their wire answers and records privacy_toggle. It returns
 // nil when err is not one of them.
 func privacyRefusal(ctx context.Context, err error) error {
-	var ae *apierr.Error
-	switch {
-	case errors.Is(err, ErrProtectedSetFull):
+	if errors.Is(err, ErrProtectedSetFull) {
 		logger.SetRequestField(ctx, fieldPrivacyToggle, "cap")
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "private accounts are at capacity").
 			WithMeta("limit", "private_accounts")
-	case errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED:
-		logger.SetRequestField(ctx, fieldPrivacyToggle, "quota")
-		return err
 	}
 	return nil
 }

@@ -140,7 +140,7 @@ func TestModerator_HideAndRestoreAuthor(t *testing.T) {
 // author too, and comes back after restore. The hidden check costs no extra read.
 func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	p, err := in.create(t, "uid-bob", key(1), "hide me")
@@ -150,10 +150,10 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 	if _, err := in.repo.Takedown(context.Background(), p.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	cold := newCreateInstance(t, client, time.Nanosecond)
+	cold := newCreateInstance(t, client)
 	_, unknownErr := cold.get("uid-alice", pid(31337))
 	for _, viewer := range []string{"uid-alice", "uid-bob"} {
-		in2 := newCreateInstance(t, client, time.Nanosecond)
+		in2 := newCreateInstance(t, client)
 		got, err := in2.get(viewer, p.ID)
 		if got != nil || err == nil || err.Error() != unknownErr.Error() {
 			t.Fatalf("viewer %s: post=%v err=%v, want the unknown-id error %v", viewer, got, err, unknownErr)
@@ -162,7 +162,7 @@ func TestGetForViewer_HiddenPostIsNotFoundForEveryone(t *testing.T) {
 	if _, err := in.repo.Restore(context.Background(), p.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	in3 := newCreateInstance(t, client, time.Nanosecond)
+	in3 := newCreateInstance(t, client)
 	if got, err := in3.get("uid-alice", p.ID); err != nil || got == nil || got.Moderation != ModerationNone {
 		t.Fatalf("after restore: post=%v err=%v", got, err)
 	}

@@ -13,7 +13,7 @@ const MaxProtectedAuthors = 20000
 const MaxProtectedSetStale = time.Hour
 
 // PrivacyConfig holds the private-accounts limits that are not per-minute buckets or per-day quotas.
-// The daily toggle quota lives in QuotaConfig (QUOTA_PRIVACY_TOGGLES_PER_DAY) and the Respond bucket in
+// The Respond bucket lives in
 // RateLimitConfig (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN).
 type PrivacyConfig struct {
 	// ProtectedAuthorsMax is the most uids privacy/protectedAuthors may hold (PROTECTED_AUTHORS_MAX, default 20,000, at

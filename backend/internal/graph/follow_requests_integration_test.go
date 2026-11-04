@@ -58,9 +58,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 		}
 	}
 	assertRequestInvariants(t, w, true, [2]string{"uid-a", "uid-p"})
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 1 {
-		t.Errorf("quotas.follows = %d, want 1 (a request counts as a follow)", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 	if following, _ := counts(t, w, "uid-a"); following != 0 {
 		t.Errorf("a.followingCount = %d, want 0", following)
 	}
@@ -87,7 +85,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 		t.Errorf("GetProfileRelationship = %v, want REQUESTED", pr.Relationship.FollowState)
 	}
 
-	// Replay with a new key: REQUESTED, no second quota unit.
+	// Replay with a new key: REQUESTED.
 	warmProfiles(t, w, "uid-a")
 	// Follow (request replay, warm)
 	{
@@ -98,9 +96,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 			t.Errorf("replay = %v, want REQUESTED", rel.FollowState)
 		}
 	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 1 {
-		t.Errorf("quotas.follows = %d after a replay, want 1", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 
 	// Withdraw = Unfollow: removes the request and the requested entry.
 	// Unfollow (withdraw)
@@ -127,13 +123,11 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 		}
 	}
 
-	// The quota is spent, not refunded; a fresh request after the withdraw works and is charged again.
+	// A fresh request after the withdraw works.
 	if _, err := w.graph.Follow(context.Background(), "uid-a", "0123456789abcde1", "uid-p"); err != nil {
 		t.Fatal(err)
 	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 2 {
-		t.Errorf("quotas.follows = %d after request, withdraw, request, want 2", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 	assertRequestInvariants(t, w, true, [2]string{"uid-a", "uid-p"})
 }
 
@@ -270,9 +264,7 @@ func TestFollowRequest_Integration_PublicTargetWithLeftoverRequestBecomesEdge(t 
 	if _, followers := counts(t, w, "uid-p"); followers != 1 {
 		t.Errorf("p.followersCount = %d, want 1", followers)
 	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 2 {
-		t.Errorf("quotas.follows = %d, want 2 (the request and the edge are ordinary follows)", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 }
 
 // I-X: an existing edge wins. The follower stays FOLLOWING (no request) when the followee is protected later.

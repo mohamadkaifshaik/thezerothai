@@ -195,7 +195,7 @@ type Service interface {
 	// Moderation is the owner and moderator surface: Hide, Restore, SetMemberRole and ListModerationLog.
 	Moderation
 	// CreateCommunity creates a community owned by uid, who becomes its first member. COMMUNITY_CREATORS is checked first (FORBIDDEN
-	// not_creator, before any read), then the key and the text rules. No daily quota: the owned cap is exact and lifetime. A replay
+	// not_creator, before any read), then the key and the text rules. The owned cap is exact and lifetime. A replay
 	// and a refused request write nothing.
 	CreateCommunity(ctx context.Context, uid string, in CreateInput) (View, error)
 	// UpdateCommunity changes the set fields of uid's own community. A request that changes nothing writes only the idempotency doc; a
@@ -204,8 +204,8 @@ type Service interface {
 	// GetCommunity returns one community with its owner and moderators as uid may see it. It writes nothing.
 	GetCommunity(ctx context.Context, uid, communityID string) (Detail, error)
 	// JoinCommunity makes uid a JOINED member. One transaction that never reads the community document: memberCount is a
-	// blind Increment and the status comes from the 60 s cache. Already a member writes only the idempotency doc and takes no quota;
-	// banned, at the cap or over the quota writes nothing; a replay writes nothing.
+	// blind Increment and the status comes from the 60 s cache. Already a member writes only the idempotency doc;
+	// banned or at the cap writes nothing; a replay writes nothing.
 	JoinCommunity(ctx context.Context, uid string, in MembershipInput) (View, error)
 	// LeaveCommunity removes uid's membership. The owner cannot leave. A moderator also leaves moderatorIds in the same transaction (logged
 	// MODERATOR_LEFT). The community is read fresh in the transaction for a caller who may be a moderator. A caller who is not a member
@@ -299,12 +299,10 @@ type MyCommunities struct {
 	CanCreate bool
 }
 
-// JoinParams is one JoinCommunity write. QuotaLimit is the daily quota.CommunityJoins limit for this caller (the new-account tier
-// already applied by the service).
+// JoinParams is one JoinCommunity write.
 type JoinParams struct {
 	UID, ID, IdemKey, RequestHash string
 	MaxJoined                     int
-	QuotaLimit                    int64
 }
 
 // JoinResult is what Repo.Join answers. State is the caller's member state after the call (JOINED).
@@ -341,8 +339,8 @@ type Repo interface {
 	Get(ctx context.Context, id string) (Community, error)
 	// Member reads the member doc: MemberNone when there is none.
 	Member(ctx context.Context, communityID, uid string) (MemberState, error)
-	// Join is one transaction (see JoinCommunity): ErrBanned, ErrJoinedLimit, ErrNotFound (the community document is gone) or a quota
-	// error leave nothing written.
+	// Join is one transaction (see JoinCommunity): ErrBanned, ErrJoinedLimit, or ErrNotFound (the community document is gone)
+	// leave nothing written.
 	Join(ctx context.Context, p JoinParams) (JoinResult, error)
 	// Leave is one transaction (see LeaveCommunity): ErrOwnerLeave and ErrNotFound leave nothing written.
 	Leave(ctx context.Context, p LeaveParams) (LeaveResult, error)

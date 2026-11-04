@@ -3,8 +3,7 @@
 // `bookmarks` array of userLikes/{uid}, the complete set of the caller's bookmarked ids (viewer state at 0 extra reads).
 //
 // Every userLikes write is field-level: a Set with MergeAll and ArrayUnion/ArrayRemove, never a whole-document write.
-// A whole-document Set would silently empty the set (a known class of bug), and it is why the quota record
-// carries its Bookmarks field.
+// A whole-document Set would silently empty the set (a known class of bug).
 package engagement
 
 import (
@@ -21,7 +20,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -45,10 +43,10 @@ func (r *FirestoreRepo) bookmarkRef(uid, postID string) *firestore.DocumentRef {
 	return r.client.Collection(usersCollection).Doc(uid).Collection(bookmarksCollection).Doc(postID)
 }
 
-// bookmarksReady is ready() for the bookmark paths: they need the quota store and the idempotency store, not the
+// bookmarksReady is ready() for the bookmark paths: they need the idempotency store, not the
 // like/repost writers, so a wiring that lacks one family fails only the paths that use it.
 func (r *FirestoreRepo) bookmarksReady() error {
-	if r.w.Quotas == nil || r.w.Idempotency == nil {
+	if r.w.Idempotency == nil {
 		return errors.New("engagement: repo has no bookmark writers configured")
 	}
 	return nil
@@ -109,10 +107,10 @@ func resultMap(st BookmarkState) map[string]string {
 }
 
 // Add implements BookmarkRepo: one transaction. Reads, fresh and in this order: idempotency/{hash}
-// (a replay returns here), quotas/{uid}, userLikes/{uid} (the array length is the cap check, so the
-// cap is exact). Writes: Create the bookmark, Create the idempotency doc, the quota record, ArrayUnion on
+// (a replay returns here), userLikes/{uid} (the array length is the cap check, so the
+// cap is exact). Writes: Create the bookmark, Create the idempotency doc, ArrayUnion on
 // userLikes.bookmarks. A bookmark already in the set, or whose doc already exists (AlreadyExists at commit, which is
-// also a concurrent duplicate of the same key), is success with no quota charge; only the idempotency doc is written,
+// also a concurrent duplicate of the same key), is success; only the idempotency doc is written,
 // so a late retry of the key replays instead of re-adding a bookmark removed since.
 func (r *FirestoreRepo) Add(ctx context.Context, p AddBookmarkParams) (BookmarkResult, error) {
 	if err := r.bookmarksReady(); err != nil {
@@ -134,16 +132,12 @@ func (r *FirestoreRepo) Add(ctx context.Context, p AddBookmarkParams) (BookmarkR
 		case !errors.Is(err, idempotency.ErrNotFound):
 			return fmt.Errorf("engagement: idempotency lookup: %w", err)
 		}
-		qrec, err := r.w.Quotas.Get(ctx, tx, p.UID)
-		if err != nil {
-			return fmt.Errorf("engagement: quota lookup: %w", err)
-		}
 		set, err := r.bookmarkSet(ctx, tx, p.UID)
 		if err != nil {
 			return err
 		}
 		if slices.Contains(set, p.PostID) {
-			// Already bookmarked: success before the cap and quota checks, nothing charged. Only the idempotency doc is
+			// Already bookmarked: success before the cap check. Only the idempotency doc is
 			// written, so a late retry of this key replays instead of re-adding a bookmark removed since.
 			b := store.NewFirestoreTxBatch(tx)
 			r.putIdem(b, p.UID, p.IdemKey, rpcAddBookmark, p.RequestHash, want)
@@ -157,9 +151,6 @@ func (r *FirestoreRepo) Add(ctx context.Context, p AddBookmarkParams) (BookmarkR
 			return ErrBookmarkLimit
 		}
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), qrec, quota.Bookmarks, p.QuotaLimit); err != nil {
-			return err
-		}
 		now := r.now().UTC()
 		b.Create(r.bookmarkRef(p.UID, p.PostID), bookmarkDoc{CreatedAt: now})
 		r.putIdem(b, p.UID, p.IdemKey, rpcAddBookmark, p.RequestHash, want)
@@ -192,7 +183,7 @@ func (r *FirestoreRepo) Add(ctx context.Context, p AddBookmarkParams) (BookmarkR
 // Delete(bookmark, Exists), Create the idempotency doc and ArrayRemove on userLikes.bookmarks. A
 // missing bookmark fails the Exists precondition at commit, which rolls the whole transaction back; the key is then
 // recorded on its own (recordNoop): the no-op writes only the idempotency doc, so a late retry of the
-// key replays. No visibility check and no quota.
+// key replays. No visibility check.
 func (r *FirestoreRepo) Remove(ctx context.Context, p RemoveBookmarkParams) (BookmarkResult, error) {
 	if err := r.bookmarksReady(); err != nil {
 		return BookmarkResult{}, err

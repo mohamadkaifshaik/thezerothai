@@ -29,7 +29,6 @@ import (
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 func (e *ltChain) setTabs(u ltUser, label string, ids ...string) (*timelinev1.SetHomeTabsResponse, error) {
@@ -356,34 +355,6 @@ func TestW515_ListTimelineAndMembersDropBlockedBothWays(t *testing.T) {
 		if got := members(u); !slices.Equal(got, want) {
 			t.Errorf("%s's member page = %v, want %v", name, got, want)
 		}
-	}
-}
-
-// The quota names on the wire: QUOTA_EXCEEDED carries the snake_case names the proto documents, at exactly the daily caps
-// (10 creates; 300 adds), with nothing written by the refusal.
-func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
-	c := newLTChain(t, nil)
-	u, target := c.user(t), c.user(t)
-	var last string
-	for i := range 10 {
-		last = c.createList(t, u, fmt.Sprintf("List %d", i), true)
-	}
-	private := true
-	_, err := c.lists.CreateList(context.Background(), authed(u.token, &listsv1.CreateListRequest{IdempotencyKey: contractKey("w515-over"), Name: "Eleventh", IsPrivate: &private}))
-	d := wireError(t, err, connect.CodeResourceExhausted)
-	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_creates" {
-		t.Fatalf("11th create: %v", d)
-	}
-
-	// 300 adds recorded today: the 301st is refused; seeding the counter avoids 300 RPCs.
-	if _, err := c.fs.Collection("quotas").Doc(u.uid).Set(context.Background(), quota.Record{Day: quota.Today(), ListCreates: 10, ListAdds: 300}); err != nil {
-		t.Fatal(err)
-	}
-	fresh := newLTChain(t, nil)
-	_, err = fresh.lists.AddListMember(context.Background(), authed(u.token, &listsv1.AddListMemberRequest{IdempotencyKey: contractKey("w515-add"), ListId: last, UserId: target.uid}))
-	d = wireError(t, err, connect.CodeResourceExhausted)
-	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_adds" {
-		t.Fatalf("301st add: %v", d)
 	}
 }
 

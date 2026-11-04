@@ -32,7 +32,7 @@ func (in *createInstance) createWithPoll(t *testing.T, uid, key, text string, po
 // IDEMPOTENCY_KEY_REUSED, and a rejected poll writes nothing.
 func TestCreate_Integration_Poll(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 
 	draft := &PollInput{Choices: []string{" Yes ", "No", "Maybe"}, DurationMinutes: 1440}

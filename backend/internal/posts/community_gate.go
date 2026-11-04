@@ -21,7 +21,7 @@ import (
 // posts never imports communities. Every method returns an already-shaped *apierr.Error for a refusal, which Create passes through.
 //
 // Create runs it in this order: the protected-caller check (Create itself), Admit (before the transaction), then inside
-// CreatePost's transaction CheckMember, the quota write (posts + communityPosts in one Set) and AllowPost.
+// CreatePost's transaction CheckMember and AllowPost.
 type CommunityGate interface {
 	// Admit checks the community's status from the 60 s instance cache (staleness bound 60 s, so a suspension
 	// or archive on another instance reaches this path within a minute) and returns the community's name for the label snapshot. A
@@ -52,7 +52,6 @@ const (
 	gateProtected = "rejected:protected"
 	gateRefused   = "rejected" // refused by the gate before the transaction (not found, archived)
 	gateNotMember = "rejected:forbidden"
-	gateQuota     = "rejected:quota"
 	gateCap       = "rejected:cap"
 
 	// Reply-gate outcomes (`community_reply_gate`): enums only.
@@ -147,16 +146,12 @@ func (s *service) admitCommunity(ctx context.Context, author identity.Profile, c
 }
 
 // applyCommunity turns a root-post or quote draft into a community post: the feed key, the label snapshot and the conversation's
-// community (the root's own), and the in-transaction gate with the caller's quota tier.
+// community (the root's own), and the in-transaction gate.
 func (s *service) applyCommunity(p *CreateParams, label *CommunityLabel, author identity.Profile) {
 	p.Draft.CommunityID = label.ID
 	p.Draft.Community = label
 	p.Draft.ConversationCommunityID = label.ID
-	limit := s.communityPostsPerDay
-	if s.isNewAccount(author, s.now()) {
-		limit = s.newAccountCommunityPostsPerDay
-	}
-	p.Community = &CommunityPost{Gate: s.community, QuotaLimit: limit}
+	p.Community = &CommunityPost{Gate: s.community}
 }
 
 // noteCommunityGateError records which gate step refused inside the transaction (`community_gate`, enums only).
@@ -168,8 +163,6 @@ func noteCommunityGateError(ctx context.Context, err error) {
 	switch ae.Reason {
 	case commonv1.ErrorReason_ERROR_REASON_FORBIDDEN:
 		logger.SetRequestField(ctx, fieldCommunityGate, gateNotMember)
-	case commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED:
-		logger.SetRequestField(ctx, fieldCommunityGate, gateQuota)
 	case commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED:
 		logger.SetRequestField(ctx, fieldCommunityGate, gateCap)
 	}

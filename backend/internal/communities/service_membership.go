@@ -8,7 +8,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -41,25 +40,17 @@ func errNoProfile() *apierr.Error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 }
 
-// joinQuotaLimit is the caller's daily quota.CommunityJoins limit: the new-account tier inside NewAccountWindow. The caller's profile is
-// cache-first (the account-status interceptor has just loaded it).
-func (s *service) joinQuotaLimit(ctx context.Context, uid string) (int64, error) {
+// requireProfile refuses a caller without a profile (PROFILE_REQUIRED). The profile is cache-first (the account-status
+// interceptor has just loaded it).
+func (s *service) requireProfile(ctx context.Context, uid string) error {
 	profiles, err := s.d.Directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
-		return 0, logger.RedactErr(fmt.Errorf("communities: load profile: %w", err), uid)
+		return logger.RedactErr(fmt.Errorf("communities: load profile: %w", err), uid)
 	}
-	p, ok := profiles[uid]
-	if !ok {
-		return 0, errNoProfile()
+	if _, ok := profiles[uid]; !ok {
+		return errNoProfile()
 	}
-	if s.isNew(p) {
-		return s.d.Limits.NewAccountJoinsPerDay, nil
-	}
-	return s.d.Limits.JoinsPerDay, nil
-}
-
-func (s *service) isNew(p identity.Profile) bool {
-	return !p.CreatedAt.IsZero() && s.now().Sub(p.CreatedAt) < s.d.Limits.NewAccountWindow
+	return nil
 }
 
 func joinHash(communityID string) string {
@@ -101,7 +92,7 @@ func (s *service) openForMembership(ctx context.Context, op, uid, communityID st
 }
 
 // JoinCommunity implements Service. The community comes from the 60 s cache (the transaction never reads it),
-// so a community archived or suspended on another instance in the last 60 s can still take a join; the cap, the ban and the quota are
+// so a community archived or suspended on another instance in the last 60 s can still take a join; the cap and the ban are
 // always fresh. The caller's member doc is cached from the written state, never the community (a locally adjusted copy would reset its
 // TTL), and the response's member_count is the cached count plus this join, which can lag other instances by up to 60 s.
 func (s *service) JoinCommunity(ctx context.Context, uid string, in MembershipInput) (View, error) {
@@ -113,13 +104,12 @@ func (s *service) JoinCommunity(ctx context.Context, uid string, in MembershipIn
 	if c.Status == StatusArchived {
 		return View{}, mapErr(ctx, "join", uid, c.ID, ErrArchived)
 	}
-	limit, err := s.joinQuotaLimit(ctx, uid)
-	if err != nil {
+	if err := s.requireProfile(ctx, uid); err != nil {
 		return View{}, mapErr(ctx, "join", uid, c.ID, err)
 	}
 	res, err := s.d.Repo.Join(ctx, JoinParams{
 		UID: uid, ID: c.ID, IdemKey: idempotency.Key(uid, rpcJoinCommunity, in.Key), RequestHash: joinHash(c.ID),
-		MaxJoined: s.d.Limits.MaxJoined, QuotaLimit: limit,
+		MaxJoined: s.d.Limits.MaxJoined,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "join", uid, c.ID, err)

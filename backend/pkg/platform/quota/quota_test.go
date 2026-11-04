@@ -49,71 +49,9 @@ func TestTodayAt_ISTBoundary(t *testing.T) {
 	if got := TodayAt(utc); got != "2026-01-02" {
 		t.Errorf("TodayAt() = %q, want 2026-01-02", got)
 	}
-	// One minute earlier is still 2026-01-01 in IST.
+	// One hour earlier is still 2026-01-01 in IST.
 	if got := TodayAt(utc.Add(-time.Hour)); got != "2026-01-01" {
 		t.Errorf("TodayAt() = %q, want 2026-01-01", got)
-	}
-}
-
-func TestCheckAndReserve_UnderLimitIncrementsAndWrites(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	b := &fakeBatch{}
-	rec := Record{Day: Today(), Posts: 2}
-
-	if err := CheckAndReserve(b, ref, rec, Posts, 5); err != nil {
-		t.Fatalf("CheckAndReserve() error = %v", err)
-	}
-	if len(b.sets) != 1 {
-		t.Fatalf("expected 1 Set call, got %d", len(b.sets))
-	}
-	got := b.sets[0].(Record)
-	if got.Posts != 3 {
-		t.Errorf("Posts = %d, want 3 (incremented)", got.Posts)
-	}
-}
-
-func TestCheckAndReserve_AtLimitRejectsWithoutWriting(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	b := &fakeBatch{}
-	rec := Record{Day: Today(), Follows: 200}
-
-	err := CheckAndReserve(b, ref, rec, Follows, 200)
-	if err == nil {
-		t.Fatal("expected quota exceeded error")
-	}
-	if len(b.sets) != 0 {
-		t.Fatalf("expected no writes when over quota, got %d", len(b.sets))
-	}
-
-	var ae *apierr.Error
-	if !errors.As(err, &ae) {
-		t.Fatalf("error is %T, want *apierr.Error", err)
-	}
-	if ae.Code != connect.CodeResourceExhausted {
-		t.Errorf("Code = %v, want ResourceExhausted", ae.Code)
-	}
-	if ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED {
-		t.Errorf("Reason = %v", ae.Reason)
-	}
-	if ae.Metadata["quota"] != "follows" {
-		t.Errorf("Metadata[quota] = %q, want follows", ae.Metadata["quota"])
-	}
-	// common.proto: retry_after is set for QUOTA_EXCEEDED and runs to the next IST midnight (at most one day).
-	if ae.RetryAfter <= 0 || ae.RetryAfter > 24*time.Hour {
-		t.Errorf("RetryAfter = %v, want in (0, 24h]", ae.RetryAfter)
-	}
-}
-
-func TestCheckAndReserve_KindsAreIndependent(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	rec := Record{Day: Today(), Posts: 100, Follows: 1, Uploads: 1, Exports: 0}
-
-	// Posts is at its limit, but Exports is a separate counter and should still succeed.
-	if err := CheckAndReserve(&fakeBatch{}, ref, rec, Exports, 1); err != nil {
-		t.Fatalf("Exports should not be blocked by Posts being at its own limit: %v", err)
-	}
-	if err := CheckAndReserve(&fakeBatch{}, ref, rec, Posts, 100); err == nil {
-		t.Fatal("expected Posts to be at its limit")
 	}
 }
 
@@ -136,237 +74,68 @@ func TestUntilNextDay(t *testing.T) {
 	}
 }
 
-// TestCheckAndReserveN: n units are reserved together, or the whole call is rejected with nothing written.
-func TestCheckAndReserveN(t *testing.T) {
+// TestCheckAndReserve covers both kept kinds: a reservation under the limit increments only its own counter and
+// writes once; at the limit nothing is written and the error is QUOTA_EXCEEDED naming the kind.
+func TestCheckAndReserve(t *testing.T) {
+	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 	tests := []struct {
 		name     string
-		have     int64
-		n        int64
+		kind     Kind
+		rec      Record
 		limit    int64
 		wantErr  bool
-		wantUsed int64
+		wantRec  Record
+		wantMeta string
 	}{
-		{"fits exactly", 16, 4, 20, false, 20},
-		{"one unit over rejects the whole call", 17, 4, 20, true, 17},
-		{"empty day", 0, 4, 20, false, 4},
-		{"single unit equals CheckAndReserve", 19, 1, 20, false, 20},
-		{"already at the limit", 20, 1, 20, true, 20},
+		{"first report of the day", Reports, Record{Day: "d"}, 20, false, Record{Day: "d", Reports: 1}, ""},
+		{"last report that fits", Reports, Record{Day: "d", Reports: 19, DMNew: 4}, 20, false, Record{Day: "d", Reports: 20, DMNew: 4}, ""},
+		{"reports at the cap", Reports, Record{Day: "d", Reports: 5}, 5, true, Record{}, "reports"},
+		{"first new conversation", DMNew, Record{Day: "d", Reports: 20}, 20, false, Record{Day: "d", Reports: 20, DMNew: 1}, ""},
+		{"new conversations at the cap", DMNew, Record{Day: "d", DMNew: 20}, 20, true, Record{}, "dmNew"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 			b := &fakeBatch{}
-			err := CheckAndReserveN(b, ref, Record{Day: Today(), Uploads: tt.have}, Uploads, tt.limit, tt.n)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				if len(b.sets) != 0 {
-					t.Fatalf("a rejected call wrote %d docs", len(b.sets))
+			err := CheckAndReserve(b, ref, tt.rec, tt.kind, tt.limit)
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("err = %v", err)
 				}
-				var ae *apierr.Error
-				if !errors.As(err, &ae) || ae.Metadata["quota"] != "uploads" {
-					t.Fatalf("err = %v, want QUOTA_EXCEEDED for uploads", err)
+				if len(b.sets) != 1 || b.sets[0].(Record) != tt.wantRec {
+					t.Fatalf("sets = %+v, want one Set of %+v", b.sets, tt.wantRec)
 				}
 				return
 			}
-			if len(b.sets) != 1 || b.sets[0].(Record).Uploads != tt.wantUsed {
-				t.Fatalf("sets = %+v, want Uploads %d", b.sets, tt.wantUsed)
+			if len(b.sets) != 0 {
+				t.Fatalf("expected no writes when over quota, got %d", len(b.sets))
+			}
+			var ae *apierr.Error
+			if !errors.As(err, &ae) {
+				t.Fatalf("error is %T, want *apierr.Error", err)
+			}
+			if ae.Code != connect.CodeResourceExhausted || ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED {
+				t.Errorf("Code/Reason = %v/%v", ae.Code, ae.Reason)
+			}
+			if ae.Metadata["quota"] != tt.wantMeta {
+				t.Errorf("Metadata[quota] = %q, want %q", ae.Metadata["quota"], tt.wantMeta)
+			}
+			// common.proto: retry_after is set for QUOTA_EXCEEDED and runs to the next IST midnight (at most one day).
+			if ae.RetryAfter <= 0 || ae.RetryAfter > 24*time.Hour {
+				t.Errorf("RetryAfter = %v, want in (0, 24h]", ae.RetryAfter)
 			}
 		})
 	}
 }
 
-// TestSchedulesKind: the schedules counter reserves like the others, is independent of posts, rejects
-// with QUOTA_EXCEEDED metadata quota=schedules, and the only thing it writes is the one whole-record Set.
-func TestSchedulesKind(t *testing.T) {
+// TestTouch: the record is written back once with only Seq bumped, so the write always changes the doc (an unchanged doc
+// would not invalidate a racing transaction's read under optimistic concurrency).
+func TestTouch(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	tests := []struct {
-		name     string
-		rec      Record
-		limit    int64
-		wantErr  bool
-		wantUsed int64
-	}{
-		{"first schedule of the day", Record{Day: Today()}, 50, false, 1},
-		{"last one that fits", Record{Day: Today(), Schedules: 49}, 50, false, 50},
-		{"at the daily cap", Record{Day: Today(), Schedules: 50}, 50, true, 50},
-		{"new-account cap of 10", Record{Day: Today(), Schedules: 10}, 10, true, 10},
-		{"posts at its own cap do not block schedules", Record{Day: Today(), Posts: 100}, 50, false, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBatch{}
-			err := CheckAndReserve(b, ref, tt.rec, Schedules, tt.limit)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				var ae *apierr.Error
-				if !errors.As(err, &ae) || ae.Metadata["quota"] != "schedules" || len(b.sets) != 0 {
-					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=schedules and nothing written", err, len(b.sets))
-				}
-				return
-			}
-			got := b.sets[0].(Record)
-			if got.Schedules != tt.wantUsed || got.Posts != tt.rec.Posts {
-				t.Errorf("record = %+v, want Schedules %d and Posts untouched", got, tt.wantUsed)
-			}
-		})
-	}
-	if got := (Record{Schedules: 7}).valueFor(Schedules); got != 7 {
-		t.Errorf("valueFor(Schedules) = %d, want 7", got)
-	}
-	if got := (Record{Schedules: 7}).valueFor(Posts); got != 0 {
-		t.Errorf("valueFor(Posts) = %d, want 0: schedules must not leak into other kinds", got)
-	}
-}
-
-// TestBookmarksKind: the bookmarks counter reserves like the others, is independent of every other kind
-// (including likes and schedules, which share the whole-record Set), and rejects with QUOTA_EXCEEDED quota=bookmarks.
-func TestBookmarksKind(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	tests := []struct {
-		name     string
-		rec      Record
-		limit    int64
-		wantErr  bool
-		wantUsed int64
-	}{
-		{"first bookmark of the day", Record{Day: Today()}, 200, false, 1},
-		{"last one that fits", Record{Day: Today(), Bookmarks: 199}, 200, false, 200},
-		{"at the daily cap", Record{Day: Today(), Bookmarks: 200}, 200, true, 200},
-		{"new-account cap of 50", Record{Day: Today(), Bookmarks: 50}, 50, true, 50},
-		{"likes at their own cap do not block bookmarks", Record{Day: Today(), Likes: 500}, 200, false, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBatch{}
-			err := CheckAndReserve(b, ref, tt.rec, Bookmarks, tt.limit)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				var ae *apierr.Error
-				if !errors.As(err, &ae) || ae.Metadata["quota"] != "bookmarks" || len(b.sets) != 0 {
-					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=bookmarks and nothing written", err, len(b.sets))
-				}
-				return
-			}
-			got := b.sets[0].(Record)
-			if got.Bookmarks != tt.wantUsed || got.Likes != tt.rec.Likes || got.Schedules != tt.rec.Schedules {
-				t.Errorf("record = %+v, want Bookmarks %d and the other kinds untouched", got, tt.wantUsed)
-			}
-		})
-	}
-	if got := (Record{Bookmarks: 7}).valueFor(Bookmarks); got != 7 {
-		t.Errorf("valueFor(Bookmarks) = %d, want 7", got)
-	}
-	if got := (Record{Bookmarks: 7}).valueFor(Likes); got != 0 {
-		t.Errorf("valueFor(Likes) = %d, want 0: bookmarks must not leak into other kinds", got)
-	}
-}
-
-// TestPrivacyTogglesKind: the privacyToggles counter reserves like the others, rejects with QUOTA_EXCEEDED
-// metadata quota=privacy_toggles, never touches another kind, and the Record field, valueFor and increment ship together
-// (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
-func TestPrivacyTogglesKind(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	tests := []struct {
-		name     string
-		rec      Record
-		limit    int64
-		wantErr  bool
-		wantUsed int64
-	}{
-		{"first toggle of the day", Record{Day: Today()}, 4, false, 1},
-		{"fourth toggle fits", Record{Day: Today(), PrivacyToggles: 3}, 4, false, 4},
-		{"fifth toggle is refused", Record{Day: Today(), PrivacyToggles: 4}, 4, true, 4},
-		{"other kinds at their cap do not block", Record{Day: Today(), Follows: 200, Bookmarks: 200, Schedules: 50}, 4, false, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBatch{}
-			err := CheckAndReserve(b, ref, tt.rec, PrivacyToggles, tt.limit)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				var ae *apierr.Error
-				if !errors.As(err, &ae) || ae.Metadata["quota"] != "privacy_toggles" || len(b.sets) != 0 {
-					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED quota=privacy_toggles and nothing written", err, len(b.sets))
-				}
-				return
-			}
-			got := b.sets[0].(Record)
-			if got.PrivacyToggles != tt.wantUsed || got.Follows != tt.rec.Follows || got.Bookmarks != tt.rec.Bookmarks || got.Schedules != tt.rec.Schedules {
-				t.Errorf("record = %+v, want PrivacyToggles %d and the other kinds untouched", got, tt.wantUsed)
-			}
-		})
-	}
-	if got := (Record{PrivacyToggles: 7}).valueFor(PrivacyToggles); got != 7 {
-		t.Errorf("valueFor(PrivacyToggles) = %d, want 7", got)
-	}
-	if got := (Record{PrivacyToggles: 7}).valueFor(Follows); got != 0 {
-		t.Errorf("valueFor(Follows) = %d, want 0: toggles must not leak into other kinds", got)
-	}
-	var r Record
-	r.increment(PrivacyToggles, 2)
-	if r.PrivacyToggles != 2 || r.Follows != 0 {
-		t.Errorf("increment(PrivacyToggles, 2) = %+v", r)
-	}
-}
-
-// TestDMNewKind: the dmNew counter reserves like the others, never touches another kind, and the Record
-// field, valueFor and increment ship together (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
-// The Firestore field name is dmNew.
-func TestDMNewKind(t *testing.T) {
-	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
-	tests := []struct {
-		name     string
-		rec      Record
-		limit    int64
-		wantErr  bool
-		wantUsed int64
-	}{
-		{"first new conversation of the day", Record{Day: Today()}, 20, false, 1},
-		{"last one that fits", Record{Day: Today(), DMNew: 19}, 20, false, 20},
-		{"at the daily cap", Record{Day: Today(), DMNew: 20}, 20, true, 20},
-		{"new-account cap of 5", Record{Day: Today(), DMNew: 5}, 5, true, 5},
-		{"other kinds at their cap do not block", Record{Day: Today(), Posts: 100, Follows: 200, Bookmarks: 200}, 20, false, 1},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := &fakeBatch{}
-			err := CheckAndReserve(b, ref, tt.rec, DMNew, tt.limit)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr {
-				var ae *apierr.Error
-				if !errors.As(err, &ae) || len(b.sets) != 0 {
-					t.Fatalf("err = %v sets = %d, want QUOTA_EXCEEDED and nothing written", err, len(b.sets))
-				}
-				return
-			}
-			got := b.sets[0].(Record)
-			if got.DMNew != tt.wantUsed {
-				t.Errorf("DMNew = %d, want %d", got.DMNew, tt.wantUsed)
-			}
-			if got.Posts != tt.rec.Posts || got.Follows != tt.rec.Follows || got.Bookmarks != tt.rec.Bookmarks || got.PrivacyToggles != tt.rec.PrivacyToggles {
-				t.Errorf("record = %+v, want the other kinds untouched", got)
-			}
-		})
-	}
-	if got := (Record{DMNew: 7}).valueFor(DMNew); got != 7 {
-		t.Errorf("valueFor(DMNew) = %d, want 7", got)
-	}
-	if got := (Record{DMNew: 7}).valueFor(Follows); got != 0 {
-		t.Errorf("valueFor(Follows) = %d, want 0: dmNew must not leak into other kinds", got)
-	}
-	var r Record
-	r.increment(DMNew, 2)
-	if r.DMNew != 2 || r.Follows != 0 || r.PrivacyToggles != 0 {
-		t.Errorf("increment(DMNew, 2) = %+v", r)
+	b := &fakeBatch{}
+	rec := Record{Day: "d", Reports: 3, DMNew: 2, Seq: 7}
+	Touch(b, ref, rec)
+	want := Record{Day: "d", Reports: 3, DMNew: 2, Seq: 8}
+	if len(b.sets) != 1 || b.sets[0].(Record) != want {
+		t.Fatalf("sets = %+v, want one Set of %+v", b.sets, want)
 	}
 }

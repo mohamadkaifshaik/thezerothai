@@ -15,11 +15,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-	"connectrpc.com/connect"
 
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -47,12 +44,12 @@ type intEnv struct {
 func newIntEnv(t *testing.T, o envOpts) *intEnv {
 	t.Helper()
 	client := newIntegrationClient(t)
-	real := NewFirestoreRepo(client, WriteDeps{Idempotency: idempotency.New(client), Quotas: quota.New(client)})
+	real := NewFirestoreRepo(client, WriteDeps{Idempotency: idempotency.New(client)})
 	e := newEnv(t, o)
 	svc, err := New(Deps{
 		Repo: real, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-30 * 24 * time.Hour)}, IDs: &seqIDs{n: rand.IntN(1 << 30)},
-		PublicBaseURL: "https://cdn.test/media", MediaPerDay: 20, NewAccountMediaPerDay: 8, NewAccountWindow: 24 * time.Hour,
+		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
 		VisionMonthlyCap: 100, Now: func() time.Time { return testNow },
 	})
 	if err != nil {
@@ -109,7 +106,8 @@ func TestIntegration_CreateUploadAndFinalize(t *testing.T) {
 	}
 }
 
-func TestIntegration_QuotaIsWholeCall(t *testing.T) {
+// TestIntegration_NoDailyQuota: past the old daily limit of 20 images, uploads still succeed and no quotas doc is written.
+func TestIntegration_NoDailyQuota(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	mk := func(n int, key string) error {
 		items := make([]UploadItem, n)
@@ -120,13 +118,14 @@ func TestIntegration_QuotaIsWholeCall(t *testing.T) {
 		_, err := e.svc.CreateUpload(ctx, uidA, CreateUploadInput{IdempotencyKey: key, Purpose: PurposePost, Items: items})
 		return err
 	}
-	for i := 0; i < 5; i++ { // 5 x 4 = 20 images: exactly the daily limit
+	for i := 0; i < 6; i++ { // 6 x 4 = 24 images: past the old limit of 20
 		if err := mk(4, fmt.Sprintf("quota-key-%016d", i)); err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
 	}
-	err := mk(1, "quota-key-over-0000001")
-	_ = wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+	if _, err := e.client.Doc("quotas/" + uidA).Get(context.Background()); err == nil {
+		t.Error("CreateUpload wrote quotas/{uid}; uploads no longer count a daily quota")
+	}
 }
 
 func TestIntegration_ConcurrentFinalizeConverges(t *testing.T) {

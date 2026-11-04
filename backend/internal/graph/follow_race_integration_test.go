@@ -81,7 +81,7 @@ func TestFollow_Integration_ProtectRacingWithFollowIsSerialized(t *testing.T) {
 		}
 
 		cctx := ctx
-		rel, _, err := repo.Follow(cctx, follower, target, 200, time.Now())
+		rel, _, err := repo.Follow(cctx, follower, target, time.Now())
 		if err != nil {
 			wg.Wait()
 			t.Fatalf("round %d: Follow: %v", i, err)
@@ -140,7 +140,7 @@ func TestFollow_Integration_ProtectRacingWithFollowIsSerialized(t *testing.T) {
 	if _, err := client.Collection("users").Doc("uid-ta").Update(ctx, []firestore.Update{{Path: "isPrivate", Value: true}}); err != nil {
 		t.Fatal(err)
 	}
-	rel, _, err := repo.Follow(ctx, "uid-fa", "uid-ta", 200, time.Now())
+	rel, _, err := repo.Follow(ctx, "uid-fa", "uid-ta", time.Now())
 	if err != nil || rel.FollowState != FollowStateRequested {
 		t.Fatalf("Follow after a committed protect = %v, %v; want REQUESTED", rel.FollowState, err)
 	}

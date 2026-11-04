@@ -5,14 +5,13 @@ package posts
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 // TestCreate_Integration_Disclosure: the labels land on the post doc under their documented
 // names, only when set (absent = false, no backfill).
 func TestCreate_Integration_Disclosure(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 
 	create := func(key, text string, pp, ai bool) *Post {

@@ -47,7 +47,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 var errInjectedDeath = errors.New("injected instance death")
@@ -259,7 +258,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 	postsRepo := posts.NewFirestoreRepo(e.fs)
 	// The purge copy phase and the engagement step need the same collaborators as Build wires.
 	postsRepo.SetWriters(posts.WriteDeps{Counters: idRepo})
-	engRepo := engagement.NewFirestoreRepo(e.fs, engagement.WriteDeps{Quotas: quota.New(e.fs), Writer: postsRepo, Counters: idRepo, IDs: noIDs{}})
+	engRepo := engagement.NewFirestoreRepo(e.fs, engagement.WriteDeps{Writer: postsRepo, Counters: idRepo, IDs: noIDs{}})
 	postsRepo.SetRepostLinks(engRepo)
 	objs, err := objstore.New(e.bucket.BucketName())
 	if err != nil {
@@ -270,7 +269,7 @@ func (e *lifecycleEnv) newCrashChain(t *testing.T, plan *crashPlan) *crashChain 
 		Repo: crashRepo{idRepo, plan}, Cache: identity.NewCache(e.cfg.CacheTTL), Publisher: pub,
 		Auth: crashAuth{authc, plan}, Objects: crashObjects{objs, plan},
 		Log: slog.New(slog.NewJSONHandler(io.Discard, nil)), ProjectID: e.cfg.ProjectID,
-		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+		ExportRetention: time.Hour, ExportURLTTL: time.Minute,
 		Now:        steppingClock(),
 		WorkBudget: time.Nanosecond, StartGate: time.Nanosecond, RetryBackoff: time.Millisecond,
 	})
@@ -621,9 +620,6 @@ func relaxLimits(c *config.Config) {
 	c.RateLimit.GraphFollowPerMinute = 1_000_000
 	c.RateLimit.GraphBlockPerMinute = 1_000_000
 	c.RateLimit.GraphMutationsPerDay = 1_000_000
-	c.Quota.PostsPerDay, c.Quota.NewAccountPostsPerDay = 1_000_000, 1_000_000
-	c.Quota.FollowsPerDay, c.Quota.NewAccountFollowsPerDay = 1_000_000, 1_000_000
-	c.Quota.BlocksPerDay, c.Quota.NewAccountBlocksPerDay = 1_000_000, 1_000_000
 }
 
 // TestAccountLifecycle_RichAccountConcurrentDeliveries: the same rich account erased by racing deliveries of one

@@ -166,8 +166,10 @@ func (r *FirestoreRepo) countOwned(ctx context.Context, tx *firestore.Transactio
 }
 
 // Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a
-// replay returns here), quotas/{uid}, count() of the owner's lists (the cap is exact). Writes: Create the
-// list, Create the idempotency document, the quota record. At the cap or over the quota nothing is written.
+// replay returns here), quotas/{uid}, count() of the owner's lists. Writes: Create the list, Create the
+// idempotency document, and quotas/{uid} rewritten unchanged. The cap is exact because every create by one user reads and
+// writes quotas/{uid}: of two racing creates only one commits, and the retry of the other counts the winner's list. At
+// the cap nothing is written.
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	if err := r.ready(); err != nil {
 		return CreateResult{}, err
@@ -188,7 +190,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		}
 		qrec, err := r.quotas.Get(ctx, tx, p.UID)
 		if err != nil {
-			return fmt.Errorf("lists: quota lookup: %w", err)
+			return fmt.Errorf("lists: create lock read: %w", err)
 		}
 		n, err := r.countOwned(ctx, tx, p.UID, p.MaxPerUser)
 		if err != nil {
@@ -198,9 +200,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			return ErrListLimit
 		}
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.ListCreates, p.QuotaLimit); err != nil {
-			return err
-		}
+		quota.Touch(b, r.quotas.Ref(p.UID), qrec) // counts nothing; it makes racing creates conflict (above)
 		now := r.now().UTC()
 		doc := listDoc{
 			OwnerID: p.UID, Name: p.Name, Description: p.Description, IsPrivate: p.IsPrivate,

@@ -78,9 +78,9 @@ func (s *Server) bookmarkCall(ctx context.Context, rpc string, who bookmarkCalle
 }
 
 // AddBookmark is behind FEATURE_POSTS and FEATURE_BOOKMARKS on for the caller (not FEATURE_ENGAGEMENT); the rules are
-// Bookmarks.AddBookmark. A new bookmark writes the bookmark, the idempotency doc, quotas and userLikes, and its
+// Bookmarks.AddBookmark. A new bookmark writes the bookmark, the idempotency doc and userLikes, and its
 // idempotency doc is removed later by its TTL. A replay writes nothing; an existing bookmark writes only the
-// idempotency doc (so a late retry replays); the cap and the quota write nothing.
+// idempotency doc (so a late retry replays); the cap writes nothing.
 //
 //nolint:dupl // mirrors RemoveBookmark over distinct generated proto types
 func (s *Server) AddBookmark(ctx context.Context, req *connect.Request[engagementv1.AddBookmarkRequest]) (*connect.Response[engagementv1.AddBookmarkResponse], error) {

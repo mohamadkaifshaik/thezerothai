@@ -20,7 +20,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -93,11 +92,10 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 			return nil, fmt.Errorf("media moderator: %w", err)
 		}
 	}
-	repo := media.NewFirestoreRepo(fs, media.WriteDeps{Idempotency: idempotency.New(fs), Quotas: quota.New(fs)})
+	repo := media.NewFirestoreRepo(fs, media.WriteDeps{Idempotency: idempotency.New(fs)})
 	svc, err := media.New(media.Deps{
 		Repo: repo, Signer: buckets, Objects: buckets, Moderator: moderator,
 		Directory: directoryAge{dir}, IDs: node, PublicBaseURL: cfg.MediaPublicBaseURL,
-		MediaPerDay: int64(cfg.Quota.MediaPerDay), NewAccountMediaPerDay: int64(cfg.Quota.NewAccountMediaPerDay),
 		NewAccountWindow: cfg.Quota.NewAccountWindow,
 		VisionMonthlyCap: int64(cfg.VisionMonthlyCap), Policy: cfg.VisionExhaustedPolicy, ScreenThumb: cfg.VisionScreenThumb, GifMaxEdge: cfg.Composer.GifMaxEdge,
 		GifMaxFrames: cfg.Composer.GifMaxFrames, GifMaxFrameAreaSum: int64(cfg.Composer.GifMaxFrameAreaSum),

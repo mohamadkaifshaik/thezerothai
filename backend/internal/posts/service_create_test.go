@@ -52,7 +52,6 @@ func newCreateEnv(opts ...Option) *createEnv {
 	}
 	e.svc = New(Deps{
 		Repo: e.repo, Cache: e.cache, Events: e.events, Directory: e.dir, Graph: e.graph,
-		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
 		Poll: testPollLimits,
 		Now:  func() time.Time { return now },
 	}, opts...).(*service)
@@ -329,49 +328,6 @@ func TestCreate_ReplayOfDeletedPost(t *testing.T) {
 	e.cache.DeletePost(p.ID)
 	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hello"})
 	_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
-}
-
-func TestCreate_QuotaTiers(t *testing.T) {
-	tests := []struct {
-		name      string
-		createdAt time.Duration // age of the account
-		wantLimit int64
-	}{
-		{"established account", 72 * time.Hour, 100},
-		{"under 24 h", 2 * time.Hour, 20},
-		{"exactly at the window", 24 * time.Hour, 100},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newCreateEnv()
-			pr := e.dir.profiles[testUID]
-			pr.CreatedAt = time.Unix(1_700_000_000, 0).Add(-tt.createdAt)
-			e.dir.profiles[testUID] = pr
-			if _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"}); err != nil {
-				t.Fatal(err)
-			}
-			if e.repo.lastCreate.QuotaLimit != tt.wantLimit {
-				t.Fatalf("limit = %d, want %d", e.repo.lastCreate.QuotaLimit, tt.wantLimit)
-			}
-		})
-	}
-}
-
-func TestCreate_QuotaExceeded(t *testing.T) {
-	e := newCreateEnv()
-	e.repo.quotaUsed = 100
-	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
-	ae := wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-	if ae.Metadata["quota"] != "posts" || len(e.events.created) != 0 || len(e.dir.forgotten) != 0 {
-		t.Fatalf("meta=%v events=%d forgotten=%v", ae.Metadata, len(e.events.created), e.dir.forgotten)
-	}
-	e = newCreateEnv()
-	pr := e.dir.profiles[testUID]
-	pr.CreatedAt = time.Unix(1_700_000_000, 0).Add(-time.Hour)
-	e.dir.profiles[testUID] = pr
-	e.repo.quotaUsed = 20
-	_, err = e.create(CreateInput{IdempotencyKey: key1, Text: "hi"})
-	_ = wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 }
 
 func TestCreate_UnexpectedErrorIsNotAnAPIError(t *testing.T) {

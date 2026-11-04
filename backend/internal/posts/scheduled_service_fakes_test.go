@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // fakeSchedRepo is an in-memory ScheduledRepo for the Scheduler unit tests. It extends fakeScheduledStore (list,
@@ -13,8 +11,6 @@ import (
 type fakeSchedRepo struct {
 	*fakeScheduledStore
 
-	// schedules is quotas.schedules per uid (the test day never rolls over).
-	schedules map[string]int64
 	// mediaNotReady makes the media load fail with ErrMediaNotReady; mediaRefs are the refs it returns per id.
 	mediaNotReady bool
 	// raceDoc, when set, is inserted by CreateScheduled and reported as ErrScheduledExists: a concurrent first call of
@@ -37,7 +33,7 @@ type fakeSchedRepo struct {
 }
 
 func newFakeSchedRepo(ps ...*ScheduledPost) *fakeSchedRepo {
-	return &fakeSchedRepo{fakeScheduledStore: newFakeScheduledStore(ps...), schedules: map[string]int64{}}
+	return &fakeSchedRepo{fakeScheduledStore: newFakeScheduledStore(ps...)}
 }
 
 var _ ScheduledRepo = (*fakeSchedRepo)(nil)
@@ -145,9 +141,6 @@ func (f *fakeSchedRepo) createAttempt(ctx context.Context, p ScheduledCreatePara
 		}
 		return nil, false, ErrScheduledWindowFull
 	}
-	if f.schedules[p.UID] >= p.QuotaLimit {
-		return nil, false, quota.ExceededError(quota.Schedules, p.Now)
-	}
 	var refs []MediaRef
 	if len(p.MediaIDs) > 0 {
 		if f.mediaNotReady {
@@ -177,7 +170,6 @@ func (f *fakeSchedRepo) createAttempt(ctx context.Context, p ScheduledCreatePara
 		CreatedAt: p.Now.UTC(), UpdatedAt: p.Now.UTC(),
 	}
 	f.docs[p.UID] = append(f.docs[p.UID], created)
-	f.schedules[p.UID]++
 	return copyScheduled(created), false, nil
 }
 

@@ -2,9 +2,9 @@
 
 package apiserver
 
-// The is_private toggle through the real Build chain on the emulators: protect; an equal value writes nothing and is not
-// charged to the quota; unprotect from a caller outside the cohort accepted; the 5th toggle of an IST day QUOTA_EXCEEDED and
-// writes nothing; the cap LIMIT_REACHED limit=private_accounts and writes nothing; the set doc and users.isPrivate agree throughout.
+// The is_private toggle through the real Build chain on the emulators: protect; an equal value writes nothing; unprotect from
+// a caller outside the cohort accepted; a 5th toggle in a day goes through (no daily
+// toggle quota, no quotas doc written); the cap LIMIT_REACHED limit=private_accounts and writes nothing; the set doc and users.isPrivate agree throughout.
 
 import (
 	"context"
@@ -67,19 +67,19 @@ func TestPrivacyToggle_Chain(t *testing.T) {
 	if err := call(cold, "ptoggle-key-0000001", true); err != nil {
 		t.Fatalf("protect: %v", err)
 	}
-	if priv, n := ptoggleStored(t, cold.chainEnv, uid); !priv || n != 1 || !slices.Contains(ptoggleSetUIDs(t, cold.chainEnv), uid) {
-		t.Fatalf("after protect: isPrivate=%v quota=%d set=%v, want true / 1 / contains uid", priv, n, ptoggleSetUIDs(t, cold.chainEnv))
+	if priv, n := ptoggleStored(t, cold.chainEnv, uid); !priv || n != 0 || !slices.Contains(ptoggleSetUIDs(t, cold.chainEnv), uid) {
+		t.Fatalf("after protect: isPrivate=%v quota=%d set=%v, want true / 0 / contains uid", priv, n, ptoggleSetUIDs(t, cold.chainEnv))
 	}
 	if line := cold.logs.requestLines(rpcUpdateProfile); line[len(line)-1]["privacy_toggle"] != "on" {
 		t.Errorf("request line privacy_toggle = %v, want on", line[len(line)-1]["privacy_toggle"])
 	}
 
-	// The same value again: nothing written, quota unchanged.
+	// The same value again: nothing written.
 	if err := call(cold, "ptoggle-key-0000002", true); err != nil {
 		t.Fatalf("protect again: %v", err)
 	}
-	if _, n := ptoggleStored(t, cold.chainEnv, uid); n != 1 {
-		t.Errorf("equal value charged the quota: privacyToggles = %d, want 1", n)
+	if _, n := ptoggleStored(t, cold.chainEnv, uid); n != 0 {
+		t.Errorf("privacyToggles = %d, want 0 (no daily toggle quota)", n)
 	}
 
 	// Undo from a caller OUTSIDE the cohort (a revision where the flag is off for them) is accepted.
@@ -90,24 +90,21 @@ func TestPrivacyToggle_Chain(t *testing.T) {
 	if err := call(off, "ptoggle-key-0000003", false); err != nil {
 		t.Fatalf("unprotect with the flag off: %v", err)
 	}
-	if priv, n := ptoggleStored(t, off.chainEnv, uid); priv || n != 2 || slices.Contains(ptoggleSetUIDs(t, off.chainEnv), uid) {
-		t.Fatalf("after unprotect: isPrivate=%v quota=%d set=%v, want false / 2 / without uid", priv, n, ptoggleSetUIDs(t, off.chainEnv))
+	if priv, n := ptoggleStored(t, off.chainEnv, uid); priv || n != 0 || slices.Contains(ptoggleSetUIDs(t, off.chainEnv), uid) {
+		t.Fatalf("after unprotect: isPrivate=%v quota=%d set=%v, want false / 0 / without uid", priv, n, ptoggleSetUIDs(t, off.chainEnv))
 	}
 
-	// Toggles 3 and 4 pass, the 5th is QUOTA_EXCEEDED and writes nothing.
+	// Toggles 3, 4 and 5 all pass: there is no daily toggle quota (it used to stop at 4).
 	for i, v := range []bool{true, false} {
 		if err := call(cold, "ptoggle-key-000001"+string(rune('0'+i)), v); err != nil {
 			t.Fatalf("toggle %d: %v", i+3, err)
 		}
 	}
-	err := call(cold, "ptoggle-key-0000020", true)
-	d := wireError(t, err, connect.CodeResourceExhausted)
-	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-	if d.GetMetadata()["quota"] != "privacy_toggles" {
-		t.Errorf("metadata = %v, want quota=privacy_toggles", d.GetMetadata())
+	if err := call(cold, "ptoggle-key-0000020", true); err != nil {
+		t.Fatalf("toggle 5: %v", err)
 	}
-	if priv, n := ptoggleStored(t, cold.chainEnv, uid); priv || n != 4 {
-		t.Errorf("after the refused toggle: isPrivate=%v quota=%d, want false / 4", priv, n)
+	if priv, n := ptoggleStored(t, cold.chainEnv, uid); !priv || n != 0 {
+		t.Errorf("after the 5th toggle: isPrivate=%v quota=%d, want true / 0", priv, n)
 	}
 }
 

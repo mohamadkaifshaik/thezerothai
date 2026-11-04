@@ -6,7 +6,7 @@ import "testing"
 
 // TestSweepIT_GIFDraftIsUnavailableNotPublished: SchedulePost refuses a GIF, so no draft should hold
 // one, but a draft that somehow does (a hand-written document, an older revision) must end FAILED / MEDIA_UNAVAILABLE at the
-// sweep: no post, nothing attached, no post quota charged. The photo draft next to it still publishes.
+// sweep: no post, nothing attached. The photo draft next to it still publishes.
 func TestSweepIT_GIFDraftIsUnavailableNotPublished(t *testing.T) {
 	e := newSweepIT(t)
 	e.signUp("uid-alice", "alice")
@@ -35,7 +35,7 @@ func TestSweepIT_GIFDraftIsUnavailableNotPublished(t *testing.T) {
 	if got, _ := e.mediaDoc(1)["postId"].(string); got != "" {
 		t.Errorf("the GIF was attached to post %q", got)
 	}
-	if e.quotaPosts("uid-alice") != 1 || e.postsCount("uid-alice") != 1 {
-		t.Errorf("quota posts %d postsCount %d, want 1 and 1 (the refused GIF is not charged)", e.quotaPosts("uid-alice"), e.postsCount("uid-alice"))
+	if e.quotaPosts("uid-alice") != 0 || e.postsCount("uid-alice") != 1 {
+		t.Errorf("quota posts %d postsCount %d, want 0 and 1 (no quota written; the refused GIF is not posted)", e.quotaPosts("uid-alice"), e.postsCount("uid-alice"))
 	}
 }

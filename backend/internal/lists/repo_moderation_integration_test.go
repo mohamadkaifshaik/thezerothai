@@ -29,7 +29,7 @@ func hideEnv(t *testing.T) *membersEnv {
 func (e *membersEnv) viewerSvc() *service {
 	return New(Deps{
 		Repo: e.repo, Directory: profileDirectory{profiles: e.profiles}, IDs: e.node, Graph: graphFromRepo{graph.NewFirestoreRepo(e.client)},
-		CursorKey: readKey, Limits: Limits{MaxPerUser: 20, CacheEntries: 100, MaxMembers: 150, AddsPerDay: 300, NewAccountAddsPerDay: 50},
+		CursorKey: readKey, Limits: Limits{MaxPerUser: 20, CacheEntries: 100, MaxMembers: 150},
 	}).(*service)
 }
 

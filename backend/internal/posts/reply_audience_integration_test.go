@@ -6,7 +6,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -21,7 +20,7 @@ import (
 // missing cold-path lookup.
 func TestReplyAudience_Integration(t *testing.T) {
 	client := newTestClient(t)
-	seed := newCreateInstance(t, client, time.Nanosecond)
+	seed := newCreateInstance(t, client)
 	for _, u := range []string{"alice", "bob", "carol", "dave"} {
 		seed.signUp(t, "uid-"+u, u)
 	}
@@ -29,7 +28,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 	seedGraphDoc(t, client, "uid-alice", map[string]any{"following": []string{"uid-bob", "uid-carol"}})
 
 	fresh := func() *createInstance {
-		in := newCreateInstance(t, client, time.Nanosecond)
+		in := newCreateInstance(t, client)
 		in.skipInvariantSweep("measurement instance; the seed instance runs the sweep")
 		return in
 	}

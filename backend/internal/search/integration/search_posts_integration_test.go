@@ -67,7 +67,6 @@ func newInstance(t *testing.T, client *firestore.Client) *instance {
 	t.Helper()
 	graphSvc := graph.New(graph.Deps{
 		Repo: graph.NewFirestoreRepo(client), Cache: graph.NewCache(time.Minute), Flags: allOn{}, CursorKey: cursorKey,
-		FollowsPerDay: 500, NewAccountFollowsPerDay: 500, BlocksPerDay: 500, NewAccountBlocksPerDay: 500, NewAccountWindow: time.Nanosecond,
 	})
 	postsSvc := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(client), Cache: posts.NewCache(time.Minute, 20_000, 1_000), Events: posts.NopEvents{}})
 	viewer := &countingViewer{}

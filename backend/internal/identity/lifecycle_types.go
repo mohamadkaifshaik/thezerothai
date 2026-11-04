@@ -213,8 +213,6 @@ type CreateExportParams struct {
 	ObjectPath string
 	Now        time.Time
 	Retention  time.Duration
-	// ExportsPerDay is the daily `exports` quota (quota.Exports).
-	ExportsPerDay int64
 }
 
 // LifecycleRepo is the storage seam of the account lifecycle; repo_lifecycle_firestore.go implements it and the
@@ -231,10 +229,8 @@ type LifecycleRepo interface {
 	// reports a missing document as a failed precondition); callers re-read to tell the two apart.
 	SaveJobState(ctx context.Context, uid string, updateTime time.Time, job DeletionJob) error
 
-	// CreateExport (RequestAccountExport): reads quotas/{uid} and creates the PENDING doc and the
-	// incremented quota atomically. A replay of the same id returns the existing doc and writes nothing;
-	// over the daily quota with a different id is the quota package's
-	// RESOURCE_EXHAUSTED + QUOTA_EXCEEDED error.
+	// CreateExport (RequestAccountExport): creates the PENDING doc. A replay of the same id returns the existing doc and
+	// writes nothing.
 	CreateExport(ctx context.Context, p CreateExportParams) (doc ExportDoc, replay bool, err error)
 	// GetExport reads exports/{id} fresh. ErrNotFound when absent.
 	GetExport(ctx context.Context, id string) (ExportDoc, error)

@@ -308,7 +308,7 @@ func TestServer_BannerNeedsProfileExtrasForTheCaller(t *testing.T) {
 			} else if ae.Metadata["feature"] != ProfileExtrasFlagName {
 				t.Fatalf("feature = %q, want %q", ae.Metadata["feature"], ProfileExtrasFlagName)
 			}
-			if len(e.repo.docs) != 0 || e.sign.calls != 0 || e.repo.quota != 0 {
+			if len(e.repo.docs) != 0 || e.sign.calls != 0 {
 				t.Fatal("a disabled flag must do no work: 0 reads, 0 writes, nothing signed")
 			}
 		})

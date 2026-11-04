@@ -64,7 +64,7 @@ func TestFollow_Success(t *testing.T) {
 		"uid-1": activeProfile("uid-1", now.Add(-72*time.Hour)),
 		"uid-2": activeProfile("uid-2", now.Add(-72*time.Hour)),
 	}}
-	svc := newTestServiceWithDirectory(repo, dir, Deps{FollowsPerDay: 200, NewAccountFollowsPerDay: 50, NewAccountWindow: 24 * time.Hour})
+	svc := newTestServiceWithDirectory(repo, dir, Deps{})
 
 	rel, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2")
 	if err != nil {
@@ -76,29 +76,8 @@ func TestFollow_Success(t *testing.T) {
 	if repo.followCalls != 1 {
 		t.Fatalf("followCalls = %d, want 1", repo.followCalls)
 	}
-	if got := repo.lastFollowArgs[2]; got != int64(200) {
-		t.Errorf("dailyLimit = %v, want 200 (not a new account)", got)
-	}
 	if dir.forgetCalled != 1 {
 		t.Errorf("Forget calls = %d, want 1 (cache invalidation after a real write)", dir.forgetCalled)
-	}
-}
-
-func TestFollow_NewAccountUsesLowerQuota(t *testing.T) {
-	repo := newFakeRepo()
-	repo.followOutcome = OutcomeCreated
-	now := time.Now()
-	dir := &fakeDirectory{profiles: map[string]identity.Profile{
-		"uid-1": activeProfile("uid-1", now.Add(-1*time.Hour)), // < 24h old
-		"uid-2": activeProfile("uid-2", now.Add(-72*time.Hour)),
-	}}
-	svc := newTestServiceWithDirectory(repo, dir, Deps{FollowsPerDay: 200, NewAccountFollowsPerDay: 50, NewAccountWindow: 24 * time.Hour})
-
-	if _, err := svc.Follow(context.Background(), "uid-1", validKey, "uid-2"); err != nil {
-		t.Fatalf("Follow() error = %v", err)
-	}
-	if got := repo.lastFollowArgs[2]; got != int64(50) {
-		t.Errorf("dailyLimit = %v, want 50 (new account)", got)
 	}
 }
 

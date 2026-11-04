@@ -6,17 +6,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
-
-// blockLimits/muteLimits bundle the standard/new-account quota tier plus the window, so Block/Mute's
-// signatures don't grow a 5th/6th plain int64 parameter each.
-type dailyLimits struct {
-	Standard         int64
-	NewAccount       int64
-	NewAccountWindow time.Duration
-}
 
 // BlockResult is Block's outcome, including whether the target's blockedBy overflowed at the cap
 // — service.go logs that once, after a successful commit (never inside the retryable transaction).
@@ -29,18 +20,18 @@ type BlockResult struct {
 	RequestsGone         int // pending follow requests deleted: caller -> target and target -> caller, 0 to 2
 }
 
-// Block runs the whole Block transaction. It always reads the caller graph, the target graph and quotas
+// Block runs the whole Block transaction. It always reads the caller graph and the target graph
 // (the target graph doubles as the "unknown user" existence check). A real block writes the caller graph, the
-// target graph and quotas, plus up to 2 combined-per-doc counter updates, and deletes up to 2 follows docs (mutual
+// target graph, plus up to 2 combined-per-doc counter updates, and deletes up to 2 follows docs (mutual
 // follow). A pending
 // follow request in either direction (target in the caller's `requested`, caller in the target's) is deleted too, with
 // a plain Delete (no Exists: drift cannot fail a Block) and its array entry removed in the graph writes already made: no
 // extra reads or writes, at most 2 extra deletes (so at most 4 deletes with a mutual follow).
-func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error) {
+func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, now time.Time) (BlockResult, error) {
 	var result BlockResult
 	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 
-		callerDoc, callerCreatedAt, err := r.getGraphTx(ctx, tx, callerUID)
+		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
 			return err
 		}
@@ -50,11 +41,6 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 		}
 		if !targetExists {
 			return ErrNotFoundOrBlocked
-		}
-
-		rec, err := r.quota.Get(ctx, tx, callerUID)
-		if err != nil {
-			return err
 		}
 
 		if callerDoc.hasBlocked(targetUID) {
@@ -68,11 +54,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 			return &LimitReachedError{Limit: "blocked"}
 		}
 
-		dailyLimit := resolvedDailyLimit(callerCreatedAt, now, limits.NewAccountWindow, limits.Standard, limits.NewAccount)
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Blocks, dailyLimit); err != nil {
-			return err
-		}
 
 		callerWasFollowing := callerDoc.hasFollowing(targetUID) // caller -> target edge
 		targetWasFollowing := targetDoc.hasFollowing(callerUID) // target -> caller edge
@@ -176,7 +158,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 	return result, nil
 }
 
-// Unblock: fresh read of the caller graph; not blocking => nothing is written. Never quota-gated.
+// Unblock: fresh read of the caller graph; not blocking => nothing is written.
 // Does not restore follows (so FollowState is always NONE on success — a block always removed any prior
 // edge in both directions, and Unblock never restores it).
 func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
@@ -212,17 +194,17 @@ func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string
 	return rel, changed, nil
 }
 
-// Mute: transaction reads caller graph, then target graph (existence only), then quotas;
-// writes caller graph (muted +=) + quota reservation. Same rule and order as Block: a target with no
-// graph/{target} doc => ErrNotFoundOrBlocked (NOT_FOUND) before the quota read, nothing written. The target doc's
+// Mute: transaction reads caller graph, then target graph (existence only);
+// writes caller graph (muted +=). Same rule and order as Block: a target with no
+// graph/{target} doc => ErrNotFoundOrBlocked (NOT_FOUND), nothing written. The target doc's
 // CONTENT is never inspected (in particular not blockedBy), so muting someone who blocked you is OK and
 // indistinguishable from muting a stranger (D9; no oracle, no timing difference). Cap 2,000 muted =>
 // LIMIT_REACHED. Replay (already muting) => nothing written.
-func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error) {
+func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error) {
 	var rel Relationship
 	outcome := OutcomeCreated
 	err := r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		callerDoc, createdAt, err := r.getGraphTx(ctx, tx, callerUID)
+		callerDoc, _, err := r.getGraphTx(ctx, tx, callerUID)
 		if err != nil {
 			return err
 		}
@@ -233,11 +215,6 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 		if !targetExists {
 			return ErrNotFoundOrBlocked
 		}
-		rec, err := r.quota.Get(ctx, tx, callerUID)
-		if err != nil {
-			return err
-		}
-
 		if callerDoc.hasMuted(targetUID) {
 			outcome = OutcomeReplay
 			rel = Relationship{UserID: targetUID, FollowState: followStateOf(callerDoc, targetUID), Blocking: callerDoc.hasBlocked(targetUID), Muting: true}
@@ -247,11 +224,7 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 			return &LimitReachedError{Limit: "muted"}
 		}
 
-		dailyLimit := resolvedDailyLimit(createdAt, now, limits.NewAccountWindow, limits.Standard, limits.NewAccount)
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.quota.Ref(callerUID), rec, quota.Blocks, dailyLimit); err != nil {
-			return err
-		}
 		b.Update(r.graphRef(callerUID), []firestore.Update{
 			{Path: "muted", Value: firestore.ArrayUnion(targetUID)},
 			{Path: "updatedAt", Value: now},
@@ -270,7 +243,7 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 	return rel, outcome, nil
 }
 
-// Unmute: fresh read of the caller graph; not muting => nothing is written. Never quota-gated.
+// Unmute: fresh read of the caller graph; not muting => nothing is written.
 func (r *FirestoreRepo) Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
 	var rel Relationship
 	changed := false

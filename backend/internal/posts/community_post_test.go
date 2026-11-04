@@ -78,7 +78,6 @@ func (g *fakeGate) lastCommunity() string {
 func gatedEnv(g *fakeGate) *createEnv {
 	e := newCreateEnv()
 	e.svc.community = g
-	e.svc.communityPostsPerDay, e.svc.newAccountCommunityPostsPerDay = 50, 10
 	return e
 }
 
@@ -166,16 +165,15 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 }
 
 // TestCreate_CommunityPostFields: the draft the repo gets carries the feed key, the label snapshot, the conversation community and the
-// right quota tier; a plain post carries none of it.
+// gate; a plain post carries none of it.
 func TestCreate_CommunityPostFields(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		newAcct   bool
-		wantLimit int64
+		name    string
+		newAcct bool
 	}{
-		{"established account", false, 50},
-		{"new account", true, 10},
+		{"established account", false},
+		{"new account", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -195,8 +193,8 @@ func TestCreate_CommunityPostFields(t *testing.T) {
 				t.Fatalf("post = %+v", p)
 			}
 			cp := e.repo.lastCreate.Community
-			if cp == nil || cp.QuotaLimit != tt.wantLimit || cp.Gate == nil {
-				t.Fatalf("CreateParams.Community = %+v, want limit %d", cp, tt.wantLimit)
+			if cp == nil || cp.Gate == nil {
+				t.Fatalf("CreateParams.Community = %+v, want the gate", cp)
 			}
 			if g.admitCount() != 1 || g.lastCommunity() != testCommunityID {
 				t.Fatalf("admits=%d cid=%q", g.admitCount(), g.lastCommunity())

@@ -220,7 +220,7 @@ func TestPurgeUser_Integration_MultiBatch(t *testing.T) {
 	for i := 0; i < n; i++ {
 		f := fmt.Sprintf("uid-x%03d", i)
 		mustCreateProfile(t, w.identity, f, fmt.Sprintf("userx%03d", i))
-		// Seeded directly: real Follow calls would trip the new-account follow quota (50/day).
+		// Seeded directly: faster than real Follow calls.
 		seedEdge(t, w, "uid-u", f, time.Now().UTC())
 	}
 	calls := 0

@@ -1,6 +1,6 @@
 // repo_publish_scheduled.go is the publish transaction of the scheduled-post sweep:
 // the sibling of createAttempt in repo_create.go. It reuses the CreatePost write helpers (toDoc, mediaWithAlts, the
-// quota reservation, the identity.Counters seam, the media claim) but not its idempotency document: the scheduled
+// identity.Counters seam, the media claim) but not its idempotency document: the scheduled
 // doc is the idempotency record, and the transaction re-reads it as PENDING before it writes anything.
 //
 // One transaction, bounded by createTxTimeout (5 s, which TIMELINE_SETTLE_WINDOW assumes). Inside EACH attempt, all
@@ -10,25 +10,23 @@
 //	                                 Cancel or the eraser won)
 //	(b) users/{uid}                  through identity.TxProfiles, never cached: a suspension or a DeleteAccount
 //	                                 conflicts with this transaction, so the guarantee is exact (review L-7)
-//	(c) quotas/{uid}                 the IST day reset applies (quota.Store.Get); `posts >= limit` is checked BEFORE
-//	                                 any media or handle read (review L-4)
-//	(d) media/*                      owned, READY or READY_UNSCREENED, unattached (LoadForPost, GetAll; at most 4 images)
-//	(e) handles/*                    mention resolution, last, cache-first, not transactional (handles change
+//	(c) media/*                      owned, READY or READY_UNSCREENED, unattached (LoadForPost, GetAll; at most 4 images)
+//	(d) handles/*                    mention resolution, last, cache-first, not transactional (handles change
 //	                                 rarely and need no isolation)
 //
-// A success writes the post, users.postsCount, quotas and
+// A success writes the post, users.postsCount and
 // the scheduled doc (PUBLISHED, postId, draft cleared), plus one media/{id}.postId update per attached image (at most
 // 4 images, so at most 8 writes in all).
 //
-// FAILURES COMMIT, THEY DO NOT ROLL BACK. A permanent cause found by (a) to (d) stages the one terminal transition of
+// FAILURES COMMIT, THEY DO NOT ROLL BACK. A permanent cause found by (a) to (c) stages the one terminal transition of
 // the scheduled doc on the transaction batch and returns nil, so the transaction commits with exactly one write:
 // SUSPENDED (or any status other than ACTIVE or DELETING) -> FAILED ACCOUNT_RESTRICTED; DELETING or a missing users
-// doc -> CANCELLED; the posts quota reached -> FAILED QUOTA_EXCEEDED; ErrMediaNotReady -> FAILED MEDIA_UNAVAILABLE.
+// doc -> CANCELLED; ErrMediaNotReady -> FAILED MEDIA_UNAVAILABLE.
 // Every such decision is made before the first staged write. Any other error rolls the attempt back and is returned
 // (transient): the sweep counts an attempt on it.
 //
 // Panic safety (review M-2): the Firestore client rolls a transaction back only when its callback RETURNS an error. A
-// panic would skip that and leave the transaction open, holding the author's users and quotas docs until the server
+// panic would skip that and leave the transaction open, holding the author's users doc until the server
 // expires it. guardPublishPanic turns a panic into a returned *publishPanicError (errors.Is errPublishPanic) so the
 // client rolls back; the sweep maps it to FAILED INTERNAL, never to the transient branch.
 package posts
@@ -44,7 +42,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -104,8 +101,8 @@ type PublishResult struct {
 	AuthorCreatedAt time.Time
 }
 
-// PublishParams is everything the publish transaction needs. The service parses the draft and decides the limits; the
-// author snapshot, the new-account tier, the mentions, the media refs and the post id are all produced INSIDE each
+// PublishParams is everything the publish transaction needs. The service parses the draft; the
+// author snapshot, the mentions, the media refs and the post id are all produced INSIDE each
 // attempt from fresh reads.
 type PublishParams struct {
 	// UID and ID are the owner and the document id of the scheduled item, taken from the query path.
@@ -120,11 +117,7 @@ type PublishParams struct {
 	// ResolveMentions resolves the draft's @mention candidates (nil: none). It runs last in each attempt, cache-first,
 	// outside transactional isolation.
 	ResolveMentions func(ctx context.Context) ([]Mention, error)
-	// PostsLimit and NewAccountPostsLimit are the daily posts quota tiers; NewAccountWindow decides the tier from the
-	// author's createdAt read inside the transaction (never from the cached directory profile).
-	PostsLimit, NewAccountPostsLimit int64
-	NewAccountWindow                 time.Duration
-	// Now stamps the transition (updatedAt, expireAt) and decides the account tier; TerminalTTL is
+	// Now stamps the transition (updatedAt, expireAt); TerminalTTL is
 	// SCHEDULED_TERMINAL_TTL.
 	Now         time.Time
 	TerminalTTL time.Duration
@@ -134,7 +127,7 @@ type PublishParams struct {
 // no-op and every commit-on-failure outcome write nothing or exactly one document. A collision of the freshly drawn
 // post id (AlreadyExists at commit) redraws and retries, like Create.
 func (r *FirestoreRepo) PublishScheduled(ctx context.Context, p PublishParams) (PublishResult, error) {
-	if r.w.IDs == nil || r.w.Quotas == nil || r.w.Counters == nil || r.w.Profiles == nil {
+	if r.w.IDs == nil || r.w.Counters == nil || r.w.Profiles == nil {
 		return PublishResult{}, errors.New("posts: repo has no publish writers configured")
 	}
 	if len(p.MediaIDs) > 0 && r.w.Media == nil {
@@ -204,20 +197,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 		return r.stageEnd(b, p, ScheduledFailed, FailureAccountRestricted)
 	}
 
-	// (c) The posts quota, before any media or handle read.
-	qrec, err := r.w.Quotas.Get(ctx, tx, p.UID)
-	if err != nil {
-		return PublishResult{}, fmt.Errorf("posts: publish quota lookup: %w", err)
-	}
-	limit := p.PostsLimit
-	if !prof.CreatedAt.IsZero() && p.Now.Sub(prof.CreatedAt) < p.NewAccountWindow {
-		limit = p.NewAccountPostsLimit
-	}
-	if qrec.Posts >= limit {
-		return r.stageEnd(b, p, ScheduledFailed, FailureQuotaExceeded)
-	}
-
-	// (d) The images, read before the first write: one GetAll of len(ids) reads.
+	// (c) The images, read before the first write: one GetAll of len(ids) reads.
 	var claim MediaClaim
 	if len(p.MediaIDs) > 0 {
 		claim, err = r.w.Media.LoadForPost(ctx, tx, p.UID, p.MediaIDs)
@@ -232,7 +212,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 		}
 	}
 
-	// (e) The mentions, last: handles may have changed since the post was scheduled.
+	// (d) The mentions, last: handles may have changed since the post was scheduled.
 	var mentions []Mention
 	if p.ResolveMentions != nil {
 		if mentions, err = p.ResolveMentions(ctx); err != nil {
@@ -262,9 +242,6 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 		post.HasMedia = HasMediaFor(post.Kind, len(post.Media)) // the cached copy matches the doc toDoc writes
 	}
 
-	if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), qrec, quota.Posts, limit); err != nil {
-		return PublishResult{}, err // unreachable after the pre-check above; never stage a partial write
-	}
 	b.Create(r.ref(id), toDoc(&post))
 	if claim != nil {
 		claim.Attach(b, id)

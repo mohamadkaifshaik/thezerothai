@@ -15,7 +15,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // fakePrivacyRepo is the in-memory stand-in for FirestoreRepo.UpdateProfileWithPrivacy: the same decision table over the
@@ -45,9 +44,6 @@ func (f *fakePrivacyRepo) UpdateProfileWithPrivacy(_ context.Context, uid string
 		return out, nil
 	}
 	if p.IsPrivate != before.IsPrivate {
-		if f.toggles+1 > lim.TogglesPerDay {
-			return PrivacyUpdate{Attempts: 1}, quota.ExceededError(quota.PrivacyToggles, time.Now())
-		}
 		if p.IsPrivate && !slices.Contains(f.set, uid) && len(f.set) >= lim.SetMax {
 			return PrivacyUpdate{Attempts: 1}, ErrProtectedSetFull
 		}
@@ -106,7 +102,7 @@ func (h *privacyHarness) update(uid string, isPrivate bool, name *string) (Profi
 
 func TestUpdateProfile_PrivacyToggleMatrix(t *testing.T) {
 	const uid = "uid-1"
-	lim := PrivacyLimits{TogglesPerDay: 4, SetMax: 20000}
+	lim := PrivacyLimits{SetMax: 20000}
 	on := privateRegistry(flags.On, 0)
 
 	t.Run("protect then equal value", func(t *testing.T) {
@@ -198,22 +194,20 @@ func TestUpdateProfile_PrivacyToggleMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("fifth toggle of the day is QUOTA_EXCEEDED", func(t *testing.T) {
+	t.Run("no daily toggle quota: a fifth toggle of the day goes through", func(t *testing.T) {
 		h := newPrivacyHarness(t, on, uid, lim)
-		for i := 0; i < 4; i++ {
+		for i := 0; i < 5; i++ {
 			if _, err := h.update(uid, i%2 == 0, nil); err != nil {
 				t.Fatalf("toggle %d: %v", i+1, err)
 			}
 		}
-		_, err := h.update(uid, true, nil)
-		_ = wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "privacy_toggles")
-		if h.repo.profiles[uid].IsPrivate {
-			t.Error("the refused toggle changed the profile")
+		if !h.repo.profiles[uid].IsPrivate {
+			t.Error("the fifth toggle (protect) did not apply")
 		}
 	})
 
 	t.Run("cap is LIMIT_REACHED limit=private_accounts", func(t *testing.T) {
-		h := newPrivacyHarness(t, on, uid, PrivacyLimits{TogglesPerDay: 4, SetMax: 2})
+		h := newPrivacyHarness(t, on, uid, PrivacyLimits{SetMax: 2})
 		h.repo.set = []string{"x", "y"}
 		_, err := h.update(uid, true, nil)
 		_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "private_accounts")

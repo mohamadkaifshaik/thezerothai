@@ -60,7 +60,7 @@ func classifyWindowRace(err error) windowRaceOutcome {
 // TestSchedulerIT_ConcurrentWindowCap: 10 simultaneous SchedulePost calls of ONE user for the SAME minute with distinct
 // idempotency keys leave at most WindowCap (3) items in that window, however the calls interleave. Losers may answer
 // LIMIT_REACHED(scheduled_window) or a retryable transaction error after the client's own retries; no outcome may
-// exceed the cap. Both a user with no quotas document yet (the first quota'd call of an account) and one with a
+// exceed the cap. Both a user with no quotas document yet (the first schedule of an account) and one with a
 // document today are covered, because the conflict point is quotas/{uid}. On the emulator racing transactions wait on
 // each other's locks; in dev and prod (OPTIMISTIC mode) the loser is rejected ABORTED at commit and retries.
 func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
@@ -141,7 +141,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 				dist = append(dist, fmt.Sprintf("%s=%d", k, v))
 			}
 			sort.Strings(dist)
-			t.Logf("%d callers: outcomes [%s] unknown by code %v; stored items %d; quotas.schedules %d", callers, strings.Join(dist, " "), unknownBy, stored, e.schedules(t, "alice"))
+			t.Logf("%d callers: outcomes [%s] unknown by code %v; stored items %d", callers, strings.Join(dist, " "), unknownBy, stored)
 
 			if len(otherErrs) > 0 {
 				t.Errorf("unexpected errors (not a window rejection or a retryable transaction error): %v", otherErrs)
@@ -161,9 +161,6 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 			// Every success stored an item; an item beyond the successes needs a call whose outcome the client could not see.
 			if stored < ok || stored > ok+unknown {
 				t.Errorf("stored items = %d with %d successes and %d unknown outcomes", stored, ok, unknown)
-			}
-			if got := e.schedules(t, "alice"); got != int64(stored) {
-				t.Errorf("quotas.schedules = %d, want %d (one charge per stored item)", got, stored)
 			}
 			// Ten transactions contending for one quotas document sometimes all run into the 5 s deadline on the emulator
 			// (the pre-fix code does too): then nothing finished and nothing can be concluded from this iteration.

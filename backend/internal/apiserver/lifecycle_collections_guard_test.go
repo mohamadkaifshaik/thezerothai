@@ -321,7 +321,7 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 	t.Helper()
 	l, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},
-		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+		ExportRetention: time.Hour, ExportURLTTL: time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)

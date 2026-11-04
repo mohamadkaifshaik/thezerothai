@@ -40,7 +40,9 @@ func (s ScheduledStatus) Valid() bool {
 type ScheduledFailure string
 
 const (
-	FailureMediaUnavailable  ScheduledFailure = "MEDIA_UNAVAILABLE"
+	FailureMediaUnavailable ScheduledFailure = "MEDIA_UNAVAILABLE"
+	// FailureQuotaExceeded is no longer produced (the daily posts quota was removed); items that failed with it earlier
+	// keep it until their TTL deletes them.
 	FailureQuotaExceeded     ScheduledFailure = "QUOTA_EXCEEDED"
 	FailureAccountRestricted ScheduledFailure = "ACCOUNT_RESTRICTED"
 	FailureInvalidContent    ScheduledFailure = "INVALID_CONTENT"

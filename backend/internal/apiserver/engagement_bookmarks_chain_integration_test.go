@@ -3,7 +3,7 @@
 package apiserver
 
 // AddBookmark / RemoveBookmark over the real Build chain on the emulators: the transaction's
-// documents, replay, the cap and the quota, visibility (byte-identical to GetPost) and REPOST resolution.
+// documents, replay, the cap, visibility (byte-identical to GetPost) and REPOST resolution.
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"sync"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -174,8 +173,8 @@ func TestBookmarksChain_AddRemoveLifecycle(t *testing.T) {
 	} else if v, _ := rec.DataAt("recent"); fmt.Sprint(v) != "["+pid+"]" {
 		t.Errorf("userLikes.recent = %v after AddBookmark, want [%s]: a bookmark write must be field-level", v, pid)
 	}
-	if got := e.quotaUsed(t, b.uid); got != 1 {
-		t.Errorf("quotas.bookmarks = %d, want 1", got)
+	if got := e.quotaUsed(t, b.uid); got != 0 {
+		t.Errorf("quotas.bookmarks = %d, want 0 (no daily quota)", got)
 	}
 	idemID := idempotency.Key(b.uid, "AddBookmark", addKey)
 	if snap, err := e.fs.Doc("idempotency/" + idemID).Get(ctx); err != nil {
@@ -227,13 +226,13 @@ func TestBookmarksChain_AddRemoveLifecycle(t *testing.T) {
 		t.Fatalf("GetPost of a post outside the set = %v, %v: bookmarked_by_viewer must be false", go1, err)
 	}
 
-	// A fresh key for the bookmarked post: success, no quota charge.
+	// A fresh key for the bookmarked post: success.
 	st, err = e.add(b, contractKey("bm-add"), pid)
 	if err != nil || !st.GetBookmarked() || st.GetPostId() != pid {
 		t.Fatalf("AddBookmark existing = %v, %v", st, err)
 	}
-	if got := e.quotaUsed(t, b.uid); got != 1 {
-		t.Errorf("quotas.bookmarks = %d after an existing add, want 1", got)
+	if got := e.quotaUsed(t, b.uid); got != 0 {
+		t.Errorf("quotas.bookmarks = %d after an existing add, want 0", got)
 	}
 
 	// Remove.
@@ -336,9 +335,9 @@ func TestBookmarksChain_VisibilityMatchesGetPost(t *testing.T) {
 	}
 }
 
-// The cap is exact (from the array length), an existing bookmark at the cap is still a success, and the daily quota
-// answers QUOTA_EXCEEDED quota=bookmarks without charging a replay or an existing bookmark.
-func TestBookmarksChain_CapAndQuota(t *testing.T) {
+// The cap is exact (from the array length), an existing bookmark at the cap is still a success, and there is no daily
+// quota: a new account adds past the old limit.
+func TestBookmarksChain_CapAndNoDailyQuota(t *testing.T) {
 	t.Run("cap", func(t *testing.T) {
 		e := newBMChain(t, func(c *config.Config) { c.Quota.BookmarksMaxPerUser = 2 })
 		a, b := e.user(t), e.user(t)
@@ -368,63 +367,24 @@ func TestBookmarksChain_CapAndQuota(t *testing.T) {
 		}
 	})
 
-	t.Run("quota, new-account window", func(t *testing.T) {
-		e := newBMChain(t, func(c *config.Config) { c.Quota.BookmarksPerDay, c.Quota.NewAccountBookmarksPerDay = 5, 2 })
-		a, b := e.user(t), e.user(t) // both accounts are minutes old: the 2/day new-account quota applies
-		p1, p2, p3 := e.post(t, a, "1"), e.post(t, a, "2"), e.post(t, a, "3")
-		k1 := contractKey("bm-add")
-		for i, p := range []string{p1, p2} {
-			key := contractKey("bm-add")
-			if i == 0 {
-				key = k1
-			}
-			if _, err := e.add(b, key, p); err != nil {
-				t.Fatal(err)
-			}
-		}
-		_, err := e.add(b, contractKey("bm-add"), p3)
-		d := wireError(t, err, connect.CodeResourceExhausted)
-		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		if d.GetMetadata()["quota"] != "bookmarks" {
-			t.Errorf("metadata = %v, want quota=bookmarks", d.GetMetadata())
-		}
-		// A replay and an existing bookmark are not charged, so they still succeed at the quota.
-		if _, err := e.add(b, k1, p1); err != nil {
-			t.Errorf("replay at the quota: %v", err)
-		}
-		if _, err := e.add(b, contractKey("bm-add"), p2); err != nil {
-			t.Errorf("existing bookmark at the quota: %v", err)
-		}
-		// Remove is never quota-gated.
-		if _, err := e.remove(b, contractKey("bm-rm"), p1); err != nil {
-			t.Errorf("remove at the quota: %v", err)
-		}
-		if got := e.quotaUsed(t, b.uid); got != 2 {
-			t.Errorf("quotas.bookmarks = %d, want 2", got)
-		}
-	})
-
-	t.Run("quota, established account gets the daily limit", func(t *testing.T) {
-		e := newBMChain(t, func(c *config.Config) {
-			c.Quota.BookmarksPerDay, c.Quota.NewAccountBookmarksPerDay = 3, 1
-			c.Quota.NewAccountWindow = time.Nanosecond // every account is already "established"
-		})
-		a, b := e.user(t), e.user(t)
-		time.Sleep(5 * time.Millisecond)
+	t.Run("no daily quota", func(t *testing.T) {
+		e := newBMChain(t, nil)
+		a, b := e.user(t), e.user(t) // both accounts are minutes old: the old new-account quota was 50 a day
 		for i := 0; i < 3; i++ {
 			if _, err := e.add(b, contractKey("bm-add"), e.post(t, a, fmt.Sprint(i))); err != nil {
 				t.Fatalf("add %d: %v", i, err)
 			}
 		}
-		_, err := e.add(b, contractKey("bm-add"), e.post(t, a, "over"))
-		assertReason(t, wireError(t, err, connect.CodeResourceExhausted), commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+		if got := e.quotaUsed(t, b.uid); got != 0 {
+			t.Errorf("quotas.bookmarks = %d, want 0 (no daily quota)", got)
+		}
 	})
 }
 
 // A retry storm (ten requests carrying the same key) and a double tap of different posts, concurrently, by one user:
-// the same key never charges the quota twice or adds the id twice, and for different posts the transactions on the
-// user's quotas and userLikes docs serialise; a caller that gives up under contention gets an error (the client
-// retries), never a corrupted set. The invariant is consistency: array == quota == bookmark docs.
+// the same key never adds the id twice, and for different posts the transactions on the
+// user's userLikes doc serialise; a caller that gives up under contention gets an error (the client
+// retries), never a corrupted set. The invariant is consistency: array == bookmark docs.
 func TestBookmarksChain_ConcurrentAddsStayConsistent(t *testing.T) {
 	e := newBMChain(t, nil)
 	a, b, c := e.user(t), e.user(t), e.user(t)
@@ -446,8 +406,8 @@ func TestBookmarksChain_ConcurrentAddsStayConsistent(t *testing.T) {
 	}
 	sameKey := contractKey("bm-conc")
 	run(b, 10, func(int) string { return sameKey }, func(int) string { return ids[0] })
-	if n, q := len(e.bookmarkIDs(t, b.uid)), e.quotaUsed(t, b.uid); n != 1 || q != 1 {
-		t.Errorf("one key: array %d, quota %d, want 1/1", n, q)
+	if n, q := len(e.bookmarkIDs(t, b.uid)), e.quotaUsed(t, b.uid); n != 1 || q != 0 {
+		t.Errorf("one key: array %d, quota %d, want 1/0", n, q)
 	}
 	run(c, len(ids), func(int) string { return contractKey("bm-conc") }, func(i int) string { return ids[i] })
 	// A call that timed out on the client may still have committed, so the reference is the bookmark docs themselves.
@@ -457,8 +417,8 @@ func TestBookmarksChain_ConcurrentAddsStayConsistent(t *testing.T) {
 			docs++
 		}
 	}
-	if n, q := len(e.bookmarkIDs(t, c.uid)), e.quotaUsed(t, c.uid); n != docs || q != int64(docs) {
-		t.Errorf("distinct posts: %d bookmark docs, array %d, quota %d, want all three equal", docs, n, q)
+	if n, q := len(e.bookmarkIDs(t, c.uid)), e.quotaUsed(t, c.uid); n != docs || q != 0 {
+		t.Errorf("distinct posts: %d bookmark docs, array %d, quota %d, want docs == array and no quota", docs, n, q)
 	}
 }
 

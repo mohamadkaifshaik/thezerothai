@@ -26,7 +26,7 @@ const commCID = "0000000000000000801"
 // service, hence a separate community and member cache, per instance). capPerDay is COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY.
 func newCommunityInstance(t *testing.T, client *firestore.Client, capPerDay int64) (*createInstance, communities.Reader) {
 	t.Helper()
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	repo := communities.NewFirestoreRepo(client, idempotency.New(client))
 	svc := communities.New(communities.Deps{
 		Repo: repo, Directory: in.svc.directory, Graph: in.svc.graph,
@@ -34,7 +34,6 @@ func newCommunityInstance(t *testing.T, client *firestore.Client, capPerDay int6
 	})
 	rd := svc.(communities.Reader)
 	in.svc.SetCommunityGate(communities.NewPostGate(rd, repo, ratelimit.NewDailyCap(capPerDay)))
-	in.svc.communityPostsPerDay, in.svc.newAccountCommunityPostsPerDay = 50, 10
 	return in, rd
 }
 
@@ -117,12 +116,7 @@ func TestCommunityPost_StoresFields(t *testing.T) {
 	if d.CommunityID != commCID || d.ConversationCommunityID != commCID || d.Community == nil || d.Community.ID != commCID || d.Community.Name != "Go Lang" {
 		t.Fatalf("stored community fields = %+v", d)
 	}
-	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 3 {
-		t.Fatalf("quotas.posts = %d, want 3", got)
-	}
-	if got := fieldInt(t, client, "quotas/uid-alice", "communityPosts"); got != 2 {
-		t.Fatalf("quotas.communityPosts = %d, want 2", got)
-	}
+	assertNoQuotaDoc(t, client, "uid-alice")
 	if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 3 {
 		t.Fatalf("postsCount = %d, want 3", got)
 	}
@@ -176,9 +170,7 @@ func TestCommunityPost_Refusals(t *testing.T) {
 	if n := countDocs(t, client, postsCollection); n != posts0 {
 		t.Fatalf("posts = %d, want %d", n, posts0)
 	}
-	if _, ok := client.Doc("quotas/uid-alice").Get(context.Background()); ok == nil {
-		t.Fatal("a refused post created a quota doc")
-	}
+	assertNoQuotaDoc(t, client, "uid-alice")
 }
 
 // TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost: the member doc is read fresh in the transaction, so a ban written a second ago
@@ -200,14 +192,14 @@ func TestCommunityPost_BanOnAnotherInstanceStopsTheNextPost(t *testing.T) {
 	seedMember(t, client, commCID, "uid-alice", "BANNED") // "another instance" bans her
 	_, err := in.postIn(t, "uid-alice", key(2), commCID, "")
 	wantRefusal(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "reason", "banned")
-	if got := fieldInt(t, client, "quotas/uid-alice", "communityPosts"); got != 1 {
-		t.Fatalf("communityPosts = %d, want 1 (the refused post is not charged)", got)
+	if n := countDocs(t, client, postsCollection); n != 1 {
+		t.Fatalf("posts = %d, want 1 (the refused post wrote nothing)", n)
 	}
 }
 
-// TestCommunityPost_QuotaAndCap: the 51st community post of the day is QUOTA_EXCEEDED community_posts (posts is not charged either);
-// the per-community cap is RATE_LIMITED, and a replay is charged to neither the cap nor the quota.
-func TestCommunityPost_QuotaAndCap(t *testing.T) {
+// TestCommunityPost_CapAndNoDailyQuota: the per-community cap is RATE_LIMITED and a replay is not charged to it; a legacy
+// quotas/{uid} showing the old daily community-posts quota used up no longer blocks a post.
+func TestCommunityPost_CapAndNoDailyQuota(t *testing.T) {
 	client := newTestClient(t)
 	in, _ := newCommunityInstance(t, client, 2)
 	in.signUp(t, "uid-alice", "alice")
@@ -227,19 +219,15 @@ func TestCommunityPost_QuotaAndCap(t *testing.T) {
 	}
 	_, err = in.postIn(t, "uid-alice", key(3), commCID, "")
 	wantRefusal(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", communities.LimitPostsPerCommunityDaily)
-	if got := fieldInt(t, client, "quotas/uid-alice", "communityPosts"); got != 2 {
-		t.Fatalf("communityPosts = %d, want 2", got)
-	}
 
-	// The daily quota: seed 50 used, the next post is refused and nothing is charged.
+	// The old daily quota: a legacy doc with 50 used no longer refuses the post.
 	in2, _ := newCommunityInstance(t, client, 1000)
 	if _, err := client.Doc("quotas/uid-alice").Set(context.Background(), map[string]any{"day": quota.Today(), "posts": int64(60), "communityPosts": int64(50)}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = in2.postIn(t, "uid-alice", key(4), commCID, "")
-	wantRefusal(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "community_posts")
-	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 60 {
-		t.Fatalf("posts = %d, want 60 (a refusal charges nothing)", got)
+	if err != nil {
+		t.Fatalf("community post past the old daily quota: %v", err)
 	}
 }
 

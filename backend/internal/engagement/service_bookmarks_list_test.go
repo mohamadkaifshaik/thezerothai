@@ -95,8 +95,8 @@ func newListEnv(t *testing.T, opts ...listOpt) *listEnv {
 	e.clock = &clk
 	d := Deps{
 		Repo: e.repo, Posts: e.rd.fakePosts, Reader: e.rd, Directory: fakeDir{created: e.now.Add(-48 * time.Hour)},
-		NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute,
-		BookmarkRepo: e.bm, BookmarksPerDay: 200, NewAccountBookmarksPerDay: 50, BookmarksMaxPerUser: 1000,
+		CacheTTL:     time.Minute,
+		BookmarkRepo: e.bm, BookmarksMaxPerUser: 1000,
 		Graph: e.gr, CursorKey: listKey, Now: func() time.Time { return *e.clock },
 	}
 	for _, o := range opts {

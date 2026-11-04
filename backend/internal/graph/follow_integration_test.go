@@ -209,5 +209,4 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 	}
 }
 
-// The following-cap and quota scenarios (boundary, rollover, new-account tiers) live in
-// mutations_integration_test.go.
+// The following-cap scenarios live in mutations_integration_test.go.

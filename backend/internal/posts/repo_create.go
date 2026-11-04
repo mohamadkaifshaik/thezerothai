@@ -2,11 +2,11 @@
 //
 // One transaction, bounded by createTxTimeout (5 s):
 //
-//	reads : idempotency/{hash}, then, only on a first attempt, quotas/{uid}
+//	reads : idempotency/{hash}
 //	        a community post: + communityMembers/{uid} (fresh, after the replay check; the community doc is read before the
-//	        transaction through the 60 s cache); posts and communityPosts share the one quota Set
+//	        transaction through the 60 s cache)
 //	        media/* (only with images: one GetAll over media_ids)
-//	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}
+//	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1)
 //	        (+ one media/{id}.postId update per image, <= 4)
 //
 // A poll is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration); it
@@ -60,7 +60,6 @@ type CreateParams struct {
 	AuthorID           string
 	IdemKey            string // idempotency.Key(uid, "CreatePost", key)
 	RequestHash        string
-	QuotaLimit         int64
 	// MediaIDs are the images to attach (validated, deduplicated, <= 4) and MediaAlts their alt texts (empty or
 	// parallel). With MediaIDs the transaction adds len(MediaIDs) reads and as many media-doc updates.
 	MediaIDs  []string
@@ -77,16 +76,15 @@ type CreateParams struct {
 	// Poll is the validated poll of a root post, nil for none. The transaction builds the stored Poll from it inside
 	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0.
 	Poll *PollDraft
-	// Community, when set, runs the gate inside the transaction (member doc fresh, communityPosts reserved in the same quota
-	// Set, the per-community daily cap). Nil for every other post.
+	// Community, when set, runs the gate inside the transaction (member doc fresh, the per-community daily cap). Nil for
+	// every other post.
 	Community *CommunityPost
 }
 
-// CommunityPost is the in-transaction half of a community post: the gate and the community's quota limit (the new-account tier applied
-// by the service). The label and the conversation community are already in CreateParams.Draft.
+// CommunityPost is the in-transaction half of a community post: the gate. The label and the conversation community are
+// already in CreateParams.Draft.
 type CommunityPost struct {
-	Gate       CommunityGate
-	QuotaLimit int64
+	Gate CommunityGate
 	// capDrawn makes the per-community cap draw happen once per CreatePost call, not once per transaction attempt (the SDK re-runs the
 	// function on contention), so a retry does not draw twice. A refusal before the draw and a replay never reach it.
 	capDrawn bool
@@ -119,7 +117,7 @@ func (r *FirestoreRepo) SetWriters(d WriteDeps) { r.w = d }
 
 // Create implements Repo.
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
-	if r.w.IDs == nil || r.w.Idempotency == nil || r.w.Quotas == nil || r.w.Counters == nil {
+	if r.w.IDs == nil || r.w.Idempotency == nil || r.w.Counters == nil {
 		return CreateResult{}, errors.New("posts: repo has no CreatePost writers configured")
 	}
 	ctx, cancel := context.WithTimeout(ctx, createTxTimeout)
@@ -173,10 +171,6 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		return CreateResult{}, fmt.Errorf("posts: idempotency lookup: %w", err)
 	}
 
-	qrec, err := r.w.Quotas.Get(ctx, tx, p.AuthorID)
-	if err != nil {
-		return CreateResult{}, fmt.Errorf("posts: quota lookup: %w", err)
-	}
 	var articleClaim ArticlePublicationClaim
 	if p.ArticlePublication != nil {
 		articleClaim, err = p.ArticlePublication.LoadForPublish(ctx, tx)
@@ -242,19 +236,11 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	}
 
 	b := store.NewFirestoreTxBatch(tx)
-	if p.Community != nil {
-		// One whole-record Set for both kinds: no extra write (CheckAndReserve twice would lose the first increment).
-		if err := quota.CheckAndReserveBoth(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit, quota.CommunityPosts, p.Community.QuotaLimit); err != nil {
+	if p.Community != nil && !p.Community.capDrawn {
+		if err := p.Community.Gate.AllowPost(ctx, p.AuthorID, p.Draft.CommunityID); err != nil {
 			return CreateResult{}, err
 		}
-		if !p.Community.capDrawn {
-			if err := p.Community.Gate.AllowPost(ctx, p.AuthorID, p.Draft.CommunityID); err != nil {
-				return CreateResult{}, err
-			}
-			p.Community.capDrawn = true
-		}
-	} else if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit); err != nil {
-		return CreateResult{}, err
+		p.Community.capDrawn = true
 	}
 	b.Create(r.ref(id), toDoc(&post))
 	if articleClaim != nil {

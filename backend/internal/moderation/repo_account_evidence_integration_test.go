@@ -110,7 +110,7 @@ func TestReportContent_AccountEvidenceIsThePresentedProfile(t *testing.T) {
 			graphRepo.SetProfiles(identityRepo)
 			reg := flags.NewRegistry(flags.Spec{Name: identity.ProfileExtrasFlag, Mode: tt.mode})
 			newSvc := func() Service { // a cold instance every time
-				g := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: time.Nanosecond})
+				g := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}})
 				i := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour, identity.WithExtrasFlags(reg))
 				g.SetDirectory(i.(identity.Directory))
 				return New(Deps{

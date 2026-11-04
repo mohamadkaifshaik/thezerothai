@@ -333,7 +333,7 @@ func TestReportContent_EndToEndAndHiddenTargets(t *testing.T) {
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
-	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: time.Nanosecond})
+	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}})
 	idSvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour)
 	graphSvc.SetDirectory(idSvc.(identity.Directory))
 	for uid, h := range map[string]string{"uid-alice": "alice", "uid-bob": "bob"} {
@@ -353,11 +353,10 @@ func TestReportContent_EndToEndAndHiddenTargets(t *testing.T) {
 
 	// A cold instance every time: new caches over the same data.
 	newSvc := func() Service {
-		g := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: time.Nanosecond})
+		g := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}})
 		i := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour)
 		g.SetDirectory(i.(identity.Directory))
-		ps := posts.New(posts.Deps{Repo: postsRepo, Cache: posts.NewCache(time.Minute, 0, 0), Directory: i.(identity.Directory), Graph: g,
-			PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: time.Nanosecond})
+		ps := posts.New(posts.Deps{Repo: postsRepo, Cache: posts.NewCache(time.Minute, 0, 0), Directory: i.(identity.Directory), Graph: g})
 		return New(Deps{
 			Repo: NewFirestoreRepo(client, quota.New(client)), Posts: ps.(PostViewer), Accounts: i, Directory: i.(identity.Directory),
 			ReportsPerDay: 20, NewAccountReportsPerDay: 5, NewAccountWindow: time.Nanosecond,

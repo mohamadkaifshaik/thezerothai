@@ -144,7 +144,7 @@ func newTestService(repo Repo, pins Pins, created time.Time) (*service, *fakeRep
 	dir := fakeDirectory{profiles: map[string]identity.Profile{testUID: {UserID: testUID, Handle: "owner", CreatedAt: created}}}
 	s := New(Deps{
 		Repo: repo, Directory: dir, IDs: fixedIDs{}, Pins: pins, Now: func() time.Time { return testNow },
-		Limits: Limits{MaxPerUser: 20, CreatesPerDay: 10, NewAccountCreatesPerDay: 3, NewAccountWindow: 24 * time.Hour, CacheEntries: 50},
+		Limits: Limits{MaxPerUser: 20, CacheEntries: 50},
 	}).(*service)
 	return s, fr
 }
@@ -209,15 +209,14 @@ func TestCreateList_Params(t *testing.T) {
 		in          CreateInput
 		created     time.Time
 		wantPrivate bool
-		wantQuota   int64
 		wantName    string
 		wantDesc    string
 	}{
-		{"is_private absent is private (F3)", CreateInput{Key: testKey, Name: "Cricket"}, oldAccount(), true, 10, "Cricket", ""},
-		{"is_private false is public", CreateInput{Key: testKey, Name: "Cricket", IsPrivate: ptr(false)}, oldAccount(), false, 10, "Cricket", ""},
-		{"is_private true is private", CreateInput{Key: testKey, Name: "Cricket", IsPrivate: ptr(true)}, oldAccount(), true, 10, "Cricket", ""},
-		{"new account gets the small quota tier", CreateInput{Key: testKey, Name: "Cricket"}, testNow.Add(-time.Hour), true, 3, "Cricket", ""},
-		{"text is trimmed and NFC", CreateInput{Key: testKey, Name: "  Café ", Description: " é "}, oldAccount(), true, 10, "Café", "é"},
+		{"is_private absent is private (F3)", CreateInput{Key: testKey, Name: "Cricket"}, oldAccount(), true, "Cricket", ""},
+		{"is_private false is public", CreateInput{Key: testKey, Name: "Cricket", IsPrivate: ptr(false)}, oldAccount(), false, "Cricket", ""},
+		{"is_private true is private", CreateInput{Key: testKey, Name: "Cricket", IsPrivate: ptr(true)}, oldAccount(), true, "Cricket", ""},
+		{"a new account gets the same parameters", CreateInput{Key: testKey, Name: "Cricket"}, testNow.Add(-time.Hour), true, "Cricket", ""},
+		{"text is trimmed and NFC", CreateInput{Key: testKey, Name: "  Café ", Description: " é "}, oldAccount(), true, "Café", "é"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -231,8 +230,8 @@ func TestCreateList_Params(t *testing.T) {
 				t.Fatalf("repo calls = %d", len(repo.createdBy))
 			}
 			p := repo.createdBy[0]
-			if p.IsPrivate != tt.wantPrivate || p.QuotaLimit != tt.wantQuota || p.Name != tt.wantName || p.Description != tt.wantDesc {
-				t.Errorf("params = %+v, want private %v quota %d name %q description %q", p, tt.wantPrivate, tt.wantQuota, tt.wantName, tt.wantDesc)
+			if p.IsPrivate != tt.wantPrivate || p.Name != tt.wantName || p.Description != tt.wantDesc {
+				t.Errorf("params = %+v, want private %v name %q description %q", p, tt.wantPrivate, tt.wantName, tt.wantDesc)
 			}
 			if p.MaxPerUser != 20 || p.ID != testListID || p.UID != testUID || p.IdemKey == "" || p.IdemKey == testKey {
 				t.Errorf("params = %+v: cap, id, uid or hashed key wrong", p)
@@ -280,9 +279,6 @@ func TestCreateList_ErrorMapping(t *testing.T) {
 		}},
 		{"key reused", context.Background(), ErrKeyReused, func(t *testing.T, err error) {
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
-		}},
-		{"daily quota passes through", context.Background(), apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit").WithMeta("quota", "list_creates"), func(t *testing.T, err error) {
-			wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_creates"})
 		}},
 		{"contention is retryable", context.Background(), status.Error(codes.Aborted, "lock"), func(t *testing.T, err error) {
 			wantAPI(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
@@ -554,30 +550,6 @@ func TestDeleteList(t *testing.T) {
 		s, _ := newTestService(&fakeRepo{err: ErrKeyReused}, nil, oldAccount())
 		wantAPI(t, s.DeleteList(context.Background(), testUID, testKey, testListID), connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 	})
-}
-
-func TestIsNew(t *testing.T) {
-	t.Parallel()
-	s, _ := newTestService(&fakeRepo{}, nil, oldAccount())
-	tests := []struct {
-		name    string
-		created time.Time
-		want    bool
-	}{
-		{"an hour old", testNow.Add(-time.Hour), true},
-		{"just inside the window", testNow.Add(-24*time.Hour + time.Second), true},
-		{"exactly at the window", testNow.Add(-24 * time.Hour), false},
-		{"old", testNow.Add(-30 * 24 * time.Hour), false},
-		{"unknown creation time is not new", time.Time{}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := s.isNew(identity.Profile{CreatedAt: tt.created}); got != tt.want {
-				t.Errorf("isNew = %v, want %v", got, tt.want)
-			}
-		})
-	}
 }
 
 // Bidi formatting characters built from code points, so no invisible character sits in the source.
