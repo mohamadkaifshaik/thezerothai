@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 
 	"connectrpc.com/connect"
 	fbauth "firebase.google.com/go/v4/auth"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -97,15 +100,80 @@ func TestRequestAccountExport(t *testing.T) {
 			t.Errorf("replay = %+v, %v, publishes %d -> %d", again, err, n, h.pub.count())
 		}
 	})
-	t.Run("a second request with a new key the same day is a new export (no daily quota)", func(t *testing.T) {
+	t.Run("a new key while one is PENDING returns that export: 0 writes, no publish", func(t *testing.T) {
 		h := newHarness(t)
 		first, err := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
 		if err != nil {
 			t.Fatal(err)
 		}
+		writes, publishes := h.repo.writes, h.pub.count()
+		second, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2)
+		if err != nil || second.ID != first.ID || second.Status != ExportPending {
+			t.Errorf("second = %+v, %v; want the PENDING export %s", second, err, first.ID)
+		}
+		if h.repo.writes != writes || h.pub.count() != publishes {
+			t.Errorf("writes +%d, publishes +%d; want +0, +0", h.repo.writes-writes, h.pub.count()-publishes)
+		}
+		if h.repo.exports[expID("u1", expKey2)] != nil {
+			t.Error("a second export doc was created")
+		}
+	})
+	t.Run("a new key on a PENDING export older than 2 minutes re-publishes that export, not the new id", func(t *testing.T) {
+		h := newHarness(t)
+		first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
+		h.clock.Advance(exportRepublishAfter)
+		if _, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2); err != nil {
+			t.Fatal(err)
+		}
+		want := JobMessage{Kind: JobKindAccountExport, ExportID: first.ID}
+		if h.pub.count() != 2 || h.pub.msgs[1] != want {
+			t.Errorf("published %+v, want a second message %+v", h.pub.msgs, want)
+		}
+	})
+	t.Run("a new key after the export finished is a new export", func(t *testing.T) {
+		for _, st := range []ExportStatus{ExportReady, ExportFailed} {
+			h := newHarness(t)
+			first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
+			h.repo.exports[first.ID].Status = st
+			second, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2)
+			if err != nil || second.ID == first.ID || second.Status != ExportPending {
+				t.Errorf("after %s: second = %+v, %v; want a new PENDING export", st, second, err)
+			}
+		}
+	})
+	t.Run("a PENDING export at the give-up age does not block a new one", func(t *testing.T) {
+		h := newHarness(t)
+		first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
+		h.clock.Advance(exportFailAfter - time.Second)
+		if held, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey2); held.ID != first.ID {
+			t.Errorf("just under the give-up age: got %s, want the PENDING export %s", held.ID, first.ID)
+		}
+		h.clock.Advance(time.Second)
 		second, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2)
 		if err != nil || second.ID == first.ID || second.Status != ExportPending {
-			t.Errorf("second = %+v, %v; want a new PENDING export", second, err)
+			t.Errorf("at the give-up age: second = %+v, %v; want a new PENDING export", second, err)
+		}
+	})
+	t.Run("contention is a retryable UNAVAILABLE that says nothing about the uid", func(t *testing.T) {
+		for _, cause := range []error{status.Error(codes.Aborted, "lock timeout secret-uid"), status.Error(codes.DeadlineExceeded, "slow secret-uid"), context.DeadlineExceeded} {
+			h := newHarness(t)
+			h.repo.failOnce["CreateExport"] = fmt.Errorf("identity: create export: %w", cause)
+			_, err := h.l.RequestAccountExport(context.Background(), "secret-uid", expKey1)
+			ae := apiErr(t, err)
+			if ae.Code != connect.CodeUnavailable || strings.Contains(ae.Error(), "secret-uid") {
+				t.Errorf("cause %v: err = %v, want UNAVAILABLE without the uid", cause, ae)
+			}
+			if h.pub.count() != 0 {
+				t.Errorf("cause %v: published %d messages, want 0", cause, h.pub.count())
+			}
+		}
+	})
+	t.Run("another user's PENDING export does not block", func(t *testing.T) {
+		h := newHarness(t)
+		first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
+		other, err := h.l.RequestAccountExport(context.Background(), "u2", expKey2)
+		if err != nil || other.ID == first.ID {
+			t.Errorf("other = %+v, %v; want u2's own export", other, err)
 		}
 	})
 	t.Run("one user's key does not collide with another's", func(t *testing.T) {

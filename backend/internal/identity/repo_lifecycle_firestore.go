@@ -18,6 +18,15 @@ import (
 const (
 	exportsCollection    = "exports"
 	privateSubcollection = "private"
+	// exportPendingScan bounds the query for a user's PENDING exports. A user holds one live export plus any given-up ones
+	// the daily backstop has not failed yet: normally at most one or two. Only a backstop outage of over a week could fill
+	// the page and hide the live export, and the cost then is one extra job, not lost data.
+	exportPendingScan = 10
+	// exportTx* bound the CreateExport transaction. quotas/{uid} is shared with this user's other locked writes, but one
+	// user's contention is a double tap, not a hot document.
+	exportTxTimeout = 5 * time.Second
+	exportTxMaxRuns = 3
+	exportTxBackoff = 20 * time.Millisecond
 )
 
 var _ LifecycleRepo = (*FirestoreRepo)(nil)
@@ -130,22 +139,73 @@ func (r *FirestoreRepo) SaveJobState(ctx context.Context, uid string, updateTime
 	return nil
 }
 
-// CreateExport creates the PENDING doc. A replay is the Create failing with AlreadyExists, after which the doc is
-// read; a replay writes nothing.
+// CreateExport creates the PENDING doc unless this id already exists or the uid already has a PENDING export. Either of
+// those is returned with replay=true and writes nothing.
 func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) (ExportDoc, bool, error) {
-	doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
-	_, err := r.exportRef(p.ID).Create(ctx, doc)
-	if status.Code(err) == codes.AlreadyExists {
-		existing, gerr := r.GetExport(ctx, p.ID)
-		if gerr != nil {
-			return ExportDoc{}, false, gerr
+	var out ExportDoc
+	var replay bool
+	quotas := quota.New(r.client)
+	cfg := store.TxnRetry{Timeout: exportTxTimeout, MaxRuns: exportTxMaxRuns, Backoff: exportTxBackoff}
+	body := func(ctx context.Context, tx *firestore.Transaction) error {
+		out, replay = ExportDoc{}, false // the closure reruns on a conflict
+		snap, err := tx.Get(r.exportRef(p.ID))
+		if err == nil {
+			out, err = decodeExport(snap)
+			replay = err == nil
+			return err
 		}
-		return existing, true, nil
+		if status.Code(err) != codes.NotFound {
+			return fmt.Errorf("identity: read export: %w", err)
+		}
+		// Concurrent requests by one user all read and write quotas/{uid} (here and in quota.Touch below), so only one of
+		// two racing calls commits: the other is rejected at commit and its retry finds the winner's export. The query must
+		// stay AFTER this read: in optimistic mode a query placed above it could miss a winner that commits between the two
+		// reads, and this read would then no longer guard it.
+		qrec, err := quotas.Get(ctx, tx, p.UID)
+		if err != nil {
+			return fmt.Errorf("identity: export lock read: %w", err)
+		}
+		// Equality filters only, so the automatic single-field indexes serve it. Given-up exports are filtered here, not in
+		// the query, because a createdAt range would need a new composite index.
+		pending, err := tx.Documents(r.client.Collection(exportsCollection).
+			Where("uid", "==", p.UID).
+			Where("status", "==", string(ExportPending)).
+			Limit(exportPendingScan)).GetAll()
+		if err != nil {
+			return fmt.Errorf("identity: query pending exports: %w", err)
+		}
+		for _, s := range pending {
+			e, err := decodeExport(s)
+			if err != nil {
+				return err
+			}
+			if e.CreatedAt.After(p.GiveUpBefore) {
+				out, replay = e, true
+				return nil
+			}
+		}
+		doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
+		b := store.NewFirestoreTxBatch(tx)
+		quota.Touch(b, quotas.Ref(p.UID), qrec) // counts nothing; it makes racing requests conflict (above)
+		b.Create(r.exportRef(p.ID), doc)
+		if err := b.Err(); err != nil {
+			return err
+		}
+		out = doc.toDomain(p.ID, time.Time{})
+		return nil
 	}
+	attempts, err := store.RunTransactionRetry(ctx, r.client, cfg, body)
+	if status.Code(err) == codes.AlreadyExists {
+		// A same-key request committed first, so this one's Create lost. One more run finds that doc and replays it.
+		var again int
+		again, err = store.RunTransactionRetry(ctx, r.client, cfg, body)
+		attempts += again
+	}
+	store.NoteTxnAttempts(ctx, "identity_export_txn_contention", attempts)
 	if err != nil {
 		return ExportDoc{}, false, fmt.Errorf("identity: create export: %w", err)
 	}
-	return doc.toDomain(p.ID, time.Time{}), false, nil
+	return out, replay, nil
 }
 
 // GetExport reads exports/{id}.

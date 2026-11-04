@@ -15,12 +15,15 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 const (
@@ -350,6 +353,8 @@ func exportNotFound() error {
 // older than exportRepublishAfter (L-4: a lost publish is recovered by the client's retry, without a replay storm
 // re-composing the export); the daily backstop covers the rest. The throttle reads createdAt from the doc the replay
 // already read, so it adds no Firestore operation.
+// A new key while the user already has a PENDING export returns that export instead of starting a second expensive job,
+// and is handled like a replay of it. The app polls whichever export comes back, so this needs no client change.
 func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKey string) (ExportView, error) {
 	logger.SetRequestField(ctx, "account_op", "export_request")
 	if idempotencyKeyIssue(idempotencyKey) {
@@ -361,20 +366,29 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 		return ExportView{}, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "data export is not available right now")
 	}
 	id := idempotency.Key(uid, exportRPC, idempotencyKey)
+	now := l.stamp()
 	doc, replay, err := l.repo.CreateExport(ctx, CreateExportParams{
-		ID: id, UID: uid, ObjectPath: id + ".json", Now: l.stamp(), Retention: l.retention,
+		ID: id, UID: uid, ObjectPath: id + ".json", Now: now, Retention: l.retention, GiveUpBefore: now.Add(-exportFailAfter),
 	})
 	if err != nil {
+		if store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded {
+			// Lost the race to a burst of this user's own writes. Nothing was written, so the same key is safe to retry.
+			logger.SetRequestField(ctx, "outcome", "contention")
+			return ExportView{}, apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "data export is busy, please try again")
+		}
 		return ExportView{}, logger.RedactErr(fmt.Errorf("identity: create export: %w", err), uid)
 	}
 	outcome := "accepted"
-	if replay {
+	switch {
+	case doc.ID != id:
+		outcome = "already_pending"
+	case replay:
 		outcome = "replay"
 	}
 	logger.SetRequestField(ctx, "outcome", outcome)
 	logger.SetRequestField(ctx, "export_status", string(doc.Status))
 	if !replay || (doc.Status == ExportPending && l.now().Sub(doc.CreatedAt) >= exportRepublishAfter) {
-		if err := l.publish(ctx, JobMessage{Kind: JobKindAccountExport, ExportID: id}); err != nil {
+		if err := l.publish(ctx, JobMessage{Kind: JobKindAccountExport, ExportID: doc.ID}); err != nil {
 			mw.ReportError(ctx, l.log, "account_export_enqueue_failed", logger.RedactErr(fmt.Errorf("account_export_enqueue_failed: %w", err), uid))
 		}
 	}

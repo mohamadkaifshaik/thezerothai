@@ -149,10 +149,11 @@ abstract final class IdentityService {
     dzerothidentityv1identity.DeleteAccountResponse.new,
   );
 
-  /// Starts a data export of the caller's own account (1/day/user, quota "exports"; over it => RESOURCE_EXHAUSTED +
-  /// QUOTA_EXCEEDED, metadata["quota"] = "exports"). Doc id = hash(uid, idempotency_key), so a replay with the same key
-  /// returns the same export and status. After the commit it publishes {kind: account_export, export_id} to the `jobs`
-  /// topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
+  /// Starts a data export of the caller's own account. Doc id = hash(uid, idempotency_key), so a replay with the same key
+  /// returns the same export and status. One export runs at a time per user: while one is PENDING (and under 24 h old),
+  /// a request with a new key returns that export, so export_id may belong to an earlier request; that key starts its own
+  /// export if retried after that one finished. After the commit it publishes {kind: account_export, export_id} to the
+  /// `jobs` topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
   /// private `<project>-exports` bucket and sets READY, usually within a minute.
   /// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
   /// rejects it.

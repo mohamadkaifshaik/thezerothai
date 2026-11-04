@@ -92,8 +92,8 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 children: [
                   Text(
                     'Get a copy of the data we hold about you: your profile, '
-                    'posts and the accounts you follow. You can request one '
-                    'export per day, and your export stays available for '
+                    'posts and the accounts you follow. You can run one '
+                    'export at a time, and each export stays available for '
                     '7 days.',
                     style: Theme.of(context).textTheme.bodyLarge,
                   ),
@@ -195,6 +195,7 @@ class _DataExportScreenState extends State<DataExportScreen> {
 
   Widget _failure(BuildContext context, DataExportState state) {
     final error = state.error;
+    // Only a server older than the removal of the daily export quota sends this.
     if (error is QuotaExceededException) {
       return Semantics(
         liveRegion: true,
