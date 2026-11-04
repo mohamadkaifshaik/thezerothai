@@ -25,6 +25,9 @@ resource "google_firebase_android_app" "default" {
   display_name = "dzeroth android (${var.env})"
   package_name = var.android_package_name
 
+  sha1_hashes   = var.android_sha1_hashes
+  sha256_hashes = var.android_sha256_hashes
+
   depends_on = [google_firebase_project.default]
 }
 
