@@ -126,7 +126,7 @@ Future<void> wipeSessionData({
 
 /// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay
-/// decoupled, see the `flutter-feature` skill).
+/// decoupled).
 ///
 /// - A user going to null or to a different uid (a direct A to B switch counts)
 ///   dispatches [OnboardingUserSignedOut], ends the session epoch and wipes the

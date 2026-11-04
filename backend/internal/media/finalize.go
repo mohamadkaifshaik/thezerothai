@@ -11,7 +11,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
+)
+
+// The Error Reporting operations of the two goroutine kinds below.
+const (
+	finalizeWorkerOp = "media/finalize_worker"
+	screenWorkerOp   = "media/screen_worker"
 )
 
 // FinalizeUpload implements Service.
@@ -182,8 +189,22 @@ func (s *service) finalizeShared(ctx context.Context, uid string, d *Doc, blurha
 	return out.r, out.spent, err
 }
 
+// recoverWorker, deferred directly in work that runs on a goroutine of its own (the request's recover interceptor does not
+// cover those), turns a panic into *err and reports it, so that it fails one call instead of ending the instance and every
+// request on it. Only the panic's type is logged: its value may hold a uid.
+func (s *service) recoverWorker(ctx context.Context, op, uid string, err *error) {
+	if v := recover(); v != nil {
+		*err = fmt.Errorf("%s: panic of type %T", op, v)
+		mw.ReportError(ctx, s.Log.With(logger.TraceAttrs(ctx)...), op, logger.ScrubErr(*err, uid))
+	}
+}
+
 // finalizeOne verifies, screens and publishes one image. spent is the Vision units it consumed.
+//
+// It recovers its own panics: under finalizeShared's singleflight one that escapes is re-raised once per waiting caller,
+// and its error text carries the panic value, which may hold a uid.
 func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash string) (_ Result, spent int64, err error) {
+	defer s.recoverWorker(ctx, finalizeWorkerOp, uid, &err)
 	if d.Status != string(StatusPending) {
 		return s.resultOf(d), 0, nil // idempotent: already READY / REJECTED
 	}
@@ -270,6 +291,10 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 			}
 		}
 	}()
+	// Runs before the defer above, so a panic from here on still releases the claim. The units spent reach the counter only
+	// for a panic after screening returns: one inside screening leaves spent at 0 and the daily units refunded, a loss the
+	// attempt cap bounds. The recover at the top of this function only sees panics from before the claim.
+	defer s.recoverWorker(ctx, finalizeWorkerOp, uid, &err)
 
 	// 2. Moderate: every image is screened while the monthly cap lasts.
 	status := StatusReady
@@ -610,6 +635,7 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer s.recoverWorker(ctx, screenWorkerOp, d.OwnerID, &outs[i].err)
 			outs[i].ss, outs[i].err = call(ctx)
 		}()
 	}

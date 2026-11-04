@@ -349,7 +349,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
   final int postsCount;
 
   /// When this row was written, so callers can decide whether it is fresh
-  /// enough to render without a refresh (see the `timeline` skill).
+  /// enough to render without a refresh.
   final DateTime cachedAt;
   const CachedProfile({
     required this.userId,

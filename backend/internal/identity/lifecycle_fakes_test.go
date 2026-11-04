@@ -594,6 +594,8 @@ func (a *fakeAuthClient) DeleteUser(_ context.Context, uid string) error {
 
 // fakePublisher records published job messages and can fail.
 type fakePublisher struct {
+	// hook, when set, runs inside Publish.
+	hook func()
 	mu   sync.Mutex
 	log  *opLog
 	msgs []JobMessage
@@ -601,6 +603,9 @@ type fakePublisher struct {
 }
 
 func (p *fakePublisher) Publish(_ context.Context, data []byte) error {
+	if p.hook != nil {
+		p.hook()
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.err != nil {

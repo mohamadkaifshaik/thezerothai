@@ -63,8 +63,9 @@ type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }
 
-// Social is the seam to graph.Reader (*graph.service satisfies it): the 60 s cached social context of the CALLER, used for
-// the caller-side block, mute and follow rules of a send. The recipient's graph is TxSocial.
+// Social is the seam to graph.Reader (*graph.service satisfies it): the 60 s cached social context, of the CALLER for
+// the caller-side block, mute and follow rules of a send and of a peer for a REQUESTS row when the
+// caller is past the blockedBy cap. The recipient of a send is TxSocial.
 type Social interface {
 	Snapshot(ctx context.Context, uid string) (graph.Snapshot, error)
 }

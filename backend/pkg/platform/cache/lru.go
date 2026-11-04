@@ -30,7 +30,7 @@ type entry[K comparable, V any] struct {
 
 // New builds an LRU cache. capacity <= 0 means unbounded (only TTL evicts); ttl <= 0 means entries never
 // expire on their own (only LRU eviction applies). At least one of the two should be set in production
-// code so memory is bounded (skill: "LRU-bounded").
+// code so memory is bounded.
 func New[K comparable, V any](capacity int, ttl time.Duration) *LRU[K, V] {
 	return &LRU[K, V]{
 		capacity: capacity,

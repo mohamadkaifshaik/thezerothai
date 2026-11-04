@@ -10,7 +10,7 @@ import '../../data/messaging_repository.dart';
 import '../../data/messaging_store.dart';
 
 /// Automatic refreshes (resume, a push) happen at most this often
-/// (`flutter-feature` skill: auto-refresh at most every 60 s). Opening the
+/// (auto-refresh at most every 60 s). Opening the
 /// screen and a pull-to-refresh always refresh.
 const kConversationsRefreshInterval = Duration(seconds: 60);
 

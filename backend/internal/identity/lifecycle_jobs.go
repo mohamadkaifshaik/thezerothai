@@ -457,6 +457,9 @@ type BackstopResult struct {
 	ExportsFailed        int64
 }
 
+// backstopPublishOp names the worker goroutines of Backstop (republishes and failed-export clean-up) in Error Reporting.
+const backstopPublishOp = "jobs/backstop_worker"
+
 // Backstop is the daily-maintenance recovery: it re-publishes deletion jobs with no
 // progress for an hour (a DLQ'd job, a lost publish, a deploy that dropped a message) and exports still PENDING
 // after an hour (including one whose lease expired in a crash), and gives up exports PENDING after 24 hours
@@ -488,13 +491,13 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 			if p.DeletionJob == nil {
 				continue // cannot happen for a progressAt match; defensive
 			}
-			g.Go(func() error {
+			g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 				if err := l.publish(ctx, JobMessage{Kind: JobKindAccountDelete, UID: p.UserID, Seq: p.DeletionJob.Seq}); err != nil {
 					return logger.RedactErr(fmt.Errorf("identity: backstop republish deletion: %w", err), p.UserID)
 				}
 				deletions.Add(1)
 				return nil
-			})
+			}))
 		}
 		if len(deleting) < backstopPage {
 			break
@@ -519,7 +522,7 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 		}
 		for _, e := range pending {
 			if now.Sub(e.CreatedAt) >= exportFailAfter {
-				g.Go(func() error {
+				g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 					// An export that sat PENDING may still have an object (the READY write failed after the Put).
 					if l.objects != nil && e.ObjectPath != "" {
 						if err := l.objects.Delete(ctx, e.ObjectPath); err != nil {
@@ -535,16 +538,16 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 						return fmt.Errorf("identity: backstop fail export: %w", err)
 					}
 					return nil
-				})
+				}))
 				continue
 			}
-			g.Go(func() error {
+			g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 				if err := l.publish(ctx, JobMessage{Kind: JobKindAccountExport, ExportID: e.ID}); err != nil {
 					return fmt.Errorf("identity: backstop republish export: %w", err)
 				}
 				republished.Add(1)
 				return nil
-			})
+			}))
 		}
 		if len(pending) < backstopPage {
 			break

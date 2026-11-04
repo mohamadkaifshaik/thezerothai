@@ -120,8 +120,9 @@ type RetireHandler struct{ j *Jobs }
 // RetireHandler returns the handler apiserver registers with identity.Lifecycle.RegisterJobHandler.
 func (j *Jobs) RetireHandler() *RetireHandler { return &RetireHandler{j: j} }
 
-// Handle decodes one delivery and runs Retire. A malformed message is acknowledged and dropped (the DLQ, not a retry
-// storm, holds poison); a Firestore or GCS error nacks so Pub/Sub redelivers.
+// Handle decodes one delivery and runs Retire. A malformed message is acknowledged and dropped, because no retry can fix it:
+// it never reaches the DLQ, and the dropped:* outcome on the delivery log line is its only trace. A Firestore or GCS error
+// nacks so Pub/Sub redelivers.
 func (h *RetireHandler) Handle(ctx context.Context, data []byte) (string, error) {
 	var m RetireMessage
 	if err := json.Unmarshal(data, &m); err != nil {

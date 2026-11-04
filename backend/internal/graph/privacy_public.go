@@ -19,6 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
 // JobKindPrivacyPublic is the JobMessage.Kind of this job on the shared `jobs` topic.
@@ -28,6 +29,8 @@ const (
 	// privacyPublicPage is the page size: a page is at most 401 writes and deletes (4 per request + the counter), under
 	// Firestore's 500 per transaction.
 	privacyPublicPage = 100
+	// privacyEmitOp names the post-commit emits in Error Reporting.
+	privacyEmitOp = "graph/privacy_emit"
 	// privacyPublicMaxPages bounds one delivery (5,000 requests; the handler budget is 27 s). More pending than that nacks
 	// the message: the accepted ones have dropped out, so the redelivery continues.
 	privacyPublicMaxPages = 50
@@ -100,8 +103,9 @@ func (s *service) PrivacyPublicJob(repo PendingAccepter, log *slog.Logger) *Priv
 	return &PrivacyPublicJob{s: s, repo: repo, log: log, page: privacyPublicPage}
 }
 
-// Handle decodes one delivery and runs Run. A malformed or invalid message is acknowledged and dropped (the DLQ, not a
-// retry storm, holds poison); a Firestore error nacks so Pub/Sub redelivers.
+// Handle decodes one delivery and runs Run. A malformed or invalid message is acknowledged and dropped, because no retry can
+// fix it: it never reaches the DLQ, and the dropped:* outcome on the delivery log line is its only trace. A Firestore error
+// nacks so Pub/Sub redelivers.
 func (j *PrivacyPublicJob) Handle(ctx context.Context, data []byte) (string, error) {
 	var m PrivacyPublicMessage
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -200,10 +204,10 @@ func (j *PrivacyPublicJob) afterCommit(ctx context.Context, uid string, accepted
 	var g errgroup.Group
 	g.SetLimit(privacyPublicEmitFanout)
 	for _, r := range accepted {
-		g.Go(func() error {
+		g.Go(mw.RecoverGo(ctx, j.log, privacyEmitOp, func() error {
 			j.s.events.FollowRequestAccepted(ctx, uid, r, at)
 			return nil
-		})
+		}))
 	}
 	_ = g.Wait()
 }

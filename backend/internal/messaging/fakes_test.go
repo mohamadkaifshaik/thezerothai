@@ -352,12 +352,17 @@ type fakeSocial struct {
 	snaps map[string]graph.Snapshot
 	calls int
 	err   error
+	// errFor fails the read of one uid only.
+	errFor map[string]error
 }
 
 func (f *fakeSocial) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	if err := f.errFor[uid]; err != nil {
+		return graph.Snapshot{}, err
+	}
 	return f.snaps[uid], f.err
 }
 

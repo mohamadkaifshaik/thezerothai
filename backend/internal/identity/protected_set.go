@@ -24,6 +24,9 @@ const (
 	// protectedAuthorsDoc is its document id.
 	protectedAuthorsDoc = "protectedAuthors"
 
+	// protectedSetLoadOp names a panic of the shared read in Error Reporting.
+	protectedSetLoadOp = "identity/protected_set_load"
+
 	protectedSetReadTimeout = 3 * time.Second
 	// protectedSetRetryBackoff is the pause after a failed refresh before the next attempt, so an outage costs one
 	// attempt per backoff on an instance rather than one per request.
@@ -206,7 +209,13 @@ func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 	l.inflight, l.applied = true, nil
 	l.mu.Unlock()
 	started := l.now()
-	uids, err := l.src.LoadProtectedSet(rctx)
+	// A panic here would be beyond every recover: DoChan re-raises it on a goroutine of its own. As an error it takes the
+	// failed-read path below, which clears inflight and starts the retry backoff.
+	var uids []string
+	err := mw.RecoverGo(rctx, l.log, protectedSetLoadOp, func() (err error) {
+		uids, err = l.src.LoadProtectedSet(rctx)
+		return err
+	})()
 	logger.SetRequestField(reqCtx, fieldProtectedSetReads, counter.Reads())
 	l.mu.Lock()
 	defer l.mu.Unlock()

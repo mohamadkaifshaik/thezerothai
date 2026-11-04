@@ -23,6 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -342,6 +343,11 @@ func (s *service) failure(ctx context.Context, op, uid, convID string, err error
 		return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "busy, please retry").WithRetryAfter(time.Second)
 	}
 	return redactErr(fmt.Errorf("messaging: %s: %w", op, err), append([]string{uid, convID}, redact...)...)
+}
+
+// recovered is mw.RecoverGo for the read fan-outs of this package.
+func (s *service) recovered(ctx context.Context, fn func() error) func() error {
+	return mw.RecoverGo(ctx, s.d.Log, "messaging/read_worker", fn)
 }
 
 // ctxFailure is the wire answer for a request whose own context ended (canceled or past its deadline), else nil.

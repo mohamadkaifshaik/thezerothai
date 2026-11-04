@@ -6,8 +6,8 @@ import 'package:flutter/scheduler.dart';
 
 /// A user avatar: the network image when [url] is set, else a person icon.
 ///
-/// The one avatar for post cards, list rows and profile headers (reuse-first:
-/// no per-feature copies). Images come through the `cached_network_image`
+/// The one avatar for post cards, list rows and profile headers (no per-feature
+/// copies). Images come through the `cached_network_image`
 /// disk cache and are resized at decode time to display size (`radius * 2`
 /// device pixels, never more than [maxDecodePx]) instead of full size, which keeps long
 /// lists cheap on memory. Lists should pass the 96 px author-snapshot

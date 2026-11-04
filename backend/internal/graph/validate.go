@@ -7,7 +7,7 @@ import (
 )
 
 // idempotencyKeyIssue mirrors the common.proto convention (16-64 chars, [A-Za-z0-9_-]), delegating to the
-// shared validator (reuse-first: identity/validate.go uses the same one).
+// shared validator (identity/validate.go uses the same one).
 func idempotencyKeyIssue(key string) bool {
 	return !idempotency.KeyFormatValid(key)
 }
