@@ -14,7 +14,7 @@ variable "github_repo" {
 }
 
 variable "founder_emails" {
-  description = "Emails to receive budget/uptime/error alerts."
+  description = "Emails to receive uptime/error alerts."
   type        = list(string)
 }
 
@@ -71,18 +71,6 @@ variable "image" {
   description = "Placeholder image for the very first apply, before CI has built anything. CI-managed afterwards."
   type        = string
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
-}
-
-variable "budget_amount" {
-  description = "Monthly budget alert threshold in budget_currency_code units. Stage 0 as configured costs about INR 434/month at 300 DAU (ADR-0022); this is an alert, not a fixed fee."
-  type        = number
-  default     = 500
-}
-
-variable "budget_currency_code" {
-  description = "Must equal the billing account currency (gcloud billing accounts describe ... --format='value(currencyCode)')."
-  type        = string
-  default     = "INR" # this billing account bills in INR
 }
 
 # Find with: gcloud services api-keys list --project=<project_id> --format="table(uid,displayName)"

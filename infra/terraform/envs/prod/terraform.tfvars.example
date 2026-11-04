@@ -30,10 +30,6 @@ ios_bundle_id         = "com.dzeroth.dzeroth"
 # Must be globally unique across ALL Firebase projects, not just yours.
 hosting_site_id = "dzeroth-prod"
 
-# Must match the billing account currency. Alert threshold: Stage 0 is about INR 434/month at 300 DAU.
-budget_amount        = 500
-budget_currency_code = "INR"
-
 # From: gcloud services api-keys list --project=dzeroth-prod --format="table(uid,displayName)"
 browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto created by Firebase)
 android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
@@ -58,9 +54,6 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 #   vision_monthly_cap       image-safety checks (units; one image = 2 units) allowed per month before the stop. 20000
 #                            now; 40000 only once DAU stays above 1,300 for 3 days.
 #   vision_exhausted_policy  "reject" = at the cap, uploads fail instead of publishing an unchecked image.
-#   enable_credit_budgets    turn on the two gross-spend budgets (they show credit-paid spend, which the normal INR 500
-#                            net budget hides).
-#   credit_spend_cap_inr     the gross spend ceiling = min(25000, remaining credit on the Credits page - 2000 reserve).
 #   enable_request_flood_alert, firestore_reads_alert_per_day   the flood detector and the raised reads alert.
 #
 # SUNSET: on 2026-12-22 set min_instance_count = 0, vision_monthly_cap = 10000,
@@ -72,8 +65,5 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # min_instance_count            = 1          # cost-approved: ADR-0022 until:2026-12-22
 # vision_monthly_cap            = 20000      # until 2026-12-22 (then 10000)
 # vision_exhausted_policy       = "reject"   # until 2026-12-22 (then "unscreened_established")
-# enable_credit_budgets         = true       # until 2026-12-26
-# credit_spend_cap_inr          = 25000      # founder sets: min(25000, remaining - 2000); never above 25000
-# prod_gross_budget_inr         = 3000
 # enable_request_flood_alert    = true       # until 2026-12-26 (request_flood_per_hour = 50000 by default)
 # firestore_reads_alert_per_day = 250000     # until 2026-12-22 (then 40000)

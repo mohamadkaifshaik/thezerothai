@@ -129,9 +129,6 @@ locals {
     { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
     { name = "LIST_CALLS_PER_DAY", value = "100" },
     { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
-    # Read budget (rule 11: caps are config). Must match the config.go defaults.
-    { name = "READ_BUDGET_PER_UID_PER_DAY", value = "2000" },
-    { name = "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", value = "500" },
     { name = "CHECK_HANDLE_CALLS_PER_DAY", value = "100" },
     { name = "ACCOUNT_OPS_CALLS_PER_DAY", value = "20" },
     { name = "RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", value = "30" },
@@ -515,70 +512,6 @@ module "monitoring" {
   firestore_reads_alert_per_day = var.firestore_reads_alert_per_day # ADR-0022 until:2026-12-22
 
   depends_on = [module.cloud_run_api]
-}
-
-module "budget" {
-  source                   = "../../modules/budget"
-  project_id               = var.project_id
-  project_number           = data.google_project.this.number
-  env                      = local.env
-  billing_account          = var.billing_account
-  amount                   = var.budget_amount
-  currency_code            = var.budget_currency_code
-  notification_channel_ids = module.monitoring.notification_channel_ids
-  labels                   = merge(local.labels, { module = "budget" })
-
-  depends_on = [module.project_services, module.monitoring]
-}
-
-// Credit-runway budgets. Both are OFF by default (var.enable_credit_budgets = false), so CI's plan shows no
-// new resource. The founder turns them on in the real tfvars after the credit checklist. Both module blocks are deleted
-// (which destroys the budget: the founder confirms) once their until: date has passed.
-//
-// 1. Whole-billing-account GROSS view of the credit window: only Always Free is subtracted, so spend paid by the
-//    promotional credit is visible and can alert. No project filter (dev and account-level charges included).
-module "credit_runway_budget" { # ADR-0022 until:2026-12-26
-  count                    = var.enable_credit_budgets ? 1 : 0
-  source                   = "../../modules/budget"
-  project_id               = var.project_id
-  project_number           = data.google_project.this.number
-  env                      = local.env
-  billing_account          = var.billing_account
-  display_name             = "ADR-0022 credit runway gross ${var.credit_spend_cap_inr} ${var.budget_currency_code}" # API limit: 60 chars
-  amount                   = var.credit_spend_cap_inr
-  currency_code            = var.budget_currency_code
-  actual_thresholds        = [0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
-  projects                 = []
-  credit_types_treatment   = "INCLUDE_SPECIFIED_CREDITS"
-  credit_types             = ["FREE_TIER"]
-  custom_period            = { start = "2026-10-23", end = "2026-12-26" } # ADR-0022 until:2026-12-26
-  pubsub_topic_id          = module.budget.billing_alerts_topic
-  notification_channel_ids = module.monitoring.notification_channel_ids
-  labels                   = merge(local.labels, { module = "budget" })
-
-  depends_on = [module.project_services, module.monitoring]
-}
-
-// 2. Prod monthly GROSS budget: the tighter detector (about the 1k-DAU profile). Any alert means spend above that profile.
-//    The existing net budget (module "budget", INR 500) stays: it detects charges the credit does not cover.
-module "prod_gross_budget" { # ADR-0022 until:2026-12-26
-  count                    = var.enable_credit_budgets ? 1 : 0
-  source                   = "../../modules/budget"
-  project_id               = var.project_id
-  project_number           = data.google_project.this.number
-  env                      = local.env
-  billing_account          = var.billing_account
-  display_name             = "ADR-0022 prod monthly gross ${var.prod_gross_budget_inr} ${var.budget_currency_code}"
-  amount                   = var.prod_gross_budget_inr
-  currency_code            = var.budget_currency_code
-  actual_thresholds        = [0.5, 0.9, 1.0]
-  credit_types_treatment   = "INCLUDE_SPECIFIED_CREDITS"
-  credit_types             = ["FREE_TIER"]
-  pubsub_topic_id          = module.budget.billing_alerts_topic
-  notification_channel_ids = module.monitoring.notification_channel_ids
-  labels                   = merge(local.labels, { module = "budget" })
-
-  depends_on = [module.project_services, module.monitoring]
 }
 
 module "firebase" {

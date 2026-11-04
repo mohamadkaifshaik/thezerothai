@@ -14,7 +14,7 @@ variable "github_repo" {
 }
 
 variable "founder_emails" {
-  description = "Emails to receive budget/uptime/error alerts."
+  description = "Emails to receive uptime/error alerts."
   type        = list(string)
 }
 
@@ -68,18 +68,6 @@ variable "image" {
   description = "Placeholder image for the very first apply, before CI has built anything. CI-managed afterwards."
   type        = string
   default     = "us-docker.pkg.dev/cloudrun/container/hello"
-}
-
-variable "budget_amount" {
-  description = "Monthly budget alert threshold in budget_currency_code units. Stage 0 as configured costs about INR 434/month at 300 DAU (ADR-0022); this is an alert, not a fixed fee."
-  type        = number
-  default     = 500
-}
-
-variable "budget_currency_code" {
-  description = "Must equal the billing account currency (gcloud billing accounts describe ... --format='value(currencyCode)')."
-  type        = string
-  default     = "INR" # this billing account bills in INR
 }
 
 # Find with: gcloud services api-keys list --project=<project_id> --format="table(uid,displayName)"
@@ -890,29 +878,6 @@ variable "vision_exhausted_policy" {
     condition     = contains(["unscreened_established", "reject"], var.vision_exhausted_policy)
     error_message = "vision_exhausted_policy must be one of: unscreened_established, reject (backend/pkg/platform/config/config.go)."
   }
-}
-
-variable "enable_credit_budgets" {
-  description = "Create the ADR-0022 credit-runway budget (whole billing account, gross, custom period) and the prod monthly gross budget. false = Stage 0 (no new resource)."
-  type        = bool
-  default     = false
-}
-
-variable "credit_spend_cap_inr" {
-  description = "ADR-0022 gross spend cap for the credit window, in budget_currency_code units (INR). Rule: min(25000, remaining credit on the Billing > Credits page minus the 2000 reserve). Only used when enable_credit_budgets = true. The default is the conservative low figure (20,000 pool minus the 2,000 reserve): a lower cap alerts earlier. Changing it is a founder decision."
-  type        = number
-  default     = 18000
-
-  validation {
-    condition     = var.credit_spend_cap_inr > 0 && var.credit_spend_cap_inr <= 25000 && floor(var.credit_spend_cap_inr) == var.credit_spend_cap_inr
-    error_message = "credit_spend_cap_inr must be a whole number 1-25000 (ADR-0022 hard limit; raising it means amending the ADR)."
-  }
-}
-
-variable "prod_gross_budget_inr" {
-  description = "ADR-0022 D3 prod monthly gross budget (about the 1k-DAU profile). Only used when enable_credit_budgets = true."
-  type        = number
-  default     = 3000
 }
 
 variable "enable_request_flood_alert" {

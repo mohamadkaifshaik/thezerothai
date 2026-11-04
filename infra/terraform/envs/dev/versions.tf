@@ -29,7 +29,7 @@ provider "google" {
   project = var.project_id
   region  = var.region
 
-  # User (ADC) credentials: bill API quota to this project. Required for the Billing Budgets and
+  # User (ADC) credentials: bill API quota to this project. Required for the
   # Firebase APIs, which reject user credentials without a quota project.
   user_project_override = true
   billing_project       = var.project_id
@@ -39,7 +39,7 @@ provider "google-beta" {
   project = var.project_id
   region  = var.region
 
-  # User (ADC) credentials: bill API quota to this project. Required for the Billing Budgets and
+  # User (ADC) credentials: bill API quota to this project. Required for the
   # Firebase APIs, which reject user credentials without a quota project.
   user_project_override = true
   billing_project       = var.project_id

@@ -136,9 +136,6 @@ locals {
     { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
     { name = "LIST_CALLS_PER_DAY", value = "100" },
     { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
-    # Read budget (rule 11: caps are config). Must match the config.go defaults.
-    { name = "READ_BUDGET_PER_UID_PER_DAY", value = "2000" },
-    { name = "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", value = "500" },
     { name = "CHECK_HANDLE_CALLS_PER_DAY", value = "100" },
     { name = "ACCOUNT_OPS_CALLS_PER_DAY", value = "20" },
     { name = "RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", value = "30" },
@@ -538,20 +535,6 @@ module "monitoring" {
   enable_ops_alerts = false
 
   depends_on = [module.cloud_run_api]
-}
-
-module "budget" {
-  source                   = "../../modules/budget"
-  project_id               = var.project_id
-  project_number           = data.google_project.this.number
-  env                      = local.env
-  billing_account          = var.billing_account
-  amount                   = var.budget_amount
-  currency_code            = var.budget_currency_code
-  notification_channel_ids = module.monitoring.notification_channel_ids
-  labels                   = merge(local.labels, { module = "budget" })
-
-  depends_on = [module.project_services, module.monitoring]
 }
 
 module "firebase" {
