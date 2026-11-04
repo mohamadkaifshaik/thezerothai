@@ -250,7 +250,7 @@ type Config struct {
 	FeatureReplies flags.Spec
 
 	// AccountDeleteReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (default 5m, must be in (0, 10m]): how recent the
-	// ID token's auth_time must be for DeleteAccount (authn.RequireRecentSignIn).
+	// ID token's auth_time must be for DeleteAccount and RequestAccountExport (authn.RequireRecentSignIn).
 	AccountDeleteReauthMaxAge time.Duration
 
 	// FeatureProfileSnapshot is the server flag (wire name `profile_snapshot`) gating the

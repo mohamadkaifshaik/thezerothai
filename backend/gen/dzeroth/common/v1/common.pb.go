@@ -131,7 +131,7 @@ const (
 	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one.
 	// When absent, the whole feature behind the called service is off.
 	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
-	// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+	// FAILED_PRECONDITION: the action needs a recent sign-in (DeleteAccount and RequestAccountExport: ID token auth_time older than
 	// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
 	// same idempotency_key; do not loop.
 	ErrorReason_ERROR_REASON_REAUTH_REQUIRED ErrorReason = 15
@@ -255,11 +255,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//   (snapshotted when the row was written);
-// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//   cache, up to 60 s stale).
+//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//     (snapshotted when the row was written);
+//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//     cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	UserId      string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`

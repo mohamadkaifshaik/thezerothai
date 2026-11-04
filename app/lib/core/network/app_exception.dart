@@ -152,7 +152,8 @@ final class FeatureDisabledException extends AppException {
 }
 
 /// The caller's sign-in is too old for this sensitive call (e.g.
-/// `DeleteAccount`, `ERROR_REASON_REAUTH_REQUIRED`). Re-authenticate, force an
+/// `DeleteAccount` and `RequestAccountExport`, `ERROR_REASON_REAUTH_REQUIRED`).
+/// Both re-authenticate up front, so this is rare (clock skew). Force an
 /// ID-token refresh and retry once with the same idempotency key.
 final class ReauthRequiredException extends AppException {
   const ReauthRequiredException(super.message);

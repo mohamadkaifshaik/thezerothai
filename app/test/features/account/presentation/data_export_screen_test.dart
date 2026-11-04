@@ -7,6 +7,7 @@ import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/data_export_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
+import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -80,6 +81,11 @@ void main() {
     launcher = _FakeLauncher();
     UrlLauncherPlatform.instance = launcher;
     when(() => auth.reauthNeedsGesture).thenReturn(false);
+    // RequestAccountExport needs a recent sign-in, so a tap re-authenticates
+    // first.
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((_) async => const ReauthResult());
     when(
       () =>
           accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
@@ -336,6 +342,70 @@ void main() {
     await tapRequest(tester);
 
     expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('a cancelled re-auth leaves the button idle: no spinner, no '
+      'error, no RPC; the next tap re-authenticates again', (tester) async {
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((_) async => throw const AuthFailure.cancelled());
+    await pump(tester);
+
+    await tapRequest(tester);
+
+    expect(find.text('Request export'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.textContaining('went wrong'), findsNothing);
+    verifyNever(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    );
+
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((_) async => const ReauthResult());
+    await tapRequest(tester);
+
+    expect(find.text('Request export'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    verify(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).called(2);
+  });
+
+  testWidgets('web: a REAUTH_REQUIRED after the re-auth shows Retry, and Retry '
+      're-authenticates again from the tap with the same key', (tester) async {
+    when(() => auth.reauthNeedsGesture).thenReturn(true);
+    final keys = <String>[];
+    var calls = 0;
+    when(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenAnswer((i) async {
+      keys.add(i.namedArguments[#idempotencyKey] as String);
+      if (++calls == 1) throw const ReauthRequiredException('Sign in again.');
+      return _export(ExportStatus.EXPORT_STATUS_PENDING);
+    });
+    await pump(tester);
+
+    await tapRequest(tester);
+    expect(find.text('Retry'), findsOneWidget);
+    verify(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).called(1); // no popup outside the gesture
+
+    await tester.tap(find.text('Retry'));
+    // The tap itself started the re-auth (checked before any pump).
+    verify(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).called(1);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Retry'), findsNothing);
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0]);
   });
 
   testWidgets('wide layout has no overflow', (tester) async {

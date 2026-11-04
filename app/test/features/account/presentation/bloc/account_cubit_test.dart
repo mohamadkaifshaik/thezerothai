@@ -442,7 +442,21 @@ void main() {
       status: identity.ExportStatus.EXPORT_STATUS_PENDING,
     );
 
-    test('success does not re-authenticate; quota error is typed', () async {
+    void stubExport(Future<AccountExport> Function(Invocation) answer) {
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer(answer);
+    }
+
+    void verifyExportCalls(int n) => verify(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).called(n);
+
+    test('re-authenticates up front, then sends exactly one call; quota error '
+        'is typed', () async {
       when(
         () => accounts.requestExport(
           idempotencyKey: any(named: 'idempotencyKey'),
@@ -452,9 +466,10 @@ void main() {
       await cubit.requestExport(promptPassword: _pw);
       expect(cubit.state.status, AccountStatus.exportRequested);
       expect(cubit.state.export!.exportId, 'e1');
-      verifyNever(
+      verify(
         () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
-      );
+      ).called(1);
+      verifyExportCalls(1);
 
       when(
         () => accounts.requestExport(
@@ -511,7 +526,7 @@ void main() {
         () => accounts.requestExport(
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
-      ).thenThrow(const ReauthRequiredException('old'));
+      ).thenAnswer((_) async => pending);
       stubReauth((_) async => throw const AuthFailure.cancelled());
       expect(await cubit.requestExport(promptPassword: _pw), isNull);
       expect(cubit.state.status, AccountStatus.cancelled);
@@ -563,23 +578,139 @@ void main() {
       verifyNever(() => auth.revokeAppleToken(any()));
     });
 
-    test('a cancelled re-auth on export sends no second call', () async {
-      when(
+    test('a cancelled up-front re-auth sends no RPC', () async {
+      stubExport((_) async => pending);
+      stubReauth((_) async => throw const AuthFailure.cancelled());
+      final cubit = build();
+
+      expect(await cubit.requestExport(promptPassword: _pw), isNull);
+
+      expect(cubit.state.status, AccountStatus.cancelled);
+      verifyNever(
         () => accounts.requestExport(
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
-      ).thenThrow(const ReauthRequiredException('old'));
+      );
+    });
+
+    test('a cancel keeps the key: the retry reuses the one already sent '
+        'once', () async {
+      final keys = <String>[];
+      var calls = 0;
+      stubExport((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        if (++calls == 1) throw const NetworkException('offline');
+        return pending;
+      });
+      final cubit = build();
+      await cubit.requestExport(promptPassword: _pw); // key k, RPC fails
+
       stubReauth((_) async => throw const AuthFailure.cancelled());
+      await cubit.requestExport(promptPassword: _pw); // cancelled, no RPC
+      expect(cubit.state.status, AccountStatus.cancelled);
+
+      stubReauth(ok());
+      await cubit.requestExport(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.exportRequested);
+      expect(keys, hasLength(2));
+      expect(keys[1], keys[0]);
+    });
+
+    for (final web in [false, true]) {
+      test('${web ? 'web' : 'non-web'}: the re-auth starts synchronously from '
+          'the tap and finishes before the RPC', () async {
+        when(() => auth.reauthNeedsGesture).thenReturn(web);
+        final events = <String>[];
+        stubReauth((_) async {
+          events.add('reauth');
+          return const ReauthResult();
+        });
+        stubExport((_) async {
+          events.add('rpc');
+          return pending;
+        });
+        final cubit = build();
+
+        final run = cubit.requestExport(promptPassword: _pw);
+        // No await between the call and this check: the re-auth was
+        // already invoked, so a web popup would still be in the gesture.
+        expect(events, ['reauth']);
+        await run;
+
+        expect(events, ['reauth', 'rpc']);
+      });
+    }
+
+    test('non-web: REAUTH_REQUIRED after the re-auth re-authenticates once '
+        'more and retries once with the same key', () async {
+      final keys = <String>[];
+      var calls = 0;
+      stubExport((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        if (++calls == 1) throw const ReauthRequiredException('old');
+        return pending;
+      });
       final cubit = build();
 
       await cubit.requestExport(promptPassword: _pw);
 
-      expect(cubit.state.status, AccountStatus.cancelled);
+      expect(cubit.state.status, AccountStatus.exportRequested);
+      expect(keys[1], keys[0]);
       verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(2);
+      verifyExportCalls(2);
+    });
+
+    test('non-web: a second REAUTH_REQUIRED is not retried again', () async {
+      stubExport((_) async => throw const ReauthRequiredException('old'));
+      final cubit = build();
+
+      await cubit.requestExport(promptPassword: _pw);
+
+      expect(cubit.state.error, isA<ReauthRequiredException>());
+      verifyExportCalls(2);
+    });
+
+    test('web: REAUTH_REQUIRED after the re-auth is surfaced without a popup '
+        'outside the gesture; the next tap reuses the key', () async {
+      when(() => auth.reauthNeedsGesture).thenReturn(true);
+      final keys = <String>[];
+      var calls = 0;
+      stubExport((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        if (++calls == 1) throw const ReauthRequiredException('old');
+        return pending;
+      });
+      final cubit = build();
+
+      await cubit.requestExport(promptPassword: _pw);
+      expect(cubit.state.error, isA<ReauthRequiredException>());
+      verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(1);
+
+      await cubit.requestExport(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.exportRequested);
+      expect(keys[1], keys[0]);
+    });
+
+    test('reset while the re-auth is open sends no RPC', () async {
+      final gate = Completer<ReauthResult>();
+      stubReauth((_) => gate.future);
+      stubExport((_) async => pending);
+      final cubit = build();
+
+      final run = cubit.requestExport(promptPassword: _pw);
+      cubit.reset();
+      gate.complete(const ReauthResult());
+
+      expect(await run, isNull);
+      verifyNever(
         () => accounts.requestExport(
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
-      ).called(1);
+      );
     });
   });
 }

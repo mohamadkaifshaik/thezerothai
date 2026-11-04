@@ -7,6 +7,7 @@ import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/bloc/account_cubit.dart';
 import 'package:dzeroth/features/account/presentation/bloc/data_export_cubit.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
     show ExportStatus;
 import 'package:flutter_test/flutter_test.dart';
@@ -50,6 +51,12 @@ void main() {
     tapAfterRefresh: tapAfterRefresh,
   );
 
+  void stubReauth(Future<ReauthResult> Function(Invocation) answer) {
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer(answer);
+  }
+
   // Timers run on the testWidgets fake clock.
   Future<void> elapse(WidgetTester tester, Duration d) async {
     await tester.pump(d);
@@ -75,10 +82,75 @@ void main() {
     now = DateTime(2026, 10, 7, 12);
     reported.clear();
     when(() => auth.reauthNeedsGesture).thenReturn(false);
+    // RequestAccountExport needs a recent sign-in, so every request
+    // re-authenticates first.
+    stubReauth((_) async => const ReauthResult());
     when(
       () =>
           accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
     ).thenAnswer((_) async => _pending);
+  });
+
+  testWidgets('request re-authenticates in the tap, before the RPC, on web and '
+      'non-web', (tester) async {
+    for (final web in [false, true]) {
+      when(() => auth.reauthNeedsGesture).thenReturn(web);
+      final events = <String>[];
+      stubReauth((_) async {
+        events.add('reauth');
+        return const ReauthResult();
+      });
+      when(
+        () => accounts.requestExport(
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) async {
+        events.add('rpc');
+        return _pending;
+      });
+      final cubit = build();
+
+      final run = cubit.request(promptPassword: _pw);
+      // No await since the call: the re-auth already started.
+      expect(events, ['reauth'], reason: web ? 'web' : 'non-web');
+      expect(cubit.state.phase, DataExportPhase.requesting);
+      await run;
+
+      expect(events, ['reauth', 'rpc'], reason: web ? 'web' : 'non-web');
+      expect(cubit.state.phase, DataExportPhase.waiting);
+      await cubit.close();
+    }
+  });
+
+  testWidgets('a cancelled re-auth returns to idle with no RPC and no error, '
+      'and the retry reuses the key', (tester) async {
+    final keys = <String>[];
+    var calls = 0;
+    when(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).thenAnswer((i) async {
+      keys.add(i.namedArguments[#idempotencyKey] as String);
+      if (++calls == 1) throw const NetworkException('offline');
+      return _pending;
+    });
+    final cubit = build();
+    await cubit.request(promptPassword: _pw); // fails: key k
+    expect(cubit.state.phase, DataExportPhase.failed);
+
+    stubReauth((_) async => throw const AuthFailure.cancelled());
+    await cubit.request(promptPassword: _pw);
+    expect(cubit.state, const DataExportState());
+    expect(cubit.canResume, isFalse);
+    expect(await db.savedExport('u1'), isNull);
+    expect(keys, hasLength(1)); // the cancel sent nothing
+
+    stubReauth((_) async => const ReauthResult());
+    await cubit.request(promptPassword: _pw);
+    expect(cubit.state.phase, DataExportPhase.waiting);
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0]);
+    await cubit.close();
   });
 
   test('delayForPoll backs off from 10 s to 60 s', () {

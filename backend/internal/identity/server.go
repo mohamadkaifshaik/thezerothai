@@ -48,8 +48,9 @@ func WithLifecycle(l AccountLifecycle) ServerOption {
 	return func(s *Server) { s.lifecycle = l }
 }
 
-// WithReauthMaxAge sets how recent the caller's sign-in (the ID token's auth_time) must be for DeleteAccount:
-// config.AccountDeleteReauthMaxAge, ACCOUNT_DELETE_REAUTH_MAX_AGE. It is deliberately not defaulted here: left
+// WithReauthMaxAge sets how recent the caller's sign-in (the ID token's auth_time) must be for DeleteAccount and
+// RequestAccountExport: config.AccountDeleteReauthMaxAge, ACCOUNT_DELETE_REAUTH_MAX_AGE. GetAccountExport is not
+// gated: the app polls it for longer than the window. It is deliberately not defaulted here: left
 // zero, authn.RequireRecentSignIn rejects every token, so a wiring mistake fails closed.
 func WithReauthMaxAge(d time.Duration) ServerOption {
 	return func(s *Server) { s.reauthMaxAge = d }
@@ -232,6 +233,12 @@ func (s *Server) RequestAccountExport(ctx context.Context, req *connect.Request[
 	}
 	if s.lifecycle == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
+	}
+	// The export holds the account's whole data, so a stolen session must not be able to start one: the token's
+	// own sign-in must be recent, also on a replay. GetAccountExport stays open because the app polls it for
+	// longer than the window.
+	if err := authn.RequireRecentSignIn(ctx, s.reauthMaxAge, s.now()); err != nil {
+		return nil, err
 	}
 	view, err := s.lifecycle.RequestAccountExport(ctx, uid, req.Msg.GetIdempotencyKey())
 	if err != nil {

@@ -155,6 +155,9 @@ abstract final class IdentityService {
   /// export if retried after that one finished. After the commit it publishes {kind: account_export, export_id} to the
   /// `jobs` topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
   /// private `<project>-exports` bucket and sets READY, usually within a minute.
+  /// Requires a recent sign-in, like DeleteAccount: ID token auth_time older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min)
+  /// or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, writing nothing; also on a replay.
+  /// GetAccountExport is not gated, so polling and the download keep working after the window.
   /// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
   /// rejects it.
   static const requestAccountExport = connect.Spec(
