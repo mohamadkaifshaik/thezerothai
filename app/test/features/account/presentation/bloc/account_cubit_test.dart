@@ -593,6 +593,37 @@ void main() {
       );
     });
 
+    test('a cancelled fallback re-auth (server still REAUTH_REQUIRED) sends '
+        'no retry RPC and keeps the key', () async {
+      final keys = <String>[];
+      stubExport((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        throw const ReauthRequiredException('old'); // server keeps asking
+      });
+      var reauths = 0;
+      stubReauth((_) async {
+        if (++reauths == 1) return const ReauthResult(); // up front succeeds
+        throw const AuthFailure.cancelled(); // the fallback is cancelled
+      });
+      final cubit = build();
+
+      expect(await cubit.requestExport(promptPassword: _pw), isNull);
+
+      expect(cubit.state.status, AccountStatus.cancelled);
+      verifyExportCalls(1); // the retry after the cancelled fallback never runs
+      expect(reauths, 2);
+
+      // The next tap reuses the same key: nothing was consumed.
+      stubExport((i) async {
+        keys.add(i.namedArguments[#idempotencyKey] as String);
+        return pending;
+      });
+      stubReauth(ok());
+      await cubit.requestExport(promptPassword: _pw);
+      expect(cubit.state.status, AccountStatus.exportRequested);
+      expect(keys[1], keys[0]);
+    });
+
     test('a cancel keeps the key: the retry reuses the one already sent '
         'once', () async {
       final keys = <String>[];
